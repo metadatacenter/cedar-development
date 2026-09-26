@@ -1164,8 +1164,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
   | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 48: 44 context additional-properties declarations and 4 missing-child requirements; fresh full audit on 2026-09-25 |
-  | Standalone attribute-value JSON rendering: Java includes the array wrapper; TypeScript returns its field schema | None observed in the production matrix; a synthetic standalone-field probe differs |
-  | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
   returns 404 under the corresponding `.org` ID.
@@ -1190,9 +1188,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   coverage before enabling enforcement. Keep static fields and attribute-value groups exempt;
   actual dynamic attributes carry their IRIs in instance contexts. Prove authoring, cross-library
   round trips and repository creation together.
-  Extend numeric spelling beyond ordinary decimal expansion: the synthetic
-  bound `-1.2345e21` renders as `-1234499999999999900000` in Java 17 and
-  `-1234500000000000000000` in TypeScript. Match the canonical algorithm without changing values.
 
   Classify source-to-output normalizations and losses before asserting preservation. Pairwise
   converter agreement is insufficient: compare each result with its stored source as well. Preserve
@@ -1244,9 +1239,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-strict-shapes-replay/`; the
   [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix) describes coverage.
 
-  **Permit well-formed optional annotations on every template instance.** Make Java and TS
-  generated template schemas include the canonical optional `_annotations` declaration, and
-  audit stored templates for the missing declaration before a production backfill. Annotations
+  **Backfill optional annotation declarations in stored templates.** Audit stored templates for
+  missing `_annotations` declarations and optional `@nest` context mappings, then prepare a
+  validated production backfill using both libraries' canonical output. Annotations
   are platform metadata, including DOI attachment; keep malformed entries rejected by both
   readers. The HEAL Study Core Metadata template `d01330c7-ccd1-4e99-856a-86e08937347c`
   currently forbids its instance's legitimate DOI annotation. Removing only the stray instance

@@ -1427,6 +1427,22 @@ validation results and conversion evidence are retained under
 `.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`. Production libraries were not
 redeployed by this data repair.
 
+Both template writers always include the canonical optional instance `_annotations` declaration
+and its optional `@nest` context mapping. Neither is a required instance property or a child field.
+The declaration follows the existing annotation meta-schema; empty value objects, mixed `@id` and
+`@value` objects, and extra properties remain invalid. Legacy templates without these declarations
+remain readable and acquire them when rendered. Stored production templates need a separate audit
+and validated backfill; publishing a library does not modify their stored schemas.
+
+The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
+envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
+one wrapper. Numeric YAML and schema JSON formatting follow Java 17's decimal selection, including midpoint,
+subnormal and bounded-integer rounding behavior; simply expanding JavaScript's decimal spelling
+is insufficient. A differential check covered 208,072 positive finite bit patterns without a
+spelling or value discrepancy. Both libraries test 1,658 retained bit-pattern fixtures with both
+signs, including the reported `-1.2345e21` case. The Java fixtures are verified against its live YAML
+writer, and the TypeScript fixtures check emitted bytes and numeric readback.
+
 Both readers make the same compatibility concession for `$schema`: an artifact root must carry the
 canonical draft-04 URI, while a nested legacy field or element may omit it on input. Both writers put
 the canonical declaration back, so a read-render cycle repairs the omission. An explicit wrong or
