@@ -1488,9 +1488,15 @@ writes were read back exactly. All three stored sources and all four completed c
 validate, generated JSON content/order agree, and YAML bytes match. Evidence is under
 `.cedar/repairs/2026-09-26-split-instance-links/`.
 
-The retained primary pipeline count is now 56: annotations 8, malformed/empty IRIs 31, mixed values
+The source hyperlink in `F097LBY` (`a354e01e-e6a7-4d2c-a846-821d4f57e36f`) was repaired by
+removing embedded wrapping double quotes and trailing whitespace. Only that scalar changed. Its
+conditional verbatim write was read back exactly; the stored source and all four completed paths
+validate, generated JSON content/order agree, and YAML bytes match. Evidence is under
+`.cedar/repairs/2026-09-26-unquote-instance-link/`.
+
+The retained primary pipeline count is now 55: annotations 8, malformed/empty IRIs 30, mixed values
 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 32 need further triage, and one otherwise-valid HEAL repair
+blocked by unrelated validation errors, 31 need further triage, and one otherwise-valid HEAL repair
 is blocked only by DOI inconsistency. These are targeted updates, not a fresh full instance census.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
