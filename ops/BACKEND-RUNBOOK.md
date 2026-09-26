@@ -652,7 +652,10 @@ overloads without a context are therefore bounded by the external class.
 Three clients sit outside these classes on purpose. DataCite uses `java.net.http.HttpClient` with
 its own `dataCite.connectTimeout` and `requestTimeout`. BioPortal keeps its own connect and response
 timeouts from `terminology.bioPortal`, which are longer than any shared value should be, while
-taking the external class's pool, lease and retry policy. The LINCS validator and the messaging
+taking the external class's pool, lease and retry policy. OpenSearch uses its own `opensearch:`
+settings: 30 connections total and per host, with a one-second lease timeout, one-second connect
+timeout and thirty-second socket timeout. Its single configured host can use the full bounded
+pool; a smaller per-host cap leaves capacity unavailable during concurrent indexing. The LINCS validator and the messaging
 notification from the submission server now take a shared class outright.
 
 Defaults live in the packaged `cedar-config-library` resource `cedar-main.yml` under `http:`, and
@@ -720,12 +723,22 @@ plausible outlier.
 An artifact update writes two stores in sequence: the artifact document, then the graph. When the
 second write fails the first has to be undone, and that compensation is durable rather than best
 effort. Before the graph update is attempted, `ArtifactRestoreCompletionService` records in Neo4j
-what putting the artifact back would take. The graph update locks that record and removes it in the
-same Neo4j transaction as the update. Both the request's restore and the relay take that same lock
+what putting the artifact back would take. Preparation, graph completion and restoration share a
+per-artifact `CedarArtifactRestoreLock` node that survives deletion of a job. The graph update removes
+the job in the same Neo4j transaction as its update. Both the request's restore and the relay take that lock
 before sending the conditional PUT, so a fetched job cannot undo a committed graph update or race
 an update still in progress. The worker persists `restoreStarted` before sending HTTP; once it has
 started restoring, the original graph write is refused even if the HTTP result is uncertain. If the
 graph transaction rolls back, the record remains available.
+
+A newer write may supersede an earlier pending job. The oldest pre-image is retained while the
+conditional ETag advances; a `CedarArtifactRestoreOutcome` receipt records what happened to the
+previous job. The graph API returns an explicit outcome: a superseded write receives `200` without
+projecting stale fields or restoring the document; a completed or uncertain restore never receives
+that success. Edit, publish and DOI write paths observe the same distinction. The originating
+request retires its receipt after observing it, while unfinished compensation remains durable.
+Late relay completion does not create a receipt for a finished request; startup removes receipts
+older than a day left by interrupted requests. Missing evidence is a failure, not a presumed success.
 The relay starts after thirty seconds and retries with a five-second delay between passes, parking
 a job after sixty failed attempts or a permanent client error. HTTP duration and other pending jobs
 can make this longer than five minutes.
@@ -779,30 +792,70 @@ are behind the graph for the resources those events name; the other suffixes mea
 log or recommender work needs attention. Nothing retries dead-lettered work on its own.
 
 Resource and group producers first persist each permission event as a
-`CedarSearchPermissionOutbox` node in Neo4j. Redis acceptance removes that node; if Redis is down,
-the request's graph mutation still succeeds and the managed relay retries every five seconds, across
-producer restarts. Delivery can repeat if a producer dies after the Redis push but before the Neo4j
-acknowledgement, which is safe because permission projection is idempotent. To exercise that boundary
-against the native local stack (the command stops and restores the Homebrew Redis service in a
-`finally` block):
+`CedarSearchPermissionOutbox` node in Neo4j, then signal their managed background relay and return.
+The request never reads the backlog or waits for Redis. Signals are coalesced; the outbox is the
+source of truth. The relay checks at startup and at least every five seconds while idle, and wakes
+promptly for new events. It drains full 100-event batches without waiting between them, but backs
+off five seconds after a delivery or acknowledgement failure, even if new requests keep arriving.
+
+Redis acceptance permits acknowledgement; each batch deletes only its successfully delivered
+prefix in one Neo4j transaction. An event survives a Redis failure or producer restart. Delivery can
+repeat if a producer dies after the Redis push but before the Neo4j acknowledgement, which is safe
+because permission projection is idempotent. To exercise that boundary against the native local
+stack (the command stops and restores Homebrew Redis in a `finally` block):
 
 ```bash
 cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:permission-outbox -- --manage-homebrew-redis
 ```
 
-The producer validates persisted outbox records before relay. A record missing its outbox id,
-resource id or event type, or naming an unknown event type, is relabelled
-`CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason` and `deadLetteredAtTS`; it no longer
-blocks valid records behind it, but remains in Neo4j for inspection. A relay failure after the new
-event has been persisted is contained by the producer and retried in the background rather than
-turning the already-committed REST mutation into a `500`. Resource and group relay the same outbox;
-if one acknowledges and removes an event while the other is materializing it, the losing relay
-ignores Neo4j's null projection because the winning relay has already delivered that event. Their
-outbox scans and acknowledgements also take the same `CedarSearchPermissionOutboxRelayLock` mutex
-in Neo4j, protected by a unique lock-name constraint. This prevents one producer from deleting a
-node while the other is reading it; lock initialization occurs in the contained relay path, so an
-unavailable Neo4j instance does not turn application construction into a startup failure.
+This smoke also measures search convergence within five seconds after a direct ACL revocation,
+an inherited folder grant, and a move removing inherited access. It uses current role-based ACL
+payloads and conditional mutations with the ETag of the representation being changed. During a
+load run, `npm run smoke:permission-outbox -- --convergence-only` measures those transitions plus
+the direct grant without stopping Redis.
+
+The permission consumer updates the graph-derived search fields in place: permissions, categories,
+node information (including the parent folder), and summary text. Indexed artifact content remains
+intact, so a move or ACL event does not fetch and parse the artifact again. A missing canonical
+document is rebuilt in full; a resource missing from the graph is removed. The same projection is
+mirrored into an active index rebuild, with a full document when that target has not received it yet.
+The consumer claims at most 512 immediately available events into Redis's durable processing list,
+combines their overlapping resource targets, and projects independent resources in windows of at
+most eight workers. It waits for all started work before acknowledging the batch or starting the
+next one. A failed batch falls back to individual event retries so an unrelated event is not parked
+alongside a poison event. Shutdown leaves unacknowledged claims available for recovery.
+Prepared projections use up to four concurrent OpenSearch bulk updates of at most 32 documents,
+sharing the existing eight-worker pool, with every result checked before acknowledgement.
+OpenSearch's regular refresh makes accepted bulk updates searchable; keep the search index's
+one-second refresh interval for prompt visibility. Single-target updates refresh immediately.
+Missing canonical documents are rebuilt in full and follow the same single-target or bulk refresh
+rule; another item failure fails the batch for retry. A freed preparation slot immediately takes the next resource.
+Named roles are materialized with one ancestor traversal for owners, users and groups, replacing
+six role-specific reads. The strongest role and the existing Everyone rules are preserved.
+
+Before updating, the consumer counts generated-id legacy copies and removes any it finds, avoiding
+an empty scroll/bulk deletion for every modern permission event. Both legacy queries exclude the
+canonical id; failed shard inspection or incomplete legacy deletion fails the event for retry.
+Ordinary resource deletion still removes the canonical document in real time and sweeps legacy
+copies. The opt-in `ElasticsearchPermissionProjectionIT` uses a temporary OpenSearch index with
+periodic refresh disabled to verify immediate single-target visibility and bulk visibility after an
+explicit refresh, content preservation, replacement of graph fields, legacy cleanup, and the
+missing-document signal.
+
+Malformed-record quarantine runs at startup and once a minute per producer, outside the shared
+relay mutex. A record missing its outbox id, resource id, event type or creation timestamp, or naming
+an unknown event type, is relabelled `CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason`
+and `deadLetteredAtTS`; it remains in Neo4j for inspection. Batch selection excludes these records
+before its limit, so they cannot block valid events while awaiting maintenance.
+
+Resource and group relay the same outbox. Selection and batch acknowledgement take the
+`CedarSearchPermissionOutboxRelayLock` mutex in Neo4j, protected by a unique lock-name constraint;
+append does not. Indexes on `outboxId` and `(createdAtTS, outboxId)` support acknowledgement and
+ordered batch selection. The relay installs the indexes and mutex lazily, so a database outage does
+not fail application construction. Lifecycle coordination does not hold a monitor across relay
+I/O: shutdown interrupts the worker, allows five seconds for it to finish, then closes the clients.
+Unacknowledged events remain available to the next producer.
 
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
@@ -2815,26 +2868,48 @@ passed 1 GB:
 | soak | 1,802 | 515,784 | 286.2 | 1,028.2 | 2,835.8 | Failed three route thresholds |
 
 The hot-set failures were conditional PUTs answered with `500`: 47 field, 30 instance, 25 template
-and 16 element writes. They come from two races in the resource server's restore outbox, which the
-backend roadmap tracks.
+and 16 element writes. These exposed the restore-outbox races described in the compensation
+protocol above. The 2026-09-26 requalification, run
+`2026-09-26T19-38-44-176Z-a606e3`, passed all 316,024 checks and every threshold over ten minutes
+at 20 VUs: 158,032 requests, HTTP p95 219 ms, no resource-server errors and no durability refusals.
+The run retains `restore-log-audit.json`, console output and outbox/queue observations. Local
+app-log cleanup ran once a minute; no processing or permission queue was cleared.
 
-The soak failed on conditional artifact moves, artifact ACL updates and folder ACL updates, whose
-p95 was 3,625, 3,604 and 3,571 ms against a 1.5 s threshold, with maxima near 10 s. Every check
-passed, and artifact conditional PUTs stayed near 650 ms. The resource server's own access-log
-durations show the same routes at a p95 of 2–5 s from the first minute, when Redis held 150 MB, and
-they did not follow the Redis size, so the app-log backlog does not cause them. Every valid 50-VU
-soak recorded since 2026-09-05 shows the same figures, and they scale with concurrency: about 170 ms at
-five VUs, 640 ms at fifteen and 3.8 s at fifty. The cause is the search-permission outbox relay.
-Since `39af8ad0` of 2026-08-29, every move, ACL change and group-membership change appends its
-event and then relays the pending batch on the request thread. `relayPending` is `synchronized`
-and takes the single `CedarSearchPermissionOutboxRelayLock` in Neo4j, so these requests queue
-behind one another. The 2026-08-29 baseline above was recorded on the day that commit landed, and
-no 50-VU soak recorded since has passed.
+The 2026-09-26 permission-relay requalification, run
+`2026-09-26T20-38-53-369Z-b83da6`, passed every threshold and all 911,588 checks over thirty
+minutes at 50 VUs: 617,122 requests, HTTP p95 460 ms and server-wait p99 699 ms. Conditional
+artifact moves, artifact ACL updates and folder ACL updates reached p95 309, 305 and 310 ms,
+respectively, against their 1,500 ms limits. Five permission-convergence probes during the run
+covered direct grants, revocations, inherited grants and moves removing inherited access; all twenty
+transitions reached search in 0.97–4.29 seconds. Permission queues remained bounded with no dead
+letters; service PIDs remained stable. The run retains the console, outbox/queue observations and
+all five freshness reports. Local app-log cleanup ran once a minute. Bulk permission writes rely on
+the normal one-second index refresh: forcing a refresh per bulk or per durable batch stalled the
+consumer under sustained load, despite passing idle freshness checks. The final Redis-outage
+smoke also passed, as did `cedarcli test e2e`: 1,063 REST checks and both browser tiers (source
+digest `0d287e8dee0a397a`). The run retains `permission-outage.log` and `whole-stack-smoke.log`.
+A separate log finding remains: the unchanged value-recommender `RulesGenerationStatusManager`
+uses a shared `HashMap`, and concurrent generation/status reads throw `ArrayIndexOutOfBoundsException`
+from `HashMap.valuesToArray` through `getStatus()`, returning HTTP 500 to the worker's status poll.
+The server-retention item in the backend roadmap tracks that follow-up; the passing smoke does not
+cover that concurrent status-map failure. The run retains `recommender-status-race.log`.
+
+The earlier soak failed on conditional artifact moves, artifact ACL updates and folder ACL updates,
+whose p95 was 3,625, 3,604 and 3,571 ms against a 1.5 s threshold, with maxima near 10 s. Every
+check passed, and artifact conditional PUTs stayed near 650 ms. The resource server's access-log
+durations showed the same routes at p95 2–5 s from the first minute, when Redis held 150 MB;
+the app-log backlog did not cause that latency. The valid 50-VU runs from 2026-09-05 through
+2026-09-25 repeated it, scaling from about 170 ms at five VUs to 640 ms at fifteen and 3.8 s at
+fifty. Those builds relayed the search-permission outbox on the request thread after every move,
+ACL change and group-membership change. The synchronized relay and its shared Neo4j lock
+serialized the callers. The asynchronous relay described above removes that request-thread work.
 
 At fifty VUs the soak enqueues about 215,000 app-log messages a minute, about 1 GB of Redis every
 five minutes. Left alone it reached 2.44 million messages and 2.6 GB after twelve minutes, and one
-Redis snapshot then took 168 seconds. Empty the queue with `redis-cli del CEDAR-QUEUE-app-log`
-alone. `CEDAR-QUEUE-app-log-processing` holds the message the worker is consuming. Deleting it
+Redis snapshot then took 168 seconds. Clearing this local queue before and during testing is
+authorized: use `redis-cli del CEDAR-QUEUE-app-log` alone, periodically during sustained load so
+retained test logs do not dominate memory. This applies to the local test stack, not production.
+`CEDAR-QUEUE-app-log-processing` holds the message the worker is consuming. Deleting it
 makes the worker's acknowledgement fail, logs an error and marks the worker unhealthy in
 `cedarcli native status`.
 

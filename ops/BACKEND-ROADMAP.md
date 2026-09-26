@@ -48,7 +48,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 23 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 21 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
@@ -228,7 +228,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   consumes the persistent value-recommender queue. Establish whether the Workbench or any external
   client still uses recommendations, then either retain and own that product surface, move the needed
   function to an active service, or retire it after draining or deliberately discarding its queue and
-  removing its producers.
+  removing its producers. If retained, make `RulesGenerationStatusManager` safe for concurrent
+  generation and status reads: its shared `HashMap` is mutated while `getStatus()` copies the
+  values, producing `ArrayIndexOutOfBoundsException` and HTTP 500 from the status command during
+  sustained template writes. Cover the race and verify that the worker can poll status while rules
+  are generated without those failures.
 
   **Submission server.** Retirement is the expected answer, and the inventory that has to precede it
   is what remains. It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission paths
@@ -667,80 +671,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   class from either SPI jar; and when a redeployed resource server passes the browser smoke, whose
   Keycloak login posts this callback. The REST smoke does not exercise the endpoint.
 
-- **17. Answer a superseded artifact write correctly, and keep every compensation record durable
-  under concurrent writes.** Two races in the resource server's restore outbox appear whenever
-  conditional PUTs to one artifact follow each other closely. Both came with the change of
-  2026-09-15 that made the compensating write durable. The `hotset` k6 profile reproduces them on
-  every run, and on 2026-09-25 it failed 118 of its checks this way.
-
-  The outbox keys a restore job by artifact identifier alone, so concurrent writes to one artifact
-  share one job. A write that commits to the artifact server records its job before the graph
-  update. When a second write, holding the new ETag, commits next, its `prepare` matches the same
-  node and replaces the first write's `jobId`. The first write's graph update is conditioned on its
-  own `jobId` through `ArtifactRestoreTransaction.lockForGraph`, finds no such job and returns null,
-  and `AbstractResourceServerResource` answers `500`. The first write did succeed and was then
-  superseded, so it should receive the `200` its write earned rather than a server error. The 118 failures were 47 field, 30 instance, 25 template and 16 element PUTs. No stored
-  state was damaged, because the superseding write's graph update ran.
-
-  The second race loses durability silently. `Neo4jArtifactRestoreOutbox.prepare` matches an
-  existing job and then reads its `protocolVersion`. When a concurrent graph update deletes that job
-  in between, the read returns null, `asInt(0)` turns it into 0, and the job is refused as a legacy
-  one needing inspection. `ArtifactRestoreCompletionService.prepare` logs the refusal and lets the
-  write continue without a durable compensation record, which is the window the 2026-09-15 change
-  exists to close. The same `hotset` run logged 1,764 such refusals.
-
-  **The graph update cannot yet tell a superseded write from a restored one.**
-  `ArtifactRestoreTransaction.lockForGraph` returns false both when a newer write has replaced the
-  job and when the relay has already restored the artifact, and `Neo4JProxyArtifact` turns either
-  into the same null. The two need different answers. A superseded write succeeded and earns its
-  `200`; a restored write was undone, and answering `200` would report a change that is no longer
-  stored. The fix for the first race therefore starts by replacing that null with a result that says
-  which case occurred.
-
-  A fix must give a superseded writer the status its write earned, must never treat a vanished job
-  as a legacy one, and must leave every successful artifact write with a durable compensation record
-  until its own graph update commits. Done when a focused test reproduces each race and passes, and
-  when `hotset` passes at 100% with no compensating-write errors in the resource-server log.
-
-- **18. Take the search-permission relay off the request thread.** Every artifact or folder move,
-  ACL change and group-membership change appends a search-permission event to the durable outbox and
-  then relays the pending batch before the request returns (`SearchPermissionEnqueueService`, since
-  `39af8ad0` of 2026-08-29). `relayPending` is `synchronized`, and `Neo4jSearchPermissionOutbox.pending`
-  takes the single `CedarSearchPermissionOutboxRelayLock` in Neo4j and scans every outbox node for
-  malformed records while holding it. Concurrent permission-changing requests therefore queue
-  behind one another in the resource server.
-
-  The REST soak measures the cost. At fifty VUs, conditional moves and artifact and folder ACL
-  updates reach a p95 of about 3.6 s against a 1.5 s threshold; on 2026-09-25 their median was
-  1.58 s and their maxima near 10 s, while artifact conditional PUTs stayed near 650 ms. The latency scales with concurrency:
-  about 170 ms at five VUs, 640 ms at fifteen and 3.8 s at fifty. Every valid 50-VU soak recorded
-  since 2026-09-05 shows these figures, so the soak has not passed since the change. The runbook's
-  REST performance section holds the measurements.
-
-  The outbox exists so that a committed permission change cannot be lost before the search index
-  follows it, and that guarantee must stay. What has to change is where the relay runs and how much
-  one caller does. The request needs to commit its outbox event and return. The managed relay, which
-  already runs every five seconds, or a prompt signal to it, can deliver the event. The malformed-record
-  quarantine does not need to run inside every relay, and it does not need to scan under the global
-  lock. The relay's cross-process lock may stay if resource and group servers still share the
-  outbox, but it should serialize only the relay, not the requests that produce events.
-
-  **Moving the relay leaves three costs of its own.** `remove` deletes each delivered event in a
-  write transaction of its own, and each one takes the global lock again, so a batch of *n* events
-  costs *n* + 1 locked transactions and *n* Redis enqueues inside the `synchronized` block. One
-  transaction per batch removes that. Nothing creates an index on the outbox label, in the code or
-  in `cedar-development`, so `remove` finds each event by scanning for its `outboxId` and `pending`
-  scans to sort by `createdAtTS`. The outbox is normally small, but a backlog, such as one built while
-  Redis is down, lengthens every lock hold; an index on `outboxId`, or on `outboxId` and
-  `createdAtTS`, bounds it. The same monitor guards `start` and `close`, so a shutdown can wait
-  behind a relay in progress.
-
-  Done when the fifty-VU soak passes its move and ACL route thresholds and every other gate, when the
-  permission-outbox smoke (`npm run smoke:permission-outbox`) still proves that a committed event
-  survives a relay failure, and when search reflects a move or ACL change within the relay's
-  five-second interval.
-
-- **19. Finish converging on the body paging envelope.** Every route that pages by offset answers
+- **17. Finish converging on the body paging envelope.** Every route that pages by offset answers
   CEDAR's body envelope except the artifact server's: `limit` and `offset` in the request, and
   `request`, `totalCount`, `currentOffset` and a `paging` block of links in the body, built on
   `PagedListResponse` and `LinkHeaderUtil`. Three kinds of work remain: moving the artifact server,
@@ -798,7 +729,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   from each application that serves one; today it covers only the resource and artifact servers'
   shapes (`rest/suites/pagination.mjs`).
 
-- **20. Choose the response timeouts from the durations the request log now carries, and give a
+- **18. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -828,7 +759,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **21. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -850,7 +781,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   when every tier runs unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **22. Take the dependency upgrades that need code changes.** The versions that could move without
+- **20. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions whose newest release is not a final.
 
@@ -934,7 +865,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **23. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **21. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -947,7 +878,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **24. Decide what an ordinary write may change about the artifact it stores.**
+- **22. Decide what an ordinary write may change about the artifact it stores.**
   `LinkedDataUtil.addChildPropertyIris` still adds every ordinary mapped child to
   `@context.required`, even when a stored template never required that mapping. An unrelated
   template edit can therefore tighten the contract of existing instances. Decide whether to
@@ -972,7 +903,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ### Shared Libraries
 
-- **25. Take the parse-library tree type out of the public reader and renderer API.** This is a
+- **23. Take the parse-library tree type out of the public reader and renderer API.** This is a
   major-version change. `JsonArtifactReader` and `JsonArtifactRenderer` take and return Jackson's
   `ObjectNode`, and `YamlArtifactReader` and `YamlArtifactRenderer` take and return JDK
   `LinkedHashMap<String, Object>` trees, so the tree representation is part of the public contract
@@ -997,7 +928,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   re-parsing, loses direct access. If that need proves real, keep one explicitly
   parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
 
-- **26. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
+- **24. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
   the schema's `instanceType` gives each instance or element its `rdf:type`, each child's
   `propertyIri` gives the predicate, the instance `id` is the subject, and field values are the
   objects, a controlled term or link contributing its IRI and a literal contributing a plain or
@@ -1014,7 +945,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Production Data
 
-- **27. Resolve the remaining production artifact defects and review semantic migrations.**
+- **25. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1328,7 +1259,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **28. Enforce the request-body classification, and decide what an open body requires.**
+- **26. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1349,7 +1280,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **27. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1381,7 +1312,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **28. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1426,7 +1357,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **31. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+- **29. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
   `cedar-model-validation-library` stands between a caller and the store: the artifact server's
   `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
   `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only
