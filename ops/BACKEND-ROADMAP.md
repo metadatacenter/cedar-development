@@ -868,12 +868,29 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   stops.
 
 - **22. Decide what an ordinary write may change about the artifact it stores.**
+  **Why automatic changes still remain.** Ordinary saves supply identifiers requested by
+  authoring clients, discard unfinished editor state, and maintain derived metadata. Removing
+  those behaviors requires an explicit replacement contract for clients, rather than treating
+  every save-time change as a legacy-data repair:
+
+  | Remaining behavior | Why it remains |
+  | --- | --- |
+  | Mint missing element-instance IDs and property IRIs | Clients rely on the repository to assign stable identities when an occurrence ID is absent/null or a property mapping is absent; existing identifiers remain unchanged. |
+  | Remove blank unnamed attribute rows | These rows represent unfinished editor input and cannot name a stored property. |
+  | Prune unused repository-generated attribute context mappings | Deleting an attribute can leave its generated mapping behind; template-declared mappings and author-supplied vocabulary IRIs must remain. |
+  | Derive schema `title` and `description` from the artifact name | Renames must keep generated schema metadata consistent while preserving generator attribution. |
+  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration, but automatically applying it to an existing template can invalidate dependent instances; this policy remains undecided. |
+
+  Verbatim writes bypass these normalizations and remain strictly validated. Production still
+  needs the compatibility-retirement rollout below before inherited malformed submissions are
+  consistently rejected rather than repaired on save.
+
+  **Decide whether a save may tighten instance requirements.**
   `LinkedDataUtil.addChildPropertyIris` still adds every ordinary mapped child to
   `@context.required`, even when a stored template never required that mapping. An unrelated
   template edit can therefore tighten the contract of existing instances. Decide whether to
   preserve the stored requirements, require an explicit author change, or retain automatic
-  tightening with a dependent-instance impact check. Normal identifier minting, derived titles,
-  blank draft-row cleanup and pruning unused attribute mappings are separate existing behaviors.
+  tightening with a dependent-instance impact check.
 
   **Integrate template-impact checks into authoring.** Use the read-only
   `ops/cedar_template_impact.py` comparison to identify valid-to-invalid transitions under the
@@ -917,24 +934,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   re-parsing, loses direct access. If that need proves real, keep one explicitly
   parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
 
-- **24. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
-  the schema's `instanceType` gives each instance or element its `rdf:type`, each child's
-  `propertyIri` gives the predicate, the instance `id` is the subject, and field values are the
-  objects, a controlled term or link contributing its IRI and a literal contributing a plain or
-  typed literal. The library implements neither direction. Its renderers are JSON, JSON-LD
-  `@context`, JSON Schema, YAML, Excel and UBKG, and none produces a triple graph.
-
-  The JSON instance form is already JSON-LD, carrying `@context`, `@type` and `@id`, so an
-  external JSON-LD processor can serialize it as RDF. A model-level translator would drop that
-  dependency and, more to the point, work from the sparse YAML instance form, which relies on its
-  template for the predicates and types the instance itself does not carry. Add a template-driven
-  RDF renderer taking an instance model and its template and, if round-tripping is wanted, an RDF
-  reader taking RDF and a template. The "Mapping to RDF" section of the CEDAR YAML specification
-  documents the intended mapping.
 
 ## Production Data
 
-- **25. Resolve the remaining production artifact defects and review semantic migrations.**
+- **24. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1248,7 +1251,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **26. Enforce the request-body classification, and decide what an open body requires.**
+- **25. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1269,7 +1272,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **27. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1301,7 +1304,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **28. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1346,7 +1349,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **29. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+- **28. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
   `cedar-model-validation-library` stands between a caller and the store: the artifact server's
   `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
   `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only

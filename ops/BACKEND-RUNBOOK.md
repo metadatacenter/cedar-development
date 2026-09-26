@@ -4317,6 +4317,121 @@ then like the server reporting a present artifact missing.
 The `.net` identifiers also fail genuinely far more often — 20 of 245 against 259 of 150,334 — and
 three of the four instances absent from the artifact store entirely are among them.
 
+## Comparing Titanium and CEE RDF Export
+
+The Java validation library's `RdfConverter` converts CEDAR instance JSON to N-Quads or Turtle
+using Titanium JSON-LD 1.7.0 and JSON-P 2.0.1 on Java 17. `JsonLdDocument.asRdf()` delegates to it,
+so the existing artifact/resource `?format=rdf-nquad` paths use the strict converter. The legacy
+checked exception remains compatible with those callers. This does not add a backend Turtle route
+or change Accept negotiation. CEE has both download formats through `rdf-export.ts`, using
+jsonld 9.0.0 and N3 2.7.12.
+
+The Java artifact library exposes `RdfArtifactRenderer.renderNQuads(schema, instance)` and
+`renderTurtle(schema, instance)`, with template and element overloads. These complete sparse
+instance mappings/types through the existing JSON writer. Standalone elements receive the built-in
+context that an embedded element inherits. CEE's download path supplies its parsed template too,
+so mapped attribute-value groups can be distinguished from ordinary string arrays.
+
+Both implementations prepare documents independently, leave inputs unchanged, refuse remote
+contexts, omit empty fields and structural attribute-name lists, and generate collision-free
+aliases for field names JSON-LD interprets as IRIs. They reject multiple-datatype literals,
+identifier/value mixtures, null literals with populated metadata, malformed identifiers and
+unmapped populated properties. `@index`/`@direction` data is refused rather than silently omitted.
+All-empty instances produce an empty dataset. Named graphs work in N-Quads and are explicitly
+refused for Turtle. Java emits Turtle's N-Triples subset; CEE emits prefixed Turtle. Their byte
+formatting need not match, but their RDF datasets must.
+
+Expanded IRIs are validated and temporarily represented by collision-free absolute tokens during
+processor conversion, then restored by exact term lookup. This avoids URI-only processor checks
+on valid Unicode IRIs (including U+00A0) and prevents jsonld.js from rewriting string-valued
+`xsd:double` lexical forms. Literal text is never substituted. Native JSON numbers retain JSON-LD
+numeric serialization. Percent-encoding or numerically equivalent spellings are not RDF identity
+normalizations. See the [JSON-LD Object-to-RDF algorithm](https://www.w3.org/TR/json-ld11-api/#object-to-rdf-conversion).
+
+### Measured RDF Comparison, 2026-09-26
+
+`ops/rdf-comparison/` runs the actual Java library and CEE source exporter with independent
+preparation. Comparison uses RDFC-1.0 dataset canonicalization, retaining datatype, language, graph
+names and blank-node relationships. It ignores only statement order and blank-node labels.
+Independently authored expected statements/rejections prevent two converters agreeing on the same
+loss from passing. Both Turtle outputs are checked against their N-Quads. Generic JSON-LD boundary
+probes do not assert that every such shape is a valid CEDAR instance.
+
+| Input population | Cases | Equal RDF datasets | Both reject | Disagreements |
+| --- | ---: | ---: | ---: | ---: |
+| Synthetic contract/boundary cases | 82 | 61 | 21 | 0 |
+| Stored CEE fixtures | 57 | 52 | 5 | 0 |
+| CEE-rendered fixtures | 56 | 56 | 0 | 0 |
+| Retained random production sample | 100 | 100 | 0 | 0 |
+
+All 82 authored contracts pass in both implementations. The named-graph fixture's Turtle refusal
+is expected. The five invalid stored CEE fixtures are refused by both; the editor-rendered corpus
+contains only valid serialized instances. Every successful Turtle output matches its N-Quads.
+There are no input mutations or double-literal spelling disagreements in these 295 comparisons.
+
+Implementation verification also passed `cedarcli build java` (unit and embedded integration
+suites), all 3,602 CEE domain tests, CEE type checks, touched-source lint and both production bundle
+variants. After `cedarcli native restart microservices`, `cedarcli test e2e --rest-workers 4`
+passed all 1,063 REST checks (including live RDF conversion) and the browser tiers. Local smoke
+evidence is `ops/e2e/reports/smoke-gate/8876cf2538888d08.json`. This verifies the local backend;
+production deployment and publishing the updated CEE package are separate release operations.
+
+The production IDs were selected uniformly without replacement, seed `9262026`, from the retained
+September 25 inventory of 150,584 distinct instance IDs. All 100 GETs succeeded in the initial
+experiment. The implementation comparison replays those bodies without new production access or
+writes. This is a sanity sample, not a new full inventory or validity audit.
+
+Before implementation, the 280-case baseline (67 synthetic cases) had six double-literal spelling
+disagreements, eight synthetic asymmetric refusals, one stored-fixture asymmetric refusal, and
+shared preparation losses. Baseline evidence remains in
+`$CEDAR_HOME/.cedar/audits/2026-09-26-rdf-titanium-prod100/`; implementation evidence is in
+`$CEDAR_HOME/.cedar/audits/2026-09-26-rdf-implementation-prod100/`.
+`sample.json` records the population, seed and selected IDs; `production/` retains private bodies;
+`results.jsonl` retains outputs, canonical datasets, errors and oracle results; `runtime.json`
+records source, bundle, class/JAR hashes and versions. `summary.json` must say `complete: true`.
+Production bodies stay in ignored private evidence, never in the version-controlled test corpus.
+
+### Running the RDF Comparison
+
+After `cedarcli build java`, source the native profile and select Java 17. There is no CLI frontend
+for this comparison tool. It uses the installed local validation library and CEE dependencies:
+
+```bash
+mvn -B -f "$CEDAR_HOME/cedar-development/ops/rdf-comparison/pom.xml" \
+  compile dependency:build-classpath -Dmdep.outputFile=target/classpath.txt
+```
+
+From `cedar-embeddable-editor`, export the editor-rendered fixtures while running the RDF tests
+(create the private output directory first):
+
+```bash
+CEDAR_RDF_CORPUS_OUTPUT="$CEDAR_HOME/.cedar/audits/rdf-check/cee-rendered.json" \
+  npm --prefix harness run test -- harness/test/rdf-export.spec.ts
+```
+
+From `$CEDAR_HOME`, run local cases and the optional fresh production sample:
+
+```bash
+python3 cedar-development/ops/rdf-comparison/compare.py \
+  --out .cedar/audits/rdf-check \
+  --cee-rendered .cedar/audits/rdf-check/cee-rendered.json \
+  --inventory .cedar/audits/2026-09-25-instance-full-matrix-current/inventory.json \
+  --sample 100 --seed 9262026 --api-key-file "$HOME/.cedar-admin-key"
+```
+
+Omit the sample/inventory/key flags for a local-only run. Add `--replay` to reuse a retained sample
+without credentials or network requests. For before/after evidence, use a new output directory and
+copy only `sample.json` and `production/` from the earlier run before replaying. Rebuild/install the
+Java library and tool after Java changes; CEE's source bundle is rebuilt on each comparison run.
+
+Exit 1 means a disagreement, contract failure, input mutation, or unexpected Turtle refusal.
+The named-graph Turtle refusal is an expected contract. Canonicalization errors and the
+10,000-iteration/45-second bounds are comparison failures, never successful converter rejections.
+The authored corpus in `fixtures.py` is also checked into each library's test resources so their
+ordinary suites enforce it without a sibling checkout or production access; keep those copies in
+sync when adding cases. This is export parity, not RDF-to-CEDAR reconstruction or a deployed
+production-route audit.
+
 ## Ordinary Write Normalization and Template Impact
 
 An ordinary write still mints missing repository-owned identifiers and property IRIs, derives
