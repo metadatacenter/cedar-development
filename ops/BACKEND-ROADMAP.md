@@ -740,125 +740,63 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   survives a relay failure, and when search reflects a move or ACL change within the relay's
   five-second interval.
 
-- **19. Converge on one pagination encoding.** Seven paging shapes are in service across seven
-  applications. The artifact, resource, OpenView, monitor, messaging and bridge listings all build on
-  the same `PagedQuery` and `LinkHeaderUtil`, so nothing in the code forces even the split between
-  the first two shapes. The shapes
-  differ on three independent axes: the request parameters, the page base, and where the response
-  metadata goes. A client library that can page one of them cannot page the rest.
+- **19. Finish converging on the body paging envelope.** Every route that pages by offset answers
+  CEDAR's body envelope except the artifact server's: `limit` and `offset` in the request, and
+  `request`, `totalCount`, `currentOffset` and a `paging` block of links in the body, built on
+  `PagedListResponse` and `LinkHeaderUtil`. Three kinds of work remain: moving the artifact server,
+  withdrawing the page-number forms that other routes still accept beside the envelope, and settling
+  what the estate has not yet made uniform.
 
-  - **`limit`/`offset`, with `Link` and `Total-Count` as headers and the body kept to the
-    collection.** The artifact server's template, element, field and instance listings
-    (`AbstractArtifactCrudResource.java:284`). No other server sends those headers. An offset at or
-    past the total answers 400 rather than an empty page
-    (`AbstractArtifactServerResource.java:105`).
-  - **`limit`/`offset`, with the same link set in the body under `paging` beside `totalCount`.**
-    Folder contents, contents-extract, search and categories on the resource server
-    (`AbstractSearchResource.java:157`, `FolderContentsResource.java:319`,
-    `CategoriesResource.java:145`), the OpenView server's folder listing
-    (`FoldersResource.java:123`), the monitor server's log explorer and usage breakdowns, and the
-    messaging server's `GET /messages`, and the bridge server's `/ext-auth/{authority}/search-by-name`.
-    The last three build on the shared `PagedListResponse`, which adds `countCapped` and leaves out
-    the `last` link when a listing stops counting at a ceiling, as the monitor's raw request and
-    Cypher logs do at 10,500 rows (`LogExplorerResource.java:51`). The bridge departs from the shape
-    in three ways. Its rows are an object keyed by term IRI rather than an array, which is what CEE
-    reads. It still accepts zero-based `page` and `pageSize` and still answers `found`, `page` and
-    `pageSize`, though no client in the estate sends or reads the paging pair and they can be
-    withdrawn. And two of its seven registries cannot report an exact total: ROR is read one
-    upstream page deep, and NIH RePORTER narrows its answers after the fact, so both answer
-    `countCapped` (`AuthoritySearchPage.java`).
-  - **An opaque forward-only continuation.** `?continuation=` on `/search-deep`, answered with
-    `continuation` in the body and first and next links alone in the `paging` block. The token binds
-    the user, a query fingerprint, an OpenSearch point-in-time and `search_after`, and a request
-    carrying both a continuation and an offset is refused (`AbstractSearchResource.java:99`,
-    `SearchContinuation.java`).
-  - **One-based `page`, with `page_size` and `pageSize` both accepted and BioPortal's flat body
-    fields.** The terminology server's proxy and local-store routes answer `page`, `pageCount`,
-    `pageSize`, `totalCount`, `prevPage` and `nextPage` (`PagedResults.java:8`,
-    `SqliteTerminologyService.java:208`). The answer's `pageSize` reports the size of the page
-    returned rather than the size asked for.
-  - **One-based `page` and `pageSize` in a POST body, with a result block per constraint type.**
-    Versioned `POST /search` gives each block its own `totalCount`, `countCapped`, `page` and
-    `pageSize` (`SearchRequest.java:22`, `VersionAwareSearchService.java:120`). `POST
-    integrated-search` also pages from the body, and answers the flat BioPortal-shaped fields.
-  - **A zero-based `offset` against a page size the server fixes.** `GET /search/hierarchy` returns
-    at most `CHILD_LIMIT` children, 50, and echoes the offset so a client can ask for the rest. It
-    takes no page size and reports no count (`VersionAwareSearchResource.java:132`,
-    `HierarchyResponse.java:29`).
-  - **A keyset cursor in a POST body.** The monitor server's log query takes `limit` and a
-    `"<iso>,<id>"` `cursor`, and answers `nextCursor`, null once the walk is exhausted
-    (`LogQuerySpec.java:29`, `LogQueryResults.java:27`). The cursor names an ordered column rather
-    than carrying an opaque token, so it is a second cursor encoding rather than the same one.
+  **Move the artifact server.** Its template, element, field and instance listings answer a bare
+  JSON array with `Link` and `Total-Count` headers (`AbstractArtifactCrudResource.java:284`), and an
+  offset at or past the total answers 400 rather than an empty page
+  (`AbstractArtifactServerResource.java:105`). Wrapping the array in an object breaks every caller at
+  once, so it needs an opt-in first, a query parameter or a media-type profile, and the switch in a
+  later release. Who calls those listings directly, rather than through the resource server, is
+  unmeasured and sets the cost. The headers can stay on GET listings as a convenience no client needs.
 
-  **Three divergences sit underneath the shapes, and the first is a defect however the decision
-  goes.** The `page_size`/`pageSize` alias resolves by argument position, and the two route families
-  pass the arguments in opposite orders: `SearchResource` binds `page_size` to the first parameter,
-  while `ClassResource`, `ValueResource` and `ValueSetResource` bind `pageSize` to it
-  (`AbstractTerminologyServerResource.java:82`). A request sending both spellings therefore gets a
-  route-dependent answer, and the OpenAPI text promises only that either spelling is accepted.
-  Defaults and maxima are set per surface and shared by none: 100/500 on the resource server, the
-  monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500 on the
-  artifact server and on categories (`cedar-main.yml:360`), 50 with a silent clamp in terminology,
-  100/500 on the bridge, which still refuses a `pageSize` of one, and a fixed 50 for a hierarchy's
-  children. Bad input is refused two ways, since `PagedQuery` answers 400 and terminology clamps.
+  **Withdraw the page-number forms once their clients move.** The terminology server still accepts a
+  one-based `page` with `pageSize` or `page_size`, and still answers BioPortal's flat `page`,
+  `pageCount`, `pageSize`, `prevPage` and `nextPage` beside the envelope, on its GET routes, on
+  integrated search and retrieve, on the versioned `POST /search` and on the property search. Four
+  clients still use them: the Template Editor, whose controlled-term autocomplete pages by `nextPage`
+  (`autocomplete.service.js:303`); CEE, which asks integrated search for page 1 and reads only
+  `collection` (`controlled-field-data.service.ts:47`); cadsr-tools, which walks integrated search by
+  page number (`TemplateFieldsHandler.java:122`); and the artifact library's
+  `TerminologyServerClient`, which walks integrated retrieve the same way. The bridge's
+  `search-by-name` still accepts a zero-based `page` and `pageSize` and still answers `found`,
+  `page` and `pageSize`; no client in the estate sends or reads the paging pair, though CEE reads
+  `found`. CEE is published, so moving it costs a public release; price that against the release
+  calendar before choosing when. Record a withdrawal date for each form once its last client has
+  moved.
 
-  **The decision is which encoding wins, and it has to come first.** Headers are the conventional
-  answer and the artifact server already implements them alongside the ETag, `If-Match` and `Vary`
-  contract that the rest of the estate is measured against, so moving it would move the reference
-  away from convention. A body field would instead move the artifact server and terminology onto the
-  resource server's shape. Nothing in the code decides this; it is a product call about what a CEDAR
-  client should look like.
+  **Make the rest uniform.** Defaults and maxima are still set per surface: 100/500 on the resource
+  server, the monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500
+  on the artifact server and on categories (`cedar-main.yml:360`), 100/500 on the bridge, the
+  configured default up to 1,000 on the terminology server's BioPortal routes, 20/200 on its
+  versioned and property searches, and 50/500 on a hierarchy's children. Choose one default and one
+  maximum. The terminology server's `page_size`/`pageSize` alias still resolves by argument position,
+  and its route families pass the arguments in opposite orders (`AbstractTerminologyServerResource.java`,
+  `resolvePageSize`), so a request sending both spellings gets a route-dependent answer; resolve it
+  centrally, or let it go with the page-number forms. Three variations on the envelope are worth
+  documenting where the API is described rather than removing: a POST route carries no `paging`
+  links, since it has no URL to link to, and a client asks for the next page by sending the offset;
+  a listing that cannot afford or cannot know an exact total answers `countCapped` and leaves out the
+  `last` link, as the monitor's raw logs, the bridge's ROR and NIH RePORTER, integrated search past
+  its 1,000-result window and the property hierarchies do; and the bridge keys its rows by term IRI
+  rather than listing them, which is what CEE reads.
 
-  **The recommendation is the resource server's shape.** `limit` and `offset` in the query, and a
-  body carrying `totalCount` and a `paging` block of links. Headers cannot express every route that
-  pages: versioned `POST /search` answers one block per constraint type, each with its own total
-  and page, and a header carries one total and one link set. A `Link` header also names a URL to
-  GET, which a POST search does not have. Most clients already read the body, and a body is part of
-  the response schema that the OpenAPI document and the MCP servers' tool descriptions carry, where
-  a header is easily left out. Offset rather than page number, because the artifact, resource and
-  OpenView servers take it already and a page number converts to an offset exactly while the
-  reverse does not; terminology's one-based `page` stays as an alias until the Template Editor and
-  CEE move. The artifact server's `Link` and `Total-Count` headers can stay on GET listings as a
-  convenience that no client needs.
+  **Document the two cursor walks as the exception.** `?continuation=` on `/search-deep`, and the
+  monitor's log query with its `"<iso>,<id>"` keyset `cursor` (`SearchContinuation.java`,
+  `LogQuerySpec.java:29`), page a whole result set at one request per page, which an offset cannot.
+  They are two cursor encodings rather than one, and the API documentation should say both are the
+  stated exception to the envelope.
 
-  The artifact server cannot adopt the body additively. Its listing answers a bare JSON array
-  (`AbstractArtifactCrudResource.java:290`), and wrapping that array in an object breaks every
-  caller at once, so it needs an opt-in first, a query parameter or a media-type profile, and the
-  switch in a later release. Who calls those listings directly, rather than through the resource
-  server, is unmeasured and sets the cost. Two behaviours belong to the same decision: an offset past
-  the total should answer an empty page rather than the artifact server's 400, and one default and
-  one maximum page size should replace the per-surface values.
-
-  Five of the seven shapes page by number or offset, and those converge on whichever encoding wins.
-  The two cursor walks are the exception and have to be documented as one, because a continuation
-  and a keyset cursor buy something an offset cannot: a walk of a whole result set at one request
-  per page.
-
-  Whichever wins, deliver it additively first. Emit the chosen encoding everywhere alongside what each
-  server sends today, document it as the supported form, and withdraw the others in a later release.
-  Only the withdrawal breaks a caller, which is what keeps this off a flag day. The alternative is one
-  coordinated release across the Template Editor, the embeddable editor, the term picker, the
-  designer, `cedar-cli`, the four MCP servers and `ops/e2e`, which the lockstep policy allows and the
-  pinned check inventory in `rest/expected-checks.json` makes tractable.
-
-  Clients are split along the same lines already. The Template Editor's controlled-term autocomplete
-  and CEE's integrated search read the flat page-number fields, the Template Editor walks the
-  `paging` block for its listings, the term picker reads the versioned per-type blocks, and the
-  designer sends `page_size` on the proxy path and `pageSize` in the versioned body
-  (`autocomplete.service.js:91`, `integrated-search-response.ts:11`, `search-types.ts:168`,
-  `terminology.service.ts:107`). The flat page-number fields therefore have to survive until the
-  Template Editor and CEE move, whichever encoding wins.
-
-  One piece of the work is already done. `Link` and `Total-Count` are on the CORS exposed-header
-  list, so a browser can read them cross-origin wherever they are sent
-  (`CustomHttpConstants.java:25`).
-
-  Done when the alias resolves centrally rather than by argument order, every page base and default
-  is documented, and one encoding is documented as the supported form and emitted by every route
-  that pages by number or offset, with the two cursor walks recorded as the stated exception. The
-  REST smoke has to assert the canonical form on a route from each application that serves one; it
-  covers the two `limit`/`offset` shapes today (`rest/suites/pagination.mjs`). Every superseded shape
-  is then either withdrawn or carries a recorded date for withdrawal.
+  Done when the artifact server answers the envelope, every page-number form is withdrawn or carries a
+  recorded withdrawal date, one default and one maximum page size apply everywhere, and the
+  variations and cursor walks are documented. The REST smoke has to assert the envelope on a route
+  from each application that serves one; today it covers only the resource and artifact servers'
+  shapes (`rest/suites/pagination.mjs`).
 
 - **20. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
