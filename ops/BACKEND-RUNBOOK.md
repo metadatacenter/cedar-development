@@ -1527,9 +1527,17 @@ and YAML bytes match. Its repeatable-link migration proposal now validates too, 
 migration blockers (eight country IRIs and two source links, both with numeric literal errors).
 Evidence is under `.cedar/repairs/2026-09-26-webmanagercenter-source-link/`.
 
-The retained primary pipeline count is now 52: annotations 8, malformed/empty IRIs 27, mixed values
+A147LBY (`a597bf7b-89de-4db9-b4b6-6d58fbeebaf4`) was repaired by removing wrapping quotes
+and trailing space from its URL and converting `/Longitude/Arc Seconds/@value` from JSON integer
+`0` to string `"0"`, retaining `xsd:double`. The two-property conditional write was read back
+exactly. The stored source and all four completed paths validate, generated JSON content/order
+agree, and YAML bytes match. Its repeatable-link migration proposal now validates, leaving nine
+migration blockers (eight country IRIs and one source link with four numeric-value errors).
+Evidence is under `.cedar/repairs/2026-09-26-a147-link-numeric/`.
+
+The retained primary pipeline count is now 51: annotations 8, malformed/empty IRIs 26, mixed values
 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 27 need further triage, F050TUN has an approved migration
+blocked by unrelated validation errors, 26 need further triage, F050TUN has an approved migration
 blocked by its template dependencies, and one otherwise-valid HEAL repair is blocked only by DOI
 inconsistency. These are targeted updates, not a fresh full instance census.
 
