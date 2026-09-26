@@ -1117,27 +1117,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ### Shared Libraries
 
-- **26. Render a sparse instance to JSON against its template.** A CEDAR JSON instance must carry
-  an entry for every field its template defines, unset ones included, because the template's JSON
-  Schema marks those properties `required`; an unset literal renders as `{"@value": null}` and an
-  unset IRI as `{}`. The YAML instance form is the opposite, and correct as it stands — it omits an
-  unset field entirely. Rendering a sparse instance model to JSON therefore produces an incomplete
-  JSON instance, and a YAML-to-JSON translation that is to produce a valid one must re-add the
-  empty placeholders, which takes the template, since only it says which fields exist. The
-  asymmetry is an old model decision the group is not fond of, and it stays until the next model
-  iteration.
-
-  `cedar-artifact-library` already has the template-driven traversal in `InstanceInflater` and
-  `EmptyFieldInstances`, recursive elements included, and MCP callers compose it with rendering
-  themselves. What is missing is the rendering API that does both, such as
-  `renderTemplateInstanceArtifact(template, sparseInstance)`. The existing one-argument renderer
-  cannot inflate, because an instance alone does not carry the schema that says which fields are
-  absent.
-
-  Done when a YAML-to-JSON caller renders a valid CEDAR instance through one call, and no caller
-  composes inflation and rendering by hand.
-
-- **27. Take the parse-library tree type out of the public reader and renderer API.** This is a
+- **26. Take the parse-library tree type out of the public reader and renderer API.** This is a
   major-version change. `JsonArtifactReader` and `JsonArtifactRenderer` take and return Jackson's
   `ObjectNode`, and `YamlArtifactReader` and `YamlArtifactRenderer` take and return JDK
   `LinkedHashMap<String, Object>` trees, so the tree representation is part of the public contract
@@ -1162,7 +1142,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   re-parsing, loses direct access. If that need proves real, keep one explicitly
   parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
 
-- **28. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
+- **27. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
   the schema's `instanceType` gives each instance or element its `rdf:type`, each child's
   `propertyIri` gives the predicate, the instance `id` is the subject, and field values are the
   objects, a controlled term or link contributing its IRI and a literal contributing a plain or
@@ -1179,7 +1159,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Production Data
 
-- **29. Resolve the remaining production artifact defects and review semantic migrations.**
+- **28. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1489,7 +1469,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **30. Enforce the request-body classification, and decide what an open body requires.**
+- **29. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1510,7 +1490,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **31. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **30. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1542,7 +1522,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **32. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **31. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1587,7 +1567,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **33. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+- **32. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
   `cedar-model-validation-library` stands between a caller and the store: the artifact server's
   `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
   `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only

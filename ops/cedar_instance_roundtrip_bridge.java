@@ -34,8 +34,8 @@
 // the "path" it sits at and a short "value".
 //
 // A "writepath" answer says whether a YAML write of that instance would be stored. It runs the
-// sequence the resource server runs — render YAML, read it back, complete it against the template
-// with InstanceInflater, mint the element-instance identifiers the repository mints, then validate
+// sequence the resource server runs — render YAML, read it back, render it as JSON completed
+// against the template, mint the element-instance identifiers the repository mints, then validate
 // with cedar-model-validation-library. It carries "status": "ok" with "accepted" and, when
 // refused, the validator's errors; "template-missing" when the caller must send the template
 // first; or "error" with the "stage" it failed at.
@@ -54,7 +54,6 @@ import org.metadatacenter.artifacts.model.reader.YamlArtifactReader;
 import org.metadatacenter.artifacts.model.renderer.JsonArtifactRenderer;
 import org.metadatacenter.artifacts.model.core.TemplateSchemaArtifact;
 import org.metadatacenter.artifacts.model.renderer.YamlArtifactRenderer;
-import org.metadatacenter.artifacts.model.tools.InstanceInflater;
 import org.metadatacenter.model.validation.CedarValidator;
 import org.metadatacenter.model.validation.ModelValidator;
 import org.metadatacenter.model.validation.report.ErrorItem;
@@ -339,8 +338,7 @@ public class CedarInstanceRoundtripBridge {
     try {
       LinkedHashMap<String, Object> asYaml = yamlRenderer.renderTemplateInstanceArtifact(stored);
       TemplateInstanceArtifact sparse = yamlReader.readTemplateInstanceArtifact(asYaml);
-      TemplateInstanceArtifact complete = InstanceInflater.inflate(template, sparse);
-      written = jsonRenderer.renderTemplateInstanceArtifact(complete);
+      written = jsonRenderer.renderTemplateInstanceArtifact(template, sparse);
     } catch (Exception e) {
       answer.put("status", "error");
       answer.put("stage", "complete");

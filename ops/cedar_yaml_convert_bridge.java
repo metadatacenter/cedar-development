@@ -278,8 +278,7 @@ public class CedarYamlConvertBridge {
     JsonArtifactReader reader = new JsonArtifactReader();
     TemplateSchemaArtifact template = reader.readTemplateSchemaArtifact((ObjectNode) request.get("template"));
     TemplateInstanceArtifact instance = reader.readTemplateInstanceArtifact((ObjectNode) request.get("json"));
-    TemplateInstanceArtifact complete = org.metadatacenter.artifacts.model.tools.InstanceInflater.inflate(template, instance);
-    ObjectNode json = renderer.renderTemplateInstanceArtifact(complete);
+    ObjectNode json = renderer.renderTemplateInstanceArtifact(template, instance);
     mintElementInstanceIds(json);
     ValidationReport report = validator.validateTemplateInstance(json, request.get("template"));
     answer.put("status", "true".equals(report.getValidationStatus()) ? "valid" : "invalid");

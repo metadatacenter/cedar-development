@@ -148,31 +148,40 @@ by name in commits.
   `set_iri_field_value` work around it. The fix is a model change and waits on the next model
   version.
 
+- **11. Render an instance through the renderer overloads that take its schema.** The next
+  `cedar-artifact-library` release adds `renderTemplateInstanceArtifact(template, instance)` and
+  `renderElementInstanceArtifact(element, instance)` to `JsonArtifactRenderer`. Each completes a
+  sparse instance against its schema and renders it in one call. `ValidateInstanceArtifactTool`
+  still calls `InstanceInflater` and then the one-argument renderer, for template and element
+  instances alike, and so does the JSON branch of `RenderInstanceArtifactTool` when a template is
+  supplied. Move them onto the overloads when the pin reaches that release. The editing tools
+  inflate so that the slot they write exists, not in order to render, and they stay as they are.
+
 ## cedar-artifact-rest-mcp
 
-- **11. Place a created artifact in a chosen folder.** `create_*` puts an artifact in the caller's
+- **12. Place a created artifact in a chosen folder.** `create_*` puts an artifact in the caller's
   home folder. Pass the optional `folder_id` query parameter — `POST /templates?folder_id=<IRI>`
   and its counterparts — so the caller chooses instead.
 
-- **12. Read an artifact's details, report and version history.** `GET /{type}/{id}/details`,
+- **13. Read an artifact's details, report and version history.** `GET /{type}/{id}/details`,
   `/report` and `/versions` are read-only metadata the server already serves and no tool reaches.
 
-- **13. Support the draft-to-publish lifecycle.** `/command/create-draft-artifact`,
+- **14. Support the draft-to-publish lifecycle.** `/command/create-draft-artifact`,
   `/command/publish-artifact`, `make-artifact-open` and `make-artifact-not-open` carry that
   workflow. They mutate, and publishing is partly irreversible, so take them deliberately rather
   than as part of a CRUD sweep.
 
 ## cedar-cee-mcp
 
-- **14. Load the Material Symbols font in the host page.** The CEE's icon ligatures render as their
+- **15. Load the Material Symbols font in the host page.** The CEE's icon ligatures render as their
   own text — `more_vert`, `unfold_more` — because the host page does not load the font. Add the
   font link, or establish which face the pinned CEE version expects.
 
-- **15. Serve successive calls from one persistent browser tab.** A single tab receiving show and
+- **16. Serve successive calls from one persistent browser tab.** A single tab receiving show and
   fill calls over SSE or polling, in place of a tab per session, would suit repeated
   demonstrations. Tab-per-call is adequate meanwhile, so this waits on the ergonomics mattering.
 
-- **16. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
+- **17. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
   resources would put the editor in the conversation. Revisit when client support is broad and the
   sandbox and CSP story accommodates a 2 MB component bundle that needs network access to the
   terminology service. The localhost-tab approach works in every client today, terminal ones
@@ -180,7 +189,7 @@ by name in commits.
 
 ## bioportal-term-mcp
 
-- **17. Polish the BioPortal client.** Four independent changes, none urgent:
+- **18. Polish the BioPortal client.** Four independent changes, none urgent:
 
   - Cache results. Every tool calls BioPortal on every invocation, so one ontology looked up five
     times in a session costs five HTTP calls. A TTL cache in `_bioportal_get` fixes that
@@ -191,7 +200,7 @@ by name in commits.
     caller needs the second.
   - Go async, but only once latency becomes a real concern. It has not.
 
-- **18. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
+- **19. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
   string relevance and `find_ontology` by acronym and name overlap. Both surface candidates and
   neither judges which term fits a field, so several related terms searched one at a time can each
   land in whichever ontology matched lexically rather than in one coherent set. Choosing well —
