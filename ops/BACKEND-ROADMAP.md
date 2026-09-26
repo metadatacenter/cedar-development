@@ -947,64 +947,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **24. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
-  write is normalized before it is validated, and two different things travel under that one name.
-  One is minting: a child identifier, a property IRI for an attribute the author named, an element
-  occurrence identifier, and the JSON Schema `title` and `description` derived from `schema:name`.
-  That is identity the repository owns rather than a client, and it stays. The other is
-  `LinkedDataUtil.repairInheritedDefects` in `cedar-config-library`, which removes a defect only
-  where the request carried it unchanged out of storage and leaves a newly introduced one for
-  validation to reject. That half was built for artifacts written before the rules hardened, so it
-  has a population and an end, and the population is nearly gone.
+- **24. Decide what an ordinary write may change about the artifact it stores.**
+  `LinkedDataUtil.addChildPropertyIris` still adds every ordinary mapped child to
+  `@context.required`, even when a stored template never required that mapping. An unrelated
+  template edit can therefore tighten the contract of existing instances. Decide whether to
+  preserve the stored requirements, require an explicit author change, or retain automatic
+  tightening with a dependent-instance impact check. Normal identifier minting, derived titles,
+  blank draft-row cleanup and pruning unused attribute mappings are separate existing behaviors.
 
-  **Retire each compatibility branch as its population reaches zero.** On templates and elements
-  there is almost nothing left for it to do. The 2026-09-08 corpus audit found 8,402 artifacts
-  carrying an empty `pav:derivedFrom` and 418 an unusable child property IRI; the 2026-09-12 audit
-  of every template and element reports neither, and one artifact with a missing child `$schema`.
-  The instance branches are the live ones, measured over all 150,640 instances on 2026-09-16:
-  `occurrence-id-unusable` in 120 artifacts over 833 occurrences, `attribute-property-iri-missing`
-  in 58 over 1,029, `orphan-property-iri` in 7, and `attribute-name-blank` in 4. Delete a branch
-  once its count is zero, so that shape meets a refusal rather than a silent accommodation, and
-  record the change where the API is documented: a caller that has been relying on the
-  accommodation starts receiving a 400.
+  **Integrate template-impact checks into authoring.** Use the read-only
+  `ops/cedar_template_impact.py` comparison to identify valid-to-invalid transitions under the
+  exact proposed stored body, including any normalization the save path will apply. Choose
+  warning versus blocking behavior, and define what to do for unreadable dependencies, a changed
+  baseline, large populations and instances the caller cannot see. A permission-scoped result
+  cannot certify the whole dependent population; an incomplete check must not mean “no impact.”
+  Surface the affected instance identifiers and validation errors to the author without treating
+  already-invalid instances as damage caused by this edit.
 
-  **A resave repairs almost nothing, so do not reach for it as an instrument.** The update path
-  normalizes and then validates, answering 400 when the result is invalid
-  (`TemplateInstancesResource.java:433`), so only an artifact that is already valid after
-  normalization can be written. In the 2026-09-16 baseline, of 1,047 invalid production instances,
-  2 had nothing wrong but
-  a missing occurrence identifier, which is the one defect this path does repair, by removing the
-  unusable inherited value and minting a replacement. The rest fail on what no normalizer touches:
-  799 carry a key their template does not declare, 715 lack a child it requires, and 166 carry a
-  property IRI their template replaced with a vocabulary term in a later edit. About 45 instances
-  are valid while carrying a repairable condition and would go through, but an ordinary write also
-  calls `stampProvenanceForPut` (`AbstractArtifactCrudResource.java:408`), so each would record a
-  modification nobody made. That is the reason `?verbatim=true` exists, and it is why the remaining
-  production work belongs to a verbatim rule rather than to a bulk resave.
+  **Roll out the strict write path.** Release and deploy the compatibility-retirement change once
+  the shared Java build and whole-stack smoke gates are green.
 
-  **Separate the one step that tightens a contract rather than repairing a document.**
-  `addChildPropertyIris` calls `requireChild` for every mapped child of every template and element
-  it writes (`LinkedDataUtil.java:684`), adding the child to `@context.required` whether or not the
-  stored artifact ever declared it. That changes what an instance must carry, which is not a repair
-  of the artifact being saved but a new demand on documents nobody is looking at. Measured
-  2026-09-12, 2,218 artifacts are missing those entries across 29,087 child paths, 458 of them
-  templates rather than elements, so editing one of those templates through any client tightens its
-  contract silently. `ops/repairs/ctxreq_at_risk.py` exists to weigh exactly this before a repair
-  run, by validating every instance a template already has against the proposed body; the save path
-  performs the same tightening with nothing weighed. Decide whether the write should carry that
-  check, stop adding entries a stored artifact never had, or state the tightening as the contract
-  and accept that a template edit can invalidate instances.
-
-  **Warn authors before a template edit invalidates existing instances.** Changing a property's
-  IRI or narrowing a field's allowed representation can invalidate documents that were valid when
-  entered. Nothing propagates that change to existing instances or warns the author. Whatever is
-  decided about `requireChild`, check the dependent population for any template edit that narrows
-  what an instance may hold.
-
-  Done when the compatibility branches that have no population are gone, each remaining one names
-  the count that keeps it, an ordinary write no longer tightens a contract without the instance
-  check or an explicit decision to do so, and an author editing a template is told what it does to
-  the instances that already exist.
+  Done when ordinary writes have an explicit policy for changing instance requirements and
+  authors see the impact before a template change invalidates existing instances.
 
 ### Shared Libraries
 

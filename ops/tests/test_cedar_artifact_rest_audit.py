@@ -84,7 +84,7 @@ class RuleTests(unittest.TestCase):
         self.assertEqual({item.rule for item in findings}, {"derived-from-empty", "ui-pages-forbidden"})
         self.assertEqual(
             {item.risk for item in findings},
-            {"repair-on-save", "save-rejected"},
+            {"save-rejected"},
         )
 
     def test_common_rules_find_nonempty_unusable_provenance(self):
@@ -94,7 +94,7 @@ class RuleTests(unittest.TestCase):
         }
         findings = list(audit.audit_common(self.ref(), artifact))
         self.assertEqual([item.rule for item in findings], ["derived-from-unusable"])
-        self.assertEqual(findings[0].risk, "repair-on-save")
+        self.assertEqual(findings[0].risk, "save-rejected")
 
     def test_a_child_written_against_another_model_is_reported_for_review(self):
         child = schema_child(audit.TEMPLATE_FIELD, "https://repo.example/fields/f1")
@@ -439,7 +439,7 @@ class RuleTests(unittest.TestCase):
         findings = list(audit.audit_schema(self.ref(), artifact))
 
         self.assertEqual([item.rule for item in findings], ["child-schema-missing"])
-        self.assertEqual(findings[0].risk, "repair-on-save")
+        self.assertEqual(findings[0].risk, "save-rejected")
         self.assertEqual(findings[0].path, "/properties/Study Name/$schema")
 
     def test_schema_reports_missing_root_and_explicit_bad_child_declarations_as_rejected(self):
@@ -519,6 +519,11 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(rules["attribute-property-iri-missing"], 1)
         self.assertEqual(rules["occurrence-id-unusable"], 1)
         self.assertEqual(rules["value-id-relative"], 1)
+        retired = {"attribute-name-reserved", "attribute-name-child-collision",
+                   "attribute-name-duplicate", "occurrence-id-unusable"}
+        self.assertTrue(all(item.risk == "save-rejected" for item in findings if item.rule in retired))
+        self.assertTrue(all(item.risk == "repair-on-save" for item in findings
+                            if item.rule in {"attribute-name-blank", "attribute-property-iri-missing"}))
 
     def test_value_ids_distinguish_reader_failures_relative_iris_and_validation_failures(self):
         ref = self.ref("instance", "https://repo.example/template-instances/i1")
@@ -805,6 +810,23 @@ class RetryBudgetTests(unittest.TestCase):
 
     def test_an_explicit_budget_is_kept(self):
         self.assertEqual(4, audit.GetOnlyClient("https://repo.example", "key", retries=4).retries)
+
+    def test_truncated_chunked_response_is_retried_without_losing_the_request(self):
+        client = audit.GetOnlyClient("https://repo.example", "key", retries=2)
+        response = mock.MagicMock()
+        response.__enter__.return_value = io.BytesIO(b'{"resources": []}')
+        with mock.patch.object(client.opener, 'open', side_effect=[
+                audit.http.client.IncompleteRead(b'{"res'), response]) as opened, \
+                mock.patch.object(audit.time, 'sleep'):
+            self.assertEqual({'resources': []}, client.get_json('/search-deep'))
+        self.assertEqual(2, opened.call_count)
+        self.assertIs(opened.call_args_list[0].args[0], opened.call_args_list[1].args[0])
+
+    def test_exhausted_truncated_read_is_an_audit_error(self):
+        client = audit.GetOnlyClient("https://repo.example", "key", retries=1)
+        with mock.patch.object(client.opener, 'open', side_effect=audit.http.client.IncompleteRead(b'partial')):
+            with self.assertRaises(audit.ResponseError):
+                client.get_json('/search-deep')
 
 
 class RestIntegrationTests(unittest.TestCase):

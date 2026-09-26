@@ -950,25 +950,18 @@ TypeScript compatibility reader and CEE make one deliberately narrower concessio
 an empty `@id` on a legacy element occurrence is opened with a warning and written as `null`, so an
 ordinary update can ask the server for the identifier it never received.
 
-**An ordinary update is differential.** Before normalization, the artifact server fetches the stored
-artifact and compares the two. An unusable template-child mapping, element-occurrence `@id`, unsafe
-attribute-value name, or missing nested child `$schema` declaration is repaired only when the stored
-artifact proves the defect was inherited. A restored declaration is always the canonical
-`http://json-schema.org/draft-04/schema#`. The same malformed value or omission introduced into a
-clean artifact is left for validation to reject; a missing root declaration and an explicit bad child
-declaration are never repaired. A hardened client may already have made the safe half of the repair:
-Designer can omit an inherited unusable mapping and CEE can replace an inherited empty occurrence ID
-with `null`; normal server minting then finishes both. The resource server performs no artifact
-validation before proxying the PUT, so this comparison happens before a legacy document can be
-refused. `skip_validation` cannot bypass the post-normalization validation, and a verbatim write
-remains strict.
+**An ordinary update validates inherited defects as submitted.** The server no longer removes
+malformed provenance, remints a populated unusable child mapping or occurrence identifier,
+restores a missing child `$schema`, or strips reserved, colliding or duplicate attribute names
+merely because storage already contains the defect. Correct the submitted body explicitly.
+A client may omit an unusable property mapping or replace an unusable occurrence ID with `null`
+to request normal minting, and the model writers may restore a missing child declaration before
+submission. Blank unnamed draft attribute rows still undergo the normal draft cleanup.
+`skip_validation` cannot bypass post-normalization validation, and verbatim writes remain strict.
+The [retirement evidence and template-impact procedure](#ordinary-write-normalization-and-template-impact)
+record the measured population and the remaining distinction between normalization and contract changes.
 
-This compatibility path makes an ordinary edit safe; it does not clean artifacts nobody edits. Use
-the GET-only REST audit below to inventory what remains before deciding whether a bulk patch is
-worthwhile.
-
-**A term whose attribute is gone is removed**, in the same pass, and this is the one place the server
-deletes something a client sent. Three questions decide each term, and two of them need the template,
+**A term whose attribute is gone is removed**, in addition to blank unnamed draft rows. Three questions decide each term, and two of them need the template,
 which is why the prune runs where the template is already loaded — fetched to validate against. A name
 the template declares is structure and stays, filled in or not: an unfilled child is absent from the
 body and its definition still belongs there. A name an attribute-value field still holds is in use and
@@ -1077,10 +1070,10 @@ naming an attribute nobody named, a temporal field declaring no `temporalType`, 
 whose attribute is gone, controlled-term constraints predating the versioned source fields, an
 inherently multiple field deployed as an object rather than an array, and a static field the stored
 schema demands of every instance. An empty `pav:derivedFrom` stops the strict Java reader; the
-TypeScript compatibility reader opens it as absence and omits it on write, and an ordinary server
-update removes the inherited value. A blank occurrence `@id` stops strict readers, while CEE and the
-February 2024 TypeScript compatibility reader can open it and turn it into the `null` that an
-ordinary server update repairs. The patch is still required for artifacts nobody edits and for
+TypeScript compatibility reader opens it as absence and omits it on write. An ordinary server
+update rejects the unchanged empty value. A blank occurrence `@id` stops strict readers, while CEE
+and the February 2024 TypeScript compatibility reader can turn it into `null` to request normal
+server minting; an unchanged blank identifier is rejected. The patch is still required for artifacts nobody edits and for
 consumers that correctly choose strict reading.
 
 One script finds and repairs all nine. It reports by default and writes only under `--apply`:
@@ -1700,8 +1693,9 @@ writer, and the TypeScript fixtures check emitted bytes and numeric readback.
 Both readers make the same compatibility concession for `$schema`: an artifact root must carry the
 canonical draft-04 URI, while a nested legacy field or element may omit it on input. Both writers put
 the canonical declaration back, so a read-render cycle repairs the omission. An explicit wrong or
-non-text declaration remains an error. The artifact server keeps the wire contract strict and makes
-the same inherited-only repair on an ordinary update; new omissions and verbatim updates are refused.
+non-text declaration remains an error. The artifact server requires the wire declaration on both
+ordinary and verbatim writes, including inherited omissions. A client can use a model read-render
+cycle to restore it before submission.
 
 Two deliberately harmless reader differences remain. A document with `modelVersion` only at its root
 and none on its children is accepted by Java and refused by TypeScript; it is a hybrid neither writer
@@ -3483,16 +3477,16 @@ started before a script update from being mistaken for output produced by the up
 
 Findings say what an ordinary update will do rather than flattening every problem into “invalid”:
 
-- `repair-on-save`: inherited unusable/missing child property IRIs, child IDs, occurrence IDs,
-  missing nested child `$schema` declarations, `@context.required` entries, unsafe attribute-value
-  names, missing attribute property IRIs, repository-minted orphan terms and unusable inherited
-  `pav:derivedFrom` values;
+- `repair-on-save`: missing child property IRIs, child identifiers normal minting can replace,
+  absent/null occurrence IDs in a context-bearing element, `@context.required` entries, blank
+  unnamed draft attribute rows, missing attribute property IRIs and repository-minted orphan terms;
 - `instance-save-rejected`: a checkbox, attribute-value or multiple-choice list deployment is
   object-shaped, so CEE's correctly emitted array cannot validate against the exact stored template;
-- `save-rejected`: unusable root IDs, root/search-ID disagreement, missing or invalid root `$schema`,
-  explicit invalid child `$schema`, unrecognised child types, malformed multi-instance children,
-  child IDs caught in the server's trim-before-test gap, null/non-string value IDs, missing
-  instance/occurrence contexts and unusable `schema:isBasedOn`;
+- `save-rejected`: unusable root IDs, root/search-ID disagreement, missing or invalid `$schema`,
+  populated unusable child property IRIs or occurrence identifiers, unusable `pav:derivedFrom`,
+  reserved/colliding/duplicate attribute names, unrecognised child types, malformed multi-instance
+  children, child IDs caught in the server's trim-before-test gap, null/non-string value IDs,
+  missing instance/occurrence contexts and unusable `schema:isBasedOn`;
 - `reader-blocking`: empty link or controlled-term IDs rejected by both JSON readers, and malformed URI
   values rejected by the strict Java reader; these are deliberately outside CEE's occurrence-only
   compatibility adapter;
@@ -4247,6 +4241,82 @@ then like the server reporting a present artifact missing.
 
 The `.net` identifiers also fail genuinely far more often — 20 of 245 against 259 of 150,334 — and
 three of the four instances absent from the artifact store entirely are among them.
+
+## Ordinary Write Normalization and Template Impact
+
+An ordinary write still mints missing repository-owned identifiers and property IRIs, derives
+schema titles/descriptions, removes blank unnamed attribute rows left by a draft editor, and
+prunes unused attribute mappings. Blank draft-row removal is unconditional existing behavior,
+not an inherited-data accommodation. Verbatim writes do none of those normalizations.
+
+The inherited-defect compatibility path is retired. An ordinary PUT now returns 400 when it
+carries forward an unusable `pav:derivedFrom`, malformed child property-IRI declaration, missing
+child `$schema`, unusable element-occurrence identifier, or reserved, colliding or duplicate
+attribute names. Clients can explicitly correct those defects before submitting; missing/null
+occurrence identifiers and absent property mappings still request normal server minting.
+This changes inherited malformed submissions, not the rules already applied to newly introduced
+malformed values. Blank unnamed draft rows retain the cleanup described above.
+
+### Compatibility Retirement Evidence
+
+The GET-only run on 2026-09-26 enumerated 302,419 production index entries and analyzed every
+retrievable body using the **pre-retirement** Java `LinkedDataUtil.repairInheritedDefects`
+implementation, frozen from config-library revision `12d1f53138985bedc7f9ef5cb04a5c4d3d1d8cb2`.
+
+| Kind | Bodies analyzed | Index entries returning 404 |
+| --- | ---: | ---: |
+| Template | 4,833 | 1 |
+| Element | 5,306 | 1 |
+| Field | 141,690 | 4 |
+| Instance | 150,580 | 4 |
+| Total | 302,409 | 10 |
+
+Every compatibility category had zero affected artifacts and zero occurrences: unusable
+`pav:derivedFrom`, unusable child property IRIs, missing child `$schema`, unusable occurrence IDs,
+and blank, reserved, colliding or duplicate attribute names. Eight synthetic defects exercised
+all eight categories against the frozen implementation before relying on those zero counts.
+The ten 404s remain uninspected; the summary deliberately keeps `complete: false`. This is an
+API-key-visible inventory, not a transactional store snapshot or proof about hidden artifacts.
+No production artifact was changed by this run.
+
+Evidence, source bodies, dependency hashes, source revisions and reports are retained under
+`$CEDAR_HOME/.cedar/audits/2026-09-26-normalization/`. `ops/cedar_normalization_audit.py` separates
+resumable enumeration, GET fetching and Java analysis. Its `--classpath` argument is a **file**
+containing the frozen pre-retirement classpath; the current library no longer exposes that
+compatibility method. Reusing the current library would not measure the retired behavior.
+Dependency bytes are pinned and a changed runtime refuses a resumed analysis. A new directory
+is required for a fresh inventory; resuming reuses the retained source bodies.
+
+### Check a Proposed Template Without Writing It
+
+```bash
+python3 ops/cedar_template_impact.py \
+  --api-key-file "$HOME/.cedar-admin-key" \
+  --template-id 'https://repo.metadatacenter.org/templates/...' \
+  --proposed proposed-template.json --out template-impact.json
+```
+
+The checker fetches the stored template, freshly enumerates its visible instances, and uses the
+Java validator on each body against both templates. It reports newly invalid, still valid,
+already invalid and newly valid instances separately. Wrong identities, unreadable bodies,
+validator errors, incomplete enumeration and a template changed during the check cannot produce
+an unqualified no-impact result. Exit zero means a complete observed comparison found no new
+invalid instances; it never authorizes a save or certifies unseen dependencies. Reads are not
+atomic with one another or with a later write, so an integrated save path still needs a concurrency
+and permission policy. Supply the exact proposed stored schema, including save-time normalization;
+this tool does not mint identities or choose a warning/blocking policy.
+
+`ops/repairs/ctxreq_at_risk.py` uses the same comparison for the context-required repair. Its old
+`--records` argument is accepted but ignored: fresh enumeration replaces the stale manifest.
+Unreadable or otherwise inconclusive dependencies never enter its `-safe.json` list. An
+interrupted run leaves that list empty rather than exposing a previous run's results.
+
+The production smoke comparison used the Tunisia template
+`05ce128b-c631-45c8-bfcf-a229ea1fcce5` and all 368 visible instances. The unchanged template
+introduced zero failures (367 valid, one already invalid). Making `Source Hyperlink` repeatable
+without migrating instances produced exactly 367 newly invalid instances; the already-invalid
+one stayed separate. Both proposed bodies and reports are in the evidence directory's `impact/`
+subdirectory. These were local comparisons with GET-only production reads.
 
 ## Repairing a Defect Across the Stored Population
 
