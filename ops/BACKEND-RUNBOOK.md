@@ -1494,9 +1494,16 @@ conditional verbatim write was read back exactly; the stored source and all four
 validate, generated JSON content/order agree, and YAML bytes match. Evidence is under
 `.cedar/repairs/2026-09-26-unquote-instance-link/`.
 
-The retained primary pipeline count is now 55: annotations 8, malformed/empty IRIs 30, mixed values
+Instance `420a25c3-61c6-45c1-aa56-ef59f59a6043` had its approved `Not Applicable` marker
+removed from `/Metadata Location/other_study_websites/0/@id`. Stored JSON retains `[{}]` to
+satisfy the template's array minimum. Both CEDAR YAML writers omit the empty field entirely;
+all four generated JSON documents agree in content/order, and template completion restores the
+empty entry and validates in every path. The conditional write's exact readback validates too.
+Originals and evidence are under `.cedar/repairs/2026-09-26-empty-not-applicable-link/`.
+
+The retained primary pipeline count is now 54: annotations 8, malformed/empty IRIs 29, mixed values
 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 31 need further triage, and one otherwise-valid HEAL repair
+blocked by unrelated validation errors, 30 need further triage, and one otherwise-valid HEAL repair
 is blocked only by DOI inconsistency. These are targeted updates, not a fresh full instance census.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
