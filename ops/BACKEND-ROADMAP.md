@@ -740,9 +740,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   survives a relay failure, and when search reflects a move or ACL change within the relay's
   five-second interval.
 
-- **19. Converge on one pagination encoding.** Ten paging shapes are in service across seven
-  applications. The artifact, resource and OpenView listings all build on the same `PagedQuery` and
-  `LinkHeaderUtil`, so nothing in the code forces even the split between those three. The shapes
+- **19. Converge on one pagination encoding.** Eight paging shapes are in service across seven
+  applications. The artifact, resource, OpenView, monitor and messaging listings all build on the
+  same `PagedQuery` and `LinkHeaderUtil`, so nothing in the code forces even the split between the
+  first two shapes. The shapes
   differ on three independent axes: the request parameters, the page base, and where the response
   metadata goes. A client library that can page one of them cannot page the rest.
 
@@ -754,8 +755,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - **`limit`/`offset`, with the same link set in the body under `paging` beside `totalCount`.**
     Folder contents, contents-extract, search and categories on the resource server
     (`AbstractSearchResource.java:157`, `FolderContentsResource.java:319`,
-    `CategoriesResource.java:145`), and the OpenView server's folder listing
-    (`FoldersResource.java:123`).
+    `CategoriesResource.java:145`), the OpenView server's folder listing
+    (`FoldersResource.java:123`), the monitor server's log explorer and usage breakdowns, and the
+    messaging server's `GET /messages`. The last two build on the shared `PagedListResponse`, which
+    adds `countCapped` and leaves out the `last` link when a listing stops counting at a ceiling, as
+    the monitor's raw request and Cypher logs do at 10,500 rows (`LogExplorerResource.java:51`).
   - **An opaque forward-only continuation.** `?continuation=` on `/search-deep`, answered with
     `continuation` in the body and first and next links alone in the `paging` block. The token binds
     the user, a query fingerprint, an OpenSearch point-in-time and `search_after`, and a request
@@ -781,10 +785,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `"<iso>,<id>"` `cursor`, and answers `nextCursor`, null once the walk is exhausted
     (`LogQuerySpec.java:29`, `LogQueryResults.java:27`). The cursor names an ordered column rather
     than carrying an opaque token, so it is a second cursor encoding rather than the same one.
-  - **`limit` as plain truncation.** The log explorer and usage routes take a limit and no offset,
-    which leaves row N+1 unreachable (`LogExplorerResource.java:72`, `LogUsageResource.java:112`).
-  - **An unpaged collection with a count.** The messaging server returns every message and a `total`
-    (`MessagesResource.java:105`).
 
   **Three divergences sit underneath the shapes, and the first is a defect however the decision
   goes.** The `page_size`/`pageSize` alias resolves by argument position, and the two route families
@@ -792,10 +792,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   while `ClassResource`, `ValueResource` and `ValueSetResource` bind `pageSize` to it
   (`AbstractTerminologyServerResource.java:82`). A request sending both spellings therefore gets a
   route-dependent answer, and the OpenAPI text promises only that either spelling is accepted.
-  Defaults and maxima are set per surface and shared by none: 100/500 on the resource server, 20/500
-  on the artifact server and on categories (`cedar-main.yml:360`), 50 with a silent clamp in
-  terminology, 100 with `pageSize > 1` enforced on the bridge, and a fixed 50 for a hierarchy's
-  children. Bad input is refused three ways, since `PagedQuery` answers 400, terminology clamps, and
+  Defaults and maxima are set per surface and shared by none: 100/500 on the resource server, the
+  monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500 on the
+  artifact server and on categories (`cedar-main.yml:360`), 50 with a silent clamp in terminology,
+  100 with `pageSize > 1` enforced on the bridge, and a fixed 50 for a hierarchy's children. Bad input is refused three ways, since `PagedQuery` answers 400, terminology clamps, and
   the bridge answers 400 with a message of its own.
 
   **The decision is which encoding wins, and it has to come first.** Headers are the conventional
@@ -825,11 +825,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the total should answer an empty page rather than the artifact server's 400, and one default and
   one maximum page size should replace the per-surface values.
 
-  Six of the ten shapes page by number or offset, and those converge on whichever encoding wins. The
-  two cursor walks are the exception and have to be documented as one, because a continuation and a
-  keyset cursor buy something an offset cannot: a walk of a whole result set at one request per
-  page. Truncation without an offset and the unpaged listing are gaps to fill rather than encodings
-  to choose between.
+  Six of the eight shapes page by number or offset, and those converge on whichever encoding wins.
+  The two cursor walks are the exception and have to be documented as one, because a continuation
+  and a keyset cursor buy something an offset cannot: a walk of a whole result set at one request
+  per page.
 
   Whichever wins, deliver it additively first. Emit the chosen encoding everywhere alongside what each
   server sends today, document it as the supported form, and withdraw the others in a later release.
