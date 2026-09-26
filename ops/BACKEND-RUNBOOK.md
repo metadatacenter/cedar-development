@@ -1510,9 +1510,18 @@ were made because the full dependent migration cannot validate. Retained sources
 ETags, error comparisons and pipeline results are under
 `.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`.
 
-The retained primary pipeline count is now 54: annotations 8, malformed/empty IRIs 29, mixed values
+E106TUN (`69714329-b07d-48cd-b497-b1d9da807346`) was subsequently repaired by replacing its
+malformed Guardian AMP URL with the verified direct publisher article URL. Only the hyperlink
+scalar changed; the conditional write was read back exactly. Stored validation and all four
+completed conversion paths pass, generated JSON content/order agree, and YAML bytes match.
+The repaired instance also validates against the proposed repeatable-link template, reducing its
+remaining migration blockers to 11 (eight country IRIs and three source links, two with numeric
+literals). Refresh the full dependency inventory and proposals before that migration. Evidence is
+under `.cedar/repairs/2026-09-26-guardian-source-link/`.
+
+The retained primary pipeline count is now 53: annotations 8, malformed/empty IRIs 28, mixed values
 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 29 need further triage, F050TUN has an approved migration
+blocked by unrelated validation errors, 28 need further triage, F050TUN has an approved migration
 blocked by its template dependencies, and one otherwise-valid HEAL repair is blocked only by DOI
 inconsistency. These are targeted updates, not a fresh full instance census.
 
