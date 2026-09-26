@@ -1205,12 +1205,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 61 affected instances, one with a valid stored source.
+  findings and checked repairs leave 64 affected instances, one with a valid stored source.
   Consistent reader rejection of an invalid source still requires a source repair.
+
+  Before deploying the stricter element-group name rule, migrate legacy groups named `name` or
+  `description` while preserving labels and values. The retained snapshot identifies ten instances
+  (seven previously valid) and nine schema artifacts. These compatibility candidates overlap the
+  earlier findings and are not an additional disjoint category in the 64-instance baseline below.
+  Live validation must gate every write; the proposed keys are `name attributes` and
+  `description attributes`. Evidence and the proposed mapping are under
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/MIGRATION-PROPOSAL.md`.
 
   | Remaining issue | Instances |
   | --- | ---: |
   | Template demands a root context mapping for an undeclared child | 1 |
+  | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 11 |
   | Malformed/empty stored URI is the first Java rejection | 35 |
   | Malformed annotation objects | 11 |

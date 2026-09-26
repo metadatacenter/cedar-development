@@ -1376,13 +1376,40 @@ has to be asked for on both sides: the ordinary reader refuses it over the absen
 a reader for it is a separate constructor, `YamlArtifactReader(true)` in Java and
 `getStrictForCompact()` in TypeScript.
 
-Both JSON and YAML schema readers reject child keys that collide with Java's reserved instance
-properties, including `@value`, `@id`, `schema:name` and `rdfs:label`. Ordinary metadata constraints
-under those JSON properties remain valid. YAML scalar spellings (`true`, `null`, `yes`, numeric or
-date-like names) and CEDAR YAML keys (`type`, `name`, `key`, `children`) are valid child names:
-the writers quote string names and readers preserve them. A YAML child key must be a string;
-quote a boolean- or number-looking name in hand-written YAML. `YamlChildNamesTest` in Java and
-`ReservedChildNames.spec.ts` in TypeScript cover these boundaries.
+Both libraries expose `ReservedNames` for schema children and user-entered attribute names.
+JSON-LD names beginning `@`, CEDAR instance metadata keys and `__proto__`, `constructor`,
+`prototype` are forbidden. Instance readers and model mutation paths enforce the same rule;
+TypeScript dictionaries also have null prototypes so an exposed-map write cannot silently lose
+`__proto__`. Writers reject forbidden entries introduced through those exposed maps.
+
+Ordinary fields may use YAML scalar spellings (`true`, `null`, `yes`, numeric or date-like names)
+and YAML structural keys (`type`, `name`, `children`): writers quote where needed and preserve
+those names beneath `children`. Attribute-value group keys occupy the surrounding YAML mapping,
+so they additionally reserve that container's metadata. Template groups reserve the template
+instance envelope; element groups reserve the union of nested and standalone element envelopes:
+`type`, `id`, `children`, `name`, `description`, `createdOn`, `createdBy`, `modifiedOn`, `modifiedBy`.
+Template-only keys such as `annotations`, `isBasedOn` and `derivedFrom` remain usable as element
+group names. Names entered *inside* a group follow the ordinary reserved-name rule, not the
+additional envelope restrictions. These restrictions apply to serialized keys, not display labels.
+
+CED validates field settings in the actual parent container and generates a safe fallback key
+before suffixing a display name whose prefix or control characters would stay invalid forever.
+CEE checks attribute names using the same model policy. Focused regressions cover reader/model
+rejection, lossless ordinary names, both element encodings and the two CED naming paths.
+
+The multiple-datatype repair log at `.cedar/repairs/2026-09-25-multiple-types/apply.json` records
+one repaired instance and three `blocked-invalid` instances. Those three still need source repair,
+even though both readers now consistently reject their datatype arrays; they remain counted in
+the roadmap's 64 outstanding primary findings.
+
+The reserved-name corrections passed 1,228 Java tests and 249 shared fixtures, 3,828 TypeScript
+tests and the model CI gates, plus CEE's 3,517 domain, 595 unit and 36 Angular coordinator tests.
+CED passed 2,518 unit tests, 306 default browser cases and 72 real-sibling CEE/CEF and picker
+browser checks (the latter run explicitly with both sibling bundles). The full retained production snapshot
+scan covers 150,580 instances and identifies ten users of the newly reserved element group names;
+seven had valid stored sources. This establishes a migration requirement before production rollout,
+not permission to discard those names or values. The proposal and scan are retained under
+`.cedar/audits/2026-09-25-reserved-name-review/`.
 
 Both readers make the same compatibility concession for `$schema`: an artifact root must carry the
 canonical draft-04 URI, while a nested legacy field or element may omit it on input. Both writers put
