@@ -1650,10 +1650,32 @@ production write returned 200; exact readback passes stored validation and all f
 paths, with identical generated JSON content/order and byte-identical YAML. Evidence is under
 `.cedar/repairs/2026-09-26-province-literal/`.
 
-The retained primary pipeline count under the latest libraries is now 33: annotations 8,
-malformed/empty IRIs 11, mixed values 9, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 8 need further
-triage, the approved F050TUN migration awaits production library adoption, and one
+Four approved mixed-value repairs have exact conditional-write production readbacks:
+
+- DQ-RANGE `579f89bf-a260-49ec-a2ec-f1392ab0e1c6`: the Feminine gender and Female terms are
+  in repeatable `REQUIRED CODE`; `REQUIRED FIELD` retains one literal `NONE`, with both mappings
+  matching the template.
+- DATMM CORD-19 `448ee16e-a2c6-4f4e-9855-7165814d3e22`: `dct:language` and its context entry
+  are now `Language`; US English retains its identifier and label without a null literal.
+- PATH `b88c57ef-cd84-4a1c-bba5-5aa4ad5716de`: three conflicting Burnout URI literals were
+  removed from outcome entries. All selected identifiers and labels remain, including the
+  separate Burnout entry and the existing repeated selections.
+- DALIA `e51100eb-1b28-4c7d-8a4c-eef210c85f71`: MIT retains its identifier and label without
+  the approved `asd` literal. The author's `Name` is now `givenName`, retaining its `asd` text.
+  Template context mappings and the missing empty `ValueSet Test` element were added; the new
+  element has a persisted UUID and no invented field values.
+
+All four writes returned 200. Each stored body passes validation and all four completed conversion
+paths; generated JSON content/order agrees and YAML is byte-identical. Inverse-transform checks
+prove unrelated source content is unchanged, and all populated candidate values survive every
+path. Originals, candidates, write intents and readbacks are under
+`.cedar/repairs/2026-09-26-eight-decisions/`. The three FAIR Workflows migrations and the ambiguous
+GENASIS URL remain deferred, preserving their sources.
+
+The retained primary pipeline count under the latest libraries is now 29: annotations 8,
+malformed/empty IRIs 11, mixed values 5, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 4 remain deferred
+for an agreed field migration or URL destination, the approved F050TUN migration awaits production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
 

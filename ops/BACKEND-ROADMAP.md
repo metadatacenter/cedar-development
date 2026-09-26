@@ -1238,7 +1238,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 33 affected instances under the latest libraries. Production
+  findings and checked repairs leave 29 affected instances under the latest libraries. Production
   adoption of the Unicode IRI fix remains pending for eight additional instances.
   Consistent reader rejection of an invalid source still requires a source repair.
 
@@ -1248,17 +1248,27 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 33-instance baseline. Account for their stricter-reader rejection before production
+  to the 29-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
   | Remaining issue | Instances |
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
-  | Stored mixed `@id`/`@value` fields | 9 |
+  | Stored mixed `@id`/`@value` fields | 5 |
   | Malformed/empty stored URI is the first Java rejection | 11 |
   | Malformed annotation objects | 8 |
   | Numeric JSON literals | 2 |
+
+  Establish complete value-preserving migrations for the three FAIR Workflows instances
+  `368ff63a-133c-4a6e-b694-e2ea248fa592`, `4520d4b9-ed0f-4aa8-b28b-de545e9c7f61` and
+  `85a78d6b-d8b7-4aba-bd67-b885996ee0d7`. Their old Data, Subject, contributor and Experiment
+  structures no longer match the template; empty-identifier cleanup cannot make them valid.
+  Preserve populated values, including the stored subject count `23.4`, pending an agreed mapping.
+  Confirm the intended GENASIS URL for Data Catalogs instance
+  `94f400a2-4d26-480a-855d-0fa299a243cc`: its `datasetIdentifier[0]` contains two `#` characters.
+  Do not guess a routing replacement. These four deferred cases are included in the table above;
+  fresh sources and templates are retained under `.cedar/repairs/2026-09-26-eight-decisions/`.
 
   Release and deploy Unicode field-IRI support across the Java artifact library, model validator,
   TypeScript consumers and repository paths. Preserve the eight Niger identifiers verbatim; do not
@@ -1286,7 +1296,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fresh preflight validates every proposed body under the updated validator. Production still needs
   Unicode IRI support before eight of those bodies can be written. Do not switch the template
   until the deployed write path accepts all dependents. This approved repair remains within the
-  33-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
+  29-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
   bodies are under
   `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency
   rechecks under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/` and
