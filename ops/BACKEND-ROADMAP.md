@@ -1148,8 +1148,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reduced to one without a decision. Empty representations and populated data need separate rules,
   each with a narrow invariant and validation of the complete candidate.
 
-  The 2026-09-25 audit and targeted repair rechecks leave 561 stored-invalid instances across
-  211 templates. Distinguish instance defects from noncanonical schema declarations against
+  Refresh the broader retained 561-instance/211-template inventory against current stored templates
+  before reporting a current total. Distinguish instance defects from noncanonical declarations against
   Java's model. Reconcile any TypeScript disagreement with Java and preserve entered information
   when a stored representation must migrate; check every dependent instance before changing a
   template declaration.
@@ -1200,7 +1200,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 64 affected instances, one with a valid stored source.
+  findings and checked repairs leave 60 affected instances.
   Consistent reader rejection of an invalid source still requires a source repair.
 
   Resolve three remaining instances whose legacy `description` attribute-value groups sit in
@@ -1209,7 +1209,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 64-instance baseline. Account for their stricter-reader rejection before production
+  to the 60-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
@@ -1218,19 +1218,23 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Template demands a root context mapping for an undeclared child | 1 |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 11 |
-  | Malformed/empty stored URI is the first Java rejection | 35 |
-  | Malformed annotation objects | 11 |
+  | Malformed/empty stored URI is the first Java rejection | 34 |
+  | Malformed annotation objects | 8 |
   | Numeric JSON literals or an unexpected nested field array | 3 |
 
   Reconcile the remaining library behavior without silently discarding data. Resolve the template's
   dangling root-context requirement against its actual child declaration before changing completion.
-  Fourteen instances have narrow source corrections prepared but still fail validation for other
+  Thirteen instances have narrow source corrections prepared but still fail validation for other
   reasons; resolve those blockers before writing. Preserve conflicting populated values and ambiguous
   URI spellings until the intended replacement is established. The GeoExposure CASTNET link fields
   can lose their exact duplicate `@value`, but unrelated template errors block the complete write.
   Preserve DOI annotations while resolving the document/graph write guard before retrying the HEAL
   annotation repair. Plans, validation errors, backups and readbacks are under
   `$CEDAR_HOME/.cedar/repairs/2026-09-25-instance-values/REPORT.md`.
+  Of the eight malformed-annotation instances, seven retain other validation defects; the HEAL
+  instance's otherwise-valid correction is blocked by DOI attachment inconsistency. Recheck the
+  retained proposals after those blockers are resolved. Current conditional-write and conversion
+  evidence is in `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
 
   The four unresolved index entries return 404 even after retry; reconcile the index and store
   rather than declaring them converted. Investigate already-invalid sources without a pipeline

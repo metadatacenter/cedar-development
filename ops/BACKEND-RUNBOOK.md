@@ -1458,6 +1458,21 @@ YAML negotiation also succeeds after the patch. Backups, ETags, proposals, depen
 readbacks, the seven blocked IDs and a detailed report are retained under
 `.cedar/repairs/2026-09-26-annotation-backfill/`. The repair helper suite passes 707 tests.
 
+The subsequent mechanical instance pass repaired four sources with conditional verbatim writes:
+`5efc4ec1-56e8-4aaf-8644-e9ba695e2a2b`, `cc9a5e8d-f9e6-4508-9f05-ed5165735137`,
+`98fc343d-1ab0-43c6-91e9-382eb68d4afa` and `89dc2695-4ebb-43df-bd92-a8ed688c0faa`.
+The first three lost only the bogus element-instance identifier at `/_annotations/@id`; the citation
+also lost an empty optional `/url/0/@id`, and the last instance lost an empty optional project-website
+identifier. All DOI annotations and populated values were preserved. Each exact readback validates,
+both YAML writers produce identical bytes, all four conversions agree on JSON content/order, and
+all four completed instances validate. The HEAL correction still receives `doiCanNotBeAltered` and
+its readback is unchanged. All 14 previously prepared value repairs were freshly rechecked; only
+the project-website case became writable, leaving 13 blocked by other validation errors.
+The retained primary pipeline count is now 60: annotations 8, malformed/empty IRIs 34, mixed values
+11, multiple datatypes 3, numeric literals/nested array 3, dangling required mapping 1. This is a
+targeted update, not a fresh full instance census. Evidence is in
+`.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
+
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
 one wrapper. Numeric YAML and schema JSON formatting follow Java 17's decimal selection, including midpoint,

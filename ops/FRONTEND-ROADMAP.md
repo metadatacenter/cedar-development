@@ -88,6 +88,8 @@ declarations; Human Cognitive Neuroscience Data and FAIR-EuMon also need their p
 declaration repairs. Write-rejection evidence is retained in
 `.cedar/repairs/2026-09-26-annotation-backfill/` and
 `.cedar/repairs/2026-09-25-context-additional/apply-summary.json` under the local CEDAR root.
+The HEAL instance's refreshed, fully validating proposal and unchanged readback after another
+DOI refusal are in `.cedar/repairs/2026-09-26-annotation-instance-cleanup/44685302-6d30-41fa-b129-6875fb887912/`.
 
 ### 3. Show Server Validation Findings in Workspace
 
