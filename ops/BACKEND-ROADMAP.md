@@ -1217,9 +1217,20 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 11 |
-  | Malformed/empty stored URI is the first Java rejection | 25 |
+  | Malformed/empty stored URI is the first Java rejection | 17 |
+  | Vocabulary-authentic Niger IRIs rejected by URI handling | 8 |
   | Malformed annotation objects | 8 |
   | Numeric JSON literals or an unexpected nested field array | 3 |
+
+  Reconcile controlled-term IRI acceptance across Java, TypeScript, model validation, schema
+  declarations and repository paths. Eight Niger identifiers contain U+00A0, allowed by RFC 3987
+  and present verbatim in VODANA-MPA submission 1. Preserve their RDF identity: replacing U+00A0
+  with `%C2%A0` passes current validation but fails exact historical terminology lookup and changes
+  RDF simple-string identity. Do not silently switch to the different version-2 identifier either.
+  Add raw-Unicode/percent-encoded identity and round-trip coverage while retaining rejection of
+  actual invalid identifiers. Resolve the production terminology HTTP 403 access restriction before
+  claiming live lookup compatibility. Evidence is under
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-niger-term-compatibility/`.
 
   Reconcile the remaining library behavior without silently discarding data.
   Thirteen instances have narrow source corrections prepared but still fail validation for other
@@ -1237,7 +1248,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Make `Source Hyperlink` repeatable in `VODAN-COVID-Migrants-Tunisia`
   (`05ce128b-c631-45c8-bfcf-a229ea1fcce5`) and split F050TUN's two stored URLs after resolving
   its dependent-instance blockers. All 368 instances require object-to-array migration; 360
-  proposed bodies validate, while eight retain malformed country IRIs. Do not switch the template before those instances
+  proposed bodies validate, while eight retain country IRIs rejected by URI handling. Do not switch the template before those instances
   can be migrated. This approved repair remains within the 50-instance backlog; its dependencies
   overlap existing findings. Audit evidence and proposed bodies are under
   `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency

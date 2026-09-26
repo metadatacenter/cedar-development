@@ -1542,8 +1542,19 @@ completed paths pass, generated JSON content/order agree, and YAML bytes match. 
 body also validates against the proposed repeatable-link template, leaving eight country-IRI
 migration blockers. Evidence is under `.cedar/repairs/2026-09-26-e052-link-numeric/`.
 
-The retained primary pipeline count is now 50: annotations 8, malformed/empty IRIs 25, mixed values
-11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
+The eight remaining Niger identifiers were then checked against retained VODANA-MPA snapshots
+and source Turtle. Submission 1 (version 1, 2021-09-14) contains their exact raw U+00A0 spelling;
+its percent-encoded spelling is absent. Version 2 uses a different namespace and suffix. U+00A0 is
+permitted in IRI paths by RFC 3987, while RDF 1.1 uses simple-string IRI equality without additional
+normalization. Encoding the stored identifier would therefore change RDF identity. Both model
+readers and the validator reject the raw form and accept the encoded form, establishing an
+IRI/URI acceptance mismatch. Production terminology comparisons returned Cloudflare HTTP 403 /
+1010, so no live equivalence was established. No production write was made. Preserve the original
+IRIs and reconcile acceptance across libraries and validation before retrying the migration.
+Evidence and standard references are under `.cedar/repairs/2026-09-26-niger-term-compatibility/`.
+
+The retained primary pipeline count is now 50: annotations 8, malformed/empty IRIs 17, vocabulary-authentic
+IRIs rejected by URI handling 8, mixed values 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
 blocked by unrelated validation errors, 25 need further triage, F050TUN has an approved migration
 blocked by its template dependencies, and one otherwise-valid HEAL repair is blocked only by DOI
 inconsistency. These are targeted updates, not a fresh full instance census.
