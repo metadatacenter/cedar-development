@@ -1610,9 +1610,20 @@ validation, all four conversion paths, generated JSON content/order agreement an
 YAML. Evidence is under `.cedar/repairs/2026-09-26-covid-links-migration/covid/`; the earlier blocked
 preflight remains under `.cedar/repairs/2026-09-26-repeatable-remaining-links/covid/`.
 
-The retained primary pipeline count under the latest libraries is now 37: annotations 8,
-malformed/empty IRIs 13, mixed values 11, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 12 need further
+The MONERIS instance `bb782576-ff22-43cb-b46c-2d44a5fcd492` no longer stores the placeholder
+`URL oder nix` as a URL. Its Resource Locator is empty and omitted from YAML. The one-item
+publication-date array was unwrapped without changing its null value or `xsd:date` type, and four
+root context mappings now match the template's exact property enums. The required bounding-box
+array now contains one generated-ID element with its required context and four null coordinates;
+no geographic values were invented. Inverse-transform checks constrain these changes, and all
+remaining populated values are preserved through the four conversion paths. The conditional
+verbatim write returned 200 and read back exactly; stored and completed validation, generated JSON
+content/order agreement and byte-identical YAML pass. Evidence is under
+`.cedar/repairs/2026-09-26-moneris-placeholder/`. No template was changed.
+
+The retained primary pipeline count under the latest libraries is now 36: annotations 8,
+malformed/empty IRIs 12, mixed values 11, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 11 need further
 triage, the approved F050TUN migration awaits production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
