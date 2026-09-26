@@ -17,7 +17,7 @@ The sections after the numbered items are findings rather than plans, and stay p
 [BioPortal reconciliation issues](#bioportal-reconciliation-issues) log that motivated the model, and
 the [survey of ingesting from other repositories](#ingesting-from-other-repositories). What the store
 captures and serves for multilingual labels is part of the model rather than a plan, and lives in
-[Multilingual labels](#10-multilingual-labels). Item 9 below is the open question about it.
+[Multilingual labels](#10-multilingual-labels). Item 13 below is the open question about it.
 
 ## Where the Code Is, and How It Is Switched On
 
@@ -581,10 +581,39 @@ adding a permanent toolbar or pushing search results down. Keep term-result orde
 distinct from rearranging constraint entries. Restore constraint-list reordering only
 with a clear, space-efficient interaction. Preserve imported actions unchanged while
 these authoring controls are deferred; deleting a selection removes only that constraint.
+The controls wait on the backend meaning of both actions, which item 7 settles.
 
 ### Other Deferred Backend Work
 
-- **7. Finish the ontology constraint's identity: retire `sourceUri`, and backfill `iri` and
+- **7. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
+   to the result after all ontology, branch, class and value-set constraints have been combined. They
+   are not customizations of one constraint row. Before the picker exposes authoring controls, state
+   what each action means for a single large ontology, multiple branches, multiple sources, pinned
+   releases and query-ranked results.
+
+   The current execution model cannot be that contract. Multi-source integrated search merges and
+   sorts one page and explicitly reports invalid pagination. Actions are then applied to that returned
+   page: a deletion can leave a hole, the server does not fetch a replacement, and a move is clamped
+   to the current page. Consequently, “move this term to position N” is neither a stable global order
+   over a 100,000-term ontology nor a well-defined position across different search queries.
+
+   Keep exclusion only if it can be pushed into result construction before pagination, with full
+   pages and correct totals regardless of which constraint admitted the term. For ordering, choose one
+   of two explicit products: replace arbitrary moves with a small ordered set of preferred terms whose
+   interaction with query matching is defined, or remove move actions from the supported authoring
+   model. Preserve imported actions while deciding, and provide a migration or compatibility rule for
+   existing actions before changing their stored shape or execution.
+
+   Prove the chosen contract with a large locally served ontology and with overlapping branches from
+   more than one source. Tests must cover paging beyond the first page, query and empty-query results,
+   pinned releases, duplicate terms admitted by multiple constraints, stale action targets, totals and
+   page filling. Only then should the terminology picker expose a table-level result-customization UI.
+   The picker's presentation is tracked under
+   [Compact Term Exclusions and Ordering in the Picker](#6-compact-term-exclusions-and-ordering-in-the-picker).
+   This item owns the backend meaning and the scale limit.
+
+- **8. Finish the ontology constraint's identity: retire `sourceUri`, and backfill `iri` and
    `sourceSystem` onto what is already stored.** One item because they are one change seen from two
    ends — what a constraint should carry, and what the constraints already written carry.
 
@@ -610,7 +639,7 @@ these authoring controls are deferred; deleting a selection removes only that co
    [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md#production-data) — patch what is stored before
    requiring the new shape of anything that reads it.
 
-- **8. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** Improve display for the
+- **9. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** Improve display for the
    ~200 IRI-fragment-only ontologies (measured 2026-08-03 against the served catalog: ~240 snapshots serve
    the IRI code as the label, less ~40 false positives whose local names are real words — PROVO, RDFS, …)
    where a real label is recoverable. Dominated by HOOM (135k, `HP:` codes), XREF-FUNDER-REG (45k, numeric),
@@ -697,7 +726,7 @@ these authoring controls are deferred; deleting a selection removes only that co
    2026-08-17 — all 69 succeeded, 595,873 terms and 934,329 names reindexed in 55 seconds. Swept
    over the whole index afterwards, labels carrying a line break and labels carrying stray
    whitespace both stand at **zero**.
-- **9. Term ordering in search: what BioPortal does, and what the local store can do instead
+- **10. Term ordering in search: what BioPortal does, and what the local store can do instead
    (replace-BioPortal track).** Ordering is the one part of lookup the local store does not model.
    Inside a snapshot, `SnapshotStore.labelSearch` orders by `length(pref_label), pref_label, iri`;
    across sources, `Util.sortByClosestMatch` puts preferred labels containing the query first and then
@@ -785,7 +814,7 @@ these authoring controls are deferred; deleting a selection removes only that co
    counts harvested from production templates with `ops/cedar_ontology_usage.py`, or per-term pick counts
    recorded at fill time. Two facts BioPortal's own prior uses are cheap to capture at ingest and worth
    storing either way: UMLS-group membership and the source's submission count.
-- **10. Backfill releases for the ontologies templates actually constrain to.** *2026-08-15, three
+- **11. Backfill releases for the ontologies templates actually constrain to.** *2026-08-15, three
    runs, 2,486 submissions ingested:* four recent releases apiece for the twelve mainstays
    (`ops/backfill-releases.sh`), then the next tier and the value-set collections, then every
    ontology under 50k classes (`ops/backfill-tail.sh`, 1,048 of them, 2,369 ok, 131 failed, 55 with
@@ -825,7 +854,7 @@ these authoring controls are deferred; deleting a selection removes only that co
    refused to overwrite a good snapshot, 17 were HTTP 404 on a submission BioPortal lists but will
    not serve, and the rest are old submissions that no longer parse.
 
-- **11. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
+- **12. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
@@ -840,21 +869,21 @@ these authoring controls are deferred; deleting a selection removes only that co
    bulk-harvest OLS `fileLocation`s, and OGG, whose PURL still 404s upstream (the 2026-07-29 snapshot
    stands). Labelling the OntoPortal authority moved out of this item to item 1, where being a dependency
    of the version-aware search puts it.
-- **12. Remaining multilingual read-side options (deferred by decision).** Done and in the "Built" list:
+- **13. Remaining multilingual read-side options (deferred by decision).** Done and in the "Built" list:
    capture, serving (search recall, synonyms, `lang=<code>` on the class and integrated-search endpoints),
    and the label backfill — `--backfill-labels-from-raw` (re-extract from the retained local raw matched by
    `file_hash`, no version-id gate since labels key by IRI) added +5.6M labels across the served catalog.
-   Residual data gap is item 15 (9 raw-less ontologies). Still open here, *by decision not blockers:*
+   Residual data gap is item 16 (9 raw-less ontologies). Still open here, *by decision not blockers:*
    `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring the
    submission's `naturalLanguage` for the default (stays English-preferred).
-- **13. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
+- **14. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
    currently says nothing about language; a field always renders (and searches) labels in the served
    default. Add a key naming the language the field should present its terms in — `termLanguage`, or
    `termDefaultLanguage` if a field may hold values in several languages and the key only sets the default
    (name to be decided). On the read side it maps to the `lang=` the editor/CEE already sends to the
-   terminology server (item 12); mostly a spec + editor addition, orthogonal to
+   terminology server (item 13); mostly a spec + editor addition, orthogonal to
    [the identity question](#4-is-the-content-identity-label-choice-correct).
-- **14. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
+- **15. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
    ontology's display name from BioPortal's metadata, then from its own `owl:Ontology` header title, then
    the acronym — and never downgrades a set name back to the acronym on re-ingest. That leaves the
    ontologies whose source declares no header title at all still showing the bare acronym in the picker:
@@ -862,8 +891,8 @@ these authoring controls are deferred; deleting a selection removes only that co
    OCDARWN, OCDARWNE, OCDO, RDL, REGN_BRO, STY1 (mostly VODAN/OCDAR/test/project artifacts). No automatic
    source exists, so each needs a hand-assigned title written to `ontology_source.name`. Cosmetic — the
    picker also shows the acronym — and cheap once the correct names are supplied; low priority.
-- **15. Give FLOPO its labels without costing it its hierarchy (the last of ten).** Nine served ontologies
-   had real labels but could not be multilingual-backfilled (item 12): no retained local raw matched their
+- **16. Give FLOPO its labels without costing it its hierarchy (the last of ten).** Nine served ontologies
+   had real labels but could not be multilingual-backfilled (item 13): no retained local raw matched their
    snapshot `file_hash`, and BioPortal had drifted, so neither `--backfill-labels` (source refetch) nor
    `--backfill-labels-from-raw` could fill them — NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS, SSTIM
    (plus NCBITaxon, deferred for size). Their primary English `pref_label` serves fine; only the
@@ -889,7 +918,7 @@ these authoring controls are deferred; deleting a selection removes only that co
    moved back to the dated BioPortal snapshot and the new one is retained but unserved. Check roots and
    edges, not just class count, before letting a PURL refresh stand on an import-heavy ontology.
 
-- **16. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
+- **17. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
    is a permissible-value list — already resolve to value sets, packaged today as the hand-built CADSR-VS
    value-set ontology and served through BioPortal; [cedar-cadsr-tools](https://github.com/metadatacenter/cedar-cadsr-tools)
    builds them (`ValueSetsOntologyManager`) as part of its CDE→CEDAR-field mapping. Investigate storing
@@ -903,17 +932,17 @@ these authoring controls are deferred; deleting a selection removes only that co
 
 ### Open Questions (Authorities That Don't Fit the Version Model)
 
-- **17. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **18. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
    versioned controlled term. (The instance is where these land — see
    [Instance-level version capture](#5-instance-level-version-capture-design-decision-documented).)
-- **18. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **19. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
-- **19. Cache the CompTox substance registry locally (bridge server, infra).** On every start the bridge
+- **20. Cache the CompTox substance registry locally (bridge server, infra).** On every start the bridge
    server rebuilds its registry by fetching roughly 14,700 substances from the external CompTox API in
    batches of a thousand, holding the result in a `ConcurrentHashMap` that dies with the process
    (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the load
@@ -923,10 +952,10 @@ these authoring controls are deferred; deleting a selection removes only that co
    refreshing on a schedule or when the local copy is stale rather than on every boot, so the server
    serves from the cache immediately. SQLite fits and is already in the stack (`org.xerial:sqlite-jdbc`,
    pinned in `cedar-parent` for the terminology local store). Split readiness from liveness in the health
-   check alongside, so a warming server reports as such rather than as failed. Related to item 18: both
+   check alongside, so a warming server reports as such rather than as failed. Related to item 19: both
    concern how CompTox content enters and is held by the stack.
 
-- **20. Make a missing catalog say so, instead of reporting a store that serves nothing.** The server
+- **21. Make a missing catalog say so, instead of reporting a store that serves nothing.** The server
    does not check that the catalog file is there. `CatalogStore.openFile` hands the path straight to
    the SQLite driver, so a path into a directory that exists but holds no catalog creates the file,
    `initSchema` builds the tables, and startup logs the store *enabled* for its full allowlist while
@@ -949,20 +978,20 @@ question about the picker into a question about the Workbench as well, and none 
 here can be finished without the component being finished first. The component itself has nothing
 left that does not need a host.
 
-- **21. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
+- **22. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
    focus moves in when it opens, Tab and Shift+Tab cannot leave it, and Escape closes it and gives
    focus back to the button that opened it, all asserted against the real picker. What that leaves is
    the part only a host can answer: `z-index: 50` inside a shadow root is a bet about a page nobody
    has seen, and an embedder whose own layers sit above it gets a dialog behind its chrome. Escape
    also closes without asking, which is wrong for an author midway through choosing constraints.
 
-- **22. Show the pinned version in the field's configuration panel.** The panel already lists
+- **23. Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
    that job — the picker adds one constraint and closes, as it does today. What the panel does not
    show is the version, which becomes visible state the moment constraints can be pinned: a field
    constrained to two branches of DOID at different versions looks identical there to one pinned
    at neither.
-- **23. Order across ontologies.** Ranking on the match reason is in place, which is the field half
+- **24. Order across ontologies.** Ranking on the match reason is in place, which is the field half
    of what the term-ordering item in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) measures.
    The ontology half is not: BioPortal multiplies its field score by a per-ontology prior built
    from its own page visits and UMLS membership, and that measurement puts the prior at most of
@@ -970,12 +999,12 @@ left that does not need a host.
    ontology was considered and declined, so the head of a common query is ordered within an
    ontology and arbitrary between them — three ontologies calling a class "melanoma" tie, and the
    IRI breaks it. Deciding what, if anything, plays the prior's part is the open question.
-- **24. Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
+- **25. Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
     produces: a source not served locally is reported unavailable, including the UMLS-licensed
     ones — SNOMEDCT, MEDDRA, RCD, ICPC2P — that BioPortal could answer for at latest. Reporting
     them as proxied while returning none of their terms would be the silent wrong answer this
     endpoint exists to prevent, so the state waits until something fills it.
-- **25. Fill in the definitions the backfill could not reach.** *Built 2026-08-17:* definitions are
+- **26. Fill in the definitions the backfill could not reach.** *Built 2026-08-17:* definitions are
     captured at ingest under four standard properties and the two NCIT mints for itself, held in a
     table beside the labels and **outside content identity** — a test asserts that a snapshot with
     definitions and one without hash identically, which is what keeps 2,635 pins meaning what they
@@ -992,12 +1021,12 @@ left that does not need a host.
     source-refetch path `--backfill-labels` already uses; without it, an ontology whose current
     snapshot has no retained raw stays undefined until its next ingest.
 
-- **26. Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
+- **27. Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
     not follow until `SearchIndexJob` runs again. It is incremental and takes seconds for a few
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
     rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
-- **27. One release, one identity — the remaining ways an extraction can diverge from itself.**
+- **28. One release, one identity — the remaining ways an extraction can diverge from itself.**
     *Fixed 2026-08-21:* a class asserting several `IAO:0100001` replacements had one of them chosen by
     axiom iteration order, so identical bytes extracted twice produced different `replaced_by` values
     and different content hashes. ICTV surfaced it — 19 of its retired virus names name more than one
@@ -1010,7 +1039,7 @@ left that does not need a host.
     the other single-valued fields chosen from a multi-valued annotation the same way — `label()` already
     ranks rather than takes the first, which is why it did not have this bug.
 
-- **28. Stop a harvest repainting a snapshot's origin.** A driver stamps its `--backend` on whatever it
+- **29. Stop a harvest repainting a snapshot's origin.** A driver stamps its `--backend` on whatever it
     ingests, and content-hash identity means an identical download merges into the snapshot already
     held — so the merge rewrites that snapshot's source label. The OLS harvest of 2026-08-20 relabelled
     123 BioPortal and OBO Foundry releases as `ols` across two runs, which is how `bioportal` came to
@@ -1019,7 +1048,7 @@ left that does not need a host.
     a first ingest should set it. Until then every driver has to record the labels and put them back,
     which `harvest-github-releases.sh` does and the other two do not.
 
-- **29. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
+- **30. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
     all list their versions, so what the catalog is missing is a question with an exact answer — and
     nothing asks it on a schedule. A weekly poll of a plan of repositories and acronyms, ingesting only
     what is absent, would keep the store current for the sources where currency is knowable, and would
@@ -1031,7 +1060,7 @@ left that does not need a host.
 
 ### Cutover
 
-- **30. Ship behind a flag for one release, then delete what it replaces.** The new component is the
+- **31. Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
@@ -2011,7 +2040,7 @@ Three things the work measured that the plan below rests on:
 
 ## Ingestion Tracker (Ongoing)
 
-An **iterative** task: updated each time more ontologies are ingested from other repositories (item 11).
+An **iterative** task: updated each time more ontologies are ingested from other repositories (item 12).
 Identity is the content hash, so the same release from multiple sources/serializations collapses to one
 snapshot — the distinct-hash count is the true store size. Method/findings under
 [Ingesting from other repositories](#ingesting-from-other-repositories).
@@ -2049,8 +2078,8 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   deferred to a giant-run with the server stopped). New `latest` snapshots serve after a terminology restart.
 - 2026-08-04 — GAZ ingested (download timeout raised to 90 min, commit `f66b1bb`), and the served catalog's
   multilingual labels were backfilled from retained local raws (`--backfill-labels-from-raw`, +5.6M labels
-  across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 12). Residual re-fetch tracked as item 15.
-- 2026-08-06 — targeted pass over the served prod catalog: item 15's label re-fetch (all ten, closing it)
+  across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 13). Residual re-fetch tracked as item 16.
+- 2026-08-06 — targeted pass over the served prod catalog: item 16's label re-fetch (all ten, closing it)
   plus the ingests deferred from the 2026-08-03 OBO pass (prod 1332→1343 snapshots, 1309→1320 hashes,
   1214→1215 acronyms).
   **NCBITaxon is the headline** — the refresh that was deferred as too RAM/time-heavy ran in 82 min at
@@ -2060,8 +2089,8 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   from BioPortal (206,628 → 206,860 classes, roots unchanged at 18, +206,860 labels), **MS** and **RS**
   (structure unchanged or marginally better, +4,619 and +14,611 labels), and **GEMET** newly ingested
   (5,609 concepts via `skos:broader`, +202,276 labels — its 2026-08-01 failure is resolved, see below), and
-  item 15's five non-OBO stragglers from BioPortal (DOVES, MIXS, MOLSIM, NAMO, SSTIM — 81 s for all five).
-  **FLOPO refreshed and reverted** — see item 15; the store keeps both snapshots.
+  item 16's five non-OBO stragglers from BioPortal (DOVES, MIXS, MOLSIM, NAMO, SSTIM — 81 s for all five).
+  **FLOPO refreshed and reverted** — see item 16; the store keeps both snapshots.
   *GEMET's failure was never the remote end.* It fails under Java with `SSLHandshakeException: PKIX path
   building failed` because `eionet.europa.eu` serves a chain JDK 17's truststore will not build a path to.
   `curl` succeeds against the same URL using the system trust store, so a curl reachability check does not
@@ -2097,7 +2126,7 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 
   Two defects surfaced, both mine to have caused and both now recorded. Every driver **repainted the
   source label** of any snapshot its download merged into: 123 BioPortal and OBO Foundry releases were
-  relabelled `ols` across the two runs, restored from the pre-run catalog — item 28. And a sweep for
+  relabelled `ols` across the two runs, restored from the pre-run catalog — item 29. And a sweep for
   unlabelled ontologies flagged 11 of the 46 by comparing each label against its IRI's local name, which
   is **wrong for a whole family of vocabularies**: schema.org, OWL, PROV, SKOS and REPRODUCE-ME label
   their terms with the CamelCase local name on purpose, and DHBA, HBA, EC and LIPIDMAPS carry proper
@@ -2118,7 +2147,7 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   concept, every edge, every relation and all 300,922 labels, and still hashed differently — because 19
   retired virus names assert more than one `IAO:0100001` replacement and the extractor took whichever
   the axiom iteration reached first. Content identity was therefore not a function of content. Fixed
-  under item 27, with the finding worth keeping: the two ICTV snapshots are the evidence, and the same
+  under item 28, with the finding worth keeping: the two ICTV snapshots are the evidence, and the same
   bytes now extract to one identity.
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
@@ -2132,7 +2161,7 @@ Ordered for the next unattended run, cheapest and most certain first. The catalo
 `$CEDAR_HOME/cedar-term/prod/catalog.sqlite`; back it up before any write, and re-check roots and edges
 after every refresh rather than class count alone (this is what caught FLOPO).
 
-1. **Give FLOPO its labels back.** The only item-14 ontology still without a label side-table. It needs a
+1. **Give FLOPO its labels back.** The only item-16 ontology still without a label side-table. It needs a
    source carrying its import closure, which the bare OBO PURL is not — try BioPortal, the route that
    worked for the other six, and keep the reverted `latest` if the tree does not come back at ~23 roots.
 2. **Settle DDSS.** The catalog shows 807,061 classes and 800,850 edges as of 2026-07-29, contradicting
@@ -2146,7 +2175,7 @@ after every refresh rather than class count alone (this is what caught FLOPO).
 5. **Grow version pairs** from dated OBO/GO release URLs, for diff coverage.
 
 Not worth retrying: **OGG**, whose PURL still 404s upstream (checked 2026-08-06; the 2026-07-29 snapshot
-stands), and **EO1**, deferred by decision (item 8 — its SKOS source declares `skos:broader` as string
+stands), and **EO1**, deferred by decision (item 9 — its SKOS source declares `skos:broader` as string
 literals).
 
 ## BioPortal Reconciliation Issues
@@ -2513,7 +2542,7 @@ is all there is.
 
 - **Two ingestion modes cover the field.** `--source url` for anything with a stable file URL (OLS
   `fileLocation`s, W3C, SKOS dumps, LOV dated versions); `--source bioportal --base-url` for OntoPortal
-  instances, which additionally give real submission history. These map onto roadmap item 10.
+  instances, which additionally give real submission history. These map onto roadmap item 11.
 - **Harvest OLS as a catalogue**: read `fileLocation` from `/api/ontologies?size=300` and feed each to
   `--source url`. (Skip the two `file:///nfs/...` entries; they are not downloadable.)
 - **SKOS is fully supported** end to end, including serialization-independent identity — the thesaurus
@@ -2555,7 +2584,7 @@ being told which exist. Useful for filling in, unhelpful for noticing a change.
 The strategy follows from the split. For the enumerable sources, poll the version list on a schedule
 and ingest what the catalog lacks — cheap, exact, and the only ongoing work worth automating.
 `harvest-github-releases.sh` does the GitHub half of this and `backfill-tail.sh` the BioPortal half;
-neither runs on a timer yet, which is what item 29 is for. For the single-file sources, re-read on a
+neither runs on a timer yet, which is what item 30 is for. For the single-file sources, re-read on a
 much slower cadence and accept that the yield is a snapshot only where the file has changed since the
 last pass — the OLS re-ingest of 2026-08-20 measured that yield at **8 ontologies out of 120**, which
 sets the expectation for how often a re-read is worth its download.
