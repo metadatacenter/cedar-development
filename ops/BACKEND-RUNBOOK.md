@@ -1535,9 +1535,16 @@ agree, and YAML bytes match. Its repeatable-link migration proposal now validate
 migration blockers (eight country IRIs and one source link with four numeric-value errors).
 Evidence is under `.cedar/repairs/2026-09-26-a147-link-numeric/`.
 
-The retained primary pipeline count is now 51: annotations 8, malformed/empty IRIs 26, mixed values
+E052ITA (`7a8d2744-6e4b-40fe-a3f9-025b617f7c99`) had the missing `https` restored in its
+Bitly link and four Arc Seconds integer-zero values converted to string `"0"`, preserving their
+`xsd:double` datatype. The conditional write was read back exactly. Stored validation and all four
+completed paths pass, generated JSON content/order agree, and YAML bytes match. The repaired
+body also validates against the proposed repeatable-link template, leaving eight country-IRI
+migration blockers. Evidence is under `.cedar/repairs/2026-09-26-e052-link-numeric/`.
+
+The retained primary pipeline count is now 50: annotations 8, malformed/empty IRIs 25, mixed values
 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 26 need further triage, F050TUN has an approved migration
+blocked by unrelated validation errors, 25 need further triage, F050TUN has an approved migration
 blocked by its template dependencies, and one otherwise-valid HEAL repair is blocked only by DOI
 inconsistency. These are targeted updates, not a fresh full instance census.
 
