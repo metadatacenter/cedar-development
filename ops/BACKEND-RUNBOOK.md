@@ -1576,9 +1576,19 @@ all four completed conversion paths pass, generated JSON content/order agrees, a
 match. Originals, invariants and readback evidence are under
 `.cedar/repairs/2026-09-26-cell-publication-titles/`.
 
-The retained primary pipeline count under the latest libraries is now 41: annotations 8,
-malformed/empty IRIs 17, mixed values 11, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 16 need further
+The amphibian template `6530ee0d-23cc-4680-b368-76881372e514` now makes nested
+`Taxonomic Coverage / Species of community interest / SpeciesURL` repeatable. A fresh all-version,
+all-publication-state search found one dependent instance, `6c064883-14a5-4e5d-95e0-5939f83a14ba`.
+Its comma-joined GBIF identifiers were split into two ordered link objects without changing either
+URL. The template and instance candidates passed validation before conditional verbatim writes;
+both readbacks matched exactly and passed all four conversion paths, JSON content/order agreement
+and byte-identical YAML. Identifiers, provenance and unrelated values were preserved. Evidence is
+under `.cedar/repairs/2026-09-26-repeatable-species-url/`. Two other multiple-URL triage instances
+remain: COVID Project Content metadata and Proteomics metadata.
+
+The retained primary pipeline count under the latest libraries is now 40: annotations 8,
+malformed/empty IRIs 16, mixed values 11, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 15 need further
 triage, F050TUN has an approved migration waiting for production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
