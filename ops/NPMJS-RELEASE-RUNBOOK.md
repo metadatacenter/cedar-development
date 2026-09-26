@@ -543,14 +543,14 @@ git -C $CEDAR_HOME/cedar-development commit -m "Refresh the CEE npm audit baseli
 git -C $CEDAR_HOME/cedar-development push origin develop
 ```
 
-That is CEE's own baseline alone. Pinning the release into its consumers moves seven more, so going
+That is CEE's own baseline alone. Pinning the release into its consumers moves their baselines too, so going
 straight on to [Propagate a stable CEE release](#propagate-a-stable-cee-release) means refreshing
-all eight together there instead of committing the same file twice.
+the complete set together there instead of committing the same file twice.
 
 ## Propagate a Stable CEE Release
 
 Publishing CEE does not update a frontend or an environment. Pin the exact stable version in all
-seven consumer manifests and lockfiles with the maintained inventory helper:
+declared consumer manifests and lockfiles with the maintained inventory helper:
 
 ```bash
 node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --apply "$CEE_VERSION"
@@ -563,7 +563,7 @@ and lock regeneration must use the same peer-dependency mode as their CI (curren
 Local rebuild paths are in [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee-getting-a-local-build-into-the-frontends);
 served payloads and cache invalidation are in [PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md#6--verify-and-rebuild-every-cee-host-to-the-intended-version).
 
-Pinning the release rewrites every one of those lockfiles, so all seven dependency-graph digests the
+Pinning the release rewrites every one of those lockfiles, so all consumer dependency-graph digests the
 train's dispatch preflight reads go stale at once and the next `cedarcli publish train` refuses with
 `npm dependency graph changed for <repo>:<lockfile>`. Refresh the whole set rather than CEE's alone:
 
@@ -630,7 +630,7 @@ proof for the model-library code compiled into CEE. The train development base m
 the public version (for example, `2.0.4-dev…` versus `2.0.3`); version-name similarity is not release
 evidence and is deliberately not a prerequisite for running the proof.
 
-On `start`, that proven public CEE is pinned in all seven frontend consumers before either source
+On `start`, that proven public CEE is pinned in all declared frontend consumers before either source
 variant is stamped. Both the release and next-development Git trees retain the stable CEE pin; the
 next-development tree does not silently return to the train's development CEE. The route then
 integrates those exact trees into `main` and `develop`, publishes the stable frontend npm packages,
