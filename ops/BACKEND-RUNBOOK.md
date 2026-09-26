@@ -1568,9 +1568,17 @@ repeatable-link migration bodies under the updated validator. The production dep
 needs these libraries before that migration can run. Evidence, classpath, originals and outputs
 are under `.cedar/repairs/2026-09-26-unicode-iri-library/`; no production artifacts were changed.
 
-The retained primary pipeline count under the latest libraries is now 42: annotations 8,
-malformed/empty IRIs 17, mixed values 11, multiple datatypes 3, numeric literals/nested array 3.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 17 need further
+The `Cell` instance `a20e4a8a-81b2-4cbd-8911-29a439b30ed2` now uses the template's
+`Publications_title` field and property mapping. Its malformed nested array exactly duplicated
+both existing PMIDs and the two existing titles; removing that array preserved every distinct
+value. The ETag-guarded verbatim write returned 200 and read back exactly. Stored validation and
+all four completed conversion paths pass, generated JSON content/order agrees, and YAML bytes
+match. Originals, invariants and readback evidence are under
+`.cedar/repairs/2026-09-26-cell-publication-titles/`.
+
+The retained primary pipeline count under the latest libraries is now 41: annotations 8,
+malformed/empty IRIs 17, mixed values 11, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 16 need further
 triage, F050TUN has an approved migration waiting for production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
