@@ -348,6 +348,12 @@ state change and otherwise a quiet one-minute heartbeat with elapsed time, the a
 counts, Maven file counts, a scheduled transient retry, and the exact terminal failure. Ctrl-C
 stops only the watcher; it remains attached while automatic backoff is in progress.
 
+The controller itself also emits a one-minute progress heartbeat during long stages,
+including parallel task identifiers, the attempt log directory, and pending development
+CI links. Unchanged CI polling messages are limited to once a minute. One-shot status
+checks the kernel-held release lock to distinguish a running controller from a stopped
+one: it recommends watching the running controller and resuming a stopped release.
+
 Without `--watch`, `release status` is a one-shot phase table. It says `COMPLETE` only at acceptance,
 marks the single next or failed phase, and prints the exact safe commands to run next. Every Maven
 file is still checkpointed with completed/total, both disposition counts, and its current path, so

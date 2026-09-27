@@ -205,6 +205,15 @@ packages, and runs the whole-stack smoke tiers. A failure at any stage returns n
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
 
+Before a failed isolated frontend build is cleaned up, the CLI retains its command log
+and available `test-results`, `playwright-report`, `surefire-reports`,
+`failsafe-reports`, and `coverage` files under
+`$CEDAR_HOME/.cedar/build-reports/failures/`. The failure prints the exact directory.
+Each bundle is capped at 250 MiB of copied files; `manifest.json` lists retained files
+and files omitted for size. Dependencies, Git metadata and symlinks are excluded.
+Successful builds do not retain these diagnostic copies. Remove old bundles when no
+longer needed; the cap is per failure, not a total retention quota.
+
 For a compile-only estate build, `cedarcli build all --skip-tests` skips both Java
 and frontend verification suites while retaining dependency-ordered frontend builds.
 It does not claim full reactor verification or run the frontend deployment/smoke sequence.
