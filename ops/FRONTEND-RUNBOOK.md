@@ -571,17 +571,17 @@ It is TypeScript, not JSON, and is compiled in.
 
 The bundle registers two custom elements from one bootstrap.
 `cedar-embeddable-editor` renders a template as a form, and `cedar-embeddable-field`
-renders one field's control with nothing around it — no label, no description, no
-card — for a host that holds a field artifact rather than a template. The CEDAR
-Embeddable Designer is the host that wants the second: an author giving a field a
-default value needs the control the field will actually have, and that control is
-the editor's.
+renders one field from its artifact. Editable CEF supplies the bare value control
+for hosts such as CED's default-value editor. Read-only CEF owns the complete field
+presentation: label, type, description and applicable constraints, choices, sources
+and declared defaults. A supplied value remains visible and read-only.
 
-Both draw the same component. `CedarFieldWidgetComponent` owns the routing from an
-input type to one of the eighteen widgets, the four static blocks, and the
-read-only choice between a control and a statement of what the field will accept;
-the component renderer draws one per field of a form, and the element draws one.
-Neither has a widget switch of its own, so a widget added or rerouted reaches both.
+`CedarFieldPresentationComponent` owns the shared label, description and content
+layout for CEE fields and read-only CEF. CEE projects its occurrence pager into the
+same presentation. `CedarFieldWidgetComponent` owns the control/static-content routing
+and the read-only choice between a value and its specification; editable CEF uses
+that bare widget directly. Empty specifications do not draw empty boxes. Workspace
+preview dialogs supply artifacts and dialog controls, not field descriptions.
 
 Registering them together is deliberate. `defineCustomElementOnce` takes a name and
 `bootstrap-once.ts` still claims one page-wide slot, so two copies of the bundle
@@ -600,8 +600,8 @@ The value crosses the boundary as a discriminated union rather than as text
 (`CedarEmbeddableFieldValue` in `cee-public-api.ts`): a literal, a number, an ISO
 temporal literal, an IRI with a label, a list of literals, or an attribute-value
 field's named slots. An attribute-value field is read but not written — its slots are named
-by the control that creates them — and a page break is refused outright, since it
-divides a form and this element has none.
+by the control that creates them. A standalone page break is described by its label
+and type without creating form pagination.
 
 <a id="cee-where-the-design-values-come-from"></a>
 
