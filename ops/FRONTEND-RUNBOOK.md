@@ -2724,10 +2724,16 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 ## Surface inventory and token coverage
 
 The modern UI hierarchy is generated from `.ui-surfaces.json` in Workspace, CED,
-CEE and the Template Designer host. These registries own surface names, stable
+CEE, the Template Designer host and OpenView. These registries own surface names, stable
 IDs, hierarchy and the links to source and rendered contracts; the Markdown preview
 is generated output. Keep CEE/CEF as opaque entries and register their exposed
 menus/dialogs separately.
+
+OpenView's registry is at `cedar-openview/.ui-surfaces.json`; its application source
+is under `cedar-openview-src`. CI checks that nested source for unregistered
+menus/dialogs and literal Angular routes, and checks registered source anchors.
+Its page/panel and inline error/empty-state entries have source coverage, not
+rendered token contracts. CEE stays opaque and shares CEE's existing registrations.
 
 `cedarcli check design-tokens --strict` checks registration coverage alongside
 source-style adoption. `--sync-surfaces` refreshes generated browser helpers from
@@ -2754,7 +2760,7 @@ cedarcli check design-tokens --surface-inventory "$CEDAR_HOME/output/modern-work
 If the shell has no `cedarcli` alias, use
 `bash "$CEDAR_HOME/cedar-cli/cli.sh"` in its place. The command needs the sibling
 `cedar-design-tokens`, `cedar-workspace`, `cedar-embeddable-designer`,
-`cedar-embeddable-editor` and `cedar-template-designer` checkouts. It validates the
+`cedar-embeddable-editor`, `cedar-template-designer` and `cedar-openview` checkouts. It validates the
 registries before generating the hierarchy and does not require a running stack.
 Resolve reported registration errors before presenting the list as current.
 
