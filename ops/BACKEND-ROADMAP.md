@@ -1243,48 +1243,36 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Every one of the 4,689 failures is a missing `@context` mapping, none a conflicting one. The
   evidence is under `$CEDAR_HOME/.cedar/audits/2026-09-27-ctxreq-at-risk/`.
 
+  **Possible approach: update eligible artifacts through the canonical Java model.** For artifacts
+  whose meaning can be preserved, consider reading them with `cedar-artifact-library` and writing
+  its canonical rendering back to the store. This could normalize contexts, complete empty fields
+  and align stored representations with the Java/TypeScript libraries. Treat it as an optional
+  update strategy within this repair work, not a commitment to rewrite the entire corpus or a
+  prerequisite for narrow repairs such as supplying missing context mappings.
+
+  Evaluate the approach with a dry run against fresh sources. Compare each rendering with its
+  source, classify every difference and fix any library loss before selecting artifacts for a
+  rewrite. Cross-library agreement does not prove preservation. Use RDF-graph equivalence where
+  applicable, together with explicit checks of schema constraints, field and array order, labels,
+  language tags, identifiers, provenance and other content that RDF equality alone may not protect.
+  Validate each complete candidate against its actual template or meta-schema and check dependent
+  instances before changing a schema. Artifacts requiring an owner's semantic decision stay out
+  of the automatic rewrite population.
+
+  If the evidence supports canonical updates, approve the permitted difference categories and
+  proceed in bounded batches through `repairs/cedar_artifact_repair.py`, using conditional verbatim
+  writes, saved preimages and exact readbacks. Refresh the scope and operational cost first: a full
+  corpus rewrite would involve roughly 300,000 writes, each with a new revision and indexing work.
+  Record exceptions explicitly and retain targeted transforms wherever their narrower invariant
+  provides a clearer preservation guarantee.
+
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
 
-- **25. Canonicalize the stored artifacts through the Java library, once a rewrite is proven to
-  preserve meaning.** Reading every production artifact into `cedar-artifact-library` and writing
-  back what it renders would leave the store in one canonical form, the form the library and its
-  TypeScript twin already agree on. It would change almost everything. Of 150,580 readable
-  instances, only 30 round-trip to content equal to what is stored, and of 151,829 readable schema
-  artifacts, only 139 do (the instance and schema matrix audits of 2026-09-25). The rewrite is about
-  300,000 writes, each a new revision, a reindex and whatever else follows a save.
-
-  **The audits prove agreement, not preservation.** Both show the Java and TypeScript libraries
-  producing the same document for every readable artifact. Both say plainly that this does not show
-  normalization keeps every stored declaration. Most differences are expected to be harmless:
-  `@context` normalized, unset fields completed with empty values, members reordered. Some are
-  known not to be. Among valid instances, one loses a required context mapping in the round trip,
-  one loses a populated language tag, and 22 are affected in all. Of the 612 invalid instances,
-  551 fail completion, validation or output in at least one conversion path; they cannot be
-  canonicalized and need the targeted repairs in the production-data item.
-
-  **Build the invariant before any write.** A repair here is a transform plus an invariant proving
-  nothing else changed, and a whole-document rewrite has no narrow one. The candidate is semantic
-  equality: the rewritten artifact yields the same RDF graph as the stored one, which the validated
-  RDF export makes checkable. Classify every difference across the corpus, fix the known losses in
-  the library first, and approve categories of difference explicitly rather than accepting whatever
-  the renderer emits.
-
-  **Then rewrite in stages, as every other repair is written.** Only artifacts whose differences all
-  fall in approved categories are rewritten, one verbatim `PUT` at a time through
-  `repairs/cedar_artifact_repair.py`, with the pre-image saved, the result read back and provenance
-  preserved. A rewrite does not replace targeted repairs of defects whose meaning needs an owner,
-  and the context-requirement gap in the production-data item is repaired on its own, narrower
-  invariant rather than waiting for this.
-
-  Done when every difference between a stored artifact and its canonical rendering is classified,
-  the approved categories are rewritten with RDF-graph equality proven for each artifact, and the
-  remainder are named exceptions.
-
 ## Later Decisions
 
-- **26. Enforce the request-body classification, and decide what an open body requires.**
+- **25. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1305,7 +1293,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **27. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1337,7 +1325,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **28. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1375,53 +1363,43 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 31 settles a different question about the same two services: which path shape a route takes.
+  The artifact-addressing item settles a different question about the same two services: which
+  path shape a route takes.
   The two interact, because retiring repo's routes would retire the bare-identifier convention it
   proposes to generalize. Whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **29. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
-  `cedar-model-validation-library` stands between a caller and the store: the artifact server's
-  `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
-  `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only
-  later, when something asks for YAML — which is why defects sat in production for years before a
-  read found them.
+- **28. Add artifact-library checks to the write path.** Direct JSON writes currently validate
+  through `cedar-model-validation-library`; they do not also prove that the Java artifact model
+  can read and render the submitted document. YAML conversion exercises the artifact library,
+  but that does not establish the same contract for a JSON submission. Add this check alongside
+  schema validation so a successful save does not leave an artifact that model readers or exports
+  subsequently reject. Instance validation must still use the actual template: model readability
+  alone does not establish that field values satisfy its declarations.
 
-  The two disagree, and the meta-schema is always the more permissive. It asks every literal field
-  for an `inputType` and nothing more, so a temporal field with no granularity is accepted and then
-  unreadable. It types `pav:version` as a non-empty string, so `0.9` is accepted and has no YAML
-  form. It shares one value-constraints shape across all ten literal input types, so a text field
-  may carry an option list and a numeric field may carry one too. Every artifact repaired in
-  September 2026 entered through that gap.
+  Refresh the disagreement inventory against the current libraries before choosing enforcement.
+  Historical examples included missing temporal granularity, malformed version strings and
+  constraints inappropriate for a field's input type; subsequent validator and reader fixes mean
+  they must not be assumed to remain gaps. Both schemas and instances have now been audited through
+  the Java/TypeScript pipelines. Use that evidence and the remaining production-data findings,
+  recheck the current submitted candidates, and distinguish source defects from conversion defects.
 
-  The library is also the cheaper check. Measured warm over 100 runs: a 343 KB template costs it
-  2.70 ms to read and render against 17.14 ms to validate; 163 KB, 1.83 ms against 11.77 ms;
-  42 KB, 0.29 ms against 3.05 ms. Across all 151,806 production schema artifacts the library sits
-  at 0 ms through the 99th percentile where the validator reaches 7 ms, and on the largest
-  artifacts the gap is widest — 271 KB cost 5 ms to convert and 88 ms to validate. Adding the
-  library to a path that already pays for the validator costs roughly a sixth again.
+  Measure the additional write-path cost for representative schemas and instances, including large
+  and nested artifacts. Earlier warm schema measurements put model read/render below schema
+  validation cost, but they do not establish the current combined write-path cost or the instance
+  overhead. Return actionable model-reader diagnostics with their field paths rather than burying
+  the useful explanation among JSON Schema branch failures.
 
-  And it says what is wrong. Draft-04 `oneOf` reports every failed branch, so one duplicated
-  literal produced 242 errors whose first named `/properties/theme/items/properties/@value/type:
-  array found, string expected` — a path with nothing wrong with it. The library answers `No text
-  value present for field temporalGranularity at /properties/Analysis Complete / Release date/_ui`.
+  Decide whether findings initially warn or reject a write, and define how strict-reader errors
+  and compatibility warnings differ. Evaluate the exact candidate that would be stored after the
+  ordinary write path's completion and metadata handling; for a verbatim write, evaluate the supplied
+  body unchanged. A repair whose resulting candidate passes both checks must remain possible even
+  when its previous stored body fails. Inventory otherwise legitimate edits that the extra check
+  would refuse and define a rollout or explicit exception policy for those cases.
 
-  **Instances are unmeasured and have to be settled before any of this lands.** The September 2026
-  work covered the 151,831 schema artifacts and left the 150,579 instances alone. An instance is
-  validated against the template it names rather than a fixed meta-schema, the library reads one
-  through `readTemplateInstanceArtifact`, and neither the cost nor the disagreement is known for
-  them. Measure both before deciding, since instances outnumber schema artifacts and a write gate
-  that doubles their cost is a different proposition.
-
-  Order is forced, as it was for `pav:version`. Refusing on write what the library cannot read
-  makes every stored artifact carrying such a shape unsaveable, including through the repair that
-  would fix it, so the corpus has to be clean first. `cedar_artifact_rest_audit.py` now reports the
-  shapes found so far — `temporal-precision-absent`, `field-offers-choices-it-cannot-present`,
-  `literal-label-blank`, `class-constraint-unresolved`, the three `artifact-version-*` rules — and a
-  pass over instances would say what else is waiting.
-
-  Decide, too, whether the library gates or advises. Gating refuses the write; running it ahead of
-  the validator and surfacing its message keeps the meta-schema authoritative while giving the
-  author something they can act on. The second is reversible and the first is not.
+  This check does not authorize canonical rewriting: reading and rendering for verification must
+  not silently replace the submitted body with the model's output. Cover JSON and YAML creates,
+  ordinary updates, validated verbatim repairs, template-dependent instance failures and diagnostic
+  responses, then verify the deployed paths through whole-stack smoke.
