@@ -48,7 +48,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 20 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 21 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
@@ -228,7 +228,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   consumes the persistent value-recommender queue. Establish whether the Workbench or any external
   client still uses recommendations, then either retain and own that product surface, move the needed
   function to an active service, or retire it after draining or deliberately discarding its queue and
-  removing its producers.
+  removing its producers. If retained, make `RulesGenerationStatusManager` safe for concurrent
+  generation and status reads: its shared `HashMap` is mutated while `getStatus()` copies the
+  values, producing `ArrayIndexOutOfBoundsException` and HTTP 500 from the status command during
+  sustained template writes. Cover the race and verify that the worker can poll status while rules
+  are generated without those failures.
 
   **Submission server.** Retirement is the expected answer, and the inventory that has to precede it
   is what remains. It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission paths
@@ -632,104 +636,89 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **16. Converge on one pagination encoding.** Ten paging shapes are in service across seven
-  applications. The artifact, resource and OpenView listings all build on the same `PagedQuery` and
-  `LinkHeaderUtil`, so nothing in the code forces even the split between those three. The shapes
-  differ on three independent axes: the request parameters, the page base, and where the response
-  metadata goes. A client library that can page one of them cannot page the rest.
+- **16. Stop the resource server shipping the Keycloak server SPI.** Every Keycloak login makes
+  CEDAR's event listener post the event to the resource server's `/command/auth-user-callback`, which
+  provisions the user: the user record, membership of Everybody and the home folder. The endpoint
+  reads one field of the event, `clientId`, to confirm the login came through CEDAR's own client. It
+  reads that field by deserializing the whole event into Keycloak's `org.keycloak.events.Event`, a
+  class in `keycloak-server-spi-private`. `cedar-resource-server-application` therefore declares
+  `keycloak-server-spi` and `keycloak-server-spi-private` at compile scope, and 794 of the 1,333
+  Keycloak classes in its shaded jar come from those two jars, among them the `models`,
+  `authorization`, `authentication`, `broker` and `storage` packages. Nothing else in the service
+  uses them.
 
-  - **`limit`/`offset`, with `Link` and `Total-Count` as headers and the body kept to the
-    collection.** The artifact server's template, element, field and instance listings
-    (`AbstractArtifactCrudResource.java:284`). No other server sends those headers. An offset at or
-    past the total answers 400 rather than an empty page
-    (`AbstractArtifactServerResource.java:105`).
-  - **`limit`/`offset`, with the same link set in the body under `paging` beside `totalCount`.**
-    Folder contents, contents-extract, search and categories on the resource server
-    (`AbstractSearchResource.java:157`, `FolderContentsResource.java:319`,
-    `CategoriesResource.java:145`), and the OpenView server's folder listing
-    (`FoldersResource.java:123`).
-  - **An opaque forward-only continuation.** `?continuation=` on `/search-deep`, answered with
-    `continuation` in the body and first and next links alone in the `paging` block. The token binds
-    the user, a query fingerprint, an OpenSearch point-in-time and `search_after`, and a request
-    carrying both a continuation and an offset is refused (`AbstractSearchResource.java:99`,
-    `SearchContinuation.java`).
-  - **One-based `page`, with `page_size` and `pageSize` both accepted and BioPortal's flat body
-    fields.** The terminology server's proxy and local-store routes answer `page`, `pageCount`,
-    `pageSize`, `totalCount`, `prevPage` and `nextPage` (`PagedResults.java:8`,
-    `SqliteTerminologyService.java:208`). The answer's `pageSize` reports the size of the page
-    returned rather than the size asked for.
-  - **One-based `page` and `pageSize` in a POST body, with a result block per constraint type.**
-    Versioned `POST /search` gives each block its own `totalCount`, `countCapped`, `page` and
-    `pageSize` (`SearchRequest.java:22`, `VersionAwareSearchService.java:120`). `POST
-    integrated-search` also pages from the body, and answers the flat BioPortal-shaped fields.
-  - **Zero-based `page` and `pageSize`, echoed back with `found`, no links and no total.** The
-    bridge server's `/search-by-name` across the seven external authorities
-    (`ExternalAuthorityResource.java:124`). No other route in the estate bases `page` at zero.
-  - **A zero-based `offset` against a page size the server fixes.** `GET /search/hierarchy` returns
-    at most `CHILD_LIMIT` children, 50, and echoes the offset so a client can ask for the rest. It
-    takes no page size and reports no count (`VersionAwareSearchResource.java:132`,
-    `HierarchyResponse.java:29`).
-  - **A keyset cursor in a POST body.** The monitor server's log query takes `limit` and a
-    `"<iso>,<id>"` `cursor`, and answers `nextCursor`, null once the walk is exhausted
-    (`LogQuerySpec.java:29`, `LogQueryResults.java:27`). The cursor names an ordered column rather
-    than carrying an opaque token, so it is a second cursor encoding rather than the same one.
-  - **`limit` as plain truncation.** The log explorer and usage routes take a limit and no offset,
-    which leaves row N+1 unreachable (`LogExplorerResource.java:72`, `LogUsageResource.java:112`).
-  - **An unpaged collection with a count.** The messaging server returns every message and a `total`
-    (`MessagesResource.java:105`).
+  Two costs follow. The resource server ships part of an unsupported Keycloak 22.0.4 server, the
+  code the advisories against `keycloak-server-spi-private` and `keycloak-services` describe, and any
+  scanner that reads the jar reports it. That code does not run as a Keycloak server, so the practical
+  exposure is small, but it has no reason to be there. The parse also uses the strict mapper, which
+  refuses unknown properties. A field that a later Keycloak adds to `Event` would therefore fail every
+  login's callback and stop new users being provisioned, so the upgrade in item 3 would meet that
+  failure in a service that should not have to change with the Keycloak server.
 
-  **Three divergences sit underneath the shapes, and the first is a defect however the decision
-  goes.** The `page_size`/`pageSize` alias resolves by argument position, and the two route families
-  pass the arguments in opposite orders: `SearchResource` binds `page_size` to the first parameter,
-  while `ClassResource`, `ValueResource` and `ValueSetResource` bind `pageSize` to it
-  (`AbstractTerminologyServerResource.java:82`). A request sending both spellings therefore gets a
-  route-dependent answer, and the OpenAPI text promises only that either spelling is accepted.
-  Defaults and maxima are set per surface and shared by none: 100/500 on the resource server, 20/500
-  on the artifact server and on categories (`cedar-main.yml:360`), 50 with a silent clamp in
-  terminology, 100 with `pageSize > 1` enforced on the bridge, and a fixed 50 for a hierarchy's
-  children. Bad input is refused three ways, since `PagedQuery` answers 400, terminology clamps, and
-  the bridge answers 400 with a message of its own.
+  Read the event into a CEDAR type that declares `clientId` and ignores every other property, and
+  remove both SPI dependencies from the resource server's POM. The documented request schema,
+  `AuthUserCallbackRequest` in `openapi-base.yaml`, already says that only `clientId` is read and
+  admits other properties, so the endpoint's contract does not change. The event listener keeps its
+  `provided` SPI dependencies, which are correct for a provider that Keycloak loads. The resource
+  server keeps `keycloak-core` and `keycloak-adapter-core` through
+  `cedar-auth-operations-keycloak-library` for its token checks, and those follow item 3.
 
-  **The decision is which encoding wins, and it has to come first.** Headers are the conventional
-  answer and the artifact server already implements them alongside the ETag, `If-Match` and `Vary`
-  contract that the rest of the estate is measured against, so moving it would move the reference
-  away from convention. A body field would instead move the artifact server and terminology onto the
-  resource server's shape. Nothing in the code decides this; it is a product call about what a CEDAR
-  client should look like.
+  This closes no Dependabot alert. The alerts are raised against `cedar-parent`, which manages the
+  Keycloak versions, and only item 3 clears them.
 
-  Six of the ten shapes page by number or offset, and those converge on whichever encoding wins. The
-  two cursor walks are the exception and have to be documented as one, because a continuation and a
-  keyset cursor buy something an offset cannot: a walk of a whole result set at one request per
-  page. Truncation without an offset and the unpaged listing are gaps to fill rather than encodings
-  to choose between.
+  Done when a unit test parses a serialized Keycloak login event that carries properties the CEDAR
+  type does not declare, and provisions only for CEDAR's own client; when the shaded jar contains no
+  class from either SPI jar; and when a redeployed resource server passes the browser smoke, whose
+  Keycloak login posts this callback. The REST smoke does not exercise the endpoint.
 
-  Whichever wins, deliver it additively first. Emit the chosen encoding everywhere alongside what each
-  server sends today, document it as the supported form, and withdraw the others in a later release.
-  Only the withdrawal breaks a caller, which is what keeps this off a flag day. The alternative is one
-  coordinated release across the Template Editor, the embeddable editor, the term picker, the
-  designer, `cedar-cli`, the four MCP servers and `ops/e2e`, which the lockstep policy allows and the
-  pinned check inventory in `rest/expected-checks.json` makes tractable.
+- **17. Finish converging on the body paging envelope.** Every route that pages by offset answers
+  CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
+  `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
+  `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
+  still accept beside the envelope, and settling what the estate has not yet made uniform.
 
-  Clients are split along the same lines already. The Template Editor's controlled-term autocomplete
-  and CEE's integrated search read the flat page-number fields, the Template Editor walks the
-  `paging` block for its listings, the term picker reads the versioned per-type blocks, and the
-  designer sends `page_size` on the proxy path and `pageSize` in the versioned body
-  (`autocomplete.service.js:91`, `integrated-search-response.ts:11`, `search-types.ts:168`,
-  `terminology.service.ts:107`). The flat page-number fields therefore have to survive until the
-  Template Editor and CEE move, whichever encoding wins.
+  **Withdraw the page-number forms once their clients move.** The terminology server still accepts a
+  one-based `page` with `pageSize` or `page_size`, and still answers BioPortal's flat `page`,
+  `pageCount`, `pageSize`, `prevPage` and `nextPage` beside the envelope, on its GET routes, on
+  integrated search and retrieve, on the versioned `POST /search` and on the property search. Four
+  clients still use them: the Template Editor, whose controlled-term autocomplete pages by `nextPage`
+  (`autocomplete.service.js:303`); CEE, which asks integrated search for page 1 and reads only
+  `collection` (`controlled-field-data.service.ts:47`); cadsr-tools, which walks integrated search by
+  page number (`TemplateFieldsHandler.java:122`); and the artifact library's
+  `TerminologyServerClient`, which walks integrated retrieve the same way. The bridge's
+  `search-by-name` still accepts a zero-based `page` and `pageSize` and still answers `found`,
+  `page` and `pageSize`; no client in the estate sends or reads the paging pair, though CEE reads
+  `found`. CEE is published, so moving it costs a public release; price that against the release
+  calendar before choosing when. Record a withdrawal date for each form once its last client has
+  moved.
 
-  One piece of the work is already done. `Link` and `Total-Count` are on the CORS exposed-header
-  list, so a browser can read them cross-origin wherever they are sent
-  (`CustomHttpConstants.java:25`).
+  **Make the rest uniform.** Defaults and maxima are still set per surface: 100/500 on the resource
+  server, the monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500
+  on the artifact server and on categories (`cedar-main.yml:360`), 100/500 on the bridge, the
+  configured default up to 1,000 on the terminology server's BioPortal routes, 20/200 on its
+  versioned and property searches, and 50/500 on a hierarchy's children. Choose one default and one
+  maximum. The terminology server's `page_size`/`pageSize` alias still resolves by argument position,
+  and its route families pass the arguments in opposite orders (`AbstractTerminologyServerResource.java`,
+  `resolvePageSize`), so a request sending both spellings gets a route-dependent answer; resolve it
+  centrally, or let it go with the page-number forms. Three variations on the envelope are worth
+  documenting where the API is described rather than removing: a POST route carries no `paging`
+  links, since it has no URL to link to, and a client asks for the next page by sending the offset;
+  a listing that cannot afford or cannot know an exact total answers `countCapped` and leaves out the
+  `last` link, as the monitor's raw logs, the bridge's ROR and NIH RePORTER, integrated search past
+  its 1,000-result window and the property hierarchies do; and the bridge keys its rows by term IRI
+  rather than listing them, which is what CEE reads.
 
-  Done when the alias resolves centrally rather than by argument order, every page base and default
-  is documented, and one encoding is documented as the supported form and emitted by every route
-  that pages by number or offset, with the two cursor walks recorded as the stated exception. The
-  REST smoke has to assert the canonical form on a route from each application that serves one; it
-  covers the two `limit`/`offset` shapes today (`rest/suites/pagination.mjs`). Every superseded shape
-  is then either withdrawn or carries a recorded date for withdrawal.
+  **Document the two cursor walks as the exception.** `?continuation=` on `/search-deep`, and the
+  monitor's log query with its `"<iso>,<id>"` keyset `cursor` (`SearchContinuation.java`,
+  `LogQuerySpec.java:29`), page a whole result set at one request per page, which an offset cannot.
+  They are two cursor encodings rather than one, and the API documentation should say both are the
+  stated exception to the envelope.
 
-- **17. Choose the response timeouts from the durations the request log now carries, and give a
+  Done when every page-number form is withdrawn or carries a recorded withdrawal date, one default and
+  one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
+  that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
+
+- **18. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -759,7 +748,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **18. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -776,12 +765,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   dispatched through Actions is ungated while the same train dispatched from the CLI is not.
 
   Add a scheduled and manually dispatchable whole-stack workflow that brings up a known source, runs
-  both tiers through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
+  every tier through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
   train call the same gate implementation the CLI calls rather than a second preflight path. Done
-  when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
+  when every tier runs unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **19. Take the dependency upgrades that need code changes.** The versions that could move without
+- **20. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions whose newest release is not a final.
 
@@ -865,7 +854,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **20. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **21. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -878,131 +867,49 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **21. Decide whether an attribute-value child keeps its declared property IRI.** Both model
-  libraries read such a child's property IRI out of a template's `@context` and then decline to write
-  it back as JSON, so a read-and-write cycle over `template-022.json` loses
-  `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
-  `ATTR-Value` mapping the source document carried. Both YAML writers keep it, so one model yields a
-  document in one format that names the child's property and a document in the other that does not.
-  Three attribute-value children carry one, across templates 022 and 029, and all three are minted
-  identifiers rather than terms an author chose.
+- **22. Decide what an ordinary write may change about the artifact it stores.**
+  **Why automatic changes still remain.** Ordinary saves supply identifiers requested by
+  authoring clients, discard unfinished editor state, and maintain derived metadata. Removing
+  those behaviors requires an explicit replacement contract for clients, rather than treating
+  every save-time change as a legacy-data repair:
 
-  The loss is recorded rather than repaired. `JSON_TEMPLATE_ROUND_TRIP_DIVERGENCES` grants template
-  022 one round-trip error under the reason `legacy attribute-value context mapping is absent`, and
-  the cross-library parity gates stay green because both libraries drop it in the same place:
-  `ParentSchemaArtifact.getChildPropertyUris` excludes static and attribute-value children by name,
-  and the TypeScript writer matches it.
+  | Remaining behavior | Why it remains |
+  | --- | --- |
+  | Mint missing element-instance IDs and property IRIs | Clients rely on the repository to assign stable identities when an occurrence ID is absent/null or a property mapping is absent; existing identifiers remain unchanged. |
+  | Remove blank unnamed attribute rows | These rows represent unfinished editor input and cannot name a stored property. |
+  | Prune unused repository-generated attribute context mappings | Deleting an attribute can leave its generated mapping behind; template-declared mappings and author-supplied vocabulary IRIs must remain. |
+  | Derive schema `title` and `description` from the artifact name | Renames must keep generated schema metadata consistent while preserving generator attribution. |
+  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration, but automatically applying it to an existing template can invalidate dependent instances; this policy remains undecided. |
 
-  The exclusion's stated reason is sound as far as it goes: an IRI is identity, the repository assigns
-  it on upload, and deriving one from a child's key would assert an identity nothing granted. That is
-  an argument against minting an IRI, not against preserving one a document already carries.
+  Verbatim writes bypass these normalizations and remain strictly validated. Production still
+  needs the compatibility-retirement rollout below before inherited malformed submissions are
+  consistently rejected rather than repaired on save.
 
-  Two things settle it. What the artifact server does with such a mapping when a template is uploaded,
-  and whether the entries in those two production templates mean anything or are debris from an
-  earlier writer. If they are meaningful, both JSON writers should keep them and the expectation entry
-  goes. If they are debris, `cedar_artifact_patch.py` should remove them and both YAML writers should
-  stop carrying them.
+  **Decide whether a save may tighten instance requirements.**
+  `LinkedDataUtil.addChildPropertyIris` still adds every ordinary mapped child to
+  `@context.required`, even when a stored template never required that mapping. An unrelated
+  template edit can therefore tighten the contract of existing instances. Decide whether to
+  preserve the stored requirements, require an explicit author change, or retain automatic
+  tightening with a dependent-instance impact check.
 
-  **One document shows the shape with a term an author chose, and no corpus case covers it.**
-  `template-033-original.json` carries it twice, on `Data Characteristics Table in Key-Value Pairs`
-  and `Data File Descriptive Key-Value Pairs`, and its values are
-  `https://w3id.org/radx/radmo/dataCharacteristicsTableInKeyValuePairs` and
-  `https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair` rather than minted identifiers. The
-  debris reading therefore cannot be assumed for the shape in general, whatever those three entries
-  turn out to be. The canonical `template-033.json` has no attribute-value child at all, because the
-  case was restructured in April 2024, so nothing in the corpus exercises an attribute-value child
-  carrying a vocabulary term. Adding such a case belongs to whichever answer is taken.
+  **Integrate template-impact checks into authoring.** Use the read-only
+  `ops/cedar_template_impact.py` comparison to identify valid-to-invalid transitions under the
+  exact proposed stored body, including any normalization the save path will apply. Choose
+  warning versus blocking behavior, and define what to do for unreadable dependencies, a changed
+  baseline, large populations and instances the caller cannot see. A permission-scoped result
+  cannot certify the whole dependent population; an incomplete check must not mean “no impact.”
+  Surface the affected instance identifiers and validation errors to the author without treating
+  already-invalid instances as damage caused by this edit.
 
-  This is not the question a requirement on the same type answers, and the difference is the whole of
-  it: a requirement has nowhere to go in the JSON form, because an attribute-value field carries no
-  `_valueConstraints` node at all, so the YAML writers record nothing. A property IRI has somewhere to
-  go, is there in production, and is being dropped on the way out.
+  **Roll out the strict write path.** Release and deploy the compatibility-retirement change once
+  the shared Java build and whole-stack smoke gates are green.
 
-  Whichever way it goes, the three children and their generated fixtures move with it, and the Java
-  library's corpus verifier reports them stale until they are regenerated.
-
-- **22. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
-  write is normalized before it is validated, and two different things travel under that one name.
-  One is minting: a child identifier, a property IRI for an attribute the author named, an element
-  occurrence identifier, and the JSON Schema `title` and `description` derived from `schema:name`.
-  That is identity the repository owns rather than a client, and it stays. The other is
-  `LinkedDataUtil.repairInheritedDefects` in `cedar-config-library`, which removes a defect only
-  where the request carried it unchanged out of storage and leaves a newly introduced one for
-  validation to reject. That half was built for artifacts written before the rules hardened, so it
-  has a population and an end, and the population is nearly gone.
-
-  **Retire each compatibility branch as its population reaches zero.** On templates and elements
-  there is almost nothing left for it to do. The 2026-09-08 corpus audit found 8,402 artifacts
-  carrying an empty `pav:derivedFrom` and 418 an unusable child property IRI; the 2026-09-12 audit
-  of every template and element reports neither, and one artifact with a missing child `$schema`.
-  The instance branches are the live ones, measured over all 150,640 instances on 2026-09-16:
-  `occurrence-id-unusable` in 120 artifacts over 833 occurrences, `attribute-property-iri-missing`
-  in 58 over 1,029, `orphan-property-iri` in 7, and `attribute-name-blank` in 4. Delete a branch
-  once its count is zero, so that shape meets a refusal rather than a silent accommodation, and
-  record the change where the API is documented: a caller that has been relying on the
-  accommodation starts receiving a 400.
-
-  **A resave repairs almost nothing, so do not reach for it as an instrument.** The update path
-  normalizes and then validates, answering 400 when the result is invalid
-  (`TemplateInstancesResource.java:433`), so only an artifact that is already valid after
-  normalization can be written. In the 2026-09-16 baseline, of 1,047 invalid production instances,
-  2 had nothing wrong but
-  a missing occurrence identifier, which is the one defect this path does repair, by removing the
-  unusable inherited value and minting a replacement. The rest fail on what no normalizer touches:
-  799 carry a key their template does not declare, 715 lack a child it requires, and 166 carry a
-  property IRI their template replaced with a vocabulary term in a later edit. About 45 instances
-  are valid while carrying a repairable condition and would go through, but an ordinary write also
-  calls `stampProvenanceForPut` (`AbstractArtifactCrudResource.java:408`), so each would record a
-  modification nobody made. That is the reason `?verbatim=true` exists, and it is why the remaining
-  production work belongs to a verbatim rule rather than to a bulk resave.
-
-  **Separate the one step that tightens a contract rather than repairing a document.**
-  `addChildPropertyIris` calls `requireChild` for every mapped child of every template and element
-  it writes (`LinkedDataUtil.java:684`), adding the child to `@context.required` whether or not the
-  stored artifact ever declared it. That changes what an instance must carry, which is not a repair
-  of the artifact being saved but a new demand on documents nobody is looking at. Measured
-  2026-09-12, 2,218 artifacts are missing those entries across 29,087 child paths, 458 of them
-  templates rather than elements, so editing one of those templates through any client tightens its
-  contract silently. `ops/repairs/ctxreq_at_risk.py` exists to weigh exactly this before a repair
-  run, by validating every instance a template already has against the proposed body; the save path
-  performs the same tightening with nothing weighed. Decide whether the write should carry that
-  check, stop adding entries a stored artifact never had, or state the tightening as the contract
-  and accept that a template edit can invalidate instances.
-
-  **Warn authors before a template edit invalidates existing instances.** Changing a property's
-  IRI or narrowing a field's allowed representation can invalidate documents that were valid when
-  entered. Nothing propagates that change to existing instances or warns the author. Whatever is
-  decided about `requireChild`, check the dependent population for any template edit that narrows
-  what an instance may hold.
-
-  Done when the compatibility branches that have no population are gone, each remaining one names
-  the count that keeps it, an ordinary write no longer tightens a contract without the instance
-  check or an explicit decision to do so, and an author editing a template is told what it does to
-  the instances that already exist.
+  Done when ordinary writes have an explicit policy for changing instance requirements and
+  authors see the impact before a template change invalidates existing instances.
 
 ### Shared Libraries
 
-- **23. Render a sparse instance to JSON against its template.** A CEDAR JSON instance must carry
-  an entry for every field its template defines, unset ones included, because the template's JSON
-  Schema marks those properties `required`; an unset literal renders as `{"@value": null}` and an
-  unset IRI as `{}`. The YAML instance form is the opposite, and correct as it stands — it omits an
-  unset field entirely. Rendering a sparse instance model to JSON therefore produces an incomplete
-  JSON instance, and a YAML-to-JSON translation that is to produce a valid one must re-add the
-  empty placeholders, which takes the template, since only it says which fields exist. The
-  asymmetry is an old model decision the group is not fond of, and it stays until the next model
-  iteration.
-
-  `cedar-artifact-library` already has the template-driven traversal in `InstanceInflater` and
-  `EmptyFieldInstances`, recursive elements included, and MCP callers compose it with rendering
-  themselves. What is missing is the rendering API that does both, such as
-  `renderTemplateInstanceArtifact(template, sparseInstance)`. The existing one-argument renderer
-  cannot inflate, because an instance alone does not carry the schema that says which fields are
-  absent.
-
-  Done when a YAML-to-JSON caller renders a valid CEDAR instance through one call, and no caller
-  composes inflation and rendering by hand.
-
-- **24. Take the parse-library tree type out of the public reader and renderer API.** This is a
+- **23. Take the parse-library tree type out of the public reader and renderer API.** This is a
   major-version change. `JsonArtifactReader` and `JsonArtifactRenderer` take and return Jackson's
   `ObjectNode`, and `YamlArtifactReader` and `YamlArtifactRenderer` take and return JDK
   `LinkedHashMap<String, Object>` trees, so the tree representation is part of the public contract
@@ -1027,70 +934,193 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   re-parsing, loses direct access. If that need proves real, keep one explicitly
   parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
 
-- **25. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
-  the schema's `instanceType` gives each instance or element its `rdf:type`, each child's
-  `propertyIri` gives the predicate, the instance `id` is the subject, and field values are the
-  objects, a controlled term or link contributing its IRI and a literal contributing a plain or
-  typed literal. The library implements neither direction. Its renderers are JSON, JSON-LD
-  `@context`, JSON Schema, YAML, Excel and UBKG, and none produces a triple graph.
-
-  The JSON instance form is already JSON-LD, carrying `@context`, `@type` and `@id`, so an
-  external JSON-LD processor can serialize it as RDF. A model-level translator would drop that
-  dependency and, more to the point, work from the sparse YAML instance form, which relies on its
-  template for the predicates and types the instance itself does not carry. Add a template-driven
-  RDF renderer taking an instance model and its template and, if round-tripping is wanted, an RDF
-  reader taking RDF and a template. The "Mapping to RDF" section of the CEDAR YAML specification
-  documents the intended mapping.
 
 ## Production Data
 
-- **26. Resolve the remaining production artifact defects and review semantic migrations.**
-  Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
-  (2026-09-17, after verified repairs) by their actual schema declarations,
-  then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
-  field is a missing entered term, not an element identity to mint. Multiple populated occurrences
-  cannot be reduced to one without a decision. Empty representations and populated data need
-  separate rules, each with a narrow invariant and validation of the complete candidate.
+- **24. Resolve the remaining production artifact defects and review semantic migrations.**
+  Classify the remaining invalid instances by their actual schema declarations, then repair only
+  transformations whose meaning is established. A missing `@id` in a controlled-term field is a
+  missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
+  reduced to one without a decision. Empty representations and populated data need separate rules,
+  each with a narrow invariant and validation of the complete candidate.
 
-  **Prioritize the largest remaining groups.** These are maintained residual counts, not a new
-  corpus-wide audit. Repeated names identify distinct templates; ID prefixes distinguish them.
+  Refresh the broader retained 561-instance/211-template inventory against current stored templates
+  before reporting a current total. Distinguish instance defects from noncanonical declarations against
+  Java's model. Reconcile any TypeScript disagreement with Java and preserve entered information
+  when a stored representation must migrate; check every dependent instance before changing a
+  template declaration.
+
+  These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
+  full walk is not in them, and neither is anything created since.
+
+  **Resolve the remaining schema conversion and source issues.** Outstanding findings from the
+  151,835-schema production inventory freshly re-read on 2026-09-25:
+
+  | Remaining issue | Schema artifacts |
+  | --- | ---: |
+  | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 48: 44 context additional-properties declarations and 4 missing-child requirements; fresh full audit on 2026-09-25 |
+
+  Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
+  returns 404 under the corresponding `.org` ID.
+
+  Reconcile instance-context `additionalProperties` declarations in 44 remaining templates.
+  For 42 of them, 195 dependent instances block tightening:
+  62 currently valid instances contain populated undeclared fields, while 133 already fail
+  validation. Keep the 62 extra-field cases unresolved; do not delete values or mappings, invent
+  declarations, or infer renames to satisfy the canonical rule.
+  The other two, Human Cognitive Neuroscience Data and FAIR-EuMon metadata template,
+  need document/graph DOI reconciliation: the write endpoint rejects their unchanged document DOI
+  because it reports a null stored DOI. Preserve the DOI while resolving that inconsistency through
+  [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery), which tracks the affected IDs,
+  rejection details and regression requirements.
+  Missing child names in `required` remain in four templates: SWATH-DIA Experimental
+  Specifications, Cell, Chemical Tool and Expression. Resolve their 24 blocking instances before
+  tightening the templates; their errors include undeclared fields, conflicting property mappings
+  and ontology values in text fields. Keep these source diagnostics separate from failed conversions.
+  Require property IRIs for ordinary child fields and elements in both Java and TypeScript JSON
+  and YAML readers. First complete [MCP property-IRI authoring](./MCP-ROADMAP.md#property-iri-authoring)
+  so exchange artifacts have their mappings before another tool reads them, and recheck production
+  coverage before enabling enforcement. Keep static fields and attribute-value groups exempt;
+  actual dynamic attributes carry their IRIs in instance contexts. Prove authoring, cross-library
+  round trips and repository creation together.
+
+  Classify source-to-output normalizations and losses before asserting preservation. Pairwise
+  converter agreement is insufficient: compare each result with its stored source as well. Preserve
+  every array's order, check generated JSON key order separately from JSON content, and require
+  byte-identical YAML. Turn each further proven library defect into a regression fixture. Keep this
+  audit GET-only and distinguish key-visible search coverage from authoritative store/index parity.
+  The retained corpus, per-artifact evidence and full issue list are under
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-schema-matrix-rerun/`; the
+  [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
+  describes how to resume and recheck it after a library change.
+
+  **Resolve the remaining production instance sources and pipeline findings.** The retained
+  findings and checked repairs leave 29 affected instances under the latest libraries. Production
+  adoption of the Unicode IRI fix remains pending for eight additional instances.
+  Consistent reader rejection of an invalid source still requires a source repair.
+
+  Resolve three remaining instances whose legacy `description` attribute-value groups sit in
+  element structures that no longer match their template: `de5299da-97ed-4795-8cc4-5c405314bfce`,
+  `e6cdd723-2f7a-45e1-b062-a6187d615bd1` and `38c3559b-68e6-42ac-97cb-70624f581cb2`.
+  Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
+  mapping before renaming those groups to `description attributes`; a key-only repair cannot
+  validate these sources. Preserve every value. These overlap existing findings; do not add three
+  to the 29-instance baseline. Account for their stricter-reader rejection before production
+  rollout. Live dependency checks and retained originals are under
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
+
+  | Remaining issue | Instances |
+  | --- | ---: |
+  | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
+  | Stored mixed `@id`/`@value` fields | 5 |
+  | Malformed/empty stored URI is the first Java rejection | 11 |
+  | Malformed annotation objects | 8 |
+  | Numeric JSON literals | 2 |
+
+  Establish complete value-preserving migrations for the three FAIR Workflows instances
+  `368ff63a-133c-4a6e-b694-e2ea248fa592`, `4520d4b9-ed0f-4aa8-b28b-de545e9c7f61` and
+  `85a78d6b-d8b7-4aba-bd67-b885996ee0d7`. Their old Data, Subject, contributor and Experiment
+  structures no longer match the template; empty-identifier cleanup cannot make them valid.
+  Preserve populated values, including the stored subject count `23.4`, pending an agreed mapping.
+  Confirm the intended GENASIS URL for Data Catalogs instance
+  `94f400a2-4d26-480a-855d-0fa299a243cc`: its `datasetIdentifier[0]` contains two `#` characters.
+  Do not guess a routing replacement. These four deferred cases are included in the table above;
+  fresh sources and templates are retained under `.cedar/repairs/2026-09-26-eight-decisions/`.
+
+  Release and deploy Unicode field-IRI support across the Java artifact library, model validator,
+  TypeScript consumers and repository paths. Preserve the eight Niger identifiers verbatim; do not
+  replace U+00A0 with `%C2%A0` or substitute the different version-2 vocabulary term. Verify the
+  deployed JSON/YAML write path before the repeatable-link migration below. Resolve the production
+  terminology HTTP 403 access restriction before claiming live lookup compatibility. Current-code
+  replay evidence is under `$CEDAR_HOME/.cedar/repairs/2026-09-26-unicode-iri-library/`.
+
+  Reconcile the remaining library behavior without silently discarding data.
+  Thirteen instances have narrow source corrections prepared but still fail validation for other
+  reasons; resolve those blockers before writing. Preserve conflicting populated values and ambiguous
+  URI spellings until the intended replacement is established. The GeoExposure CASTNET link fields
+  can lose their exact duplicate `@value`, but unrelated template errors block the complete write.
+  Preserve DOI annotations while resolving the document/graph write guard before retrying the HEAL
+  annotation repair. Plans, validation errors, backups and readbacks are under
+  `$CEDAR_HOME/.cedar/repairs/2026-09-25-instance-values/REPORT.md`.
+  Of the eight malformed-annotation instances, seven retain other validation defects; the HEAL
+  instance's otherwise-valid correction is blocked by DOI attachment inconsistency. Recheck the
+  retained proposals after those blockers are resolved. Current conditional-write and conversion
+  evidence is in `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
+
+  Make `Source Hyperlink` repeatable in `VODAN-COVID-Migrants-Tunisia`
+  (`05ce128b-c631-45c8-bfcf-a229ea1fcce5`) and split F050TUN's two stored URLs after
+  production adopts the library changes. All 368 instances require object-to-array migration; the
+  fresh preflight validates every proposed body under the updated validator. Production still needs
+  Unicode IRI support before eight of those bodies can be written. Do not switch the template
+  until the deployed write path accepts all dependents. This approved repair remains within the
+  29-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
+  bodies are under
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency
+  rechecks under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/` and
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-webmanagercenter-source-link/`, plus the formatting
+  repairs under `$CEDAR_HOME/.cedar/repairs/2026-09-26-a147-link-numeric/` and
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-e052-link-numeric/`. Refresh the full
+  dependency inventory and all proposals before migration.
+
+  Obtain the actual codebook and measurement-scale URLs for CA-CORD
+  `1835f14f-1894-4f41-ae0f-df2507b2ae02`. Both fields remain empty despite the template's
+  `requiredValue: true` authoring constraints. This is a missing-content follow-up, separate from
+  the remaining pipeline failures; do not invent URLs to satisfy the authoring requirement.
+
+  The four unresolved index entries return 404 even after retry; reconcile the index and store
+  rather than declaring them converted. Investigate already-invalid sources without a pipeline
+  discrepancy separately from library disagreements. Revalidate against actual templates before
+  any source repair. Retained replay evidence is under
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-strict-shapes-replay/`; the
+  [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix) describes coverage.
+
+  Deploy the JSON writers that preserve explicit attribute-value group property IRIs as optional
+  schema context mappings. Check JSON and YAML conversions of an affected template on the deployed
+  resource path; keep these group mappings out of instance context requirements and inflation.
+
+  **Finish the blocked annotation declarations and deploy the updated writers.** Seven templates
+  still need optional `_annotations` declarations and `@nest` context mappings. Their unchanged
+  document DOIs conflict with null graph DOIs; reconcile the seven IDs tracked in
+  [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery), preserve their DOIs, then
+  refresh the dependent-instance checks and retry the conditional patches. The unavailable `.net`
+  template remains part of the indexed-404 group above. The HEAL instance still needs its malformed
+  `_annotations/@id` repaired after DOI reconciliation. Keep malformed annotation values rejected.
+  Adopt the updated Java/TypeScript writers in backend and editor deployments so subsequent model
+  renders retain these optional declarations. Backups, proposals, validation and readbacks are in
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-backfill/`.
+
+  **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
+  Repeated names identify distinct templates; ID prefixes distinguish them.
 
   | Template | Invalid instances |
   | --- | ---: |
-  | CCP Digital Object | 65 |
-  | Migrant-Interviews | 34 |
+  | Migrant-Interviews (`ad459f36…`) | 34 |
   | LINCS DSGC Dataset Submission (`70b010f2…`) | 26 |
   | Adverse Events V2 | 25 |
-  | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 23 |
+  | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 22 |
   | causal pathway | 21 |
-  | DSGC Dataset Template 1.0 | 17 |
   | PGHD_BP_template | 15 |
   | Expression | 14 |
   | VODAN-COVID-Migrants-Tunisia (`05ce128b…`) | 14 |
-  | MiAIRR V1.1.0 | 13 |
-  | DSGC Dataset Template 2.0 | 12 |
-  | GeoExposure_Data_1.5.1_Template (`ce1436c0…`) | 11 |
   | LINCS DSGC Dataset Submission (`f4034b6f…`) | 11 |
+  | GeoExposure_Data_1.5.1_Template (`ce1436c0…`) | 11 |
   | MyFirstTemplate | 10 |
-  | UPDATED HEAL Study Core Metadata | 9 |
   | Updated week X | 8 |
-  | Citation | 7 |
-  | HEAL Study Core Metadata | 7 |
+  | UPDATED HEAL Study Core Metadata (`a91e12b0…`) | 8 |
+  | MiAIRR V1.1.0 | 7 |
   | Human Cognitive Neuroscience Data | 7 |
+  | Citation | 7 |
   | COVID Project Content | 6 |
   | COVID-19_Project-Admin_V4 (`337cb6f3…`) | 6 |
   | File Metadata | 6 |
-  | INFO 663 — Datasets | 6 |
-  | ID-AMR_Project-Admin_V1 | 5 |
-  | LTER-LIFE (0.0.1) | 5 |
 
-  Another 234 templates have 1–4 invalid instances each: 163 templates have one, 40 have two,
-  19 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
+  Another 190 templates carry 1–4 invalid instances each, 286 between them: 131 have one, 34 have
+  two, 13 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
   resolve ontology assertions in the text-only `Reporter_type`/`Mod_type` fields and the undeclared,
   malformed `Publication_title` structure without discarding populated data.
 
-  **Resolve MiAIRR V1.1.0's legacy representations.** The targeted production review of all 42
-  instances finds 13 invalid and 29 valid. Review old BioSample field names and property mappings,
+  **Resolve MiAIRR V1.1.0's legacy representations.** Seven of its instances are invalid. Review old BioSample field names and property mappings,
   ontology-valued `Sex` against its text declaration, release dates containing `NA`, and unexplained
   numeric strings or URI-shaped values in text fields. Matching property IRIs support several
   renames; `Cell Processing Protocol` → `Processing Protocol` and `Related Subjects` →
@@ -1132,43 +1162,24 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **Find templates that demand instance shapes the editors cannot produce.** Decide whether the
   element meta-schema should restrict the remaining entries of `required` after its first two tuple
   entries, so an element occurrence cannot demand root-instance provenance or `schema:isBasedOn`.
-  Audit other contradictory demands and distinguish missing required data from malformed schemas.
 
-  **The `title`/`internalName` contract is settled and the stored population is repaired. The
-  libraries are not.** Title is derived metadata composed from `schema:name` in the canonical
-  `"<name> <type> schema"` form. `YamlArtifactReader` composes it that way, while
-  `JsonArtifactReader` still reads `title` as a required string of its own
-  (`JsonArtifactReader.java:292`, `:334`, `:381`), so an independently supplied title survives a JSON
-  round trip. Make both libraries derive it, and prove the canonical result with JSON → YAML → JSON
-  and JSON → model → JSON tests. This does not make `description` derived, and nothing here rewrites
-  description or provenance text.
+  Two further demands of this kind are measured only where they turned up, and each wants a
+  corpus-wide count before a rule. A static field can carry a `required` naming `_content`, which no
+  static field declares; `canonicalise-field-required` clears it, but production has never been
+  counted for it, because the condition that names targets looks for a value or an address rather
+  than for whatever a static field was given. Separately, a literal field can carry a vocabulary
+  constraint: the constraint calls for a term while the field declares `@value`, so the two halves
+  of the field disagree about what an instance may hold. Seven are known. Settling one means
+  choosing which half is wrong, and rewriting `properties` invalidates any instance already holding
+  the other shape, so neither is a repair a lookup answers.
 
-  **Make the model version explicit, then enforce it.** The population is measured: 13 artifacts, of
-  which 3 declare a stale version and 10 declare none at all. The decision left is what an artifact
-  that never carried a version gets. A version cannot be stamped on faith, because
-  `schema:schemaVersion` asserts that the artifact conforms to the model it names, so writing the
-  current version into an artifact that does not conform replaces a detectable defect with an
-  undetectable one. Write it only where the artifact already satisfies the current model, and report
-  the remainder for a scoped repair of its own.
-
-  The two Java readers disagree until that lands, so one artifact is accepted as JSON and refused as
-  YAML. `checkSchemaArtifactModelVersion` in `cedar-artifact-library`'s `JsonArtifactShapeChecks`
-  rejects a value it cannot parse and accepts every value it can, because the comparison is
-  commented out (`JsonArtifactShapeChecks.java:128`), while `YamlArtifactReader` declares a method of
-  the same name that compares. Absence is the harder half: `readModelVersion` returns an empty result
-  for an artifact that declares no version, and the disabled comparison rejects an empty result as
-  well as a stale one. Restore the comparison and delete its explanatory note only once a repeated
-  audit reports no stale and no absent version, and replace `ModelVersionEnforcementTest`'s two JSON
-  acceptances with rejections at the same time.
-
-  The suites cannot find this defect, which is why it stayed open, and the reason is worth fixing
-  independently of the production run. Every JSON fixture and every programmatic case supplies the
-  version by referencing the same constant the disabled comparison would compare against, and the
-  YAML renderer writes that constant rather than the version its source artifact declared, so a
-  cross-format round trip launders a stale version into a current one before the strict reader sees
-  it. The in-memory model has no field to carry a model version at all. `ModelVersionEnforcementTest`
-  pins the divergence, stating what each reader does with a well-formed stale version and with none,
-  so the day it changes is a failure rather than a surprise.
+  **Make the model version explicit.** Decide what an artifact carrying no `schema:schemaVersion`
+  gets, should one appear. The deployed population has never forced the question and the readers
+  now refuse a stale version and an absent one alike, so the case arises only for an artifact
+  written outside them. A version cannot be stamped on faith, because `schema:schemaVersion` asserts that the
+  artifact conforms to the model it names, so writing the current version into an artifact that
+  does not conform replaces a detectable defect with an undetectable one. Write it only where the
+  artifact already satisfies the current model, and report the remainder for a scoped repair.
 
   **Make terminology sources explicit.** A controlled-term constraint may name the system serving its
   vocabulary, and both model libraries read an absent `sourceSystem` as BioPortal —
@@ -1182,6 +1193,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   artifact the sweep never reached. Measured 2026-09-12 across templates and elements, 4,039
   artifacts carry 28,046 such constraints; the 2026-09-08 corpus audit, standalone fields included,
   counted 72,393 over 46,937 artifacts.
+
+  The same entries hold two more noncanonical values, measured across the seven GDMT templates on
+  2026-09-24 and unmeasured beyond them: 43 of 57 constraint entries record `source` as a
+  `bioportal.bioontology.org` browse URL rather than the display string, and 50 give `name` the
+  acronym again instead of the term's label. Both are this item's business rather than a repair of
+  their own, and a rule for either wants the corpus-wide count first.
 
   The serving system cannot be derived from the term IRI, which is the tempting shortcut and a wrong
   one. The 51 HuBMAP assay templates carry 504 branch constraints whose targets sit under
@@ -1210,40 +1227,31 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   artifact before changing anything, repair the projection from the authoritative stores, and rerun
   the audit. Never delete a store artifact merely because its search entry is inconsistent.
 
+  **Resolve the remaining CCP and HEAL instance properties.** Five instances of *CCP Digital
+  Object* (`62c8b5f2…`) and eight of *UPDATED HEAL Study Core Metadata* (`a91e12b0…`) remain
+  invalid in the flagged subset. Review populated undeclared fields, cardinality and conflicting
+  context predicates individually. A dynamic attribute member remains meaningful when a group
+  names it, even if its value is null; deleting it is not a substitute for reconciling the group
+  declaration with the canonical model. Revalidate after each repair because an earlier failure
+  can hide another defect.
+
+
+  **Decide what seven pasted constraints were meant to constrain.** Seven templates constrain a
+  `mimeType` field to the whole of the GDMT vocabulary, because someone pasted a BioPortal browse
+  URL into the entry. The address is repaired and confirmed against BioPortal, but the URL's
+  `conceptid` names one class in that ontology, `https://w3id.org/gdmt/MIMEType`, so the author may
+  have meant a single class rather than every term GDMT serves. Changing an `ontologies` entry into
+  a `classes` entry narrows what an instance may say, which is a decision about the template's
+  meaning and not one a lookup answers. Ask the owner, or record that constraining to the whole
+  ontology is intended.
+
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
-  answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
-  version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
-  written.
-
-- **27. Repair the versions production stores, then let the meta-schema say what a version is.**
-  1,672 schema artifacts — 103 templates, 557 elements, 1,012 fields — answer 500 to an `Accept`
-  of `application/yaml` and 200 to JSON. A JSON read returns the stored bytes unexamined; the YAML
-  read parses them with `cedar-artifact-library`, whose `Version` record takes three integer parts
-  and refuses everything else. These artifacts have no YAML representation at all, and nothing
-  reported it, because the meta-schema asks only that `pav:version` be a non-empty string.
-
-  Of the 655 containers probed in full, 642 carry a version that is not three-part semver: `0.9`
-  and `0.1` dominate, `1.0.0-rc1`, `1.0.0-rc2` and `1.0.0-RC2` follow, and a tail holds
-  `requestJson`, `123`, `asd`, `1`, `1.2`, `1.0` and `01`. A survey of 3,594 artifacts puts the
-  rate at 8.7%.
-
-  The prerelease values are a question of their own. `1.0.0-rc1` is valid semver that `Version`,
-  being `record Version(int major, int minor, int patch)`, cannot hold — a library limitation
-  rather than bad data, and ruling it invalid would put 686 more occurrences into the repair.
-
-  Order matters. The artifact server validates on write, so tightening `pav:version` before
-  repairing makes every one of those artifacts unsaveable through the API: repair first, or land
-  the two together. `cedar_content_constraint_survey.py` sizes the rest of the surface.
-  `schema:schemaVersion` has 30 rule sites and production is already clean there, so that one is
-  free to tighten today; `acronym`, `schema:identifier`, `unitOfMeasure` and `pav:previousVersion`
-  are clean too, and three artifacts hold a constraint `type` of `Value`.
-
-  Done when no schema artifact answers 500 to a YAML read, and a version that is not one is
-  refused on write rather than discovered on read.
+  answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
+  could have written.
 
 ## Later Decisions
 
-- **28. Enforce the request-body classification, and decide what an open body requires.**
+- **25. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1264,7 +1272,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1296,7 +1304,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1334,41 +1342,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 29 settles a different question about the same two services: which path shape a route takes.
+  Item 31 settles a different question about the same two services: which path shape a route takes.
   The two interact, because retiring repo's routes would retire the bare-identifier convention it
   proposes to generalize. Whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **31. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
-  them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
-  to the result after all ontology, branch, class and value-set constraints have been combined. They
-  are not customizations of one constraint row. Before the picker exposes authoring controls, state
-  what each action means for a single large ontology, multiple branches, multiple sources, pinned
-  releases and query-ranked results.
-
-  The current execution model cannot be that contract. Multi-source integrated search merges and
-  sorts one page and explicitly reports invalid pagination. Actions are then applied to that returned
-  page: a deletion can leave a hole, the server does not fetch a replacement, and a move is clamped
-  to the current page. Consequently, “move this term to position N” is neither a stable global order
-  over a 100,000-term ontology nor a well-defined position across different search queries.
-
-  Keep exclusion only if it can be pushed into result construction before pagination, with full
-  pages and correct totals regardless of which constraint admitted the term. For ordering, choose one
-  of two explicit products: replace arbitrary moves with a small ordered set of preferred terms whose
-  interaction with query matching is defined, or remove move actions from the supported authoring
-  model. Preserve imported actions while deciding, and provide a migration or compatibility rule for
-  existing actions before changing their stored shape or execution.
-
-  Prove the chosen contract with a large locally served ontology and with overlapping branches from
-  more than one source. Tests must cover paging beyond the first page, query and empty-query results,
-  pinned releases, duplicate terms admitted by multiple constraints, stale action targets, totals and
-  page filling. Only then should the terminology picker expose a table-level result-customization UI.
-  The compact picker presentation remains tracked in
-  [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
-
-- **32. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+- **28. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
   `cedar-model-validation-library` stands between a caller and the store: the artifact server's
   `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
   `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only

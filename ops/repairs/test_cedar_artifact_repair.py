@@ -2626,6 +2626,594 @@ class SettlePrereleaseVersionTest(unittest.TestCase):
         self.assertEqual(REPAIR.only_settled_prerelease_version(doc, promoted), "/bibo:status")
 
 
+def multi_select(value_type, multiple_choice=True, input_type="list", **extra):
+    """A multi-select field deployed as the array of occurrences it is."""
+    inner = child(**extra)
+    inner["_ui"] = {"inputType": input_type}
+    inner["_valueConstraints"] = {"literals": [{"label": "A"}, {"label": "B"}]}
+    if multiple_choice is not None:
+        inner["_valueConstraints"]["multipleChoice"] = multiple_choice
+    inner["properties"] = {"@value": {"type": value_type}}
+    return {"type": "array", "minItems": 1, "items": inner}
+
+
+def constrained(acronym, group="branches", **extra):
+    """A controlled-term field whose constraint entry names a vocabulary by acronym."""
+    node = child(**extra)
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {"requiredValue": False, "ontologies": [], "valueSets": [],
+                                 "classes": [], "branches": [], "multipleChoice": False}
+    node["_valueConstraints"][group] = [{"source": "Human Disease Ontology (DOID)",
+                                         "acronym": acronym,
+                                         "uri": "http://purl.obolibrary.org/obo/DOID_4",
+                                         "name": "disease", "maxDepth": 0}]
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+PASTED = "GDMT?p=classes&conceptid=https%3A%2F%2Fw3id.org%2Fgdmt%2FMIMEType"
+GDMT = {"acronym": "GDMT", "name": "Generic Dataset Metadata Template Vocabulary",
+        "uri": "https://data.bioontology.org/ontologies/GDMT"}
+
+
+def pasted_entry(group="ontologies", **overrides):
+    """A constraint entry whose whole vocabulary address is one pasted browse URL."""
+    node = child()
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {"requiredValue": False, "ontologies": [], "valueSets": [],
+                                 "classes": [], "branches": [], "multipleChoice": False}
+    entry = {"uri": PASTED, "acronym": PASTED, "name": PASTED}
+    entry.update(overrides)
+    node["_valueConstraints"][group] = [entry]
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+class ResolveConstraintSourceTest(unittest.TestCase):
+    """An address reaches a vocabulary, so a wrong one is worse than an unusable one."""
+
+    def setUp(self):
+        REPAIR.ACRONYMS.clear()
+        REPAIR.ACRONYMS[PASTED] = dict(GDMT)
+
+    def tearDown(self):
+        REPAIR.ACRONYMS.clear()
+
+    def entry(self, artifact, group="ontologies"):
+        return artifact["properties"]["Format"]["_valueConstraints"][group][0]
+
+    def test_all_three_keys_are_written(self):
+        doc = template({"Format": pasted_entry()})
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(self.entry(after), GDMT)
+        self.assertEqual({c["path"].rsplit("/", 1)[-1] for c in changes}, {"acronym", "name", "uri"})
+        self.assertIsNone(REPAIR.only_resolved_constraint_source(doc, after))
+
+    def test_a_key_holding_something_else_is_left_alone(self):
+        doc = template({"Format": pasted_entry(name="MIME Type")})
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(self.entry(after)["name"], "MIME Type")
+        self.assertEqual({c["path"].rsplit("/", 1)[-1] for c in changes}, {"acronym", "uri"})
+
+    def test_an_entry_nobody_confirmed_is_left_alone(self):
+        REPAIR.ACRONYMS.clear()
+        REPAIR.ACRONYMS["something else"] = dict(GDMT)
+        doc = template({"Format": pasted_entry()})
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_the_transform_refuses_without_a_confirmed_file(self):
+        REPAIR.ACRONYMS.clear()
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.resolve_constraint_source(template({"Format": pasted_entry()}))
+
+    def test_the_entry_kind_is_not_touched(self):
+        doc = template({"Format": pasted_entry()})
+        after, _changes = REPAIR.resolve_constraint_source(doc)
+        constraints = after["properties"]["Format"]["_valueConstraints"]
+        self.assertEqual(len(constraints["ontologies"]), 1)
+        self.assertEqual(constraints["classes"], [])
+
+    def test_an_acronym_outside_a_constraint_group_is_not_touched(self):
+        doc = template({"Format": pasted_entry()})
+        doc["_ui"]["propertyDescriptions"] = {"acronym": PASTED}
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(after["_ui"]["propertyDescriptions"]["acronym"], PASTED)
+        self.assertEqual(len(changes), 3)
+
+    def test_the_invariant_rejects_an_address_nobody_confirmed(self):
+        doc = template({"Format": pasted_entry()})
+        after, _changes = REPAIR.resolve_constraint_source(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["Format"]["_valueConstraints"]["ontologies"][0]["acronym"] = "NCIT"
+        self.assertEqual(REPAIR.only_resolved_constraint_source(doc, invented),
+                         "/properties/Format/_valueConstraints/ontologies/0/acronym")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"Format": pasted_entry()})
+        after, _changes = REPAIR.resolve_constraint_source(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_resolved_constraint_source(doc, renamed), "/schema:name")
+
+
+def link_instance(website, extra=None):
+    """A template instance whose one IRI field holds whatever is given."""
+    node = {"@id": "https://repo.metadatacenter.org/template-instances/i1",
+            "@context": {"Website": "https://example.org/p/Website"},
+            "schema:isBasedOn": "https://repo.metadatacenter.org/templates/t1",
+            "schema:name": "probe", "schema:description": "",
+            "Website": website}
+    if extra: node.update(extra)
+    return node
+
+
+class DropEmptyInstanceIriTest(unittest.TestCase):
+    """An unfilled IRI field leaves the key out; an empty string is not a way to say it."""
+
+    def test_an_empty_iri_key_is_removed(self):
+        doc = link_instance({"@id": ""})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(after["Website"], {})
+        self.assertEqual(changes, [{"path": "/Website/@id", "replaced": "", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_empty_instance_iri(doc, after))
+
+    def test_whitespace_counts_as_empty(self):
+        doc = link_instance({"@id": "   "})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(after["Website"], {})
+
+    def test_a_real_iri_is_left_alone(self):
+        doc = link_instance({"@id": "https://example.org/thing"})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_label_beside_the_empty_iri_survives(self):
+        doc = link_instance({"@id": "", "rdfs:label": "typed but not resolved"})
+        after, _changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(after["Website"], {"rdfs:label": "typed but not resolved"})
+
+    def test_every_occurrence_of_a_repeating_field_is_cleared(self):
+        doc = link_instance([{"@id": ""}, {"@id": "https://example.org/kept"}, {"@id": ""}])
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual([c["path"] for c in changes], ["/Website/0/@id", "/Website/2/@id"])
+        self.assertEqual(after["Website"], [{}, {"@id": "https://example.org/kept"}, {}])
+
+    def test_a_nested_element_is_reached(self):
+        doc = link_instance({"@id": "https://example.org/x"},
+                            {"Publication": {"@id": "https://example.org/element",
+                                             "link": {"@id": ""}}})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual([c["path"] for c in changes], ["/Publication/link/@id"])
+        self.assertEqual(after["Publication"]["@id"], "https://example.org/element")
+
+    def test_the_instance_own_identity_is_not_deleted(self):
+        doc = link_instance({"@id": ""})
+        doc["@id"] = ""
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_empty_instance_iri(doc)
+
+    def test_the_invariant_rejects_a_real_iri_going(self):
+        doc = link_instance({"@id": "https://example.org/thing"})
+        stripped = copy.deepcopy(doc)
+        del stripped["Website"]["@id"]
+        self.assertEqual(REPAIR.only_dropped_empty_instance_iri(doc, stripped), "/Website/@id")
+
+    def test_the_invariant_rejects_another_removal(self):
+        doc = link_instance({"@id": ""})
+        after, _changes = REPAIR.drop_empty_instance_iri(doc)
+        also = copy.deepcopy(after)
+        del also["schema:name"]
+        self.assertEqual(REPAIR.only_dropped_empty_instance_iri(doc, also), "/schema:name")
+
+
+class ComposeArtifactTitleTest(unittest.TestCase):
+    """A title restates the artifact's name; an older editor lowercased it first."""
+
+    def titled(self, doc, title):
+        doc["title"] = title
+        return doc
+
+    def test_a_lowercased_title_is_recomposed_from_the_name(self):
+        doc = self.titled(template({"Name": child()}), "study template schema")
+        doc["schema:name"] = "Study"
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(after["title"], "Study template schema")
+        self.assertEqual(changes, [{"path": "/title", "replaced": "study template schema",
+                                    "wrote": "Study template schema"}])
+        self.assertIsNone(REPAIR.only_composed_artifact_title(doc, after))
+
+    def test_a_title_already_composed_is_left_alone(self):
+        doc = self.titled(template({"Name": child()}), "Study template schema")
+        doc["schema:name"] = "Study"
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_nested_definition_is_recomposed_with_the_root(self):
+        doc = self.titled(template({"Alias": child()}), "Study template schema")
+        doc["schema:name"] = "Study"
+        doc["properties"]["Alias"]["schema:name"] = "Alias"
+        doc["properties"]["Alias"]["title"] = "alias field schema"
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Alias/title"])
+        self.assertEqual(after["properties"]["Alias"]["title"], "Alias field schema")
+
+    def test_an_element_composes_with_its_own_noun(self):
+        doc = template({"Address": child(ELEMENT_TYPE)})
+        doc["properties"]["Address"]["schema:name"] = "Address"
+        doc["properties"]["Address"]["title"] = "wrong"
+        after, _changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(after["properties"]["Address"]["title"], "Address element schema")
+
+    def test_a_definition_naming_no_kind_is_left_alone(self):
+        doc = template({"Name": child()})
+        doc["schema:name"] = "Study"
+        doc["title"] = "anything"
+        del doc["@type"]
+        _after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_json_schema_fragment_named_at_type_is_not_an_artifact(self):
+        """`@type` is a string on an artifact and a schema fragment inside `properties`."""
+        doc = template({"Name": child()})
+        doc["schema:name"] = "Study"
+        doc["title"] = "study template schema"
+        doc["properties"]["Name"]["properties"] = {"@type": {"type": "string", "format": "uri"}}
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual([c["path"] for c in changes], ["/title"])
+        self.assertEqual(after["title"], "Study template schema")
+
+    def test_the_invariant_rejects_a_title_it_did_not_compose(self):
+        doc = self.titled(template({"Name": child()}), "study template schema")
+        doc["schema:name"] = "Study"
+        after, _changes = REPAIR.compose_artifact_title(doc)
+        invented = copy.deepcopy(after)
+        invented["title"] = "Something else"
+        self.assertEqual(REPAIR.only_composed_artifact_title(doc, invented), "/title")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = self.titled(template({"Name": child()}), "study template schema")
+        doc["schema:name"] = "Study"
+        after, _changes = REPAIR.compose_artifact_title(doc)
+        renamed = copy.deepcopy(after)
+        renamed["@id"] = "https://repo.metadatacenter.org/templates/somewhere-else"
+        self.assertEqual(REPAIR.only_composed_artifact_title(doc, renamed), "/@id")
+
+
+ENCODED = "https%3A%2F%2Fw3id.org%2Fgdmt%2FIdentifierScheme"
+PLAIN = "https://w3id.org/gdmt/IdentifierScheme"
+
+
+def branch_constrained(uri):
+    node = child()
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {
+        "requiredValue": False, "ontologies": [], "valueSets": [], "classes": [],
+        "branches": [{"source": "GDMT", "acronym": "GDMT", "name": "Identifier Scheme",
+                      "uri": uri, "maxDepth": 0}], "multipleChoice": False}
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+class DecodeConstraintIriTest(unittest.TestCase):
+    """An escaped address reaches the terminology server as a literal and matches no term."""
+
+    def uri_of(self, doc):
+        return doc["properties"]["Scheme"]["_valueConstraints"]["branches"][0]["uri"]
+
+    def test_an_escaped_iri_is_written_plainly(self):
+        doc = template({"Scheme": branch_constrained(ENCODED)})
+        after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(self.uri_of(after), PLAIN)
+        self.assertEqual(changes, [{"path": "/properties/Scheme/_valueConstraints/branches/0/uri",
+                                    "replaced": ENCODED, "wrote": PLAIN}])
+        self.assertIsNone(REPAIR.only_decoded_constraint_iri(doc, after))
+
+    def test_a_plain_iri_is_left_alone(self):
+        doc = template({"Scheme": branch_constrained(PLAIN)})
+        after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_value_decoding_does_not_account_for_is_left_alone(self):
+        """Half-escaped, so re-encoding the decoded form does not give back what was stored."""
+        doc = template({"Scheme": branch_constrained("https://w3id.org/gdmt%2FThing")})
+        _after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_doubly_escaped_value_is_left_for_a_reading(self):
+        doc = template({"Scheme": branch_constrained("https%253A%252F%252Fw3id.org%252Fx")})
+        _after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_uri_outside_a_constraint_entry_is_not_touched(self):
+        doc = template({"Scheme": branch_constrained(PLAIN)})
+        doc["properties"]["Scheme"]["uri"] = ENCODED
+        after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["Scheme"]["uri"], ENCODED)
+
+    def test_the_invariant_rejects_an_address_it_did_not_derive(self):
+        doc = template({"Scheme": branch_constrained(ENCODED)})
+        after, _changes = REPAIR.decode_constraint_iri(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["Scheme"]["_valueConstraints"]["branches"][0]["uri"] = \
+            "https://w3id.org/gdmt/Other"
+        self.assertEqual(REPAIR.only_decoded_constraint_iri(doc, invented),
+                         "/properties/Scheme/_valueConstraints/branches/0/uri")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"Scheme": branch_constrained(ENCODED)})
+        after, _changes = REPAIR.decode_constraint_iri(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_decoded_constraint_iri(doc, renamed), "/schema:name")
+
+
+BRANCH = {"source": "Generic Dataset Metadata Template Vocabulary (GDMT)", "acronym": "GDMT",
+          "name": "MIME Type", "uri": "https://w3id.org/gdmt/MIMEType", "maxDepth": 2147483647}
+
+
+def ontology_constrained(name="mediaType", extra_entries=()):
+    node = child()
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {
+        "requiredValue": False,
+        "ontologies": [{"uri": "https://data.bioontology.org/ontologies/GDMT", "acronym": "GDMT",
+                        "name": "Generic Dataset Metadata Template Vocabulary"}, *extra_entries],
+        "valueSets": [], "classes": [], "branches": [], "multipleChoice": False}
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+class NarrowOntologyConstraintTest(unittest.TestCase):
+    """An ontologies entry admits any term; a branches entry admits one subtree."""
+
+    PATH = "/properties/mediaType/_valueConstraints/ontologies/0"
+
+    def setUp(self):
+        REPAIR.BRANCHES.clear()
+
+    tearDown = setUp
+
+    def plan(self, doc, path=None):
+        REPAIR.BRANCHES[doc["@id"]] = {path or self.PATH: dict(BRANCH)}
+
+    def test_the_named_entry_becomes_the_confirmed_branch(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc)
+        after, changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        constraints = after["properties"]["mediaType"]["_valueConstraints"]
+        self.assertEqual(constraints["ontologies"], [])
+        self.assertEqual(constraints["branches"], [BRANCH])
+        self.assertEqual(len(changes), 1)
+        self.assertIsNone(REPAIR.only_narrowed_ontology_constraint(doc, after))
+
+    def test_another_ontologies_entry_in_the_same_field_stays(self):
+        other = {"uri": "https://data.bioontology.org/ontologies/NCIT", "acronym": "NCIT",
+                 "name": "National Cancer Institute Thesaurus"}
+        doc = template({"mediaType": ontology_constrained(extra_entries=(other,))})
+        self.plan(doc)
+        after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        constraints = after["properties"]["mediaType"]["_valueConstraints"]
+        self.assertEqual(constraints["ontologies"], [other])
+        self.assertEqual(constraints["branches"], [BRANCH])
+
+    def test_an_artifact_nobody_planned_is_left_alone(self):
+        doc = template({"mediaType": ontology_constrained()})
+        after, changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_branch_missing_a_required_key_is_refused(self):
+        doc = template({"mediaType": ontology_constrained()})
+        REPAIR.BRANCHES[doc["@id"]] = {self.PATH: {"uri": "https://w3id.org/gdmt/MIMEType"}}
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.narrow_ontology_constraint_to_branch(doc)
+
+    def test_a_path_naming_no_ontologies_entry_is_refused(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc, path="/properties/mediaType/_valueConstraints/branches/0")
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.narrow_ontology_constraint_to_branch(doc)
+
+    def test_a_path_that_does_not_lead_is_refused(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc, path="/properties/absent/_valueConstraints/ontologies/0")
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.narrow_ontology_constraint_to_branch(doc)
+
+    def test_the_invariant_rejects_a_branch_nobody_confirmed(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc)
+        after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["mediaType"]["_valueConstraints"]["branches"][0]["uri"] = \
+            "https://w3id.org/gdmt/Something"
+        self.assertIsNotNone(REPAIR.only_narrowed_ontology_constraint(doc, invented))
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc)
+        after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertIsNotNone(REPAIR.only_narrowed_ontology_constraint(doc, renamed))
+
+
+class DropUnusablePreviousVersionTest(unittest.TestCase):
+    """A predecessor is named by its IRI; a version string names no artifact."""
+
+    def test_a_version_string_leaves(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = "0.0.1"
+        after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertNotIn("pav:previousVersion", after)
+        self.assertEqual(changes, [{"path": "/pav:previousVersion", "replaced": "0.0.1",
+                                    "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_unusable_previous_version(doc, after))
+
+    def test_an_absolute_iri_is_left_alone(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = "https://repo.metadatacenter.org/templates/older"
+        after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_an_artifact_naming_no_predecessor_is_left_alone(self):
+        doc = template({"Name": child()})
+        _after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_null_is_left_for_another_repair(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = None
+        _after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_removal_and_an_iri_going(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = "0.0.1"
+        after, _changes = REPAIR.drop_unusable_previous_version(doc)
+        also = copy.deepcopy(after)
+        del also["schema:name"]
+        self.assertEqual(REPAIR.only_dropped_unusable_previous_version(doc, also), "/schema:name")
+        real = template({"Name": child()})
+        real["pav:previousVersion"] = "https://repo.metadatacenter.org/templates/older"
+        without = {k: v for k, v in real.items() if k != "pav:previousVersion"}
+        self.assertEqual(REPAIR.only_dropped_unusable_previous_version(real, without),
+                         "/pav:previousVersion")
+
+
+def numeric_with_unit(unit, **extra):
+    """A numeric field whose constraints state a unit."""
+    node = child(**extra)
+    node["_ui"] = {"inputType": "numeric"}
+    node["_valueConstraints"] = {"requiredValue": False, "numberType": "xsd:decimal"}
+    if unit is not None:
+        node["_valueConstraints"]["unitOfMeasure"] = unit
+    return node
+
+
+class DropBlankUnitOfMeasureTest(unittest.TestCase):
+    """An empty unit names nothing, which is what leaving the key out already says."""
+
+    def test_an_empty_unit_leaves(self):
+        doc = template({"Mass": numeric_with_unit("")})
+        after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertNotIn("unitOfMeasure", after["properties"]["Mass"]["_valueConstraints"])
+        self.assertEqual(changes, [{"path": "/properties/Mass/_valueConstraints/unitOfMeasure",
+                                    "replaced": "", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_blank_unit_of_measure(doc, after))
+
+    def test_a_unit_of_only_whitespace_leaves_too(self):
+        doc = template({"Mass": numeric_with_unit("   ")})
+        after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertNotIn("unitOfMeasure", after["properties"]["Mass"]["_valueConstraints"])
+
+    def test_a_real_unit_is_left_alone(self):
+        doc = template({"Mass": numeric_with_unit("mg")})
+        after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_field_stating_no_unit_is_left_alone(self):
+        doc = template({"Mass": numeric_with_unit(None)})
+        _after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_rest_of_the_constraints_survive(self):
+        doc = template({"Mass": numeric_with_unit("")})
+        after, _changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(after["properties"]["Mass"]["_valueConstraints"],
+                         {"requiredValue": False, "numberType": "xsd:decimal"})
+
+    def test_an_empty_string_elsewhere_is_not_this_repair_s_business(self):
+        doc = template({"Mass": numeric_with_unit("mg")})
+        doc["properties"]["Mass"]["schema:description"] = ""
+        doc["schema:name"] = ""
+        _after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_removal_and_a_real_unit_going(self):
+        doc = template({"Mass": numeric_with_unit("")})
+        after, _changes = REPAIR.drop_blank_unit_of_measure(doc)
+        stripped = copy.deepcopy(after)
+        del stripped["properties"]["Mass"]["_valueConstraints"]["numberType"]
+        self.assertEqual(REPAIR.only_dropped_blank_unit_of_measure(doc, stripped),
+                         "/properties/Mass/_valueConstraints/numberType")
+        real = template({"Mass": numeric_with_unit("mg")})
+        without = copy.deepcopy(real)
+        del without["properties"]["Mass"]["_valueConstraints"]["unitOfMeasure"]
+        self.assertEqual(REPAIR.only_dropped_blank_unit_of_measure(real, without),
+                         "/properties/Mass/_valueConstraints/unitOfMeasure")
+
+
+class NarrowMultiSelectValueTest(unittest.TestCase):
+    """A multi-select's several answers are its several occurrences, each holding a string."""
+
+    def test_an_array_typed_answer_becomes_a_string(self):
+        doc = template({"Kinds": multi_select(["array", "null"])})
+        after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(
+            after["properties"]["Kinds"]["items"]["properties"]["@value"]["type"], ["string", "null"])
+        self.assertEqual(changes, [{"path": "/properties/Kinds/items/properties/@value/type",
+                                    "replaced": ["array", "null"], "wrote": ["string", "null"],
+                                    "inputType": "list"}])
+        self.assertIsNone(REPAIR.only_narrowed_multi_select_value(doc, after))
+
+    def test_a_bare_array_becomes_a_bare_string(self):
+        doc = template({"Kinds": multi_select("array")})
+        after, _changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(after["properties"]["Kinds"]["items"]["properties"]["@value"]["type"], "string")
+
+    def test_a_checkbox_is_covered_without_stating_multiple_choice(self):
+        doc = template({"Boxes": multi_select(["array", "null"], multiple_choice=None,
+                                              input_type="checkbox")})
+        after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(
+            after["properties"]["Boxes"]["items"]["properties"]["@value"]["type"], ["string", "null"])
+
+    def test_a_correctly_typed_answer_is_left_alone(self):
+        doc = template({"Kinds": multi_select(["string", "null"])})
+        after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_single_choice_list_is_not_this_repair_s_business(self):
+        """Its array is a different question - whether the field should be multiple at all."""
+        doc = template({"Kind": multi_select(["array", "null"], multiple_choice=False)})
+        _after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_field_not_deployed_as_an_array_is_left_for_the_wrapping_repair(self):
+        inner = multi_select(["array", "null"])["items"]
+        doc = template({"Kinds": inner})
+        _after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_change_and_a_type_it_did_not_derive(self):
+        doc = template({"Kinds": multi_select(["array", "null"])})
+        after, _changes = REPAIR.narrow_multi_select_value(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_narrowed_multi_select_value(doc, renamed), "/schema:name")
+        invented = copy.deepcopy(after)
+        invented["properties"]["Kinds"]["items"]["properties"]["@value"]["type"] = ["number", "null"]
+        self.assertEqual(REPAIR.only_narrowed_multi_select_value(doc, invented),
+                         "/properties/Kinds/items/properties/@value/type")
+
+
 class PadArtifactVersionTest(unittest.TestCase):
     """A version the library cannot parse leaves the artifact with no YAML representation at all."""
 
@@ -4818,3 +5406,239 @@ class InstanceDemandsOnElementTest(unittest.TestCase):
         after, _changes = REPAIR.drop_instance_demands_from_element(before)
         after["required"] = ["@context", "@id", "Address", "Name"]
         self.assertEqual(REPAIR.only_dropped_instance_demands(before, after), "/required")
+
+
+def literal_field(required=None):
+    """A field declaring a value and a label, as a text or email field does."""
+    node = child()
+    node["properties"] = {"@type": {"type": "string", "format": "uri"},
+                          "@value": {"type": ["string", "null"]},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    if required is not None:
+        node["required"] = required
+    return node
+
+
+def linked_field(required=None, constrained=False):
+    """A field declaring an address and a label, as a link or controlled-term field does."""
+    node = iri_field()
+    node["properties"]["@type"] = {"type": "string", "format": "uri"}
+    if constrained:
+        node["_valueConstraints"] = {"ontologies": [{"acronym": "ROLEO"}], "branches": [],
+                                     "classes": [], "valueSets": []}
+    if required is not None:
+        node["required"] = required
+    return node
+
+
+def typed_literal_field(input_type, required=None):
+    """A numeric or temporal field, which carries its datatype in the instance's `@type`."""
+    node = literal_field(required)
+    node["_ui"] = {"inputType": input_type}
+    return node
+
+
+class CanonicalRequiredTest(unittest.TestCase):
+    """What both libraries write, read back off the shape the field declares."""
+
+    def test_a_field_declaring_a_value_is_literal(self):
+        self.assertEqual(REPAIR.canonical_required(literal_field()), (["@value"], "literal"))
+
+    def test_a_numeric_field_demands_its_datatype_too(self):
+        self.assertEqual(REPAIR.canonical_required(typed_literal_field("numeric")),
+                         (["@value", "@type"], "typed literal"))
+
+    def test_a_temporal_field_demands_its_datatype_too(self):
+        self.assertEqual(REPAIR.canonical_required(typed_literal_field("temporal")),
+                         (["@value", "@type"], "typed literal"))
+
+    def test_a_field_declaring_an_address_is_iri(self):
+        self.assertEqual(REPAIR.canonical_required(linked_field()), (None, "IRI"))
+
+    def test_a_controlled_term_field_is_iri_although_it_renders_as_a_textfield(self):
+        node = linked_field(constrained=True)
+        node["_ui"] = {"inputType": "textfield"}
+        self.assertEqual(REPAIR.canonical_required(node), (None, "IRI"))
+
+    def test_a_static_field_is_settled_by_its_kind(self):
+        # Production holds static fields whose `properties` accumulated artifact-level keys.
+        node = child(STATIC_TYPE)
+        node["_ui"] = {"inputType": "section-break"}
+        node["properties"] = {"@id": {"type": "string"}, "pav:createdOn": {"type": "string"}}
+        self.assertEqual(REPAIR.canonical_required(node), (None, "static"))
+
+    def test_a_field_declaring_both_settles_nothing(self):
+        node = literal_field()
+        node["properties"]["@id"] = {"type": "string", "format": "uri"}
+        self.assertEqual(REPAIR.canonical_required(node), (None, ""))
+
+    def test_a_field_declaring_neither_settles_nothing(self):
+        node = child()
+        node["properties"] = {"@type": {"type": "string", "format": "uri"}}
+        self.assertEqual(REPAIR.canonical_required(node), (None, ""))
+
+    def test_a_template_is_not_a_field(self):
+        self.assertEqual(REPAIR.canonical_required(template({})), (None, ""))
+
+    def test_an_inner_json_schema_type_is_not_mistaken_for_a_kind(self):
+        # A field's own `@type` names its kind; the one under `properties` is a schema fragment.
+        self.assertEqual(REPAIR.canonical_required(literal_field()["properties"]["@type"]),
+                         (None, ""))
+
+
+class UnfillableTest(unittest.TestCase):
+    """The defect, and the whole of it: a demand the field gives nobody a way to meet."""
+
+    def test_a_demand_on_an_undeclared_property_is_unfillable(self):
+        self.assertTrue(REPAIR.unfillable(["@value"], {"@id": {}, "rdfs:label": {}}))
+
+    def test_a_demand_on_a_declared_property_is_not(self):
+        self.assertFalse(REPAIR.unfillable(["@value"], {"@value": {}, "@type": {}}))
+
+    def test_one_undeclared_entry_among_declared_ones_counts(self):
+        self.assertFalse(REPAIR.unfillable(["rdfs:label"], {"rdfs:label": {}}))
+        self.assertTrue(REPAIR.unfillable(["@id", "rdfs:label"], {"@value": {}, "rdfs:label": {}}))
+
+    def test_nothing_to_read_is_not_a_defect(self):
+        self.assertFalse(REPAIR.unfillable(None, {"@value": {}}))
+        self.assertFalse(REPAIR.unfillable(["@value"], None))
+
+
+class CanonicaliseFieldRequiredTest(unittest.TestCase):
+    """Production holds both inversions, and neither field can hold a value anyone types."""
+
+    def test_an_iri_field_demanding_a_value_loses_the_demand(self):
+        doc = template({"Role": linked_field(["@value"], constrained=True)})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertNotIn("required", after["properties"]["Role"])
+        self.assertEqual(changes, [{"path": "/properties/Role/required", "replaced": ["@value"],
+                                    "wrote": None, "shape": "IRI", "termConstrained": True}])
+        self.assertIsNone(REPAIR.only_canonicalised_field_required(doc, after))
+
+    def test_a_link_field_is_the_same_case_without_a_vocabulary(self):
+        doc = template({"Website": linked_field(["@value"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertNotIn("required", after["properties"]["Website"])
+        self.assertIs(changes[0]["termConstrained"], False)
+
+    def test_a_literal_field_demanding_an_address_gets_the_value_demand(self):
+        doc = template({"Name": literal_field(["@id"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(after["properties"]["Name"]["required"], ["@value"])
+        self.assertEqual(changes[0]["wrote"], ["@value"])
+        self.assertIsNone(REPAIR.only_canonicalised_field_required(doc, after))
+
+    def test_a_numeric_field_demanding_an_address_keeps_its_datatype_demand(self):
+        doc = template({"Age": typed_literal_field("numeric", ["@id"])})
+        after, _changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(after["properties"]["Age"]["required"], ["@value", "@type"])
+
+    def test_a_label_demand_riding_along_with_it_goes_too(self):
+        # Neither library emits one, and it arrived with the impossible demand beside it.
+        doc = template({"Name": literal_field(["@id", "rdfs:label"])})
+        after, _changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(after["properties"]["Name"]["required"], ["@value"])
+
+    def test_a_static_field_demanding_its_content_loses_the_demand(self):
+        node = child(STATIC_TYPE)
+        node["_ui"] = {"inputType": "section-break"}
+        node["properties"] = {"@id": {"type": "string"}}
+        node["required"] = ["_content"]
+        doc = template({"Heading": node})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertNotIn("required", after["properties"]["Heading"])
+        self.assertEqual(changes[0]["shape"], "static")
+
+    def test_a_field_whose_demands_it_declares_is_left_alone(self):
+        # The whole point of the gate: writing the canonical list here could *add* a demand.
+        doc = template({"When": typed_literal_field("temporal", ["@value"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["When"]["required"], ["@value"])
+
+    def test_an_iri_field_demanding_only_its_address_is_left_alone(self):
+        doc = template({"Cell Type": linked_field(["@id"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["Cell Type"]["required"], ["@id"])
+
+    def test_a_field_already_holding_what_the_libraries_write_is_left_alone(self):
+        doc = template({"Name": literal_field(["@value"]), "Website": linked_field()})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_field_whose_shape_is_unsettled_is_left_alone(self):
+        node = literal_field(["rdfs:label", "absent"])
+        node["properties"]["@id"] = {"type": "string", "format": "uri"}
+        doc = template({"Muddled": node})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_field_carrying_no_demand_gains_none(self):
+        doc = template({"Website": linked_field(), "Name": literal_field()})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("required", after["properties"]["Name"])
+
+    def test_the_template_own_required_is_not_touched(self):
+        # A template names its children there, which its `properties` need not declare the same way.
+        doc = template({"Name": literal_field(["@value"])})
+        doc["required"] = ["@context", "@id", "Name", "Absent"]
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["required"], ["@context", "@id", "Name", "Absent"])
+
+    def test_a_field_inside_an_element_is_reached(self):
+        element = child(ELEMENT_TYPE)
+        element["properties"] = {"Website": linked_field(["@value"])}
+        doc = template({"Address": element})
+        _after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Address/properties/Website/required"])
+
+    def test_a_repeating_field_is_reached_through_its_wrapper(self):
+        doc = template({"Website": repeating(linked_field(["@value"]))})
+        _after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Website/items/required"])
+
+    def test_every_field_in_one_artifact_is_settled(self):
+        doc = template({"Name": literal_field(["@id"]), "Role": linked_field(["@value"]),
+                        "Sound": literal_field(["@value"]),
+                        "When": typed_literal_field("temporal", ["@value", "@type"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(len(changes), 2)
+        self.assertEqual(after["properties"]["Name"]["required"], ["@value"])
+        self.assertNotIn("required", after["properties"]["Role"])
+        self.assertEqual(after["properties"]["Sound"]["required"], ["@value"])
+        self.assertEqual(after["properties"]["When"]["required"], ["@value", "@type"])
+        self.assertIsNone(REPAIR.only_canonicalised_field_required(doc, after))
+
+    def test_the_invariant_rejects_a_satisfiable_demand_being_rewritten(self):
+        doc = template({"When": typed_literal_field("temporal", ["@value"])})
+        tightened = copy.deepcopy(doc)
+        tightened["properties"]["When"]["required"] = ["@value", "@type"]
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, tightened),
+                         "/properties/When/required")
+
+    def test_the_invariant_rejects_a_demand_the_libraries_do_not_write(self):
+        doc = template({"Name": literal_field(["@id", "rdfs:label"])})
+        kept = copy.deepcopy(doc)
+        kept["properties"]["Name"]["required"] = ["rdfs:label"]
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, kept),
+                         "/properties/Name/required")
+
+    def test_the_invariant_rejects_a_required_key_going_from_a_literal_field(self):
+        doc = template({"Name": literal_field(["@id"])})
+        stripped = copy.deepcopy(doc)
+        del stripped["properties"]["Name"]["required"]
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, stripped),
+                         "/properties/Name/required")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"Website": linked_field(["@value"])})
+        after, _changes = REPAIR.canonicalise_field_required(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, renamed), "/schema:name")

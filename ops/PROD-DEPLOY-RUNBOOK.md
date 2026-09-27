@@ -373,8 +373,8 @@ and makes no realm, hostname, production Compose, or data change.
   `cedar-development/ops/e2e/record-split-frontend-deployment.mjs`. Both sources must be clean and
   its source commits must match the commits approved for the window.
 - Run `smoke:split:deployment` against the deployed hosts with expected commit variables pinned.
-- Run `smoke:split:authenticated` from cold Workspace, Designer, and CEE deep links after the exact
-  Keycloak callbacks and web origins are approved.
+- Run `smoke:workspace:modern:full` with `CEDAR_BASE` and `CEDAR_DESIGNER_BASE` set to the deployed
+  Workspace and Designer after the exact Keycloak callbacks and web origins are approved.
 - Run `propagate-cee-release.mjs --check <CEE_VERSION>` and verify the Workspace-served CEE sha256
   equals the release artifact accepted for the window.
 - Verify both certificates, REST CORS, sharing with both test users, old bookmark behavior, and the

@@ -117,7 +117,8 @@
             "prepare:components"
           ]
         }
-      ]
+      ],
+      "verificationBuildsPackage": true
     },
     {
       "id": "ced",
@@ -143,7 +144,8 @@
             "prepare:components"
           ]
         }
-      ]
+      ],
+      "verificationBuildsPackage": true
     },
     {
       "id": "model",
@@ -330,7 +332,7 @@
       "repository": "cedar-model-typescript-library",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "2add21c156c2f2df4313f29a58aebb4a6bddc3f50fc428149caf1c419d05c444",
+      "sha256": "72853bfff24ad3013f8710539d8a4e823eb5acda1ebd0d56b427e50af1b671e0",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -342,7 +344,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "869fae5bb594055cd95fa89e3aa50bae88a79c8438783391db6dc3cbffb30ebe",
+      "sha256": "db3d9574d9c0a43e6fa28ac09e621c7fe6b59f83b9b2f8a118668db510121675",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -366,7 +368,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "visual/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "64faa937a0a9da8c52d8a98f8d77a40f93ebd71b8d840c398417dd7c09a8967f",
+      "sha256": "1a8d3551dc54a35b79dbb49f421bfe55e199d44e9d3eb909e73d7c2dadeac64c",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -378,11 +380,11 @@
       "repository": "cedar-template-editor",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "247885f16c69e0048732aad9e79c9cb6f6536a281e67d128316e7bc8ac86cd27",
+      "sha256": "d64d21fc7f65171548db4c104e603bccacda704fe722518b28f88a71fa13ab26",
       "vulnerabilities": {
         "low": 5,
-        "moderate": 15,
-        "high": 35,
+        "moderate": 16,
+        "high": 33,
         "critical": 9
       }
     },
@@ -390,7 +392,7 @@
       "repository": "cedar-workspace",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "1bfcea826d8c977e288013dc4748803f30a3d778f3ae6810a63d49b594895fcc",
+      "sha256": "a33a4ffad6cd469de34951a92267e6c77542f92c5fed71e020ec97a0f9fed0e0",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -402,19 +404,19 @@
       "repository": "cedar-template-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "6667399a3bf48d277f29b02af23e69212b4ead1740e6b207de1eea3f288fbccf",
+      "sha256": "97e8ad3abeecc822e761337d0300952c48af97fce5626ebf49d60348cfed9570",
       "vulnerabilities": {
-        "low": 4,
-        "moderate": 9,
-        "high": 8,
-        "critical": 1
+        "low": 2,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0
       }
     },
     {
       "repository": "cedar-openview",
       "lock": "cedar-openview-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "e7c2cff54ac394f67b60634ab2a147a6eb4c955aa0e5b25ae80be40cc0cbff56",
+      "sha256": "0ffdaa098819e7761639f1f5d3604e25e83802057d95ab75447cc2b9f67f0764",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -426,7 +428,7 @@
       "repository": "cedar-content-distribution",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "44a0e4aea3787e3621addcc1e5c8f6da8eefeac514df5a3a6c06e50d2dedf30d",
+      "sha256": "13e96d0e4e2a40391585494bb28a29fb89c15ba522792cca397c6595796ddb6e",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -438,7 +440,7 @@
       "repository": "cedar-monitoring",
       "lock": "cedar-monitoring-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "8aece7e2528cfb72852042e79b53ed55a0ce78956b87b95bb94b76a00da7f04a",
+      "sha256": "c9429b31ac3be84194211c72ec9f7e9d66651bb948ecc2906a690322dd241391",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -450,7 +452,7 @@
       "repository": "cedar-bridging",
       "lock": "cedar-bridging-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "4ec28206ee66f6e1c4523ddebd5cd6a842e8a6bc26bd835f5e457ce7a6167525",
+      "sha256": "e7c56e381c6fd0e4e74631f7273b7f56aa6e603507b0d5f07d1b58183ded7dbd",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -462,7 +464,7 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-angular-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "5e3234fec776892318ad70f526261bb18900397560b67d6357a8335c45e40873",
+      "sha256": "e7a0df71d6caaaf5add08fb55587b02bd83e28856c3406dcac442fbc0d5b6ce4",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -474,7 +476,7 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-ember-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "9c0c554d91b906aee755b6bf95c0181e7c75f4f603f44f1931edf0fc1f6068f8",
+      "sha256": "0301a5160de70c6a1b18340fba48438b6afe11db73ac43d836eda0c0bae0c4be",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -486,7 +488,7 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-react/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "7788d4cb4cf2c38709acd53ac13ea1a7fe720d1f23af90589751924315bef8bc",
+      "sha256": "ccf8c2de468143a763ba4aba64b594ef4d950e50bb3507c6a10bde66284969e6",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -498,7 +500,7 @@
       "repository": "cedar-design-tokens",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "2fd6aea0a426ce73f8f0cde6bbd9164c555a231e1e436b03983ed0892c221806",
+      "sha256": "86d03a2f80f3b60e253d25dbb2bf6c7ef7fcd8aa955546c0dee4c47be956a83f",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -510,7 +512,7 @@
       "repository": "cedar-embeddable-term-picker",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "45e06eef436248fecd56be814323dc5acbfa144d8dd906044947cbe0f5b0f1f5",
+      "sha256": "dfe01b1be94b2e30f9f178a7bcc7ee85da89647240a393747f76c2e5611ff19d",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -522,7 +524,7 @@
       "repository": "cedar-embeddable-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "a022f518366e97e7c068e014bde3eafbe17b9b1ad84c8953a127f03bb67e27b5",
+      "sha256": "4fb0cd434a622b44bb62e62b2aa7995ebe0d4ad5a0c097177e51734c492df980",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -538,5 +540,491 @@
       "registry": "https://registry.npmjs.org/"
     }
   ],
-  "dockerCeeVersionVariable": "CEDAR_OPENVIEW_CEE_NPM_VERSION"
+  "dockerCeeVersionVariable": "CEDAR_OPENVIEW_CEE_NPM_VERSION",
+  "surfaces": [
+    {
+      "id": "template-editor",
+      "repository": "cedar-template-editor",
+      "directory": ".",
+      "install": [],
+      "build": [],
+      "release": true,
+      "reactorName": "cedar-template-editor",
+      "verify": [
+        [
+          "npx",
+          "gulp",
+          "replace-url",
+          "replace-version"
+        ],
+        [
+          "npm",
+          "test"
+        ],
+        [
+          "bash",
+          "-c",
+          "node --test test/*.test.cjs"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ],
+      "verificationDefaults": {
+        "CEDAR_FRONTEND_BEHAVIOR": "develop",
+        "CEDAR_FRONTEND_TARGET": "local",
+        "CEDAR_FRONTEND_local_UI_HOST": "metadatacenter.orgx",
+        "CEDAR_FRONTEND_local_REST_HOST": "metadatacenter.orgx",
+        "CEDAR_DATACITE_ENABLED": "false",
+        "CEDAR_GA4_TRACKING_ID": ""
+      }
+    },
+    {
+      "id": "workspace",
+      "repository": "cedar-workspace",
+      "directory": ".",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-workspace",
+      "verify": [
+        [
+          "npm",
+          "test"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ]
+    },
+    {
+      "id": "template-designer",
+      "repository": "cedar-template-designer",
+      "directory": ".",
+      "install": [],
+      "build": [],
+      "release": true,
+      "reactorName": "cedar-template-designer",
+      "verify": [
+        [
+          "npm",
+          "run",
+          "prepare:components"
+        ],
+        [
+          "npm",
+          "test"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ]
+    },
+    {
+      "id": "openview",
+      "repository": "cedar-openview",
+      "directory": "cedar-openview-src",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-openview-src/dist/cedar-openview",
+      "release": true,
+      "reactorName": "cedar-openview-src",
+      "verify": [
+        [
+          "npm",
+          "test",
+          "--",
+          "--watch=false",
+          "--browsers=ChromeHeadless"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "cedar-openview-dist"
+      ]
+    },
+    {
+      "id": "bridging",
+      "repository": "cedar-bridging",
+      "directory": "cedar-bridging-src",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-bridging-src/dist/cedar-bridging",
+      "release": true,
+      "reactorName": "cedar-bridging-src",
+      "verify": [
+        [
+          "npm",
+          "test",
+          "--",
+          "--watch=false",
+          "--browsers=ChromeHeadless"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "cedar-bridging-dist"
+      ]
+    },
+    {
+      "id": "monitoring",
+      "repository": "cedar-monitoring",
+      "directory": "cedar-monitoring-src",
+      "install": [
+        "--legacy-peer-deps"
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-monitoring-src/dist/cedar-monitoring",
+      "release": true,
+      "reactorName": "cedar-monitoring-src",
+      "verify": [
+        [
+          "npm",
+          "test",
+          "--",
+          "--watch=false",
+          "--browsers=ChromeHeadless"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci",
+          "--legacy-peer-deps"
+        ]
+      ],
+      "packageDirectories": [
+        "cedar-monitoring-dist"
+      ]
+    },
+    {
+      "id": "content",
+      "repository": "cedar-content-distribution",
+      "directory": ".",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-content-distribution",
+      "verify": [],
+      "verificationExemption": "Static content application has no test script; build and package checks cover delivery.",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ]
+    },
+    {
+      "id": "cee-demo-angular",
+      "repository": "cedar-component-demo",
+      "directory": "cedar-cee-demo-angular-src",
+      "install": [],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "lint"
+        ],
+        [
+          "npm",
+          "run",
+          "test"
+        ]
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-cee-demo-angular-src/dist/cedar-cee-demo-angular-src/browser",
+      "release": true,
+      "reactorName": "cedar-cee-demo-angular-src",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ]
+    },
+    {
+      "id": "cee-demo-ember",
+      "repository": "cedar-component-demo",
+      "directory": "cedar-cee-demo-ember-src",
+      "install": [],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "lint"
+        ],
+        [
+          "npm",
+          "run",
+          "test:ember"
+        ]
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-cee-demo-ember-src",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ]
+    },
+    {
+      "id": "cee-demo-react",
+      "repository": "cedar-component-demo",
+      "directory": "cedar-cee-demo-react",
+      "install": [],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "lint"
+        ],
+        [
+          "npm",
+          "run",
+          "test"
+        ]
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-cee-demo-react",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-design-tokens",
+      "repository": "cedar-design-tokens",
+      "directory": ".",
+      "reactorName": "cedar-design-tokens",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "test"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-model-typescript-library",
+      "repository": "cedar-model-typescript-library",
+      "directory": ".",
+      "reactorName": "cedar-model-typescript-library",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "test:ci"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-embeddable-editor",
+      "repository": "cedar-embeddable-editor",
+      "directory": ".",
+      "reactorName": "cedar-embeddable-editor",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "harness",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "visual",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "test:ci"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-embeddable-designer",
+      "repository": "cedar-embeddable-designer",
+      "directory": ".",
+      "reactorName": "cedar-embeddable-designer",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "browser",
+          "ci"
+        ],
+        [
+          "./browser/node_modules/.bin/playwright",
+          "install",
+          "--with-deps",
+          "chromium"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "test:ci"
+        ],
+        [
+          "npm",
+          "run",
+          "test:visual"
+        ]
+      ],
+      "integrationInputs": [
+        {
+          "variable": "CEF_BUNDLE",
+          "repository": "cedar-embeddable-editor",
+          "bundle": "cedar-embeddable-editor.js"
+        },
+        {
+          "variable": "PICKER_BUNDLE",
+          "repository": "cedar-embeddable-term-picker",
+          "bundle": "cedar-embeddable-term-picker.js"
+        }
+      ]
+    },
+    {
+      "id": "cedar-embeddable-term-picker",
+      "repository": "cedar-embeddable-term-picker",
+      "directory": ".",
+      "reactorName": "cedar-embeddable-term-picker",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "browser",
+          "ci"
+        ],
+        [
+          "./browser/node_modules/.bin/playwright",
+          "install",
+          "--with-deps",
+          "chromium"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "test:ci"
+        ],
+        [
+          "npm",
+          "run",
+          "test:visual"
+        ]
+      ]
+    }
+  ]
 }

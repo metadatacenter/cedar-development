@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import collections
 import copy
+import hashlib
 import json
 import os
 import re
@@ -67,6 +68,7 @@ import cedar_artifact_validation_audit as audit  # noqa: E402
 DERIVED_FROM = "pav:derivedFrom"
 AT_ID = "@id"
 AT_TYPE = "@type"
+AT_VALUE = "@value"
 ELEMENT_AT_TYPE = "https://schema.metadatacenter.org/core/TemplateElement"
 FIELD_AT_TYPE = "https://schema.metadatacenter.org/core/TemplateField"
 # The path segment an identifier carries for each kind of child. A static field is a field here: only
@@ -587,6 +589,23 @@ def only_completed_context_required(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "")
 
 
+def inherently_multiple(field: Any) -> bool:
+    """Whether a field takes several answers because of what it is, not because an author said so.
+
+    A checkbox and an attribute-value field always do; a list does when its constraints say
+    multiple choice. Shared by the repairs that turn on that rule, so they cannot come to
+    different answers about the same field.
+    """
+    ui = field.get("_ui") if isinstance(field, dict) else None
+    if not isinstance(ui, dict):
+        return False
+    if ui.get("inputType") in {"checkbox", "attribute-value"}:
+        return True
+    constraints = field.get("_valueConstraints")
+    return ui.get("inputType") == "list" and isinstance(constraints, dict) \
+        and constraints.get("multipleChoice") is True
+
+
 def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Deploy an inherently multiple child as the array it always serializes to.
 
@@ -597,16 +616,6 @@ def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     inner definition and is correctly object-shaped, so only children under a container are examined.
     """
     changes: list[dict[str, Any]] = []
-
-    def inherently_multiple(field: Any) -> bool:
-        ui = field.get("_ui") if isinstance(field, dict) else None
-        if not isinstance(ui, dict):
-            return False
-        if ui.get("inputType") in {"checkbox", "attribute-value"}:
-            return True
-        constraints = field.get("_valueConstraints")
-        return ui.get("inputType") == "list" and isinstance(constraints, dict) \
-            and constraints.get("multipleChoice") is True
 
     def walk(container: Any, path: str) -> Any:
         if not isinstance(container, dict):
@@ -648,6 +657,947 @@ def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
         return result
 
     return walk(copy.deepcopy(artifact), ""), changes
+
+
+ARRAY_JSON_TYPE = "array"
+STRING_JSON_TYPE = "string"
+
+
+def value_property_json_type(field: Any) -> Any:
+    """The JSON type a field gives its ``@value`` property, or None where it gives none.
+
+    Distinct from :func:`declared_value_type` below, which answers the datatype an instance value
+    must state in ``@type``.
+    """
+    properties = field.get("properties") if isinstance(field, dict) else None
+    declared = properties.get("@value") if isinstance(properties, dict) else None
+    return declared.get("type") if isinstance(declared, dict) else None
+
+
+def value_type_naming_array(declared: Any) -> bool:
+    return declared == ARRAY_JSON_TYPE or (isinstance(declared, list) and ARRAY_JSON_TYPE in declared)
+
+
+def value_type_without_array(declared: Any) -> Any:
+    """The same declaration with the array replaced by the string a single answer is."""
+    if declared == ARRAY_JSON_TYPE:
+        return STRING_JSON_TYPE
+    return [STRING_JSON_TYPE if entry == ARRAY_JSON_TYPE else entry for entry in declared]
+
+
+def narrow_multi_select_value(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Type one answer of a multi-select as the string it is, not as another array.
+
+    A field that takes several answers is deployed as an array of occurrences, and each occurrence
+    holds one of them. Typing the occupant's own ``@value`` as an array as well says each answer is
+    itself a list, which the model cannot represent: a literal field's ``@value`` is a string, and
+    the several answers are the several occurrences. No editor produces that shape, so every
+    populated instance of such a field is invalid against its own template while the template passes
+    the meta-schema, which constrains neither side against the other.
+
+    Only a child already deployed as an array and already multiple by nature is touched. A field
+    holding an array while deployed as a single object is a different question - whether it should
+    become multi-instance - and is left to :func:`wrap_inherently_multiple` and to a decision.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if multiple and inherently_multiple(repaired):
+                stored = value_property_json_type(repaired)
+                if value_type_naming_array(stored):
+                    narrowed = value_type_without_array(stored)
+                    repaired = copy.deepcopy(repaired)
+                    repaired["properties"]["@value"]["type"] = narrowed
+                    changes.append({"path": f"{here}/properties/@value/type",
+                                    "replaced": stored, "wrote": narrowed,
+                                    "inputType": (repaired.get(UI_KEY) or {}).get(INPUT_TYPE_KEY)})
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def decoded_constraint_iri(stored: Any) -> Optional[str]:
+    """The IRI a percent-encoded constraint address means, where decoding once yields one.
+
+    Decoding is the whole derivation, and it is checked rather than trusted: the result has to be
+    an absolute IRI and has to re-encode to what was stored, so a value that merely contains a
+    percent sign is left alone. Decoded once only - a value needing two passes was encoded twice
+    and is a different accident.
+    """
+    if not isinstance(stored, str) or "%" not in stored or rest.is_absolute_iri(stored):
+        return None
+    decoded = urllib.parse.unquote(stored)
+    if decoded == stored or not rest.is_absolute_iri(decoded):
+        return None
+    return decoded if urllib.parse.quote(decoded, safe="") == stored else None
+
+
+def decode_constraint_iri(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a constraint's address as the IRI it is, not as an escaped copy of one.
+
+    A constraint entry's ``uri`` addresses the ontology, branch, class or value set it names, and a
+    terminology lookup resolves it directly. A percent-encoded one resolves to nothing: it reaches
+    the server as a literal and matches no term, so the field offers an author no values at all.
+    The meta-schema asks for a string with ``format: uri``, which an escaped IRI satisfies as a
+    relative reference, so nothing refused it on write.
+
+    Only inside a constraint entry, and only where decoding produces an absolute IRI that
+    re-encodes to exactly what was stored. Everything else is left alone: a ``uri`` elsewhere in the
+    document is not this repair's business, and a value that decoding does not account for needs a
+    reading rather than a rule.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            decoded = decoded_constraint_iri(value) if name == "uri" and in_constraint_entry(path) \
+                else None
+            if decoded is not None:
+                result[name] = decoded
+                changes.append({"path": here, "replaced": value, "wrote": decoded})
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_decoded_constraint_iri(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is an escaped address becoming the IRI it re-encodes from."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == "uri" and new[name] != old[name]:
+                    if not in_constraint_entry(path) or new[name] != decoded_constraint_iri(old[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+REQUIRED_KEY = "required"
+STATIC_FIELD_AT_TYPE = "https://schema.metadatacenter.org/core/StaticTemplateField"
+FIELD_AT_TYPES = frozenset({"https://schema.metadatacenter.org/core/TemplateField",
+                            STATIC_FIELD_AT_TYPE})
+TERM_CONSTRAINT_GROUPS = ("ontologies", "branches", "classes", "valueSets")
+# A numeric or temporal field pins its datatype in the instance's `@type`, so both libraries
+# demand it alongside the value. Every other literal field demands the value alone.
+TYPED_LITERAL_INPUT_TYPES = frozenset({"numeric", "temporal"})
+
+
+def canonical_required(definition: Any) -> tuple[Optional[list[str]], str]:
+    """What both libraries write in a field's ``required``, and the shape that decided it.
+
+    A field carries a value of one of two shapes, and the shape settles most of the question:
+
+    - a literal field declares ``@value``, and both libraries demand it. A numeric or temporal
+      field demands ``@type`` with it, because that is where the instance carries its datatype
+    - an IRI field - a link, an external identifier, or a term drawn from a vocabulary - declares
+      ``@id``, and both libraries emit no ``required`` at all
+
+    The declared properties are what say which of the two, and nothing else does. ``_ui.inputType``
+    cannot: a controlled-term field and a plain text field both render as ``textfield``, and only
+    their value constraints tell them apart. It is consulted only for the datatype question, where
+    ``numeric`` and ``temporal`` are input types of their own.
+
+    A static field carries no value at all - it is a heading, an image, a block of prose - and
+    neither library gives one a ``required`` whatever it declares. Production holds static fields
+    whose ``properties`` accumulated artifact-level keys, so the shape is taken from the kind here
+    rather than read off what such a field happens to declare.
+    """
+    if not isinstance(definition, dict):
+        return None, ""
+    at_type = definition.get(AT_TYPE)
+    if not isinstance(at_type, str) or at_type not in FIELD_AT_TYPES:
+        return None, ""
+    if at_type == STATIC_FIELD_AT_TYPE:
+        return None, "static"
+    properties = definition.get("properties")
+    if not isinstance(properties, dict):
+        return None, ""
+    literal, iri = AT_VALUE in properties, AT_ID in properties
+    if literal == iri:  # neither shape, or both: nothing here says which was meant
+        return None, ""
+    if not literal:
+        return None, "IRI"
+    ui = definition.get("_ui")
+    input_type = ui.get("inputType") if isinstance(ui, dict) else None
+    if input_type in TYPED_LITERAL_INPUT_TYPES:
+        return [AT_VALUE, AT_TYPE], "typed literal"
+    return [AT_VALUE], "literal"
+
+
+def canonicalise_iri_field_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove legacy IRI-field required lists, as the Java model renders them.
+
+    This only relaxes JSON Schema presence requirements. It does not change the field's
+    properties, entered values, vocabulary constraints or requiredValue authoring constraint.
+    Select targets only after checking their Java-rendered counterparts have the same IRI
+    value shape and no required list; a literal/IRI disagreement is a separate repair.
+    """
+    changes = []
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        wanted, shape = canonical_required(node)
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == REQUIRED_KEY and shape == "IRI" and isinstance(value, list) and value:
+                changes.append({"path": here, "replaced": value, "wrote": None})
+            else:
+                result[name] = walk(value, here)
+        return result
+    return walk(artifact, ""), changes
+
+
+def only_canonicalised_iri_field_required(before: Any, after: Any) -> Optional[str]:
+    """Every difference must remove a required list from an unambiguous IRI field."""
+    for path, old, new in differences(before, after):
+        if not path.endswith("/required") or new is not ABSENT or not isinstance(old, list) or not old:
+            return path or "/"
+        parent = value_at(before, path.rsplit("/", 1)[0])
+        if not isinstance(parent, dict):
+            return path
+        kind = parent.get(AT_TYPE)
+        properties = parent.get("properties")
+        if not isinstance(kind, str) or kind not in FIELD_AT_TYPES or kind == STATIC_FIELD_AT_TYPE \
+                or not isinstance(properties, dict) or AT_ID not in properties or AT_VALUE in properties:
+            return path
+    return None
+
+
+def term_constrained(definition: Any) -> bool:
+    """Whether the field draws its value from a vocabulary, which only an IRI field can."""
+    constraints = definition.get("_valueConstraints") if isinstance(definition, dict) else None
+    if not isinstance(constraints, dict):
+        return False
+    return any(constraints.get(group) for group in TERM_CONSTRAINT_GROUPS)
+
+
+def noncanonical_context_demands(container: Any) -> set[str]:
+    """Only orphan child names and attribute-group names; preserve namespace requirements."""
+    if not isinstance(container, dict):
+        return set()
+    children = {name: child for name, child, _ in container_children(container)}
+    required = container.get('properties', {}).get('@context', {}).get('required', [])
+    namespaces = {'xsd', 'rdfs', 'pav', 'schema', 'oslc', 'skos', 'bibo'}
+    return {name for name in required if isinstance(name, str) and not name.startswith('@')
+            and ':' not in name and name not in namespaces
+            and (name not in children or children[name].get('_ui', {}).get('inputType') == 'attribute-value')}
+
+
+def drop_noncanonical_context_demands(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Relax context requirements for absent children and attribute-value groups.
+
+    Apply only to targets compared with the Java-rendered schema. Keep all mappings and
+    instance values; only the obligation to repeat these mappings is removed.
+    """
+    changes = []
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(value, f'{path}/{index}') for index, value in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f'{path}/{rest.json_pointer_component(key)}') for key, value in node.items()}
+        kind = node.get('@type')
+        if isinstance(kind, str) and kind in {'https://schema.metadatacenter.org/core/Template', rest.TEMPLATE_ELEMENT}:
+            removed = noncanonical_context_demands(node)
+            if removed:
+                old = node['properties']['@context']['required']
+                new = [name for name in old if name not in removed]
+                result['properties']['@context']['required'] = new
+                changes.append({'path': path + '/properties/@context/required', 'replaced': old, 'wrote': new})
+        return result
+    return walk(artifact, ''), changes
+
+
+def only_dropped_noncanonical_context_demands(before: Any, after: Any) -> Optional[str]:
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or '/'
+            for key in old:
+                here = f'{path}/{rest.json_pointer_component(key)}'
+                if here.endswith('/properties/@context/required'):
+                    parent_path = here[:-len('/properties/@context/required')]
+                    parent = before if not parent_path else value_at(before, parent_path)
+                    kind = parent.get('@type') if isinstance(parent, dict) else None
+                    removable = noncanonical_context_demands(parent) if isinstance(kind, str) and kind in {'https://schema.metadatacenter.org/core/Template', rest.TEMPLATE_ELEMENT} else set()
+                    if not isinstance(old[key], list) or new[key] != [name for name in old[key] if name not in removable]:
+                        return here
+                else:
+                    fault = walk(old[key], new[key], here)
+                    if fault is not None:return fault
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):return path
+            for index, value in enumerate(old):
+                fault = walk(value, new[index], f'{path}/{index}')
+                if fault is not None:return fault
+            return None
+        return None if json_equal(old, new) else path or '/'
+    return walk(before, after, '')
+
+
+def unfillable(demanded: Any, properties: Any) -> bool:
+    """Whether a ``required`` names a property the field does not declare.
+
+    This is the defect, and the whole of it. A field whose demands are all declared is satisfiable,
+    whatever else it differs from the libraries in, and is none of this repair's business: writing
+    the canonical list there could *add* a demand - a temporal field storing ``["@value"]`` where
+    the libraries write ``["@value", "@type"]`` - and invalidate instances that validate today.
+    """
+    if not isinstance(demanded, list) or not isinstance(properties, dict):
+        return False
+    return any(key not in properties for key in demanded)
+
+
+def canonicalise_field_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a field the ``required`` its declared shape calls for.
+
+    Production holds fields demanding a property they do not declare: an IRI field demanding
+    ``@value``, and a literal field demanding ``@id``. No instance of either can validate. The
+    demanded property is one the field gives an author no way to fill, and the field also sets
+    ``additionalProperties: false``, so the value an author does supply is refused in turn. The
+    field is unfillable in both directions rather than merely strict.
+
+    Only a field demanding something it does not declare is touched, and it then takes the list the
+    libraries write for its shape. That drops a demand on ``rdfs:label`` where one was made, since
+    neither library emits it and it rides along with the impossible one. Every such case relaxes:
+    nothing that validates today stops doing so, because nothing carrying that field validates
+    today, and instances that could not validate at all may now.
+
+    A field whose demands it does declare is left exactly as it stands, even where the libraries
+    would write something else. Writing the canonical list there could add a demand rather than
+    remove one, and that is a different change with a different risk.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        wanted, shape = canonical_required(node)
+        stored = node.get(REQUIRED_KEY)
+        settled = (shape and isinstance(stored, list) and stored != wanted
+                   and unfillable(stored, node.get("properties")))
+        result = {}
+        if settled and wanted is not None and REQUIRED_KEY not in node:
+            raise TransformRefused(f"{path}: cannot place `required` in a field that has none")
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == REQUIRED_KEY and settled:
+                changes.append({"path": here, "replaced": list(value), "wrote": wanted,
+                                "shape": shape, "termConstrained": term_constrained(node)})
+                if wanted is not None:
+                    result[name] = list(wanted)
+                continue
+            result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_canonicalised_field_required(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a field's ``required`` taking the value its shape calls for."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            if set(new) - set(old):
+                return path or "/"
+            wanted, shape = canonical_required(old)
+            # The transform only ever touches a `required` naming something the field does not
+            # declare, so the invariant holds a change to any other one to be someone else's.
+            settled = shape and unfillable(old.get(REQUIRED_KEY), old.get("properties"))
+            gone = set(old) - set(new)
+            if gone and not (gone == {REQUIRED_KEY} and settled and wanted is None):
+                return f"{path}/{rest.json_pointer_component(sorted(gone)[0])}"
+            for name in new:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == REQUIRED_KEY and new[name] != old[name]:
+                    if not settled or new[name] != wanted:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+JSON_LD_ID = "@id"
+EMPTY_IRI_ERROR = r"^(?:\[read\] )?An empty string is not a URI"
+
+
+def drop_empty_instance_iri(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take an empty ``@id`` out of a field that holds no IRI.
+
+    An IRI-valued field - a link, an ORCID, a controlled term - says what it holds with ``@id``. A
+    field nobody filled in holds no IRI, and the way to say that is to leave the key out: the
+    occurrence is then an ordinary node with nothing in it. An empty string is not a way to say it.
+    It is not an IRI, JSON-LD gives it no meaning, and ``cedar-artifact-library`` refuses to read
+    one, so an instance carrying it has no YAML representation and answers 500 when asked for one.
+
+    Nothing rejected it on write. The field's rendered schema types ``@id`` as a string with
+    ``format: uri``, and an empty string satisfies that, so the validator holds these instances
+    valid while the library will not read them. That gap is why the repair is worth making and why
+    tightening the schema is a separate question: it would touch every stored template.
+
+    ``null`` would also be read, and the library's own message offers it, but a node object's
+    ``@id`` is defined to be a string and null is not one. Removal says the same thing in the shape
+    an unfilled IRI field already has.
+
+    The instance's own ``@id`` is left alone. An artifact whose identity is an empty string is a
+    different defect and not one to settle by deleting its identity.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    stored_root = artifact.get(JSON_LD_ID)
+    if isinstance(stored_root, str) and stored_root.strip() == "":
+        raise TransformRefused("the instance's own @id is empty, which is a different defect")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        stored = node.get(JSON_LD_ID)
+        empty = path != "" and isinstance(stored, str) and stored.strip() == ""
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == JSON_LD_ID and empty:
+                changes.append({"path": here, "replaced": stored, "wrote": None})
+                continue
+            result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_dropped_empty_instance_iri(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only keys gone are empty ``@id``s below the root."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            if set(new) - set(old):
+                return path or "/"
+            gone = set(old) - set(new)
+            unexpected = sorted(gone - {JSON_LD_ID})
+            if unexpected:
+                return f"{path}/{rest.json_pointer_component(unexpected[0])}"
+            if gone:
+                stored = old[JSON_LD_ID]
+                if path == "" or not isinstance(stored, str) or stored.strip() != "":
+                    return f"{path}/{JSON_LD_ID}"
+            for name in new:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+TITLE_KEY = "title"
+SCHEMA_NAME_KEY = "schema:name"
+ARTIFACT_NOUN = {
+    "https://schema.metadatacenter.org/core/Template": "template",
+    "https://schema.metadatacenter.org/core/TemplateElement": "element",
+    "https://schema.metadatacenter.org/core/TemplateField": "field",
+    "https://schema.metadatacenter.org/core/StaticTemplateField": "field",
+}
+
+
+def composed_title(definition: Any) -> Optional[str]:
+    """The title a definition of this name and kind has, or None where it does not have one."""
+    if not isinstance(definition, dict):
+        return None
+    # `@type` is a string on an artifact and a JSON Schema fragment inside `properties`, so ask
+    # only where it is the former.
+    at_type = definition.get(AT_TYPE)
+    noun = ARTIFACT_NOUN.get(at_type) if isinstance(at_type, str) else None
+    name = definition.get(SCHEMA_NAME_KEY)
+    if noun is None or not isinstance(name, str) or not name:
+        return None
+    return f"{name} {noun} schema"
+
+
+def compose_artifact_title(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the title an artifact's name and kind compose, where it holds another.
+
+    ``title`` names the JSON Schema constraining instances of an artifact, and it restates the
+    artifact's own name: an artifact called Study has a template schema called "Study template
+    schema" and there is nothing else it could be called. It carries nothing an author decided, so
+    a stored one that differs is not an alternative anybody chose.
+
+    An older editor composed it from a lowercased name, so the stored title disagrees with the name
+    beside it in case alone - "Template with Text Field 1" against "Template with text field 1
+    template schema". Both model libraries derive the title on read, so such an artifact is
+    rewritten the moment anything reads and writes it; composing it here means the stored document
+    says what every reader of it already says.
+
+    Every nested definition carries its own, so the walk covers them with the root.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        wanted = composed_title(node)
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == TITLE_KEY and wanted is not None and isinstance(value, str) and value != wanted:
+                result[name] = wanted
+                changes.append({"path": here, "replaced": value, "wrote": wanted})
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_composed_artifact_title(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a title becoming the one its own name and kind compose."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == TITLE_KEY and new[name] != old[name]:
+                    if new[name] != composed_title(old):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+ACRONYM_KEY = "acronym"
+# The three keys that together address a constraint's vocabulary. A paste into the acronym lands in
+# all of them, so a repair reaching only one leaves an address still pointing at a browse page.
+SOURCE_KEYS = ("acronym", "name", "uri")
+# Confirmed addresses, {storedValue: {acronym, name, uri}}, from `acronym_sheet.py`. Empty unless
+# --acronyms names a file, and a value absent from it is reported rather than guessed at.
+ACRONYMS: dict[str, dict[str, str]] = {}
+CONSTRAINT_GROUPS = ("ontologies", "valueSets", "classes", "branches")
+
+
+def in_constraint_entry(path: str) -> bool:
+    return any(f"/{group}/" in f"{path}/" for group in CONSTRAINT_GROUPS)
+
+
+def resolve_constraint_source(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the address a constraint's vocabulary is reached by, where one was confirmed.
+
+    An `acronym`, a `name` and a `uri` together say which vocabulary serves a constraint's terms.
+    Production holds a pasted BioPortal browse URL in all three of an entry, which addresses
+    nothing: the acronym carries a query string, the uri points at a page rather than an ontology,
+    and the name repeats the paste. The meta-schema asks only for strings, so nothing refused it.
+
+    Nothing is derived here. `acronym_sheet.py` proposes an address for each stored value and checks
+    every part against BioPortal, and only what an owner confirmed reaches this transform, keyed by
+    the value the entry holds. A key holding something other than that value is left alone, so a
+    good name beside a bad acronym survives; a value the sheet does not carry is reported. An
+    acronym that addresses the wrong vocabulary is worse than one that addresses none, because a
+    lookup then succeeds against the wrong terms and nothing says so.
+
+    The entry's kind is not touched. Whether an entry that names a whole ontology was meant to name
+    one class within it is a question about intent, which no lookup answers.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    if not ACRONYMS:
+        raise TransformRefused("no confirmed addresses supplied; pass --acronyms")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        stored = node.get(ACRONYM_KEY)
+        confirmed = ACRONYMS.get(stored) if isinstance(stored, str) else None
+        if confirmed is None or not in_constraint_entry(path):
+            return {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                    for name, value in node.items()}
+        # Only a value the sheet saw and named is overwritten. The acronym and the uri hold
+        # different spellings of the same paste - the uri keeps the browse prefix - so the sheet
+        # records each exactly rather than the transform matching a shape.
+        replaceable = set(confirmed.get("replaces") or [stored])
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name in SOURCE_KEYS and value in replaceable and name in confirmed:
+                result[name] = confirmed[name]
+                changes.append({"path": here, "replaced": value, "wrote": confirmed[name]})
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_resolved_constraint_source(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a key that held the corrupted value taking its confirmed one."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            stored = old.get(ACRONYM_KEY)
+            confirmed = ACRONYMS.get(stored) if isinstance(stored, str) else None
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if new[name] != old[name] and name in SOURCE_KEYS:
+                    replaceable = set(confirmed.get("replaces") or [stored]) if confirmed else set()
+                    if (confirmed is None or not in_constraint_entry(path)
+                            or old[name] not in replaceable
+                            or new[name] != confirmed.get(name)):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+# Confirmed narrowings, {artifactId: {entryPath: branchEntry}}, from a planner. Empty unless
+# --branches names a file; the path identifies one entry, because a template holds several and only
+# the named one is meant to move.
+BRANCHES: dict[str, dict[str, dict[str, Any]]] = {}
+BRANCH_REQUIRED = ("source", "acronym", "name", "uri", "maxDepth")
+
+
+def node_at(artifact: Any, path: str) -> Any:
+    node = artifact
+    for step in [p for p in path.split("/") if p]:
+        step = step.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, list):
+            if not step.isdigit() or int(step) >= len(node):
+                return None
+            node = node[int(step)]
+        elif isinstance(node, dict):
+            if step not in node:
+                return None
+            node = node[step]
+        else:
+            return None
+    return node
+
+
+def narrow_ontology_constraint_to_branch(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Constrain a field to the branch its author meant, not to every term the ontology serves.
+
+    An `ontologies` entry admits any term in a vocabulary; a `branches` entry admits one subtree.
+    Where a field was meant to offer a single branch and ended up naming the whole ontology, every
+    instance of it may say more than the template intended, and nothing reports that because both
+    shapes are valid.
+
+    Which entry moves, and to which branch, is named per artifact and per path rather than derived:
+    a template holds several `ontologies` entries and only the named one is meant to move. The
+    branch entry is supplied whole and written as given, so what an owner confirmed is what is
+    stored, and it must carry every key the meta-schema requires of a branch.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    planned = BRANCHES.get(artifact.get("@id"))
+    if not planned:
+        return artifact, []
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for path, branch in planned.items():
+        missing = [k for k in BRANCH_REQUIRED if k not in branch]
+        if missing:
+            raise TransformRefused(f"the branch named for {path} states no {', '.join(missing)}")
+        constraints_path, _, index = path.rpartition("/ontologies/")
+        if not constraints_path or not index.isdigit():
+            raise TransformRefused(f"{path} does not name an ontologies entry")
+        constraints = node_at(result, constraints_path)
+        if not isinstance(constraints, dict) or not isinstance(constraints.get("ontologies"), list):
+            raise TransformRefused(f"no ontologies list at {constraints_path}")
+        if int(index) >= len(constraints["ontologies"]):
+            raise TransformRefused(f"no entry {index} at {constraints_path}/ontologies")
+        removed = constraints["ontologies"].pop(int(index))
+        constraints.setdefault("branches", []).append(dict(branch))
+        changes.append({"path": path, "replaced": removed, "wrote": dict(branch)})
+    return result, changes
+
+
+def only_narrowed_ontology_constraint(before: Any, after: Any) -> Optional[str]:
+    """The invariant: each named entry left `ontologies` and exactly its confirmed branch arrived.
+
+    Re-applied to the stored body rather than compared loosely, so a run that moved a different
+    entry, or wrote a branch nobody confirmed, differs from this and is caught.
+    """
+    try:
+        expected, _ = narrow_ontology_constraint_to_branch(before)
+    except TransformRefused as refusal:
+        return f"/ ({refusal})"
+    return None if expected == after else "/"
+
+
+PREVIOUS_VERSION_KEY = "pav:previousVersion"
+
+
+def drop_unusable_previous_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Stop an artifact naming a predecessor by something that is not one.
+
+    ``pav:previousVersion`` points at the artifact this one succeeds, so its value is that
+    artifact's IRI. Production holds version strings there - one of them the artifact's own version,
+    which would have it succeed itself. Neither addresses an artifact, and the meta-schema asks only
+    for a string, so nothing refused them on write.
+
+    Removal, because nothing says what was meant. A version string names no artifact, and where the
+    artifact carries no ``pav:derivedFrom`` either there is no predecessor to recover; a first
+    version has none to name in the first place. No meta-schema requires the key, so an artifact
+    without it is saying the truth rather than losing a fact. A value that is an absolute IRI is
+    left alone whether or not it resolves, because that is a different question and a different
+    repair.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    stored = artifact.get(PREVIOUS_VERSION_KEY)
+    if not isinstance(stored, str) or rest.is_absolute_iri(stored):
+        return artifact, []
+    result = {k: v for k, v in artifact.items() if k != PREVIOUS_VERSION_KEY}
+    return result, [{"path": f"/{rest.json_pointer_component(PREVIOUS_VERSION_KEY)}",
+                     "replaced": stored, "wrote": None}]
+
+
+def only_dropped_unusable_previous_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the one key that left held a value that was not an absolute IRI."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    gone = set(before) - set(after)
+    if set(after) - set(before):
+        return "/"
+    # Name the removal that is not allowed, rather than whichever sorts first, so the report says
+    # what is wrong with the candidate.
+    unexpected = sorted(gone - {PREVIOUS_VERSION_KEY})
+    if unexpected:
+        return f"/{rest.json_pointer_component(unexpected[0])}"
+    if gone:
+        stored = before[PREVIOUS_VERSION_KEY]
+        if not isinstance(stored, str) or rest.is_absolute_iri(stored):
+            return f"/{PREVIOUS_VERSION_KEY}"
+    for key in after:
+        if after[key] != before[key]:
+            return f"/{rest.json_pointer_component(key)}"
+    return None
+
+
+UNIT_OF_MEASURE_KEY = "unitOfMeasure"
+
+
+def blank_unit(constraints: Any) -> bool:
+    """Whether this ``_valueConstraints`` states a unit that states nothing."""
+    if not isinstance(constraints, dict) or UNIT_OF_MEASURE_KEY not in constraints:
+        return False
+    stored = constraints[UNIT_OF_MEASURE_KEY]
+    return isinstance(stored, str) and stored.strip() == ""
+
+
+def drop_blank_unit_of_measure(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Stop a field stating a unit of measure that names no unit.
+
+    ``unitOfMeasure`` says what a number is measured in. An empty string names nothing, so it says
+    exactly what leaving the key out says, and the two are not worth distinguishing: a reader
+    showing the unit beside the value has nothing to show either way. The meta-schema asks only for
+    a string, so nothing refused it on write.
+
+    Removal rather than repair, because there is no unit to recover. A field whose unit is a string
+    with anything in it is left alone, whitespace included after trimming - inventing a unit for a
+    number would put in the document something nobody measured.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == VALUE_CONSTRAINTS_KEY and blank_unit(value):
+                trimmed = {k: v for k, v in value.items() if k != UNIT_OF_MEASURE_KEY}
+                changes.append({"path": f"{here}/{UNIT_OF_MEASURE_KEY}",
+                                "replaced": value[UNIT_OF_MEASURE_KEY], "wrote": None})
+                result[name] = walk(trimmed, here)
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_dropped_blank_unit_of_measure(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every difference is a blank unit leaving, and nothing else moves."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            gone = set(old) - set(new)
+            if set(new) - set(old):
+                return path or "/"
+            if gone and not (gone == {UNIT_OF_MEASURE_KEY} and path.endswith("/" + VALUE_CONSTRAINTS_KEY)
+                             and isinstance(old[UNIT_OF_MEASURE_KEY], str)
+                             and old[UNIT_OF_MEASURE_KEY].strip() == ""):
+                return f"{path}/{sorted(gone)[0]}"
+            for name in new:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def only_narrowed_multi_select_value(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is one multi-select answer's type, re-derived rather than trusted.
+
+    The narrowed declaration is recomputed from the stored one, so a transform that wrote some other
+    type, or touched a field that is not multiple by nature, is caught here rather than written.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == "type" and path.endswith("/properties/@value")
+                        and new[name] != old[name]):
+                    if not value_type_naming_array(old[name]) \
+                            or new[name] != value_type_without_array(old[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
 
 
 def only_wrapped_inherently_multiple(before: Any, after: Any) -> Optional[str]:
@@ -3384,6 +4334,12 @@ def instance_context_expectations(container: Any) -> dict[str, str]:
 
 
 UNDECLARED_KEY_ERROR = r"^object instance has properties which are not allowed by the schema"
+# The same stray key reads as a type complaint when the template spells `additionalProperties` as a
+# schema rather than as `false`: an instance property that is not declared has to match that schema,
+# and `bibo:status` holding the string it is reads as "string found, object expected". Located at
+# one of the two keys, so a stray property of any other name is still none of this repair's business.
+SCHEMA_ONLY_KEY_ERROR = (r"^(?:object instance has properties which are not allowed by the schema"
+                         r"|/(?:pav:version|bibo:status): )")
 # A records file is searched with `re.match`, which anchors at the start of the message. These
 # complaints name their location first — "/Date: object found, array expected" — so a pattern that
 # describes only the complaint would select nothing at all.
@@ -3444,14 +4400,20 @@ def explicitly_empty(value: Any) -> bool:
 
 
 def drop_empty_undeclared_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
-    """Remove empty undeclared top-level slots, never an entered value or identifier."""
+    """Remove empty undeclared top-level slots, preserving attribute-group members."""
     if not isinstance(instance, dict) or not isinstance(template, dict):
         raise TransformRefused("instance and template must be objects")
     declared = set(template.get("properties", {}))
+    # Attribute-value groups name sibling fields in a string array. Those dynamic names need
+    # not appear in properties: even a null member is still referenced by the group. Preserve
+    # every possible reference, including when the group's own declaration is malformed.
+    referenced = {name for value in instance.values() if isinstance(value, list)
+                  for name in value if isinstance(name, str)}
     result = copy.deepcopy(instance)
     changes = []
     for key, value in instance.items():
-        if key in declared or key.startswith("@") or ":" in key or not explicitly_empty(value):
+        if key in declared or key in referenced or key.startswith("@") or ":" in key \
+                or not explicitly_empty(value):
             continue
         del result[key]
         if isinstance(result.get("@context"), dict):
@@ -3468,6 +4430,8 @@ def only_dropped_empty_undeclared_keys(before: Any, after: Any, template: Any) -
     for key in removed:
         if key in template.get("properties", {}) or key.startswith("@") or ":" in key \
                 or not explicitly_empty(before[key]):
+            return f"/{rest.json_pointer_component(key)}"
+        if any(isinstance(value, list) and key in value for value in before.values()):
             return f"/{rest.json_pointer_component(key)}"
     restored = copy.deepcopy(after)
     for key in removed:
@@ -3494,6 +4458,76 @@ def complete_empty_literal(instance: Any, template: Any) -> tuple[Any, list[dict
             changes.append({"path": path + "/@value", "replaced": None, "wrote": None})
         return value
     return walk_instance(result, template, "", fill), changes
+
+
+def context_name_used(node: Any, name: str) -> bool:
+    """Conservatively retain terms used as keys, compact IRIs or attribute-group members."""
+    if isinstance(node, str):
+        return node == name or node.startswith(name + ":")
+    if isinstance(node, list):
+        return any(context_name_used(value, name) for value in node)
+    if isinstance(node, dict):
+        return any(context_name_used(key, name) or context_name_used(value, name)
+                   for key, value in node.items())
+    return False
+
+
+def drop_unused_instance_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove only undeclared simple context terms that nothing in their scope references."""
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+    def walk(node: Any, schema: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        context = node.get("@context")
+        declared = schema.get("properties", {}).get("@context", {}).get("properties", {})
+        if isinstance(context, dict) and isinstance(declared, dict):
+            for name, value in context.items():
+                if name in declared or name.startswith("@") or ":" in name \
+                        or not rest.is_absolute_iri(value):
+                    continue
+                scope = copy.deepcopy(node)
+                del scope['@context'][name]
+                if context_name_used(scope, name):
+                    continue
+                del result['@context'][name]
+                changes.append({'path': f'{path}/@context/{rest.json_pointer_component(name)}',
+                                'replaced': value, 'wrote': None})
+        for name, child, multiple in container_children(schema):
+            if not is_element(child) or name not in result:
+                continue
+            value = result[name]
+            here = f'{path}/{rest.json_pointer_component(name)}'
+            if multiple and isinstance(value, list):
+                result[name] = [walk(item, child, f'{here}/{index}') for index, item in enumerate(value)]
+            elif not multiple and isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+    return walk(instance, template, ''), changes
+
+
+def only_dropped_unused_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    for path, old, new in differences(before, after):
+        context_path, _, encoded = path.rpartition('/')
+        if not context_path.endswith('/@context') or new is not ABSENT or not rest.is_absolute_iri(old):
+            return path or '/'
+        name = encoded.replace('~1', '/').replace('~0', '~')
+        scope_path = context_path[:-len('/@context')]
+        schema = template if not scope_path else declaration_at(template, scope_path)
+        if not isinstance(schema, dict) or name.startswith('@') or ':' in name:
+            return path
+        declared = schema.get('properties', {}).get('@context', {}).get('properties', {})
+        if name in declared:
+            return path
+        scope = copy.deepcopy(before if not scope_path else value_at(before, scope_path))
+        if not isinstance(scope, dict) or not isinstance(scope.get('@context'), dict):
+            return path
+        scope['@context'].pop(name, None)
+        if context_name_used(scope, name):
+            return path
+    return None
 
 
 def normalized_spaced_orcid(value: Any) -> Optional[str]:
@@ -5560,7 +6594,609 @@ def only_declared_fields(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+SCHEMA_CONTEXT_TYPES = frozenset(
+    "https://schema.metadatacenter.org/core/" + name
+    for name in ("Template", "TemplateElement", "TemplateField", "StaticTemplateField")
+)
+BIBO_NAMESPACE = "http://purl.org/ontology/bibo/"
+
+
+def schema_context_nodes(node: Any, path: str = "") -> Iterator[tuple[str, dict]]:
+    """Visit only schema declarations, never instance-context property schemas or annotations."""
+    if not isinstance(node, dict):
+        return
+    if node.get("type") == "array":
+        yield from schema_context_nodes(node.get("items"), path + "/items")
+        return
+    types = node.get("@type")
+    types = types if isinstance(types, list) else [types]
+    if not any(isinstance(t, str) and t in SCHEMA_CONTEXT_TYPES for t in types):
+        return
+    yield path, node
+    properties = node.get("properties")
+    if isinstance(properties, dict):
+        for name, value in properties.items():
+            yield from schema_context_nodes(value, path + "/properties/" + rest.json_pointer_component(name))
+
+
+def complete_schema_bibo_context(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Supply Java's canonical prefix only where an existing schema context omits it."""
+    result = copy.deepcopy(artifact)
+    changes = []
+    for path, node in schema_context_nodes(result):
+        context = node.get("@context")
+        if isinstance(context, dict) and "bibo" not in context:
+            context["bibo"] = BIBO_NAMESPACE
+            changes.append({"path": path + "/@context/bibo", "wrote": BIBO_NAMESPACE})
+    return result, changes
+
+
+def only_added_schema_bibo_context(before: Any, after: Any) -> Optional[str]:
+    allowed = {
+        path + "/@context/bibo"
+        for path, node in schema_context_nodes(before)
+        if isinstance(node.get("@context"), dict) and "bibo" not in node["@context"]
+    }
+    for path, was, now in differences(before, after):
+        if path not in allowed or was is not ABSENT or now != BIBO_NAMESPACE:
+            return path or "/"
+    return None
+
+
+REQUIRED_REMOVALS: dict[str, Any] = {}
+# ModelNodeNames.TEMPLATE_SCHEMA_ARTIFACT_JSON_SCHEMA_REQUIRED / ELEMENT_... in Java.
+PARENT_REQUIRED_BASE = {
+    "https://schema.metadatacenter.org/core/Template": frozenset({
+        "@context", "@id", "schema:isBasedOn", "schema:name", "schema:description",
+        "pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy",
+    }),
+    ELEMENT_AT_TYPE: frozenset({"@context", "@id"}),
+}
+
+
+def artifact_fingerprint(artifact: Any) -> str:
+    return hashlib.sha256(json.dumps(artifact, sort_keys=True, ensure_ascii=True,
+                                    separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def drop_reviewed_required_entries(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Apply an exact, Java-compared plan; refuse any source drift since the comparison."""
+    plan = REQUIRED_REMOVALS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no Java-reviewed required-removals plan for this artifact")
+    digest = artifact_fingerprint(artifact)
+    if digest == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if digest != plan.get("beforeSha256"):
+        raise TransformRefused("source changed since Java required-list comparison; regenerate the plan")
+    result = copy.deepcopy(artifact)
+    changes = []
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if not path.endswith("/required"):
+            raise TransformRefused("required-removals plan contains a non-required path")
+        parent_path = path[:-len("/required")]
+        parent = value_at(result, parent_path) if parent_path else result
+        if not isinstance(parent, dict) or not json_equal(parent.get("required"), change["before"]):
+            raise TransformRefused("required-removals plan does not match " + path)
+        parent["required"] = copy.deepcopy(change["after"])
+        changes.append({"path": path, "replaced": change["before"], "wrote": change["after"]})
+    if artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("required-removals candidate does not match the reviewed digest")
+    return result, changes
+
+
+def only_dropped_reviewed_required_entries(before: Any, after: Any) -> Optional[str]:
+    """Permit only removal of noncanonical, non-child parent demands; preserve list order."""
+    nodes = dict(schema_context_nodes(before))
+    for path, old, new in differences(before, after):
+        if not path.endswith("/required"):
+            return path or "/"
+        parent = nodes.get(path[:-len("/required")])
+        kind = parent.get("@type") if parent else None
+        if not isinstance(kind, str) or kind not in PARENT_REQUIRED_BASE:
+            return path
+        if not isinstance(old, list) or not isinstance(new, list) \
+                or not all(isinstance(v, str) for v in old + new):
+            return path
+        preserved = PARENT_REQUIRED_BASE[kind] | {name for name, _, _ in container_children(parent)}
+        removed = set(old) - set(new)
+        if not removed or removed & preserved or new != [v for v in old if v not in removed]:
+            return path
+    return None
+
+
+SCHEMA_SHAPE_PLANS: dict[str, Any] = {}
+
+
+def apply_reviewed_schema_shapes(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Apply Java-reviewed nullable identifiers and stale UI-order removals to a pinned source."""
+    plan = SCHEMA_SHAPE_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no Java-reviewed schema-shape plan for this artifact")
+    digest = artifact_fingerprint(artifact)
+    if digest == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if digest != plan.get("beforeSha256"):
+        raise TransformRefused("source changed since Java schema-shape comparison; regenerate the plan")
+    result = copy.deepcopy(artifact)
+    changes = []
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if not path.endswith(("/properties/@id/type", "/_ui/order")):
+            raise TransformRefused("schema-shape plan contains an unsupported path")
+        parent_path, key = path.rsplit("/", 1)
+        parent = value_at(result, parent_path)
+        if not isinstance(parent, dict) or not json_equal(parent.get(key), change["before"]):
+            raise TransformRefused("schema-shape plan does not match " + path)
+        parent[key] = copy.deepcopy(change["after"])
+        changes.append({"path": path, "replaced": change["before"], "wrote": change["after"]})
+    if artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("schema-shape candidate does not match the reviewed digest")
+    return result, changes
+
+
+def only_reviewed_schema_shapes(before: Any, after: Any) -> Optional[str]:
+    nodes = dict(schema_context_nodes(before))
+    for path, old, new in differences(before, after):
+        if path.endswith("/properties/@id/type"):
+            if path[:-len("/properties/@id/type")] not in nodes \
+                    or old != "string" or new != ["string", "null"]:
+                return path
+        elif path.endswith("/_ui/order"):
+            node = nodes.get(path[:-len("/_ui/order")])
+            if not node or not isinstance(node.get("@type"), str) \
+                    or node["@type"] not in PARENT_REQUIRED_BASE \
+                    or not isinstance(node.get("properties"), dict) \
+                    or not isinstance(old, list) or not isinstance(new, list) \
+                    or not all(isinstance(v, str) for v in old + new):
+                return path
+            removed = set(old) - set(new)
+            if not removed or removed & set(node["properties"]) \
+                    or new != [v for v in old if v not in removed]:
+                return path
+        else:
+            return path or "/"
+    return None
+
+
+CONTEXT_OBJECT_PLANS: dict[str, Any] = {}
+CONTEXT_OBJECT_DATATYPES = {
+    "rdfs:label": "xsd:string", "schema:name": "xsd:string",
+    "schema:description": "xsd:string", "skos:notation": "xsd:string",
+    "pav:createdOn": "xsd:dateTime", "pav:lastUpdatedOn": "xsd:dateTime",
+    "schema:isBasedOn": "@id", "pav:derivedFrom": "@id",
+    "pav:createdBy": "@id", "oslc:modifiedBy": "@id",
+}
+
+
+def complete_reviewed_context_object_types(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Add object typing only after Java comparison and a complete dependent-instance check."""
+    plan = CONTEXT_OBJECT_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no instance-checked context-object plan for this template")
+    check = plan.get("instanceCheck", {})
+    if check.get("conflicts") != [] or check.get("indexed") != check.get("fetched") \
+            or not isinstance(check.get("indexed"), int) or check["indexed"] < 0:
+        raise TransformRefused("dependent-instance check is incomplete or reports conflicts")
+    digest = artifact_fingerprint(artifact)
+    if digest == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if digest != plan.get("beforeSha256"):
+        raise TransformRefused("template changed since the instance check; regenerate the plan")
+    result = copy.deepcopy(artifact)
+    changes = []
+    allowed = {"/properties/@context/properties/" + name + "/type" for name in CONTEXT_OBJECT_DATATYPES}
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if path not in allowed or change.get("wrote") != "object":
+            raise TransformRefused("unsupported context-object addition")
+        parent = value_at(result, path[:-len("/type")])
+        if not isinstance(parent, dict) or "type" in parent:
+            raise TransformRefused("context-object addition is not absent at " + path)
+        parent["type"] = "object"
+        changes.append({"path": path, "wrote": "object"})
+    if artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("context-object candidate differs from the instance-checked plan")
+    return result, changes
+
+
+def only_completed_context_object_types(before: Any, after: Any) -> Optional[str]:
+    if not isinstance(before, dict) or before.get("@type") != "https://schema.metadatacenter.org/core/Template":
+        return "/"
+    allowed = {"/properties/@context/properties/" + name + "/type": datatype
+               for name, datatype in CONTEXT_OBJECT_DATATYPES.items()}
+    for path, old, new in differences(before, after):
+        if path not in allowed or old is not ABSENT or new != "object":
+            return path or "/"
+        parent = value_at(before, path[:-len("/type")])
+        expected = {"properties": {"@type": {"type": "string", "enum": [allowed[path]]}}}
+        if not json_equal(parent, expected):
+            return path
+    return None
+
+
+def restore_null_standard_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Restore explicitly approved null standard context definitions, using template-pinned datatypes."""
+    if not isinstance(instance, dict) or not isinstance(template, dict) \
+            or instance.get("schema:isBasedOn") != template.get("@id"):
+        raise TransformRefused("instance does not name the supplied template")
+    context = instance.get("@context")
+    definitions = template.get("properties", {}).get("@context", {}).get("properties", {})
+    if not isinstance(context, dict) or not isinstance(definitions, dict):
+        raise TransformRefused("instance or template context is not an object")
+    if context.get("xsd") != "http://www.w3.org/2001/XMLSchema#":
+        raise TransformRefused("instance has a noncanonical xsd prefix")
+    result = copy.deepcopy(instance)
+    changes = []
+    for name, datatype in CONTEXT_OBJECT_DATATYPES.items():
+        if name not in context or context[name] is not None:
+            continue
+        definition = definitions.get(name)
+        expected = {"properties": {"@type": {"type": "string", "enum": [datatype]}}}
+        if not json_equal(definition, expected) and not json_equal(definition, {**expected, "type": "object"}):
+            raise TransformRefused("template does not canonically pin " + name)
+        value = {"@type": datatype}
+        result["@context"][name] = value
+        changes.append({"path": "/@context/" + name, "replaced": None, "wrote": value})
+    return result, changes
+
+
+def only_restored_null_standard_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    for path, old, new in differences(before, after):
+        parts = path.split("/")
+        if len(parts) != 3 or parts[1] != "@context" or parts[2] not in CONTEXT_OBJECT_DATATYPES \
+                or old is not None or new != {"@type": CONTEXT_OBJECT_DATATYPES[parts[2]]}:
+            return path or "/"
+    return None
+
+
+def has_orphan_literal_actions(node: Any) -> bool:
+    if not isinstance(node, dict) or node.get("@type") != FIELD_AT_TYPE \
+            or node.get("_ui", {}).get("inputType") != "textfield":
+        return False
+    properties = node.get("properties")
+    constraints = node.get("_valueConstraints")
+    return (isinstance(properties, dict) and "@value" in properties and "@id" not in properties
+            and isinstance(constraints, dict) and isinstance(constraints.get("actions"), list)
+            and bool(constraints["actions"])
+            and all(group not in constraints or constraints[group] == [] for group in TERM_CONSTRAINT_GROUPS))
+
+
+def drop_orphan_literal_actions(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove approved orphan vocabulary actions only from unambiguous literal text fields."""
+    result = copy.deepcopy(artifact)
+    changes = []
+    for path, node in schema_context_nodes(result):
+        if has_orphan_literal_actions(node):
+            removed = node["_valueConstraints"].pop("actions")
+            changes.append({"path": path + "/_valueConstraints/actions", "replaced": removed, "wrote": None})
+    return result, changes
+
+
+def only_dropped_orphan_literal_actions(before: Any, after: Any) -> Optional[str]:
+    allowed = {path + "/_valueConstraints/actions" for path, node in schema_context_nodes(before)
+               if has_orphan_literal_actions(node)}
+    for path, old, new in differences(before, after):
+        if path not in allowed or new is not ABSENT:
+            return path or "/"
+    return None
+
+
+def reserved_value_child_edits(artifact: Any) -> dict[str, tuple[Any, Any]]:
+    """The exact edits for the approved @value → value child rename, including references."""
+    edits = {}
+    for path, node in schema_context_nodes(artifact):
+        if node.get("@type") not in ("https://schema.metadatacenter.org/core/Template", ELEMENT_AT_TYPE):
+            continue
+        properties = node.get("properties", {})
+        child = properties.get("@value")
+        if not isinstance(child, dict) or child.get("@type") != FIELD_AT_TYPE:
+            continue
+        if "value" in properties or child.get("schema:name") != "@value":
+            raise TransformRefused("reserved child rename has a conflicting destination or name at " + path)
+        renamed = copy.deepcopy(child)
+        renamed["schema:name"] = "value"
+        edits[path + "/properties/@value"] = (child, ABSENT)
+        edits[path + "/properties/value"] = (ABSENT, renamed)
+        for suffix in ("/properties/@context/properties", "/_ui/propertyLabels", "/_ui/propertyDescriptions"):
+            mapping = value_at(artifact, path + suffix)
+            if not isinstance(mapping, dict) or "@value" not in mapping or "value" in mapping:
+                raise TransformRefused("missing or conflicting child reference at " + path + suffix)
+            old = mapping["@value"]
+            new = "value" if suffix == "/_ui/propertyLabels" and old == "@value" else old
+            edits[path + suffix + "/@value"] = (old, ABSENT)
+            edits[path + suffix + "/value"] = (ABSENT, new)
+        for suffix in ("/required", "/properties/@context/required", "/_ui/order"):
+            old = value_at(artifact, path + suffix)
+            if not isinstance(old, list) or "value" in old:
+                raise TransformRefused("missing or conflicting child list at " + path + suffix)
+            new = ["value" if v == "@value" else v for v in old]
+            if suffix == "/_ui/order" and "@value" not in old:
+                new.append("value")
+            edits[path + suffix] = (old, new)
+    return edits
+
+
+def rename_reserved_value_child(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    result = copy.deepcopy(artifact)
+    changes = []
+    for path, (old, new) in reserved_value_child_edits(artifact).items():
+        parent_path, key = path.rsplit("/", 1)
+        parent = value_at(result, parent_path)
+        if new is ABSENT:
+            del parent[key]
+        else:
+            parent[key] = copy.deepcopy(new)
+        changes.append({"path": path, "replaced": None if old is ABSENT else old,
+                        "wrote": None if new is ABSENT else new})
+    return result, changes
+
+
+def only_renamed_reserved_value_child(before: Any, after: Any) -> Optional[str]:
+    expected = reserved_value_child_edits(before)
+    actual = {path: (old, new) for path, old, new in differences(before, after)}
+    # Array element replacements are reported individually when their lengths are unchanged.
+    for path, (old, new) in expected.items():
+        if isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+            for i, (was, now) in enumerate(zip(old, new)):
+                if was != now and actual.pop(path + "/" + str(i), None) != (was, now):
+                    return path
+        elif old is not ABSENT and new is not ABSENT and json_equal(old, new):
+            continue
+        else:
+            pair = actual.pop(path, None)
+            if pair is None or not json_equal(pair[0], old) or not json_equal(pair[1], new):
+                return path
+    return next(iter(actual), None)
+
+
+def repair_unambiguous_instance_structure(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Resolve dangling blank names, IRI-proven whitespace renames and empty element IDs."""
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+
+    def walk(node: Any, schema: dict, path: str) -> Any:
+        if not isinstance(node, dict):
+            return copy.deepcopy(node)
+        result = copy.deepcopy(node)
+        context = result.get("@context")
+        declarations = {name: (child, multiple) for name, child, multiple in container_children(schema)}
+        iris = declared_context_iris(schema)
+        for old in list(result):
+            new = old.strip()
+            if old == new or old in declarations or new not in declarations or new in result:
+                continue
+            if not isinstance(context, dict) or old not in context or new in context \
+                    or not isinstance(context[old], str) or iris.get(new) != context[old]:
+                continue
+            result[new] = result.pop(old)
+            context[new] = context.pop(old)
+            changes.append({"path": path + "/" + rest.json_pointer_component(old),
+                            "replaced": old, "wrote": new, "propertyIri": iris[new]})
+        if path and result.get("@id") == "" \
+                and "null" in schema.get("properties", {}).get("@id", {}).get("type", []):
+            if not isinstance(instance.get("@id"), str) or not rest.is_absolute_iri(instance["@id"]):
+                raise TransformRefused("minting an element ID requires an absolute root instance ID")
+            result["@id"] = ELEMENT_INSTANCE_BASE + str(uuid.uuid5(uuid.NAMESPACE_URL, instance["@id"] + "#element" + path))
+            changes.append({"path": path + "/@id", "replaced": "", "wrote": result["@id"]})
+        for name, (child, multiple) in declarations.items():
+            if name not in result:
+                continue
+            here = path + "/" + rest.json_pointer_component(name)
+            value = result[name]
+            if child.get("_ui", {}).get("inputType") == "attribute-value" and isinstance(value, list):
+                blank = [v for v in value if isinstance(v, str) and not v.strip()]
+                removable = {v for v in blank if v not in result and
+                             (not isinstance(context, dict) or v not in context)}
+                if removable:
+                    result[name] = [v for v in value if not isinstance(v, str) or v not in removable]
+                    changes.append({"path": here, "replaced": value, "wrote": result[name]})
+            elif is_element(child):
+                if isinstance(value, list):
+                    result[name] = [walk(v, child, here + "/" + str(i)) for i, v in enumerate(value)]
+                elif isinstance(value, dict):
+                    result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_unambiguous_instance_structure(before: Any, after: Any, template: Any) -> Optional[str]:
+    expected, _ = repair_unambiguous_instance_structure(before, template)
+    return next((path for path, _, _ in differences(expected, after)), None)
+
+
+STANDARD_CONTEXT_VALUES = {
+    "xsd": "http://www.w3.org/2001/XMLSchema#", "pav": "http://purl.org/pav/",
+    "schema": "http://schema.org/", "oslc": "http://open-services.net/ns/core#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#", "skos": "http://www.w3.org/2004/02/skos/core#",
+    **{name: {"@type": datatype} for name, datatype in CONTEXT_OBJECT_DATATYPES.items()},
+}
+STANDARD_CONTEXT_PLANS: dict[str, Any] = {}
+
+
+def apply_reviewed_standard_context(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Apply a fingerprint-pinned standard context plan after checking every indexed instance."""
+    plan = STANDARD_CONTEXT_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no reviewed standard context plan")
+    if artifact_fingerprint(artifact) == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if artifact_fingerprint(artifact) != plan.get("beforeSha256"):
+        raise TransformRefused("artifact changed since standard context review")
+    is_template = artifact.get("@type") == "https://schema.metadatacenter.org/core/Template"
+    if is_template:
+        check = plan.get("instanceCheck", {})
+        if check.get("conflicts") != [] or check.get("indexed") != check.get("fetched") \
+                or not isinstance(check.get("indexed"), int) or check["indexed"] < 0 \
+                or check.get("instancePatches") != 0:
+            raise TransformRefused("dependent-instance check incomplete, conflicting or awaiting repairs")
+    result = copy.deepcopy(artifact)
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if is_template and path == "/properties/@context/required":
+            result["properties"]["@context"]["required"] = copy.deepcopy(change["wrote"])
+        elif not is_template and path.startswith("/@context/") and path.count("/") == 2:
+            result["@context"][path.rsplit("/", 1)[1]] = copy.deepcopy(change["wrote"])
+        else:
+            raise TransformRefused("unsupported standard context edit")
+    if only_reviewed_standard_context(artifact, result) is not None \
+            or artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("standard context candidate violates invariant or reviewed fingerprint")
+    return result, copy.deepcopy(plan.get("changes", []))
+
+
+def only_reviewed_standard_context(before: Any, after: Any) -> Optional[str]:
+    if before.get("@type") == "https://schema.metadatacenter.org/core/Template":
+        old = value_at(before, "/properties/@context/required")
+        new = value_at(after, "/properties/@context/required")
+        if not isinstance(old, list) or not isinstance(new, list) or new[:len(old)] != old:
+            return "/properties/@context/required"
+        added = new[len(old):]
+        if len(set(new)) != len(new) or any(name not in STANDARD_CONTEXT_VALUES for name in added):
+            return "/properties/@context/required"
+        expected = copy.deepcopy(before)
+        expected["properties"]["@context"]["required"] = new
+        return next((p for p, _, _ in differences(expected, after)), None)
+    for path, old, new in differences(before, after):
+        parts = path.split("/")
+        if len(parts) != 3 or parts[1] != "@context" or parts[2] not in STANDARD_CONTEXT_VALUES \
+                or old is not ABSENT or not json_equal(new, STANDARD_CONTEXT_VALUES[parts[2]]):
+            return path or "/"
+    return None
+
+
+SCHEMA_CONTEXT_REMOVAL_PLANS: dict[str, Any] = {}
+STATIC_CONTEXT_TYPES = {
+    **CONTEXT_OBJECT_DATATYPES, "skos:prefLabel": "xsd:string", "skos:altLabel": "xsd:string",
+}
+REMOVABLE_SCHEMA_PREFIXES = {
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "skos": "http://www.w3.org/2004/02/skos/core#",
+    "openminds": "https://openminds.om-i.org/vocab/",
+}
+
+
+def schema_prefix_is_used(node: Any, prefix: str, root: bool = True) -> bool:
+    """Conservatively keep prefixes referenced by keys or strings; respect nested context bindings."""
+    if isinstance(node, dict):
+        context = node.get("@context")
+        if not root and isinstance(context, dict) and prefix in context:
+            return False
+        schema = node.get("@type") in SCHEMA_CONTEXT_TYPES if isinstance(node.get("@type"), str) else False
+        # JSON Schema property names and required entries describe instance syntax; they do not
+        # use this schema artifact's JSON-LD prefix bindings. Actual child artifacts do inherit it.
+        excluded = {"@context", "properties", "required"} if schema else {"@context"}
+        return any(key.startswith(prefix + ":") or schema_prefix_is_used(value, prefix, False)
+                   for key, value in node.items() if key not in excluded) \
+            or (schema and any(schema_prefix_is_used(child, prefix, False)
+                               for _, child, _ in container_children(node))) \
+            or (isinstance(context, dict) and any(schema_prefix_is_used(v, prefix, False)
+                                                for k, v in context.items() if k != prefix))
+    if isinstance(node, list):
+        return any(schema_prefix_is_used(value, prefix, False) for value in node)
+    return isinstance(node, str) and prefix + ":" in node
+
+
+def only_removed_extra_schema_context(before: Any, after: Any) -> Optional[str]:
+    nodes = dict(schema_context_nodes(before))
+    for path, old, new in differences(before, after):
+        if "/@context/" not in path or new is not ABSENT:
+            return path or "/"
+        parent, term = path.rsplit("/@context/", 1)
+        node = nodes.get(parent)
+        if node is None or "/" in term:
+            return path
+        term = term.replace("~1", "/").replace("~0", "~")
+        kind = node.get("@type")
+        if kind == STATIC_AT_TYPE and term in STATIC_CONTEXT_TYPES \
+                and json_equal(old, {"@type": STATIC_CONTEXT_TYPES[term]}):
+            continue
+        permitted = term == "openminds" or (term == "xsd" and kind == STATIC_AT_TYPE) \
+            or (term == "skos" and kind in (STATIC_AT_TYPE, "https://schema.metadatacenter.org/core/Template"))
+        candidate = value_at(after, parent) if parent else after
+        if not permitted or old != REMOVABLE_SCHEMA_PREFIXES.get(term) \
+                or schema_prefix_is_used(candidate, term):
+            return path
+    return None
+
+
+def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    plan = SCHEMA_CONTEXT_REMOVAL_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no Java-reviewed schema context removal plan")
+    if artifact_fingerprint(artifact) == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if artifact_fingerprint(artifact) != plan.get("beforeSha256"):
+        raise TransformRefused("schema changed since context review")
+    result = copy.deepcopy(artifact)
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if "/@context/" not in path:
+            raise TransformRefused("not a schema-context removal")
+        parent, key = path.rsplit("/", 1)
+        del value_at(result, parent)[key.replace("~1", "/").replace("~0", "~")]
+    if only_removed_extra_schema_context(artifact, result) is not None \
+            or artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("schema context removal violates its invariant or reviewed hash")
+    return result, copy.deepcopy(plan.get("changes", []))
+
+
 REPAIRS = {
+    "remove-reviewed-extra-schema-context": Repair(
+        name="remove-reviewed-extra-schema-context", condition="extra-schema-context",
+        summary="remove Java-confirmed extra schema-context datatype mappings and unused prefixes",
+        transform=remove_reviewed_extra_schema_context, invariant=only_removed_extra_schema_context,
+    ),
+    "repair-unambiguous-instance-structure": Repair(
+        name="repair-unambiguous-instance-structure", condition="",
+        summary="remove dangling blank attribute references, match whitespace renames by IRI, and mint empty element IDs",
+        transform=repair_unambiguous_instance_structure, invariant=only_unambiguous_instance_structure,
+        needs_template=True,
+    ),
+    "complete-reviewed-standard-context": Repair(
+        name="complete-reviewed-standard-context", condition="missing-standard-context",
+        summary="add reviewed missing standard instance mappings or template context requirements",
+        transform=apply_reviewed_standard_context, invariant=only_reviewed_standard_context,
+    ),
+    "rename-reserved-value-child": Repair(
+        name="rename-reserved-value-child", condition="reserved-value-child",
+        summary="rename the approved @value child to value, preserving its property IRI and field content",
+        transform=rename_reserved_value_child, invariant=only_renamed_reserved_value_child,
+    ),
+    "drop-orphan-literal-actions": Repair(
+        name="drop-orphan-literal-actions", condition="orphan-literal-actions",
+        summary="remove approved orphan vocabulary actions from literal fields without active vocabularies",
+        transform=drop_orphan_literal_actions, invariant=only_dropped_orphan_literal_actions,
+    ),
+    "restore-null-standard-context": Repair(
+        name="restore-null-standard-context", condition="null-standard-context",
+        summary="restore approved null metadata context definitions from the template's canonical datatypes",
+        transform=restore_null_standard_context, invariant=only_restored_null_standard_context,
+        needs_template=True,
+    ),
+    "complete-reviewed-context-object-types": Repair(
+        name="complete-reviewed-context-object-types", condition="missing-context-object-type",
+        summary="add Java's missing object type to standard instance-context term schemas after instance checks",
+        transform=complete_reviewed_context_object_types, invariant=only_completed_context_object_types,
+    ),
+    "apply-reviewed-schema-shapes": Repair(
+        name="apply-reviewed-schema-shapes", condition="reviewed-schema-shapes",
+        summary="allow null identifiers and remove undeclared UI-order entries as confirmed by Java",
+        transform=apply_reviewed_schema_shapes, invariant=only_reviewed_schema_shapes,
+    ),
+    "drop-reviewed-required-entries": Repair(
+        name="drop-reviewed-required-entries", condition="unexpected-parent-required",
+        summary="remove Java-reviewed legacy parent requirements without changing properties or values",
+        transform=drop_reviewed_required_entries, invariant=only_dropped_reviewed_required_entries,
+    ),
+    "complete-schema-bibo-context": Repair(
+        name="complete-schema-bibo-context", condition="schema-bibo-context-missing",
+        summary="add Java's bibo prefix to existing schema contexts that omit it",
+        transform=complete_schema_bibo_context, invariant=only_added_schema_bibo_context,
+    ),
     "compact-blank-occurrences": Repair(
         name="compact-blank-occurrences", condition="",
         summary="put a multi-instance field's values first so the stored order is the order a round trip returns",
@@ -5579,6 +7215,12 @@ REPAIRS = {
         transform=drop_empty_undeclared_keys, invariant=only_dropped_empty_undeclared_keys,
         needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
     ),
+    "drop-unused-instance-context": Repair(
+        name="drop-unused-instance-context", condition="",
+        summary="remove undeclared context mappings with no references in their scope",
+        transform=drop_unused_instance_context, invariant=only_dropped_unused_context,
+        needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
+    ),
     "complete-empty-literal": Repair(
         name="complete-empty-literal", condition="",
         summary="state explicit null in otherwise empty nullable literal slots",
@@ -5594,12 +7236,12 @@ REPAIRS = {
     ),
     "drop-schema-keys-from-instance": Repair(
         name="drop-schema-keys-from-instance",
-        condition="",
+        condition="schema-only-key-on-instance",
         summary="remove artifact-level keys an instance may not carry",
         transform=drop_schema_keys_from_instance,
         invariant=only_dropped_schema_keys,
         needs_template=True,
-        error_pattern=UNDECLARED_KEY_ERROR,
+        error_pattern=SCHEMA_ONLY_KEY_ERROR,
     ),
     "drop-superseded-instance-keys": Repair(
         name="drop-superseded-instance-keys",
@@ -5825,6 +7467,83 @@ REPAIRS = {
         summary="write a draft's prerelease version as its release, discarding the tag",
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
+    ),
+    "canonicalise-iri-field-required": Repair(
+        name="canonicalise-iri-field-required",
+        condition="iri-field-required",
+        summary="remove legacy IRI-field presence requirements to match the Java model",
+        transform=canonicalise_iri_field_required,
+        invariant=only_canonicalised_iri_field_required,
+    ),
+    "drop-noncanonical-context-demands": Repair(
+        name="drop-noncanonical-context-demands", condition="noncanonical-context-demands",
+        summary="stop demanding context entries for absent children or attribute-value groups",
+        transform=drop_noncanonical_context_demands,
+        invariant=only_dropped_noncanonical_context_demands,
+    ),
+    "canonicalise-field-required": Repair(
+        name="canonicalise-field-required",
+        condition="required-names-undeclared-key",
+        summary="give a field the `required` its declared shape calls for",
+        transform=canonicalise_field_required,
+        invariant=only_canonicalised_field_required,
+    ),
+    "drop-empty-instance-iri": Repair(
+        name="drop-empty-instance-iri",
+        condition="empty-instance-iri",
+        summary="take an empty @id out of a field that holds no IRI",
+        transform=drop_empty_instance_iri,
+        invariant=only_dropped_empty_instance_iri,
+        error_pattern=EMPTY_IRI_ERROR,
+    ),
+    "compose-artifact-title": Repair(
+        name="compose-artifact-title",
+        condition="title-not-composed",
+        summary="write the title an artifact's name and kind compose, where it holds another",
+        transform=compose_artifact_title,
+        invariant=only_composed_artifact_title,
+    ),
+    "decode-constraint-iri": Repair(
+        name="decode-constraint-iri",
+        condition="uri-unexpected",
+        summary="write a constraint's address as the IRI it is, not as an escaped copy of one",
+        transform=decode_constraint_iri,
+        invariant=only_decoded_constraint_iri,
+    ),
+    "resolve-constraint-source": Repair(
+        name="resolve-constraint-source",
+        condition="acronym-unexpected",
+        summary="write the address a constraint's vocabulary is reached by, where one was confirmed",
+        transform=resolve_constraint_source,
+        invariant=only_resolved_constraint_source,
+    ),
+    "narrow-ontology-constraint-to-branch": Repair(
+        name="narrow-ontology-constraint-to-branch",
+        condition="ontology-constraint-too-broad",
+        summary="constrain a field to the branch its author meant, not to the whole ontology",
+        transform=narrow_ontology_constraint_to_branch,
+        invariant=only_narrowed_ontology_constraint,
+    ),
+    "drop-unusable-previous-version": Repair(
+        name="drop-unusable-previous-version",
+        condition="pav:previousVersion-unexpected",
+        summary="stop an artifact naming a predecessor by something that is not one",
+        transform=drop_unusable_previous_version,
+        invariant=only_dropped_unusable_previous_version,
+    ),
+    "drop-blank-unit-of-measure": Repair(
+        name="drop-blank-unit-of-measure",
+        condition="unitOfMeasure-unexpected",
+        summary="stop a field stating a unit of measure that names no unit",
+        transform=drop_blank_unit_of_measure,
+        invariant=only_dropped_blank_unit_of_measure,
+    ),
+    "narrow-multi-select-value": Repair(
+        name="narrow-multi-select-value",
+        condition="multi-select-value-typed-as-array",
+        summary="type one answer of a multi-select as the string it is, not as another array",
+        transform=narrow_multi_select_value,
+        invariant=only_narrowed_multi_select_value,
     ),
     "pad-artifact-version": Repair(
         name="pad-artifact-version",
@@ -6333,12 +8052,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mapping",
                         help="JSON of confirmed renames, {templateId: {oldKey: newKey}}, which "
                              "rename-instance-keys applies; nothing is renamed without it")
+    parser.add_argument("--required-removals",
+                        help="Java-reviewed parent required-list removals keyed by artifact IRI, "
+                             "with beforeSha256, afterSha256 and changes (path, before, after)")
+    parser.add_argument("--schema-shape-plan",
+                        help="Java-reviewed nullable @id/UI-order changes keyed by artifact IRI, "
+                             "with beforeSha256, afterSha256 and changes (path, before, after)")
+    parser.add_argument("--schema-context-removal-plan", help="Java-reviewed schema-context removal plan with pinned fingerprints")
+    parser.add_argument("--standard-context-plan",
+                        help="fingerprint-pinned standard context additions and dependent-instance checks")
+    parser.add_argument("--context-object-plan",
+                        help="Java-reviewed context object additions with pinned before/after hashes "
+                             "and complete, conflict-free dependent-instance check results")
     parser.add_argument("--declare-fields",
                         help="JSON: template IRI -> the field declarations to add, for "
                              "declare-instance-field; nothing is declared without it")
     parser.add_argument("--free-fields",
                         help="JSON of fields to make free text, {templateId: [fieldName]}, which "
                              "free-controlled-field applies; nothing is freed without it")
+    parser.add_argument("--acronyms",
+                        help="JSON of confirmed vocabulary addresses, "
+                             "{storedValue: {acronym, name, uri}}, from acronym_sheet.py, which "
+                             "resolve-constraint-source applies; nothing is rewritten without it")
+    parser.add_argument("--branches",
+                        help="JSON of confirmed narrowings, {artifactId: {entryPath: branchEntry}}, "
+                             "which narrow-ontology-constraint-to-branch applies; nothing is "
+                             "narrowed without it")
     parser.add_argument("--terms",
                         help="JSON of resolved terms, {templateId: {fieldRoute: {label: term}}}, which "
                              "settle-instance-term-label applies; a term of null empties the field")
@@ -6400,9 +8139,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     if len(set(names)) != len(names):
         parser.error("each repair may appear only once in a chain")
     repairs = [REPAIRS[name] for name in names]
+    if "drop-reviewed-required-entries" in names and not arguments.required_removals:
+        parser.error("drop-reviewed-required-entries requires --required-removals")
+    if "apply-reviewed-schema-shapes" in names and not arguments.schema_shape_plan:
+        parser.error("apply-reviewed-schema-shapes requires --schema-shape-plan")
+    if "remove-reviewed-extra-schema-context" in names and not arguments.schema_context_removal_plan:
+        parser.error("remove-reviewed-extra-schema-context requires --schema-context-removal-plan")
+    if "complete-reviewed-standard-context" in names and not arguments.standard_context_plan:
+        parser.error("complete-reviewed-standard-context requires --standard-context-plan")
+    if "complete-reviewed-context-object-types" in names and not arguments.context_object_plan:
+        parser.error("complete-reviewed-context-object-types requires --context-object-plan")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
-    if arguments.apply and "align-instance-context-iris" in names \
+    if arguments.apply and ({"align-instance-context-iris", "restore-null-standard-context"} & set(names)) \
             and not (arguments.allow_context_migration and arguments.only_ids):
         parser.error("context alignment changes meaning; applying it requires "
                      "--allow-context-migration and an explicit --only-ids scope")
@@ -6475,6 +8224,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
+                                 ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
+                                 ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
+                                 ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),
+                                 ("--standard-context-plan", arguments.standard_context_plan, STANDARD_CONTEXT_PLANS),
+                                 ("--schema-context-removal-plan", arguments.schema_context_removal_plan, SCHEMA_CONTEXT_REMOVAL_PLANS),
+                                 ("--acronyms", arguments.acronyms, ACRONYMS),
+                                 ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--declare-fields", arguments.declare_fields, DECLARED_FIELDS)):
@@ -6500,7 +8256,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Validator: {hello.get('validator')} on Java {hello.get('java')}", flush=True)
 
     guarded_bridge = GuardedBridge(bridge, arguments.bridge_max_restarts)
-    resolver = GuardedResolver(audit.TemplateResolver(client, bridge, 200))
+    # The resolver talks to the bridge too, to hand it a template it has not cached. Through the
+    # guard, or its write lands in the middle of another worker's request and each reads the
+    # other's answer.
+    resolver = GuardedResolver(audit.TemplateResolver(client, guarded_bridge, 200))
     progress = Progress(total=len(pending))
     status = "COMPLETE"
     details: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)

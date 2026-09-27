@@ -237,7 +237,7 @@ cedarcli native restart frontends
 cedarcli native status                # one-shot table: PID / port / health / binary / error-count
 cedarcli native watch                 # auto-refreshing status
 cedarcli native logs <name>           # tail -f a service log
-cedarcli native health                # exit 0 only if every managed application is healthy
+cedarcli native health                # per-service health + summary; exit 0 only if all healthy
 ```
 
 `start`, `stop`, and `restart` name one application through `microservice <name>` or
@@ -445,7 +445,7 @@ API key. Resource denials and missing documents stop the workflow before DOI min
 HTTP response is never interpreted as an artifact or validation verdict. Bridge still checks DOI
 eligibility (edit capability, openness and template publication). It needs resource host/port but no
 artifact host/port, and must not receive artifact's internal caller credential. Build config
-before bridge, redeploy bridge, and run both smoke tiers; the backend-free bridge suite also checks
+before bridge, redeploy bridge, and run the smoke tiers; the backend-free bridge suite also checks
 these routes against a resource HTTP stub without contacting DataCite. Before rollout, verify that
 the configured DataCite template is present in the workspace graph and readable by DOI users: a
 Mongo-only template or one they cannot read now produces a 404 or 403 instead of bypassing the ACL.
@@ -499,7 +499,7 @@ header, roll artifact back first or those callers will fail. Returning to an une
 restores the earlier trust gap and requires the existing private-network containment. A rollback
 requires no database restoration.
 
-For the repo rollout, build the config library before the repo server, redeploy repo, and run both
+For the repo rollout, build the config library before the repo server, redeploy repo, and run the
 whole-stack smoke tiers. Also compare repo and resource reads for all four artifact types using an
 owner and another user: permitted bodies and ETags must match, private reads must remain denied,
 and missing identifiers and downstream outages must not produce successful reads. Keep the previous
@@ -652,7 +652,10 @@ overloads without a context are therefore bounded by the external class.
 Three clients sit outside these classes on purpose. DataCite uses `java.net.http.HttpClient` with
 its own `dataCite.connectTimeout` and `requestTimeout`. BioPortal keeps its own connect and response
 timeouts from `terminology.bioPortal`, which are longer than any shared value should be, while
-taking the external class's pool, lease and retry policy. The LINCS validator and the messaging
+taking the external class's pool, lease and retry policy. OpenSearch uses its own `opensearch:`
+settings: 30 connections total and per host, with a one-second lease timeout, one-second connect
+timeout and thirty-second socket timeout. Its single configured host can use the full bounded
+pool; a smaller per-host cap leaves capacity unavailable during concurrent indexing. The LINCS validator and the messaging
 notification from the submission server now take a shared class outright.
 
 Defaults live in the packaged `cedar-config-library` resource `cedar-main.yml` under `http:`, and
@@ -720,12 +723,22 @@ plausible outlier.
 An artifact update writes two stores in sequence: the artifact document, then the graph. When the
 second write fails the first has to be undone, and that compensation is durable rather than best
 effort. Before the graph update is attempted, `ArtifactRestoreCompletionService` records in Neo4j
-what putting the artifact back would take. The graph update locks that record and removes it in the
-same Neo4j transaction as the update. Both the request's restore and the relay take that same lock
+what putting the artifact back would take. Preparation, graph completion and restoration share a
+per-artifact `CedarArtifactRestoreLock` node that survives deletion of a job. The graph update removes
+the job in the same Neo4j transaction as its update. Both the request's restore and the relay take that lock
 before sending the conditional PUT, so a fetched job cannot undo a committed graph update or race
 an update still in progress. The worker persists `restoreStarted` before sending HTTP; once it has
 started restoring, the original graph write is refused even if the HTTP result is uncertain. If the
 graph transaction rolls back, the record remains available.
+
+A newer write may supersede an earlier pending job. The oldest pre-image is retained while the
+conditional ETag advances; a `CedarArtifactRestoreOutcome` receipt records what happened to the
+previous job. The graph API returns an explicit outcome: a superseded write receives `200` without
+projecting stale fields or restoring the document; a completed or uncertain restore never receives
+that success. Edit, publish and DOI write paths observe the same distinction. The originating
+request retires its receipt after observing it, while unfinished compensation remains durable.
+Late relay completion does not create a receipt for a finished request; startup removes receipts
+older than a day left by interrupted requests. Missing evidence is a failure, not a presumed success.
 The relay starts after thirty seconds and retries with a five-second delay between passes, parking
 a job after sixty failed attempts or a permanent client error. HTTP duration and other pending jobs
 can make this longer than five minutes.
@@ -779,30 +792,70 @@ are behind the graph for the resources those events name; the other suffixes mea
 log or recommender work needs attention. Nothing retries dead-lettered work on its own.
 
 Resource and group producers first persist each permission event as a
-`CedarSearchPermissionOutbox` node in Neo4j. Redis acceptance removes that node; if Redis is down,
-the request's graph mutation still succeeds and the managed relay retries every five seconds, across
-producer restarts. Delivery can repeat if a producer dies after the Redis push but before the Neo4j
-acknowledgement, which is safe because permission projection is idempotent. To exercise that boundary
-against the native local stack (the command stops and restores the Homebrew Redis service in a
-`finally` block):
+`CedarSearchPermissionOutbox` node in Neo4j, then signal their managed background relay and return.
+The request never reads the backlog or waits for Redis. Signals are coalesced; the outbox is the
+source of truth. The relay checks at startup and at least every five seconds while idle, and wakes
+promptly for new events. It drains full 100-event batches without waiting between them, but backs
+off five seconds after a delivery or acknowledgement failure, even if new requests keep arriving.
+
+Redis acceptance permits acknowledgement; each batch deletes only its successfully delivered
+prefix in one Neo4j transaction. An event survives a Redis failure or producer restart. Delivery can
+repeat if a producer dies after the Redis push but before the Neo4j acknowledgement, which is safe
+because permission projection is idempotent. To exercise that boundary against the native local
+stack (the command stops and restores Homebrew Redis in a `finally` block):
 
 ```bash
 cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:permission-outbox -- --manage-homebrew-redis
 ```
 
-The producer validates persisted outbox records before relay. A record missing its outbox id,
-resource id or event type, or naming an unknown event type, is relabelled
-`CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason` and `deadLetteredAtTS`; it no longer
-blocks valid records behind it, but remains in Neo4j for inspection. A relay failure after the new
-event has been persisted is contained by the producer and retried in the background rather than
-turning the already-committed REST mutation into a `500`. Resource and group relay the same outbox;
-if one acknowledges and removes an event while the other is materializing it, the losing relay
-ignores Neo4j's null projection because the winning relay has already delivered that event. Their
-outbox scans and acknowledgements also take the same `CedarSearchPermissionOutboxRelayLock` mutex
-in Neo4j, protected by a unique lock-name constraint. This prevents one producer from deleting a
-node while the other is reading it; lock initialization occurs in the contained relay path, so an
-unavailable Neo4j instance does not turn application construction into a startup failure.
+This smoke also measures search convergence within five seconds after a direct ACL revocation,
+an inherited folder grant, and a move removing inherited access. It uses current role-based ACL
+payloads and conditional mutations with the ETag of the representation being changed. During a
+load run, `npm run smoke:permission-outbox -- --convergence-only` measures those transitions plus
+the direct grant without stopping Redis.
+
+The permission consumer updates the graph-derived search fields in place: permissions, categories,
+node information (including the parent folder), and summary text. Indexed artifact content remains
+intact, so a move or ACL event does not fetch and parse the artifact again. A missing canonical
+document is rebuilt in full; a resource missing from the graph is removed. The same projection is
+mirrored into an active index rebuild, with a full document when that target has not received it yet.
+The consumer claims at most 512 immediately available events into Redis's durable processing list,
+combines their overlapping resource targets, and projects independent resources in windows of at
+most eight workers. It waits for all started work before acknowledging the batch or starting the
+next one. A failed batch falls back to individual event retries so an unrelated event is not parked
+alongside a poison event. Shutdown leaves unacknowledged claims available for recovery.
+Prepared projections use up to four concurrent OpenSearch bulk updates of at most 32 documents,
+sharing the existing eight-worker pool, with every result checked before acknowledgement.
+OpenSearch's regular refresh makes accepted bulk updates searchable; keep the search index's
+one-second refresh interval for prompt visibility. Single-target updates refresh immediately.
+Missing canonical documents are rebuilt in full and follow the same single-target or bulk refresh
+rule; another item failure fails the batch for retry. A freed preparation slot immediately takes the next resource.
+Named roles are materialized with one ancestor traversal for owners, users and groups, replacing
+six role-specific reads. The strongest role and the existing Everyone rules are preserved.
+
+Before updating, the consumer counts generated-id legacy copies and removes any it finds, avoiding
+an empty scroll/bulk deletion for every modern permission event. Both legacy queries exclude the
+canonical id; failed shard inspection or incomplete legacy deletion fails the event for retry.
+Ordinary resource deletion still removes the canonical document in real time and sweeps legacy
+copies. The opt-in `ElasticsearchPermissionProjectionIT` uses a temporary OpenSearch index with
+periodic refresh disabled to verify immediate single-target visibility and bulk visibility after an
+explicit refresh, content preservation, replacement of graph fields, legacy cleanup, and the
+missing-document signal.
+
+Malformed-record quarantine runs at startup and once a minute per producer, outside the shared
+relay mutex. A record missing its outbox id, resource id, event type or creation timestamp, or naming
+an unknown event type, is relabelled `CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason`
+and `deadLetteredAtTS`; it remains in Neo4j for inspection. Batch selection excludes these records
+before its limit, so they cannot block valid events while awaiting maintenance.
+
+Resource and group relay the same outbox. Selection and batch acknowledgement take the
+`CedarSearchPermissionOutboxRelayLock` mutex in Neo4j, protected by a unique lock-name constraint;
+append does not. Indexes on `outboxId` and `(createdAtTS, outboxId)` support acknowledgement and
+ordered batch selection. The relay installs the indexes and mutex lazily, so a database outage does
+not fail application construction. Lifecycle coordination does not hold a monitor across relay
+I/O: shutdown interrupts the worker, allows five seconds for it to finish, then closes the clients.
+Unacknowledged events remain available to the next producer.
 
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
@@ -950,25 +1003,18 @@ TypeScript compatibility reader and CEE make one deliberately narrower concessio
 an empty `@id` on a legacy element occurrence is opened with a warning and written as `null`, so an
 ordinary update can ask the server for the identifier it never received.
 
-**An ordinary update is differential.** Before normalization, the artifact server fetches the stored
-artifact and compares the two. An unusable template-child mapping, element-occurrence `@id`, unsafe
-attribute-value name, or missing nested child `$schema` declaration is repaired only when the stored
-artifact proves the defect was inherited. A restored declaration is always the canonical
-`http://json-schema.org/draft-04/schema#`. The same malformed value or omission introduced into a
-clean artifact is left for validation to reject; a missing root declaration and an explicit bad child
-declaration are never repaired. A hardened client may already have made the safe half of the repair:
-Designer can omit an inherited unusable mapping and CEE can replace an inherited empty occurrence ID
-with `null`; normal server minting then finishes both. The resource server performs no artifact
-validation before proxying the PUT, so this comparison happens before a legacy document can be
-refused. `skip_validation` cannot bypass the post-normalization validation, and a verbatim write
-remains strict.
+**An ordinary update validates inherited defects as submitted.** The server no longer removes
+malformed provenance, remints a populated unusable child mapping or occurrence identifier,
+restores a missing child `$schema`, or strips reserved, colliding or duplicate attribute names
+merely because storage already contains the defect. Correct the submitted body explicitly.
+A client may omit an unusable property mapping or replace an unusable occurrence ID with `null`
+to request normal minting, and the model writers may restore a missing child declaration before
+submission. Blank unnamed draft attribute rows still undergo the normal draft cleanup.
+`skip_validation` cannot bypass post-normalization validation, and verbatim writes remain strict.
+The [retirement evidence and template-impact procedure](#ordinary-write-normalization-and-template-impact)
+record the measured population and the remaining distinction between normalization and contract changes.
 
-This compatibility path makes an ordinary edit safe; it does not clean artifacts nobody edits. Use
-the GET-only REST audit below to inventory what remains before deciding whether a bulk patch is
-worthwhile.
-
-**A term whose attribute is gone is removed**, in the same pass, and this is the one place the server
-deletes something a client sent. Three questions decide each term, and two of them need the template,
+**A term whose attribute is gone is removed**, in addition to blank unnamed draft rows. Three questions decide each term, and two of them need the template,
 which is why the prune runs where the template is already loaded — fetched to validate against. A name
 the template declares is structure and stays, filled in or not: an unfilled child is absent from the
 body and its definition still belongs there. A name an attribute-value field still holds is in use and
@@ -1077,10 +1123,10 @@ naming an attribute nobody named, a temporal field declaring no `temporalType`, 
 whose attribute is gone, controlled-term constraints predating the versioned source fields, an
 inherently multiple field deployed as an object rather than an array, and a static field the stored
 schema demands of every instance. An empty `pav:derivedFrom` stops the strict Java reader; the
-TypeScript compatibility reader opens it as absence and omits it on write, and an ordinary server
-update removes the inherited value. A blank occurrence `@id` stops strict readers, while CEE and the
-February 2024 TypeScript compatibility reader can open it and turn it into the `null` that an
-ordinary server update repairs. The patch is still required for artifacts nobody edits and for
+TypeScript compatibility reader opens it as absence and omits it on write. An ordinary server
+update rejects the unchanged empty value. A blank occurrence `@id` stops strict readers, while CEE
+and the February 2024 TypeScript compatibility reader can turn it into `null` to request normal
+server minting; an unchanged blank identifier is rejected. The patch is still required for artifacts nobody edits and for
 consumers that correctly choose strict reading.
 
 One script finds and repairs all nine. It reports by default and writes only under `--apply`:
@@ -1251,7 +1297,7 @@ with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
 ### Comparing the Two Model Libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
-model. JSON and both full and compact YAML match over all 83 corpus artifacts.
+model. JSON and both full and compact YAML match over all 84 corpus artifacts.
 Template 029 uses the canonical ontology service URI
 `https://data.bioontology.org/ontologies/MESH`, which both YAML readers reconstruct
 from the MESH acronym. Both YAML writers omit an ontology's service URI; both readers derive
@@ -1261,6 +1307,16 @@ and entries naming another `sourceSystem`. JSON retains the supplied service URI
 YAML preserves `sourceIri` as the separate canonical ontology identity.
 The parity gate permits no current differences and also verifies that the committed
 TypeScript fixtures match freshly generated output.
+
+Both JSON writers preserve an explicitly declared attribute-value group's property IRI in the
+schema's `properties.@context.properties`, as full YAML already does. These mappings remain
+optional: they are excluded from `@context.required` and instance inflation, and a group without
+an IRI gets none invented. This differs from the mappings of attributes entered by a form-filler.
+`AttributeGroupPropertyIriTest` and `AttributeGroupPropertyIri.spec.ts` cover generated and vocabulary
+IRIs, absent mappings, root and nested schemas, JSON/YAML round trips and inflation; the Java test
+also validates an inflated instance without a group context entry. Corpus template 039 carries
+`https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair`. Templates 022 and 029 preserve their
+three existing mappings; template 022 has no mapping-loss exception in the round-trip tests.
 
 Template and element instance-type constraints retain an ordered set of IRIs in
 both libraries. Java exposes `instanceJsonLdTypes()` and `withInstanceJsonLdTypes`;
@@ -1293,8 +1349,7 @@ npm run parity:json
 ```
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
-thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements and 21 instances, and the one
-recorded difference among 38 templates. Full and compact output have independent parity gates, so
+thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 21 instances and 39 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
 Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
@@ -1376,11 +1431,324 @@ has to be asked for on both sides: the ordinary reader refuses it over the absen
 a reader for it is a separate constructor, `YamlArtifactReader(true)` in Java and
 `getStrictForCompact()` in TypeScript.
 
+Both libraries expose `ReservedNames` for schema children and user-entered attribute names.
+JSON-LD names beginning `@`, CEDAR instance metadata keys and `__proto__`, `constructor`,
+`prototype` are forbidden. Instance readers and model mutation paths enforce the same rule;
+TypeScript dictionaries also have null prototypes so an exposed-map write cannot silently lose
+`__proto__`. Writers reject forbidden entries introduced through those exposed maps.
+
+Ordinary fields may use YAML scalar spellings (`true`, `null`, `yes`, numeric or date-like names)
+and YAML structural keys (`type`, `name`, `children`): writers quote where needed and preserve
+those names beneath `children`. Attribute-value group keys occupy the surrounding YAML mapping,
+so they additionally reserve that container's metadata. Template groups reserve the template
+instance envelope; element groups reserve the union of nested and standalone element envelopes:
+`type`, `id`, `children`, `name`, `description`, `createdOn`, `createdBy`, `modifiedOn`, `modifiedBy`.
+Template-only keys such as `annotations`, `isBasedOn` and `derivedFrom` remain usable as element
+group names. Names entered *inside* a group follow the ordinary reserved-name rule, not the
+additional envelope restrictions. These restrictions apply to serialized keys, not display labels.
+
+CED validates field settings in the actual parent container and generates a safe fallback key
+before suffixing a display name whose prefix or control characters would stay invalid forever.
+CEE checks attribute names using the same model policy. Focused regressions cover reader/model
+rejection, lossless ordinary names, both element encodings and the two CED naming paths.
+
+The multiple-datatype repair log at `.cedar/repairs/2026-09-25-multiple-types/apply.json` records
+one repaired instance and three `blocked-invalid` instances. Those three still need source repair,
+even though both readers now consistently reject their datatype arrays; they remain counted in
+the roadmap's 64 outstanding primary findings.
+
+The reserved-name corrections passed 1,228 Java tests and 249 shared fixtures, 3,828 TypeScript
+tests and the model CI gates, plus CEE's 3,517 domain, 595 unit and 36 Angular coordinator tests.
+CED passed 2,518 unit tests, 306 default browser cases and 72 real-sibling CEE/CEF and picker
+browser checks (the latter run explicitly with both sibling bundles). Final Java, TypeScript, CEE
+and CED CI runs also passed, including CED's real-sibling integration job.
+
+The approved production group-key migration renamed `name` to `name attributes` and `description`
+to `description attributes` in five templates, four reusable elements and seven valid instances.
+It preserved display labels, field values, property IRIs, identifiers and provenance. Every change
+had an exact inverse, a saved original, a Java-validation gate, a strong-ETag conditional verbatim
+PUT and exact readback. A live template-dependency search found 13 instances: the seven repaired
+sources and six already-invalid sources left unchanged. All six retained exactly the same validation
+errors against the patched template. Three of those six still contain legacy groups in structures
+that differ from their template; their repair requires an established field mapping.
+
+For the seven repaired instances, all four Java/TypeScript conversion paths agree on JSON content
+and generated key order, and both YAML writers produce identical bytes. Template completion makes
+all four results valid. Generated JSON before completion is not identical to the stored source;
+these checks do not imply that template-free conversion preserves every stored context/default.
+The nine repaired schemas also pass all four conversion paths with matching JSON content/order,
+byte-identical YAML and valid generated schemas. Original/proposed/readback bodies, dependent
+validation results and conversion evidence are retained under
+`.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`. Production libraries were not
+redeployed by this data repair.
+
+Both template writers always include the canonical optional instance `_annotations` declaration
+and its optional `@nest` context mapping. Neither is a required instance property or a child field.
+The declaration follows the existing annotation meta-schema; empty value objects, mixed `@id` and
+`@value` objects, and extra properties remain invalid. Legacy templates without these declarations
+remain readable and acquire them when rendered. Publishing a library does not modify stored
+schemas. The annotation backfill uses the existing conditional JSON `PUT ?verbatim=true` path;
+it does not require a production library redeploy. Adopt the updated library in backend/editor
+consumers so later model renders retain these declarations automatically.
+
+`ops/repairs/annotation_declarations.py` plans only the two missing root declarations, taking
+their shapes from Java output verified against TypeScript. It refuses conflicting declarations
+and preserves existing property order, requirements, values and metadata. With closed containers,
+the additions only relax validation; open containers require live dependent-instance validation.
+Never replace a stored template with a complete model rendering merely to add these declarations.
+
+The 2026-09-26 UTC production pass enumerated 4,834 templates and patched 4,826 with verified
+readbacks and Java validation. Seven unchanged-document-DOI/null-graph-DOI refusals and one indexed
+404 remain. All five transient DNS/HTTP500 failures succeeded on a checked retry. No instance was
+written. All 2,146 live dependents of 290 open-container templates retained their validation results;
+the other 4,543 candidates only relaxed closed containers. A retained scan of 150,580 instances
+identified 24 annotation-bearing sources, all freshly checked against production: 13 now validate,
+11 retain malformed annotations, and all 24 bodies are unchanged. Their unrelated errors are
+unchanged. These targeted checks do not constitute a new full instance census.
+
+The older TS package pinned by CED/CEE reads each candidate into the same model, or raises the same
+two pre-existing reserved-name failures. Its extra annotation blueprint diagnostic is trace-only in
+CEE and does not gate CED loading; adopting the updated package removes that diagnostic. Production
+YAML negotiation also succeeds after the patch. Backups, ETags, proposals, dependency checks,
+readbacks, the seven blocked IDs and a detailed report are retained under
+`.cedar/repairs/2026-09-26-annotation-backfill/`. The repair helper suite passes 707 tests.
+
+The subsequent mechanical instance pass repaired four sources with conditional verbatim writes:
+`5efc4ec1-56e8-4aaf-8644-e9ba695e2a2b`, `cc9a5e8d-f9e6-4508-9f05-ed5165735137`,
+`98fc343d-1ab0-43c6-91e9-382eb68d4afa` and `89dc2695-4ebb-43df-bd92-a8ed688c0faa`.
+The first three lost only the bogus element-instance identifier at `/_annotations/@id`; the citation
+also lost an empty optional `/url/0/@id`, and the last instance lost an empty optional project-website
+identifier. All DOI annotations and populated values were preserved. Each exact readback validates,
+both YAML writers produce identical bytes, all four conversions agree on JSON content/order, and
+all four completed instances validate. The HEAL correction still receives `doiCanNotBeAltered` and
+its readback is unchanged. All 14 previously prepared value repairs were freshly rechecked; only
+the project-website case became writable, leaving 13 blocked by other validation errors.
+That pass reduced the retained primary pipeline count to 60. Evidence is in
+`.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
+
+The IDG Genetic Construct template `8d140bd2-32ae-4c64-b29f-33d19b09aa46` was then repaired by
+removing only `IDG DNA Construct Specifications` from `/properties/@context/required`. Its actual
+child is `IDG Genetic Construct Specifications`; the old DNA mapping declaration remains optional.
+The sole live dependent, `b7f62bdf-6f51-4623-88e8-aee3a3f84396`, is unchanged. Before the repair it
+validated as stored but failed all four completed conversion paths because completion dropped the
+unused required mapping. After the conditional template write, both the source and all four
+completed outputs validate, generated JSON content/order agree, and YAML bytes match. The patched
+template and all four generated schemas validate too. Backups, ETags, inventory, proposals and exact
+readback checks are in `.cedar/repairs/2026-09-26-idg-context-requirement/`.
+Three instances whose repeatable link fields each held several URLs in one `@id` were repaired
+by splitting them into separate entries: `d30f925b-5b96-467e-a4ce-7d97327824eb` (four links),
+`5971b91e-5b77-439b-8845-d1be1688637f` (two) and `f5a13f64-525a-4720-b3e1-e6f12dc6ee9d`
+(two). The eight URLs retain their spelling and order; no templates changed. Conditional verbatim
+writes were read back exactly. All three stored sources and all four completed conversion paths
+validate, generated JSON content/order agree, and YAML bytes match. Evidence is under
+`.cedar/repairs/2026-09-26-split-instance-links/`.
+
+The source hyperlink in `F097LBY` (`a354e01e-e6a7-4d2c-a846-821d4f57e36f`) was repaired by
+removing embedded wrapping double quotes and trailing whitespace. Only that scalar changed. Its
+conditional verbatim write was read back exactly; the stored source and all four completed paths
+validate, generated JSON content/order agree, and YAML bytes match. Evidence is under
+`.cedar/repairs/2026-09-26-unquote-instance-link/`.
+
+Instance `420a25c3-61c6-45c1-aa56-ef59f59a6043` had its approved `Not Applicable` marker
+removed from `/Metadata Location/other_study_websites/0/@id`. Stored JSON retains `[{}]` to
+satisfy the template's array minimum. Both CEDAR YAML writers omit the empty field entirely;
+all four generated JSON documents agree in content/order, and template completion restores the
+empty entry and validates in every path. The conditional write's exact readback validates too.
+Originals and evidence are under `.cedar/repairs/2026-09-26-empty-not-applicable-link/`.
+
+A dependency audit for making `Source Hyperlink` repeatable in template
+`05ce128b-c631-45c8-bfcf-a229ea1fcce5` found 368 instances requiring object-to-array migration.
+356 proposed bodies validate; 12 retain their existing errors: eight country IRIs and four source
+links, two also with numeric literals. The proposed template and target F050TUN
+(`c59f4f3f-b271-4aae-b568-b6ace06a2406`) pass all four conversion paths, but no production writes
+were made because the full dependent migration cannot validate. Retained sources, proposals,
+ETags, error comparisons and pipeline results are under
+`.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`.
+
+E106TUN (`69714329-b07d-48cd-b497-b1d9da807346`) was subsequently repaired by replacing its
+malformed Guardian AMP URL with the verified direct publisher article URL. Only the hyperlink
+scalar changed; the conditional write was read back exactly. Stored validation and all four
+completed conversion paths pass, generated JSON content/order agree, and YAML bytes match.
+The repaired instance also validates against the proposed repeatable-link template, reducing its
+remaining migration blockers to 11 (eight country IRIs and three source links, two with numeric
+literals). Refresh the full dependency inventory and proposals before that migration. Evidence is
+under `.cedar/repairs/2026-09-26-guardian-source-link/`.
+
+F028TUN (`6dd3f965-8a2a-4bcf-8efd-fc692b05da78`) was repaired by replacing the article title
+stored as its hyperlink with the matching Webmanagercenter article URL. The publisher's live
+headline and the instance's publisher/date agree. The single-scalar conditional write was read
+back exactly and validates; all four completed paths validate, generated JSON content/order agree,
+and YAML bytes match. Its repeatable-link migration proposal now validates too, leaving 10
+migration blockers (eight country IRIs and two source links, both with numeric literal errors).
+Evidence is under `.cedar/repairs/2026-09-26-webmanagercenter-source-link/`.
+
+A147LBY (`a597bf7b-89de-4db9-b4b6-6d58fbeebaf4`) was repaired by removing wrapping quotes
+and trailing space from its URL and converting `/Longitude/Arc Seconds/@value` from JSON integer
+`0` to string `"0"`, retaining `xsd:double`. The two-property conditional write was read back
+exactly. The stored source and all four completed paths validate, generated JSON content/order
+agree, and YAML bytes match. Its repeatable-link migration proposal now validates, leaving nine
+migration blockers (eight country IRIs and one source link with four numeric-value errors).
+Evidence is under `.cedar/repairs/2026-09-26-a147-link-numeric/`.
+
+E052ITA (`7a8d2744-6e4b-40fe-a3f9-025b617f7c99`) had the missing `https` restored in its
+Bitly link and four Arc Seconds integer-zero values converted to string `"0"`, preserving their
+`xsd:double` datatype. The conditional write was read back exactly. Stored validation and all four
+completed paths pass, generated JSON content/order agree, and YAML bytes match. The repaired
+body also validates against the proposed repeatable-link template, leaving eight country-IRI
+migration blockers. Evidence is under `.cedar/repairs/2026-09-26-e052-link-numeric/`.
+
+The eight remaining Niger identifiers were then checked against retained VODANA-MPA snapshots
+and source Turtle. Submission 1 (version 1, 2021-09-14) contains their exact raw U+00A0 spelling;
+its percent-encoded spelling is absent. Version 2 uses a different namespace and suffix. U+00A0 is
+permitted in IRI paths by RFC 3987, while RDF 1.1 uses simple-string IRI equality without additional
+normalization. Encoding the stored identifier would therefore change RDF identity. The original model
+readers and validator rejected the raw form and accepted the encoded form, establishing an
+IRI/URI acceptance mismatch. Production terminology comparisons returned Cloudflare HTTP 403 /
+1010, so no live equivalence was established. No production write was made. Historical lookup
+and standard references are under `.cedar/repairs/2026-09-26-niger-term-compatibility/`.
+
+The current Java and TypeScript field readers preserve valid RFC 3987 Unicode identifiers.
+Java's `FieldInstanceArtifact.jsonLdIdIri()` supplies the exact lexical identifier; `jsonLdId()`
+remains a URI compatibility view and may percent-encode characters Java's URI class cannot hold.
+JSON/YAML writers use the lexical identifier, and the controlled-term builder accepts
+`withIriValue(String)`. Raw and percent-encoded strings remain distinct RDF identifiers. CEDAR's
+legacy Draft-04 `uri` format checker admits those IRI characters without changing stored schemas
+or values; generic Draft-04 validators may enforce a narrower URI-only interpretation. Artifact
+and element-occurrence identifiers retain their stricter reader rules.
+
+A fresh GET-only replay of all eight Niger instances passes stored validation and all four
+completed conversion paths; generated JSON content/order agrees and YAML bytes match. Every
+output retains the exact source IRI. A fresh dependency inventory also validates all 368 proposed
+repeatable-link migration bodies under the updated validator. The production deployment still
+needs these libraries before that migration can run. Evidence, classpath, originals and outputs
+are under `.cedar/repairs/2026-09-26-unicode-iri-library/`; no production artifacts were changed.
+
+The `Cell` instance `a20e4a8a-81b2-4cbd-8911-29a439b30ed2` now uses the template's
+`Publications_title` field and property mapping. Its malformed nested array exactly duplicated
+both existing PMIDs and the two existing titles; removing that array preserved every distinct
+value. The ETag-guarded verbatim write returned 200 and read back exactly. Stored validation and
+all four completed conversion paths pass, generated JSON content/order agrees, and YAML bytes
+match. Originals, invariants and readback evidence are under
+`.cedar/repairs/2026-09-26-cell-publication-titles/`.
+
+The amphibian template `6530ee0d-23cc-4680-b368-76881372e514` now makes nested
+`Taxonomic Coverage / Species of community interest / SpeciesURL` repeatable. A fresh all-version,
+all-publication-state search found one dependent instance, `6c064883-14a5-4e5d-95e0-5939f83a14ba`.
+Its comma-joined GBIF identifiers were split into two ordered link objects without changing either
+URL. The template and instance candidates passed validation before conditional verbatim writes;
+both readbacks matched exactly and passed all four conversion paths, JSON content/order agreement
+and byte-identical YAML. Identifiers, provenance and unrelated values were preserved. Evidence is
+under `.cedar/repairs/2026-09-26-repeatable-species-url/`. The other multiple-URL migrations are tracked below.
+
+The Proteomics template `dad8dc2b-98f7-46d7-9e01-2655a2b3f7c0` now makes the two
+`Proteomics General` statistical-processing link fields repeatable. All five dependent instances
+were migrated. Target `175b01b7-3f78-43fd-9c26-da1f28015de4` retains its two and three URLs as
+separate ordered link objects, and its two stale CEDAR property mappings now match the same named
+children in the current template. Inverse-transform checks preserve all other content. The template
+and five instance writes returned exact readbacks and pass validation, four conversion paths,
+generated JSON content/order agreement and byte-identical YAML.
+
+The COVID Project Content template `f697ab8d-7b71-4d48-9caf-8c256eb8ee13` now makes the
+standards-link field repeatable; all 28 dependent instances were migrated after a fresh inventory
+and complete preflight. The two URLs in `93af0ae5-2558-4c1a-994d-37603588c0df` are separate,
+ordered link objects. On `2b022b0a-6909-4abc-9570-68e0b72cd085`, the stale element name/context
+now matches `ZonMW Project Identifier`, retaining its existing element ID and values; the empty
+literal in `Project Focus Area` is an empty IRI field. Entirely empty elements remain omitted in
+CEDAR YAML, while the verbatim stored body retains its identifier.
+
+SARSLIVA `4ec33287-55d4-4dcd-aacb-c01169561a15` retains its original description with an appended
+paragraph labelled `Sarsliva biobank collection` containing the exact sentence formerly in the
+service URL. That URL is empty and omitted in YAML. Nine missing biomaterial element-occurrence
+IDs were generated; existing IDs and all entered field values remain unchanged. Inverse-transform
+checks constrain every change. The template and all 28 instance writes read back exactly and pass
+validation, all four conversion paths, generated JSON content/order agreement and byte-identical
+YAML. Evidence is under `.cedar/repairs/2026-09-26-covid-links-migration/covid/`; the earlier blocked
+preflight remains under `.cedar/repairs/2026-09-26-repeatable-remaining-links/covid/`.
+
+The MONERIS instance `bb782576-ff22-43cb-b46c-2d44a5fcd492` no longer stores the placeholder
+`URL oder nix` as a URL. Its Resource Locator is empty and omitted from YAML. The one-item
+publication-date array was unwrapped without changing its null value or `xsd:date` type, and four
+root context mappings now match the template's exact property enums. The required bounding-box
+array now contains one generated-ID element with its required context and four null coordinates;
+no geographic values were invented. Inverse-transform checks constrain these changes, and all
+remaining populated values are preserved through the four conversion paths. The conditional
+verbatim write returned 200 and read back exactly; stored and completed validation, generated JSON
+content/order agreement and byte-identical YAML pass. Evidence is under
+`.cedar/repairs/2026-09-26-moneris-placeholder/`. No template was changed.
+
+The CA-CORD instance `1835f14f-1894-4f41-ae0f-df2507b2ae02` now uses `codebook_link` and
+`data_collect_ints_soc` with their current template mappings. The approved `See link` and `link`
+placeholders were cleared; empty link objects are retained in stored JSON and omitted from YAML.
+`qualitative_coding_inst` preserves `N/A` as literal text, and the `project_description` and
+`stat_weights` context mappings match the template. Other populated values, including the stored
+statistical-weight response `2`, remain unchanged. The exact conditional-write readback passes
+stored validation and all four completed paths; generated JSON content/order agrees and YAML is
+byte-identical. Actual codebook and measurement-scale URLs remain missing: the template's
+`requiredValue: true` constraints were not relaxed, and schema-validation success does not supply
+that content. Evidence is under `.cedar/repairs/2026-09-26-cacord-link-placeholders/`.
+
+The Recipe Manifest instance `e151afef-95c5-42cb-bcad-95f3c99f06d3` now retains only the
+literal `Meow mix` in `dinner-name`, matching its textfield schema. The approved SNOMED identifier
+and its `Text < 256 bytes` label were removed. Missing `dummy-before` and `dummy-after` context
+mappings now use the template's property IRIs; their `Before` and `After` values are unchanged.
+The conditional production write returned 200 and exact readback passed stored validation and
+all four completed paths, with identical generated JSON content/order and byte-identical YAML.
+Other populated values are preserved. Originals and verification evidence are under
+`.cedar/repairs/2026-09-26-dinner-name-literal/`.
+
+The `MetaData metadata` instance `8ae5c275-8564-4461-8548-2090d28ad590` now stores
+`Turkish provinces` as the literal value of its textfield `Province`, replacing the approved
+vocabulary identifier, label and null-literal combination. This preserves the displayed text;
+it does not identify a specific province. Missing `Hypertension`, `Diabetes` and `Hyperlipidemia`
+context mappings now match the template. All other content is unchanged. The conditional
+production write returned 200; exact readback passes stored validation and all four completed
+paths, with identical generated JSON content/order and byte-identical YAML. Evidence is under
+`.cedar/repairs/2026-09-26-province-literal/`.
+
+Four approved mixed-value repairs have exact conditional-write production readbacks:
+
+- DQ-RANGE `579f89bf-a260-49ec-a2ec-f1392ab0e1c6`: the Feminine gender and Female terms are
+  in repeatable `REQUIRED CODE`; `REQUIRED FIELD` retains one literal `NONE`, with both mappings
+  matching the template.
+- DATMM CORD-19 `448ee16e-a2c6-4f4e-9855-7165814d3e22`: `dct:language` and its context entry
+  are now `Language`; US English retains its identifier and label without a null literal.
+- PATH `b88c57ef-cd84-4a1c-bba5-5aa4ad5716de`: three conflicting Burnout URI literals were
+  removed from outcome entries. All selected identifiers and labels remain, including the
+  separate Burnout entry and the existing repeated selections.
+- DALIA `e51100eb-1b28-4c7d-8a4c-eef210c85f71`: MIT retains its identifier and label without
+  the approved `asd` literal. The author's `Name` is now `givenName`, retaining its `asd` text.
+  Template context mappings and the missing empty `ValueSet Test` element were added; the new
+  element has a persisted UUID and no invented field values.
+
+All four writes returned 200. Each stored body passes validation and all four completed conversion
+paths; generated JSON content/order agrees and YAML is byte-identical. Inverse-transform checks
+prove unrelated source content is unchanged, and all populated candidate values survive every
+path. Originals, candidates, write intents and readbacks are under
+`.cedar/repairs/2026-09-26-eight-decisions/`. The three FAIR Workflows migrations and the ambiguous
+GENASIS URL remain deferred, preserving their sources.
+
+The retained primary pipeline count under the latest libraries is now 29: annotations 8,
+malformed/empty IRIs 11, mixed values 5, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 4 remain deferred
+for an agreed field migration or URL destination, the approved F050TUN migration awaits production library adoption, and one
+otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
+production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
+
+The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
+envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
+one wrapper. Numeric YAML and schema JSON formatting follow Java 17's decimal selection, including midpoint,
+subnormal and bounded-integer rounding behavior; simply expanding JavaScript's decimal spelling
+is insufficient. A differential check covered 208,072 positive finite bit patterns without a
+spelling or value discrepancy. Both libraries test 1,658 retained bit-pattern fixtures with both
+signs, including the reported `-1.2345e21` case. The Java fixtures are verified against its live YAML
+writer, and the TypeScript fixtures check emitted bytes and numeric readback.
+
 Both readers make the same compatibility concession for `$schema`: an artifact root must carry the
 canonical draft-04 URI, while a nested legacy field or element may omit it on input. Both writers put
 the canonical declaration back, so a read-render cycle repairs the omission. An explicit wrong or
-non-text declaration remains an error. The artifact server keeps the wire contract strict and makes
-the same inherited-only repair on an ordinary update; new omissions and verbatim updates are refused.
+non-text declaration remains an error. The artifact server requires the wire declaration on both
+ordinary and verbatim writes, including inherited omissions. A client can use a model read-render
+cycle to restore it before submission.
 
 Two deliberately harmless reader differences remain. A document with `modelVersion` only at its root
 and none on its children is accepted by Java and refused by TypeScript; it is a hybrid neither writer
@@ -1660,6 +2028,94 @@ seven build commands that can reach Java — `this`, `parent`, `libraries`, `pro
 `java`, and `all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests`
 explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
 Java-test option.
+
+**Bounded parallel Maven builds.** `cedarcli build java` passes Maven one reactor thread per
+detected CPU, at least one and capped at sixteen, so a plain build uses the whole machine: `-T 16`
+on the 16-core workstation, where the full build takes about 166 seconds against 305 at two
+threads. `--jobs N` overrides the count with `-T N`, and `--jobs 1` retains serial execution.
+Frontend builds do not follow the host this way. Their repository concurrency stays at two
+unless `--jobs` is given, because each concurrent repository also spends its own worker budget.
+Maven schedules modules by
+its dependency graph inside each reactor. The parent, libraries, project and clients
+commands remain ordered and run in separate owning processes, so the embedded-Mongo
+preflight/cleanup guards still surround one reactor at a time. Test classes remain serial
+within each test JVM; Maven thread count does not enable JUnit concurrent execution.
+The resource application uses two isolated reusable Surefire JVMs as described below;
+other modules retain their existing fork settings.
+Embedded MariaDB instances use private extraction and data directories beneath the
+executable build scratch space, even when Maven workers share `java.io.tmpdir`.
+CLI command timings and exit codes are retained under `.cedar/build-reports/`.
+The source guard fingerprints build profiles and frontend build tooling within the
+mixed-purpose `cedar-development` repository; concurrent audit, repair and documentation
+work there does not invalidate a build. Other repository source guards remain in force.
+
+On a 16-core M4 with 64 GB RAM (2026-09-24), the full Java gate took 681.9 seconds
+serially and 345.7 seconds with four Maven threads: 49% less elapsed time, with matching
+test totals and zero failures. These are workstation measurements, not a CI guarantee.
+
+A follow-up on the same machine reused one embedded Neo4j harness per resource outbox
+test class, clearing the graph before each test while retaining each test's own driver
+and outbox restart lifecycle. The 15 deletion/restore outbox tests fell from 113.0 to
+23.5–24.5 seconds combined; the resource application module fell from about 209 to
+121–122 seconds. Full `cedarcli build --jobs N java` measurements were:
+
+| Maven threads | Full build seconds | Result |
+| --- | ---: | --- |
+| 4 | 260.3 | Passed |
+| 6 | 230.3 | Passed |
+| 8 | 219.9 | Passed |
+
+Each run reported 5,581 tests across 494 class summaries, zero failures/errors and
+12 skips. Runs were sequential, one measurement per setting; cache warmth and machine
+load can affect comparisons. Of these three settings, eight threads was fastest, with only
+ten seconds gained over six. Reports: `.cedar/build-reports/20260924T150746Z-f7104ba3.json`,
+`20260924T151221Z-baeb23a2.json`, and `20260924T151629Z-8a1fbc2f.json`.
+
+**Resource test JVM isolation.** The resource application distributes test classes over
+two reusable Surefire JVMs. Each JVM retains serial JUnit execution, keeping the
+process-global CEDAR environment, service singletons and class cleanup isolated. HTTP
+fixtures request OS-assigned ports; Neo4j harnesses use private stores. Surefire writes
+class-specific reports, and each class is assigned to one fork. This adds at most one
+test JVM beyond the reactor's usual module concurrency, rather than doubling forks
+across the estate. The module's Maven property `cedar.resource.test.forks` defaults to
+two; setting it to one restores its serial diagnostic path. `--jobs 1` controls reactor
+threads alone and does not override this module property.
+
+With eight Maven threads and two resource test JVMs, the same workstation's full gate
+took 172.8 seconds (versus 219.9 with one resource JVM); resource application elapsed
+time fell from about 121 to 73 seconds. Class names, counts and skips matched exactly:
+494 class summaries, 5,581 tests, zero failures/errors, 12 skips. Surefire reports
+confirmed two distinct fork commands. This is one measured run, not a CI guarantee.
+Evidence: `.cedar/build-reports/20260924T152253Z-0dfb7cae.json`.
+
+A ten-run repeatability check on 2026-09-24 used the same eight-thread command and
+two resource test JVMs. All ten sequential full clean builds passed on their first
+attempt, with identical class names and per-class counts: 494 class summaries,
+5,581 tests, zero failures/errors and 12 skips per run. Source revisions and working
+trees remained unchanged. Mean build time was 173.6 seconds, median 173.5, and range
+171.5–175.4; these timings exclude CLI setup and report archival. No intermittent
+failure appeared in this sample. Logs, source revisions, JSON results and archived
+test reports are retained locally under
+`.cedar/build-reports/java-repeat-10-20260924T153125Z/`.
+
+A sweep on 2026-09-25 extended these measurements past eight threads, with two resource test
+JVMs throughout:
+
+| Maven threads | Full build seconds | `cedar-project` seconds |
+| --- | ---: | ---: |
+| 2 | 304.9 | 283.4 |
+| 8 | 172.7 | 156.8 |
+| 12 | 170.5 | 154.1 |
+| 16 | 165.8 | 150.0 |
+
+Every setting passed. The sixteen-thread run's Surefire reports held 495 class summaries and
+5,596 tests, with zero failures or errors and 12 skips. Past eight threads the gain is small.
+Most of the remaining time lies inside a few long server test modules, which more reactor
+threads cannot shorten. Sixteen threads was nonetheless the fastest setting, and it is the
+default this workstation now receives. Each setting was measured once, so a difference of a
+few seconds is within noise. Reports: `.cedar/build-reports/20260925T142927Z-e311b7bd.json`,
+`20260925T143456Z-7b2104dd.json`, `20260925T143833Z-2e8b3674.json` and
+`20260925T144130Z-1bb25430.json`.
 
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
@@ -2153,18 +2609,17 @@ template, field, instance, mutation folder or mutation group behind;
 `ops/e2e/cleanup-smoke-leftovers.mjs` removes timestamped artifact leftovers, while the smoke's own
 catch path removes every fixture whose identifier it acquired before the failure.
 
-The browser smoke runs against whichever frontends are deployed, and the variant has to match
-them. `npm run smoke` drives the monolith on its single origin. Of the two split variants,
-`npm run smoke:split:hostnames:authenticated` addresses Workspace and Designer on their own
-hostnames, which is how a native or Docker stack serves them here, and
-`npm run smoke:split:authenticated` addresses them on loopback ports, which needs frontends whose
-configuration names those ports. Each application builds its in-app navigation from the origins its
-served `config/url-service.conf.json` carries, so a run pointed anywhere else loses the application
-on its first navigation; the smoke reads that file before the cross-application gesture and says
-which origins are deployed and which the run addressed, rather than waiting out a timeout.
+`npm run smoke` drives the monolith on its single origin. The split applications are separate
+Angular code with a journey of their own, `npm run smoke:workspace:modern:full`, which addresses
+Workspace and Designer on their own hostnames, as a native or Docker stack serves them here. It runs
+the Workspace journey, the Designer host journey, the account pages and the lifecycle routes. The
+Workspace journey covers folders, sharing between two users, ownership transfer in both directions,
+CED authoring with a Disease field constrained to the DOID disease branch through the live term
+picker, recovery from an expired token in both applications, stale-save protection, populating
+with a live DOID suggestion, publication and drafts, downloads, OpenView and conditional deletion.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
-drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
+drives the REST API directly (timings below), and reaches what no unit suite can: the artifact
 write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
@@ -2179,11 +2634,69 @@ terminology store is absent by recording its seven checks as skipped rather than
 them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
 artifact kinds.
 
-`cedarcli test e2e` runs both tiers in one command and records the run as the evidence the train
+On the 16-core workstation, run `cedarcli test e2e --rest-workers 4`. The REST runner uses two
+workers by default, bounded to one through four, and four is both the ceiling and the fastest
+measured setting. Use `--rest-workers 1` for the serial diagnostic path. For an individual REST invocation, the equivalent is
+`npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
+REST invocation does not replace the release smoke gate.
+
+Thirteen audited suites may overlap. Each has its own working folder, asynchronous
+check context, creation tracking and cleanup registry. The `folders`, `groups`,
+`categories`, `authentication`, `pagination` and `contract` suites run exclusively
+after that parallel batch: their home guards, protected group operations, category
+tree, account credentials or global counts require a stable surrounding stack.
+New suites default to exclusive execution. One worker preserves the original suite
+order. Result merging restores the canonical suite order while preserving the check
+order within each suite, so the existing exact 1,063-check inventory is unchanged.
+
+After all suites drain, independent cleanup registries overlap within the same worker
+budget, each retaining its own reverse creation order. The shared parent is deleted
+last. A first interrupt stops new suites, drains active work and then cleans up;
+a second interrupt forces exit. Preflight, final leftover checks and worker health
+checks still surround the entire run. Do not run separate smoke processes or other
+fixture-mutating tests simultaneously against the same stack.
+
+Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
+and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
+barriers, interruption, report attribution and cleanup ordering; it also runs before
+every `npm run smoke:rest` invocation.
+
+On the 16-core M4 workstation (2026-09-24), all 1,063 checks passed in 118.6 seconds
+with one worker, 72.8 with two and 46.4 with four. Those initial comparisons used the
+same isolated fixtures and included cleanup and postflight. Suite-only parallelism
+with serial cleanup took 86.7 seconds at two workers; overlapping independent cleanup
+registries accounts for the additional reduction. These are local measurements,
+not a CI performance guarantee.
+
+Ten subsequent four-worker runs passed on the first attempt, each with 1,063 passes,
+zero failures/skips, the exact serial check identities and verdicts, no leftovers and
+healthy worker consumers. Mean elapsed time was 51.26 seconds, range 47.3–55.2: about
+57% less than the serial baseline. Local logs and JSON reports are retained under
+`.cedar/build-reports/rest-repeat-10-20260924T162831Z/`.
+
+Only the REST tier runs concurrently, so it is no longer where a whole run spends most of its
+time. Five sequential runs of `cedarcli test e2e --rest-workers 4` on 2026-09-25 all passed, and
+their wall-clock times ranged from 276 to 284 seconds. The gate records of four of them give the
+tier breakdown:
+
+| Tier | Checks | Mean seconds | Range |
+| --- | ---: | ---: | --- |
+| REST, four workers | 1,063 | 51.6 | 49.2–54.4 |
+| Browser smoke | 29 | 144.8 | 141–148 |
+| Split-frontend journey | 45 | 76.5 | 74–81 |
+| Whole run, as recorded | | 273.4 | 271.3–275.5 |
+
+The two browser tiers run serially and take about 81% of a run, while the REST tier executes more
+than nine tenths of its checks in under a fifth of the time. The CLI's own preflight adds about
+eight seconds to the recorded time. A gate record is named by the digest of the sources it tested,
+so a second run against unchanged sources replaces the first run's record, which is how the third
+run's breakdown was lost.
+
+`cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
-manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest` and
-`npm run smoke`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
+manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
+`npm run smoke` and `npm run smoke:workspace:modern:full`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
 heads, beside a `latest.json` copy. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
@@ -2338,6 +2851,67 @@ burst completed 1,501 iterations with no failed checks or dropped iterations; op
 reported no residue. Together with the completed 30-minute soak and 20-minute stress runs, this is
 the current native-stack performance baseline. The burst profile's 50-user pool is identity and VU
 capacity; it does not mean that fifty requests execute continuously throughout an arrival-rate run.
+
+A run of every profile on 2026-09-25, one at a time with default rates and named seeds, gave the
+current figures. The app-log queue was emptied after each run, and during the soak whenever Redis
+passed 1 GB:
+
+| Profile | Seconds | Requests | Requests/s | HTTP p95 ms | p99 ms | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| permissions | 14 | 284 | 21.0 | 146.6 | 179.6 | Passed |
+| quick | 270 | 35,027 | 129.5 | 141.8 | 224.4 | Passed |
+| contention | 54 | 1,502 | 27.7 | 1,317.6 | 1,484.6 | Passed |
+| hotset | 601 | 153,462 | 255.2 | 247.9 | 1,027.1 | Thresholds passed; 118 checks failed |
+| churn | 301 | 3,015 | 10.0 | 224.1 | 277.9 | Passed |
+| burst | 105 | 2,122 | 20.2 | 183.8 | 260.4 | Passed; recovery p95 231.5 ms against a 288.6 ms limit |
+| resilience | 90 | 14,462 | 159.9 | 206.8 | 298.0 | Passed |
+| soak | 1,802 | 515,784 | 286.2 | 1,028.2 | 2,835.8 | Failed three route thresholds |
+
+The hot-set failures were conditional PUTs answered with `500`: 47 field, 30 instance, 25 template
+and 16 element writes. These exposed the restore-outbox races described in the compensation
+protocol above. The 2026-09-26 requalification, run
+`2026-09-26T19-38-44-176Z-a606e3`, passed all 316,024 checks and every threshold over ten minutes
+at 20 VUs: 158,032 requests, HTTP p95 219 ms, no resource-server errors and no durability refusals.
+The run retains `restore-log-audit.json`, console output and outbox/queue observations. Local
+app-log cleanup ran once a minute; no processing or permission queue was cleared.
+
+The 2026-09-26 permission-relay requalification, run
+`2026-09-26T20-38-53-369Z-b83da6`, passed every threshold and all 911,588 checks over thirty
+minutes at 50 VUs: 617,122 requests, HTTP p95 460 ms and server-wait p99 699 ms. Conditional
+artifact moves, artifact ACL updates and folder ACL updates reached p95 309, 305 and 310 ms,
+respectively, against their 1,500 ms limits. Five permission-convergence probes during the run
+covered direct grants, revocations, inherited grants and moves removing inherited access; all twenty
+transitions reached search in 0.97–4.29 seconds. Permission queues remained bounded with no dead
+letters; service PIDs remained stable. The run retains the console, outbox/queue observations and
+all five freshness reports. Local app-log cleanup ran once a minute. Bulk permission writes rely on
+the normal one-second index refresh: forcing a refresh per bulk or per durable batch stalled the
+consumer under sustained load, despite passing idle freshness checks. The final Redis-outage
+smoke also passed, as did `cedarcli test e2e`: 1,063 REST checks and both browser tiers (source
+digest `0d287e8dee0a397a`). The run retains `permission-outage.log` and `whole-stack-smoke.log`.
+A separate log finding remains: the unchanged value-recommender `RulesGenerationStatusManager`
+uses a shared `HashMap`, and concurrent generation/status reads throw `ArrayIndexOutOfBoundsException`
+from `HashMap.valuesToArray` through `getStatus()`, returning HTTP 500 to the worker's status poll.
+The server-retention item in the backend roadmap tracks that follow-up; the passing smoke does not
+cover that concurrent status-map failure. The run retains `recommender-status-race.log`.
+
+The earlier soak failed on conditional artifact moves, artifact ACL updates and folder ACL updates,
+whose p95 was 3,625, 3,604 and 3,571 ms against a 1.5 s threshold, with maxima near 10 s. Every
+check passed, and artifact conditional PUTs stayed near 650 ms. The resource server's access-log
+durations showed the same routes at p95 2–5 s from the first minute, when Redis held 150 MB;
+the app-log backlog did not cause that latency. The valid 50-VU runs from 2026-09-05 through
+2026-09-25 repeated it, scaling from about 170 ms at five VUs to 640 ms at fifteen and 3.8 s at
+fifty. Those builds relayed the search-permission outbox on the request thread after every move,
+ACL change and group-membership change. The synchronized relay and its shared Neo4j lock
+serialized the callers. The asynchronous relay described above removes that request-thread work.
+
+At fifty VUs the soak enqueues about 215,000 app-log messages a minute, about 1 GB of Redis every
+five minutes. Left alone it reached 2.44 million messages and 2.6 GB after twelve minutes, and one
+Redis snapshot then took 168 seconds. Clearing this local queue before and during testing is
+authorized: use `redis-cli del CEDAR-QUEUE-app-log` alone, periodically during sustained load so
+retained test logs do not dominate memory. This applies to the local test stack, not production.
+`CEDAR-QUEUE-app-log-processing` holds the message the worker is consuming. Deleting it
+makes the worker's acknowledgement fail, logs an error and marks the worker unhealthy in
+`cedarcli native status`.
 
 A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
 the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
@@ -2868,20 +3442,19 @@ theme are a coordinate change, no change at all, and two FreeMarker files respec
 and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
 servers; do not restate them here.
 
-Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.9, Jersey
-3.1.11, Hibernate 6.6.52.Final, Servlet 6, Persistence 3.1 and Jackson 2.21.4. Recently modernized
-client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST
-client and the Keycloak event listener, which stay on HttpClient 4 because those external APIs
-require v4 types), slf4j 2.0
-with logback 1.5, swagger-core v3 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.24, commons-lang3.
+Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.13, Jersey
+3.1.12, Hibernate 6.6.58.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.3. Jetty, Jersey,
+Hibernate and Jackson run ahead of the versions the Dropwizard 5.0.2 bundle names, each within the
+same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are
+the OpenSearch low-level REST client and the Keycloak event listener, which stay on HttpClient 4
+because those external APIs require v4 types), slf4j 2.0 with logback 1.5, swagger-core v3
+(OpenAPI 3), mysql-connector-j 8.4, log4j 2.26, commons-lang3.
 
-The test stack pins Mockito 5.23.0 and manages both `byte-buddy` and `byte-buddy-agent` at
-1.18.8-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7; the newer managed pair is
-intentional so Mockito and Dropwizard Hibernate share one version. Keep the core and agent
-together, and verify a change against the complete `cedar-microservice-libraries`,
-`cedar-bridge-server` and
-`cedar-worker-server` reactors rather than compile alone. The current pairing passes all 1,083 tests
-in those reactors with no failures, errors or skips.
+The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
+1.18.14-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
+names 1.18.8-jdk5. The managed pair is intentional, so that both share one version. Keep the core and
+agent together, and verify a change against the full Java build rather than compile alone. The
+current pairing passed the full `cedarcli build java` at sixteen threads on 2026-09-25 with no failures or errors.
 
 JSON Schema validation uses the maintained networknt validator, not the abandoned java-json-tools
 (FGE) fork. networknt's built-in `uri` and `date-time` formats are stricter than FGE's and would
@@ -2979,16 +3552,16 @@ started before a script update from being mistaken for output produced by the up
 
 Findings say what an ordinary update will do rather than flattening every problem into “invalid”:
 
-- `repair-on-save`: inherited unusable/missing child property IRIs, child IDs, occurrence IDs,
-  missing nested child `$schema` declarations, `@context.required` entries, unsafe attribute-value
-  names, missing attribute property IRIs, repository-minted orphan terms and unusable inherited
-  `pav:derivedFrom` values;
+- `repair-on-save`: missing child property IRIs, child identifiers normal minting can replace,
+  absent/null occurrence IDs in a context-bearing element, `@context.required` entries, blank
+  unnamed draft attribute rows, missing attribute property IRIs and repository-minted orphan terms;
 - `instance-save-rejected`: a checkbox, attribute-value or multiple-choice list deployment is
   object-shaped, so CEE's correctly emitted array cannot validate against the exact stored template;
-- `save-rejected`: unusable root IDs, root/search-ID disagreement, missing or invalid root `$schema`,
-  explicit invalid child `$schema`, unrecognised child types, malformed multi-instance children,
-  child IDs caught in the server's trim-before-test gap, null/non-string value IDs, missing
-  instance/occurrence contexts and unusable `schema:isBasedOn`;
+- `save-rejected`: unusable root IDs, root/search-ID disagreement, missing or invalid `$schema`,
+  populated unusable child property IRIs or occurrence identifiers, unusable `pav:derivedFrom`,
+  reserved/colliding/duplicate attribute names, unrecognised child types, malformed multi-instance
+  children, child IDs caught in the server's trim-before-test gap, null/non-string value IDs,
+  missing instance/occurrence contexts and unusable `schema:isBasedOn`;
 - `reader-blocking`: empty link or controlled-term IDs rejected by both JSON readers, and malformed URI
   values rejected by the strict Java reader; these are deliberately outside CEE's occurrence-only
   compatibility adapter;
@@ -3121,6 +3694,414 @@ summary lists those templates with how many instances each strands. The inventor
 reported rather than repaired: typed GETs that return 404 for a search row, duplicate search rows,
 a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
 complete for what this key can enumerate and read.
+
+## Comparing Both Schema Libraries over the Full Stored Corpus
+
+`ops/cedar_schema_matrix_audit.py` caches every enumerated template, element and field, then
+checks stored JSON → Java/TypeScript YAML → Java/TypeScript JSON in all four pairings.
+It uses the GET-only REST client and the existing conversion bridges. The cache is a local
+`corpus.sqlite`: compressed sources, per-artifact verdicts, and complete outputs for failures.
+Do not commit this production evidence. It contains artifact content visible to the supplied key.
+
+Run the three resumable stages from `$CEDAR_HOME` with a built Java classpath file and TypeScript
+bundle. `--classpath` takes a **file**, unlike the older matrix script's inline classpath argument:
+
+```bash
+for stage in enumerate fetch convert; do
+  python3 cedar-development/ops/cedar_schema_matrix_audit.py \
+    --directory .cedar/audits/schema-matrix-full \
+    --classpath /path/to/classpath.txt \
+    --ts-library cedar-model-typescript-library/dist/index.js \
+    --key-file ~/.cedar-admin-key --stage "$stage" --workers 4 || break
+done
+```
+
+Enumeration checkpoints complete artifact kinds and requires the enumerated count to match the
+search total. Fetching resumes missing sources, including previous errors. Conversion resumes
+missing results, copies the TypeScript bundle into the evidence directory and records its hash and
+repository revisions. After changing a library, rerun conversion with `--reset-results` to recheck
+all cached sources; fetching again is unnecessary. Each conversion worker owns its Java and Node
+bridges, retries a failed bridge once, and records infrastructure failures separately. Batches keep
+memory bounded. The three stages may overlap, but rerun fetching/conversion after enumeration
+finishes: each invocation takes the pending IDs available at its start.
+
+`summary.json` and `failures.json` are regenerated after conversion. A concordance pass requires
+all four outputs, Java-validator validity, equal JSON content, equal generated JSON key order and
+byte-identical YAML. **Every array retains its order**, including `required`; the older
+`cedar_stored_json_matrix_audit.py` treats `required` as a set and is not this stricter gate.
+The TypeScript bridge returns the writer's original JSON text for the order check: parsing and
+re-stringifying it in JavaScript would move numeric field names to the front again.
+
+Source validity, reader diagnostics and exact source equality remain separate measurements.
+Converter agreement is not proof that every stored detail survives model normalization. Coverage
+is the key's search-visible corpus, and an indexed artifact returning 404 remains an unresolved
+inventory entry, not a successful conversion.
+
+The fresh 2026-09-25 rerun rebuilt the current Java model, validation and artifact libraries and
+TypeScript bundle, then froze their runtimes for the audit. It enumerated 151,835 schemas and
+re-read 151,829 successfully. Every readable source validates, and all four conversions produce
+valid, equal JSON with identical generated key order and byte-identical Java/TypeScript YAML.
+The 48 remaining source-reader diagnostic IDs exactly match the reviewed residual set: 44
+instance-context additional-property cases and four child-required cases. The same six indexed
+artifacts still return 404 after retry. One newly indexed template also passes; no new diagnostic
+or conversion failure was found. This was GET-only and did not audit or modify instances.
+
+Evidence, fresh sources, runtime revisions and hashes, and final retry results are under
+`$CEDAR_HOME/.cedar/audits/2026-09-25-schema-matrix-rerun/`. Only 139 generated documents match
+stored JSON content including array order exactly (ignoring object key order); the rest undergo
+model normalization. Converter concordance therefore does not settle source-preservation review.
+
+### Repairing missing child property IRIs
+
+`ops/repairs/property_iris.py` supplies pure planning and invariant checks for ordinary child
+fields and elements. Inspect every existing instance occurrence, reuse a consistent existing
+IRI, and otherwise mint `https://schema.metadatacenter.org/properties/<UUID>`, as
+`LinkedDataUtil.addChildPropertyIris` does. Conflicting existing identities stop the plan.
+Static fields and attribute-value groups do not require fixed child mappings; actual dynamic
+attributes carry their IRIs in the instance context. An explicitly supplied group mapping is
+preserved, and a malformed explicit declaration still produces a reader diagnostic.
+
+Validate the complete candidate schemas and dependent instances before writing. Add optional
+schema mapping definitions first, so both old and repaired instances validate; patch instance
+contexts next; require the new mappings only after every instance passes. Use strong ETags,
+retain preimages for each phase, compare exact GET read-backs, and prove entered values unchanged.
+Recheck the dependent-instance index before starting and before making the mappings required.
+
+The 2026-09-25 production audit enumerated 10,141 containers and read 10,139; two known indexed
+404s remain. Its 112 affected schemas (72 templates, 40 elements) now carry 1,615 generated
+property IRIs. All 893 dependent instances validate; 890 needed matching context additions.
+The 245-schema conversion recheck, including 133 schemas with only attribute-group diagnostics,
+passes all four paths with identical generated JSON order and byte-identical YAML. Evidence and
+phase-specific backups are under `$CEDAR_HOME/.cedar/repairs/2026-09-25-property-iris/`.
+
+### Repairing missing child presence requirements
+
+`ops/repairs/child_required.py` plans additive repairs to template and element `required` arrays.
+Use the Java JSON → YAML → JSON rendering of each freshly fetched schema as the reference;
+append only missing declared child names that Java requires. Preserve existing array order and
+all other schema declarations. Embedded elements are traversed independently of their standalone
+artifacts because stored templates contain copies.
+
+Enumerate and fetch every dependent instance before tightening a template. Complete absent required
+children with the established empty shapes, including minimum repeated occurrences and empty
+nested elements; add corresponding context mappings without replacing existing predicates.
+Do not change populated values, existing empty values, array lengths or malformed occurrences.
+Validate every complete candidate against both the old and proposed template. If any dependent
+instance still fails, leave that template and its instances outside the write set.
+
+Write the instance additions first, retaining preimages and using strong ETags with exact GET
+readback. Recheck all dependents and the index before writing the stricter schema. A partial run
+leaves additional empty structures valid under the old schema; resume only when stored fingerprints
+match the reviewed originals or candidates. Re-read schemas and rerun all four conversion paths,
+checking generated JSON content and key order separately from byte-identical YAML. The planner
+and its independent invariants are covered by `test_child_required.py` in the repair suite.
+
+The 2026-09-25 run checked 528 schemas and 7,010 dependent instances. It repaired 524 schemas
+(111 templates, 413 elements) and added empty structures to 4,721 instances; all 5,667 instances
+under repaired templates validate. Four templates remain blocked by 24 invalid instances.
+All 528 reviewed schema bodies pass the four conversion paths, generated JSON content/order and
+YAML byte equality. Plans, preimages, write receipts and the production-verified matrix are under
+`$CEDAR_HOME/.cedar/repairs/2026-09-25-child-required/`.
+
+### Stored JSON instance matrix smoke
+
+`ops/cedar_instance_matrix_smoke.py` runs a bounded GET-only instance sample through Java and
+TypeScript YAML writers and all four JSON reader pairings. Pass `--directory` (a new ignored
+local evidence directory), `--classpath` (a classpath file), `--library` (a built TypeScript
+bundle), `--java` (Java 17), and optionally `--limit` (default 100). Use `--sources` with a
+previous evidence directory to replay its saved instances and templates without HTTP. It samples the first readable
+search results, not a random or representative production population. It retains source JSON,
+templates, both YAML documents, every JSON result, reader diagnostics and validation findings.
+
+Compare generated JSON content, generated object order and exact YAML bytes separately. Raw
+instance YAML conversions omit context and empty structures; their uncompleted JSON validation
+is not a repository-write verdict. The audit also completes each result against its fetched
+template using Java's `InstanceInflater` and the repository's element-ID completion rule in
+memory, then validates it. This tests canonical Java completion for all lanes, not TypeScript's
+inflater, and never writes production artifacts.
+
+The 2026-09-25 smoke in `.cedar/audits/2026-09-25-instance-matrix-100-run2/` covered 100 readable
+instances against 36 templates, using the frozen runtime from the same day's full schema audit.
+Three indexed candidates returned 404; readable replacements filled the sample. Of the sources,
+53 validated and 47 were already invalid. All four conversions produced JSON for 99 instances;
+77 agreed on JSON content and order, and 76 had byte-identical YAML. None reproduced raw stored
+JSON exactly; completion and source preservation must be assessed separately.
+
+The mismatches were linked-value `@type: "@id"` dropped by TypeScript in 22 instances, a
+multiple-datatype literal in one instance (Java emits the first datatype, TypeScript emits an
+array that Java's YAML reader rejects), and differing YAML key quoting in two instances, one
+also in the linked-value group. Thus 24 distinct instances failed at least one agreement gate.
+Among the 53 valid sources, 45 passed every agreement gate. After Java template completion,
+all 53 remained valid in each produced lane; the TypeScript-YAML-to-Java-JSON lane produced only
+52 because of the multiple-datatype case. On the already-invalid sources, 24 had completion
+shape conflicts. Completion accepting a result does not prove preservation of every source value.
+
+Replaying the same 100 saved sources after preserving explicit linked-value datatypes in the
+TypeScript model, JSON/YAML readers and writers resolved all 22 datatype-dropping cases.
+Evidence: `.cedar/audits/2026-09-25-instance-linked-type-fixed/`. All 99 instances for which
+all four conversions produce JSON now agree on content and generated order; 97 have identical
+YAML bytes. The three remaining discrepancies are the two key-quoting cases and the one
+multiple-datatype literal. The sample's source validity remains 53 valid / 47 invalid; every
+produced lane from those 53 valid sources still validates after Java template completion.
+
+The shared conservative YAML mapping-key policy leaves a key plain only if it starts with an
+ASCII letter or underscore, continues with ASCII letters, digits, underscores, hyphens or
+spaces, and does not end in a space. Case-insensitive `y`, `yes`, `n`, `no`, `true`, `false`,
+`on`, `off` and `null` are quoted. Every other key is double-quoted and escaped. This policy
+applies to all YAML mapping keys, including extension metadata keys; it does not change string
+value policy. Java and TypeScript carry identical `yaml-key-quoting.json` test cases and check
+both quote decisions and key preservation. TypeScript also checks YAML 1.1 and 1.2 readers.
+
+The same 100-instance replay with this policy yields 99 identical YAML documents and 99
+four-path JSON content/order matches. The two quoting mismatches are resolved; the sole
+remaining pipeline discrepancy is the multiple-datatype literal. Evidence is retained in
+`.cedar/audits/2026-09-25-instance-key-policy-fixed/`. Production is unchanged.
+
+A random 1,000-instance sweep is recorded in
+`.cedar/audits/2026-09-25-instance-random-1000/`. Use `--random-seed` with `--limit` to sample
+search-index positions across the key-visible population and retain the exact selection for
+replay. Seed `9251739` sampled from 150,584 indexed instances, covering 64 templates with
+no fetch failures. Sampling is by instance: 811 selected instances belong to the NCBI BioSample
+Human Package template. Source validity was 997 valid / 3 invalid. All 1,000 produced all four
+JSON outputs; 990 agreed on content and YAML bytes, but only 126 agreed on generated JSON order.
+There were 864 order-only differences, all due to the position of root `schema:description`;
+five Java provenance losses (`pav:derivedFrom`); and five TS label losses on literals or
+label-only nodes. One of the latter also became invalid through Java YAML after completion,
+because a labelled null literal lost its required `@value`. The TS-YAML lanes remained valid
+for all 997 valid sources, but validity did not imply preservation of labels or provenance.
+The previous two-datatype case was not in this sample and remains unresolved. No production
+writes were performed. The evidence report lists examples and the overlap between findings.
+
+The TypeScript description-order correction is verified against the same saved 1,000 instances
+in `.cedar/audits/2026-09-25-instance-random-1000-order-fixed/`. All 864 order-only mismatches
+are resolved: 990 now agree on JSON content, generated order and YAML bytes. All 2,000 YAML
+outputs and the parsed content of all 4,000 JSON outputs are unchanged from the original sweep.
+The remaining ten are the same five provenance losses and five label losses, including the
+labelled-null completion issue above. Source and completed validation results are unchanged.
+The writer matches Java's separate positions for an explicit description and a synthesized
+empty description. Replay performed no production reads or writes.
+
+Java now preserves root instance `pav:derivedFrom` in both writers and the YAML reader;
+its model and JSON reader already retained it. Replaying the same 1,000 sources in
+`.cedar/audits/2026-09-25-instance-random-1000-provenance-fixed/` gives 995 matching JSON
+contents, generated key orders and byte-identical YAML pairs. All five populated source references
+survive all four paths, and every other generated JSON value is unchanged from the order-fixed
+replay. The five label-loss cases remain, including the labelled-null completion failure;
+source and completed validation counts are unchanged. The replay is offline and writes no
+production artifacts. Full YAML preserves derivation provenance; compact YAML deliberately
+omits it with the other repository provenance. Java's 1,203 tests and 249 corpus fixtures pass.
+
+The subsequent label repair preserves literal labels (including empty strings) and label-only
+fields in TypeScript, and preserves an explicit null literal beside label metadata in both YAML
+writers. Java's YAML reader accepts that decorated null while ordinary unset fields continue to
+be omitted. Built controlled-term labels do not acquire an invented literal value. The final
+replay is `.cedar/audits/2026-09-25-instance-random-1000-label-confirmation/`: all 1,000 instances
+agree across all four paths on JSON content and generated key order, and all 1,000 YAML pairs
+are byte-identical. All 997 valid sources validate after template completion in every lane;
+the three already-invalid sources remain two invalid and one completion error. This establishes
+parity for this sample, not identity with raw stored JSON (template-supplied contexts and empty
+fields still require completion). No production artifacts were written. Regression coverage is
+1,209 Java tests and 3,736 TypeScript tests; all 249 Java corpus fixtures and the 166 YAML / 83 JSON
+shared parity fixtures remain current.
+
+A subsequent random 10,000-instance run (seed `2026092512`) is retained under
+`.cedar/audits/2026-09-25-instance-random-10000-restart2/`. It covers 277 templates with no
+candidate or template fetch failures. All four paths produced outputs for 9,998 instances;
+9,992 agreed on JSON content/order and 9,993 on YAML bytes. Eight instances differ: four TS
+`skos:notation` losses, one Java attribute-value membership-array reorder, one source carrying
+both `@id` and `@value`, one malformed URI Java rejects, and one stray `_annotations/@id`
+Java rejects while TS drops it. Four of these sources are valid and four invalid. All 9,957
+valid sources still validate after completion in every path; 43 stored sources were already
+invalid. The retained `REPORT.md` maps each discrepancy to its evidence. The earlier multiple-
+datatype literal was not selected. No production data was changed.
+
+The smoke runner now logs index-page and per-200-candidate fetch progress, saves candidate
+JSON under `fetched-sources/`, and reserves ten percent spare candidates for larger samples.
+It writes fetch errors before refusing an undersized sample. An earlier attempt exhausted its
+100 spares (9,954 readable of 10,100) and produced no conversion verdicts; do not use that
+incomplete attempt as the 10,000-instance result. `selected-ids.json` identifies the exact
+sample, separate from spare candidates. The shared evaluation function has regression tests
+separating JSON content, key order, YAML bytes, failed conversions and completion verdicts.
+
+The notation and attribute-group fixes replay the same 10,000 sources under
+`.cedar/audits/2026-09-25-instance-random-10000-notation-order-fixed/`. TypeScript preserves
+`skos:notation` in JSON and YAML, including empty notation, literals and metadata-only fields.
+Java's nested-element builder uses an insertion-ordered defensive copy of attribute groups;
+`Map.copyOf` had randomized member iteration. All seven affected notation values and all 12
+affected membership arrays now match their sources in all four paths. The replay yields 9,997
+matching JSON contents/orders and 9,997 byte-identical YAML pairs; all 9,957 valid sources still
+validate after completion. Three malformed-source cases remain. The CDE record with notation
+prohibited by its template now remains invalid in every lane instead of appearing repaired by
+TS's data loss. Tests: 1,210 Java, 3,745 TypeScript; 249 Java corpus fixtures and 166 YAML / 83 JSON
+shared parity fixtures current. No production writes.
+
+
+
+
+
+### Full production instance matrix
+
+`ops/cedar_instance_matrix_full.py` audits every key-visible production instance through stored
+JSON → Java/TS YAML → Java/TS JSON, with source validation and Java template completion in all
+four lanes. It is GET-only. `--directory`, `--classpath` (a file containing the Java classpath),
+`--library` (the frozen TS bundle), and `--java` identify the run and runtimes; `--resume` reuses
+cached inventory pages, compressed source snapshots, templates, and completed records. It uses
+eight concurrent reads, delivers ready reads without waiting for an earlier slow read, and retries
+unread instances and failed template fetches at the end. Reconcile `records.jsonl` by the latest
+record per artifact ID because retry verdicts are appended. An indexed total changing between
+pages or incomplete enumeration stops the run instead of claiming full coverage.
+
+The completed 2026-09-25 run is
+`$CEDAR_HOME/.cedar/audits/2026-09-25-instance-full-matrix-current/`, with its frozen runtime in
+`../2026-09-25-instance-full-runtime/`: Java artifact library `7b658d2`, TypeScript `412e01f`.
+It resumed after 47,104 records to improve read scheduling without changing the libraries or
+raising request concurrency. The inventory contains 150,584 distinct IDs; 150,580 were readable,
+and four legacy `.net` entries still return HTTP 404 after retry. All 1,533 referenced templates
+were fetched. No production writes were attempted.
+
+| Measurement | Instances |
+| --- | ---: |
+| Valid stored source | 149,968 |
+| Invalid stored source | 612 |
+| All four JSON outputs produced | 150,524 |
+| All four JSON contents agree | 150,511 |
+| All four generated JSON key orders agree | 150,503 |
+| Java/TS YAML byte-identical | 150,493 |
+| All production/parity checks pass together | 150,486 |
+| Distinct production/parity exceptions | 94 |
+| Additional completion-only exception | 1 |
+
+Of valid sources, 149,965 validate after completion in all four lanes. The three blockers are
+multiple literal datatypes, an attribute-value member named `type` refused by both YAML writers,
+and a required root context mapping lost during completion. Separately, TS drops `Title/@language:
+en` on one valid source (`23e37ba7-5009-4681-8fb2-1d109ab7c3ae`) without making the result invalid;
+18 further valid sources have presentation/order differences. Thus 22 valid instances have an
+outstanding finding. Of the 612 invalid sources, 61 validate after completion in all four lanes,
+while 551 do not. The 95 primary pipeline/completion findings contain 73 invalid sources and
+22 valid sources; the other 539 invalid sources have no parity discrepancy.
+
+`REPORT.md` contains category counts and links to every affected instance. `issue-categories.json`
+contains the exact grouped IDs; `findings.json` contains all 634 readable instances with invalid
+sources or pipeline/completion findings. `unread.json` identifies the four persistent 404s.
+`summary.json` separates final-process runtime counters from cumulative cached template coverage.
+The audit records source differences but does not equate cross-library agreement with source
+preservation: contexts and unset fields require normalization/completion, and only 30 raw source
+JSON documents equal all four uncompleted outputs. This read-only test does not exercise the
+production write endpoint or its DOI guard.
+
+The follow-up library reconciliation is verified by an offline replay of all 634 retained
+findings plus 1,000 randomly selected previously clean instances (seed `9254`), under
+`.cedar/audits/2026-09-25-instance-four-repairs-confirmation/`. Java `eb7ce85` preserves repeated
+element occurrences when one has only an identifier and a sibling has `@context`; both readers
+now classify the list consistently. TypeScript preserves populated language tags, puts nested
+attribute-value YAML metadata first, and serializes numeric field/attribute names after the
+instance envelope in Java order. The same JSON serialization change places each attribute group
+beside its values. Returned JSON nodes remain ordinary objects; canonical textual order is the
+`getAsJsonString` contract, matching the schema writer's serialization-view approach.
+
+All 21 requested affected instances and the additional attribute-group-order instance now agree
+in all four JSON paths, key order and YAML bytes. The 1,000 clean controls remain valid after
+completion and agree throughout. The empty repeated-element source retains both occurrences;
+its completion now reaches validation instead of failing to read, but its unrelated template
+errors remain. Another already-invalid source containing a nested field array now receives an
+explicit mixed-field/element reader rejection in one completion lane instead of a validation
+failure. No valid source regressed. The retained findings leave 72 parity exceptions plus the
+completion-only context issue, of which seven have valid sources; this is a targeted replay,
+not a second full production sweep. No production writes. Checks: 1,212 Java tests, 249 current
+Java corpus fixtures, 3,774 TS tests, 166 YAML / 83 JSON parity fixtures, lint, type checking,
+source-lock verification and packaged-consumer smoke passed.
+
+The subsequent strict-shape replay uses the same 1,634 retained instances under
+`.cedar/audits/2026-09-25-instance-strict-shapes-replay/`. TypeScript matches Java's explicit YAML
+key layout at 128 UTF-16 code units: all five long-key cases now agree. Both JSON/YAML readers
+reject fields containing both identifier and literal properties, including null or identical values;
+all 11 known mixed-value sources are consistently refused. TypeScript also rejects all 11 known
+URI acceptance gaps (Unicode spacing/control characters, malformed schemes, repeated fragment
+markers). These are measured Java URI checks, not a claim of complete URI-parser equivalence.
+The 1,000 clean controls remain valid after completion and agree across all paths.
+
+`ops/repairs/repair_instance_values.py` plans schema-checked source corrections and applies only
+fully valid, Java-readable candidates. It checks unchanged source/template bodies, uses conditional
+verbatim writes, saves originals, and validates exact readbacks. Its pure transform and invariant
+live in `instance_values.py`. The 51-candidate plan is retained in
+`.cedar/repairs/2026-09-25-instance-values/`: two instances were repaired by removing surrounding
+clipboard whitespace from three URL values. Fourteen proposed narrow repairs remain blocked by
+other validation errors; 35 have no unambiguous correction under these rules. No populated
+conflicting values were removed. The two readbacks pass all four paths, generated order, identical
+YAML and completed validation in `.cedar/audits/2026-09-25-instance-values-repaired-confirmation/`.
+Generated JSON still requires the normal server completion step. The retained primary findings now
+leave 66 affected instances, three with valid sources; this was not another production-wide sweep.
+Checks: 1,213 Java tests, 249 Java corpus fixtures, 3,790 TypeScript tests and all TS CI gates,
+plus six repair regression tests.
+
+### Repairing instance-context additional-property declarations
+
+`ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →
+JSON output. At each template or element container, `properties.@context.additionalProperties`
+must be `{"type":"string","format":"uri"}` when that container directly declares an
+attribute-value field, otherwise `false`. Descendant containers follow their own children.
+The invariant permits only replacement between these two shapes at this exact schema location;
+it preserves the schema-owned `@context`, outer `additionalProperties`, field constraints,
+required arrays and all instance data.
+
+For tightening or mixed changes, require every dependent instance to validate unchanged against
+the candidate. Keep templates with any failing dependent instance out of that write set; extra
+context mappings must not be deleted merely to make a narrower rule pass. A separately proven
+pure relaxation (`false` → the URI rule everywhere changed) cannot invalidate a previously valid
+instance and may proceed despite recorded, unrelated pre-existing instance errors. The complete
+schema candidate must validate in either case. Record existing instance failures separately.
+
+Re-fetch dependents and verify their fingerprints and index membership before the schema write.
+Use strong ETags, preimages and exact GET readback. No instance write is part of this repair.
+Verify the stored schema bodies against a four-path Java/TypeScript matrix with generated JSON
+content/order and byte-identical YAML checks. Tests are in `test_context_additional.py`.
+
+The 2026-09-25 run reviewed 709 schemas and 3,294 dependent instances. It repaired 663 schemas
+(404 templates, 259 elements), changing 906 declarations without any instance writes. Among
+611 dependents of repaired templates, 593 validate; 18 retain unrelated pre-existing errors under
+four pure relaxations. Two formerly invalid instances now validate without data edits. All 709
+reviewed schema bodies pass the four-path matrix and match fresh production reads. Plans,
+preimages, receipts and verification evidence are retained under
+`$CEDAR_HOME/.cedar/repairs/2026-09-25-context-additional/`.
+
+The follow-up three-case cleanup used the existing `drop_empty_undeclared_keys` and
+`drop_unused_instance_context` transforms with an exact name allowlist. It removed two null-only
+undeclared fields with their mappings and two unused mappings from a third instance. All three
+instances validate; their 39 template dependents were checked. CEDAR Template and Enhanced Gene
+Expression Template 3 could then take canonical context rules. The `test2` instance was cleaned,
+but its template remains unchanged because three other instances contain populated extra fields.
+Preimages, receipts, readback validation and the three-schema conversion matrix are under
+`$CEDAR_HOME/.cedar/repairs/2026-09-25-empty-context-cases/`.
+
+### Namespace-bound schema metadata
+
+Both model libraries retain custom namespace prefixes from a schema's own `@context` and the
+schema-root properties qualified by those prefixes. For example, `openminds:schemaVersion`
+uses the schema's `openminds` prefix. These are schema metadata, separate from
+`properties.@context`, which constrains an instance's context.
+
+In YAML, the same metadata has an explicit block on its template, element or field:
+
+```yaml
+extensions:
+  prefixes:
+    openminds: "https://openminds.om-i.org/vocab/"
+  properties:
+    openminds:schemaVersion: "latest"
+```
+
+Java and TypeScript expose `SchemaExtensions` on schema models and their builders. Full and
+compact YAML retain this block; JSON writers restore the prefixes and qualified root properties.
+Extension properties must bind to a custom prefix; reserved CEDAR namespaces cannot be overridden.
+The prefix and property names are sorted. Nested metadata objects put JSON integer-index keys first,
+then other keys in lexical order; arrays retain their order. Opaque extension values retain JSON
+null, empty objects and empty arrays. CEDAR's own YAML properties keep their existing omission rules.
+
+The focused 2026-09-25 check uses cached production bodies for all 64 affected schemas:
+71 namespace mappings and 201 metadata properties survive all four conversion paths, both full
+and compact (512 conversions), with equal JSON content/key order and byte-identical YAML.
+Evidence is under `$CEDAR_HOME/.cedar/repairs/2026-09-25-schema-extensions/`.
+This check does not establish preservation of unrelated source properties.
 
 ## Round-Tripping Every Instance Through YAML
 
@@ -3336,6 +4317,197 @@ then like the server reporting a present artifact missing.
 The `.net` identifiers also fail genuinely far more often — 20 of 245 against 259 of 150,334 — and
 three of the four instances absent from the artifact store entirely are among them.
 
+## Comparing Titanium and CEE RDF Export
+
+The Java validation library's `RdfConverter` converts CEDAR instance JSON to N-Quads or Turtle
+using Titanium JSON-LD 1.7.0 and JSON-P 2.0.1 on Java 17. `JsonLdDocument.asRdf()` delegates to it,
+so the existing artifact/resource `?format=rdf-nquad` paths use the strict converter. The legacy
+checked exception remains compatible with those callers. This does not add a backend Turtle route
+or change Accept negotiation. CEE has both download formats through `rdf-export.ts`, using
+jsonld 9.0.0 and N3 2.7.12.
+
+The Java artifact library exposes `RdfArtifactRenderer.renderNQuads(schema, instance)` and
+`renderTurtle(schema, instance)`, with template and element overloads. These complete sparse
+instance mappings/types through the existing JSON writer. Standalone elements receive the built-in
+context that an embedded element inherits. CEE's download path supplies its parsed template too,
+so mapped attribute-value groups can be distinguished from ordinary string arrays.
+
+Both implementations prepare documents independently, leave inputs unchanged, refuse remote
+contexts, omit empty fields and structural attribute-name lists, and generate collision-free
+aliases for field names JSON-LD interprets as IRIs. They reject multiple-datatype literals,
+identifier/value mixtures, null literals with populated metadata, malformed identifiers and
+unmapped populated properties. `@index`/`@direction` data is refused rather than silently omitted.
+All-empty instances produce an empty dataset. Named graphs work in N-Quads and are explicitly
+refused for Turtle. Java emits Turtle's N-Triples subset; CEE emits prefixed Turtle. Their byte
+formatting need not match, but their RDF datasets must.
+
+Expanded IRIs are validated and temporarily represented by collision-free absolute tokens during
+processor conversion, then restored by exact term lookup. This avoids URI-only processor checks
+on valid Unicode IRIs (including U+00A0) and prevents jsonld.js from rewriting string-valued
+`xsd:double` lexical forms. Literal text is never substituted. Native JSON numbers retain JSON-LD
+numeric serialization. Percent-encoding or numerically equivalent spellings are not RDF identity
+normalizations. See the [JSON-LD Object-to-RDF algorithm](https://www.w3.org/TR/json-ld11-api/#object-to-rdf-conversion).
+
+### Measured RDF Comparison, 2026-09-26
+
+`ops/rdf-comparison/` runs the actual Java library and CEE source exporter with independent
+preparation. Comparison uses RDFC-1.0 dataset canonicalization, retaining datatype, language, graph
+names and blank-node relationships. It ignores only statement order and blank-node labels.
+Independently authored expected statements/rejections prevent two converters agreeing on the same
+loss from passing. Both Turtle outputs are checked against their N-Quads. Generic JSON-LD boundary
+probes do not assert that every such shape is a valid CEDAR instance.
+
+| Input population | Cases | Equal RDF datasets | Both reject | Disagreements |
+| --- | ---: | ---: | ---: | ---: |
+| Synthetic contract/boundary cases | 82 | 61 | 21 | 0 |
+| Stored CEE fixtures | 57 | 52 | 5 | 0 |
+| CEE-rendered fixtures | 56 | 56 | 0 | 0 |
+| Retained random production sample | 100 | 100 | 0 | 0 |
+
+All 82 authored contracts pass in both implementations. The named-graph fixture's Turtle refusal
+is expected. The five invalid stored CEE fixtures are refused by both; the editor-rendered corpus
+contains only valid serialized instances. Every successful Turtle output matches its N-Quads.
+There are no input mutations or double-literal spelling disagreements in these 295 comparisons.
+
+Implementation verification also passed `cedarcli build java` (unit and embedded integration
+suites), all 3,602 CEE domain tests, CEE type checks, touched-source lint and both production bundle
+variants. After `cedarcli native restart microservices`, `cedarcli test e2e --rest-workers 4`
+passed all 1,063 REST checks (including live RDF conversion) and the browser tiers. Local smoke
+evidence is `ops/e2e/reports/smoke-gate/8876cf2538888d08.json`. This verifies the local backend;
+production deployment and publishing the updated CEE package are separate release operations.
+
+The production IDs were selected uniformly without replacement, seed `9262026`, from the retained
+September 25 inventory of 150,584 distinct instance IDs. All 100 GETs succeeded in the initial
+experiment. The implementation comparison replays those bodies without new production access or
+writes. This is a sanity sample, not a new full inventory or validity audit.
+
+Before implementation, the 280-case baseline (67 synthetic cases) had six double-literal spelling
+disagreements, eight synthetic asymmetric refusals, one stored-fixture asymmetric refusal, and
+shared preparation losses. Baseline evidence remains in
+`$CEDAR_HOME/.cedar/audits/2026-09-26-rdf-titanium-prod100/`; implementation evidence is in
+`$CEDAR_HOME/.cedar/audits/2026-09-26-rdf-implementation-prod100/`.
+`sample.json` records the population, seed and selected IDs; `production/` retains private bodies;
+`results.jsonl` retains outputs, canonical datasets, errors and oracle results; `runtime.json`
+records source, bundle, class/JAR hashes and versions. `summary.json` must say `complete: true`.
+Production bodies stay in ignored private evidence, never in the version-controlled test corpus.
+
+### Running the RDF Comparison
+
+After `cedarcli build java`, source the native profile and select Java 17. There is no CLI frontend
+for this comparison tool. It uses the installed local validation library and CEE dependencies:
+
+```bash
+mvn -B -f "$CEDAR_HOME/cedar-development/ops/rdf-comparison/pom.xml" \
+  compile dependency:build-classpath -Dmdep.outputFile=target/classpath.txt
+```
+
+From `cedar-embeddable-editor`, export the editor-rendered fixtures while running the RDF tests
+(create the private output directory first):
+
+```bash
+CEDAR_RDF_CORPUS_OUTPUT="$CEDAR_HOME/.cedar/audits/rdf-check/cee-rendered.json" \
+  npm --prefix harness run test -- harness/test/rdf-export.spec.ts
+```
+
+From `$CEDAR_HOME`, run local cases and the optional fresh production sample:
+
+```bash
+python3 cedar-development/ops/rdf-comparison/compare.py \
+  --out .cedar/audits/rdf-check \
+  --cee-rendered .cedar/audits/rdf-check/cee-rendered.json \
+  --inventory .cedar/audits/2026-09-25-instance-full-matrix-current/inventory.json \
+  --sample 100 --seed 9262026 --api-key-file "$HOME/.cedar-admin-key"
+```
+
+Omit the sample/inventory/key flags for a local-only run. Add `--replay` to reuse a retained sample
+without credentials or network requests. For before/after evidence, use a new output directory and
+copy only `sample.json` and `production/` from the earlier run before replaying. Rebuild/install the
+Java library and tool after Java changes; CEE's source bundle is rebuilt on each comparison run.
+
+Exit 1 means a disagreement, contract failure, input mutation, or unexpected Turtle refusal.
+The named-graph Turtle refusal is an expected contract. Canonicalization errors and the
+10,000-iteration/45-second bounds are comparison failures, never successful converter rejections.
+The authored corpus in `fixtures.py` is also checked into each library's test resources so their
+ordinary suites enforce it without a sibling checkout or production access; keep those copies in
+sync when adding cases. This is export parity, not RDF-to-CEDAR reconstruction or a deployed
+production-route audit.
+
+## Ordinary Write Normalization and Template Impact
+
+An ordinary write still mints missing repository-owned identifiers and property IRIs, derives
+schema titles/descriptions, removes blank unnamed attribute rows left by a draft editor, and
+prunes unused attribute mappings. Blank draft-row removal is unconditional existing behavior,
+not an inherited-data accommodation. Verbatim writes do none of those normalizations.
+
+The inherited-defect compatibility path is retired. An ordinary PUT now returns 400 when it
+carries forward an unusable `pav:derivedFrom`, malformed child property-IRI declaration, missing
+child `$schema`, unusable element-occurrence identifier, or reserved, colliding or duplicate
+attribute names. Clients can explicitly correct those defects before submitting; missing/null
+occurrence identifiers and absent property mappings still request normal server minting.
+This changes inherited malformed submissions, not the rules already applied to newly introduced
+malformed values. Blank unnamed draft rows retain the cleanup described above.
+
+### Compatibility Retirement Evidence
+
+The GET-only run on 2026-09-26 enumerated 302,419 production index entries and analyzed every
+retrievable body using the **pre-retirement** Java `LinkedDataUtil.repairInheritedDefects`
+implementation, frozen from config-library revision `12d1f53138985bedc7f9ef5cb04a5c4d3d1d8cb2`.
+
+| Kind | Bodies analyzed | Index entries returning 404 |
+| --- | ---: | ---: |
+| Template | 4,833 | 1 |
+| Element | 5,306 | 1 |
+| Field | 141,690 | 4 |
+| Instance | 150,580 | 4 |
+| Total | 302,409 | 10 |
+
+Every compatibility category had zero affected artifacts and zero occurrences: unusable
+`pav:derivedFrom`, unusable child property IRIs, missing child `$schema`, unusable occurrence IDs,
+and blank, reserved, colliding or duplicate attribute names. Eight synthetic defects exercised
+all eight categories against the frozen implementation before relying on those zero counts.
+The ten 404s remain uninspected; the summary deliberately keeps `complete: false`. This is an
+API-key-visible inventory, not a transactional store snapshot or proof about hidden artifacts.
+No production artifact was changed by this run.
+
+Evidence, source bodies, dependency hashes, source revisions and reports are retained under
+`$CEDAR_HOME/.cedar/audits/2026-09-26-normalization/`. `ops/cedar_normalization_audit.py` separates
+resumable enumeration, GET fetching and Java analysis. Its `--classpath` argument is a **file**
+containing the frozen pre-retirement classpath; the current library no longer exposes that
+compatibility method. Reusing the current library would not measure the retired behavior.
+Dependency bytes are pinned and a changed runtime refuses a resumed analysis. A new directory
+is required for a fresh inventory; resuming reuses the retained source bodies.
+
+### Check a Proposed Template Without Writing It
+
+```bash
+python3 ops/cedar_template_impact.py \
+  --api-key-file "$HOME/.cedar-admin-key" \
+  --template-id 'https://repo.metadatacenter.org/templates/...' \
+  --proposed proposed-template.json --out template-impact.json
+```
+
+The checker fetches the stored template, freshly enumerates its visible instances, and uses the
+Java validator on each body against both templates. It reports newly invalid, still valid,
+already invalid and newly valid instances separately. Wrong identities, unreadable bodies,
+validator errors, incomplete enumeration and a template changed during the check cannot produce
+an unqualified no-impact result. Exit zero means a complete observed comparison found no new
+invalid instances; it never authorizes a save or certifies unseen dependencies. Reads are not
+atomic with one another or with a later write, so an integrated save path still needs a concurrency
+and permission policy. Supply the exact proposed stored schema, including save-time normalization;
+this tool does not mint identities or choose a warning/blocking policy.
+
+`ops/repairs/ctxreq_at_risk.py` uses the same comparison for the context-required repair. Its old
+`--records` argument is accepted but ignored: fresh enumeration replaces the stale manifest.
+Unreadable or otherwise inconclusive dependencies never enter its `-safe.json` list. An
+interrupted run leaves that list empty rather than exposing a previous run's results.
+
+The production smoke comparison used the Tunisia template
+`05ce128b-c631-45c8-bfcf-a229ea1fcce5` and all 368 visible instances. The unchanged template
+introduced zero failures (367 valid, one already invalid). Making `Source Hyperlink` repeatable
+without migrating instances produced exactly 367 newly invalid instances; the already-invalid
+one stayed separate. Both proposed bodies and reports are in the evidence directory's `impact/`
+subdirectory. These were local comparisons with GET-only production reads.
+
 ## Repairing a Defect Across the Stored Population
 
 Run `ops/repairs/cedar_artifact_repair.py` from `cedar-development`. It uses audit records to select
@@ -3378,7 +4550,9 @@ Preserving provenance timestamps is appropriate for correcting a proven stored d
 make a substantive migration meaning-preserving.
 
 `drop-empty-undeclared-instance-keys` removes only explicit empty top-level slots and their context
-entries. `complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
+entries. It preserves names referenced by sibling string arrays: attribute-value groups can name
+dynamic fields absent from the template's `properties`, even when those fields hold null.
+`complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
 permits null. Neither supplies an entered term, date, number or other missing required value.
 Completion's invariant permits only declared empty shapes, required context additions and fresh
 element identities. Run the repair suites with
@@ -3390,7 +4564,20 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 
 | Repair | Permitted change and boundary |
 | --- | --- |
+| `complete-schema-bibo-context` | Add `"bibo": "http://purl.org/ontology/bibo/"`, matching Java's model prefix mappings, only to existing schema-owned contexts that omit it. Traverse declared templates, elements and fields (including array items and static fields); preserve existing mappings, annotations, instance-context schemas and required arrays. |
+| `drop-reviewed-required-entries` | Remove only Java-confirmed unexpected entries from template/element `required` arrays, using `--required-removals`. Each artifact's plan pins the entire source and candidate SHA-256 and exact before/after arrays. Source drift refuses the write. The independent invariant preserves Java's fixed requirements, every declared child, list order, all properties, instance-context constraints and field values. Removing only parent presence demands cannot invalidate an already-valid instance. |
+| `apply-reviewed-schema-shapes` | Use `--schema-shape-plan` with Java-confirmed changes and complete before/after document SHA-256. Only expand schema-owned `properties.@id.type` from `"string"` to `["string", "null"]`, or remove UI-order entries naming no declared property. Preserve surviving order, labels, descriptions, required arrays, values and all other constraints. Source drift refuses the write. |
+| `complete-reviewed-context-object-types` | Add only missing `type: object` to the ten standard root instance-context term schemas, using `--context-object-plan`. Pin before/after template hashes and first enumerate/fetch dependent instances and compare Java validation against both templates. Refuse incomplete checks or non-object mappings, including explicit null mappings. The invariant requires the existing datatype definition to match Java and preserves every other property. |
+| `restore-null-standard-context` | After explicit approval to restore null metadata context mappings, replace only present null definitions of the ten standard root terms with the datatypes pinned by the template and Java. Preserve populated definitions, custom mappings, field values and metadata. Apply requires `--allow-context-migration` and reviewed `--only-ids`; null term definitions can intentionally disable JSON-LD terms, so this is not a blanket normalization. |
+| `repair-unambiguous-instance-structure` | Remove blank attribute-name references only when neither a value nor a context mapping exists for that name. Trim a child key only when the target is declared, absent, and pins exactly the existing property IRI. Replace empty nested element IDs with stable absolute IDs derived from the root instance ID and occurrence path, only where the schema permits an empty identity. Preserve every entered value and existing usable ID. Compose with a context repair when either alone would leave the instance invalid. |
+| `remove-reviewed-extra-schema-context` | With `--schema-context-removal-plan`, remove Java-reviewed datatype mappings from static-field schema contexts and unused `xsd`, `skos` or `openminds` prefixes where noncanonical. Plans pin complete before/after fingerprints. Preserve all actual metadata, instance-context schemas and referenced prefixes; inspect keys, values and nested context bindings when checking usage. Compare Java-generated YAML before and after to confirm modeled content is unchanged. |
+| `complete-reviewed-standard-context` | With `--standard-context-plan`, append Java-reviewed standard mapping names to a template's instance-context `required` list, or add absent canonical mappings to an instance. Plans pin complete before/after fingerprints. Template writes require complete, conflict-free dependent-instance checks with no instance patches pending. Existing mappings and entered values cannot be overwritten; an instance candidate must fully validate before writing. |
+| `rename-reserved-value-child` | After explicit approval and checking dependent instances, rename a child field declared as `@value` to `value`, including its context, required-list and UI references. Preserve the property IRI, identifiers, field constraints and inner literal `@value`; append the child to UI order when absent. Refuse conflicting destinations. |
+| `drop-orphan-literal-actions` | After approval, remove only nonempty vocabulary `actions` from literal `textfield` declarations with `@value`, no `@id`, and no active ontology/value-set/class/branch constraints. Preserve regexes, defaults, required flags and every other property. IRI fields and active vocabulary selections are excluded. |
 | `empty-derived-from` | Delete empty-string `pav:derivedFrom` at every depth; preserve populated provenance. |
+| `canonicalise-iri-field-required` | Remove legacy presence requirements only from unambiguous IRI fields. First verify each changed field's Java-rendered counterpart also declares `@id`, not `@value`, and has no `required` list. Preserve `_valueConstraints.requiredValue` and vocabulary constraints; validate the complete template and dependent instances. |
+| `drop-unused-instance-context` | Remove only simple, undeclared context mappings unused throughout their container's scope. Preserve references in nested keys, compact IRIs, datatype values, other context definitions, and attribute-group member lists; keep complex definitions. Compare proposed removals with the Java-rendered template before applying. |
+| `drop-noncanonical-context-demands` | Remove context-presence requirements naming absent children or attribute-value groups, only after Java-rendered comparison confirms each removal. Keep the mappings, regular child requirements, namespace requirements and instance data; validate dependent instances. |
 | `mint-child-ids` | Replace missing/unusable child IDs with the correct type prefix; do not change property IRIs. |
 | `mint-property-iris` | Replace present but unusable property mappings; absent mappings are out of scope. Review every dependent instance and exclude unsafe targets with `--exclude-ids`. |
 | `align-instance-context-iris` | Use reviewed template mappings at every element depth. This changes predicates: require the explicit migration scope and decision described above. |
@@ -3744,31 +4931,17 @@ gate also verifies that the three application container IDs or native PIDs and t
 do not change. It removes both gateways on exit and deliberately performs no authentication, realm,
 hostname, production Compose, or data change.
 
-After the preview origins are authorized in Keycloak, run the split-aware form of the full
-Playwright journey:
-
-```bash
-cd $CEDAR_HOME/cedar-development/ops/e2e
-npm run smoke:split:authenticated
-# or watch the cross-origin login/navigation journey:
-npm run smoke:split:authenticated:headed
-```
-
-The local authenticated commands run `smoke:split:keycloak` first. That credential-free preflight
-asks Keycloak to accept each `/silent-check-sso.html` callback and verifies the token endpoint's
+After the preview origins are authorized in Keycloak, check them with the credential-free
+`npm run smoke:split:keycloak` before running the split journey. It asks Keycloak to accept each `/silent-check-sso.html` callback and verifies the token endpoint's
 CORS response echoes each exact origin with credentials and POST enabled. A Web Origin is an origin
 only (`http://localhost:4201`), never a route wildcard (`http://localhost:4201/*`); the latter looks
 similar in the admin console but cannot match the browser's `Origin` header. For non-local hosts,
 set `CEDAR_SPLIT_KEYCLOAK_ORIGINS` to a comma-separated list of exact origins.
 
-It first drives Workspace's real **New → Template** gesture, verifies that Designer receives the
-complete Workspace `returnTo` URL, waits for SSO on the Designer origin, and drives Designer's
-create-flow cancel action to prove exact restoration. It then runs the existing
-folder/template/controlled-term/CEE
-create-save-edit/OpenView/cleanup journey with Workspace as `CEDAR_BASE` and Designer as
-`CEDAR_DESIGNER_BASE`. The ordinary `npm run smoke` leaves both values on the production monolith,
-so this extension does not change the production smoke contract. Remote preview hosts can use the
-same journey by setting both variables explicitly instead of using the localhost npm shortcut.
+`npm run smoke:workspace:modern:full` drives Workspace's real **New → Template** gesture, verifies
+that Designer receives the complete Workspace `returnTo` URL and returns to it after saving, and runs
+the rest of the split journey. A remote preview host runs it with `CEDAR_BASE` and
+`CEDAR_DESIGNER_BASE` set to its Workspace and Designer origins.
 
 For a production-shaped local rehearsal, map `workspace.metadatacenter.orgx` and
 `designer.metadatacenter.orgx` to `127.0.0.1`, authorize their exact HTTPS callbacks and Web Origins
@@ -3802,7 +4975,7 @@ docker compose up -d --no-deps --force-recreate nginx
 
 cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:split:hostnames:deployment
-npm run smoke:split:hostnames:authenticated
+npm run smoke:workspace:modern:full
 ```
 
 This is an intentional coexistence mode, not a routing cutover:
@@ -3944,3 +5117,36 @@ rather than curing it.
 `https://cedar.metadatacenter.orgx` — seeded test users: `test1@test.com` / `test1`,
 `test2@test.com` / `test2`. `/etc/hosts` must map the `*.metadatacenter.orgx` names to localhost
 (already configured on this machine).
+
+
+### Misplaced annotation identifier: reader rejection and blocked source repair
+
+Both TypeScript annotation readers now reject scalar/array/null annotation entries and objects
+without a value/id, matching Java instead of silently dropping them. The exact stored HEAL instance
+`44685302-6d30-41fa-b129-6875fb887912` is rejected by both JSON readers. A proposed patch removing
+only `/_annotations/@id` yields identical four-path output and preserves its DOI annotation.
+The source template `d01330c7-ccd1-4e99-856a-86e08937347c` contains no misplaced identifier.
+The 2026-09-26 annotation backfill added its optional instance annotation declarations; the instance
+is now rejected specifically for malformed `/_annotations/@id`, rather than annotations being
+forbidden. Its body remains unchanged, and the DOI write guard still needs reconciliation before
+the prepared instance correction can be written.
+
+The conditional `PUT ?verbatim=true` was attempted on 2026-09-25 with the current ETag and rejected
+HTTP 400 `doiCanNotBeAltered`: request DOI `https://doi.org/10.82658/aqdn-5e14`, `storedDoi: null`.
+Readback confirmed the source is unchanged. No template was written and no DOI was removed.
+Pre-images, candidate, validation, reader checks and rejection are retained in
+`.cedar/repairs/2026-09-25-stray-annotation-id/`. The existing DOI recovery roadmap tracks this
+instance alongside the two previously blocked templates. TypeScript's 3,753 tests and shared
+166-YAML / 83-JSON parity checks pass.
+
+
+TypeScript's JSON/YAML identifier readers reject raw ASCII spaces and control characters without
+trimming or URL auto-encoding, matching Java for the malformed E106TUN link. This is a targeted
+identifier-character guard, not a claim of complete Java URI grammar equivalence. Encoded spaces,
+Unicode path characters, URNs and relative references remain preserved. The stored bad URL is
+rejected in both JSON and YAML. A read check of all 10,000 source snapshots accepts all 9,957 valid
+sources and rejects only the two already-invalid URI/annotation cases. Evidence is retained in
+`.cedar/audits/2026-09-25-instance-reader-rejection-check/`. TypeScript's 3,764 tests and shared
+JSON/YAML parity checks pass. The GeoExposure CASTNET template declares both URL fields as links;
+its duplicate `@value` members are not permitted by those field schemas. No production patch
+was performed for either URL case.

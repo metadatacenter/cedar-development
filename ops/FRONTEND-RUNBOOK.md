@@ -201,9 +201,103 @@ changes. Commit/push remains subject to the user’s instruction.
 
 The command runs the component verification gates in the isolated build copies, records the
 successful package selection, restarts all native frontends, verifies their installed reactor
-packages, and runs both whole-stack smoke tiers. A failure at any stage returns nonzero. A
+packages, and runs the whole-stack smoke tiers. A failure at any stage returns nonzero. A
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
+
+For a compile-only estate build, `cedarcli build all --skip-tests` skips both Java
+and frontend verification suites while retaining dependency-ordered frontend builds.
+It does not claim full reactor verification or run the frontend deployment/smoke sequence.
+`cedarcli build frontends` always retains its verification and completion contract.
+
+The TypeScript model's reactor checks read the corpus vendored inside its isolated
+checkout. Their child-process `CEDAR_HOME` points there, so a server's `/srv/cedar`
+does not redirect those checks to an absent or stale sibling `cedar-test-artifacts`.
+
+#### Bounded parallel builds and test gates
+
+`cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
+repositories at once, with two workers per repository. Two repositories is the default;
+the worker default is half the detected CPU count, at least one and capped at eight
+(eight on a 16-core M4). Put
+build options before the target; `--jobs 1 --workers 1` provides a serial comparison.
+The scheduler reads dependencies from nested package manifests (including npm aliases)
+and the inventory's integration bundle inputs. A consumer waits for its current-source
+producers to pass all checks and publish their immutable local artifacts. Other build
+commands remain exclusive barriers, and deployment and the smoke tiers run after all
+frontend checks pass. A failed producer blocks its consumers, including in continue mode.
+
+The CEE gate overlaps independent build, domain, unit, lint and type-check stages within
+`CEDAR_TEST_WORKERS`. The Angular build and coordinator tests remain ordered because they
+share a cache. The domain harness has its own Vite cache and `harness/coverage/`
+reports, so it cannot clear another tier's output. Visual checks follow those stages; packaging follows the visual gate.
+`test:ci`, `test:ci:prebuilt` and `test:ci:nonvisual:prebuilt` retain their original checks.
+Direct npm gate invocations use the same CPU-based worker default. Each stage prints its elapsed time.
+
+The model's `test:ci` gate overlaps lint, types, coverage, YAML parity, JSON parity
+and the packaged-consumer smoke. Jest receives most of the worker budget rather
+than being forced into `--runInBand`; pretest fixture generation still completes
+once before any of the checks start (parity reads the same generated module). Each parity invocation owns its temporary output tree,
+and only packaging writes `dist/`. Every check must pass before consumers start.
+
+The designer's `test:ci` overlaps unit, lint, types, import-boundary and packaging
+checks. Its Angular unit tests and distribution build remain ordered because they
+share a cache; browser checks wait for the distribution and use the full budget.
+The reactor still runs the separate container visual gate afterward. CEE gives
+its domain/unit tiers two workers each when the budget permits, and fixture
+opening waits for finite animations instead of an unconditional 300 ms delay.
+No screenshot tolerance, baseline, browser project or integration input is removed.
+
+The CLI passes the worker budget into Angular builds and the component browser suites.
+CEE's Vitest suites also honor it. The component gates pass `VITEST_MAX_WORKERS`
+explicitly into Angular's Vitest runner as well as bounding Angular build workers.
+Container browser dependencies use private anonymous volumes removed with
+`--rm`, so concurrent reactor copies cannot race through `npm ci`. Reports and generated
+fixtures stay in each isolated copy. This does not make two runs against the same checkout
+safe: use separate reactor copies for concurrent runs. The browser image, architecture,
+snapshot tolerances and baseline files are unchanged.
+
+Every actual CLI build writes command durations, task dependency edges and exit codes to
+`.cedar/build-reports/<timestamp>-<id>.json`, including failed/interrupted runs. Independent
+running jobs drain after a test failure; Ctrl-C cancels owned subprocess groups. Increase
+one concurrency setting at a time and compare elapsed times and failures before increasing
+both: `jobs × workers` is the intended frontend worker budget, not a memory limit.
+
+On a 16-core M4 with 64 GB RAM (2026-09-24), `--jobs 2 --workers 8` completed the
+full frontend build and test gates in 320.8 seconds, before deployment and whole-stack
+smoke. CEE's gate took 123.2 seconds, including 645 passing visual/browser checks.
+These are measured elapsed times; no serial frontend comparison was recorded.
+
+A subsequent component comparison on that machine used isolated copies with
+installed dependencies, the same source/dependency inputs on both sides, and no
+baseline updates. Before used eight workers and the older gate scheduling:
+
+| Complete component gate | Before | New gate, 8 workers | New gate, 12 workers |
+| --- | ---: | ---: | ---: |
+| TypeScript model (all six checks) | 39.2 s | 20.0 s | 21.4 s |
+| CEE (including visual and packaging) | 130.5 s | 103.3 s | 88.2 s |
+| Designer (including browser integration) | 88.0 s | 78.4 s | 59.4 s |
+
+The model comparison used committed source because unrelated working-tree model
+changes failed the initial baseline. Its unchanged 3,529-test coverage suite also
+passed with Jest's cache disabled: 26.2 s serial, 11.0 s at four workers, 10.3 s at
+eight. CEE retained all 645 browser/visual checks; the designer retained 368 browser
+checks and its existing one skip, with its separate 15-baseline visual gate passing.
+The designer browser stage alone measured 64.5 s at eight workers, 45.6 s at twelve,
+and 42.7 s at sixteen, so twelve captured most of the available gain.
+
+These are component timings, not a full-reactor before/after result: dependency
+installation, deployment and whole-stack smoke are outside the comparison, and
+build/transform caches were warm except in the explicitly uncached Jest sweep.
+For this M4, `cedarcli build --jobs 2 --workers 12 frontends` is a useful tuning
+candidate; eight remains the portable default. Preserve all gates when comparing.
+
+After aligning designer expectations with the model's derived-title policy, the
+current-source reactor at two jobs and twelve workers passed in 332.2 seconds for
+builds and test gates, or 612.1 seconds including local deployment, served-component
+verification and both smoke tiers. REST smoke passed 1,063 assertions in 81.4 seconds;
+browser smoke also passed. This successful total uses newer sources than the component
+comparison above and is not a controlled end-to-end speedup measurement.
 
 #### Current artifact transport
 
@@ -234,6 +328,13 @@ when the store has no artifact for it. Concurrent builds can publish without cha
 build's selection or installed bytes. Old directory entries from the earlier store format are
 ignored; rebuilding the producers populates the tarball store. Keep immutable artifacts while
 builds are active; removing the whole `.reactor` cache is safe when no build is using it.
+
+`ops/frontend-train.json` owns the shared `surfaces` inventory: source directories,
+reactor identities, setup and verification commands, release build commands, and
+integration bundle inputs. The reactor, npm train and release preparation read those
+recipes. Every declared producer and consumer must have verification commands or an
+explicit `verificationExemption`; missing coverage fails preflight. Add new surfaces
+there alongside their dependency wiring, rather than editing separate gate lists.
 
 A successful `cedarcli build frontends` records its exact component selection in
 `.reactor/runtime.json`. Local `cedarcli native start|restart` in the develop profile installs
@@ -733,6 +834,12 @@ needs. Install, then get the bundle into what each host serves:
 | `cedar-component-demo` (Angular) | plain | nothing to deploy — it is not served here |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
+The three framework demos verify that `showDownloadMenu` reaches CEE by finding its
+accessible Download button. Assert the control rather than a Material icon ligature:
+CEE uses SVG icons, whose `mat-icon` text is empty. A correct rendered control can
+therefore fail an old assertion for `file_download`. Run each demo's own tests after
+advancing its public CEE pin; component checks and compilation do not cover those assertions.
+
 The install is what places the new bytes for openview and bridging. Neither imports
 CEE: each declares an asset glob that copies `cedar-embeddable-editor.js` out of
 `node_modules`, and loads it through a script tag in `index.html`. A **running `ng
@@ -906,7 +1013,8 @@ unit, coordinator and domain coverage, verifies the staged npm package, audits t
 runtime tree and uploads `dist`; four `visual` jobs restore that exact build and run
 Playwright with `--shard=1/4` through `--shard=4/4`. A shard failure fails the gate,
 and `fail-fast` is off so one failure does not hide results from the other three.
-The local `npm run test:ci` remains the one-command serial equivalent. Two of CI's
+The local `npm run test:ci` runs the same checks with a bounded stage scheduler;
+`CEDAR_TEST_WORKERS=1` serializes it. Two of CI's
 choices are deliberate and expensive to rediscover.
 
 **The runner is `ubuntu-24.04-arm`, and the visual suite runs in a container.**
@@ -2065,6 +2173,14 @@ There is no default terminology endpoint. Unset, controlled-term search is off
 and the panel says which key is missing, because an embedder should reach a CEDAR
 service because it asked to rather than because a component it loaded had an
 address compiled into it.
+
+`language` selects the interface language, `en` (the default) or `hu`, as a property
+or an attribute, and can change at any time; any other value falls back to `en`.
+Each designer element keeps its own language, and both translation maps are compiled
+into the bundle. CED passes the language on to the term picker and to the CEE and CEF
+elements it embeds. The Template Designer host sets it from the browser's preferred
+language. `npm test` runs a guard that fails on a user-visible string written outside
+the maps; deliberate exceptions go in `src/app/i18n/i18n-allowlist.json` with a reason.
 
 ### CED in the Split Designer Host
 

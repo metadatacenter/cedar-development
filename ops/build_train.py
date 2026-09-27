@@ -279,6 +279,12 @@ def validate_configuration(
         _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
         _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
 
+    import frontend_inventory
+    try:
+        frontend_inventory.validate(frontend)
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
+
     audit_baselines = validate_audit_baselines(frontend, workspace, repositories)
 
     docker_manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
@@ -728,12 +734,13 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
     if not token:
         raise RuntimeError("GH_TOKEN is required for exact-source CI preflight")
     policy = policy or _captured_ci_policy(workspace)
-    failures = []
-    for repository, revision in sorted(source.get("repositories", {}).items()):
+    def inspect_repository(item):
+        repository, revision = item
+        failures = []
         workflow_root = workspace / repository / ".github" / "workflows"
         if not workflow_root.is_dir() or not any(path.is_file() for path in workflow_root.iterdir()):
             print(f"CI advisory: {repository} has no workflow contract; train gates its outputs.")
-            continue
+            return failures
         try:
             probe = policy.probe_exact_commit(
                 repository,
@@ -742,7 +749,7 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
             )
         except policy.GithubCIProbeError as error:
             failures.append(str(error))
-            continue
+            return failures
         runs = list(probe.runs)
         # The train workflow is the caller currently performing this check. Counting it would
         # make cedar-development wait on itself forever (or inherit a previous train failure).
@@ -754,7 +761,7 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
         if not runs:
             failures.append(
                 f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
-            continue
+            return failures
         for name, run_record in policy.latest_runs_by_name(runs).items():
             status = run_record.get("status")
             conclusion = run_record.get("conclusion")
@@ -766,6 +773,10 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
                 failures.append(
                     f"{repository}: {name} concluded "
                     f"{conclusion or 'without a result'}{suffix}")
+        return failures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        failures = [failure for result in pool.map(inspect_repository,
+                    sorted(source.get("repositories", {}).items())) for failure in result]
     if failures:
         raise RuntimeError("train source CI is not settled: " + "; ".join(failures))
 
@@ -824,6 +835,9 @@ def build(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     local_repository = args.workspace / ".m2" / "repository"
     local_repository.mkdir(parents=True, exist_ok=True)
+    threads = getattr(args, "threads", 2)
+    if not 1 <= threads <= 8:
+        raise ValueError("Maven threads must be between 1 and 8")
     for phase in config["phases"]:
         repository = args.workspace / phase["repository"]
         wrapper = repository / "mvnw"
@@ -838,6 +852,7 @@ def build(args: argparse.Namespace) -> None:
             "clean",
             "install",
             "-DskipTests",
+            "-T", str(threads),
         ]
         print(f"\n=== {phase['name']}: {phase['repository']} ({version}) ===", flush=True)
         run(command, cwd=repository)
@@ -847,17 +862,11 @@ def build(args: argparse.Namespace) -> None:
     )
 
 
-# Nexus answers a transient fault with one of these rather than a refused connection, and a
-# train uploads a few hundred files, so without a retry one blip anywhere in the run discards
-# the whole build. None of them says anything about the artifact being uploaded.
-TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
-# Nexus does not fail one request in isolation: it goes unavailable for a burst and then
-# recovers, so the budget is sized to outlast a burst rather than to survive a single blip.
-# Eight attempts with the backoff below span about three minutes, which is cheap against a
-# train that runs for twenty-five and is discarded whole if the burst outlasts the retries.
-UPLOAD_ATTEMPTS = 8
+# A few retries cover a transient gateway fault. Repeated failure stops the train
+# with its immutable state intact; successful status/GET probes do not prove PUTs.
+TRANSIENT_STATUSES = frozenset({429, 502, 503, 504})
+UPLOAD_ATTEMPTS = 3
 MAX_RETRY_DELAY = 60
-THROTTLED_RETRY_DELAY = 120
 
 
 def with_retries(what: str, attempt_call):
@@ -867,22 +876,30 @@ def with_retries(what: str, attempt_call):
         try:
             return attempt_call()
         except urllib.error.HTTPError as error:
-            if error.code not in TRANSIENT_STATUSES or attempt == UPLOAD_ATTEMPTS:
-                raise
             reason = f"HTTP {error.code}"
-            # A registry over its request budget answers 429, or 500 on every repository path
-            # while its status endpoints stay green. Retrying such a fault at the pace of a
-            # dropped connection spends the very budget that is exhausted, so wait for as long
-            # as the server asks, and otherwise for the longest wait allowed.
+            if error.code == 500:
+                error.close()
+                raise RuntimeError(f"Nexus stopped during {what}: HTTP 500. Check repository health and "
+                    "request budget; no automatic retry. Preserve this train and resume after recovery.") from error
+            if error.code not in TRANSIENT_STATUSES:
+                raise
+            if attempt == UPLOAD_ATTEMPTS:
+                error.close()
+                raise RuntimeError(f"Nexus circuit open after {attempt} attempts during {what}: {reason}. "
+                    "A successful health/read probe does not establish upload recovery. "
+                    "Preserve this train and resume after recovery.") from error
             after = error.headers.get("Retry-After") if error.headers else None
-            if after and after.strip().isdigit():
-                throttled_for = min(THROTTLED_RETRY_DELAY, int(after.strip()))
-            elif error.code == 429:
-                throttled_for = THROTTLED_RETRY_DELAY
+            if after and after.strip().isdigit() and int(after.strip()) <= MAX_RETRY_DELAY:
+                throttled_for = int(after.strip())
+            elif error.code == 429 or after:
+                error.close()
+                raise RuntimeError(f"Nexus throttled {what}: HTTP {error.code}, Retry-After={after or 'unspecified'}. "
+                    "Stop requests and resume this train after the throttle clears.") from error
             error.close()
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             if attempt == UPLOAD_ATTEMPTS:
-                raise
+                raise RuntimeError(f"Nexus circuit open after {attempt} attempts during {what}: {error}. "
+                    "Preserve this train and resume after recovery.") from error
             reason = str(error)
         delay = throttled_for if throttled_for is not None else min(MAX_RETRY_DELAY, 2 ** attempt)
         print(f"retry {attempt}/{UPLOAD_ATTEMPTS - 1} after {reason}: {what} (waiting {delay}s)",
@@ -955,7 +972,16 @@ def upload_file(
             "Content-Type": "application/octet-stream",
         },
     )
+    attempts = 0
     def put():
+        nonlocal attempts
+        attempts += 1
+        if attempts > 1:
+            existing = remote_sha1(destination)
+            if existing is not None:
+                if existing != hashlib.sha1(content).hexdigest():
+                    raise RuntimeError(f"immutable Nexus path contains different bytes: {destination}")
+                return
         with urllib.request.urlopen(request, timeout=300) as response:
             if response.status not in (200, 201, 204):
                 raise RuntimeError(f"Nexus returned HTTP {response.status} for {destination}")
@@ -1115,6 +1141,7 @@ def parser() -> argparse.ArgumentParser:
         "--resume", action="store_true",
         help="Check each destination before uploading, because some may already be there",
     )
+    build_parser.add_argument("--threads", type=int, choices=range(1, 9), default=2)
     build_parser.set_defaults(handler=build)
 
     complete_parser = commands.add_parser("complete")

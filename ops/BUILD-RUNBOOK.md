@@ -91,11 +91,11 @@ rerun --failed` command that repeats only its failed jobs. A release advances `d
 repositories at once, so run it after a release lands and before the next train, rather than
 learning about a red repository from the dispatch preflight hours later.
 
-The smoke question has its own command as well. `cedarcli test e2e` runs both whole-stack tiers
-under `cedar-development/ops/e2e`, the REST suite and the browser smoke, against the native stack,
-and records the run under the `develop` head of every train repository at that moment, in
-`ops/e2e/reports/smoke-gate/`. The dispatch preflight reads the record for exactly the heads the
-train would capture. It refuses when there is no such record, when either tier failed, when the REST
+The smoke question has its own command as well. `cedarcli test e2e` runs the whole-stack tiers
+under `cedar-development/ops/e2e` against the native stack: the REST suite, the monolith's browser
+smoke and the split applications' journey. It records the run under the `develop` head of every
+train repository at that moment, in `ops/e2e/reports/smoke-gate/`. The dispatch preflight reads the record for exactly the heads the
+train would capture. It refuses when there is no such record, when any tier failed, when the REST
 run did not execute the committed check inventory, or when a repository held uncommitted changes
 while the smoke ran. A run is evidence about commits rather than about a moment, so it never
 expires, and a commit to any train repository after it, a runbook edit included, calls for a rerun
@@ -194,7 +194,10 @@ Maven in the dependency order already encoded by the CEDAR reactors:
 4. `cedar-clients`
 5. `cedar-model-library-roundtrip`
 
-All phases install into a clean job-local Maven repository. Nothing is published until every phase
+Maven schedules modules within each phase with two threads by default (`build_train.py build
+--threads 1` is the serial diagnostic path, maximum eight). The parent/library/service
+phase boundaries remain ordered. All phases install into a job-local Maven repository seeded only with cached third-party downloads.
+CEDAR artifacts are excluded when saving and restoring that cache. Nothing is published until every phase
 has compiled. The train's timestamp is also the Maven archive output timestamp, so rebuilding the
 same manifest produces stable archive timestamps. Publication uploads only the resulting
 `org.metadatacenter` files. If a destination
@@ -217,8 +220,15 @@ After publication, the workflow queries Nexus for the libraries and runtime appl
 by Docker. Only a complete inventory creates `completed/<TRAIN_ID>.json` and advances `current.json`.
 A partial or failed train can never become current.
 
-Next, the workflow creates `npm/trains/<TRAIN_ID>.json` before npm publication and runs three visible,
-ordered jobs:
+Hosted dependency caches are keyed by OS, architecture and captured POM/lockfile content,
+with stage-specific npm caches. Keys use committed inputs before train stamping or wiring.
+Only npm download content and third-party Maven dependencies are cached; checkouts,
+credentials, test results and build outputs are not. Every gate and package integrity check
+still runs. The first run populates these caches; savings apply to subsequent runs.
+
+After the common exact-source capture and preflight job, Maven assembly and the npm
+chain run independently. The npm chain creates `npm/trains/<TRAIN_ID>.json` before
+publication and runs model, parallel CEE/picker, then frontend jobs:
 
 1. **npm 1/3 · TypeScript model.** The job first builds, publishes and verifies the captured design
    tokens under a train-owned version. It then stamps the captured model commit in its disposable
@@ -230,15 +240,37 @@ ordered jobs:
    model alias with integrity in both the root and visual lockfiles, wires the train-owned tokens,
    and stamps CEE as
    `<CEE_NEXT>-dev.YYYYMMDDHHMM.g<SHA12>`. On the ARM runner required by CEE, it runs the complete
-   unit, coordinator, domain, visual, package, type and production-audit gate. Only that tested
+   unit, coordinator, domain, visual, package, type and production-audit gate, with four
+   workers by default (`frontend_train.py publish-cee --workers 1` for serial diagnosis). Only that tested
    package is published and verified; `npm/cee/completed/<TRAIN_ID>.json` records the result.
-3. **npm 3/3 · frontends.** The job builds and publishes the captured picker and designer, wiring
+   The token-dependent term picker publishes in a separate ARM64 job alongside CEE. Both
+   must pass before frontend preparation; the picker records its verified package identity separately.
+3. **npm 3/3 · frontends.** The job verifies the already-published picker and builds the designer, wiring
    the train tokens into both and the train model into the designer. In fresh application
    checkouts, it pins those shared components and that exact CEE alias and
    integrity in all seven embedding manifests and lockfiles. It rebuilds Bridging, Monitoring and OpenView from those wired sources rather than packing
    their previously committed distributions; OpenView receives the same verified CEE tarball through
    its explicit Docker runtime input. It records hashes of every prepared manifest, lock and built
    payload before publishing the seven frontend packages.
+
+The frontend publication job runs on Linux ARM64, matching component visual baselines.
+Component setup installs the captured Playwright Chromium before browser tests; legacy
+Karma consumers use that executable through `CHROME_BIN`, and Testem discovers the
+same executable as `chrome` on the job PATH, including on clean runners.
+The hosted runner grants user namespaces only to that executable with an AppArmor
+profile and proves a sandboxed launch before spending time on component gates.
+Component gates use the same frontend worker budget as consumer checks.
+Picker and designer gates declare that they produce their publishable package. The
+controller removes stale staging output before verification and publishes the resulting
+package only after checking its train identity, without running a second `dist` build.
+Legacy plans and components without that declaration retain their explicit build step.
+
+Frontend consumer verification uses two concurrent repository jobs and four workers per
+job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).
+Commands within a repository stay ordered; shared integration bundles are staged before
+workers start. Prepared production payloads are built only after every consumer check passes, using the
+same bounded repository and worker budgets. Commands sharing a repository stay ordered;
+the coordinator records hashes and overlays only after every production build succeeds.
 
 None of those version or dependency edits is written back to a source repository. They are
 controlled transformations in isolated exact-commit checkouts, and their hashes become part of the
@@ -255,7 +287,7 @@ runtime tarball OpenView copies. Only then does `npm/current.json` advance. A tr
 the complete model → CEE → frontend chain; it never silently substitutes whichever dev packages
 happened to have been published before the train began.
 
-The workflow then records the expected Docker plan and builds the image estate in dependency
+Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
@@ -270,7 +302,11 @@ tarball to that graph before extraction. The three source-package images install
 the vendored shrinkwrap; OpenView extracts the exact verified CEE and webcomponents tarballs
 directly, without resolving an npm dependency graph during the image build.
 
-The final job removes local copies and pulls each of the 31 images from Nexus. It verifies the
+The final job removes local copies and pulls each of the 31 images from Nexus with
+four bounded verification workers (`docker_train.py verify --workers 1` provides serial diagnosis).
+Each worker owns a distinct image reference and records its elapsed time; completion is
+written in plan order only after all workers succeed. Failed runs drain active workers
+and never advance the completion pointer. It verifies the
 labels, hashes the embedded manifest in every frontend container, and records the registry digest
 and platform for every image. Only then does it create
 `docker/completed/<TRAIN_ID>.json` and advance `docker/current.json`. The four administration images
@@ -285,8 +321,11 @@ now resolves to different registry content is rejected before any service starts
 
 Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven phases, two for the
 TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
-five for the 31 images, and eight and a half to pull every image back and verify it. Everything but
-the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
+five for the 31 images, and eight and a half to pull every image back and verify it. That historical workflow ran everything but
+the image matrix serially. The current workflow overlaps Maven with the npm chain,
+uses bounded Maven/frontend/image-verification workers, and probes exact-source CI
+with four workers. Concurrent state-branch writers rebase independent evidence commits
+with bounded retries; conflicts stop the job and are never force-pushed. The local dispatch preflight takes about a minute, most of it the
 CI probe across the 45 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
 ## Resume a Failed Train
@@ -511,3 +550,36 @@ lock-baseline check, and the pushed CEE commit must pass its complete CI workflo
 This correction changes captured source, so create a new train ID; never resume an immutable train
 to incorporate it. The new train will still replace this source-development pin in its disposable
 checkout with the model package built and verified by that new train.
+
+### Check a release-intended train before dispatch
+
+When a train is intended for a release, supply all three explicit targets:
+
+```bash
+cedarcli publish train --release-version 2.9.19 --next-version 2.9.20-SNAPSHOT --cee-version 2.0.17 --dry-run
+```
+
+Remove `--dry-run` to dispatch after the same checks pass. The release target must
+match the train base, and the next development version must advance. Release
+credentials, target refs and registry occupancy, toolchain and source contracts
+are checked before the expensive train. A failed or unreadable prerequisite
+refuses dispatch. Public CEE publication and executable equivalence remain required
+by `release plan|start` once the train artifacts exist. Ordinary development trains
+need none of these options.
+
+### Nexus failure budget and optional write probe
+
+Train reads/uploads now stop after three transient attempts. HTTP 500 stops
+immediately; a 429 without a short `Retry-After`, or a requested delay above
+60 seconds, stops rather than spending more requests. A possibly accepted PUT is
+reconciled against Nexus's checksum before another PUT. Preserve the train ID and
+resume after recovery; do not allocate a new train to retry the same bytes.
+
+`cedarcli publish probe` checks the existing read-only publication endpoints.
+`cedarcli publish probe --upload` additionally writes, reads and removes a unique
+64 KiB object, **only** in the dedicated Nexus raw repository `cedar-cli-probes`.
+That repository must be provisioned with read, write and delete permissions; the
+CLI does not create it or use a release repository as a scratch area. Cleanup is
+attempted even after a lost PUT response, and a cleanup failure reports the exact
+path. This small probe cannot establish that large uploads or later requests will
+succeed. Status and GET success alone never establish upload recovery.

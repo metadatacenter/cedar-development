@@ -13,7 +13,9 @@
 //
 //   npm run smoke                        production monolith, headless
 //   npm run smoke:headed                 production monolith, headed
-//   npm run smoke:split:authenticated    extracted Workspace + Designer, headless
+//
+// The split Workspace and Designer are separate Angular applications with a journey of their own,
+// `npm run smoke:workspace:modern:full`.
 //
 // Requires the local stack to be up (frontend, resource, user, group, artifact
 // at least): cedar-services.sh status
@@ -47,10 +49,6 @@ const FAIL_DIR = resolve(__dirname, 'failures');
 
 const BASE = process.env.CEDAR_BASE
   ?? `https://cedar.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
-// Defaulting to BASE preserves the production-monolith journey. Supplying a distinct
-// Designer origin turns the same mature smoke into the authenticated split-frontend
-// acceptance journey without duplicating its fixture setup, selectors or teardown.
-const DESIGNER_BASE = process.env.CEDAR_DESIGNER_BASE ?? BASE;
 // The public OpenView site (the AngularJS app's `openViewBase`), a distinct subdomain
 // from the editor. It renders open artifacts to callers with no CEDAR session.
 const OPENVIEW_FRONTEND = process.env.CEDAR_OPENVIEW_FRONTEND
@@ -182,64 +180,6 @@ async function gotoListing(page, folderId) {
 // so a run addressed at other origins loses the application on its first navigation. Reading that
 // configuration turns a thirty-second wait for a URL nothing was going to visit into a statement
 // of which origins are deployed and which this run assumed.
-async function requireConfiguredOrigins(page) {
-  const configUrl = `${BASE}/config/url-service.conf.json`;
-  const response = await page.request.get(configUrl, { failOnStatusCode: false });
-  if (!response.ok()) {
-    throw new Error(`could not read ${configUrl} to check the deployed origins: HTTP ${response.status()}`);
-  }
-  const config = await response.json();
-  const wrong = [
-    ['workspaceFrontend', config.workspaceFrontend, BASE],
-    ['templateDesignerFrontend', config.templateDesignerFrontend, DESIGNER_BASE],
-  ].filter(([, deployed, addressed]) =>
-      !deployed || new URL(deployed).origin !== new URL(addressed).origin);
-  if (wrong.length === 0) return;
-  const detail = wrong
-      .map(([key, deployed, addressed]) =>
-          `${key} is ${deployed ?? '(unset)'}, this run addresses ${new URL(addressed).origin}`)
-      .join('; ');
-  throw new Error(`the frontends are not deployed on the origins this run addresses — ${detail}. `
-      + 'Use the variant matching the deployment (smoke:split:hostnames:authenticated for '
-      + 'hostname-served frontends), or rebuild their configuration for these origins.');
-}
-
-// Prove the real cross-application gesture before the mutating journey begins.
-//
-// This is intentionally driven from the Workspace menu rather than constructed by
-// the test: the contract under test is that Workspace captures its complete URL,
-// launches Designer on its configured origin, and Designer returns to that exact
-// untrusted-but-validated URL. Waiting for the Designer Name field also proves that
-// Keycloak SSO completed on the second origin. The production-monolith run skips this
-// probe because both route owners intentionally share one origin there.
-async function verifySplitNavigation(page) {
-  if (new URL(DESIGNER_BASE).origin === new URL(BASE).origin) return;
-  await requireConfiguredOrigins(page);
-
-  await gotoListing(page);
-  const workspaceUrl = page.url();
-
-  await page.locator('#button-create').click();
-  await page.locator('#button-create-template').click();
-  await page.waitForURL(url => url.origin === new URL(DESIGNER_BASE).origin
-      && url.pathname === '/templates/create', { timeout: 30_000 });
-
-  const launched = new URL(page.url());
-  if (launched.searchParams.get('returnTo') !== workspaceUrl) {
-    throw new Error(`Workspace launch did not preserve its exact URL: expected ${workspaceUrl}, got ${launched.searchParams.get('returnTo')}`);
-  }
-  await page.getByRole('textbox', { name: 'Name' }).waitFor({ timeout: 30_000 });
-
-  // Cancel is the create-flow's explicit return action. Unlike the generic header
-  // arrow it deliberately clears a newly initialized form's dirty flag before
-  // leaving, so this probe tests the contract without depending on a confirmation
-  // modal's animation timing.
-  await page.getByRole('button', { name: 'Cancel' }).click();
-  await page.waitForURL(url => url.href === workspaceUrl, { timeout: 30_000 });
-  await page.getByRole('button', { name: 'New' }).waitFor({ timeout: 30_000 });
-  console.log('✓ Workspace launched Designer with an exact return URL; Designer SSO and cancel-return succeeded');
-}
-
 // Exercise the live Workspace application's own services against the real servers. These are less
 // brittle than reproducing every click in the old sharing dialog, while still running the shipped
 // browser code, its Angular authorization layer, CORS, and the real conditional endpoints.
@@ -805,7 +745,7 @@ async function verifyDeleteVsStaleSave(page, user1, folderId) {
   try {
     const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
     await stalePage.goto(
-        `${DESIGNER_BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
+        `${BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
         { waitUntil: 'domcontentloaded' });
     await stalePage.getByRole('textbox', { name: 'Name' }).fill(DELETE_CONFLICT_TEMPLATE_NAME);
     await stalePage.waitForTimeout(1100);
@@ -2021,9 +1961,6 @@ try {
     throw new Error('neither the Keycloak login form nor the dashboard appeared');
   }
 
-  step = 'split-navigation';
-  await verifySplitNavigation(page);
-
   // 2. Seed the working folder and a standalone field over REST — fast, hermetic setup that needs no
   //    UI (folder-creation clicking is not the coverage this smoke is here for). A standalone field is
   //    one of the artifact shapes the CEE renders; seeding it exercises field-artifact create/teardown
@@ -2085,7 +2022,7 @@ try {
       // `domcontentloaded` for the same reason as `gotoListing`; filling the Name box below waits
       // for it. This navigation had been retried by the surrounding loop for the same stall.
       const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
-      await page.goto(`${DESIGNER_BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
+      await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
           { waitUntil: 'domcontentloaded' });
       await page.getByRole('textbox', { name: 'Name' }).fill(TEMPLATE_NAME);
       await page.waitForTimeout(1100); // flush the debounced name edit

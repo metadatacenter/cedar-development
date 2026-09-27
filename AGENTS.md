@@ -19,7 +19,7 @@ releases. Reach for it before any script, and before setting an environment vari
 ```bash
 cedarcli env status            # mode, profile, host — start here when a value is not what you expect
 cedarcli cheat                 # the command cheatsheet
-cedarcli build java            # authoritative full build
+cedarcli build java            # authoritative full build; Maven threads default to the CPU count (max 16)
 cedarcli native start all      # infra + microservices + frontends, headless
 cedarcli native status         # health + BINARY column; every row must read `current` after a redeploy
 cedarcli native restart microservice <svc>  # redeploy one service
@@ -32,7 +32,7 @@ cedarcli check ci-env          # every Java repository's CI environment block; -
 cedarcli build frontends       # full frontend reactor; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
-cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
+cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require; --rest-workers 4 on the 16-core workstation
 ```
 
 The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not
@@ -261,7 +261,7 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   did not change. Details in the runbook, "Continuous integration".
 - Suites verify logic; a **redeploy + `ops/e2e` smoke run verifies reality**. Always redeploy and
   smoke after changes to inter-service HTTP, validation, or startup wiring: real runtime bugs have
-  passed green suites. `cedarcli test e2e` runs both smoke tiers and records the run against the
+  passed green suites. `cedarcli test e2e` runs every smoke tier and records the run against the
   `develop` heads it tested. `cedarcli publish train` and `cedarcli release plan|start` refuse a
   source no passing run covers, and no option skips that gate.
 - Full operational, build, test, and dependency-state detail lives in the runbook
@@ -288,6 +288,23 @@ See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and fa
   OpenSearch, Keycloak). Client libraries may move; those servers may not.
 - Current framework baseline (Dropwizard version, namespace, what's migrated) lives in the runbook —
   `cedar-development/ops/BACKEND-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
+
+## Preserve the agreed product design
+
+- Preserve existing visual design, displayed information and interaction behavior by default.
+  A request to fix a bug, tidy styling, adopt shared tokens, refactor, or commit/push is not
+  permission to redesign the interface.
+- Do not silently make substantial design changes beyond the user's request. This includes
+  replacing selected names with counts (for example, "Folder, Template" with "2 types"),
+  hiding information, changing navigation or selection behavior, and substantially rearranging
+  layouts. Technical convenience and passing tests do not authorize these changes.
+- If an additional design change appears necessary, explain the concrete before/after behavior
+  and why it is needed, then obtain the user's agreement before implementing it. Continue
+  independent, already-authorized work while awaiting that decision. Do not ask again for a
+  change the user has explicitly requested or already approved.
+- Keep design changes visible in progress updates and the final change summary. Check tests
+  against the requested and existing user experience; do not rewrite expectations or visual
+  baselines merely to legitimize an unapproved redesign.
 
 ## Conventions
 

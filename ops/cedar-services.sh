@@ -795,10 +795,26 @@ await_ready() {
 }
 
 health() {
-  local bad=0 n
+  local bad=0 total=0 failed=0 frontend_failed=0 n state
+  printf '%-18s %s\n' SERVICE HEALTH
   while read -r n; do
-    [ "$(health_of "$n")" = healthy ] || bad=1
+    state=$(health_of "$n")
+    total=$((total + 1))
+    printf '%-18s %s\n' "$n" "$state"
+    if [ "$state" != healthy ]; then
+      bad=1
+      failed=$((failed + 1))
+      case "$n" in ui-*) frontend_failed=1;; esac
+    fi
   done < <(names "$@")
+  if [ "$bad" = 0 ]; then
+    printf 'Healthy: all %s selected services passed.\n' "$total"
+  else
+    printf 'Health check failed: %s of %s selected services are not healthy.\n' "$failed" "$total"
+    if [ $# = 0 ] && [ "$frontend_failed" = 1 ]; then
+      echo 'If this host serves static frontends through nginx, use: cedarcli native health --group microservices'
+    fi
+  fi
   return "$bad"
 }
 

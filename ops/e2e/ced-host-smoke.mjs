@@ -28,8 +28,18 @@ await page.route(url => /^\/(templates|template-elements|template-fields|command
   await intercepted.fulfill({ response });
 });
 page.on('pageerror', error => errors.push(error.message));
-page.on('dialog', dialog => dialog.accept());
+let savingNavigation = false;
+page.on('dialog', dialog => {
+  // Deliberate navigation away from stale edits may warn; successful Save must not.
+  if (savingNavigation) errors.push(`Unexpected ${dialog.type()} dialog after Save: ${dialog.message()}`);
+  void dialog.accept();
+});
+async function save() {
+  savingNavigation = true;
+  await page.locator('#save').click();
+}
 async function open(path) {
+  savingNavigation = false;
   await page.goto(designerBase + path);
   await page.locator('#username, cedar-embeddable-designer, cedar-embeddable-field-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
   if (await page.locator('#username').isVisible().catch(() => false)) {
@@ -38,9 +48,11 @@ async function open(path) {
     await page.locator('#kc-login').click();
   }
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
-  await page.waitForFunction(() => ['No unsaved changes', 'Unsaved changes'].includes(document.getElementById('state').textContent));
+  await page.waitForFunction(() => ['Not saved yet', 'No unsaved changes', 'Unsaved changes'].includes(document.getElementById('state').textContent));
   if (path.startsWith('/fields/edit/')) {
-    await page.getByRole('button', { name: 'Expand field settings', exact: true }).click();
+    // Settings open expanded; expand them only if a later default collapses them again.
+    const expand = page.getByRole('button', { name: 'Expand field settings', exact: true });
+    if (await expand.isVisible().catch(() => false)) await expand.click();
     await page.getByRole('tab', { name: 'Display', exact: true }).click();
   }
 }
@@ -52,10 +64,18 @@ try {
     if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
     const nameInput = () => kind === 'template' ? page.getByPlaceholder('Template name', { exact: true }) : page.getByRole('textbox', { name: kind === 'field' ? 'Field name' : 'Element name', exact: true });
     const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Add helper instructions for users...' : 'Add description...', { exact: true });
+    await page.waitForFunction(() => document.getElementById('save').disabled);
+    assert.equal(await page.locator('#state').textContent(), 'Not saved yet');
+    await nameInput().fill(name);
+    await page.waitForFunction(() => !document.getElementById('save').disabled);
+    for (const blank of ['', '   ']) {
+      await nameInput().fill(blank);
+      await page.waitForFunction(() => document.getElementById('save').disabled);
+    }
     await nameInput().fill(name);
     await page.waitForFunction(() => !document.getElementById('save').disabled);
     const savedResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().includes(`/${collection}?`));
-    await page.locator('#save').click();
+    await save();
     const response = await savedResponse;
     const body = responseBodies.get('POST ' + response.url());
     if (response.status() !== 201) {
@@ -69,7 +89,7 @@ try {
     assert.equal(await nameInput().inputValue(), name);
     await descriptionInput().fill('Updated through CED');
     const updatedResponse = page.waitForResponse(res => res.request().method() === 'PUT' && res.url().includes(`/${collection}/`));
-    await page.locator('#save').click();
+    await save();
     const update = await updatedResponse;
     assert.equal(update.status(), 200, JSON.stringify(responseBodies.get('PUT ' + update.url())).slice(0, 1200));
     assert.ok(update.request().headers()['if-match']);
@@ -83,7 +103,7 @@ try {
     const changed = await mutate(user1.auth, 'PUT', `/${collection}/${enc(id)}`, external);
     assert.equal(changed.status, 200, changed.text);
     await descriptionInput().fill('My unsaved change');
-    await page.locator('#save').click();
+    await save();
     await page.waitForFunction(() => document.getElementById('message').textContent.includes('changed since'));
     assert.equal(await descriptionInput().inputValue(), 'My unsaved change');
     console.log(`PASS: ${kind} stale save blocked and edits retained`);
@@ -101,11 +121,11 @@ try {
       await page.getByRole('button', { name: /^Add field$/ }).click();
       await page.locator('app-field-type-picker').getByRole('button', { name: 'Text', exact: true }).click();
       await page.getByRole('textbox', { name: 'Field name', exact: true }).fill('Added after metadata');
-      await page.locator('#save').click();
+      await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
       await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
       assert.equal(await page.getByPlaceholder('Template name', { exact: true }).inputValue(), name + ' revised');
-      await page.locator('#save').click();
+      await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
       const latest = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
       const concurrent = await mutate(user1.auth, 'PUT', `/${collection}/${enc(id)}`,
@@ -125,7 +145,7 @@ try {
       await page.getByRole('button', { name: /^Add field$/ }).click();
       await page.locator('app-field-type-picker').getByRole('button', { name: 'Text', exact: true }).click();
       await page.getByRole('textbox', { name: 'Field name', exact: true }).fill('Added after metadata');
-      await page.locator('#save').click();
+      await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
       const versionResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/command/publish-create-draft-template/'));
       await page.getByRole('button', { name: 'Create new draft', exact: true }).click();

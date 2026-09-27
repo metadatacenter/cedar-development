@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import frontend_inventory
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import time
 import base64
 import datetime as dt
 import hashlib
@@ -275,6 +278,7 @@ def record_plan(args: argparse.Namespace) -> None:
             'stagedPackage': component['stagedPackage'],
             'distCommand': component['distCommand'], 'consumers': component['consumers'],
             'publication': 'train-owned',
+            'verificationBuildsPackage': bool(component.get('verificationBuildsPackage', False)),
         })
     plan = {
         "schemaVersion": 2,
@@ -518,15 +522,7 @@ def publish_model(args: argparse.Namespace) -> None:
     published = load_json(root / "package-dist.json")
     if published.get("name") != expected["name"]:
         raise RuntimeError("TypeScript model published manifest has the wrong scoped name")
-    for command in (
-        ["npm", "ci"],
-        ["npm", "run", "lint"],
-        ["npm", "run", "typecheck"],
-        ["npm", "run", "test:coverage"],
-        ["npm", "run", "parity:yaml"],
-        ["npm", "run", "parity:json"],
-        ["npm", "run", "test:package"],
-    ):
+    for command in frontend_inventory.commands(load_json(args.config), expected['repository']):
         run_command(command, root)
     built = load_json(root / "dist" / "package.json")
     if built.get("name") != expected["name"] or built.get("version") != expected["version"]:
@@ -568,14 +564,12 @@ def publish_cee(args: argparse.Namespace) -> None:
             root / consumer["manifest"], root / consumer["lock"], dependency,
             plan["model"]["name"], plan["model"]["version"],
         )
-    for command, cwd in (
-        (["npm", "ci"], root),
-        (["npm", "--prefix", "harness", "ci"], root),
-        (["npm", "--prefix", "visual", "ci"], root),
-        (["npm", "run", "test:ci"], root),
-        (["npm", "run", "audit:prod"], root),
-    ):
-        run_command(command, cwd)
+    environment = os.environ.copy()
+    environment.update({variable: str(getattr(args, 'workers', 4)) for variable in
+                        ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS')})
+    for command in frontend_inventory.commands(config, expected['repository']):
+        run_command(command, root, environment)
+    run_command(['npm', 'run', 'audit:prod'], root)
     staged = root / "dist-npm" / "cedar-embeddable-editor"
     built = load_json(staged / "package.json")
     if built.get("name") != expected["name"] or built.get("version") != expected["version"]:
@@ -643,6 +637,33 @@ def wire_components(args, plan, repository):
     return changes
 
 
+def verification_environment(config, plan, repository, workspace, directory='.'):
+    row = next(r for r in frontend_inventory.surfaces(config) if (r['repository'],r['directory']) == (repository,directory))
+    environment = dict(os.environ)
+    for key, value in row.get('verificationDefaults', {}).items():
+        environment.setdefault(key, value)
+    environment['CEDAR_VERSION'] = plan['version']
+    environment['CEDAR_VERSION_MODIFIER'] = ''
+    packages = [plan.get('cee', {}), *plan.get('components', [])]
+    for item in row.get('integrationInputs', []):
+        package = next((p for p in packages if p.get('repository') == item['repository']), None)
+        if package is None:
+            raise RuntimeError(f"Missing integration package {item['repository']}")
+        verified = verify_record(plan['registry'], package)
+        content = fetch(verified['tarball'])
+        if sha256_bytes(content) != verified['tarballSha256']:
+            raise RuntimeError('Integration tarball changed after verification')
+        target = workspace / '.frontend-checks' / verified['tarballSha256'] / item['bundle']
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(content), mode='r:gz') as archive:
+            member = archive.getmember('package/' + item['bundle'])
+            if not member.isfile():
+                raise RuntimeError('Integration bundle must be a regular file')
+            target.write_bytes(archive.extractfile(member).read())
+        environment[item['variable']] = str(target.resolve())
+    return environment
+
+
 def publish_component(args, plan, component):
     if existing_verified_package(plan['registry'], component):
         verify_record(plan['registry'], component)
@@ -666,14 +687,107 @@ def publish_component(args, plan, component):
                                     consumer['dependency'], plan['model']['name'], plan['model']['version'])
                 require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
                                     consumer['dependency'], plan['model']['name'], plan['model']['version'])
-    run_command(['npm', 'ci'], root)
-    run_command(component['distCommand'], root)
+    staged = verify_component_package(config, plan, component, root, args.workspace,
+                                      getattr(args, 'workers', 4))
+    run_command(['npm', 'publish', str(staged), '--tag', 'dev', '--registry', plan['registry']], root)
+    verify_record(plan['registry'], component)
+
+
+def publish_picker(args: argparse.Namespace) -> None:
+    """Publish the token-dependent picker independently of the CEE gate."""
+    plan = load_json(args.state / "npm" / "trains" / f"{validate_train(args.version)}.json")
+    picker = next(component for component in plan['components'] if component['id'] == 'cetp')
+    publish_component(args, plan, picker)
+    verified = verify_record(plan['registry'], picker)
+    record_library_completion(args.state, 'picker', plan, picker, verified)
+
+
+def verify_component_package(config, plan, component, root, workspace, workers=4):
     staged = root / component['stagedPackage']
+    reuse = component.get('verificationBuildsPackage', False)
+    if reuse:
+        resolved = staged.resolve()
+        if resolved == root.resolve() or not resolved.is_relative_to(root.resolve()):
+            raise RuntimeError('Verification output must be a directory inside the component checkout')
+        if staged.exists():
+            shutil.rmtree(staged)
+    environment = verification_environment(config, plan, component['repository'], workspace)
+    for variable in ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS'):
+        environment[variable] = str(workers)
+    for command in frontend_inventory.commands(config, component['repository']):
+        run_command(command, root, environment)
+    if not reuse:
+        run_command(component['distCommand'], root, environment)
     built = load_json(staged / 'package.json')
     if built.get('name') != component['name'] or built.get('version') != component['version']:
         raise RuntimeError('Built component does not have its train identity')
-    run_command(['npm', 'publish', str(staged), '--tag', 'dev', '--registry', plan['registry']], root)
-    verify_record(plan['registry'], component)
+    return staged
+
+
+def verify_surfaces(config, plan, workspace, jobs=2, workers=4):
+    if not 1 <= jobs <= 4 or not 1 <= workers <= 16:
+        raise ValueError("Frontend jobs must be 1–4 and workers 1–16")
+    groups = {}
+    # Resolve/stage integration tarballs before starting readers: distinct
+    # consumers can name the same shared content-addressed bundle path.
+    for surface in frontend_inventory.surfaces(config):
+        if not surface.get('release'):
+            continue
+        repository, directory = surface['repository'], surface['directory']
+        environment = verification_environment(config, plan, repository, workspace, directory)
+        for variable in ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS'):
+            environment[variable] = str(workers)
+        groups.setdefault(repository, []).append((surface, environment))
+
+    def verify_group(group):
+        started = time.monotonic()
+        for surface, environment in group:
+            repository, directory = surface['repository'], surface['directory']
+            for command in frontend_inventory.commands(config, repository, directory):
+                run_command(command, workspace / repository / directory, environment)
+        print(f"Frontend {repository}: {time.monotonic() - started:.2f}s", flush=True)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = [pool.submit(verify_group, group) for group in groups.values()]
+        try:
+            for future in futures:
+                future.result()
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+
+
+def build_prepared_frontends(frontends, workspace, jobs=2, workers=4):
+    """Build independent repositories concurrently; leave evidence to the coordinator."""
+    if not 1 <= jobs <= 4 or not 1 <= workers <= 16:
+        raise ValueError("Frontend jobs must be 1–4 and workers 1–16")
+    groups = {}
+    for frontend in frontends:
+        if frontend.get('preparedBuild'):
+            groups.setdefault(frontend['repository'], []).append(frontend)
+    environment = dict(os.environ)
+    environment.update({key: str(workers) for key in
+                        ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS')})
+
+    def build_group(group):
+        started = time.monotonic()
+        for frontend in group:
+            build = frontend['preparedBuild']
+            root = workspace / frontend['repository'] / build['directory']
+            for command in build['commands']:
+                run_command(command, root, environment)
+        print(f"Prepared {group[0]['repository']}: {time.monotonic() - started:.2f}s", flush=True)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = [pool.submit(build_group, group) for group in groups.values()]
+        try:
+            for future in futures:
+                future.result()
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
 
 
 def prepare_frontends(args: argparse.Namespace) -> None:
@@ -718,15 +832,21 @@ def prepare_frontends(args: argparse.Namespace) -> None:
                 consumer["manifest"], consumer["lock"],
             ])
 
+    # All dependency rewrites are now complete. Verify every consumer composition,
+    # including demos that do not publish a standalone frontend package.
+    config = load_json(args.config)
+    frontend_inventory.validate(config)
+    verify_surfaces(config, plan, args.workspace,
+                    getattr(args, 'jobs', 2), getattr(args, 'workers', 4))
+
+    build_prepared_frontends(plan['frontends'], args.workspace,
+                             getattr(args, 'jobs', 2), getattr(args, 'workers', 4))
     builds = []
     for frontend in plan["frontends"]:
         build = frontend.get("preparedBuild")
         if not build:
             continue
         root = args.workspace / frontend["repository"]
-        build_root = root / build["directory"]
-        for command in build["commands"]:
-            run_command(command, build_root)
         if build.get("output"):
             output = root / build["output"]
             destination = root / frontend["packagePath"]
@@ -882,11 +1002,20 @@ def parser() -> argparse.ArgumentParser:
     cee.add_argument("--version", required=True)
     cee.add_argument("--workspace", type=Path, required=True)
     cee.add_argument("--state", type=Path, required=True)
+    cee.add_argument("--workers", type=int, choices=range(1, 17), default=4)
     cee.set_defaults(handler=publish_cee)
+    picker = commands.add_parser("publish-picker")
+    picker.add_argument("--version", required=True)
+    picker.add_argument("--workspace", type=Path, required=True)
+    picker.add_argument("--state", type=Path, required=True)
+    picker.add_argument("--workers", type=int, choices=range(1, 17), default=4)
+    picker.set_defaults(handler=publish_picker)
     prepare = commands.add_parser("prepare-frontends")
     prepare.add_argument("--version", required=True)
     prepare.add_argument("--workspace", type=Path, required=True)
     prepare.add_argument("--state", type=Path, required=True)
+    prepare.add_argument("--jobs", type=int, choices=range(1, 5), default=2)
+    prepare.add_argument("--workers", type=int, choices=range(1, 17), default=4)
     prepare.set_defaults(handler=prepare_frontends)
     publish = commands.add_parser("publish-frontends")
     publish.add_argument("--version", required=True)

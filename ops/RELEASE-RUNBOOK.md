@@ -65,6 +65,14 @@ whose permitted normalizations are defined in the npmjs runbook.
 `plan` and `start` run the identical complete gate, so a release cannot begin from a state `plan`
 would have refused. It answers in about a minute what previously took a build phase to discover.
 
+Preflight prints elapsed time for each check, including a check that fails. Remote
+release-ref availability and dry-run push-permission probes use four concurrent
+repositories and a 60-second deadline per probe. Findings remain in repository order;
+a timeout blocks the release rather than being treated as permission or availability.
+On the 16-core M4 Max (2026-09-25), these two checks across the release inventory
+measured 62.4 seconds serial and 17.5 seconds with four workers, with identical passing
+findings. Network conditions affect the timing; the actual release pushes remain ordered.
+
 The plan settles four groups of question:
 
 - **The machine can run a release.** Java 17 and Node 24.19.0 are active, `git`, `mvn`, and `npm`
@@ -106,6 +114,23 @@ The version files a release stamps onto each branch separately do not count as d
 
 `cedarcli check main` asks the same question of all forty-five repositories at any time, which is
 where it is cheap to answer. Asked during a release, it is already expensive.
+
+Release build validation runs the Angular, Ember and React demo lint and test suites
+against the prepared public CEE pins, in both release and next-development workspaces.
+Frontend install, verification and build tasks precede the Maven builds. A failed
+consumer check stops before publication and retains its log for `release resume`.
+
+New release plans include a `development` phase between publication and acceptance.
+It verifies published snapshot bytes and the prepared next-development train/audit
+configuration, then checks CI at every exact integrated develop commit. The phase
+dispatches `cedar-libraries` and `cedar-project` verification only after all sibling
+refs are integrated; their earlier push runs are not accepted as this proof.
+Pending CI is polled for up to 30 minutes, and a red result stops immediately with
+the run URL. `release resume` continues from recorded dispatch intents and evidence,
+without rebuilding or blindly dispatching duplicate runs. An uncertain dispatch
+response must first be reconciled with GitHub; if no run exists, dispatch its CI
+workflow on the unchanged develop ref, then resume. Final acceptance checks remote
+refs again. Previously created release ledgers retain their original phase contract.
 
 Neither a release nor a train needs `cedarcli check versions --strict`. A release stamps a train's
 exact commits rather than anything on this machine, and the train's own preflight requires every
@@ -150,11 +175,11 @@ repository, short SHA, attempt, and delay. Authentication or authorization refus
 settled red CI, and a persistently absent run fail immediately or at the end of that short grace. A
 queued or running run is not waited through; the refusal carries its workflow URL.
 
-**The smoke gate is asked about the same commits.** `cedarcli test e2e` runs the REST and browser
-smoke tiers against the native stack and records each run under the `develop` heads it tested, in
+**The smoke gate is asked about the same commits.** `cedarcli test e2e` runs the REST, browser and
+split smoke tiers against the native stack and records each run under the `develop` heads it tested, in
 `cedar-development/ops/e2e/reports/smoke-gate/`. The record that answers for a train therefore
 survives later runs against newer heads, and a release days after its train still finds it. The
-gate refuses when no run covers the train's source, when either tier failed, when the REST run did
+gate refuses when no run covers the train's source, when any tier failed, when the REST run did
 not execute the committed check inventory, or when a repository held uncommitted changes while the
 smoke ran. Unlike a red develop, nothing accepts a missing or failed run. The answer to a flaky run
 is to rerun it.
@@ -223,6 +248,22 @@ Before snapshot publication, release publication, and final acceptance, a Nexus 
 makes only two cheap probes: writable status and one real repository read. It opens before any
 ledger mutation or bulk registry verification. A direct connection failure remains eligible for
 bounded retry; an HTTP refusal does not.
+
+New release manifests record two concurrent build jobs, four frontend workers per job,
+and two Maven reactor threads in `buildConcurrency`. Set these through `release start
+--jobs N --workers N --maven-threads N`; resume uses the recorded limits. Independent
+repositories and release/next-development variants may overlap. Each repository keeps
+its own install/check/build order, and Maven phases wait for that variant’s frontend
+checks and prior Maven phases. Only the coordinator writes progress and completion
+evidence; a failure stops new work, drains active tasks, and retains successful tasks
+for resume.
+Release tests remain enabled; next-development compile and snapshot deployment use the
+same thread limit. Older manifests without this policy retain serial Maven execution. New manifests also
+reuse the validated next-development Maven repository during snapshot deployment, rather
+than downloading dependencies into a second empty cache. The deploy lifecycle and
+post-publication inventory verification still run. Exact-commit CI probes use at most
+four workers; only the coordinator records their results, and settled repositories are
+not polled again.
 
 The release runs these phases, each verifying its work before the next begins:
 
@@ -475,3 +516,13 @@ change.
 `cedarcli git checkout main` is a blanket checkout of every repository, including the two independent
 npmjs repositories. Do not use it to prepare a release; the release controller owns isolated,
 manifest-bound workspaces for that purpose.
+
+### Repeated Nexus transport failures
+
+A release's automatic retry loop stops after three Nexus transport failures, while
+retaining phase, task and artifact evidence for `release resume`. GitHub transport
+retries retain their separate existing allowance. HTTP 500 and throttling refusals
+are not treated as ordinary connection blips. The failure names the request or
+upload operation; successful health/read probes do not prove that a PUT works.
+Use the optional dedicated write probe described in the build runbook when its
+disposable repository is available.

@@ -11,6 +11,9 @@ import urllib.error
 from unittest.mock import patch
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 MODULE_PATH = Path(__file__).resolve().parents[1] / "build_train.py"
 SPEC = importlib.util.spec_from_file_location("build_train", MODULE_PATH)
 build_train = importlib.util.module_from_spec(SPEC)
@@ -131,6 +134,9 @@ class BuildTrainTest(unittest.TestCase):
                 },
             }],
         }
+        frontend['surfaces'] = [dict(repository=r, directory='.', reactorName=r,
+                                     setup=[], verify=[], verificationExemption='fixture')
+                                for r in ('model', 'cee', 'frontend', 'demo')]
         return workspace, build, frontend, {"groups": groups}
 
     def test_train_id_is_strict(self):
@@ -566,6 +572,34 @@ class BuildTrainTest(unittest.TestCase):
                     build_train.upload_file(artifact, "https://nexus/example.jar", "u", "p"),
                 )
             self.assertEqual(1, put.call_count)
+
+    def test_nexus_circuit_stops_gateway_failures_after_three_attempts(self):
+        from unittest.mock import Mock
+        operation = Mock(side_effect=urllib.error.HTTPError('https://nexus/file',502,'gateway',{},None))
+        with patch.object(build_train.time,'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError,'circuit open after 3'):
+                build_train.with_retries('upload artifact',operation)
+        self.assertEqual(3,operation.call_count)
+        self.assertEqual(2,sleep.call_count)
+
+    def test_nexus_500_and_long_throttles_stop_without_retries(self):
+        from unittest.mock import Mock
+        for code,headers in [(500,{}),(429,{}),(429,{'Retry-After':'120'})]:
+            operation=Mock(side_effect=urllib.error.HTTPError('https://nexus/file',code,'failed',headers,None))
+            with patch.object(build_train.time,'sleep') as sleep:
+                with self.assertRaises(RuntimeError): build_train.with_retries('read artifact',operation)
+            self.assertEqual(1,operation.call_count)
+            sleep.assert_not_called()
+
+    def test_ambiguous_upload_is_reconciled_before_another_put(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact=Path(directory)/'file.jar';artifact.write_bytes(b'payload')
+            error=urllib.error.HTTPError('https://nexus/file',502,'gateway',{},None)
+            with patch.object(build_train.urllib.request,'urlopen',side_effect=error) as put, \
+                 patch.object(build_train,'remote_sha1',return_value=hashlib.sha1(b'payload').hexdigest()), \
+                 patch.object(build_train.time,'sleep'):
+                build_train.upload_file(artifact,'https://nexus/file','u','p',check_existing=False)
+            put.assert_called_once()
 
     def test_transient_nexus_failure_is_retried_but_content_verdict_is_not_changed(self):
         attempts = []

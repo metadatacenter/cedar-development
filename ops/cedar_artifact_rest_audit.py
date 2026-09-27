@@ -33,6 +33,7 @@ import argparse
 import collections
 import getpass
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -65,14 +66,14 @@ TYPE_ORDER = ("template", "element", "field", "instance")
 
 # Stored in every summary so a long-running result says which behavior it actually audited. The
 # script hash distinguishes edits made without changing this human-readable ruleset version.
-AUDIT_RULESET_VERSION = "2026-08-18.2"
+AUDIT_RULESET_VERSION = "2026-09-26.1"
 # What /search-deep takes to begin a walk, in the parameter it hands positions back in.
 SEARCH_CONTINUATION_START = "start"
 BEHAVIORAL_BASELINES = {
     "cedar-artifact-library": "9250a4f",
     "cedar-model-typescript-library": "bf97976",
-    "cedar-artifact-server": "c9be99d",
-    "cedar-config-library": "e729862",
+    "cedar-artifact-server": "b9fd884",
+    "cedar-config-library": "400cc19",
     "cedar-server-utils": "826839e2",
 }
 
@@ -446,16 +447,15 @@ def audit_common(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
             if isinstance(derived_from, str) and not is_absolute_iri(derived_from):
                 if derived_from == "":
                     yield finding(
-                        ref, "derived-from-empty", "repair-on-save", f"{path}/pav:derivedFrom",
-                        "the TypeScript compatibility reader loads this as absent and an ordinary update removes "
-                        "the inherited value; the strict Java reader rejects it until repaired",
+                        ref, "derived-from-empty", "save-rejected", f"{path}/pav:derivedFrom",
+                        "an ordinary update rejects this empty provenance IRI even when inherited; "
+                        "the client must remove or correct it",
                         derived_from,
                     )
                 else:
                     yield finding(
-                        ref, "derived-from-unusable", "repair-on-save", f"{path}/pav:derivedFrom",
-                        "an ordinary update removes this inherited non-absolute provenance IRI; strict readers may "
-                        "reject it and a newly introduced value is rejected",
+                        ref, "derived-from-unusable", "save-rejected", f"{path}/pav:derivedFrom",
+                        "an ordinary update rejects this non-absolute provenance IRI even when inherited",
                         derived_from,
                     )
             ui = node.get("_ui")
@@ -908,9 +908,8 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
                 continue
 
             if "$schema" not in child:
-                yield finding(ref, "child-schema-missing", "repair-on-save", f"{actual_path}/$schema",
-                              "ordinary update restores the inherited draft-04 declaration; "
-                              "a new omission and verbatim update are rejected")
+                yield finding(ref, "child-schema-missing", "save-rejected", f"{actual_path}/$schema",
+                              "a child must declare draft-04; inherited omissions are no longer restored on save")
             elif child.get("$schema") != JSON_SCHEMA_DRAFT_04:
                 yield finding(ref, "child-schema-invalid", "save-rejected", f"{actual_path}/$schema",
                               "explicit child $schema must be the canonical draft-04 URI",
@@ -973,10 +972,9 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
                                       if can_mint_mapping else
                                       "@context.properties is not an object, so normal minting cannot add this mapping")
                     elif state != "usable":
-                        yield finding(ref, "child-property-iri-unusable",
-                                      "repair-on-save" if can_mint_mapping else "save-rejected",
+                        yield finding(ref, "child-property-iri-unusable", "save-rejected",
                                       f"{path}/properties/@context/properties/{json_pointer_component(name)}",
-                                      "inherited unusable mapping is removed and reminted; a newly introduced one is rejected",
+                                      "a populated unusable mapping must be corrected by the client, even when inherited",
                                       value)
                     if name not in required_names:
                         yield finding(ref, "child-context-required-missing",
@@ -1062,8 +1060,9 @@ def audit_structural_occurrence_ids(ref: ArtifactRef, node: Any, path: str = "",
         if not root and isinstance(node.get("@context"), dict):
             identifier = node.get("@id")
             if not is_absolute_iri(identifier):
-                yield finding(ref, "occurrence-id-unusable", "repair-on-save", f"{path}/@id",
-                              "ordinary update mints the occurrence ID; strict readers reject a blank string",
+                yield finding(ref, "occurrence-id-unusable",
+                              "repair-on-save" if identifier is None else "save-rejected", f"{path}/@id",
+                              "only an absent or null occurrence ID requests minting; populated malformed IDs are rejected",
                               identifier)
         for key, value in node.items():
             if key not in {"@context", "@id"}:
@@ -1083,8 +1082,8 @@ def occurrence_id_finding(ref: ArtifactRef, occurrence: Any, path: str) -> Itera
                       "element occurrence has no @context object")
         identifier = occurrence.get("@id")
         if not is_absolute_iri(identifier):
-            yield finding(ref, "occurrence-id-unusable", "repair-on-save", f"{path}/@id",
-                          "ordinary update mints the occurrence ID; strict readers reject a blank string",
+            yield finding(ref, "occurrence-id-unusable", "save-rejected", f"{path}/@id",
+                          "normal minting cannot identify an occurrence without its context object",
                           identifier)
 
 
@@ -1112,24 +1111,24 @@ def audit_attribute_groups(ref: ArtifactRef, instance: dict, shape: SchemaShape,
                 continue
             if not name.strip():
                 yield finding(ref, "attribute-name-blank", "repair-on-save", name_path,
-                              "inherited blank attribute name is removed; a new blank is rejected", name)
+                              "normal attribute minting removes blank unnamed draft rows on create and update", name)
                 continue
             elif name.startswith("@") or name in RESERVED_ATTRIBUTE_VALUE_NAMES:
-                yield finding(ref, "attribute-name-reserved", "repair-on-save", name_path,
+                yield finding(ref, "attribute-name-reserved", "save-rejected", name_path,
                               "attribute name is reserved for instance metadata", name)
             elif name in shape.attribute_groups or name in shape.serializing_children:
-                yield finding(ref, "attribute-name-child-collision", "repair-on-save", name_path,
+                yield finding(ref, "attribute-name-child-collision", "save-rejected", name_path,
                               "attribute name collides with a template child in the same object", name)
             else:
                 valid_names.add(name)
 
             if name in seen_in_group:
-                yield finding(ref, "attribute-name-duplicate", "repair-on-save", name_path,
+                yield finding(ref, "attribute-name-duplicate", "save-rejected", name_path,
                               f"attribute name occurs more than once in field {group_name!r}", name)
             seen_in_group.add(name)
             first = first_group_for_name.get(name)
             if first is not None and first != group_name:
-                yield finding(ref, "attribute-name-duplicate", "repair-on-save", name_path,
+                yield finding(ref, "attribute-name-duplicate", "save-rejected", name_path,
                               f"attribute name is also used by field {first!r}", name)
             else:
                 first_group_for_name[name] = group_name
@@ -1305,7 +1304,7 @@ class GetOnlyClient:
                     time.sleep(wait)
                     continue
                 raise ResponseError(f"GET {url} returned {error.code}: {body[:300]}") from None
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError,
+            except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead, json.JSONDecodeError,
                     UnicodeDecodeError) as error:
                 if attempt < self.retries - 1:
                     time.sleep(min(30.0, 2 ** attempt))

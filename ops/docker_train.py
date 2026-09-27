@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import time
 import datetime as dt
 import hashlib
 import json
@@ -401,26 +403,41 @@ def verify(args: argparse.Namespace) -> None:
     if [entry.get("image") for entry in plan.get("images", [])] != expected_images:
         raise RuntimeError("recorded Docker plan does not contain the configured 31 core images")
 
-    verified = []
-    for image in expected_images:
+    workers = getattr(args, "workers", 4)
+    if not 1 <= workers <= 8:
+        raise ValueError("verification workers must be between 1 and 8")
+
+    def verify_one(image):
+        started = time.monotonic()
         reference = reference_for(config, image, version)
         run(["docker", "image", "rm", "--force", reference], check=False, capture=True)
-        run(["docker", "pull", reference])
-        inspected = inspect_image(reference)
-        verify_labels(
-            reference, inspected, expected_labels(image, version, source_hash, frontend_hash)
-        )
-        verify_embedded_manifest(image, reference, frontend_hash)
-        verified.append({
-            "image": image,
-            "reference": reference,
-            "digest": repository_digest(reference, inspected),
-            "platform": f"{inspected.get('Os')}/{inspected.get('Architecture')}",
-            "sourceRevision": (inspected.get("Config", {}).get("Labels") or {}).get(
-                "org.opencontainers.image.revision"
-            ),
-        })
-        run(["docker", "image", "rm", "--force", reference], check=False, capture=True)
+        try:
+            run(["docker", "pull", reference])
+            inspected = inspect_image(reference)
+            verify_labels(reference, inspected, expected_labels(image, version, source_hash, frontend_hash))
+            verify_embedded_manifest(image, reference, frontend_hash)
+            return {
+                "image": image,
+                "reference": reference,
+                "digest": repository_digest(reference, inspected),
+                "platform": f"{inspected.get('Os')}/{inspected.get('Architecture')}",
+                "sourceRevision": (inspected.get("Config", {}).get("Labels") or {}).get(
+                    "org.opencontainers.image.revision"),
+                "seconds": round(time.monotonic() - started, 3),
+            }
+        finally:
+            run(["docker", "image", "rm", "--force", reference], check=False, capture=True)
+
+    # Each worker owns a distinct image reference. Only the coordinator writes
+    # completion/current after every verification succeeds, in plan order.
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(verify_one, image) for image in expected_images]
+        try:
+            verified = [future.result() for future in futures]
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
 
     completed_at = dt.datetime.now(dt.timezone.utc).isoformat()
     completion = {
@@ -478,6 +495,7 @@ def parser() -> argparse.ArgumentParser:
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--version", required=True)
     verify_parser.add_argument("--state", type=Path, required=True)
+    verify_parser.add_argument("--workers", type=int, choices=range(1, 9), default=4)
     verify_parser.set_defaults(handler=verify)
     return result
 

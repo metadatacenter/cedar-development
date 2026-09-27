@@ -670,6 +670,33 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
 
+    def test_health_prints_each_result_and_a_failure_summary(self):
+        result = self.run_library(
+            'health_of() { case "$1" in group) echo healthy;; terminology) echo slow;; *) echo down;; esac; }; '
+            'health group terminology ui-main'
+        )
+        self.assertEqual(1, result.returncode)
+        self.assertRegex(result.stdout, r'group\s+healthy')
+        self.assertRegex(result.stdout, r'terminology\s+slow')
+        self.assertRegex(result.stdout, r'ui-main\s+down')
+        self.assertIn('Health check failed: 2 of 3 selected services', result.stdout)
+        self.assertNotIn('--group microservices', result.stdout)
+
+    def test_health_prints_success_for_a_healthy_group(self):
+        result = self.run_library('health_of() { echo healthy; }; health group terminology')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn('Healthy: all 2 selected services passed.', result.stdout)
+        self.assertNotIn('failed', result.stdout)
+
+    def test_default_health_explains_static_frontend_hosts_when_frontends_fail(self):
+        result = self.run_library(
+            'names() { printf "%s\\n" group ui-main; }; '
+            'health_of() { [ "$1" = group ] && echo healthy || echo down; }; health'
+        )
+        self.assertEqual(1, result.returncode)
+        self.assertIn('1 of 2 selected services', result.stdout)
+        self.assertIn('cedarcli native health --group microservices', result.stdout)
+
     def test_angular_frontends_clear_generated_cache_and_prefer_their_local_cli(self):
         script = SCRIPT.read_text()
 
