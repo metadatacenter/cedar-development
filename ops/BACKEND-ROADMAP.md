@@ -1003,8 +1003,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 28 affected instances under the latest libraries. Verify
-  deployed Unicode IRI support for eight additional instances.
+  findings and checked repairs leave 27 affected instances under the latest libraries.
   Consistent reader rejection of an invalid source still requires a source repair.
 
   Resolve three remaining instances whose legacy `description` attribute-value groups sit in
@@ -1013,7 +1012,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 28-instance baseline. Account for their stricter-reader rejection before production
+  to the 27-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
@@ -1021,7 +1020,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 5 |
-  | Malformed/empty stored URI is the first Java rejection | 11 |
+  | Malformed/empty stored URI is the first Java rejection | 10 |
   | Malformed annotation objects | 7 |
   | Numeric JSON literals | 2 |
 
@@ -1035,12 +1034,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Do not guess a routing replacement. These four deferred cases are included in the table above;
   fresh sources and templates are retained under `.cedar/repairs/2026-09-26-eight-decisions/`.
 
-  Verify production adoption of Unicode field-IRI support across the Java artifact library, model
-  validator, TypeScript consumers and repository paths; update any consumers still missing it. Preserve the eight Niger identifiers verbatim; do not
-  replace U+00A0 with `%C2%A0` or substitute the different version-2 vocabulary term. Verify the
-  deployed JSON/YAML write path before the repeatable-link migration below. Resolve the production
-  terminology HTTP 403 access restriction before claiming live lookup compatibility. Current-code
-  replay evidence is under `$CEDAR_HOME/.cedar/repairs/2026-09-26-unicode-iri-library/`.
+  Verify Unicode field-IRI support in remaining browser/editor consumers. Resolve the production
+  terminology HTTP 403 access restriction before claiming live lookup compatibility. Preserve
+  Unicode term identifiers verbatim; percent-encoded spellings and different vocabulary versions
+  are not interchangeable. Library and production migration evidence is under
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-unicode-iri-library/` and
+  `$CEDAR_HOME/.cedar/repairs/2026-09-27-repeatable-source-hyperlink/`.
 
   Reconcile the remaining library behavior without silently discarding data.
   Thirteen instances have narrow source corrections prepared but still fail validation for other
@@ -1052,21 +1051,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   All seven remaining malformed-annotation instances retain other validation defects. Recheck
   their narrow proposals after those blockers are resolved. Retained proposals and conversion
   evidence are in `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
-
-  Make `Source Hyperlink` repeatable in `VODAN-COVID-Migrants-Tunisia`
-  (`05ce128b-c631-45c8-bfcf-a229ea1fcce5`) and split F050TUN's two stored URLs after
-  production adopts the library changes. All 368 instances require object-to-array migration; the
-  fresh preflight validates every proposed body under the updated validator. Verify production
-  Unicode IRI support before writing the eight bodies that depend on it. Do not switch the template
-  until the deployed write path accepts all dependents. This approved repair remains within the
-  28-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
-  bodies are under
-  `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency
-  rechecks under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/` and
-  `$CEDAR_HOME/.cedar/repairs/2026-09-26-webmanagercenter-source-link/`, plus the formatting
-  repairs under `$CEDAR_HOME/.cedar/repairs/2026-09-26-a147-link-numeric/` and
-  `$CEDAR_HOME/.cedar/repairs/2026-09-26-e052-link-numeric/`. Refresh the full
-  dependency inventory and all proposals before migration.
 
   Obtain the actual codebook and measurement-scale URLs for CA-CORD
   `1835f14f-1894-4f41-ae0f-df2507b2ae02`. Both fields remain empty despite the template's
@@ -1089,8 +1073,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Keep malformed annotation values rejected. The unavailable `.net` template remains part of the
   indexed-404 group above.
 
-  **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
-  Repeated names identify distinct templates; ID prefixes distinguish them.
+  **Prioritize the largest remaining groups.** These retained measurements need a fresh check
+  before planning more repairs; they are not a current census. Repeated names identify distinct
+  templates; ID prefixes distinguish them.
 
   | Template | Invalid instances |
   | --- | ---: |
@@ -1101,7 +1086,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | causal pathway | 21 |
   | PGHD_BP_template | 15 |
   | Expression | 14 |
-  | VODAN-COVID-Migrants-Tunisia (`05ce128b…`) | 14 |
   | LINCS DSGC Dataset Submission (`f4034b6f…`) | 11 |
   | GeoExposure_Data_1.5.1_Template (`ce1436c0…`) | 11 |
   | MyFirstTemplate | 10 |

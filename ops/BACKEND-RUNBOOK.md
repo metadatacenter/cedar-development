@@ -1558,7 +1558,7 @@ Originals and evidence are under `.cedar/repairs/2026-09-26-empty-not-applicable
 
 A dependency audit for making `Source Hyperlink` repeatable in template
 `05ce128b-c631-45c8-bfcf-a229ea1fcce5` found 368 instances requiring object-to-array migration.
-356 proposed bodies validate; 12 retain their existing errors: eight country IRIs and four source
+That initial pass found 356 valid proposed bodies; 12 retained their existing errors: eight country IRIs and four source
 links, two also with numeric literals. The proposed template and target F050TUN
 (`c59f4f3f-b271-4aae-b568-b6ace06a2406`) pass all four conversion paths, but no production writes
 were made because the full dependent migration cannot validate. Retained sources, proposals,
@@ -1619,9 +1619,10 @@ and element-occurrence identifiers retain their stricter reader rules.
 A fresh GET-only replay of all eight Niger instances passes stored validation and all four
 completed conversion paths; generated JSON content/order agrees and YAML bytes match. Every
 output retains the exact source IRI. A fresh dependency inventory also validates all 368 proposed
-repeatable-link migration bodies under the updated validator. The production deployment still
-needs these libraries before that migration can run. Evidence, classpath, originals and outputs
-are under `.cedar/repairs/2026-09-26-unicode-iri-library/`; no production artifacts were changed.
+repeatable-link migration bodies under the updated validator. That pass still required production
+adoption of these libraries. Evidence, classpath, originals and outputs are under
+`.cedar/repairs/2026-09-26-unicode-iri-library/`; it changed no production artifacts. The migration
+subsequently completed on production 2.9.19 as recorded below.
 
 The `Cell` instance `a20e4a8a-81b2-4cbd-8911-29a439b30ed2` now uses the template's
 `Publications_title` field and property mapping. Its malformed nested array exactly duplicated
@@ -1727,12 +1728,34 @@ path. Originals, candidates, write intents and readbacks are under
 `.cedar/repairs/2026-09-26-eight-decisions/`. The three FAIR Workflows migrations and the ambiguous
 GENASIS URL remain deferred, preserving their sources.
 
-After the 2026-09-27 DOI recovery, the retained primary pipeline count under the latest libraries is
-28: annotations 7, malformed/empty IRIs 11, mixed values 5, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 4 remain deferred
-for an agreed field migration or URL destination, and the approved F050TUN migration awaits verified
-production library adoption. Unicode IRI support on the deployed paths still needs verification for
-eight additional instances. These are targeted updates, not a fresh full instance census.
+After the 2026-09-27 DOI recovery and repeatable-link migration, the retained primary pipeline
+count under the latest libraries is 27: annotations 7, malformed/empty IRIs 10, mixed values 5,
+multiple datatypes 3, numeric literals 2. Of these, 23 have known narrow corrections blocked by
+unrelated validation errors and 4 remain deferred for an agreed field migration or URL destination.
+These are targeted updates, not a fresh full instance census.
+
+The repeatable-link migration completed on production 2.9.19 on 2026-09-27. A fresh all-version,
+all-publication-state inventory found 368 dependents of VODAN-COVID-Migrants-Tunisia
+`05ce128b-c631-45c8-bfcf-a229ea1fcce5`. Before any writes, every candidate passed the deployed
+validator and all four local Java/TypeScript conversion paths. Only `Source Hyperlink` changed:
+the template field became an array with `minItems: 1`; every instance's existing object became
+one array entry, except F050TUN (`c59f4f3f-b271-4aae-b568-b6ace06a2406`), whose approved pair of
+URLs became two entries. Whole-document inverse checks preserve all other values, context
+mappings, identifiers and provenance.
+
+The template and all 368 conditional verbatim writes returned 200 with exact readbacks. The first
+instance write exercised a previously blocked Niger Unicode identifier. A final fresh inventory
+was unchanged, and every stored instance validated through production against its actual stored
+template. All four completed conversion paths validate; generated JSON content/order agrees and
+Java/TypeScript YAML is byte-identical for every instance. Production YAML downloads for all eight
+Niger instances preserve the exact Unicode country IRI and pass both library readers plus template
+completion. No new deployment was required and no DOI or field value was removed.
+
+Private originals, ETags, candidates, remote validation reports, write intents/responses, final
+readbacks and conversion outputs are retained under
+`$CEDAR_HOME/.cedar/repairs/2026-09-27-repeatable-source-hyperlink/`. The schema declaration backlog
+remains 46; the eight Unicode cases no longer await backend deployment verification. Production
+terminology access and adoption by other editor consumers are separate checks.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
