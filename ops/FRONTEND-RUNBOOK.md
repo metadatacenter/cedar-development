@@ -2720,3 +2720,48 @@ overrides and the supported read-only modes. Use keyboard focus and invalid
 field values to inspect those states. The page shows a missing-bundle message
 instead of substituting mock components. Its browser test joins the existing
 real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
+
+## Surface inventory and token coverage
+
+The modern UI hierarchy is generated from `.ui-surfaces.json` in Workspace, CED,
+CEE and the Template Designer host. These registries own surface names, stable
+IDs, hierarchy and the links to source and rendered contracts; the Markdown preview
+is generated output. Keep CEE/CEF as opaque entries and register their exposed
+menus/dialogs separately.
+
+`cedarcli check design-tokens --strict` checks registration coverage alongside
+source-style adoption. `--sync-surfaces` refreshes generated browser helpers from
+`cedar-design-tokens`; `--surface-inventory <path.md>` generates the hierarchy.
+Each owning repository's ordinary browser suite includes `surfaces.spec.*`, which
+opens registered surfaces at desktop/narrow widths and attaches measured style
+values. The offline CLI check does not run those browser cases.
+
+Add/change/remove registrations with the source change. Existing measured visual
+debt is exact and cannot grow in a feature PR; resolved debt must be removed.
+See `cedar-design-tokens/README.md`, “Maintained surface registry”, for the schema,
+central contracts, discovery limitations, generated helpers and maintenance steps.
+
+### Give a user or LLM the current surface hierarchy
+
+For requests such as “Show me the modern UI surface hierarchy”, use the registries
+to regenerate the list; do not reconstruct it from memory or hand-edit the output.
+From `$CEDAR_HOME`, run:
+
+```bash
+cedarcli check design-tokens --surface-inventory "$CEDAR_HOME/output/modern-workspace-ui-inventory.md"
+```
+
+If the shell has no `cedarcli` alias, use
+`bash "$CEDAR_HOME/cedar-cli/cli.sh"` in its place. The command needs the sibling
+`cedar-design-tokens`, `cedar-workspace`, `cedar-embeddable-designer`,
+`cedar-embeddable-editor` and `cedar-template-designer` checkouts. It validates the
+registries before generating the hierarchy and does not require a running stack.
+Resolve reported registration errors before presenting the list as current.
+
+Read the generated Markdown and, in Codex, open that file with `open_in_codex` for
+in-app preview. Return names and nesting only unless the user asks for detail.
+Keep the registered category order and opaque embedded-component entries; menus
+and dialogs exposed by those components appear in their registered shared sections.
+Change names or hierarchy in the owning `.ui-surfaces.json`, then regenerate.
+The output file is a disposable local view; the committed registries are the
+maintained source of truth.
