@@ -352,6 +352,13 @@ the exact-commit CI probe and the remote survey.
 
 ## Watching and Finishing
 
+Before resuming, `cedarcli release resume --dry-run` explains the recorded phase,
+completed phases/tasks to preserve, the exact preflight checks the next stage repeats,
+and the remaining build, ref, publication, CI and acceptance operations. It reads the
+ledger only: no toolchain activation, lock acquisition, network probes, builds or writes.
+Recorded completion remains provisional until real resume verifies its evidence. Partial
+version preparation explicitly previews the required fresh frontend/version attempt.
+
 ```bash
 cedarcli release status --watch
 ```
