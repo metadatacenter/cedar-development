@@ -2255,6 +2255,29 @@ see a body, and keep open JSON-LD artifacts open with `additionalProperties: tru
 a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
 request and response schemas in resource, artifact, group, messaging, and worker server CI.
 
+### Request-body boundaries
+
+`cedarcli check openapi` requires every object request body to state `additionalProperties`
+explicitly. It resolves request-body and schema references and checks composed alternatives and
+array payload members. Commands and options are closed (`false`); artifact documents and
+preference maps are explicitly open. This is a declaration check, not a replacement for runtime
+validation: typed command reads use `JsonMapper.STRICT_MAPPER`, and tree-reading handlers check
+the accepted property names. Response and stored-record consumers use `TOLERANT_MAPPER` so new
+producer fields do not break them. Configure a copy when a consumer needs custom modules or
+handlers; never mutate either shared mapper. Specialized serializers and standalone model/ingest
+tools retain their own format-specific mappers.
+
+Artifact bodies pass their template-defined properties through the REST boundary and are checked
+by the artifact/model validator, including required content. There is no second generic REST
+minimum-content rule for artifacts. User preference updates retain dotted `uiPreferences.*` keys;
+the existing profile rules decide which preference paths can be updated.
+
+**Client-visible change:** `PATCH /groups/{id}` rejects `{}` and non-object bodies with 400,
+matching its published `minProperties: 1`. Callers must name at least one accepted property.
+A nonempty patch whose values already match still returns 200 with the same ETag; explicit null
+still removes the description, and cannot remove the name. Include this change in the release
+notice to external API callers. Messaging merge patches already require `notificationStatus`.
+
 ## Artifact Versioning Contract
 
 Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;

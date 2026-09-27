@@ -1272,28 +1272,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **25. Enforce the request-body classification, and decide what an open body requires.**
-  `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
-  as a stub, so nothing across the estate fails when a new request schema states neither that it is
-  closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
-  with the same two answers: a command or options body is closed, and an artifact document is open
-  because its properties are the model's and the artifact server is what validates them.
-
-  No open body has a floor. `PATCH /groups/{id}` declares `minProperties: 1` and accepts `{}`,
-  answering 200 with the group unchanged — the same answer a patch gets when its values already
-  match, so a caller cannot tell "nothing asked" from "nothing to do". Decide whether a merge patch
-  naming no property is a bad request, and whether an artifact body needs anything the artifact
-  server does not already check.
-
-  Then pin the open boundaries so later tightening cannot close one by accident: an artifact
-  document keeps the properties its template permits, and the user preference patch keeps its
-  dotted keys.
-
-  The two hand-rolled `ObjectMapper` instances in `cedar-submission-server` still read a request
-  subtree outside the named mappers. Sixteen more across the servers and shared libraries read
-  responses or build output, where the tolerant mapper is what they want.
-
-- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **25. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1325,7 +1304,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **27. Add artifact-library checks to the write path.** Direct JSON writes currently validate
+- **26. Add artifact-library checks to the write path.** Direct JSON writes currently validate
   through `cedar-model-validation-library`; they do not also prove that the Java artifact model
   can read and render the submitted document. YAML conversion exercises the artifact library,
   but that does not establish the same contract for a JSON submission. Add this check alongside
