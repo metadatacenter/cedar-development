@@ -1266,16 +1266,54 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `@context.required` would invalidate. Then add the missing mappings to those instances with a new
   transform, and complete the templates with the existing `complete_context_required` transform.
   An instance that maps the child to a different IRI is a conflict, not a gap, and needs its
-  owner. The count of affected instances is unmeasured; the 2,218 artifacts missing entries, 458 of
-  them templates, count schema artifacts, not instances.
+  owner. Measured 2026-09-27: 34 templates still have the gap and no elements do. Completing them
+  would newly invalidate 1,139 of the 6,334 key-visible instances checked, 890 of them under *Cell*
+  and 217 under *Chemical Tool*; 14 templates can be completed now without invalidating anything.
+  Every one of the 4,689 failures is a missing `@context` mapping, none a conflicting one. The
+  evidence is under `$CEDAR_HOME/.cedar/audits/2026-09-27-ctxreq-at-risk/`.
 
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
 
+- **25. Canonicalize the stored artifacts through the Java library, once a rewrite is proven to
+  preserve meaning.** Reading every production artifact into `cedar-artifact-library` and writing
+  back what it renders would leave the store in one canonical form, the form the library and its
+  TypeScript twin already agree on. It would change almost everything. Of 150,580 readable
+  instances, only 30 round-trip to content equal to what is stored, and of 151,829 readable schema
+  artifacts, only 139 do (the instance and schema matrix audits of 2026-09-25). The rewrite is about
+  300,000 writes, each a new revision, a reindex and whatever else follows a save.
+
+  **The audits prove agreement, not preservation.** Both show the Java and TypeScript libraries
+  producing the same document for every readable artifact. Both say plainly that this does not show
+  normalization keeps every stored declaration. Most differences are expected to be harmless:
+  `@context` normalized, unset fields completed with empty values, members reordered. Some are
+  known not to be. Among valid instances, one loses a required context mapping in the round trip,
+  one loses a populated language tag, and 22 are affected in all. Of the 612 invalid instances,
+  551 fail completion, validation or output in at least one conversion path; they cannot be
+  canonicalized and need the targeted repairs in the production-data item.
+
+  **Build the invariant before any write.** A repair here is a transform plus an invariant proving
+  nothing else changed, and a whole-document rewrite has no narrow one. The candidate is semantic
+  equality: the rewritten artifact yields the same RDF graph as the stored one, which the validated
+  RDF export makes checkable. Classify every difference across the corpus, fix the known losses in
+  the library first, and approve categories of difference explicitly rather than accepting whatever
+  the renderer emits.
+
+  **Then rewrite in stages, as every other repair is written.** Only artifacts whose differences all
+  fall in approved categories are rewritten, one verbatim `PUT` at a time through
+  `repairs/cedar_artifact_repair.py`, with the pre-image saved, the result read back and provenance
+  preserved. A rewrite does not replace targeted repairs of defects whose meaning needs an owner,
+  and the context-requirement gap in the production-data item is repaired on its own, narrower
+  invariant rather than waiting for this.
+
+  Done when every difference between a stored artifact and its canonical rendering is classified,
+  the approved categories are rewritten with RDF-graph equality proven for each artifact, and the
+  remainder are named exceptions.
+
 ## Later Decisions
 
-- **25. Enforce the request-body classification, and decide what an open body requires.**
+- **26. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1296,7 +1334,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **27. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1328,7 +1366,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **28. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1373,7 +1411,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **28. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+- **29. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
   `cedar-model-validation-library` stands between a caller and the store: the artifact server's
   `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
   `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only
