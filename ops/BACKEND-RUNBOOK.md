@@ -1498,9 +1498,9 @@ the additions only relax validation; open containers require live dependent-inst
 Never replace a stored template with a complete model rendering merely to add these declarations.
 
 The 2026-09-26 UTC production pass enumerated 4,834 templates and patched 4,826 with verified
-readbacks and Java validation. Seven unchanged-document-DOI/null-graph-DOI refusals and one indexed
-404 remain. All five transient DNS/HTTP500 failures succeeded on a checked retry. No instance was
-written. All 2,146 live dependents of 290 open-container templates retained their validation results;
+readbacks and Java validation. That pass left seven unchanged-document-DOI/null-graph-DOI refusals
+and one indexed 404; the seven refusals were recovered on 2026-09-27 as described below. All five
+transient DNS/HTTP500 failures succeeded on a checked retry. No instance was written in that pass. All 2,146 live dependents of 290 open-container templates retained their validation results;
 the other 4,543 candidates only relaxed closed containers. A retained scan of 150,580 instances
 identified 24 annotation-bearing sources, all freshly checked against production: 13 now validate,
 11 retain malformed annotations, and all 24 bodies are unchanged. Their unrelated errors are
@@ -1520,9 +1520,9 @@ The first three lost only the bogus element-instance identifier at `/_annotation
 also lost an empty optional `/url/0/@id`, and the last instance lost an empty optional project-website
 identifier. All DOI annotations and populated values were preserved. Each exact readback validates,
 both YAML writers produce identical bytes, all four conversions agree on JSON content/order, and
-all four completed instances validate. The HEAL correction still receives `doiCanNotBeAltered` and
-its readback is unchanged. All 14 previously prepared value repairs were freshly rechecked; only
-the project-website case became writable, leaving 13 blocked by other validation errors.
+all four completed instances validate. At that point the HEAL correction still received
+`doiCanNotBeAltered` and its readback was unchanged; its recovery is recorded below. All 14
+previously prepared value repairs were freshly rechecked; only the project-website case became writable, leaving 13 blocked by other validation errors.
 That pass reduced the retained primary pipeline count to 60. Evidence is in
 `.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
 
@@ -1727,12 +1727,12 @@ path. Originals, candidates, write intents and readbacks are under
 `.cedar/repairs/2026-09-26-eight-decisions/`. The three FAIR Workflows migrations and the ambiguous
 GENASIS URL remain deferred, preserving their sources.
 
-The retained primary pipeline count under the latest libraries is now 29: annotations 8,
-malformed/empty IRIs 11, mixed values 5, multiple datatypes 3, numeric literals 2.
+After the 2026-09-27 DOI recovery, the retained primary pipeline count under the latest libraries is
+28: annotations 7, malformed/empty IRIs 11, mixed values 5, multiple datatypes 3, numeric literals 2.
 Of these, 23 have known narrow corrections blocked by unrelated validation errors, 4 remain deferred
-for an agreed field migration or URL destination, the approved F050TUN migration awaits production library adoption, and one
-otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
-production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
+for an agreed field migration or URL destination, and the approved F050TUN migration awaits verified
+production library adoption. Unicode IRI support on the deployed paths still needs verification for
+eight additional instances. These are targeted updates, not a fresh full instance census.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
@@ -5119,26 +5119,62 @@ rather than curing it.
 (already configured on this machine).
 
 
-### Misplaced annotation identifier: reader rejection and blocked source repair
+### Recovering an existing DOI attachment
 
-Both TypeScript annotation readers now reject scalar/array/null annotation entries and objects
-without a value/id, matching Java instead of silently dropping them. The exact stored HEAL instance
-`44685302-6d30-41fa-b129-6875fb887912` is rejected by both JSON readers. A proposed patch removing
-only `/_annotations/@id` yields identical four-path output and preserves its DOI annotation.
-The source template `d01330c7-ccd1-4e99-856a-86e08937347c` contains no misplaced identifier.
-The 2026-09-26 annotation backfill added its optional instance annotation declarations; the instance
-is now rejected specifically for malformed `/_annotations/@id`, rather than annotations being
-forbidden. Its body remains unchanged, and the DOI write guard still needs reconciliation before
-the prepared instance correction can be written.
+When a document already carries a DOI but its graph projection does not, production 2.9.19 can
+repair the attachment through `POST /command/annotations/doi`, with `@id` set to the full artifact
+identifier and `doi` set to the exact stored `_annotations["https://datacite.com/doi"]["@id"]` value.
+This endpoint does not mint a DOI or call DataCite. The existing-document branch updates the graph
+only; it rejects a different DOI and is idempotent for the same DOI.
 
-The conditional `PUT ?verbatim=true` was attempted on 2026-09-25 with the current ETag and rejected
-HTTP 400 `doiCanNotBeAltered`: request DOI `https://doi.org/10.82658/aqdn-5e14`, `storedDoi: null`.
-Readback confirmed the source is unchanged. No template was written and no DOI was removed.
-Pre-images, candidate, validation, reader checks and rejection are retained in
-`.cedar/repairs/2026-09-25-stray-annotation-id/`. The existing DOI recovery roadmap tracks this
-instance alongside the two previously blocked templates. TypeScript's 3,753 tests and shared
-166-YAML / 83-JSON parity checks pass.
+First retain the document, its ETag and graph metadata, and verify the existing DOI. The details
+response's `pathInfo` entry matching the artifact's `@id` exposes graph `doi`; its absence at the
+details response root does not establish a missing DOI. After the command, read both back: require
+the exact document and ETag to remain unchanged and the graph DOI to match. Graph modification
+provenance advances when its attachment is repaired; document provenance does not change.
+Then separately validate any pending content repair, check dependent instances and use the fresh
+strong ETag with `PUT ?verbatim=true`. Preserve the DOI and the ordinary immutability guard.
 
+On 2026-09-27 this recovered all eight known write refusals: seven templates and the HEAL instance.
+All eight recovery commands returned 200; document bodies and revisions were unchanged. Eight
+subsequent conditional repairs returned 200 with exact readbacks and preserved document provenance:
+
+| Repair | Artifacts | Dependent instances checked |
+| --- | ---: | ---: |
+| Optional annotation declarations and `@nest` mappings | 7 templates | 8 |
+| Three nested context `additionalProperties` declarations | 2 of those templates | The same 8 |
+| Remove the malformed `/_annotations/@id` | 1 HEAL instance | Its current template checked |
+
+All eight stored artifacts validate. Every dependent instance is unchanged and valid. The four
+Java/TypeScript conversion paths agree on JSON content/order and YAML bytes; generated schemas
+validate, as does the completed HEAL output in all four paths. No new production code or deployment
+was needed. The focused DOI command integration suite passes nine tests, including document-only
+DOI recovery, retry without rewriting, and rejection of a conflicting DOI before and after recovery.
+Private preimages, exact proposals, command/write intents, readbacks and conversion evidence are
+retained under `$CEDAR_HOME/.cedar/repairs/2026-09-27-doi-recovery/`.
+
+This completes the known writable annotation-backfill cohort: 4,833 templates across both passes;
+the indexed `.net` template still returns 404. The retained schema strict-reader backlog falls to
+46 templates (42 context declarations and 4 missing-child requirements), and the retained instance
+pipeline backlog falls to 28. These are targeted updates to prior audits, not a fresh corpus census.
+The broader DataCite timeout/retry state-machine work remains in the frontend roadmap.
+
+### Misplaced annotation identifier: reader rejection and source repair
+
+Both TypeScript annotation readers reject scalar/array/null annotation entries and objects without
+a value/id, matching Java instead of silently dropping them. The HEAL instance
+`44685302-6d30-41fa-b129-6875fb887912` formerly carried a bogus element-instance identifier at
+`/_annotations/@id`. Its template `d01330c7-ccd1-4e99-856a-86e08937347c` had no misplaced identifier;
+the 2026-09-26 annotation backfill added its optional instance annotation declarations.
+
+Conditional writes on 2026-09-25 and 2026-09-26 were refused with `doiCanNotBeAltered`: the document
+held `https://doi.org/10.82658/aqdn-5e14`, while the graph DOI was null. After recovering that exact
+attachment on 2026-09-27, the conditional instance repair succeeded. Only `/_annotations/@id` was
+removed. The DOI annotation, field values, provenance and identifiers elsewhere are unchanged.
+The stored body validates, both YAML writers emit identical bytes, and all four JSON conversions
+agree on content and order and validate after template completion. Earlier refusal evidence remains
+under `.cedar/repairs/2026-09-25-stray-annotation-id/`; successful recovery, repair and conversion
+checks are under `.cedar/repairs/2026-09-27-doi-recovery/`.
 
 TypeScript's JSON/YAML identifier readers reject raw ASCII spaces and control characters without
 trimming or URL auto-encoding, matching Java for the malformed E106TUN link. This is a targeted

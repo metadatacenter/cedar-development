@@ -971,21 +971,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 48: 44 context additional-properties declarations and 4 missing-child requirements; fresh full audit on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 46: 42 context additional-properties declarations and 4 missing-child requirements; full audit on 2026-09-25, targeted rechecks through 2026-09-27 |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
   returns 404 under the corresponding `.org` ID.
 
-  Reconcile instance-context `additionalProperties` declarations in 44 remaining templates.
-  For 42 of them, 195 dependent instances block tightening:
+  Reconcile instance-context `additionalProperties` declarations in 42 remaining templates.
+  Their 195 dependent instances block tightening:
   62 currently valid instances contain populated undeclared fields, while 133 already fail
   validation. Keep the 62 extra-field cases unresolved; do not delete values or mappings, invent
   declarations, or infer renames to satisfy the canonical rule.
-  The other two, Human Cognitive Neuroscience Data and FAIR-EuMon metadata template,
-  need document/graph DOI reconciliation: the write endpoint rejects their unchanged document DOI
-  because it reports a null stored DOI. Preserve the DOI while resolving that inconsistency through
-  [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery), which tracks the affected IDs,
-  rejection details and regression requirements.
   Missing child names in `required` remain in four templates: SWATH-DIA Experimental
   Specifications, Cell, Chemical Tool and Expression. Resolve their 24 blocking instances before
   tightening the templates; their errors include undeclared fields, conflicting property mappings
@@ -1008,8 +1003,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 29 affected instances under the latest libraries. Production
-  adoption of the Unicode IRI fix remains pending for eight additional instances.
+  findings and checked repairs leave 28 affected instances under the latest libraries. Verify
+  deployed Unicode IRI support for eight additional instances.
   Consistent reader rejection of an invalid source still requires a source repair.
 
   Resolve three remaining instances whose legacy `description` attribute-value groups sit in
@@ -1018,7 +1013,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 29-instance baseline. Account for their stricter-reader rejection before production
+  to the 28-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
@@ -1027,7 +1022,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 5 |
   | Malformed/empty stored URI is the first Java rejection | 11 |
-  | Malformed annotation objects | 8 |
+  | Malformed annotation objects | 7 |
   | Numeric JSON literals | 2 |
 
   Establish complete value-preserving migrations for the three FAIR Workflows instances
@@ -1040,8 +1035,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Do not guess a routing replacement. These four deferred cases are included in the table above;
   fresh sources and templates are retained under `.cedar/repairs/2026-09-26-eight-decisions/`.
 
-  Release and deploy Unicode field-IRI support across the Java artifact library, model validator,
-  TypeScript consumers and repository paths. Preserve the eight Niger identifiers verbatim; do not
+  Verify production adoption of Unicode field-IRI support across the Java artifact library, model
+  validator, TypeScript consumers and repository paths; update any consumers still missing it. Preserve the eight Niger identifiers verbatim; do not
   replace U+00A0 with `%C2%A0` or substitute the different version-2 vocabulary term. Verify the
   deployed JSON/YAML write path before the repeatable-link migration below. Resolve the production
   terminology HTTP 403 access restriction before claiming live lookup compatibility. Current-code
@@ -1052,21 +1047,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reasons; resolve those blockers before writing. Preserve conflicting populated values and ambiguous
   URI spellings until the intended replacement is established. The GeoExposure CASTNET link fields
   can lose their exact duplicate `@value`, but unrelated template errors block the complete write.
-  Preserve DOI annotations while resolving the document/graph write guard before retrying the HEAL
-  annotation repair. Plans, validation errors, backups and readbacks are under
+  Plans, validation errors, backups and readbacks are under
   `$CEDAR_HOME/.cedar/repairs/2026-09-25-instance-values/REPORT.md`.
-  Of the eight malformed-annotation instances, seven retain other validation defects; the HEAL
-  instance's otherwise-valid correction is blocked by DOI attachment inconsistency. Recheck the
-  retained proposals after those blockers are resolved. Current conditional-write and conversion
-  evidence is in `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
+  All seven remaining malformed-annotation instances retain other validation defects. Recheck
+  their narrow proposals after those blockers are resolved. Retained proposals and conversion
+  evidence are in `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
 
   Make `Source Hyperlink` repeatable in `VODAN-COVID-Migrants-Tunisia`
   (`05ce128b-c631-45c8-bfcf-a229ea1fcce5`) and split F050TUN's two stored URLs after
   production adopts the library changes. All 368 instances require object-to-array migration; the
-  fresh preflight validates every proposed body under the updated validator. Production still needs
-  Unicode IRI support before eight of those bodies can be written. Do not switch the template
+  fresh preflight validates every proposed body under the updated validator. Verify production
+  Unicode IRI support before writing the eight bodies that depend on it. Do not switch the template
   until the deployed write path accepts all dependents. This approved repair remains within the
-  29-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
+  28-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
   bodies are under
   `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency
   rechecks under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/` and
@@ -1091,16 +1084,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   schema context mappings. Check JSON and YAML conversions of an affected template on the deployed
   resource path; keep these group mappings out of instance context requirements and inflation.
 
-  **Finish the blocked annotation declarations and deploy the updated writers.** Seven templates
-  still need optional `_annotations` declarations and `@nest` context mappings. Their unchanged
-  document DOIs conflict with null graph DOIs; reconcile the seven IDs tracked in
-  [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery), preserve their DOIs, then
-  refresh the dependent-instance checks and retry the conditional patches. The unavailable `.net`
-  template remains part of the indexed-404 group above. The HEAL instance still needs its malformed
-  `_annotations/@id` repaired after DOI reconciliation. Keep malformed annotation values rejected.
-  Adopt the updated Java/TypeScript writers in backend and editor deployments so subsequent model
-  renders retain these optional declarations. Backups, proposals, validation and readbacks are in
-  `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-backfill/`.
+  **Verify deployment adoption of the updated annotation writers.** Check that backend and editor
+  model renders retain the optional `_annotations` declaration and `@nest` context mapping.
+  Keep malformed annotation values rejected. The unavailable `.net` template remains part of the
+  indexed-404 group above.
 
   **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
   Repeated names identify distinct templates; ID prefixes distinguish them.
