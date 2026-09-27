@@ -2681,6 +2681,20 @@ CETP and Workspace run their existing pinned Linux ARM64 visual suites without
 updating baselines. This complements each consumer's own CI and catches shared
 changes before publication. It does not install repository approval rules.
 
+Workspace imports the token package's scoped `native-choices.css` at its application
+root. The source adoption gate verifies both the import and the root class, and
+browser contracts compare checkbox/radio colours with the live token roles in
+Groups, Permissions, filters and draft sharing. These checks include disabled
+states, keyboard focus and host colour overrides. The legacy Groups page keeps
+its own local brand palette; it does not participate in this token contract.
+
+Workspace's remaining adoption baseline preserves local layout dimensions: avatar
+and checkbox sizes, header/viewport calculations, screen-reader clipping, and the
+existing Groups/Permissions offsets and padding. Privacy prose keeps its existing
+line spacing. Review these in context rather than substituting a same-valued token
+with a different meaning or changing approved geometry just to reduce the count.
+Exact shared control-height and standard-spacing matches use tokens instead.
+
 Workspace's `npm run test:visual` runs its built Angular application in the pinned
 Playwright container, covering desktop/375px screenshots, Axe accessibility, keyboard
 menus, modal focus/return, nested Escape handling, stale/duplicate saves, field errors,
