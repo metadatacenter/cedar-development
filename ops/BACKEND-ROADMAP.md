@@ -867,11 +867,40 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **22. Decide what an ordinary write may change about the artifact it stores.**
-  **Why automatic changes still remain.** Ordinary saves supply identifiers requested by
-  authoring clients, discard unfinished editor state, and maintain derived metadata. Removing
-  those behaviors requires an explicit replacement contract for clients, rather than treating
-  every save-time change as a legacy-data repair:
+- **22. Decide what happens to existing instances when a draft template changes.** An instance
+  names its template by identifier rather than by version, and is validated against whatever that
+  template says now. A template's schema lists every child in its top-level `required` and sets
+  `additionalProperties` to false, so most edits to a draft invalidate the instances already stored
+  against it. Adding a field leaves every instance without a property it now requires. Removing or
+  renaming one leaves every instance carrying a key the template rejects. Published templates are
+  frozen, and Update Bubbling refuses a published target, so only drafts are affected. Nothing
+  decides today what should happen to those instances, and nothing tells the author.
+
+  **Choose a policy for each kind of edit.** Three answers are available, and different edits may
+  deserve different ones:
+  - **Warn only.** The author sees which instances the edit invalidates and saves anyway.
+  - **Migrate dependents.** An added field is mechanical to supply: an empty entry, `{"@value":
+    null}` for a literal or `{}` for an IRI, and the child's `@context` mapping. The server or a
+    repair job can write it on save. A removal or rename is not mechanical, because the instance
+    holds data under the old key; `ops/repairs/rename_sheet.py` drafts mappings for an owner to
+    confirm, and without one only a warning is honest.
+  - **Complete on read.** Accept that stored instances lag their template, and have every reader
+    and editor complete an instance against its current template. The server already completes a
+    YAML instance against its template before a write.
+
+  **Build the impact check into authoring.** Every policy needs to know which instances an edit
+  affects. `ops/cedar_template_impact.py` makes that comparison GET-only, under the exact body a
+  save would store, including save-time normalization. Choose warning versus blocking, and define
+  what to do for unreadable dependencies, a template changed during the check, large populations and
+  instances the caller cannot see. A permission-scoped result cannot certify the whole dependent
+  population; an incomplete check must not mean “no impact.” Surface the affected instance
+  identifiers and validation errors without treating already-invalid instances as damage done by
+  this edit.
+
+  **Keep the save-time changes that remain, and say why.** Ordinary saves supply identifiers that
+  authoring clients ask for, discard unfinished editor state and maintain derived metadata. Removing
+  any of them needs a replacement contract for clients rather than treatment as a legacy repair.
+  The changes that remain are these:
 
   | Remaining behavior | Why it remains |
   | --- | --- |
@@ -879,33 +908,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remove blank unnamed attribute rows | These rows represent unfinished editor input and cannot name a stored property. |
   | Prune unused repository-generated attribute context mappings | Deleting an attribute can leave its generated mapping behind; template-declared mappings and author-supplied vocabulary IRIs must remain. |
   | Derive schema `title` and `description` from the artifact name | Renames must keep generated schema metadata consistent while preserving generator attribution. |
-  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration, but automatically applying it to an existing template can invalidate dependent instances; this policy remains undecided. |
+  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration. It invalidates instances on its own only where a legacy template never declared a child it already requires, which the repair in the production-data item closes. |
 
-  Verbatim writes bypass these normalizations and remain strictly validated. Production still
-  needs the compatibility-retirement rollout below before inherited malformed submissions are
-  consistently rejected rather than repaired on save.
-
-  **Decide whether a save may tighten instance requirements.**
-  `LinkedDataUtil.addChildPropertyIris` still adds every ordinary mapped child to
-  `@context.required`, even when a stored template never required that mapping. An unrelated
-  template edit can therefore tighten the contract of existing instances. Decide whether to
-  preserve the stored requirements, require an explicit author change, or retain automatic
-  tightening with a dependent-instance impact check.
-
-  **Integrate template-impact checks into authoring.** Use the read-only
-  `ops/cedar_template_impact.py` comparison to identify valid-to-invalid transitions under the
-  exact proposed stored body, including any normalization the save path will apply. Choose
-  warning versus blocking behavior, and define what to do for unreadable dependencies, a changed
-  baseline, large populations and instances the caller cannot see. A permission-scoped result
-  cannot certify the whole dependent population; an incomplete check must not mean “no impact.”
-  Surface the affected instance identifiers and validation errors to the author without treating
-  already-invalid instances as damage caused by this edit.
+  Verbatim writes bypass these changes and remain strictly validated.
 
   **Roll out the strict write path.** Release and deploy the compatibility-retirement change once
-  the shared Java build and whole-stack smoke gates are green.
+  the shared Java build and whole-stack smoke gates are green, so an inherited malformed submission
+  is refused rather than repaired on save.
 
-  Done when ordinary writes have an explicit policy for changing instance requirements and
-  authors see the impact before a template change invalidates existing instances.
+  Done when each kind of draft-template edit has a stated policy for the instances it affects, and
+  an author sees that effect before the save lands.
 
 ### Shared Libraries
 
@@ -1244,6 +1256,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a `classes` entry narrows what an instance may say, which is a decision about the template's
   meaning and not one a lookup answers. Ask the owner, or record that constraining to the whole
   ontology is intended.
+
+  **Close the legacy context-requirement gap before any save closes it for you.** Some templates
+  require a child in their top-level `required` but not in `@context.required`, and some of their
+  instances lack the child's `@context` mapping. Any ordinary save of such a template adds the
+  requirement and invalidates those instances, although the author changed nothing about them.
+  Supplying a missing mapping is mechanical: the template states the property IRI. Measure first
+  with `ops/repairs/ctxreq_at_risk.py`, which lists, per template, the instances completing its
+  `@context.required` would invalidate. Then add the missing mappings to those instances with a new
+  transform, and complete the templates with the existing `complete_context_required` transform.
+  An instance that maps the child to a different IRI is a conflict, not a gap, and needs its
+  owner. The count of affected instances is unmeasured; the 2,218 artifacts missing entries, 458 of
+  them templates, count schema artifacts, not instances.
 
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
