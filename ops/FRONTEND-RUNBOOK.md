@@ -214,6 +214,12 @@ and files omitted for size. Dependencies, Git metadata and symlinks are excluded
 Successful builds do not retain these diagnostic copies. Remove old bundles when no
 longer needed; the cap is per failure, not a total retention quota.
 
+`cedarcli build diagnostics` previews age/size retention (14 days and 1024 MiB by
+default). Set `--days` and `--max-mib` to choose a policy; add `--apply` to delete
+the selected bundles. Only completed bundles carrying the CLI's diagnostic marker
+are eligible. Older unmarked reports, interrupted captures, unrelated directories and
+symlinks are preserved. A preview does not delete anything or alter release evidence.
+
 For a compile-only estate build, `cedarcli build all --skip-tests` skips both Java
 and frontend verification suites while retaining dependency-ordered frontend builds.
 It does not claim full reactor verification or run the frontend deployment/smoke sequence.
