@@ -352,6 +352,17 @@ the exact-commit CI probe and the remote survey.
 
 ## Watching and Finishing
 
+`start` and `resume` automatically summarize measured stage timings on completion.
+`cedarcli release timings` reads them later; `--compare <VER>` selects a prior local
+release ledger (otherwise the newest other ledger with timing evidence is used).
+Each attempt retains its result and wall time. CI polling sleeps and transient retry
+backoff are measured separately from execution, which includes build work, network
+requests and CI probes. Failed attempts remain in the totals. A process killed before
+its final timing write leaves an explicitly incomplete record. Older ledgers have no
+measured split and are reported as unavailable. Comparisons require matching workload
+and concurrency signatures and complete timing evidence; source and network conditions
+may still differ, so a delta is an observation rather than a benchmark.
+
 Before resuming, `cedarcli release resume --dry-run` explains the recorded phase,
 completed phases/tasks to preserve, the exact preflight checks the next stage repeats,
 and the remaining build, ref, publication, CI and acceptance operations. It reads the
