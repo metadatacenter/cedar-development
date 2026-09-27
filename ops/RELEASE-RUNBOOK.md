@@ -29,6 +29,21 @@ arithmetic, and packs each surface from a clean commit archive. A `prepack` depe
 seconds. Registry inventories, digests and CEE equivalence require the completed train and remain
 in `plan`.
 
+For one combined read-only report, use:
+
+```bash
+cedarcli release readiness --full --version <VER> --next-version <NEXT> \
+  --model-version <PUBLIC_MODEL> --cee-version <PUBLIC_CEE> --from-train <TRAIN_ID>
+```
+
+This reports public tarball integrity and identity, CEE's declared and embedded model pin,
+consumer manifest/lock pins, exact-source CI, matching whole-stack smoke, clean/pushed
+sources, release prerequisites, and the train's artifact/equivalence and source-eligibility
+checks. Each gap includes a next action. Before a train exists, omit `--from-train`;
+its evidence is explicitly `not checked`, not green. Omitted versions and skipped packing
+are likewise incomplete. The command returns nonzero for failed or incomplete evidence.
+It does not dispatch, publish, accept exceptions, or replace `release plan|start`.
+
 ### The Plan
 
 The route proper begins with one read-only plan and four explicit inputs. Nothing is inferred
