@@ -1,6 +1,6 @@
 // Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { actors, call, mutate, enc, OPENVIEW } from "./rest/lib.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
@@ -48,7 +48,6 @@ async function login(username, password) {
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
     viewport: { width: 1500, height: 1000 },
-    acceptDownloads: true,
   });
   context.setDefaultTimeout(25000);
   await context.route("**/*", async (route) => {
@@ -416,7 +415,13 @@ try {
       .getByRole("button", { name: "Actions for " + names.destination, exact: true }).click();
     const resourceMenu = page.locator(".resource-menu");
     await resourceMenu.waitFor();
-    assert.equal(await resourceMenu.getByRole("button").count(), 18);
+    assert.deepEqual(
+      (await resourceMenu.getByRole("button").allTextContents()).map((label) => label.trim()),
+      ["Populate", "Open", "Permissions…", "Copy", "Move", "Rename", "Publish",
+        "Create Draft", "Delete", "DataCite wizard", "Enable Openview", "Disable Openview",
+        "Open in OpenView"],
+      "The Workspace menu must offer its current actions in order",
+    );
     await page.waitForFunction(() => {
       const menu = document.querySelector(".resource-menu");
       const rect = menu?.getBoundingClientRect();
@@ -424,7 +429,7 @@ try {
     });
     if (height === 1000) {
       assert.equal(await resourceMenu.evaluate((m) => m.scrollHeight <= m.clientHeight), true,
-        "All legacy menu actions should fit without scrolling on a tall viewport");
+        "All Workspace menu actions should fit without scrolling on a tall viewport");
     }
     const last = resourceMenu.getByRole("button", { name: "Open in OpenView", exact: true });
     await last.scrollIntoViewIfNeeded();
@@ -434,7 +439,7 @@ try {
     await page.keyboard.press("Escape");
   }
   await page.setViewportSize({ width: 1500, height: 1000 });
-  pass("All legacy artifact menu actions fit tall screens and remain reachable on short screens");
+  pass("All Workspace artifact menu actions fit tall screens and remain reachable on short screens");
   step = "session-retry";
   await ready(page);
   // Inject one expired-access-token response, then let the real refresh and
@@ -1030,28 +1035,10 @@ try {
   pass(
     "Populate → CEE create, redirect, re-edit, conditional save and Workspace listing",
   );
-  step = "downloads";
-  await listed(page, names.template);
-  for (const label of [
-    "Download JSON",
-    "Download YAML",
-    "Download Compact YAML",
-  ]) {
-    const pending = page.waitForEvent("download");
-    await menu(page, names.template, label);
-    const download = await pending;
-    assert.match(download.suggestedFilename(), /\.(json|yaml)$/);
-    assert.equal(await download.failure(), null);
-    const contents = await readFile(await download.path(), "utf8");
-    assert.ok(
-      contents.includes(names.template),
-      "Download contains the authored template",
-    );
-    if (label === "Download JSON")
-      assert.equal(JSON.parse(contents)["@id"], artifacts.template);
-  }
-  pass("JSON, YAML and compact YAML downloads");
+  // Workspace no longer offers artifact downloads. The REST download suite covers JSON,
+  // YAML and compact YAML for every artifact kind; editor download controls have browser coverage.
   step = "copy-move";
+  await listed(page, names.template);
   await menu(page, names.template, "Copy");
   await modal(page).getByLabel("Name", { exact: true }).fill(names.copy);
   const copy = await save(
@@ -1104,7 +1091,7 @@ try {
   pass("Info and Version panels show the published/draft chain");
   step = "openview";
   await listed(page, names.copy, destination);
-  await menu(page, names.copy, "Make Open");
+  await menu(page, names.copy, "Enable Openview");
   await save(page, "POST", "/command/make-artifact-open", 200, true);
   for (let i = 0; i < 20; i++) {
     const r = await call(
@@ -1133,7 +1120,7 @@ try {
       ?.shadowRoot?.textContent;
     return content?.includes(name) && content.includes("Notes");
   }, names.copy);
-  await menu(page, names.copy, "Make Not Open");
+  await menu(page, names.copy, "Disable Openview");
   await save(page, "POST", "/command/make-artifact-not-open", 200, true);
   for (let i = 0; i < 20; i++) {
     const r = await call(
@@ -1151,7 +1138,7 @@ try {
   pass("OpenView open/render/close");
   step = "folder-openview";
   await listed(page, names.destination);
-  await menu(page, names.destination, "Make Open");
+  await menu(page, names.destination, "Enable Openview");
   await save(page, "POST", "/command/make-folder-open", 200, true);
   assert.equal(
     (
@@ -1161,7 +1148,7 @@ try {
     ).status,
     200,
   );
-  await menu(page, names.destination, "Make Not Open");
+  await menu(page, names.destination, "Disable Openview");
   await save(page, "POST", "/command/make-folder-not-open", 200, true);
   assert.ok(
     [401, 403, 404].includes(

@@ -103,9 +103,11 @@ its initial baseline records existing typography and layout debt.
 In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
-sharing between two users, CEE metadata entry, downloads, versioning, OpenView and
-conditional writes. Its fixtures are removed after each run; the Workspace result and
-failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
+sharing between two users, CEE metadata entry, versioning, OpenView and conditional writes.
+The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
+current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
+by the REST download suite, and the main browser smoke exercises CEE download controls.
+Each Workspace run removes its fixtures; the result and failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
 `npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
 runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
 and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).
