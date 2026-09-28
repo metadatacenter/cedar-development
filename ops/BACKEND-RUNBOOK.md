@@ -5232,3 +5232,51 @@ sources and rejects only the two already-invalid URI/annotation cases. Evidence 
 JSON/YAML parity checks pass. The GeoExposure CASTNET template declares both URL fields as links;
 its duplicate `@value` members are not permitted by those field schemas. No production patch
 was performed for either URL case.
+
+## Recursive Workspace folder deletion
+
+The Workspace folder-delete dialog uses `GET /folders/{id}/deletion` to prepare a server-owned
+inventory, followed by `POST` to the same path with its `token` after explicit confirmation. The
+historical `DELETE /folders/{id}` remains empty-folder-only for existing clients.
+
+The inventory traverses the graph without permission, version or publication filters and includes
+its root. Only the selected folder's explicit owner may request or execute recursive deletion;
+Editor and Manager grants alone are insufficient. Ownership is checked at the start and end of
+inventory and before each deletion, so a transfer revokes the former owner's operation. Descendants
+need not share that owner. Every descendant still requires delete capability and the user's
+type-specific delete permission.
+Unreadable descendants still count; their names and identifiers are redacted in the response.
+Any item without delete permission blocks deletion. Home and system roots are refused immediately. Protected descendant folders also
+block the operation. The dialog lists Folder, Template, Element, Field and Instance counts and offers
+the complete readable inventory, with restricted entries represented anonymously.
+
+Template references come from Mongo, through the service-key-protected artifact endpoint
+`POST /templates/deletion-references`, rather than search results or the graph's instance count.
+An instance is internal only when its exact identifier occurs in the inventoried tree. Every other
+reference, including one missing from the graph or invisible to the caller, is external. The response
+reports the number of templates with instances, the number with external instances, and the external
+instance count. Internal references do not block deletion: all instances run before templates.
+
+Confirmation is bound to the user, root, resource identifiers, topology, content and graph revisions,
+permissions and reference identifiers. The server recomputes this inventory before applying it; a
+changed or blocked plan deletes nothing. The client cannot supply extra deletion identifiers.
+Execution rechecks each item's location, permission and graph revision, uses the recorded content
+ETag for artifact deletion, and deletes folders deepest-first only when empty. It stops on the first
+refusal, conflict, unavailable dependency or pending artifact cleanup. The template endpoint retains
+its final content-store reference check. A refused artifact request abandons its outbox job; it must
+not become an automatic deletion after the blocker later disappears.
+
+This is an optimistic, cross-store operation, not a rollback transaction. Concurrent changes after
+execution begins can stop it after some items have been removed. The response reports confirmed
+counts, and the UI requires a fresh inventory and another confirmation before continuing. An HTTP
+failure can leave completion uncertain; the client refreshes the listing and never automatically
+replays the deletion. Existing per-artifact deletion jobs complete content/graph/search cleanup after
+failures. Neither the confirmation token nor a folder operation bypasses those artifact safeguards.
+
+Operational responses include stable `FOLDER_DELETE_*` codes. Workspace translates those codes
+and network/error fallbacks into its bundled English and Hungarian messages; raw server messages
+are not displayed in this dialog. An owner refusal uses HTTP 403 and `FOLDER_DELETE_NOT_OWNER`.
+
+Verification: `cedarcli test e2e` includes the recursive-delete probe in its modern Workspace tier.
+For the focused real-stack check, run `npm run smoke:folder-delete` from `ops/e2e` with the native
+profile sourced. It creates disposable resources as both test users and removes only those fixtures.

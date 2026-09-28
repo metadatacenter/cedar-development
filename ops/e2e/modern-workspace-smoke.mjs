@@ -38,6 +38,9 @@ const showInformation = (p, name) =>
   row(p, name).locator("td").nth(1).click();
 async function ready(p) {
   await p.getByRole("button", { name: "New", exact: true }).waitFor();
+  // This journey selects rows and date cells. Workspace defaults to the grid, so select
+  // the table explicitly after every full navigation; do not depend on an old default.
+  await p.getByRole("button", { name: "List view", exact: true }).click();
   await p.waitForFunction(
     () =>
       document.querySelector(".table-scroll")?.getAttribute("aria-busy") ===
@@ -106,8 +109,9 @@ async function listing(p, id = folderId) {
 async function listed(p, name, id = folderId) {
   for (let i = 0; i < 15; i++) {
     await listing(p, id);
-    if (await row(p, name).count()) return;
-    await p.waitForTimeout(500);
+    // A non-waiting count can observe the old grid DOM just after the view-switch click.
+    // Wait for the actual row before reloading for eventual search-index consistency.
+    if (await row(p, name).waitFor({state: "visible", timeout: 1000}).then(() => true, () => false)) return;
   }
   throw new Error("Not listed: " + name);
 }
@@ -417,10 +421,9 @@ try {
     await resourceMenu.waitFor();
     assert.deepEqual(
       (await resourceMenu.getByRole("button").allTextContents()).map((label) => label.trim()),
-      ["Populate", "Open", "Permissions…", "Copy", "Move", "Rename", "Publish",
-        "Create Draft", "Delete", "DataCite wizard", "Enable Openview", "Disable Openview",
-        "Open in OpenView"],
-      "The Workspace menu must offer its current actions in order",
+      ["Open", "Permissions…", "Move", "Rename", "Delete", "Enable Openview",
+        "Disable Openview", "Open in OpenView"],
+      "The folder menu must offer only applicable actions in order",
     );
     await page.waitForFunction(() => {
       const menu = document.querySelector(".resource-menu");
@@ -439,7 +442,7 @@ try {
     await page.keyboard.press("Escape");
   }
   await page.setViewportSize({ width: 1500, height: 1000 });
-  pass("All Workspace artifact menu actions fit tall screens and remain reachable on short screens");
+  pass("Applicable folder menu actions fit tall screens and remain reachable on short screens");
   step = "session-retry";
   await ready(page);
   // Inject one expired-access-token response, then let the real refresh and
