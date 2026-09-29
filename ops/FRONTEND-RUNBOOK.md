@@ -2773,3 +2773,36 @@ and dialogs exposed by those components appear in their registered shared sectio
 Change names or hierarchy in the owning `.ui-surfaces.json`, then regenerate.
 The output file is a disposable local view; the committed registries are the
 maintained source of truth.
+
+### Printable surface checklist (PDF)
+
+When asked for a surface summary, surface checklist or full surface inventory as a
+PDF, produce the **complete checklist on one landscape page**, with **one separate,
+initially unchecked checkbox for every entry** in the freshly generated hierarchy.
+This is a sheet for checking each surface individually, not a condensed summary.
+Use the inventory command above first and resolve registration errors before
+rendering. Include all registered sections across Workspace, CED, CEE, the Template
+Designer host and OpenView unless the user explicitly requests a narrower scope.
+
+Preserve the generated names, category order and nesting. Do not merge entries
+(for example, Copy and Move), replace children with a parent checkbox, remove
+repeated names in different contexts, or omit entries to fit the page. Keep opaque
+component entries and their separately registered exposed menus/dialogs. Retain
+labels that are already combined in the maintained registry; do not invent a
+different hierarchy in the PDF.
+
+Use landscape US Letter, four columns, readable text of at least 9 points and
+checkboxes large enough to tick on paper. Wrap full labels, keep headings with
+their first entries, and mark continued sections at column breaks. The checkboxes
+should also be interactive PDF fields. Include the generation date, reviewer line
+and total checkbox count. If future inventory growth prevents a readable one-page
+Letter layout, use a larger landscape sheet and state its paper size; never silently
+drop or collapse entries.
+
+Save the PDF on the user's Desktop as `CEDAR-Workspace-Surface-Checklist.pdf`,
+unless another destination is requested. Before delivery, verify that it has
+exactly one landscape page, that every generated inventory entry appears in order
+with its own checkbox, and that the PDF field/widget counts match the inventory
+entry count with every checkbox unchecked. Render and visually inspect the final
+page for clipping, overlaps, orphan headings and legibility. Deliver the full PDF;
+a Markdown hierarchy or an abbreviated checklist does not satisfy this request.

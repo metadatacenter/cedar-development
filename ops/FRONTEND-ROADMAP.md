@@ -42,6 +42,10 @@ works by restoring payloads and routing without inventing a new modifier.
 
 ### 2. Make DOI Minting Recovery-Safe
 
+Keep the DataCite wizard out of Workspace resource menus while this workflow is being
+reworked. Before reintroducing an entry point, verify the recovery behavior and review the
+wizard's user-facing flow.
+
 A retry after a timeout must be able to tell whether the earlier attempt minted a DOI. Define
 durable draft/reserved, published and locally attached states in `cedar-bridge-server`, retain
 the DataCite identifier before the fallible write-back, and make a retry resume or reconcile the
