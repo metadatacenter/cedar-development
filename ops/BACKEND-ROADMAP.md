@@ -48,7 +48,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 21 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 20 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
@@ -636,42 +636,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **16. Stop the resource server shipping the Keycloak server SPI.** Every Keycloak login makes
-  CEDAR's event listener post the event to the resource server's `/command/auth-user-callback`, which
-  provisions the user: the user record, membership of Everybody and the home folder. The endpoint
-  reads one field of the event, `clientId`, to confirm the login came through CEDAR's own client. It
-  reads that field by deserializing the whole event into Keycloak's `org.keycloak.events.Event`, a
-  class in `keycloak-server-spi-private`. `cedar-resource-server-application` therefore declares
-  `keycloak-server-spi` and `keycloak-server-spi-private` at compile scope, and 794 of the 1,333
-  Keycloak classes in its shaded jar come from those two jars, among them the `models`,
-  `authorization`, `authentication`, `broker` and `storage` packages. Nothing else in the service
-  uses them.
-
-  Two costs follow. The resource server ships part of an unsupported Keycloak 22.0.4 server, the
-  code the advisories against `keycloak-server-spi-private` and `keycloak-services` describe, and any
-  scanner that reads the jar reports it. That code does not run as a Keycloak server, so the practical
-  exposure is small, but it has no reason to be there. The parse also uses the strict mapper, which
-  refuses unknown properties. A field that a later Keycloak adds to `Event` would therefore fail every
-  login's callback and stop new users being provisioned, so the upgrade in item 3 would meet that
-  failure in a service that should not have to change with the Keycloak server.
-
-  Read the event into a CEDAR type that declares `clientId` and ignores every other property, and
-  remove both SPI dependencies from the resource server's POM. The documented request schema,
-  `AuthUserCallbackRequest` in `openapi-base.yaml`, already says that only `clientId` is read and
-  admits other properties, so the endpoint's contract does not change. The event listener keeps its
-  `provided` SPI dependencies, which are correct for a provider that Keycloak loads. The resource
-  server keeps `keycloak-core` and `keycloak-adapter-core` through
-  `cedar-auth-operations-keycloak-library` for its token checks, and those follow item 3.
-
-  This closes no Dependabot alert. The alerts are raised against `cedar-parent`, which manages the
-  Keycloak versions, and only item 3 clears them.
-
-  Done when a unit test parses a serialized Keycloak login event that carries properties the CEDAR
-  type does not declare, and provisions only for CEDAR's own client; when the shaded jar contains no
-  class from either SPI jar; and when a redeployed resource server passes the browser smoke, whose
-  Keycloak login posts this callback. The REST smoke does not exercise the endpoint.
-
-- **17. Finish converging on the body paging envelope.** Every route that pages by offset answers
+- **16. Finish converging on the body paging envelope.** Every route that pages by offset answers
   CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
   `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
   `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
@@ -718,7 +683,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
   that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
-- **18. Choose the response timeouts from the durations the request log now carries, and give a
+- **17. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -748,7 +713,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **18. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -780,7 +745,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`, and
   no run is recorded against a service whose source the gate cannot establish.
 
-- **20. Take the dependency upgrades that need code changes.** The versions that could move without
+- **19. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions whose newest release is not a final.
 
@@ -864,7 +829,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **21. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **20. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -877,7 +842,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **22. Decide what happens to existing instances when a draft template changes.** An instance
+- **21. Decide what happens to existing instances when a draft template changes.** An instance
   names its template by identifier rather than by version, and is validated against whatever that
   template says now. A template's schema lists every child in its top-level `required` and sets
   `additionalProperties` to false, so most edits to a draft invalidate the instances already stored
@@ -931,7 +896,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Production Data
 
-- **23. Resolve the remaining production artifact defects and review semantic migrations.**
+- **22. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1254,7 +1219,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **24. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **23. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1286,7 +1251,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **25. Add artifact-library checks to the write path.** Direct JSON writes currently validate
+- **24. Add artifact-library checks to the write path.** Direct JSON writes currently validate
   through `cedar-model-validation-library`; they do not also prove that the Java artifact model
   can read and render the submitted document. YAML conversion exercises the artifact library,
   but that does not establish the same contract for a JSON submission. Add this check alongside
