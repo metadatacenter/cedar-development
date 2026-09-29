@@ -764,11 +764,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `python3 controller/ops/build_train.py preflight`, which names no smoke gate, so a train
   dispatched through Actions is ungated while the same train dispatched from the CLI is not.
 
+  The gate also records a run against services it cannot vouch for. When a Docker container owns a
+  service's port, the native controller reports that service's health as `docker`
+  (`inspect_status` in `cedar-services.sh`), and `smoke_gate.HEALTHY` counts it as healthy,
+  although the controller never assesses a container's health. The same row reads `-` in the
+  binary column, so the check that each jar is newer than its repository's `develop` head skips it
+  too. A run against a hybrid or Docker stack is therefore recorded as evidence for the `develop`
+  heads, and nothing shows that the containers run them. Refuse a Docker-owned row until the gate
+  can establish which source its image was built from.
+
   Add a scheduled and manually dispatchable whole-stack workflow that brings up a known source, runs
   every tier through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
   train call the same gate implementation the CLI calls rather than a second preflight path. Done
-  when every tier runs unattended on a cadence, their reports are retained, and a train dispatched
-  through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
+  when every tier runs unattended on a cadence, their reports are retained, a train dispatched
+  through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`, and
+  no run is recorded against a service whose source the gate cannot establish.
 
 - **20. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
