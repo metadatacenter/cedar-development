@@ -929,37 +929,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each kind of draft-template edit has a stated policy for the instances it affects, and
   an author sees that effect before the save lands.
 
-### Shared Libraries
-
-- **23. Take the parse-library tree type out of the public reader and renderer API.** This is a
-  major-version change. `JsonArtifactReader` and `JsonArtifactRenderer` take and return Jackson's
-  `ObjectNode`, and `YamlArtifactReader` and `YamlArtifactRenderer` take and return JDK
-  `LinkedHashMap<String, Object>` trees, so the tree representation is part of the public contract
-  and leaks even into the shared `ArtifactReader<N>` type parameter. A caller must obtain or build
-  one of those trees before it can call the library at all.
-
-  Move the boundary to the wire format itself. `readTemplate(String)` and
-  `renderTemplate(artifact)` returning `String`, with the element, field and instance
-  counterparts, parse and serialize internally. That hides both parse libraries, gives JSON and
-  YAML one symmetric `read(String)` and `render(Artifact)` contract, and matches what callers
-  actually hold, which is text from a file or an HTTP body. The internals do not change: the
-  String methods prepend a parse and append a serialize. A bespoke `JsonNode`-style abstraction
-  interface would trade one library coupling for a hand-rolled tree API plus adapters that callers
-  must still populate, so it is not the answer.
-
-  Migrate additively. Add the String methods, mark the node-typed ones
-  `@Deprecated(forRemoval = true)` delegating to them, and remove those at the next major version.
-  Two cleanups fall out: the keyed, tree-returning render overloads such as
-  `renderElementSchemaArtifact(key, artifact)` are internal child-composition helpers and can
-  become package-private, and the `ArtifactReader<N>` type parameter disappears. A caller that
-  wants the rendered artifact as a tree, to embed in a larger document or to validate it without
-  re-parsing, loses direct access. If that need proves real, keep one explicitly
-  parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
-
-
 ## Production Data
 
-- **24. Resolve the remaining production artifact defects and review semantic migrations.**
+- **23. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1282,7 +1254,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **25. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **24. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1314,7 +1286,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **26. Add artifact-library checks to the write path.** Direct JSON writes currently validate
+- **25. Add artifact-library checks to the write path.** Direct JSON writes currently validate
   through `cedar-model-validation-library`; they do not also prove that the Java artifact model
   can read and render the submitted document. YAML conversion exercises the artifact library,
   but that does not establish the same contract for a JSON submission. Add this check alongside
