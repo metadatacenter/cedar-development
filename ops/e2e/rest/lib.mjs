@@ -161,7 +161,8 @@ export async function actors() {
   // The administrator, by API key rather than password: the CEDAR admin user is not a Keycloak login
   // with a password in the profile, but its key is. Some surfaces are admin-only — the category tree
   // is writable only by someone with write on the root — so without this they cannot be exercised
-  // at all. Absent means the suites that need it skip rather than fail.
+  // at all. The suites that need it fail when it is absent, so a run without it cannot pass with
+  // those surfaces unverified.
   const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
   if (adminKey) out.admin = { auth: adminKey };
   return out;
