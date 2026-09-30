@@ -1119,11 +1119,17 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `@value` and `@id` in nine export templates, and their instances hold both. HR Pos lists only a
     "Negative" term, so 528 of its 888 values are literal codes, and 8 of race_id's values are codes
     with no term.
-  - The validator sends a controlled-term field to the IRI meta-schema. It chooses a meta-schema by
-    `_ui.inputType`, and a controlled-term field is a `textfield`, so today it is checked against the
-    literal meta-schema. Demanding `@value` there would refuse every canonical controlled-term field.
-    Route a text field that carries a vocabulary constraint, or declares `@id` and not `@value`, to
-    the IRI meta-schema first, the same rule `cedar-artifact-library` uses to read a field.
+  - The validator sends a controlled-term field to the IRI meta-schema. `CedarValidator.isIRIField`
+    chooses by `_ui.inputType` alone, and a controlled-term field is a `textfield`, so today it is
+    checked against the literal meta-schema. That meta-schema therefore admits `@id` beside `@value`,
+    and it cannot demand `@value` without refusing every canonical controlled-term field. Three
+    changes settle it. `isIRIField` adopts the rule `cedar-artifact-library` reads fields by: a
+    `textfield` carrying an ontology, value-set, class or branch constraint, or declaring `@id` and
+    not `@value`, is a controlled-term field. `iri-field-meta-schema.json` accepts `textfield`, since
+    its input-type enum names only `link` and the `ext-*` types. And before the changed validator
+    ships, a validation audit run with it finds the stored controlled-term fields the IRI meta-schema
+    refuses: HR Pos and race_id among them, and any legacy shape the literal meta-schema has let
+    through. The literal meta-schema can then drop `@id` from the slots it admits.
   - The writers that still omit the list produce it. A generator of openMINDS-derived templates and
     elements wrote 67 affected artifacts in 2025 and 2026, and the RADx CSV2CEDAR generator was still
     in use in 2025. Neither lives in the estate, so their maintainers have to change them.
