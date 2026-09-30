@@ -46,6 +46,12 @@ navigation, collapsible side panels and Info/Version tabs. Category, latest-vers
 type filters are intentionally absent. Artifact/folder menus use existing REST operations
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
+The eye preview opens artifacts read-only. **Try out**, beside the close button, remounts
+CEE/CEF in editable mode with an isolated copy of the artifact. Trial entries are never saved;
+**Back to preview** or closing the dialog discards them. Downloads remain disabled. The
+Workspace browser preview suite exercises all four artifact kinds with the real editor bundle
+in Chromium and WebKit and checks that no artifact writes occur.
+
 The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
 It shows the owner and direct user/group grants to any reader, with searchable principals
 and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
