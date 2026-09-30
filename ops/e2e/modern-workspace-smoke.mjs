@@ -956,9 +956,9 @@ try {
     .fill("Unsaved navigation");
   await page
     .locator(".metadata-toolbar [role=status]")
-    .filter({ hasText: "Unsaved changes" })
+    .filter({ hasText: "Modified" })
     .waitFor();
-  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Workspace", exact: true }).click();
   const discard = page
     .locator("dialog.confirmation-dialog")
     .filter({ hasText: "Discard unsaved metadata changes?" });
@@ -973,7 +973,7 @@ try {
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: /^Saved$/ })
     .waitFor();
-  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Workspace", exact: true }).click();
   await ready(page);
   pass(
     "CEE host loads no AngularJS, saves without remounting, guards navigation and recognizes exact reverts",
