@@ -1143,6 +1143,90 @@ def only_completed_literal_required(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# What a literal field's `required` may name besides its value and still be settled: the slot that
+# goes, and the label, which neither library demands of a literal.
+SETTLEABLE_LITERAL_DEMANDS = frozenset({AT_ID, "rdfs:label"})
+
+
+def settled_literal_required(definition: Any) -> Optional[list[str]]:
+    """What a literal field declaring an unused ``@id`` slot should require once the slot goes.
+
+    A field that declares both ``@value`` and ``@id`` lets an instance hold either, so nothing in
+    the field says which it is for. When the field draws on no vocabulary and its instances hold only
+    ``@value``, the ``@id`` slot is a leftover of whatever generated the field, and the field is the
+    literal one both libraries write. Its ``required`` is then kept where it already demands the
+    value, and otherwise, where it names nothing but ``@id`` and ``rdfs:label``, replaced by the list
+    the libraries write. A list demanding both the value and ``@id`` would name the slot that goes,
+    and any other list demands something this repair has no view on, so neither field qualifies.
+    ``None`` means the field is not one to settle. Only a dependent-instance check establishes what
+    the instances hold, so a template takes this repair only when every instance still validates.
+    """
+    if not isinstance(definition, dict) or definition.get(AT_TYPE) != FIELD_AT_TYPE:
+        return None
+    properties = definition.get("properties")
+    ui = definition.get("_ui")
+    input_type = ui.get("inputType") if isinstance(ui, dict) else None
+    if not (isinstance(properties, dict) and AT_VALUE in properties and AT_ID in properties
+            and not term_constrained(definition) and isinstance(input_type, str)
+            and input_type not in IRI_FIELD_INPUT_TYPES and input_type != "attribute-value"):
+        return None
+    required = definition.get(REQUIRED_KEY, [])
+    if not isinstance(required, list):
+        return None
+    if AT_VALUE in required:
+        return None if AT_ID in required else list(required)
+    if not set(required) <= SETTLEABLE_LITERAL_DEMANDS:
+        return None
+    literal = {key: value for key, value in definition.items() if key != REQUIRED_KEY}
+    literal["properties"] = {key: value for key, value in properties.items() if key != AT_ID}
+    return missing_literal_required(literal)
+
+
+def settle_literal_value_slot(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Drop the unused ``@id`` slot from such a field and state the ``required`` it calls for."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for path, node in schema_context_nodes(result):
+        wanted = settled_literal_required(node)
+        if wanted is None:
+            continue
+        removed = node["properties"].pop(AT_ID)
+        changes.append({"path": path + "/properties/" + AT_ID, "replaced": removed, "wrote": None})
+        stored = node.get(REQUIRED_KEY)
+        if stored == wanted:
+            continue
+        changes.append({"path": path + "/" + REQUIRED_KEY, "replaced": stored, "wrote": wanted})
+        keys = list(node)
+        node[REQUIRED_KEY] = wanted
+        if REQUIRED_KEY not in keys and "description" in keys:
+            for key in keys[keys.index("description") + 1:]:
+                node[key] = node.pop(key)
+    return result, changes
+
+
+def only_settled_literal_value_slot(before: Any, after: Any) -> Optional[str]:
+    """Every difference must be such a field losing its ``@id`` slot or taking its ``required``."""
+    removed, required = set(), {}
+    for path, node in schema_context_nodes(before):
+        wanted = settled_literal_required(node)
+        if wanted is not None:
+            removed.add(path + "/properties/" + AT_ID)
+            required[path + "/" + REQUIRED_KEY] = wanted
+    for path, old, new in differences(before, after):
+        if path in removed and new is ABSENT:
+            continue
+        if path in required and new == required[path]:
+            continue
+        # A same-length list that changed is reported entry by entry, under the list's own path.
+        parent = path.rsplit("/", 1)[0]
+        if parent in required and value_at(after, parent) == required[parent]:
+            continue
+        return path or "/"
+    return None
+
+
 JSON_LD_ID = "@id"
 EMPTY_IRI_ERROR = r"^(?:\[read\] )?An empty string is not a URI"
 
@@ -6503,6 +6587,135 @@ def only_freed_controlled_fields(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# Fields an operator has decided hold terms, keyed by template IRI. Supplied through --term-fields,
+# never inferred: a field declaring both value slots says nothing about which it is for, and what its
+# instances hold is evidence an operator weighs rather than a rule a repair can apply.
+TERM_FIELDS: dict[str, list[str]] = {}
+
+
+def term_field_holder(declarations: Any, name: str) -> Optional[dict]:
+    """The named child's field definition, unwrapped from a multiple child's array."""
+    entry = declarations.get(name) if isinstance(declarations, dict) else None
+    holder = entry.get("items") if isinstance(entry, dict) and entry.get("type") == "array" else entry
+    return holder if isinstance(holder, dict) and holder.get(AT_TYPE) == FIELD_AT_TYPE else None
+
+
+def declares_unused_value_slot(holder: dict) -> bool:
+    """Whether a vocabulary-constrained field also declares a ``@value`` slot."""
+    properties = holder.get("properties")
+    return (isinstance(properties, dict) and AT_VALUE in properties and AT_ID in properties
+            and term_constrained(holder))
+
+
+def settle_term_value_slot(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Drop the unused ``@value`` slot from a named field that holds terms.
+
+    A field that carries a vocabulary constraint and declares both ``@value`` and ``@id`` lets an
+    instance hold free text where the constraint calls for a term. Where every instance holds a term,
+    the ``@value`` slot is a leftover of whatever generated the field, and the field is the
+    controlled-term one both libraries write: ``@id``, ``@type`` and ``rdfs:label``, and no
+    ``required``. A ``required`` naming ``@value`` loses that entry, since the slot it names goes.
+    Only the named fields change, and a template takes the repair only when every dependent instance
+    still validates.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    wanted = TERM_FIELDS.get(artifact.get(AT_ID) or "") or []
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for name in wanted:
+        holder = term_field_holder(result.get("properties"), name)
+        if holder is None or not declares_unused_value_slot(holder):
+            continue
+        base = "/properties/" + rest.json_pointer_component(name) \
+            + ("/items" if holder is not result["properties"][name] else "")
+        removed = holder["properties"].pop(AT_VALUE)
+        changes.append({"path": base + "/properties/" + AT_VALUE, "replaced": removed, "wrote": None})
+        required = holder.get(REQUIRED_KEY)
+        if isinstance(required, list) and AT_VALUE in required:
+            holder[REQUIRED_KEY] = [key for key in required if key != AT_VALUE]
+            changes.append({"path": base + "/" + REQUIRED_KEY, "replaced": required, "wrote": holder[REQUIRED_KEY]})
+    return result, changes
+
+
+def only_settled_term_value_slot(before: Any, after: Any) -> Optional[str]:
+    """Every difference must be a named term field losing its ``@value`` slot, or that slot's demand."""
+    if not isinstance(before, dict):
+        return "/"
+    allowed: dict[str, Any] = {}
+    for name in TERM_FIELDS.get(before.get(AT_ID) or "") or []:
+        holder = term_field_holder(before.get("properties"), name)
+        if holder is None or not declares_unused_value_slot(holder):
+            continue
+        base = "/properties/" + rest.json_pointer_component(name) \
+            + ("/items" if holder is not before["properties"][name] else "")
+        allowed[base + "/properties/" + AT_VALUE] = ABSENT
+        required = holder.get(REQUIRED_KEY)
+        if isinstance(required, list) and AT_VALUE in required:
+            allowed[base + "/" + REQUIRED_KEY] = [key for key in required if key != AT_VALUE]
+    # Removing an entry shortens the list, which `differences` reports at the list's own path.
+    for path, old, new in differences(before, after):
+        if path not in allowed:
+            return path or "/"
+        if allowed[path] is ABSENT:
+            if new is not ABSENT:
+                return path
+        elif new != allowed[path]:
+            return path
+    return None
+
+
+# How a generator wrote "nothing selected" into a field that holds terms: an empty literal.
+EMPTY_TERM_LITERALS = ({"@value": ""}, {"@value": "", "@type": "xsd:string"})
+
+
+def empty_term_literal_names(instance: Any, template: Any) -> list[str]:
+    """The named term fields whose value in this instance is an empty literal."""
+    names = TERM_FIELDS.get(instance.get("schema:isBasedOn") or "") or []
+    declarations = template.get("properties") if isinstance(template, dict) else None
+    found = []
+    for name in names:
+        holder = term_field_holder(declarations, name)
+        if holder is None or holder is not declarations.get(name) or not term_constrained(holder):
+            continue
+        value = instance.get(name)
+        if isinstance(value, dict) and value in EMPTY_TERM_LITERALS:
+            found.append(name)
+    return found
+
+
+def settle_empty_term_literal(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write an empty named term field as ``{}``, the form absence takes in a field holding terms.
+
+    A value of ``{"@value": ""}`` says nothing was chosen, in the form a literal field uses. The
+    field holds terms, so once its template declares only ``@id`` the literal form is refused
+    although it carries nothing. ``{}`` says the same thing in the field's own form, and is also
+    valid while the template still declares both slots, so the instance validates before and after
+    the template changes. Only a value that is exactly an empty literal is touched: one carrying a
+    term, or any text at all, is left as it stands.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(instance)
+    changes: list[dict[str, Any]] = []
+    for name in empty_term_literal_names(instance, template):
+        changes.append({"path": "/" + rest.json_pointer_component(name), "replaced": result[name], "wrote": {}})
+        result[name] = {}
+    return result, changes
+
+
+def only_settled_empty_term_literals(before: Any, after: Any, template: Any) -> Optional[str]:
+    """Every difference must be a named term field's empty literal becoming ``{}``."""
+    allowed = set(empty_term_literal_names(before, template)) if isinstance(before, dict) else set()
+    for path, old, new in differences(before, after):
+        parts = [p.replace("~1", "/").replace("~0", "~") for p in path.split("/") if p]
+        if not parts or parts[0] not in allowed or after.get(parts[0]) != {}:
+            return path or "/"
+    return None
+
+
 # Fields an operator has decided a template should declare, keyed by template IRI. Supplied through
 # --declare-fields, never inferred: instances carry keys a template does not declare for two quite
 # different reasons, and only its owner knows which applies. Where the key is a field that was
@@ -7557,6 +7770,28 @@ REPAIRS = {
         transform=complete_literal_required,
         invariant=only_completed_literal_required,
     ),
+    "settle-literal-value-slot": Repair(
+        name="settle-literal-value-slot",
+        condition="literal-field-declares-iri-slot",
+        summary="drop the unused @id slot from a literal field that declares both, and state its `required`",
+        transform=settle_literal_value_slot,
+        invariant=only_settled_literal_value_slot,
+    ),
+    "settle-term-value-slot": Repair(
+        name="settle-term-value-slot",
+        condition="term-field-declares-value-slot",
+        summary="drop the unused @value slot from named vocabulary-constrained fields that hold terms",
+        transform=settle_term_value_slot,
+        invariant=only_settled_term_value_slot,
+    ),
+    "settle-empty-term-literal": Repair(
+        name="settle-empty-term-literal",
+        condition="empty-literal-in-term-field",
+        summary="write an empty literal in a named term field as {}, the form absence takes there",
+        transform=settle_empty_term_literal,
+        invariant=only_settled_empty_term_literals,
+        needs_template=True,
+    ),
     "drop-empty-instance-iri": Repair(
         name="drop-empty-instance-iri",
         condition="empty-instance-iri",
@@ -8136,6 +8371,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--declare-fields",
                         help="JSON: template IRI -> the field declarations to add, for "
                              "declare-instance-field; nothing is declared without it")
+    parser.add_argument("--term-fields",
+                        help="JSON of fields that hold terms, {templateId: [fieldName]}, whose unused "
+                             "@value slot settle-term-value-slot drops; nothing is settled without it")
     parser.add_argument("--free-fields",
                         help="JSON of fields to make free text, {templateId: [fieldName]}, which "
                              "free-controlled-field applies; nothing is freed without it")
@@ -8302,6 +8540,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
+                                 ("--term-fields", arguments.term_fields, TERM_FIELDS),
                                  ("--declare-fields", arguments.declare_fields, DECLARED_FIELDS)):
         if not supplied:
             continue

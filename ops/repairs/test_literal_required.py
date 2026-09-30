@@ -71,5 +71,144 @@ class LiteralRequiredTest(unittest.TestCase):
         self.assertIs(repair.transform, r.complete_literal_required)
 
 
+class LiteralValueSlotTest(unittest.TestCase):
+    def test_a_field_declaring_both_slots_becomes_the_literal_field(self):
+        both = field("textfield", properties=("@value", "rdfs:label", "@type", "@id"))
+        template = {"@type": TEMPLATE_AT_TYPE, "properties": {"f": both}}
+        after, changes = r.settle_literal_value_slot(template)
+        settled = after["properties"]["f"]
+        self.assertEqual(list(settled["properties"]), ["@value", "rdfs:label", "@type"])
+        self.assertEqual(settled["required"], ["@value"])
+        self.assertEqual([c["path"] for c in changes], ["/properties/f/properties/@id", "/properties/f/required"])
+        self.assertIsNone(r.only_settled_literal_value_slot(template, after))
+        self.assertEqual(r.settle_literal_value_slot(after), (after, []))
+        self.assertIn("@id", both["properties"])
+
+    def test_constrained_iri_or_already_demanding_fields_are_left(self):
+        left = [
+            field("textfield", properties=("@value", "@id"), _valueConstraints={"classes": [{"uri": "urn:c"}]}),
+            field("textfield", properties=("@type", "@id", "rdfs:label")),
+            field("link", properties=("@value", "@id")),
+            field("textfield", properties=("@value", "@id"), required=["@value", "@id"]),
+            field("textfield", properties=("@value", "@id"), required=["@type"]),
+        ]
+        for node in left:
+            self.assertEqual(r.settle_literal_value_slot(node), (node, []), node)
+
+    def test_a_stated_required_is_kept_or_replaced_by_what_it_demands(self):
+        both = ("@value", "rdfs:label", "@type", "@id")
+        kept = field("numeric", properties=both, required=["@value", "@type"])
+        after, changes = r.settle_literal_value_slot(kept)
+        self.assertEqual(after["required"], ["@value", "@type"])
+        self.assertNotIn("@id", after["properties"])
+        self.assertEqual([c["path"] for c in changes], ["/properties/@id"])
+        self.assertIsNone(r.only_settled_literal_value_slot(kept, after))
+        for stated in (["@id", "rdfs:label"], ["rdfs:label"]):
+            node = field("textfield", properties=both, required=stated)
+            after, changes = r.settle_literal_value_slot(node)
+            self.assertEqual(after["required"], ["@value"], stated)
+            self.assertEqual([c["path"] for c in changes], ["/properties/@id", "/required"])
+            self.assertIsNone(r.only_settled_literal_value_slot(node, after))
+            self.assertEqual(r.settle_literal_value_slot(after), (after, []))
+
+    def test_invariant_rejects_any_other_change(self):
+        both = field("textfield", properties=("@value", "@id"))
+        after, _ = r.settle_literal_value_slot(both)
+        kept = copy.deepcopy(after)
+        kept["properties"]["@id"] = {}
+        self.assertIsNone(r.only_settled_literal_value_slot(both, kept))
+        dropped_value = copy.deepcopy(after)
+        del dropped_value["properties"]["@value"]
+        self.assertEqual(r.only_settled_literal_value_slot(both, dropped_value), "/properties/@value")
+        retitled = dict(after, title="changed")
+        self.assertEqual(r.only_settled_literal_value_slot(both, retitled), "/title")
+
+
+class TermValueSlotTest(unittest.TestCase):
+    TEMPLATE_ID = "https://repo.metadatacenter.org/templates/t"
+
+    def setUp(self):
+        self.addCleanup(r.TERM_FIELDS.clear)
+        r.TERM_FIELDS[self.TEMPLATE_ID] = ["Laterality", "Wrapped"]
+        constrained = {"classes": [{"uri": "urn:c", "label": "Left"}]}
+        both = ("@value", "rdfs:label", "@type", "@id")
+        self.template = {"@id": self.TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+            "Laterality": field("textfield", properties=both, _valueConstraints=constrained),
+            "Wrapped": {"type": "array", "items": field("textfield", properties=both, required=["@value"],
+                                                        _valueConstraints=constrained)},
+            "HR Pos": field("textfield", properties=both, _valueConstraints=constrained),
+            "Free": field("textfield", properties=both)}}
+
+    def test_only_the_named_term_fields_lose_their_value_slot(self):
+        after, changes = r.settle_term_value_slot(self.template)
+        props = after["properties"]
+        self.assertEqual(list(props["Laterality"]["properties"]), ["rdfs:label", "@type", "@id"])
+        self.assertEqual(props["Wrapped"]["items"]["required"], [])
+        self.assertIn("@value", props["HR Pos"]["properties"])
+        self.assertIn("@value", props["Free"]["properties"])
+        self.assertEqual([c["path"] for c in changes], ["/properties/Laterality/properties/@value",
+                                                        "/properties/Wrapped/items/properties/@value",
+                                                        "/properties/Wrapped/items/required"])
+        self.assertIsNone(r.only_settled_term_value_slot(self.template, after))
+        self.assertEqual(r.settle_term_value_slot(after), (after, []))
+
+    def test_nothing_changes_without_a_plan(self):
+        r.TERM_FIELDS.clear()
+        self.assertEqual(r.settle_term_value_slot(self.template), (self.template, []))
+
+    def test_invariant_rejects_any_other_change(self):
+        after, _ = r.settle_term_value_slot(self.template)
+        other = copy.deepcopy(after)
+        del other["properties"]["HR Pos"]["properties"]["@value"]
+        self.assertEqual(r.only_settled_term_value_slot(self.template, other),
+                         "/properties/HR Pos/properties/@value")
+        kept = copy.deepcopy(after)
+        kept["properties"]["Laterality"]["properties"]["@value"] = {"type": "string"}
+        self.assertIsNotNone(r.only_settled_term_value_slot(self.template, kept))
+
+
+class EmptyTermLiteralTest(unittest.TestCase):
+    TEMPLATE_ID = "https://repo.metadatacenter.org/templates/t"
+
+    def setUp(self):
+        self.addCleanup(r.TERM_FIELDS.clear)
+        r.TERM_FIELDS[self.TEMPLATE_ID] = ["ERpos", "PgRpos", "Laterality", "Free"]
+        constrained = {"classes": [{"uri": "urn:c", "label": "Positive"}]}
+        both = ("@value", "rdfs:label", "@type", "@id")
+        self.template = {"@id": self.TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+            name: field("textfield", properties=both, _valueConstraints=constrained)
+            for name in ("ERpos", "PgRpos", "Laterality", "Other")}}
+        self.template["properties"]["Free"] = field("textfield", properties=both)
+        empty = {"@value": "", "@type": "xsd:string"}
+        self.instance = {"schema:isBasedOn": self.TEMPLATE_ID, "ERpos": dict(empty), "PgRpos": {"@value": ""},
+                         "Laterality": {"@id": "urn:c", "rdfs:label": "Left"}, "Other": dict(empty),
+                         "Free": dict(empty)}
+
+    def test_only_named_term_fields_holding_an_empty_literal_change(self):
+        after, changes = r.settle_empty_term_literal(self.instance, self.template)
+        self.assertEqual(after["ERpos"], {})
+        self.assertEqual(after["PgRpos"], {})
+        self.assertEqual(after["Laterality"], self.instance["Laterality"])
+        self.assertEqual(after["Other"], self.instance["Other"])
+        self.assertEqual(after["Free"], self.instance["Free"])
+        self.assertEqual([c["path"] for c in changes], ["/ERpos", "/PgRpos"])
+        self.assertIsNone(r.only_settled_empty_term_literals(self.instance, after, self.template))
+        self.assertEqual(r.settle_empty_term_literal(after, self.template), (after, []))
+
+    def test_text_is_never_taken_for_emptiness(self):
+        self.instance["ERpos"] = {"@value": "1", "@type": "xsd:string"}
+        after, changes = r.settle_empty_term_literal(self.instance, self.template)
+        self.assertEqual(after["ERpos"], self.instance["ERpos"])
+        self.assertEqual([c["path"] for c in changes], ["/PgRpos"])
+
+    def test_invariant_rejects_any_other_change(self):
+        after, _ = r.settle_empty_term_literal(self.instance, self.template)
+        other = dict(after, Other={})
+        self.assertIsNotNone(r.only_settled_empty_term_literals(self.instance, other, self.template))
+        relabelled = dict(after, Laterality={"@id": "urn:c", "rdfs:label": "Right"})
+        self.assertEqual(r.only_settled_empty_term_literals(self.instance, relabelled, self.template),
+                         "/Laterality/rdfs:label")
+
+
 if __name__ == "__main__":
     unittest.main()
