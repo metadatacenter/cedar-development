@@ -1099,9 +1099,30 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   counted for it, because the condition that names targets looks for a value or an address rather
   than for whatever a static field was given. Separately, a literal field can carry a vocabulary
   constraint: the constraint calls for a term while the field declares `@value`, so the two halves
-  of the field disagree about what an instance may hold. Seven are known. Settling one means
-  choosing which half is wrong, and rewriting `properties` invalidates any instance already holding
-  the other shape, so neither is a repair a lookup answers.
+  of the field disagree about what an instance may hold. The walk of 2026-09-29 counted 309 such
+  fields that also require `@value`: 106 in 36 templates, 13 in 12 elements and 190 standalone
+  fields, 265 of them constrained to classes. Fields of this shape that require nothing
+  were not counted. Settling one means choosing which half is wrong, and rewriting `properties`
+  invalidates any instance already holding the other shape, so neither is a repair a lookup answers.
+
+  **Require every literal field's value.** `literal-field-meta-schema.json` lets a literal field omit
+  `required`, so an instance of the field may leave its value out. Both libraries write `["@value"]`,
+  adding `@type` for a numeric or temporal field, and restore the list when they read a field without
+  it. The walk of 2026-09-29 found 77,006 literal fields without the list, and the
+  `complete-literal-required` repair writes it wherever a field is unambiguously literal. Tighten the
+  meta-schema to demand `@value` of every literal field, and re-enable the six validation tests
+  disabled for this gap, once three things hold:
+
+  - The standalone-field run recorded under `.cedar/repairs/2026-09-30-literal-required/` has
+    finished, and `cedar_artifact_validation_audit.py --recheck` has proved every write.
+  - Each remaining field has a decision. Two templates cannot take the list without invalidating
+    instances that omit a value: in one, 72 of 893 instances leave `@value` out, and in the other, 3
+    of 7 omit `@type` in a numeric field. Twenty-one fields declare both `@value` and `@id`, so
+    nothing says which was meant. A further 117 list, numeric and temporal fields declare an IRI
+    value slot, which no literal field type holds.
+  - The writers that still omit the list produce it. A generator of openMINDS-derived templates and
+    elements wrote 67 affected artifacts in 2025 and 2026, and the RADx CSV2CEDAR generator was still
+    in use in 2025. Neither lives in the estate, so their maintainers have to change them.
 
   **Make the model version explicit.** Decide what an artifact carrying no `schema:schemaVersion`
   gets, should one appear. The deployed population has never forced the question and the readers
