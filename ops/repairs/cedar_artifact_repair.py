@@ -1081,6 +1081,68 @@ def only_canonicalised_field_required(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "")
 
 
+def missing_literal_required(definition: Any) -> Optional[list[str]]:
+    """The ``required`` a literal field should state when it states none, or ``None``.
+
+    Both libraries give every literal field a ``required`` naming ``@value``, with ``@type`` for a
+    numeric or temporal field, and both restore it when they read a field that lacks it, so no reader
+    or writer notices the absence. A validator does: without the list, an instance of the field may
+    omit its value altogether. Production holds tens of thousands of such fields, written by bulk
+    generators that left the list out.
+
+    Only an unambiguously literal field qualifies. It declares ``@value`` and not ``@id``, draws on no
+    vocabulary, and has an input type that holds a literal. Its stored list must also be absent or
+    empty, so a list that already demands something is never replaced. Adding the list tightens what
+    an instance must carry, so a template takes it only when every dependent instance still validates.
+    """
+    wanted, shape = canonical_required(definition)
+    if shape not in ("literal", "typed literal") or term_constrained(definition):
+        return None
+    ui = definition.get("_ui")
+    input_type = ui.get("inputType") if isinstance(ui, dict) else None
+    if not isinstance(input_type, str) or input_type in IRI_FIELD_INPUT_TYPES \
+            or input_type == "attribute-value":
+        return None
+    return list(wanted) if definition.get(REQUIRED_KEY, []) == [] else None
+
+
+def complete_literal_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give every literal field whose ``required`` is absent or empty the list both libraries write.
+
+    The list is placed after ``description``, where the libraries write it, so a repaired field reads
+    like a freshly rendered one.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for path, node in schema_context_nodes(result):
+        wanted = missing_literal_required(node)
+        if wanted is None:
+            continue
+        changes.append({"path": path + "/" + REQUIRED_KEY, "replaced": node.get(REQUIRED_KEY), "wrote": wanted})
+        keys = list(node)
+        node[REQUIRED_KEY] = wanted
+        if "description" in keys:
+            for key in keys[keys.index("description") + 1:]:
+                if key != REQUIRED_KEY:
+                    node[key] = node.pop(key)
+    return result, changes
+
+
+def only_completed_literal_required(before: Any, after: Any) -> Optional[str]:
+    """Every difference must be a literal field gaining the ``required`` its shape calls for."""
+    allowed = {}
+    for path, node in schema_context_nodes(before):
+        wanted = missing_literal_required(node)
+        if wanted is not None:
+            allowed[path + "/" + REQUIRED_KEY] = wanted
+    for path, old, new in differences(before, after):
+        if path not in allowed or new != allowed[path] or not (old is ABSENT or old == []):
+            return path or "/"
+    return None
+
+
 JSON_LD_ID = "@id"
 EMPTY_IRI_ERROR = r"^(?:\[read\] )?An empty string is not a URI"
 
@@ -7487,6 +7549,13 @@ REPAIRS = {
         summary="give a field the `required` its declared shape calls for",
         transform=canonicalise_field_required,
         invariant=only_canonicalised_field_required,
+    ),
+    "complete-literal-required": Repair(
+        name="complete-literal-required",
+        condition="literal-required-absent",
+        summary="give a literal field whose `required` is absent or empty the list both libraries write",
+        transform=complete_literal_required,
+        invariant=only_completed_literal_required,
     ),
     "drop-empty-instance-iri": Repair(
         name="drop-empty-instance-iri",
