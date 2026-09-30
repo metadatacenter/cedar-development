@@ -140,13 +140,14 @@ async function write(
   status = 200,
   conditional = false,
 ) {
-  const pending = p.waitForResponse(
-    (r) =>
-      r.request().method() === method &&
-      new URL(r.url()).pathname.startsWith(path),
-  );
-  await gesture();
-  const response = await pending;
+  const [response] = await Promise.all([
+    p.waitForResponse(
+      (r) =>
+        r.request().method() === method &&
+        new URL(r.url()).pathname.startsWith(path),
+    ),
+    gesture(),
+  ]);
   assert.ok(
     (Array.isArray(status) ? status : [status]).includes(response.status()),
     `${method} ${path} returned ${response.status()}, expected ${status}: ${JSON.stringify(bodies.get(method + " " + response.url()))?.slice(0, 1200)}`,
@@ -296,11 +297,11 @@ async function constrainToDoidDiseaseBranch(p) {
     .locator("app-field-type-picker")
     .getByRole("button", { name: "Controlled Terms", exact: true })
     .click();
-  await p.locator('input[aria-label="Field name"]:focus').fill("Disease");
-  const settings = p
+  const field = p
     .locator("app-field-card")
-    .filter({ has: p.locator("app-controlled-term-config") })
-    .locator("app-field-settings");
+    .filter({ has: p.locator("app-controlled-term-config") });
+  await field.getByRole("textbox", { name: "Field display name", exact: true }).fill("Disease");
+  const settings = field.locator("app-field-settings");
   const toggle = settings.locator(".settings-toggle");
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
   await settings.getByRole("tab", { name: "Constraints", exact: true }).click();
@@ -535,7 +536,7 @@ try {
       kind === "template"
         ? page.getByPlaceholder("Template name", { exact: true })
         : page.getByRole("textbox", {
-            name: kind === "field" ? "Field name" : "Element name",
+            name: kind === "field" ? "Field display name" : "Element name",
             exact: true,
           });
     await input.fill(names[kind]);
@@ -546,7 +547,7 @@ try {
         .getByRole("button", { name: "Text", exact: true })
         .click();
       await page
-        .getByRole("textbox", { name: "Field name", exact: true })
+        .getByRole("textbox", { name: "Field display name", exact: true })
         .fill("Notes");
       await constrainToDoidDiseaseBranch(page);
     }
@@ -1043,7 +1044,7 @@ try {
   step = "copy-move";
   await listed(page, names.template);
   await menu(page, names.template, "Copy");
-  await modal(page).getByLabel("Name", { exact: true }).fill(names.copy);
+  await modal(page).getByLabel("Name of copy", { exact: true }).fill(names.copy);
   const copy = await save(
     page,
     "POST",
@@ -1054,8 +1055,8 @@ try {
   await listed(page, names.copy);
   await menu(page, names.copy, "Move");
   await modal(page)
-    .locator(".folder-list")
-    .getByRole("button", { name: "▰ " + names.destination, exact: true })
+    .locator("cedar-folder-list")
+    .getByRole("button", { name: names.destination, exact: true })
     .click();
   await save(page, "POST", "/command/move-resource-to-folder", 201, true);
   await listed(page, names.copy, destination);
@@ -1090,8 +1091,8 @@ try {
     .locator("dd")
     .filter({ hasText: /^1\.1\.0$/ })
     .waitFor();
-  await page.getByRole("tab", { name: "Info", exact: true }).click();
-  pass("Info and Version panels show the published/draft chain");
+  await page.getByRole("tab", { name: "Details", exact: true }).click();
+  pass("Details and Version panels show the published/draft chain");
   step = "openview";
   await listed(page, names.copy, destination);
   await menu(page, names.copy, "Enable Openview");
@@ -1292,6 +1293,10 @@ try {
     })
     .catch(() => {});
   console.error("FAILED STEP:", step);
+  console.error("Designer validation:", await page?.evaluate(() => {
+    const editor = document.querySelector("cedar-embeddable-designer, cedar-embeddable-field-designer");
+    return editor?.validationReport ?? null;
+  }).catch(() => null));
   console.error(
     await page
       ?.locator("body")
