@@ -2764,6 +2764,48 @@ field values to inspect those states. The page shows a missing-bundle message
 instead of substituting mock components. Its browser test joins the existing
 real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
+#### CED token coverage audit (2026-09-30)
+
+The post-reactor `cedarcli check design-tokens --strict --json` audit passes the
+new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
+At CED `c351c45` and tokens `879be48`, the scanner reports **658 existing findings**:
+339 utility styles, 150 colors, 86 spacing declarations, 62 geometry declarations,
+15 typography declarations and six dynamic styles. These are source findings,
+including development surfaces, not 658 demonstrated visual defects. The report
+also identifies 149 resolved baseline entries that can be pruned after review.
+
+The registered CED surface inventory has 23 surfaces, 12 contract registrations and
+four documented differences. Central `surfaces/contracts.json` covers six kinds:
+menus, dialogs, error summaries, warning summaries, calendars and error alerts.
+Menu and dialog contracts check only surface color and corner radius. **There are
+no central rendered contracts for field labels, metadata labels, authoring tables,
+select-arrow clearance or controlled-term default rows.** CED's local browser tests
+cover several of these, but the shared contract registry does not enforce them.
+
+Shared values live in `cedar-design-tokens/_tokens.scss`; opt-in recipes live in
+`_patterns.scss` and `_controls.scss`. CED still composes presentation in
+`src/styles.css`, `src/app/shared/_control-style.scss`, `_table-style.scss` and
+component styles. The field-settings stylesheet is shared by three components.
+Token references therefore do not prevent a local selector, omitted recipe or
+cascade override from changing weight, alignment or density. Removing unused
+annotation rules from that shared stylesheet reduced the bundle below its size
+gate without changing the current UI.
+
+For this class of regression, review the computed properties on the actual
+standalone and nested authoring surfaces, with real CEF loaded, at desktop and
+375px widths and with supported host overrides. Check label weight/style,
+control/value weight, row density, the final table rule, select trailing space and
+empty/populated default-row alignment. A same-valued token substitution is not
+proof that the correct semantic role or shared recipe is used. Baselines must
+remain tied to approved presentation, not regenerated to accept unexpected output.
+
+Tokens also cannot enforce validation timing, save-state terminology or separation
+of selected values from defaults. Those require application-state tests. Finally,
+source adoption, installed package pins and served component bytes are separate
+checks: retain all three alongside the reactor and smoke evidence. Remaining
+centralization and rendered-contract work is tracked under **Enforce CED Authoring
+Style Contracts** in the frontend roadmap.
+
 ## Surface inventory and token coverage
 
 The modern UI hierarchy is generated from `.ui-surfaces.json` in Workspace, CED,

@@ -246,3 +246,22 @@ templates include is saved, the Template Editor offers to write the change into 
 draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Workspace nor the
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
+
+### 16. Enforce CED Authoring Style Contracts
+
+Extend the central rendered contracts to cover field and metadata labels, authoring
+controls and tables, select-arrow clearance, and controlled-term default rows. Test
+the approved font weights and upright labels, compact row spacing, final table
+border and empty/populated alignment across standalone fields, nested fields and
+elements, all settings tabs, desktop and narrow widths, real CEF and host overrides.
+Reuse the field-type matrix rather than relying on one representative text field.
+
+Consolidate CED's overlapping global, shared and component rules around the existing
+token recipes, preserving the agreed presentation. Assign ownership for each role
+and remove duplicate or unused emitted rules. Reduce the existing adoption baseline
+surface by surface and prune resolved entries after review; do not expand allowances
+or replace values with semantically unrelated tokens to make the scanner green.
+
+Keep validation timing, save state and default-value isolation in behavior tests;
+they cannot be guaranteed by CSS tokens. The measured coverage and source ownership
+are documented in the runbook's **CED token coverage audit**.
