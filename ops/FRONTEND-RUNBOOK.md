@@ -2768,28 +2768,29 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
 The post-reactor `cedarcli check design-tokens --strict --json` audit passes the
 new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-At CED `c351c45` and tokens `879be48`, the scanner reports **658 existing findings**:
+The scanner reports **658 existing findings**:
 339 utility styles, 150 colors, 86 spacing declarations, 62 geometry declarations,
 15 typography declarations and six dynamic styles. These are source findings,
-including development surfaces, not 658 demonstrated visual defects. The report
-also identifies 149 resolved baseline entries that can be pruned after review.
+including development surfaces, not 658 demonstrated visual defects. Resolved baseline allowances are pruned rather than retained as permission for drift to return.
 
-The registered CED surface inventory has 23 surfaces, 12 contract registrations and
-four documented differences. Central `surfaces/contracts.json` covers six kinds:
-menus, dialogs, error summaries, warning summaries, calendars and error alerts.
-Menu and dialog contracts check only surface color and corner radius. **There are
-no central rendered contracts for field labels, metadata labels, authoring tables,
-select-arrow clearance or controlled-term default rows.** CED's local browser tests
-cover several of these, but the shared contract registry does not enforce them.
+The registered CED inventory has 26 surfaces and 15 contract registrations, with
+four documented differences. Central contracts now include authoring label and
+control typography and compact table-cell density, exercised on the annotation
+entry row at desktop and 375px widths. The broader field/element matrix remains in
+CED's browser tests. Select-arrow clearance and controlled-term default-row
+alignment still lack central rendered contracts, and menu/dialog contracts still
+check only surface color and corner radius.
 
-Shared values live in `cedar-design-tokens/_tokens.scss`; opt-in recipes live in
-`_patterns.scss` and `_controls.scss`. CED still composes presentation in
-`src/styles.css`, `src/app/shared/_control-style.scss`, `_table-style.scss` and
-component styles. The field-settings stylesheet is shared by three components.
-Token references therefore do not prevent a local selector, omitted recipe or
-cascade override from changing weight, alignment or density. Removing unused
-annotation rules from that shared stylesheet reduced the bundle below its size
-gate without changing the current UI.
+Shared values live in `cedar-design-tokens/_tokens.scss`; native authoring recipes
+live in `_authoring.scss`, alongside general `_patterns.scss` and `_controls.scss`.
+CED imports authoring recipes directly. `src/authoring.scss` selects the applicable
+surfaces for both designer elements without copying recipe declarations. Component
+styles own content-specific layout. Do not reintroduce local control/table recipe
+copies or corrective authoring geometry in `src/styles.css`.
+
+This is not complete adoption: utility styling and component overrides remain,
+including the field-settings stylesheet shared by three components. Token references
+do not prevent an omitted recipe or cascade override from changing presentation.
 
 For this class of regression, review the computed properties on the actual
 standalone and nested authoring surfaces, with real CEF loaded, at desktop and
