@@ -2768,10 +2768,10 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
 The post-reactor `cedarcli check design-tokens --strict --json` audit passes the
 new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-The scanner reports **658 existing findings**:
-339 utility styles, 150 colors, 86 spacing declarations, 62 geometry declarations,
+The scanner reports **150 existing findings**:
+29 utility styles, 17 colors, 21 spacing declarations, 62 geometry declarations,
 15 typography declarations and six dynamic styles. These are source findings,
-including development surfaces, not 658 demonstrated visual defects. Resolved baseline allowances are pruned rather than retained as permission for drift to return.
+including development surfaces, not 150 demonstrated visual defects. Resolved baseline allowances are pruned rather than retained as permission for drift to return.
 
 The registered CED inventory has 26 surfaces and 15 contract registrations, with
 four documented differences. Central contracts now include authoring label and
@@ -2785,7 +2785,10 @@ Shared values live in `cedar-design-tokens/_tokens.scss`; native authoring recip
 live in `_authoring.scss`, alongside general `_patterns.scss` and `_controls.scss`.
 CED imports authoring recipes directly. `src/authoring.scss` selects the applicable
 surfaces for both designer elements without copying recipe declarations. Component
-styles own content-specific layout. Do not reintroduce local control/table recipe
+styles own content-specific layout. Preferences and Presets use the central
+settings-dialog structure; field cards, the palette and sidebar use semantic
+text, surface, border and theme roles rather than independent gray/green palettes.
+Do not reintroduce local control/table recipe
 copies or corrective authoring geometry in `src/styles.css`.
 
 This is not complete adoption: utility styling and component overrides remain,
