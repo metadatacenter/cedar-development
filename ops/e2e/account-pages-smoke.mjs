@@ -309,6 +309,7 @@ try {
       path: "/tmp/cedar-modern-groups.png",
       fullPage: true,
     });
+    await page.getByRole("tab", { name: "Delete group", exact: true }).click();
     await mutation(
       "DELETE",
       path,
