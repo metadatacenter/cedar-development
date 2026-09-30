@@ -187,7 +187,7 @@ async function editor(p, name) {
   await row(p, name).getByRole("link", { name, exact: true }).click();
   await p
     .locator("#state")
-    .filter({ hasText: /^(No unsaved changes|Unsaved changes)$/ })
+    .filter({ hasText: /^(Saved|Modified)$/ })
     .waitFor();
 }
 async function editorSave(p, method, collection, status = 200) {
@@ -1169,7 +1169,7 @@ try {
   await row(page, names.copy)
     .getByRole("link", { name: names.copy, exact: true })
     .click();
-  await page.locator("#state").filter({ hasText: /^No unsaved changes$/ }).waitFor();
+  await page.locator("#state").filter({ hasText: /^Saved$/ }).waitFor();
   assert.equal(
     (await mutate(user1.auth, "DELETE", "/templates/" + enc(copy["@id"])))
       .status,
