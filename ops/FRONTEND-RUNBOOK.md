@@ -179,6 +179,40 @@ on older components. Release preparation remains a separate operation.
 
 ### The Reactor
 
+**Mandatory: a frontend reactor build and every development E2E acceptance run must use the
+latest development pins of ALL CEDAR components in every consumer. No component is exempt.**
+This includes the TypeScript model library, design tokens, CEE/CEF, CED/CEFD and CETP, their
+transitive CEDAR dependencies, and any components added later. It applies to all hosts, including
+the combined editor, Workspace, Designer, OpenView, Bridging and the component demos.
+
+“Latest development” means the current development sources, including the edits under test,
+built together in dependency order. Fetch remote references and resolve any checkout behind its
+development head before claiming latest-development coverage; preserve local work. A registry
+`dev` tag, a version containing `dev`, a matching pair of displayed versions, or a healthy process
+does not prove freshness. The selected package must match the current source fingerprint, and
+every installed and served copy must match that selected artifact.
+
+Development pins may be the reactor's immutable local artifact hashes and resolved dependency
+locks, or newly published immutable dev versions with updated consumer manifests and locks.
+The current local reactor uses the former and leaves tracked registry pins unchanged. That is
+valid only when **every** consumer actually resolves and serves the fresh selection. An old
+checked-in pin must never determine the component used by a development E2E run.
+
+**Fail closed on stale, missing or unverified components.** Do not restore old pins or an old
+`.reactor/runtime.json`, remove the active selection, substitute a stable release, disable a
+freshness/integration gate, or skip a failing component to obtain a green build or smoke result.
+After a failure, the previous runtime may remain available for diagnosis; it cannot be accepted
+as the latest development build. Fix the failure, rebuild affected consumers, redeploy and verify
+the complete selection before rerunning all smoke tiers.
+
+`cedarcli test e2e` does not itself rebuild the frontend dependency graph or establish that all
+components came from the latest sources. A standalone passing smoke result is therefore
+insufficient. First complete `cedarcli build frontends`, which includes deployment and smoke,
+or reuse its verified runtime only while all relevant source fingerprints, resolved pins and
+served artifacts still match. If sources change, rebuild before accepting another E2E run.
+Retain the reactor build record and runtime selection alongside the smoke report so freshness
+and test success can both be checked. These requirements also apply to direct `ops/e2e` commands.
+
 **“Full frontend reactor” means `cedarcli build frontends`.** The agreed completion contract is:
 
 1. Build all frontend libraries, embeddable components and browser applications from their
@@ -2211,11 +2245,12 @@ Workspace's template and element links open `cedar-template-designer` on the
 Designer hostname. That repository is a thin authenticated CED host; the combined
 `cedar-template-editor` retains its separate authoring implementation.
 
-Run `npm ci` in `cedar-template-designer`, then
-`cedarcli native restart frontend designer`. Its lock pins CED and CETP from
-Nexus and CEE/CEF 2.0.15 from npmjs. No sibling checkout is required. The first
-component snapshots are CED `0.1.0-dev.20260916.2593d382` and CETP
-`0.1.0-dev.20260915.0ec47d9c` under `@org.metadatacenter`.
+For development and E2E, run `cedarcli build frontends` to build and activate the latest
+development pins of CED, CEE/CEF, CETP and their dependencies under
+[the reactor contract](#the-reactor). A standalone `npm ci` uses the host's registry lock;
+that installation alone does not satisfy the development freshness requirement. With a verified
+reactor selection active, `cedarcli native restart frontend designer` reinstalls that selection
+and prepares the served bundles. Server payloads use their separately captured package locks.
 
 The host verifies each installed bundle against its published SHA-256, and
 `app/components/manifest.json` records each package's name, version and digest.

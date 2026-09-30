@@ -2738,6 +2738,16 @@ eight seconds to the recorded time. A gate record is named by the digest of the 
 so a second run against unchanged sources replaces the first run's record, which is how the third
 run's breakdown was lost.
 
+Development E2E requires the **latest development pins of ALL components**, including every
+frontend library and embedded component in every host. Follow the
+[mandatory reactor freshness contract](FRONTEND-RUNBOOK.md#the-reactor) before running this gate.
+`cedarcli test e2e` does not rebuild the frontend graph: a green result against old pins is not
+acceptable latest-development evidence. Use `cedarcli build frontends` to build, deploy and
+verify the complete current-source selection and run smoke; a standalone rerun may reuse that
+selection only while its sources, dependency pins and served bytes remain verified and unchanged.
+Never restore an older component or runtime selection to make smoke pass. Backend binaries must
+likewise be built from the development sources under test and redeployed before acceptance.
+
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
@@ -4887,11 +4897,21 @@ referenced by any `version_tag`.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
+**Prerequisite for every development E2E run: latest development pins of ALL components,
+verified in every consumer.** Follow [the reactor contract](FRONTEND-RUNBOOK.md#the-reactor):
+`cedarcli build frontends` builds the complete current-source dependency graph, redeploys it,
+verifies the selected components and runs all smoke tiers. After backend changes, also build
+and redeploy the current Java sources. Use `cedarcli test e2e --rest-workers 4` for a complete
+smoke rerun only while that verified build is still current. Neither a passing smoke result nor
+matching displayed CEE versions establishes freshness by itself. Missing, stale or unverified
+components block acceptance; falling back to old pins is forbidden.
+
 One command that proves the whole stack works from the outside, the way users would exercise it.
 The Playwright script logs in through the real Keycloak form, uses Workspace and Designer to create
 and mutate a template, populates and re-edits an instance in CEE, presents the template anonymously
 in OpenView, and conditionally deletes its artifacts. Pass = exit 0; a failure leaves a screenshot
-in `ops/e2e/failures/`.
+in `ops/e2e/failures/`. The direct commands below run the legacy browser tier for diagnosis;
+they do not replace the full CLI smoke gate or its development freshness prerequisite.
 
 ```bash
 cd ops/e2e
