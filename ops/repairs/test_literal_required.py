@@ -124,6 +124,208 @@ class LiteralValueSlotTest(unittest.TestCase):
         self.assertEqual(r.only_settled_literal_value_slot(both, retitled), "/title")
 
 
+class ListValueSlotTest(unittest.TestCase):
+    def iri_list(self, **extra):
+        return field("list", properties=("@type", "rdfs:label", "@id"),
+                     _valueConstraints={"literals": [{"label": "Yes"}, {"label": "No"}]}, **extra)
+
+    def test_a_text_option_list_trades_its_iri_slot_for_a_value_slot(self):
+        template = {"@type": TEMPLATE_AT_TYPE, "properties": {"yes/no": {"type": "array", "items": self.iri_list()}}}
+        after, changes = r.settle_list_value_slot(template)
+        settled = after["properties"]["yes/no"]["items"]
+        self.assertEqual(list(settled["properties"]), ["@type", "rdfs:label", "@value"])
+        self.assertEqual(settled["properties"]["@value"], {"type": ["string", "null"]})
+        self.assertEqual(settled["required"], ["@value"])
+        self.assertEqual(list(settled).index("required"), list(settled).index("description") + 1)
+        self.assertEqual(len(changes), 3)
+        self.assertIsNone(r.only_settled_list_value_slots(template, after))
+        self.assertEqual(r.settle_list_value_slot(after), (after, []))
+
+    def test_a_stated_iri_demand_is_replaced(self):
+        node = self.iri_list(required=["@id"])
+        after, _ = r.settle_list_value_slot(node)
+        self.assertEqual(after["required"], ["@value"])
+        self.assertIsNone(r.only_settled_list_value_slots(node, after))
+
+    def test_term_lists_and_other_shapes_are_left(self):
+        left = [
+            field("list", properties=("@type", "rdfs:label", "@id"),
+                  _valueConstraints={"literals": [{"label": "Yes"}], "classes": [{"uri": "urn:c"}]}),
+            field("list", properties=("@type", "rdfs:label", "@id"), _valueConstraints={"literals": []}),
+            field("list", properties=("@type", "@value", "@id"), _valueConstraints={"literals": [{"label": "A"}]}),
+            field("radio", properties=("@type", "@id"), _valueConstraints={"literals": [{"label": "A"}]}),
+            self.iri_list(required=["@type"]),
+        ]
+        for node in left:
+            self.assertEqual(r.settle_list_value_slot(node), (node, []), node)
+
+    def test_invariant_rejects_any_other_change(self):
+        node = self.iri_list()
+        after, _ = r.settle_list_value_slot(node)
+        widened = copy.deepcopy(after)
+        widened["properties"]["@value"] = {"type": "string"}
+        self.assertIsNotNone(r.only_settled_list_value_slots(node, widened))
+        relabelled = copy.deepcopy(after)
+        relabelled["_valueConstraints"]["literals"][0]["label"] = "Maybe"
+        self.assertEqual(r.only_settled_list_value_slots(node, relabelled), "/_valueConstraints/literals/0/label")
+
+
+class RetypeAsTermFieldTest(unittest.TestCase):
+    FIELD_ID = "https://repo.metadatacenter.org/template-fields/f2"
+    TEMPLATE_ID = "https://repo.metadatacenter.org/templates/t"
+
+    def setUp(self):
+        self.addCleanup(r.TERM_INPUT_FIELDS.clear)
+        term = {"classes": [{"uri": "http://identifiers.org/ncbigene/29251", "label": "F2"}]}
+        self.standalone = dict(field("temporal", properties=("@type", "rdfs:label", "@id"),
+                                     _valueConstraints=dict(term, temporalType="xsd:dateTime", requiredValue=False)),
+                               **{"@id": self.FIELD_ID})
+        self.standalone["_ui"].update(temporalGranularity="second", timezoneEnabled=True, inputTimeFormat="12h")
+        self.template = {"@id": self.TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+            "Age": field("numeric", properties=("@type", "rdfs:label", "@id"),
+                         _valueConstraints=dict(term, numberType="xsd:decimal")),
+            "Count": field("numeric", properties=("@type", "@value"), _valueConstraints={"numberType": "xsd:int"})}}
+
+    def test_a_named_standalone_field_becomes_a_term_field(self):
+        r.TERM_INPUT_FIELDS[self.FIELD_ID] = [""]
+        after, changes = r.retype_as_term_field(self.standalone)
+        self.assertEqual(after["_ui"], {"inputType": "textfield"})
+        self.assertNotIn("temporalType", after["_valueConstraints"])
+        self.assertEqual(after["_valueConstraints"]["classes"], self.standalone["_valueConstraints"]["classes"])
+        self.assertEqual(after["properties"], self.standalone["properties"])
+        self.assertEqual(len(changes), 5)
+        self.assertIsNone(r.only_retyped_term_fields(self.standalone, after))
+        self.assertEqual(r.retype_as_term_field(after), (after, []))
+
+    def test_only_named_term_holding_children_change(self):
+        r.TERM_INPUT_FIELDS[self.TEMPLATE_ID] = ["Age", "Count"]
+        after, changes = r.retype_as_term_field(self.template)
+        self.assertEqual(after["properties"]["Age"]["_ui"]["inputType"], "textfield")
+        self.assertNotIn("numberType", after["properties"]["Age"]["_valueConstraints"])
+        self.assertEqual(after["properties"]["Count"], self.template["properties"]["Count"])
+        self.assertEqual([c["path"] for c in changes], ["/properties/Age/_ui/inputType",
+                                                        "/properties/Age/_valueConstraints/numberType"])
+        self.assertIsNone(r.only_retyped_term_fields(self.template, after))
+
+    def test_nothing_changes_without_a_plan_and_the_invariant_holds_the_line(self):
+        self.assertEqual(r.retype_as_term_field(self.standalone), (self.standalone, []))
+        r.TERM_INPUT_FIELDS[self.FIELD_ID] = [""]
+        after, _ = r.retype_as_term_field(self.standalone)
+        dropped = copy.deepcopy(after)
+        dropped["_valueConstraints"]["classes"] = []
+        self.assertIsNotNone(r.only_retyped_term_fields(self.standalone, dropped))
+
+
+class CanonicalTermFieldTest(unittest.TestCase):
+    TEMPLATE_ID = "https://repo.metadatacenter.org/templates/radx"
+    CANONICAL_PROPERTIES = {"@type": {"type": "string", "format": "uri"}, "@id": {"type": "string", "format": "uri"},
+                            "rdfs:label": {"type": ["string", "null"]}, "skos:notation": {"type": ["string", "null"]}}
+
+    def setUp(self):
+        self.addCleanup(r.CANONICAL_TERM_FIELDS.clear)
+        classes = [{"uri": "urn:no", "label": "No  (0)"}, {"uri": "urn:yes", "label": "Yes  (1)"}]
+        stored = field("textfield", properties=("@type", "@value", "rdfs:label"), required=["@value"],
+                       _valueConstraints={"literals": [{"label": "No  (0)"}, {"label": "Yes  (1)"}], "classes": classes,
+                                          "multipleChoice": False, "requiredValue": False})
+        stored["skos:altLabel"] = []
+        self.template = {"@id": self.TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+            "Smokes": stored, "Name": field("textfield")}}
+        self.canonical = {"properties": self.CANONICAL_PROPERTIES,
+                          "_valueConstraints": {"requiredValue": False, "ontologies": [], "valueSets": [],
+                                                "classes": classes, "branches": []}}
+
+    def plan(self, template):
+        after = copy.deepcopy(template)
+        node = after["properties"]["Smokes"]
+        node.update(copy.deepcopy(self.canonical))
+        node.pop("required"); node.pop("skos:altLabel")
+        r.CANONICAL_TERM_FIELDS[self.TEMPLATE_ID] = {
+            "beforeSha256": r.artifact_fingerprint(template), "afterSha256": r.artifact_fingerprint(after),
+            "fields": {"/properties/Smokes": self.canonical}}
+        return after
+
+    def test_a_planned_field_takes_its_canonical_rendering(self):
+        expected = self.plan(self.template)
+        after, changes = r.apply_canonical_term_fields(self.template)
+        self.assertEqual(after, expected)
+        self.assertEqual(after["properties"]["Name"], self.template["properties"]["Name"])
+        self.assertEqual(sorted(c["path"] for c in changes), ["/properties/Smokes/_valueConstraints",
+                                                             "/properties/Smokes/properties",
+                                                             "/properties/Smokes/required",
+                                                             "/properties/Smokes/skos:altLabel"])
+        self.assertIsNone(r.only_canonical_term_fields(self.template, after))
+        self.assertEqual(r.apply_canonical_term_fields(after), (after, []))
+
+    def test_a_changed_artifact_or_a_non_empty_label_list_is_refused(self):
+        self.plan(self.template)
+        changed = copy.deepcopy(self.template)
+        changed["properties"]["Name"]["title"] = "renamed"
+        with self.assertRaises(r.TransformRefused):
+            r.apply_canonical_term_fields(changed)
+        labelled = copy.deepcopy(self.template)
+        labelled["properties"]["Smokes"]["skos:altLabel"] = ["Smoker"]
+        self.plan(labelled)
+        with self.assertRaises(r.TransformRefused):
+            r.apply_canonical_term_fields(labelled)
+
+    def test_invariant_rejects_any_other_change(self):
+        after = self.plan(self.template)
+        other = copy.deepcopy(after)
+        other["properties"]["Name"]["title"] = "renamed"
+        self.assertIsNotNone(r.only_canonical_term_fields(self.template, other))
+        loose = copy.deepcopy(after)
+        loose["properties"]["Smokes"]["properties"]["@value"] = {"type": ["string", "null"]}
+        self.assertIsNotNone(r.only_canonical_term_fields(self.template, loose))
+
+
+class RetypeAsLiteralFieldTest(unittest.TestCase):
+    TEMPLATE_ID = "https://repo.metadatacenter.org/templates/diagnosis"
+
+    def setUp(self):
+        self.addCleanup(r.LITERAL_INPUT_FIELDS.clear)
+        r.LITERAL_INPUT_FIELDS[self.TEMPLATE_ID] = ["Age at Diagnosis"]
+        age = field("numeric", properties=("@type", "rdfs:label", "@id"), required=["@id"],
+                    _valueConstraints={"classes": [{"uri": "urn:subject-age", "label": "Subject Age"}],
+                                       "ontologies": [], "valueSets": [], "branches": [], "requiredValue": True})
+        self.template = {"@id": self.TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+            "Age at Diagnosis": age, "Other": copy.deepcopy(age)}}
+        self.instance = {"schema:isBasedOn": self.TEMPLATE_ID,
+                         "Age at Diagnosis": {"@id": "https://repo.staging.metadatacenter.org/template-element-instances/x"},
+                         "Other": {"@id": "https://repo.staging.metadatacenter.org/template-element-instances/y"}}
+
+    def test_the_named_field_becomes_a_numeric_literal(self):
+        after, changes = r.retype_as_literal_field(self.template)
+        age = after["properties"]["Age at Diagnosis"]
+        self.assertEqual(list(age["properties"]), ["@type", "rdfs:label", "@value"])
+        self.assertEqual(age["required"], ["@value", "@type"])
+        self.assertEqual(age["_valueConstraints"]["classes"], [])
+        self.assertEqual(age["_valueConstraints"]["numberType"], "xsd:decimal")
+        self.assertTrue(age["_valueConstraints"]["requiredValue"])
+        self.assertEqual(after["properties"]["Other"], self.template["properties"]["Other"])
+        self.assertIsNone(r.only_retyped_literal_fields(self.template, after))
+        self.assertEqual(r.retype_as_literal_field(after), (after, []))
+
+    def test_the_instance_value_becomes_the_empty_literal_once_the_field_is_literal(self):
+        self.assertEqual(r.settle_stray_iri_literal(self.instance, self.template), (self.instance, []))
+        template, _ = r.retype_as_literal_field(self.template)
+        after, changes = r.settle_stray_iri_literal(self.instance, template)
+        self.assertEqual(after["Age at Diagnosis"], {"@value": None, "@type": "xsd:decimal"})
+        self.assertEqual(after["Other"], self.instance["Other"])
+        self.assertEqual([c["path"] for c in changes], ["/Age at Diagnosis"])
+        self.assertIsNone(r.only_settled_stray_iri_literals(self.instance, after, template))
+        self.assertEqual(r.settle_stray_iri_literal(after, template), (after, []))
+
+    def test_invariants_reject_any_other_change(self):
+        after, _ = r.retype_as_literal_field(self.template)
+        dropped = copy.deepcopy(after)
+        dropped["properties"]["Age at Diagnosis"]["_valueConstraints"]["requiredValue"] = False
+        self.assertIsNotNone(r.only_retyped_literal_fields(self.template, dropped))
+        template, _ = r.retype_as_literal_field(self.template)
+        settled, _ = r.settle_stray_iri_literal(self.instance, template)
+        guessed = dict(settled, **{"Age at Diagnosis": {"@value": "42", "@type": "xsd:decimal"}})
+        self.assertIsNotNone(r.only_settled_stray_iri_literals(self.instance, guessed, template))
+
+
 class TermValueSlotTest(unittest.TestCase):
     TEMPLATE_ID = "https://repo.metadatacenter.org/templates/t"
 

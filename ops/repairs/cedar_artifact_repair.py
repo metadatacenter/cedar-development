@@ -6587,6 +6587,371 @@ def only_freed_controlled_fields(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+LIST_VALUE_SLOT = {"type": ["string", "null"]}
+
+
+def iri_slotted_text_list(definition: Any) -> bool:
+    """Whether a list field offering text options declares an IRI value slot instead of ``@value``.
+
+    A list whose options are literals holds one of those labels, which is a literal value. Declaring
+    ``@id`` rather than ``@value`` makes every choice an author can make invalid, and neither library
+    has an IRI-valued list to read the field as. Only a field with literal options and no vocabulary
+    constraint qualifies, and only while its ``required`` demands nothing but ``@id`` and
+    ``rdfs:label``, so no demand of its own is replaced by one it did not make.
+    """
+    if not isinstance(definition, dict) or definition.get(AT_TYPE) != FIELD_AT_TYPE:
+        return False
+    ui = definition.get("_ui")
+    properties = definition.get("properties")
+    constraints = definition.get("_valueConstraints")
+    required = definition.get(REQUIRED_KEY, [])
+    return (isinstance(ui, dict) and ui.get("inputType") == "list" and isinstance(properties, dict)
+            and AT_ID in properties and AT_VALUE not in properties and isinstance(constraints, dict)
+            and bool(constraints.get("literals")) and not term_constrained(definition)
+            and isinstance(required, list) and set(required) <= SETTLEABLE_LITERAL_DEMANDS)
+
+
+def settle_list_value_slot(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a text-option list the ``@value`` slot in place of ``@id``, and the ``required`` it calls for.
+
+    The slot takes the place ``@id`` held among the declared properties, and the list is the one both
+    libraries write for a literal field.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for path, node in schema_context_nodes(result):
+        if not iri_slotted_text_list(node):
+            continue
+        properties = node["properties"]
+        removed = properties[AT_ID]
+        node["properties"] = {(AT_VALUE if key == AT_ID else key): (dict(LIST_VALUE_SLOT) if key == AT_ID else value)
+                              for key, value in properties.items()}
+        changes.append({"path": path + "/properties/" + AT_ID, "replaced": removed, "wrote": None})
+        changes.append({"path": path + "/properties/" + AT_VALUE, "replaced": None, "wrote": dict(LIST_VALUE_SLOT)})
+        wanted = [AT_VALUE]
+        stored = node.get(REQUIRED_KEY)
+        changes.append({"path": path + "/" + REQUIRED_KEY, "replaced": stored, "wrote": wanted})
+        keys = list(node)
+        node[REQUIRED_KEY] = wanted
+        if REQUIRED_KEY not in keys and "description" in keys:
+            for key in keys[keys.index("description") + 1:]:
+                node[key] = node.pop(key)
+    return result, changes
+
+
+def only_settled_list_value_slots(before: Any, after: Any) -> Optional[str]:
+    """Every difference must be such a list trading ``@id`` for ``@value`` and stating ``["@value"]``."""
+    allowed: dict[str, Any] = {}
+    for path, node in schema_context_nodes(before):
+        if iri_slotted_text_list(node):
+            allowed[path + "/properties/" + AT_ID] = ABSENT
+            allowed[path + "/properties/" + AT_VALUE] = LIST_VALUE_SLOT
+            allowed[path + "/" + REQUIRED_KEY] = [AT_VALUE]
+    for path, old, new in differences(before, after):
+        if path in allowed and (new is ABSENT if allowed[path] is ABSENT else new == allowed[path]):
+            continue
+        # A same-length list that changed is reported entry by entry, under the list's own path.
+        parent = path.rsplit("/", 1)[0]
+        if parent in allowed and value_at(after, parent) == allowed[parent]:
+            continue
+        return path or "/"
+    return None
+
+
+# Fields an operator has decided are term fields despite a numeric or temporal input type, keyed by
+# artifact IRI: a child name, or "" for a standalone field itself. Supplied through
+# --term-input-fields, never inferred, since which half of such a field is wrong is a decision.
+TERM_INPUT_FIELDS: dict[str, list[str]] = {}
+# What only a numeric or a temporal field carries, which a term field has no use for.
+NUMERIC_TEMPORAL_UI_KEYS = ("temporalGranularity", "timezoneEnabled", "inputTimeFormat")
+NUMERIC_TEMPORAL_CONSTRAINT_KEYS = ("temporalType", "numberType", "minValue", "maxValue", "decimalPlace",
+                                    "unitOfMeasure")
+
+
+def term_input_field_nodes(artifact: Any) -> list[tuple[str, dict]]:
+    """The named fields of an artifact that qualify, with their pointers."""
+    found = []
+    for name in TERM_INPUT_FIELDS.get(artifact.get(AT_ID) or "", []) if isinstance(artifact, dict) else []:
+        if name == "":
+            node, base = artifact, ""
+        else:
+            node = term_field_holder(artifact.get("properties"), name)
+            entry = (artifact.get("properties") or {}).get(name)
+            base = "/properties/" + rest.json_pointer_component(name) + ("/items" if node is not entry else "")
+        if not isinstance(node, dict) or node.get(AT_TYPE) != FIELD_AT_TYPE:
+            continue
+        ui = node.get("_ui")
+        properties = node.get("properties")
+        if (isinstance(ui, dict) and ui.get("inputType") in ("numeric", "temporal") and term_constrained(node)
+                and isinstance(properties, dict) and AT_ID in properties and AT_VALUE not in properties):
+            found.append((base, node))
+    return found
+
+
+def retype_as_term_field(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make a named numeric or temporal field that holds terms the controlled-term field it already is.
+
+    A field that draws on a vocabulary and declares only an ``@id`` slot holds terms, whatever its
+    input type says, while both libraries read a ``numeric`` or ``temporal`` input type as a literal
+    and render the field as one. Only the named fields change, and only in three ways: the input type
+    becomes ``textfield``, which is how a controlled-term field is written, and the interface settings
+    and constraints that only a numeric or temporal field carries are removed. The vocabulary, the
+    value slot and everything else the field declares stay as they are.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for base, node in term_input_field_nodes(result):
+        ui, constraints = node["_ui"], node.get("_valueConstraints") or {}
+        changes.append({"path": base + "/_ui/inputType", "replaced": ui["inputType"], "wrote": "textfield"})
+        ui["inputType"] = "textfield"
+        for key in NUMERIC_TEMPORAL_UI_KEYS:
+            if key in ui:
+                changes.append({"path": base + "/_ui/" + key, "replaced": ui.pop(key), "wrote": None})
+        for key in NUMERIC_TEMPORAL_CONSTRAINT_KEYS:
+            if key in constraints:
+                changes.append({"path": base + "/_valueConstraints/" + key, "replaced": constraints.pop(key),
+                                "wrote": None})
+    return result, changes
+
+
+def only_retyped_term_fields(before: Any, after: Any) -> Optional[str]:
+    """Every difference must be a named field's input type becoming textfield, or a removed setting."""
+    allowed: dict[str, Any] = {}
+    for base, _node in term_input_field_nodes(before):
+        allowed[base + "/_ui/inputType"] = "textfield"
+        for key in NUMERIC_TEMPORAL_UI_KEYS:
+            allowed[base + "/_ui/" + key] = ABSENT
+        for key in NUMERIC_TEMPORAL_CONSTRAINT_KEYS:
+            allowed[base + "/_valueConstraints/" + key] = ABSENT
+    for path, old, new in differences(before, after):
+        if path in allowed and (new is ABSENT if allowed[path] is ABSENT else new == allowed[path]):
+            continue
+        return path or "/"
+    return None
+
+
+# Controlled-term fields to write in the form cedar-artifact-library renders them, keyed by artifact
+# IRI: the artifact's fingerprint when the plan was made, and for each field's pointer the value slot,
+# constraints and `required` the library rendered for it. Supplied through --canonical-term-fields and
+# made by rendering the stored artifact with the library, never written by hand.
+CANONICAL_TERM_FIELDS: dict[str, Any] = {}
+# The keys of a field the plan sets, and the ones it removes where the library renders none.
+CANONICAL_TERM_SET_KEYS = ("properties", "_valueConstraints")
+CANONICAL_TERM_DROP_KEYS = (REQUIRED_KEY, "skos:altLabel")
+
+
+def canonical_term_targets(artifact: Any) -> list[tuple[str, dict, dict]]:
+    """The planned fields of an artifact, with the stored node and the canonical form planned for it."""
+    plan = CANONICAL_TERM_FIELDS.get(artifact.get(AT_ID)) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        return []
+    found = []
+    for pointer, canonical in (plan.get("fields") or {}).items():
+        node = artifact if pointer == "" else value_at(artifact, pointer)
+        if isinstance(node, dict) and node.get(AT_TYPE) == FIELD_AT_TYPE and term_constrained(node):
+            found.append((pointer, node, canonical))
+    return found
+
+
+def apply_canonical_term_fields(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write planned controlled-term fields as the library renders them.
+
+    A text field that carries a vocabulary constraint is a controlled-term field to both libraries,
+    whatever its stored value slot says, and they render it with the ``@id`` slot, no ``required``
+    and the constraint block of a term field. The plan holds that rendering for each field, made from
+    the stored artifact, and is refused if the artifact has changed since. Only the value slot, the
+    constraints and ``required`` are touched, with an empty ``skos:altLabel``, which the library does
+    not render. Everything else the field and the artifact declare is kept as stored.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    plan = CANONICAL_TERM_FIELDS.get(artifact.get(AT_ID))
+    if not isinstance(plan, dict):
+        return copy.deepcopy(artifact), []
+    digest = artifact_fingerprint(artifact)
+    if digest == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if digest != plan.get("beforeSha256"):
+        raise TransformRefused("the artifact changed since its canonical rendering; regenerate the plan")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for pointer, node, canonical in canonical_term_targets(result):
+        for key in CANONICAL_TERM_SET_KEYS:
+            if node.get(key) != canonical[key]:
+                changes.append({"path": pointer + "/" + key, "replaced": node.get(key), "wrote": canonical[key]})
+                node[key] = copy.deepcopy(canonical[key])
+        for key in CANONICAL_TERM_DROP_KEYS:
+            if key in node and key not in canonical:
+                if key == "skos:altLabel" and node[key] != []:
+                    raise TransformRefused(f"{pointer}: skos:altLabel holds labels the plan would drop")
+                changes.append({"path": pointer + "/" + key, "replaced": node.pop(key), "wrote": None})
+    if artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("the candidate does not match the planned canonical rendering")
+    return result, changes
+
+
+def only_canonical_term_fields(before: Any, after: Any) -> Optional[str]:
+    """Every difference must be inside a planned field's value slot or constraints, or a planned removal."""
+    targets = {pointer: canonical for pointer, _node, canonical in canonical_term_targets(before)}
+    for path, old, new in differences(before, after):
+        pointer = next((p for p in targets if path.startswith(p + "/")), None)
+        if pointer is None:
+            return path or "/"
+        key = path[len(pointer) + 1:].split("/", 1)[0].replace("~1", "/").replace("~0", "~")
+        node = after if pointer == "" else value_at(after, pointer)
+        if key in CANONICAL_TERM_SET_KEYS:
+            if node.get(key) != targets[pointer][key]:
+                return path
+        elif key in CANONICAL_TERM_DROP_KEYS and path == pointer + "/" + key:
+            if new is not ABSENT or key in targets[pointer]:
+                return path
+        else:
+            return path
+    return None
+
+
+# Fields an operator has decided are the numeric or temporal literals their input type says, although
+# they declare an IRI value slot and a vocabulary, keyed by artifact IRI: a child name, or "" for a
+# standalone field. Supplied through --literal-input-fields, never inferred: which half of such a field
+# is wrong is a decision, the mirror of the one --term-input-fields records.
+LITERAL_INPUT_FIELDS: dict[str, list[str]] = {}
+# The datatype each library assumes when a numeric or temporal field names none.
+DEFAULT_LITERAL_DATATYPES = {"numeric": ("numberType", "xsd:decimal"), "temporal": ("temporalType", "xsd:dateTime")}
+
+
+def literal_input_field_nodes(artifact: Any) -> list[tuple[str, dict]]:
+    """The named numeric or temporal fields of an artifact that declare an IRI slot and a vocabulary."""
+    found = []
+    for name in LITERAL_INPUT_FIELDS.get(artifact.get(AT_ID) or "", []) if isinstance(artifact, dict) else []:
+        if name == "":
+            node, base = artifact, ""
+        else:
+            node = term_field_holder(artifact.get("properties"), name)
+            entry = (artifact.get("properties") or {}).get(name)
+            base = "/properties/" + rest.json_pointer_component(name) + ("/items" if node is not entry else "")
+        if not isinstance(node, dict) or node.get(AT_TYPE) != FIELD_AT_TYPE:
+            continue
+        ui = node.get("_ui")
+        properties = node.get("properties")
+        if (isinstance(ui, dict) and ui.get("inputType") in DEFAULT_LITERAL_DATATYPES
+                and isinstance(node.get("_valueConstraints"), dict) and isinstance(properties, dict)
+                and AT_ID in properties and AT_VALUE not in properties):
+            found.append((base, node))
+    return found
+
+
+def retype_as_literal_field(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make a named numeric or temporal field that declares an IRI slot the literal its input type says.
+
+    The field gives up the vocabulary it names and its ``@id`` slot, and takes the ``@value`` slot,
+    the ``required`` list and the datatype both libraries write for a numeric or temporal field. A
+    datatype it already states is kept; where it states none, the one the libraries assume is
+    written out. Its instances hold whatever the IRI slot allowed, so each one needs
+    settle-stray-iri-literal, and the two run together.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for base, node in literal_input_field_nodes(result):
+        constraints = node["_valueConstraints"]
+        for group in TERM_CONSTRAINT_GROUPS:
+            if constraints.get(group):
+                changes.append({"path": base + "/_valueConstraints/" + group, "replaced": constraints[group], "wrote": []})
+                constraints[group] = []
+        key, datatype = DEFAULT_LITERAL_DATATYPES[node["_ui"]["inputType"]]
+        if key not in constraints:
+            changes.append({"path": base + "/_valueConstraints/" + key, "replaced": None, "wrote": datatype})
+            constraints[key] = datatype
+        removed = node["properties"][AT_ID]
+        node["properties"] = {(AT_VALUE if name == AT_ID else name): (dict(LIST_VALUE_SLOT) if name == AT_ID else value)
+                              for name, value in node["properties"].items()}
+        changes.append({"path": base + "/properties/" + AT_ID, "replaced": removed, "wrote": None})
+        changes.append({"path": base + "/properties/" + AT_VALUE, "replaced": None, "wrote": dict(LIST_VALUE_SLOT)})
+        wanted = [AT_VALUE, AT_TYPE]
+        if node.get(REQUIRED_KEY) != wanted:
+            changes.append({"path": base + "/" + REQUIRED_KEY, "replaced": node.get(REQUIRED_KEY), "wrote": wanted})
+            node[REQUIRED_KEY] = wanted
+    return result, changes
+
+
+def only_retyped_literal_fields(before: Any, after: Any) -> Optional[str]:
+    """Every difference must be one a named field makes in becoming its numeric or temporal literal."""
+    allowed: dict[str, Any] = {}
+    for base, node in literal_input_field_nodes(before):
+        for group in TERM_CONSTRAINT_GROUPS:
+            allowed[base + "/_valueConstraints/" + group] = []
+        key, datatype = DEFAULT_LITERAL_DATATYPES[node["_ui"]["inputType"]]
+        allowed[base + "/_valueConstraints/" + key] = datatype
+        allowed[base + "/properties/" + AT_ID] = ABSENT
+        allowed[base + "/properties/" + AT_VALUE] = LIST_VALUE_SLOT
+        allowed[base + "/" + REQUIRED_KEY] = [AT_VALUE, AT_TYPE]
+    for path, old, new in differences(before, after):
+        if path in allowed and (new is ABSENT if allowed[path] is ABSENT else new == allowed[path]):
+            continue
+        # A same-length list that changed is reported entry by entry, under the list's own path.
+        parent = path.rsplit("/", 1)[0]
+        if parent in allowed and value_at(after, parent) == allowed[parent]:
+            continue
+        return path or "/"
+    return None
+
+
+def stray_iri_literal_names(instance: Any, template: Any) -> list[tuple[str, dict]]:
+    """The named fields whose instance value is a bare IRI, with the empty literal each should hold."""
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        return []
+    found = []
+    for name in LITERAL_INPUT_FIELDS.get(instance.get("schema:isBasedOn") or "", []):
+        holder = term_field_holder(template.get("properties"), name)
+        if holder is None or holder is not template["properties"].get(name):
+            continue
+        ui = holder.get("_ui") if isinstance(holder.get("_ui"), dict) else {}
+        properties = holder.get("properties") if isinstance(holder.get("properties"), dict) else {}
+        if ui.get("inputType") not in DEFAULT_LITERAL_DATATYPES or AT_VALUE not in properties or AT_ID in properties:
+            continue
+        value = instance.get(name)
+        if isinstance(value, dict) and isinstance(value.get(AT_ID), str) and set(value) <= {AT_ID, "rdfs:label"}:
+            key, default = DEFAULT_LITERAL_DATATYPES[ui["inputType"]]
+            datatype = (holder.get("_valueConstraints") or {}).get(key) or default
+            found.append((name, {AT_VALUE: None, AT_TYPE: datatype}))
+    return found
+
+
+def settle_stray_iri_literal(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a named literal field that holds a bare IRI as the empty literal it should hold.
+
+    The IRI is what an editor wrote while the field wrongly declared an IRI slot, not a value anyone
+    entered, and it cannot be read as a number or a date. Only the fields retype-as-literal-field has
+    made literal, as its plan names them, are touched, and only where the value is an ``@id`` alone or
+    with its label. The pre-image keeps the IRI.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(instance)
+    changes: list[dict[str, Any]] = []
+    for name, empty in stray_iri_literal_names(instance, template):
+        changes.append({"path": "/" + rest.json_pointer_component(name), "replaced": result[name], "wrote": empty})
+        result[name] = empty
+    return result, changes
+
+
+def only_settled_stray_iri_literals(before: Any, after: Any, template: Any) -> Optional[str]:
+    """Every difference must be a named field's bare IRI becoming its empty literal."""
+    wanted = dict(stray_iri_literal_names(before, template))
+    for path, old, new in differences(before, after):
+        parts = [p.replace("~1", "/").replace("~0", "~") for p in path.split("/") if p]
+        if not parts or parts[0] not in wanted or after.get(parts[0]) != wanted[parts[0]]:
+            return path or "/"
+    return None
+
+
 # Fields an operator has decided hold terms, keyed by template IRI. Supplied through --term-fields,
 # never inferred: a field declaring both value slots says nothing about which it is for, and what its
 # instances hold is evidence an operator weighs rather than a rule a repair can apply.
@@ -7784,6 +8149,42 @@ REPAIRS = {
         transform=settle_term_value_slot,
         invariant=only_settled_term_value_slot,
     ),
+    "settle-list-value-slot": Repair(
+        name="settle-list-value-slot",
+        condition="list-declares-iri-slot",
+        summary="give a text-option list the @value slot in place of @id, and state its `required`",
+        transform=settle_list_value_slot,
+        invariant=only_settled_list_value_slots,
+    ),
+    "apply-canonical-term-fields": Repair(
+        name="apply-canonical-term-fields",
+        condition="vocabulary-constrained-literal-field",
+        summary="write planned vocabulary-constrained text fields as the library renders controlled-term fields",
+        transform=apply_canonical_term_fields,
+        invariant=only_canonical_term_fields,
+    ),
+    "retype-as-literal-field": Repair(
+        name="retype-as-literal-field",
+        condition="literal-field-with-iri-slot",
+        summary="make a named numeric or temporal field with an IRI slot the literal its input type says",
+        transform=retype_as_literal_field,
+        invariant=only_retyped_literal_fields,
+    ),
+    "settle-stray-iri-literal": Repair(
+        name="settle-stray-iri-literal",
+        condition="literal-field-holds-iri",
+        summary="write a named literal field holding a bare IRI as its empty literal",
+        transform=settle_stray_iri_literal,
+        invariant=only_settled_stray_iri_literals,
+        needs_template=True,
+    ),
+    "retype-as-term-field": Repair(
+        name="retype-as-term-field",
+        condition="term-field-with-literal-input-type",
+        summary="make a named numeric or temporal field that holds terms a controlled-term field",
+        transform=retype_as_term_field,
+        invariant=only_retyped_term_fields,
+    ),
     "settle-empty-term-literal": Repair(
         name="settle-empty-term-literal",
         condition="empty-literal-in-term-field",
@@ -8371,6 +8772,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--declare-fields",
                         help="JSON: template IRI -> the field declarations to add, for "
                              "declare-instance-field; nothing is declared without it")
+    parser.add_argument("--canonical-term-fields",
+                        help="JSON plan of fields to write as canonical controlled-term fields, "
+                             "{artifactId: {beforeSha256, afterSha256, fields: {pointer: rendering}}}")
+    parser.add_argument("--literal-input-fields",
+                        help="JSON of numeric or temporal fields to make literal, {artifactId: [childName, "
+                             "or \"\" for a standalone field]}, for retype-as-literal-field and "
+                             "settle-stray-iri-literal")
+    parser.add_argument("--term-input-fields",
+                        help="JSON of numeric or temporal fields that hold terms, {artifactId: [childName, "
+                             "or \"\" for a standalone field]}, which retype-as-term-field retypes")
     parser.add_argument("--term-fields",
                         help="JSON of fields that hold terms, {templateId: [fieldName]}, whose unused "
                              "@value slot settle-term-value-slot drops; nothing is settled without it")
@@ -8541,6 +8952,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--terms", arguments.terms, TERMS),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--term-fields", arguments.term_fields, TERM_FIELDS),
+                                 ("--term-input-fields", arguments.term_input_fields, TERM_INPUT_FIELDS),
+                                 ("--literal-input-fields", arguments.literal_input_fields, LITERAL_INPUT_FIELDS),
+                                 ("--canonical-term-fields", arguments.canonical_term_fields, CANONICAL_TERM_FIELDS),
                                  ("--declare-fields", arguments.declare_fields, DECLARED_FIELDS)):
         if not supplied:
             continue
