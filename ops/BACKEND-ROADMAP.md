@@ -1099,11 +1099,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   counted for it, because the condition that names targets looks for a value or an address rather
   than for whatever a static field was given. Separately, a literal field can carry a vocabulary
   constraint: the constraint calls for a term while the field declares `@value`, so the two halves
-  of the field disagree about what an instance may hold. The walk of 2026-09-29 counted 309 such
-  fields that also require `@value`: 106 in 36 templates, 13 in 12 elements and 190 standalone
-  fields, 265 of them constrained to classes. Fields of this shape that require nothing
-  were not counted. Settling one means choosing which half is wrong, and rewriting `properties`
-  invalidates any instance already holding the other shape, so neither is a repair a lookup answers.
+  of the field disagree about what an instance may hold. Production has not been counted for the
+  fields of this shape that require nothing. Settling one means choosing which half is wrong, and
+  rewriting `properties` invalidates any instance already holding the other shape, so neither is a
+  repair a lookup answers. `apply-canonical-term-fields` writes a field as the controlled-term field
+  the libraries read it as, where no instance holds a literal.
 
   **Require every literal field's value.** `literal-field-meta-schema.json` lets a literal field omit
   `required`, so an instance of the field may leave its value out. Both libraries write `["@value"]`,
@@ -1111,15 +1111,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   it. The walk of 2026-09-29 found 77,006 literal fields without the list, and the
   `complete-literal-required` repair writes it wherever a field is unambiguously literal. Tighten the
   meta-schema to demand `@value` of every literal field, and re-enable the six validation tests
-  disabled for this gap, once two things hold:
+  disabled for this gap, once three things hold:
 
   - Each remaining field has a decision. Two templates cannot take the list without invalidating
     instances that omit a value: in one, 72 of 893 instances leave `@value` out, and in the other, 3
     of 7 omit `@type` in a numeric field. Two csv2caDSR fields, HR Pos and race_id, declare both
     `@value` and `@id` in nine export templates, and their instances hold both. HR Pos lists only a
     "Negative" term, so 528 of its 888 values are literal codes, and 8 of race_id's values are codes
-    with no term. A further 117 list, numeric and temporal fields declare an IRI value slot, which no
-    literal field type holds.
+    with no term.
+  - The validator sends a controlled-term field to the IRI meta-schema. It chooses a meta-schema by
+    `_ui.inputType`, and a controlled-term field is a `textfield`, so today it is checked against the
+    literal meta-schema. Demanding `@value` there would refuse every canonical controlled-term field.
+    Route a text field that carries a vocabulary constraint, or declares `@id` and not `@value`, to
+    the IRI meta-schema first, the same rule `cedar-artifact-library` uses to read a field.
   - The writers that still omit the list produce it. A generator of openMINDS-derived templates and
     elements wrote 67 affected artifacts in 2025 and 2026, and the RADx CSV2CEDAR generator was still
     in use in 2025. Neither lives in the estate, so their maintainers have to change them.
