@@ -2766,15 +2766,15 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
 #### CED token coverage audit (2026-09-30)
 
-The post-reactor `cedarcli check design-tokens --strict --json` audit passes the
+The source `cedarcli check design-tokens --strict --json` audit passes the
 new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-The scanner reports **150 existing findings**:
-29 utility styles, 17 colors, 21 spacing declarations, 62 geometry declarations,
+The scanner reports **139 existing findings**:
+28 utility styles, 13 colors, 21 spacing declarations, 56 geometry declarations,
 15 typography declarations and six dynamic styles. These are source findings,
-including development surfaces, not 150 demonstrated visual defects. Resolved baseline allowances are pruned rather than retained as permission for drift to return.
+including development surfaces, not 139 demonstrated visual defects. Resolved baseline allowances are pruned rather than retained as permission for drift to return.
 
 The registered CED inventory has 26 surfaces and 15 contract registrations, with
-four documented differences. Central contracts now include authoring label and
+one documented difference. Central contracts now include authoring label and
 control typography and compact table-cell density, exercised on the annotation
 entry row at desktop and 375px widths. The broader field/element matrix remains in
 CED's browser tests. Select-arrow clearance and controlled-term default-row
@@ -2802,6 +2802,21 @@ control/value weight, row density, the final table rule, select trailing space a
 empty/populated default-row alignment. A same-valued token substitution is not
 proof that the correct semantic role or shared recipe is used. Baselines must
 remain tied to approved presentation, not regenerated to accept unexpected output.
+
+CEE currently has **138 existing findings**: 57 spacing, 25 geometry,
+30 color and 26 typography declarations. These counts are legacy findings, not
+approved exceptions. CEE's `STYLING.md` records ownership by surface; CED's README
+records the corresponding boundary. Read-only specification boxes, separators and
+links share central recipes, including standalone defaults and supported host
+overrides. The CED property, type and default-term dialogs use the central surface
+recipe rather than documented radius deviations.
+
+Accept local content geometry, framework-adapter arithmetic and deliberate host
+fixtures only with a specific reason and rendered evidence. Ordinary labels,
+controls, state colors and dialog surfaces remain shared design work. A reasoned
+exception is limited to its reviewed occurrence count; additional copies fail the
+gate. Prune resolved baseline entries, and do not classify all remaining findings
+as acceptable merely to report a smaller debt total.
 
 Tokens also cannot enforce validation timing, save-state terminology or separation
 of selected values from defaults. Those require application-state tests. Finally,
