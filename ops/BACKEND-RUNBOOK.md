@@ -3650,7 +3650,7 @@ the walk.
 pass. The first is whether each stored template, element, field and instance passes
 `cedar-model-validation-library`, the gate nothing enters production without; an instance is
 validated against the exact template its `schema:isBasedOn` names. The second is how many artifacts
-carry one of the legacy shapes the [backend roadmap's production-data item](./BACKEND-ROADMAP.md#production-data)
+carry one of the legacy shapes the [backend roadmap's production-data item](./BACKEND-ROADMAP.md)
 lists. Those are shapes a valid artifact may still have, so every count is split by verdict. The
 walk is the REST audit's: the script imports `cedar_artifact_rest_audit.py` for the GET-only client,
 the `/search-deep` enumeration and its minting rules, so the two audits see the same artifact set.

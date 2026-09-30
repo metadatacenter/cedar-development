@@ -11,11 +11,141 @@ Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROA
 the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
-## Next
+## Features
 
-### Infrastructure
+- **1. Add artifact-library checks to the write path.** Direct JSON writes currently validate
+  through `cedar-model-validation-library`; they do not also prove that the Java artifact model
+  can read and render the submitted document. YAML conversion exercises the artifact library,
+  but that does not establish the same contract for a JSON submission. Add this check alongside
+  schema validation so a successful save does not leave an artifact that model readers or exports
+  subsequently reject. Instance validation must still use the actual template: model readability
+  alone does not establish that field values satisfy its declarations.
 
-- **1. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+  Refresh the disagreement inventory against the current libraries before choosing enforcement.
+  Historical examples included missing temporal granularity, malformed version strings and
+  constraints inappropriate for a field's input type; subsequent validator and reader fixes mean
+  they must not be assumed to remain gaps. Both schemas and instances have now been audited through
+  the Java/TypeScript pipelines. Use that evidence and the remaining production-data findings,
+  recheck the current submitted candidates, and distinguish source defects from conversion defects.
+
+  Measure the additional write-path cost for representative schemas and instances, including large
+  and nested artifacts. Earlier warm schema measurements put model read/render below schema
+  validation cost, but they do not establish the current combined write-path cost or the instance
+  overhead. Return actionable model-reader diagnostics with their field paths rather than burying
+  the useful explanation among JSON Schema branch failures.
+
+  Decide whether findings initially warn or reject a write, and define how strict-reader errors
+  and compatibility warnings differ. Evaluate the exact candidate that would be stored after the
+  ordinary write path's completion and metadata handling; for a verbatim write, evaluate the supplied
+  body unchanged. A repair whose resulting candidate passes both checks must remain possible even
+  when its previous stored body fails. Inventory otherwise legitimate edits that the extra check
+  would refuse and define a rollout or explicit exception policy for those cases.
+
+  This check does not authorize canonical rewriting: reading and rendering for verification must
+  not silently replace the submitted body with the model's output. Cover JSON and YAML creates,
+  ordinary updates, validated verbatim repairs, template-dependent instance failures and diagnostic
+  responses, then verify the deployed paths through whole-stack smoke.
+
+- **2. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+  runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
+  tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
+  operator attention for two minutes of gate time, and CEE has shipped four public versions in a
+  week. Build `cedarcli release cee` as a resumable, ledger-backed route like the platform release:
+  pin the chosen public model, write the changelog entry, run the gate, open and merge the pull
+  request, rebuild and publish from `main`, verify the registry with a retry for the seconds npm's
+  read replicas lag behind a publish, tag, restore the next development version with the chosen
+  model snapshot, refresh the CEE lock baselines, and stop at each remote step it cannot prove. The
+  provenance comparison the platform release already performs verifies the published tarball. Once
+  the command exists, rewrite the npmjs runbook into a description of what it does and where it
+  stops.
+
+- **3. Decide what happens to existing instances when a draft template changes.** An instance
+  names its template by identifier rather than by version, and is validated against whatever that
+  template says now. A template's schema lists every child in its top-level `required` and sets
+  `additionalProperties` to false, so most edits to a draft invalidate the instances already stored
+  against it. Adding a field leaves every instance without a property it now requires. Removing or
+  renaming one leaves every instance carrying a key the template rejects. Published templates are
+  frozen, and Update Bubbling refuses a published target, so only drafts are affected. Nothing
+  decides today what should happen to those instances, and nothing tells the author.
+
+  **Choose a policy for each kind of edit.** Three answers are available, and different edits may
+  deserve different ones:
+  - **Warn only.** The author sees which instances the edit invalidates and saves anyway.
+  - **Migrate dependents.** An added field is mechanical to supply: an empty entry, `{"@value":
+    null}` for a literal or `{}` for an IRI, and the child's `@context` mapping. The server or a
+    repair job can write it on save. A removal or rename is not mechanical, because the instance
+    holds data under the old key; `ops/repairs/rename_sheet.py` drafts mappings for an owner to
+    confirm, and without one only a warning is honest.
+  - **Complete on read.** Accept that stored instances lag their template, and have every reader
+    and editor complete an instance against its current template. The server already completes a
+    YAML instance against its template before a write.
+
+  **Build the impact check into authoring.** Every policy needs to know which instances an edit
+  affects. `ops/cedar_template_impact.py` makes that comparison GET-only, under the exact body a
+  save would store, including save-time normalization. Choose warning versus blocking, and define
+  what to do for unreadable dependencies, a template changed during the check, large populations and
+  instances the caller cannot see. A permission-scoped result cannot certify the whole dependent
+  population; an incomplete check must not mean “no impact.” Surface the affected instance
+  identifiers and validation errors without treating already-invalid instances as damage done by
+  this edit.
+
+  **Keep the save-time changes that remain, and say why.** Ordinary saves supply identifiers that
+  authoring clients ask for, discard unfinished editor state and maintain derived metadata. Removing
+  any of them needs a replacement contract for clients rather than treatment as a legacy repair.
+  The changes that remain are these:
+
+  | Remaining behavior | Why it remains |
+  | --- | --- |
+  | Mint missing element-instance IDs and property IRIs | Clients rely on the repository to assign stable identities when an occurrence ID is absent/null or a property mapping is absent; existing identifiers remain unchanged. |
+  | Remove blank unnamed attribute rows | These rows represent unfinished editor input and cannot name a stored property. |
+  | Prune unused repository-generated attribute context mappings | Deleting an attribute can leave its generated mapping behind; template-declared mappings and author-supplied vocabulary IRIs must remain. |
+  | Derive schema `title` and `description` from the artifact name | Renames must keep generated schema metadata consistent while preserving generator attribution. |
+  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration. It invalidates instances on its own only where a legacy template never declared a child it already requires, which the repair in the production-data item closes. |
+
+  Verbatim writes bypass these changes and remain strictly validated.
+
+  **Roll out the strict write path.** Release and deploy the compatibility-retirement change once
+  the shared Java build and whole-stack smoke gates are green, so an inherited malformed submission
+  is refused rather than repaired on save.
+
+  Done when each kind of draft-template edit has a stated policy for the instances it affects, and
+  an author sees that effect before the save lands.
+
+- **4. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+  identity.** **Production consequence:** an addressing migration rather than a data one. Stored
+  identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
+  clients that build URLs in the current form need the legacy shape kept as an alias until traffic
+  shows it unused. Deferred by decision; recorded so the addressing is not settled by accident.
+
+  CEDAR stores an artifact's identity as a full JSON-LD IRI, and three conventions ask for it. The
+  artifact and resource services take the whole percent-encoded IRI in one path segment. The repo
+  service takes the bare final identifier and rebuilds the IRI from the route's type
+  (`AbstractRepoResource.java:37`). OpenView accepts either and resolves a bare one before lookup
+  (`TemplatesResource.java:51`). Monitor carries identifiers in query parameters instead, and the
+  user service is addressed by a bare UUID although a user's stored identity is an IRI too.
+
+  A full IRI inside a path parameter is fragile because proxies and frameworks do not treat an
+  encoded slash alike. Where an intermediary decodes `%2F`, the value stops being one segment and
+  `/templates/{id}` no longer matches. Staging carries the cost in its configuration: two exact
+  `location =` blocks in `server-resource.inc.conf` name individual artifact identifiers and
+  re-encode the collapsed form into a `proxy_pass`, one block per artifact that arrived broken.
+
+  **The proposed contract:** keep the full IRI as the stored identity and in JSON-LD fields such as
+  `@id`, and use the bare final identifier in resource-specific paths and query parameters, with the
+  route supplying the type and a shared parser rebuilding and validating the IRI before any store is
+  read. An endpoint that is genuinely untyped may keep a full IRI, as a stated exception rather than
+  an accident.
+
+  Deliver it the way the other contract changes go. One shared parser accepts both forms first —
+  OpenView's resolver is the working example — while server-generated links and shared clients
+  emit the bare form. Measure the legacy form, mark it deprecated, and remove legacy parsing and
+  the two nginx blocks only after a compatibility period and evidence that no caller depends on it.
+  Done when every resource-specific route takes the bare identifier, one parser owns the
+  reconstruction, and staging's per-artifact blocks are gone.
+
+## Security
+
+- **5. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-five repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
@@ -48,245 +178,25 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 20 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 2 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
   the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
   next morning rather than mid-release.
 
-- **2. Rename the legacy role relationships in production Neo4j.** The application currently
-  interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
-  deployed without changing the stored graph. The category permission model follows the same initial
-  approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
-  Category Viewer and Editor grants already use the canonical `VIEWER_ROLE` and `EDITOR_ROLE` names.
-
-  Before migrating category data, add `CLASSIFIER_ROLE` as the canonical Classifier relationship.
-  Make the application read both `CANATTACHCATEGORY` and `CLASSIFIER_ROLE`, read both
-  `CANWRITECATEGORY` and `MANAGER_ROLE`, and write only the canonical names. Deploy that compatibility
-  code to every environment before changing stored relationships.
-
-  Patch the production graph to rename artifact and folder `CANREAD` relationships to `VIEWER_ROLE`
-  and `CANWRITE` relationships to `MANAGER_ROLE`. In the same migration, rename category
-  `CANATTACHCATEGORY` relationships to `CLASSIFIER_ROLE` and `CANWRITECATEGORY` relationships to
-  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family.
-
-  Rehearse the patch against a recent production copy and record the relationship counts before and
-  after it runs. Take a recoverable backup immediately before applying it in production. The patch
-  must preserve each relationship's endpoints and properties, make no access changes, and be safe to
-  run again. After applying it, regenerate the search index from Neo4j and verify the role counts and
-  representative direct, group and inherited access paths for artifacts, folders and categories.
-  Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
-  `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
-
-- **3. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
-  build manifest, while the client libraries have moved on. The
-  [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
-  remaining server upgrades. Order them by risk, lowest first. **Keycloak is still at 22**, held
-  there by CEDAR's own code rather than by this lock: it runs a forward-only Liquibase schema
-  migration on the existing user store, and it is the one server where CEDAR's own code, not just a
-  pin, decides how far it can go. What that amounts to is set out below. Rehearse each upgrade on a
-  copy of production data and gate on the end-to-end smoke.
-
-  Containerizing the production data stores needs each image pin moved up to the version already
-  running, because an older engine cannot open existing data files, so this item unblocks the
-  persistence migration tracked in the Docker roadmap. MySQL is the real decision left among the
-  data stores; Keycloak is its own piece of work.
-
-  **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
-  it is one thing rather than the four this item used to list. The estate runs server 22.0.5 native
-  and 22.0.4 in the image, `cedar-parent` sets `keycloak.version` to 22.0.4, and the current Keycloak
-  is **26.7.1**.
-
-  - **The blocker is `keycloak-adapter-core`,** the legacy Java OIDC adapter, whose last release is
-    **25.0.3 in August 2024**. CEDAR uses it in exactly three files in
-    `cedar-auth-operations-keycloak-library`: `KeycloakDeploymentProvider` builds an `AdapterConfig`
-    into a `KeycloakDeployment`, `KeycloakUtils` makes a single
-    `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
-    `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
-    these in the shared bootstrap, so this is the bearer-token path for all fifteen.
-
-    The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
-    `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
-    supplied for free, and what would have to be written, is the rotating public-key locator and the
-    HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
-
-  - **`keycloak-admin-client-jakarta` is not a blocker,** which is how this item read before it was
-    checked. It stopped at 21.1.2 because it was a transitional variant, not because it was abandoned:
-    from Keycloak 22 the main `keycloak-admin-client` is itself Jakarta-based, and it is published at
-    26.0.12. This is a coordinate change.
-
-  - **The event listener is not a blocker either.** `EventListenerProvider.onEvent(AdminEvent,
-    boolean)` — the signature `cedar-keycloak-event-listener` overrides — still exists verbatim in
-    26.7.1, and `keycloak-server-spi`, `keycloak-server-spi-private` and `keycloak-services` all
-    publish at that version. Its imports are the stable event and model SPI throughout.
-
-  - **The theme is small rather than structural.** `cedar-03` is a login theme with `parent=keycloak`
-    that overrides two FreeMarker templates, `login.ftl` and `template.ftl`, plus a stylesheet and
-    three images. The stock login theme was superseded by `keycloak.v2` in 24, so those two templates
-    need re-porting against the new base. Two files, not a theme.
-
-  Two routes follow. The clean one moves the server to 26.7.1 and replaces the adapter usage in the
-  same step. The other moves the server first and keeps the 25.0.3 adapter, betting that token
-  verification is plain OIDC over JWKS and will keep working against a 26 realm. It probably would.
-  It is also exactly the shape of the 2.19-client-against-1.3.6-server pairing this estate carried in
-  Docker for years and was right to be uneasy about, on a library that has had no release since 2024.
-
-  One thing still to confirm: the Java floor of the 26.x **server** distribution. It is not a
-  client-side question — `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing — and the
-  Keycloak image installs `java-17-openjdk-headless` unpinned. Worth settling alongside this, since
-  the reason the estate pins Java 17 at all is that newer JDKs crash *this* Keycloak on the removed
-  security manager. Moving Keycloak forward is the thing most likely to retire that constraint.
-
-  Production is the part this item owns for every store: each version rehearsed on a copy of
-  production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
-  disagree, the Docker roadmap governs, since it sequences the remaining work.
-
-- **4. Make database schema evolution an explicit, privileged release operation.** Application
-  startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
-  byte-identical `hibernate.properties` under `src/main/resources` that sets
-  `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
-  both register the logging entities against the same log database. A mapping change can therefore
-  become unreviewed DDL before either service binds its connector, with two processes attempting it
-  concurrently. `update` only ever adds. A removed or retyped field leaves its column behind, a rename
-  creates a second column, and a local log database already holds `hibernate_sequence` beside
-  `log_request_SEQ` and `log_cypher_SEQ`, the generator tables of two Hibernate generations. The
-  tests do not exercise that risk: they create a fresh empty MySQL or embedded MariaDB schema and
-  rely on `update` to build it. Schema changes reach production as SQL run by hand. The production
-  runbook says to run a release's migration set, and the one such set that exists,
-  `cedar-logging-operations-library/db-migrations/2026-07-29-log-capture-phase1.sql`, was written
-  because `update` adds columns but not reliably their indexes. There is no versioned mechanism and
-  no gate that requires one.
-
-  Remove schema-mutation authority from the applications at both layers. Every non-test runtime must
-  use Hibernate `validate` (or no schema action where validation is unsuitable), while disposable
-  test databases opt into `create-drop` explicitly. The setting is already reachable without a code
-  change. Dropwizard copies every entry of a database's `properties` map in `cedar-main.yml` into the
-  Hibernate configuration, and an explicit property beats the classpath default, so one
-  `hibernate.hbm2ddl.auto` entry per database block, driven by a profile variable, can pin `validate`
-  on a server profile while the development profile and the test-support library's environment
-  override keep the value the suites depend on. Changing the shipped file itself would break every
-  messaging, monitor and worker suite. Production application accounts must have no
-  `ALTER`, `CREATE`, `DROP` or `INDEX` grants; a separate migration identity holds DDL authority, so a
-  configuration regression fails at startup rather than rebuilding a live table.
-
-  **Widen it past the relational schemas.** Mongo's unique `@id` indexes and Neo4j's index and
-  constraint declarations are the same kind of statement: something that has to be true of a store
-  before the code depending on it runs. Each is written down twice today, in a container's
-  first-boot script and in an admin-tool task a person runs, and neither copy is applied again once
-  a store is up, so a changed definition reaches no existing installation. `cedarcli check stores`
-  reports the artifact collections' indexes and the artifact server logs them at startup, which
-  makes a gap visible but leaves the definition in two places the release does not own.
-
-  Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema.
-  `dropwizard-migrations` sits on the Dropwizard line `cedar-parent` already manages. Baseline
-  existing installations, the hand-run log-capture SQL included, and make its immutable migrations
-  part of the release. Run them
-  once, under the migration identity and a migration lock, before applications start. Prefer
-  expand/contract changes that remain compatible with the old and new binaries. Any large-table DDL
-  must state the MySQL algorithm and lock behavior and must use an evaluated online-schema method or
-  an explicit maintenance window rather than inheriting whatever Hibernate chooses.
-
-  Put the policy in the build and release gates. A change to a persistence mapping, Hibernate schema
-  setting or migration directory must carry the target database and table, generated or expected
-  DDL, compatibility window, production row-count and size evidence, expected algorithm and locking,
-  timing, execution order and recovery plan. CI should reject automatic DDL outside test resources
-  and reject a persistence-model change with neither a migration nor an explicit no-schema-change
-  declaration. `cedarcli release start` should refuse a train whose required migrations are absent or
-  unverified, and the production deploy should record exactly which migration checksums it applied.
-
-  Test upgrades rather than only installations: build the previous schema with representative data,
-  apply every pending migration, start the new applications in validation mode, and prove the data
-  remains readable. Rehearse large changes against a recent sanitized production copy or a table with
-  equivalent size and indexes on the production MySQL version; a small staging table is not evidence
-  that a table-copy operation is safe. Done when no production application credential can execute
-  DDL, no application startup can request it, each owned schema has an auditable migration history,
-  and both CI and the release controller enforce the migration contract.
-
-- **5. Decide which of four narrowly used servers to retire, and support the one that stays.** Treat
-  each as an explicit product and operations decision: confirm its real callers and production state,
-  preserve or move any capability that remains required, then either retain it with a stated role or
-  remove it completely. Schema and value recommender are open questions, impex is retained, and
-  submission is expected to go once its inventory is done.
-
-  **Schema server.** Its entire HTTP surface is an index page, but it still inherits the full
-  microservice bootstrap: a Neo4j user service, Keycloak token verification, and the persistent Redis
-  application-log queue. Either retire it or record the role it is reserved for and give it a
-  deliberately minimal bootstrap that does not initialize dependencies its index page never uses.
-
-  **Impex server.** It stays, so the work is the evidence a retained service needs rather than an
-  inventory of whether anyone still calls it. Its public surface is two routes, `POST
-  /command/import-cadsr-forms` and `GET /command/import-cadsr-forms-status`, and two gaps in what
-  supports them are concrete. Import status is process-local: `CadsrImportStatusManager` is a
-  singleton holding a `ConcurrentHashMap` keyed by upload identifier, so a redeploy during an import
-  leaves a caller asking about work the server no longer remembers. And no test imports anything.
-  The suite proves both routes reject an unauthenticated request (`ImpexRoutesRespondTest`) and
-  stops there. Name the owner, state the supported contract for both routes, decide whether
-  in-flight import state has to survive a restart, and cover an import end to end.
-
-  **Value Recommender server.** It serves recommendation and rule-generation/status commands and
-  consumes the persistent value-recommender queue. Establish whether the Workbench or any external
-  client still uses recommendations, then either retain and own that product surface, move the needed
-  function to an active service, or retire it after draining or deliberately discarding its queue and
-  removing its producers. If retained, make `RulesGenerationStatusManager` safe for concurrent
-  generation and status reads: its shared `HashMap` is mutated while `getStatus()` copies the
-  values, producing `ArrayIndexOutOfBoundsException` and HTTP 500 from the status command during
-  sustained template writes. Cover the race and verify that the worker can poll status while rules
-  are generated without those failures.
-
-  **Submission server.** Retirement is the expected answer, and the inventory that has to precede it
-  is what remains. It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission paths
-  and consumes the persistent NCBI submission queue. Inventory actual production submissions,
-  credentials, pending and dead-letter work and external commitments. Should one path turn out to be
-  live, where that single adapter goes is the decision rather than whether the service stays.
-
-  Any retirement must remove the service from the native and Docker estates, nginx and DNS routing,
-  configuration, credentials, queues and producers, service inventory, health and smoke expectations,
-  build train, CI, Compose projects, deployment procedures and documentation. A retained service needs
-  the opposite evidence: a named owner, current caller, supported contract and meaningful health and
-  integration coverage.
-
-- **6. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
-  and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
-  reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
-  start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
-  move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
-  smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
-
-  **Tighten the pins as part of it, because there are three of them and they disagree.** The estate
-  pins Java in three places at three different strengths, and nothing compares them:
-
-  - the **build JVM**, `[17,18)` in `cedar-parent`'s enforcer — major only;
-  - **CI**, `distribution: temurin` with `java-version: "17"` — major only, so whatever 17 the
-    runner has that week;
-  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.8_7-jre-ubi9-minimal` — exact, to the build
-    number, and the most precisely pinned thing in the estate;
-  - **Keycloak's own JVM**, `dnf install java-17-openjdk-headless` in its image — major only, and a
-    different vendor from everything else.
-
-  So the thing that runs the servers is pinned harder than the thing that compiles them, which is
-  backwards. Measured 2026-08-09 while adding the Maven wrapper: the build JVM on this machine is
-  **Oracle 17.0.14** against a runtime image on **Temurin 17.0.8_7** — a different vendor, six
-  patches apart, and both are "17" as far as every check in the estate is concerned.
-
-  Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
-  move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
-  Keycloak's JVM the same treatment when its own upgrade lands. Maven is not part of this problem:
-  repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
-  builder image that never enters the runtime.
-
-- **7. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **6. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured
   2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
   server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
 
-  Requiring a credential is not the remedy, for the reason item 8 gives: third-party deployments of
+  Requiring a credential is not the remedy, for the reason item 7 gives: third-party deployments of
   the embeddable editor call these routes from a browser with nothing to send, so a gate would break
   every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
   the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
-  limit in item 8, which covers `/ext-auth/*` and should cover these two on the same terms.
+  limit in item 7, which covers `/ext-auth/*` and should cover these two on the same terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
   rather than a status, which matches the decision; it should keep doing so.
@@ -324,7 +234,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **8. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+- **7. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
   anonymous caller can spend the deployment's third-party quota, and only the development host
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. `POST
@@ -403,7 +313,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   environment states the mode and rates its authenticated quotas run at, both are recorded where the
   deployment is documented rather than only in the config, and a probe shows each taking effect.
 
-- **9. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+- **8. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
   messaging, monitor and worker restart into the change. No schema migration.
 
@@ -423,7 +333,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
   certificate, and the timezone is set by the profile that owns the data it was chosen for.
 
-- **10. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+- **9. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
   consequence:** a browser application fails cross-origin unless its exact origins are configured
   first, so every environment needs its list before the default changes.
 
@@ -435,7 +345,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
-  hosted by third parties, and item 7 keeps `POST /bioportal/integrated-search` and
+  hosted by third parties, and item 6 keeps `POST /bioportal/integrated-search` and
   `/bioportal/integrated-retrieve` anonymous for exactly that reason, so those two are called from
   origins CEDAR does not know. A deny-by-default list closes them unless the policy names them.
 
@@ -445,7 +355,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fallback, each environment's origins are recorded where it is documented, and tests cover blank,
   exact, multiple and wildcard configurations.
 
-- **11. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+- **10. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
   **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
   data and invalidates keys people and integrations hold, so it needs a rotation plan,
   rollback and operator communication. A backup taken before it still contains usable keys and has
@@ -472,7 +382,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a key that can be read, authentication verifies without reversing one, and the rotation is
   recorded against the deployments it covered.
 
-- **12. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+- **11. Validate and encode the DOI the DataCite metadata route resolves.** **Production
   consequence:** some path values accepted today answer 400. No data migration.
 
   `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
@@ -491,7 +401,229 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   concatenation, and tests cover traversal, an injected query delimiter and both accepted input
   forms.
 
-- **13. Bound the application-log queue, and let its consumer keep up.** Application logging can
+## Maintenance
+
+- **12. Rename the legacy role relationships in production Neo4j.** The application currently
+  interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
+  deployed without changing the stored graph. The category permission model follows the same initial
+  approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
+  Category Viewer and Editor grants already use the canonical `VIEWER_ROLE` and `EDITOR_ROLE` names.
+
+  Before migrating category data, add `CLASSIFIER_ROLE` as the canonical Classifier relationship.
+  Make the application read both `CANATTACHCATEGORY` and `CLASSIFIER_ROLE`, read both
+  `CANWRITECATEGORY` and `MANAGER_ROLE`, and write only the canonical names. Deploy that compatibility
+  code to every environment before changing stored relationships.
+
+  Patch the production graph to rename artifact and folder `CANREAD` relationships to `VIEWER_ROLE`
+  and `CANWRITE` relationships to `MANAGER_ROLE`. In the same migration, rename category
+  `CANATTACHCATEGORY` relationships to `CLASSIFIER_ROLE` and `CANWRITECATEGORY` relationships to
+  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family.
+
+  Rehearse the patch against a recent production copy and record the relationship counts before and
+  after it runs. Take a recoverable backup immediately before applying it in production. The patch
+  must preserve each relationship's endpoints and properties, make no access changes, and be safe to
+  run again. After applying it, regenerate the search index from Neo4j and verify the role counts and
+  representative direct, group and inherited access paths for artifacts, folders and categories.
+  Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
+  `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
+
+- **13. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+  build manifest, while the client libraries have moved on. The
+  [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
+  remaining server upgrades. Order them by risk, lowest first. **Keycloak is still at 22**, held
+  there by CEDAR's own code rather than by this lock: it runs a forward-only Liquibase schema
+  migration on the existing user store, and it is the one server where CEDAR's own code, not just a
+  pin, decides how far it can go. What that amounts to is set out below. Rehearse each upgrade on a
+  copy of production data and gate on the end-to-end smoke.
+
+  Containerizing the production data stores needs each image pin moved up to the version already
+  running, because an older engine cannot open existing data files, so this item unblocks the
+  persistence migration tracked in the Docker roadmap. MySQL is the real decision left among the
+  data stores; Keycloak is its own piece of work.
+
+  **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
+  it is one thing rather than the four this item used to list. The estate runs server 22.0.5 native
+  and 22.0.4 in the image, `cedar-parent` sets `keycloak.version` to 22.0.4, and the current Keycloak
+  is **26.7.1**.
+
+  - **The blocker is `keycloak-adapter-core`,** the legacy Java OIDC adapter, whose last release is
+    **25.0.3 in August 2024**. CEDAR uses it in exactly three files in
+    `cedar-auth-operations-keycloak-library`: `KeycloakDeploymentProvider` builds an `AdapterConfig`
+    into a `KeycloakDeployment`, `KeycloakUtils` makes a single
+    `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
+    `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
+    these in the shared bootstrap, so this is the bearer-token path for all fifteen.
+
+    The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
+    `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
+    supplied for free, and what would have to be written, is the rotating public-key locator and the
+    HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
+
+  - **`keycloak-admin-client-jakarta` is not a blocker,** which is how this item read before it was
+    checked. It stopped at 21.1.2 because it was a transitional variant, not because it was abandoned:
+    from Keycloak 22 the main `keycloak-admin-client` is itself Jakarta-based, and it is published at
+    26.0.12. This is a coordinate change.
+
+  - **The event listener is not a blocker either.** `EventListenerProvider.onEvent(AdminEvent,
+    boolean)` — the signature `cedar-keycloak-event-listener` overrides — still exists verbatim in
+    26.7.1, and `keycloak-server-spi`, `keycloak-server-spi-private` and `keycloak-services` all
+    publish at that version. Its imports are the stable event and model SPI throughout.
+
+  - **The theme is small rather than structural.** `cedar-03` is a login theme with `parent=keycloak`
+    that overrides two FreeMarker templates, `login.ftl` and `template.ftl`, plus a stylesheet and
+    three images. The stock login theme was superseded by `keycloak.v2` in 24, so those two templates
+    need re-porting against the new base. Two files, not a theme.
+
+  Two routes follow. The clean one moves the server to 26.7.1 and replaces the adapter usage in the
+  same step. The other moves the server first and keeps the 25.0.3 adapter, betting that token
+  verification is plain OIDC over JWKS and will keep working against a 26 realm. It probably would.
+  It is also exactly the shape of the 2.19-client-against-1.3.6-server pairing this estate carried in
+  Docker for years and was right to be uneasy about, on a library that has had no release since 2024.
+
+  One thing still to confirm: the Java floor of the 26.x **server** distribution. It is not a
+  client-side question — `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing — and the
+  Keycloak image installs `java-17-openjdk-headless` unpinned. Worth settling alongside this, since
+  the reason the estate pins Java 17 at all is that newer JDKs crash *this* Keycloak on the removed
+  security manager. Moving Keycloak forward is the thing most likely to retire that constraint.
+
+  Production is the part this item owns for every store: each version rehearsed on a copy of
+  production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
+  disagree, the Docker roadmap governs, since it sequences the remaining work.
+
+- **14. Make database schema evolution an explicit, privileged release operation.** Application
+  startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
+  byte-identical `hibernate.properties` under `src/main/resources` that sets
+  `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
+  both register the logging entities against the same log database. A mapping change can therefore
+  become unreviewed DDL before either service binds its connector, with two processes attempting it
+  concurrently. `update` only ever adds. A removed or retyped field leaves its column behind, a rename
+  creates a second column, and a local log database already holds `hibernate_sequence` beside
+  `log_request_SEQ` and `log_cypher_SEQ`, the generator tables of two Hibernate generations. The
+  tests do not exercise that risk: they create a fresh empty MySQL or embedded MariaDB schema and
+  rely on `update` to build it. Schema changes reach production as SQL run by hand. The production
+  runbook says to run a release's migration set, and the one such set that exists,
+  `cedar-logging-operations-library/db-migrations/2026-07-29-log-capture-phase1.sql`, was written
+  because `update` adds columns but not reliably their indexes. There is no versioned mechanism and
+  no gate that requires one.
+
+  Remove schema-mutation authority from the applications at both layers. Every non-test runtime must
+  use Hibernate `validate` (or no schema action where validation is unsuitable), while disposable
+  test databases opt into `create-drop` explicitly. The setting is already reachable without a code
+  change. Dropwizard copies every entry of a database's `properties` map in `cedar-main.yml` into the
+  Hibernate configuration, and an explicit property beats the classpath default, so one
+  `hibernate.hbm2ddl.auto` entry per database block, driven by a profile variable, can pin `validate`
+  on a server profile while the development profile and the test-support library's environment
+  override keep the value the suites depend on. Changing the shipped file itself would break every
+  messaging, monitor and worker suite. Production application accounts must have no
+  `ALTER`, `CREATE`, `DROP` or `INDEX` grants; a separate migration identity holds DDL authority, so a
+  configuration regression fails at startup rather than rebuilding a live table.
+
+  **Widen it past the relational schemas.** Mongo's unique `@id` indexes and Neo4j's index and
+  constraint declarations are the same kind of statement: something that has to be true of a store
+  before the code depending on it runs. Each is written down twice today, in a container's
+  first-boot script and in an admin-tool task a person runs, and neither copy is applied again once
+  a store is up, so a changed definition reaches no existing installation. `cedarcli check stores`
+  reports the artifact collections' indexes and the artifact server logs them at startup, which
+  makes a gap visible but leaves the definition in two places the release does not own.
+
+  Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema.
+  `dropwizard-migrations` sits on the Dropwizard line `cedar-parent` already manages. Baseline
+  existing installations, the hand-run log-capture SQL included, and make its immutable migrations
+  part of the release. Run them
+  once, under the migration identity and a migration lock, before applications start. Prefer
+  expand/contract changes that remain compatible with the old and new binaries. Any large-table DDL
+  must state the MySQL algorithm and lock behavior and must use an evaluated online-schema method or
+  an explicit maintenance window rather than inheriting whatever Hibernate chooses.
+
+  Put the policy in the build and release gates. A change to a persistence mapping, Hibernate schema
+  setting or migration directory must carry the target database and table, generated or expected
+  DDL, compatibility window, production row-count and size evidence, expected algorithm and locking,
+  timing, execution order and recovery plan. CI should reject automatic DDL outside test resources
+  and reject a persistence-model change with neither a migration nor an explicit no-schema-change
+  declaration. `cedarcli release start` should refuse a train whose required migrations are absent or
+  unverified, and the production deploy should record exactly which migration checksums it applied.
+
+  Test upgrades rather than only installations: build the previous schema with representative data,
+  apply every pending migration, start the new applications in validation mode, and prove the data
+  remains readable. Rehearse large changes against a recent sanitized production copy or a table with
+  equivalent size and indexes on the production MySQL version; a small staging table is not evidence
+  that a table-copy operation is safe. Done when no production application credential can execute
+  DDL, no application startup can request it, each owned schema has an auditable migration history,
+  and both CI and the release controller enforce the migration contract.
+
+- **15. Decide which of four narrowly used servers to retire, and support the one that stays.** Treat
+  each as an explicit product and operations decision: confirm its real callers and production state,
+  preserve or move any capability that remains required, then either retain it with a stated role or
+  remove it completely. Schema and value recommender are open questions, impex is retained, and
+  submission is expected to go once its inventory is done.
+
+  **Schema server.** Its entire HTTP surface is an index page, but it still inherits the full
+  microservice bootstrap: a Neo4j user service, Keycloak token verification, and the persistent Redis
+  application-log queue. Either retire it or record the role it is reserved for and give it a
+  deliberately minimal bootstrap that does not initialize dependencies its index page never uses.
+
+  **Impex server.** It stays, so the work is the evidence a retained service needs rather than an
+  inventory of whether anyone still calls it. Its public surface is two routes, `POST
+  /command/import-cadsr-forms` and `GET /command/import-cadsr-forms-status`, and two gaps in what
+  supports them are concrete. Import status is process-local: `CadsrImportStatusManager` is a
+  singleton holding a `ConcurrentHashMap` keyed by upload identifier, so a redeploy during an import
+  leaves a caller asking about work the server no longer remembers. And no test imports anything.
+  The suite proves both routes reject an unauthenticated request (`ImpexRoutesRespondTest`) and
+  stops there. Name the owner, state the supported contract for both routes, decide whether
+  in-flight import state has to survive a restart, and cover an import end to end.
+
+  **Value Recommender server.** It serves recommendation and rule-generation/status commands and
+  consumes the persistent value-recommender queue. Establish whether the Workbench or any external
+  client still uses recommendations, then either retain and own that product surface, move the needed
+  function to an active service, or retire it after draining or deliberately discarding its queue and
+  removing its producers. If retained, make `RulesGenerationStatusManager` safe for concurrent
+  generation and status reads: its shared `HashMap` is mutated while `getStatus()` copies the
+  values, producing `ArrayIndexOutOfBoundsException` and HTTP 500 from the status command during
+  sustained template writes. Cover the race and verify that the worker can poll status while rules
+  are generated without those failures.
+
+  **Submission server.** Retirement is the expected answer, and the inventory that has to precede it
+  is what remains. It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission paths
+  and consumes the persistent NCBI submission queue. Inventory actual production submissions,
+  credentials, pending and dead-letter work and external commitments. Should one path turn out to be
+  live, where that single adapter goes is the decision rather than whether the service stays.
+
+  Any retirement must remove the service from the native and Docker estates, nginx and DNS routing,
+  configuration, credentials, queues and producers, service inventory, health and smoke expectations,
+  build train, CI, Compose projects, deployment procedures and documentation. A retained service needs
+  the opposite evidence: a named owner, current caller, supported contract and meaningful health and
+  integration coverage.
+
+- **16. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+  and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
+  reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
+  start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
+  move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
+  smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
+
+  **Tighten the pins as part of it, because there are three of them and they disagree.** The estate
+  pins Java in three places at three different strengths, and nothing compares them:
+
+  - the **build JVM**, `[17,18)` in `cedar-parent`'s enforcer — major only;
+  - **CI**, `distribution: temurin` with `java-version: "17"` — major only, so whatever 17 the
+    runner has that week;
+  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.8_7-jre-ubi9-minimal` — exact, to the build
+    number, and the most precisely pinned thing in the estate;
+  - **Keycloak's own JVM**, `dnf install java-17-openjdk-headless` in its image — major only, and a
+    different vendor from everything else.
+
+  So the thing that runs the servers is pinned harder than the thing that compiles them, which is
+  backwards. Measured 2026-08-09 while adding the Maven wrapper: the build JVM on this machine is
+  **Oracle 17.0.14** against a runtime image on **Temurin 17.0.8_7** — a different vendor, six
+  patches apart, and both are "17" as far as every check in the estate is concerned.
+
+  Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
+  move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
+  Keycloak's JVM the same treatment when its own upgrade lands. Maven is not part of this problem:
+  repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
+  builder image that never enters the runtime.
+
+- **17. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -565,7 +697,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **14. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **18. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -577,7 +709,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: twelve services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 13. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 17. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -589,7 +721,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **19. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -636,7 +768,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **16. Finish converging on the body paging envelope.** Every route that pages by offset answers
+- **20. Finish converging on the body paging envelope.** Every route that pages by offset answers
   CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
   `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
   `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
@@ -683,7 +815,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
   that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
-- **17. Choose the response timeouts from the durations the request log now carries, and give a
+- **21. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -713,7 +845,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **18. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **22. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -745,7 +877,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`, and
   no run is recorded against a service whose source the gate cannot establish.
 
-- **19. Take the dependency upgrades that need code changes.** The versions that could move without
+- **23. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions whose newest release is not a final.
 
@@ -764,11 +896,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.1, the OpenSearch client
   2.19.2 to 3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 3 rather than taken on
+  against the pinned server it talks to, so these are sequenced behind item 13 rather than taken on
   their own. The Mongo driver is the exception: 5.11.1 stays inside major 5, so nothing about it
   needs proving against the pinned server, and it is grouped here only to move with that server's
-  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 3's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 3 and 15 own.
+  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 13's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  client stack, which items 13 and 19 own.
 
   Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
   than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
@@ -778,7 +910,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start.
   MongoDB published no macOS ARM build before 6.0 and 4.20.0 resolves one anyway; 5.0.0 does not.
   Taking the upgrade therefore means running the suites against a different major from the deployed
-  5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 3.
+  5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 13.
 
   Logback 1.6 belongs here rather than among the upgrades to make, and SLF4J is not what holds it:
   every 1.6 release builds against slf4j 2.0.18, which the estate already carries. Dropwizard does.
@@ -829,74 +961,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **20. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
-  runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
-  tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
-  operator attention for two minutes of gate time, and CEE has shipped four public versions in a
-  week. Build `cedarcli release cee` as a resumable, ledger-backed route like the platform release:
-  pin the chosen public model, write the changelog entry, run the gate, open and merge the pull
-  request, rebuild and publish from `main`, verify the registry with a retry for the seconds npm's
-  read replicas lag behind a publish, tag, restore the next development version with the chosen
-  model snapshot, refresh the CEE lock baselines, and stop at each remote step it cannot prove. The
-  provenance comparison the platform release already performs verifies the published tarball. Once
-  the command exists, rewrite the npmjs runbook into a description of what it does and where it
-  stops.
-
-- **21. Decide what happens to existing instances when a draft template changes.** An instance
-  names its template by identifier rather than by version, and is validated against whatever that
-  template says now. A template's schema lists every child in its top-level `required` and sets
-  `additionalProperties` to false, so most edits to a draft invalidate the instances already stored
-  against it. Adding a field leaves every instance without a property it now requires. Removing or
-  renaming one leaves every instance carrying a key the template rejects. Published templates are
-  frozen, and Update Bubbling refuses a published target, so only drafts are affected. Nothing
-  decides today what should happen to those instances, and nothing tells the author.
-
-  **Choose a policy for each kind of edit.** Three answers are available, and different edits may
-  deserve different ones:
-  - **Warn only.** The author sees which instances the edit invalidates and saves anyway.
-  - **Migrate dependents.** An added field is mechanical to supply: an empty entry, `{"@value":
-    null}` for a literal or `{}` for an IRI, and the child's `@context` mapping. The server or a
-    repair job can write it on save. A removal or rename is not mechanical, because the instance
-    holds data under the old key; `ops/repairs/rename_sheet.py` drafts mappings for an owner to
-    confirm, and without one only a warning is honest.
-  - **Complete on read.** Accept that stored instances lag their template, and have every reader
-    and editor complete an instance against its current template. The server already completes a
-    YAML instance against its template before a write.
-
-  **Build the impact check into authoring.** Every policy needs to know which instances an edit
-  affects. `ops/cedar_template_impact.py` makes that comparison GET-only, under the exact body a
-  save would store, including save-time normalization. Choose warning versus blocking, and define
-  what to do for unreadable dependencies, a template changed during the check, large populations and
-  instances the caller cannot see. A permission-scoped result cannot certify the whole dependent
-  population; an incomplete check must not mean “no impact.” Surface the affected instance
-  identifiers and validation errors without treating already-invalid instances as damage done by
-  this edit.
-
-  **Keep the save-time changes that remain, and say why.** Ordinary saves supply identifiers that
-  authoring clients ask for, discard unfinished editor state and maintain derived metadata. Removing
-  any of them needs a replacement contract for clients rather than treatment as a legacy repair.
-  The changes that remain are these:
-
-  | Remaining behavior | Why it remains |
-  | --- | --- |
-  | Mint missing element-instance IDs and property IRIs | Clients rely on the repository to assign stable identities when an occurrence ID is absent/null or a property mapping is absent; existing identifiers remain unchanged. |
-  | Remove blank unnamed attribute rows | These rows represent unfinished editor input and cannot name a stored property. |
-  | Prune unused repository-generated attribute context mappings | Deleting an attribute can leave its generated mapping behind; template-declared mappings and author-supplied vocabulary IRIs must remain. |
-  | Derive schema `title` and `description` from the artifact name | Renames must keep generated schema metadata consistent while preserving generator attribution. |
-  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration. It invalidates instances on its own only where a legacy template never declared a child it already requires, which the repair in the production-data item closes. |
-
-  Verbatim writes bypass these changes and remain strictly validated.
-
-  **Roll out the strict write path.** Release and deploy the compatibility-retirement change once
-  the shared Java build and whole-stack smoke gates are green, so an inherited malformed submission
-  is refused rather than repaired on save.
-
-  Done when each kind of draft-template edit has a stated policy for the instances it affects, and
-  an author sees that effect before the save lands.
-
-## Production Data
-
-- **22. Resolve the remaining production artifact defects and review semantic migrations.**
+- **24. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1247,70 +1312,3 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
-
-## Later Decisions
-
-- **23. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
-  identity.** **Production consequence:** an addressing migration rather than a data one. Stored
-  identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
-  clients that build URLs in the current form need the legacy shape kept as an alias until traffic
-  shows it unused. Deferred by decision; recorded so the addressing is not settled by accident.
-
-  CEDAR stores an artifact's identity as a full JSON-LD IRI, and three conventions ask for it. The
-  artifact and resource services take the whole percent-encoded IRI in one path segment. The repo
-  service takes the bare final identifier and rebuilds the IRI from the route's type
-  (`AbstractRepoResource.java:37`). OpenView accepts either and resolves a bare one before lookup
-  (`TemplatesResource.java:51`). Monitor carries identifiers in query parameters instead, and the
-  user service is addressed by a bare UUID although a user's stored identity is an IRI too.
-
-  A full IRI inside a path parameter is fragile because proxies and frameworks do not treat an
-  encoded slash alike. Where an intermediary decodes `%2F`, the value stops being one segment and
-  `/templates/{id}` no longer matches. Staging carries the cost in its configuration: two exact
-  `location =` blocks in `server-resource.inc.conf` name individual artifact identifiers and
-  re-encode the collapsed form into a `proxy_pass`, one block per artifact that arrived broken.
-
-  **The proposed contract:** keep the full IRI as the stored identity and in JSON-LD fields such as
-  `@id`, and use the bare final identifier in resource-specific paths and query parameters, with the
-  route supplying the type and a shared parser rebuilding and validating the IRI before any store is
-  read. An endpoint that is genuinely untyped may keep a full IRI, as a stated exception rather than
-  an accident.
-
-  Deliver it the way the other contract changes go. One shared parser accepts both forms first —
-  OpenView's resolver is the working example — while server-generated links and shared clients
-  emit the bare form. Measure the legacy form, mark it deprecated, and remove legacy parsing and
-  the two nginx blocks only after a compatibility period and evidence that no caller depends on it.
-  Done when every resource-specific route takes the bare identifier, one parser owns the
-  reconstruction, and staging's per-artifact blocks are gone.
-
-- **24. Add artifact-library checks to the write path.** Direct JSON writes currently validate
-  through `cedar-model-validation-library`; they do not also prove that the Java artifact model
-  can read and render the submitted document. YAML conversion exercises the artifact library,
-  but that does not establish the same contract for a JSON submission. Add this check alongside
-  schema validation so a successful save does not leave an artifact that model readers or exports
-  subsequently reject. Instance validation must still use the actual template: model readability
-  alone does not establish that field values satisfy its declarations.
-
-  Refresh the disagreement inventory against the current libraries before choosing enforcement.
-  Historical examples included missing temporal granularity, malformed version strings and
-  constraints inappropriate for a field's input type; subsequent validator and reader fixes mean
-  they must not be assumed to remain gaps. Both schemas and instances have now been audited through
-  the Java/TypeScript pipelines. Use that evidence and the remaining production-data findings,
-  recheck the current submitted candidates, and distinguish source defects from conversion defects.
-
-  Measure the additional write-path cost for representative schemas and instances, including large
-  and nested artifacts. Earlier warm schema measurements put model read/render below schema
-  validation cost, but they do not establish the current combined write-path cost or the instance
-  overhead. Return actionable model-reader diagnostics with their field paths rather than burying
-  the useful explanation among JSON Schema branch failures.
-
-  Decide whether findings initially warn or reject a write, and define how strict-reader errors
-  and compatibility warnings differ. Evaluate the exact candidate that would be stored after the
-  ordinary write path's completion and metadata handling; for a verbatim write, evaluate the supplied
-  body unchanged. A repair whose resulting candidate passes both checks must remain possible even
-  when its previous stored body fails. Inventory otherwise legitimate edits that the extra check
-  would refuse and define a rollout or explicit exception policy for those cases.
-
-  This check does not authorize canonical rewriting: reading and rendering for verification must
-  not silently replace the submitted body with the model's output. Cover JSON and YAML creates,
-  ordinary updates, validated verbatim repairs, template-dependent instance failures and diagnostic
-  responses, then verify the deployed paths through whole-stack smoke.
