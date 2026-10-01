@@ -46,6 +46,29 @@ navigation, collapsible side panels and Info/Version tabs. Category, latest-vers
 type filters are intentionally absent. Artifact/folder menus use existing REST operations
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
+The selection toolbar exposes the shared bin as an icon-only button in both grid and list views;
+its accessible name retains **Delete (N)** for assistive technology.
+Dragging items onto that bin opens the same confirmation; the drop itself never deletes them.
+The drag hint reads “Drag onto a folder or the trash icon” without a leading icon.
+The bin highlights during a drag and previews “Drop to confirm deletion” on hover. Items with
+delete permission can use this target even without move permission; folder drops still require
+move permission for every dragged item. Cancelling restores focus to the bin and keeps selection.
+When no folders are selected, it opens a compact confirmation asking “Do you want to delete these
+N items?” with Cancel and Delete. Permission/revision checks still run before Delete is enabled;
+failures show their explanation and allow another check. Selections containing folders open the
+detailed confirmation with selected names, distinct recursive counts and the complete inventory. Selected descendants are covered by their selected ancestor, so they are counted and
+deleted once. Folder operations retain their server-issued inventory tokens; individual artifacts
+use freshly read capabilities and content ETags. Any known blocker disables the entire selection.
+Each folder remains a separate deletion boundary: template references outside that folder block
+it, even if the instances are also selected. Individually selected templates with reported instances
+are refused before writes; the backend retains the authoritative reference check.
+Execution stops at the first failure and displays confirmed progress, without claiming rollback or
+retrying automatically. Refresh prepares only the remaining selection after confirmed successes;
+an uncertain result may require closing the dialog and selecting the remaining items afresh.
+The combined confirmation uses the existing shared dialog/table recipes and destructive color roles.
+`selection-deletion.spec.ts` and `browser/tests/selection-deletion.spec.mjs` cover overlap,
+permissions, conditional writes, cancellation/focus, partial failure and desktop/phone presentation.
+
 The eye preview opens artifacts read-only. **Try out**, beside the close button, remounts
 CEE/CEF in editable mode with an isolated copy of the artifact. Trial entries are never saved;
 **Back to preview** or closing the dialog discards them. Downloads remain disabled. The

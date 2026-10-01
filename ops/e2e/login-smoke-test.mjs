@@ -1206,7 +1206,7 @@ async function constrainToDoidDiseaseBranch(page) {
     catch { await page.waitForTimeout(2000); }
   }
   if (!found) throw new Error('DOID did not appear in the ontology picker — the ontology list is empty');
-  await doidRow.click({ timeout: 8000 }).catch(() => {});
+  await doidRow.click({ timeout: 8000 });
   await page.waitForTimeout(2500);                                      // DOID class tree loads
   const node = page.locator(S.CLASS_TREE_NODE)
     .filter({ hasText: /^\s*disease\s*$/i }).first();                   // the DOID:4 root branch

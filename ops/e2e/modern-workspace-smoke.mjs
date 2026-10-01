@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
-import { actors, call, mutate, enc, OPENVIEW } from "./rest/lib.mjs";
+import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1281,6 +1281,48 @@ try {
     }
   }
   pass("Conditional deletion through Workspace");
+  step = "selected-folder-and-artifact-delete";
+  const bulkCreated = [];
+  async function bulkCreate(collection, parent, name, type, extra = {}) {
+    const response = await call(user1.auth, "POST", "/" + collection +
+      (type ? "?folder_id=" + enc(parent) : ""),
+      type ? artifactBody(type, name, extra) : {folderId: parent, name, description: "Selection deletion smoke fixture"});
+    assert.equal(response.status, 201, response.text);
+    const item = {collection, id: response.body["@id"]};
+    created.push(item); bulkCreated.push(item);
+    return item.id;
+  }
+  const bulkRoot = await bulkCreate("folders", user1.profile.homeFolderId, `Selection deletion ${stamp}`);
+  const bulkFolder = await bulkCreate("folders", bulkRoot, `Selected folder ${stamp}`);
+  const bulkEmpty = await bulkCreate("folders", bulkRoot, `Selected empty folder ${stamp}`);
+  const bulkNested = await bulkCreate("folders", bulkFolder, `Nested folder ${stamp}`);
+  const bulkTemplate = await bulkCreate("templates", bulkFolder, `Nested template ${stamp}`, "template");
+  await bulkCreate("template-instances", bulkNested, `Nested instance ${stamp}`, "instance", {"schema:isBasedOn":bulkTemplate});
+  const bulkField = await bulkCreate("template-fields", bulkRoot, `Selected field ${stamp}`, "field");
+  await listing(page, bulkRoot);
+  for (const [index, id] of [bulkFolder, bulkEmpty, bulkField].entries()) {
+    await page.locator(`[data-resource-id="${id}"] .resource-icon`).click({modifiers:index ? ["ControlOrMeta"] : []});
+  }
+  const bulkAction = page.getByRole("button", {name:"Delete (3)",exact:true});
+  const bulkSource = await page.locator(`[data-resource-id="${bulkFolder}"] .resource-icon`).boundingBox();
+  const bulkBin = await bulkAction.boundingBox();
+  await page.mouse.move(bulkSource.x + bulkSource.width / 2, bulkSource.y + bulkSource.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bulkSource.x + bulkSource.width / 2 + 10, bulkSource.y + bulkSource.height / 2 + 10, {steps:3});
+  await page.mouse.move(bulkBin.x + bulkBin.width / 2, bulkBin.y + bulkBin.height / 2, {steps:12});
+  await page.locator('.selection-delete.explorer-delete-target').waitFor();
+  await page.mouse.up();
+  await modal(page).getByText("Total items to delete: 6.", {exact:false}).waitFor();
+  await modal(page).getByRole("button", {name:"Cancel",exact:true}).click();
+  for (const item of bulkCreated) assert.equal((await call(user1.auth,"GET","/"+item.collection+"/"+enc(item.id))).status,200);
+  await bulkAction.click();
+  await modal(page).getByText("Total items to delete: 6.", {exact:false}).waitFor();
+  await modal(page).getByRole("button",{name:"Delete selected items and contents",exact:true}).click();
+  await modal(page).waitFor({state:"hidden"});
+  for (const item of bulkCreated.filter(item=>item.id!==bulkRoot)) {
+    assert.equal((await call(user1.auth,"GET","/"+item.collection+"/"+enc(item.id))).status,404);
+  }
+  pass("Bin drop cancels safely; clicking Delete then removes two folders, nested template/instance and a separate artifact");
   assert.deepEqual(errors, []);
   pass("No uncaught browser errors");
   step = "complete";
