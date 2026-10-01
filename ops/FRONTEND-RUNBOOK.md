@@ -2702,12 +2702,21 @@ version. With the native profile sourced, the local development loop is:
 cd "$CEDAR_HOME/cedar-design-tokens"
 npm test
 npm pack --pack-destination /tmp
-# Use the exact tarball name npm pack printed, in each consumer:
+mkdir -p /tmp/cedar-tokens && tar -xzf /tmp/<token-tarball>.tgz -C /tmp/cedar-tokens
+# In each consumer, install its lock, then replace only the token package:
 cd "$CEDAR_HOME/cedar-embeddable-editor"
-npm install --no-save --package-lock=false /tmp/<token-tarball>.tgz
-cd "$CEDAR_HOME/cedar-embeddable-designer"
-npm install --no-save --package-lock=false /tmp/<token-tarball>.tgz
+npm ci
+rm -rf node_modules/@org.metadatacenter/cedar-design-tokens
+cp -R /tmp/cedar-tokens/package node_modules/@org.metadatacenter/cedar-design-tokens
 ```
+
+Replace the package rather than installing the tarball. `npm install --no-save
+--package-lock=false` resolves every dependency again from its range, so a consumer
+silently builds against newer packages than its lock names. On 2026-09-30 it moved
+CEE from Angular 22.2.0 to 22.2.1, which shifted overlay text by a fraction of a pixel
+and changed a screenshot the source change had not touched. The token package has no
+dependencies, so replacing it leaves the rest of the locked graph exact, as the
+consumer CI does.
 
 Build CEE/CEF first, then use its built bundle as `CEF_BUNDLE` for the CED browser
 gate. Tests cover both profiles, inherited host overrides in all four elements,
@@ -2735,9 +2744,10 @@ the scanner scope, exact-declaration exceptions, CI base-revision comparison and
 rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
 
 The tokens package exports opt-in `patterns` Sass recipes for titles, menus, dialogs,
-forms, toolbars, tabs, table cells and empty states. Its `UI-CONTRACTS.md` records
-required behavior and the suites that verify it. Workspace, Groups and Permissions
-consume these recipes; CEE remains the visual reference.
+forms, required marks, toolbars, tabs, breadcrumbs, resource cards, table cells and
+empty states. Its `UI-CONTRACTS.md` records required behavior and the suites that
+verify it. Workspace, Groups and Permissions consume these recipes, and OpenView's
+folders share Workspace's breadcrumb and card recipes; CEE remains the visual reference.
 
 Token pull requests and develop pushes run `Consumer contracts` across all eight
 consumers. Each job records both source SHAs and the packed candidate hash, installs
@@ -2748,9 +2758,10 @@ updating baselines. This complements each consumer's own CI and catches shared
 changes before publication. It does not install repository approval rules.
 
 Workspace imports the token package's scoped `native-choices.css` at its application
-root. The source adoption gate verifies both the import and the root class, and
-browser contracts compare checkbox/radio colours with the live token roles in
-Groups, Permissions, filters and draft sharing. These checks include disabled
+root. The same stylesheet draws native single-select chevrons and date picker
+indicators from the icon registry. The source adoption gate verifies both the import
+and the root class, and browser contracts compare checkbox/radio colours with the live
+token roles in Groups, Permissions, filters and draft sharing. These checks include disabled
 states, keyboard focus and host colour overrides. The legacy Groups page keeps
 its own local brand palette; it does not participate in this token contract.
 
