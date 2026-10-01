@@ -736,7 +736,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `cedar-admin-tool` only through its direct `keycloak-admin-client-jakarta` dependency. CEDAR uses
     the JSON provider, and `cedar-auth-operations-keycloak-library` already excludes the same two
     RESTEasy providers for that reason. Put those exclusions on the admin tool's direct dependency;
-    Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin.
+    Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin. No
+    admin-tool source uses multipart, JAXB or Mime4j.
   - **The rest belong to a different runtime:** `checker-qual`, `jaxb-core`, `txw2`,
     `jackson-dataformat-cbor`, `jakarta.transaction-api` and the event listener's copy of
     `commons-collections4` are all `provided` transitives of `keycloak-services:22.0.4`. They are
@@ -744,20 +745,46 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     OpenSearch or POI. The same is true of Keycloak's RESTEasy and Mime4j versions after their unused
     admin-tool path is removed.
 
-  The event-listener POM currently inherits `cedar-parent` but does not import Keycloak's dependency
-  management. Keycloak's server-extension guide requires an import of `keycloak-parent` at the server
-  version. That import changes three of the raw transitive values recorded above to the versions the
-  Keycloak 22.0.4 platform actually manages: `checker-qual` 3.34.0, JAXB 4.0.3 and CBOR 2.15.2.
-  Comparing the listener's current compile tree with an isolated Keycloak-managed provider found 28
-  common artifacts at different versions, including Jackson 2.18.3 versus Keycloak's 2.15.2. This is
-  a real provider contract gap, not ordinary dependency drift.
+  **The listener compiles against CEDAR's platform rather than Keycloak's.** It inherits
+  `cedar-parent` and does not import Keycloak's dependency management, although Keycloak's
+  server-extension guide requires an import of `keycloak-parent` at the server version. Measured
+  2026-09-30, 28 libraries on its compile classpath differ from the versions Keycloak 22.0.4
+  manages, Jackson 2.22.3 against Keycloak's 2.15.2 among them. All 28 are `provided` and the
+  packaged jar bundles none of them, so Keycloak supplies its own versions at runtime, and the gap
+  lies in what the listener compiles and tests against. Its code calls only the Keycloak SPI, Apache
+  HttpClient, SLF4J and three Jackson classes that Keycloak's 2.15.2 also provides, so the runtime
+  risk today is small. Closing the gap makes the listener's tests run against the libraries Keycloak
+  loads, and makes a future mismatch fail a check rather than a deployment.
 
-  Importing `keycloak-parent` is necessary but not sufficient: direct entries inherited from
-  `cedar-parent` beat versions supplied by an imported POM. Keep the CEDAR parent for the repository's
-  shared build and release machinery, import the Keycloak parent, and add child-level overrides for
-  the overlapping `provided` artifacts so the resulting tree matches the Keycloak 22 platform. Keep
-  that exception local to `cedar-keycloak-event-listener`; do not weaken dependency management for the
-  other Java repositories.
+  **Hold the exception in a `cedar-parent` profile, not in the listener's POM.** Overriding versions
+  in the listener would break the rule that every version lives in `cedar-parent`. A
+  `keycloak-provider` profile there can carry them instead, activated by the presence of
+  `src/main/resources/META-INF/services/org.keycloak.events.EventListenerProviderFactory`. Only a
+  Keycloak provider registers that file, so the profile reaches no other project and the listener's
+  POM does not change. Nothing in the listener's POM shows that the profile applies, so a comment in
+  both POMs should say why the listener resolves differently.
+
+  The profile imports `keycloak-parent` at `${keycloak.version}`, which settles the eight libraries
+  `cedar-parent` does not manage, among them JAXB core, txw2 and `checker-qual`. It also sets
+  fifteen of `cedar-parent`'s version properties to Keycloak 22.0.4's values. Fourteen cover the
+  libraries `cedar-parent` manages directly, among them Guava, SLF4J, SnakeYAML and the Jakarta XML
+  Binding and Annotation APIs. The fifteenth, `jackson.core.version`, covers six Jackson artifacts.
+  Jackson needs the property although `keycloak-parent` manages it, because the profile's import is
+  processed after `cedar-parent`'s own Jackson BOM import, and an artifact keeps the version of the
+  first import that manages it. A trial on a scratch copy on 2026-09-30 left no library differing
+  from Keycloak 22.0.4. JUnit and Mockito stayed at the estate's versions, the listener's four tests
+  passed, and the packaged jar held only the listener's own classes.
+
+  Manage `commons-collections4` at 4.5.0 only once the profile is in place, and set the profile's
+  value to the 4.4 that Keycloak ships. Managing it earlier would move the listener off Keycloak's
+  version.
+
+  **Check the profile against Keycloak rather than trusting it.** Its values are copies of
+  Keycloak's, and they go stale when the server moves, as item 13 plans. Compare the listener's
+  dependency tree with a standalone project that has no parent and imports only `keycloak-parent`,
+  and fail on any difference. Run the comparison in the listener's CI or as a `cedarcli check`. At
+  a Keycloak upgrade the import follows `keycloak.version` without help, and the check names each
+  property that has to be measured again.
 
   Gate the change at all three boundaries: dependency trees must show the managed CEDAR versions, the
   admin tool must contain none of the unused provider stack, and the event listener must match the
