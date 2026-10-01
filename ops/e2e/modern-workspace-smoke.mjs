@@ -28,6 +28,12 @@ let page,
   folderId,
   step = "login";
 const modal = (p) => p.locator("dialog[open]");
+// A version is entered as three numbers, one per box of the dialog's picker.
+async function enterVersion(p, version) {
+  const parts = version.split(".");
+  for (const [index, name] of ["Major", "Minor", "Patch"].entries())
+    await modal(p).getByRole("textbox", { name, exact: true }).fill(parts[index]);
+}
 const row = (p, name) =>
   p
     .locator("tbody tr")
@@ -1064,11 +1070,11 @@ try {
   step = "versioning";
   await listed(page, names.template);
   await menu(page, names.template, "Publish");
-  await modal(page).getByLabel("Version", { exact: true }).fill("1.0.0");
+  await enterVersion(page, "1.0.0");
   await save(page, "POST", "/command/publish-artifact", [200, 201]);
   await listed(page, names.template);
   await menu(page, names.template, "Create Draft");
-  await modal(page).getByLabel("Version", { exact: true }).fill("1.1.0");
+  await enterVersion(page, "1.1.0");
   const draft = await save(page, "POST", "/command/create-draft-artifact", 201);
   assert.ok(draft["@id"]);
   assert.notEqual(draft["@id"], artifacts.template);
