@@ -2607,22 +2607,24 @@ a mistake worth remembering.
 ### Shared Component Defaults and Configuration
 
 CEE/CEF and CED/CEFD consume `cedar-design-tokens` at build time. The package owns
-the font stack and embedded Roboto sources, type scale, palettes, semantic error,
-advisory and authoring roles, compact/authoring control defaults, and the optional
-4/8/12/16/24px spacing scale. Material remains inside CEE's adapter; CED uses CSS
+the whole vocabulary, 61 tokens: the font stack and embedded Roboto sources, five type
+sizes and two weights, the theme colour, three text colours, two rules, three surfaces,
+the status pairs, the two control densities, the 4/8/12/16/24px spacing scale, one
+corner radius and a pill, two shadows, motion and layers. Its README lists them and the
+replacement for every retired name. Material remains inside CEE's adapter; CED uses CSS
 properties and its native-control adapter. Geometry unique to one component stays
 local.
 
 CEE/CEF default to 36px compact controls. `density="authoring"` selects 32px height,
-12px text, 18px line height and 2px corners. CED/CEFD native settings and embedded
+12px text, 18px line height and the shared 4px corner. CED/CEFD native settings and embedded
 CEF use that authoring profile. Both profiles consult public `--cedar-control-*`
 host overrides first. Components must not assign those public properties internally;
 token defaults use separate names such as `--cedar-control-height-authoring`.
 The tokens package tests that its generated CSS cannot shadow the override names.
 
-Error text and borders use `color-error` (#b42318), advisory text uses
-`color-warning`, and advisory backgrounds use `surface-advisory`. The old Material
-`color-warn` remains exported for compatibility. The shared `fonts` Sass export
+Error text and borders use `status-error-text` (#b42318), advisory text uses
+`status-warning-text`, and advisory backgrounds use `status-warning-surface`. Material's
+red is no longer a CEDAR colour anywhere. The shared `fonts` Sass export
 contains 21 embedded font faces and no selectors or external font requests.
 Font registrars import it outside shadow DOM. Sharing the source preserves
 self-contained bundles rather than introducing a runtime font download.
@@ -2640,10 +2642,11 @@ adapters, browser tests check meanings and dimensions, and CEE/CED screenshot
 baselines use their pinned Linux ARM containers with zero pixel tolerance.
 
 Interface typography uses regular 400 and medium 500, with a 12px minimum for
-small labels and count badges. OpenView retains a distinct 34px artifact title.
-The token source defines regular/medium weights, the display role and a shared
-system monospace stack. New CSS roles use fallback values so older pinned token
-packages remain buildable; advance pins after publishing a new immutable snapshot.
+small labels and count badges. Every page, artifact and dialog title, OpenView's
+included, takes the shared artifact-title role. Material's per-level letter spacing
+is not used. Advance pins after publishing a new immutable snapshot; a consumer that
+references a retired token fails `cedarcli check design-tokens --strict`, which names
+the replacement.
 
 CEE's production build also emits `cedar-embeddable-editor.host-fonts.js` and
 `bundle-manifest.host-fonts.json`. This entry point uses the shared Lucide registry and
@@ -2744,10 +2747,14 @@ the scanner scope, exact-declaration exceptions, CI base-revision comparison and
 rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
 
 The tokens package exports opt-in `patterns` Sass recipes for titles, menus, dialogs,
-forms, required marks, toolbars, tabs, breadcrumbs, resource cards, table cells and
-empty states. Its `UI-CONTRACTS.md` records required behavior and the suites that
-verify it. Workspace, Groups and Permissions consume these recipes, and OpenView's
-folders share Workspace's breadcrumb and card recipes; CEE remains the visual reference.
+forms, required marks, tabs, breadcrumbs, resource cards, table cells and empty states.
+Its `UI-CONTRACTS.md` records required behavior and the suites that verify it. Workspace,
+Groups and Permissions consume these recipes, OpenView's folders share Workspace's
+breadcrumb and card recipes, and every tab row in Workspace, CED and CETP uses the tab
+recipe. A component in its own shadow root declares the shared properties on its host with
+`custom-properties.declare`; CETP does, and re-points the shared roles at its `--cetp-*`
+host properties. The strict adoption check rejects a consumer that redefines a shared token
+and fails when a token has no consumer.
 
 Token pull requests and develop pushes run `Consumer contracts` across all eight
 consumers. Each job records both source SHAs and the packed candidate hash, installs
