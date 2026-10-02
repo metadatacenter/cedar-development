@@ -525,11 +525,17 @@ its CI package predates that change: commit and push CEE, let its CI publish, an
 again. After a release, this is the only command that moves the consumers from the public CEE to
 the newest development package.
 
-Applying it stamps the component's next development version from its `develop` head, runs its dist
-command, publishes the staged package under the `dev` tag, then repoints each consumer's manifest,
-moves its lock, and re-stages its served bundles. A consumer that names the published package itself
-gets a plain version. One that knows the package by another name gets npm's alias form, as every CEE
-consumer does: it names `cedar-embeddable-editor`, and the development package is scoped.
+Applying it derives the component's development version from its pushed `develop` head,
+`<base>-dev.<commit date>.<head>`, and publishes it unless the registry already holds that version.
+It writes the version into the component's manifest and lock only while it runs the dist command and
+publishes the staged package under the `dev` tag, then restores both files. Nothing is left to
+commit in the component itself: a committed stamp would be a new head, which the next run would
+publish again. It then repoints each consumer's manifest, moves its lock, and re-stages its served
+bundles. A component whose pins moved earlier in the same run is not published from a head that
+lacks them: commit and push it, then run the command again. A consumer that names the published
+package itself gets a plain version. One that knows the package by another name gets npm's alias
+form, as every CEE consumer does: it names `cedar-embeddable-editor`, and the development package is
+scoped.
 
 When a development reactor is active, pin updates only change manifests and locks
 (`npm install --package-lock-only --ignore-scripts`): they leave installed packages and served
