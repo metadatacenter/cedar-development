@@ -805,7 +805,10 @@ deletions. Three parked deletion records predate this work (September 4 and 16) 
 
 Ordinary creates, draft creation, copies and worker clones persist a `CedarArtifactCreateCleanup`
 record **before** requesting content storage. If recording intent fails, no content request is sent.
-A successful content response adds the new artifact's identifier and exact ETag. Graph registration
+A successful content response adds the new artifact's identifier and exact revision condition. The
+conditional-write parser normalizes representation validators such as `"1--gzip"` to `"1"`; unknown
+or wildcard validators never authorize cleanup. The HTTP recovery tests exercise gzip responses.
+Graph registration
 checks that cleanup has not started and removes the record in the same Neo4j transaction as creating
 the workspace node. A lost graph-commit acknowledgement or a subsequent indexing failure therefore
 cannot cause successful content to be deleted.
