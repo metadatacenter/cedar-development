@@ -1418,3 +1418,44 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
+
+## Correctness
+
+- **26. Keep artifact validators distinct across deletion and recreation.** Creating a document
+  always initializes `_cedarRevision` to one. Recreating a deleted identifier therefore reuses an
+  old ETag: an editor holding the previous incarnation's `"1"` can replace the new document, and a
+  delayed delete carrying it can remove that document. The conditional Mongo predicates match
+  identifier and revision, so they accept both requests. The same assumption underlies delayed
+  deletion and restore jobs. Preserve an incarnation identifier or a revision sequence that survives
+  deletion, carry it through the public validator and internal jobs, and maintain compatibility
+  with existing stored revisions. Prove that stale updates, deletes and background jobs cannot
+  touch a recreated artifact, while ordinary conditional editing still works.
+
+- **27. Apply artifact graph updates in content-revision order.** The resource server records its
+  compensation job after the artifact service's write response arrives. If write A commits its
+  document but its reply is delayed, write B can read A's revision, replace it and finish its graph
+  update before A records any job. A then records a new job and overwrites B's graph metadata. Both
+  requests answer 200 while the document says B and the graph says A. Existing supersession checks
+  cover overlapping prepared jobs, not this order of replies. Record the applied content revision
+  durably and reject older graph projections, including their search and inclusion side effects.
+  Cover delayed responses before job preparation as well as compensation, restart and publication.
+
+- **28. Do not repeat completed cloning when queue acknowledgement fails.** The worker retries
+  `handleEvent` and `acknowledge` inside the same block. An acknowledgement returning false or throwing
+  after a successful clone therefore reruns the non-idempotent handler. Separate acknowledgement
+  recovery from execution, and give clone operations durable replay protection so a process restart
+  after mutation but before acknowledgement cannot duplicate their folders and instances. Preserve
+  bounded retries before mutations, visible partial failures and the queue's claim/recovery contract.
+
+- **29. Compensate artifact copies that fail graph registration.** Copy creates the document before
+  registering it under the destination folder, but does not discard that document if registration
+  fails. Deleting the empty destination while the downstream create is in flight reproduces a
+  refused copy whose document remains without a workspace node. Apply the ordinary creation path's
+  conditional cleanup contract to copies and worker clones; retain durable recovery when cleanup
+  itself cannot finish. Do not remove a copy that reached the graph merely because indexing failed.
+
+  The regression sources for these four defects are in
+  `ops/backend-audit/2026-10-01/tests/`, with the original commits and assertion results in
+  `evidence.json` beside them. The [runbook](./BACKEND-RUNBOOK.md#backend-sequence-audit-reproducers)
+  explains their isolated runner. Promote each regression to its owning service's regular suite
+  with the fix; the saved failing assertions are evidence, not an accepted behavior contract.

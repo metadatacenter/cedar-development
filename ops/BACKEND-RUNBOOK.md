@@ -2505,6 +2505,32 @@ history and interrupts a running regeneration; resubmit after confirming the old
 
 ## Testing CEDAR
 
+### Backend sequence audit reproducers
+
+`ops/backend-audit/2026-10-01/` retains eight cases from the backend sequence audit: six assertions
+fail across four confirmed defects, and two controls pass. The defects concern identifier reuse,
+reordered save responses, clone acknowledgement failure and a disappearing copy destination. The
+35 adjacent visibility, copy, save and compensation tests passed. `evidence.json` records the
+audited commits, individual outcomes and the repeat run from temporary source copies. No production
+data is included.
+
+With the normal Java 17 dependencies and embedded database binaries already cached, run:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+bash "$CEDAR_HOME/cedar-development/ops/backend-audit/2026-10-01/reproduce.sh"
+```
+
+The runner copies the three relevant repositories into a fresh temporary directory, adds the audit
+tests there and runs targeted Maven suites offline. It sources the native development profile and
+uses the tests' isolated Mongo, Redis, Neo4j and HTTP fixtures. It prints the retained scratch/log
+location and exits nonzero while any regression fails. A compiler or fixture error is not a reproduced
+bug: inspect the assertion results and require zero test errors. The working checkouts remain
+unchanged. As fixes land, move their tests into the owning service suites and remove the corresponding
+open roadmap work; the recorded audit results remain historical evidence.
+
+### Default test environment
+
 Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, Redis or
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
