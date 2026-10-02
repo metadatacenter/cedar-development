@@ -13,9 +13,39 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
+## Cool Extensions
+
+Explore features that make CEDAR's templates, elements, fields and instances immediately
+useful and understandable, building on the eye preview for demos and everyday use.
+
+### 1. Drop In a Spreadsheet
+
+Let a user drop in a spreadsheet and choose a template. Propose a mapping from columns to
+template fields, preview a few resulting instances, and flag missing values and terminology
+mismatches before saving. Let the user review and adjust the mapping before creating structured,
+validated metadata. This is the larger signature demo feature.
+
+### 2. Show Example Metadata
+
+Add a “Show example” action that fills a template with clearly labeled synthetic example
+metadata. Demonstrate controlled terms, repeated elements and required fields so an unfamiliar
+template becomes understandable in seconds. Pair this with the preview’s “Try out” action.
+
+### 3. Explore Where an Artifact Is Used
+
+Show which templates reuse a selected element or field, then which instances were created from
+those templates. Let users click through these relationships to discover reusable content and
+understand how artifacts connect beyond their folder locations.
+
+### 4. Compare Templates Visually
+
+Let users select two templates and inspect their shared structure, differences and reused
+elements side by side. Support choosing a template to adopt and understanding what changed
+between revisions.
+
 ## Workspace and Browser Workflows
 
-### 1. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
+### 5. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
 
 A deployment should never need a hand-edited modifier to make a new code revision visible.
 Decide whether any cached asset can legitimately differ while its source commit stays fixed. If
@@ -40,7 +70,11 @@ works by restoring payloads and routing without inventing a new modifier.
 
 <a id="doi-minting-recovery"></a>
 
-### 2. Make DOI Minting Recovery-Safe
+### 6. Make DOI Minting Recovery-Safe
+
+Keep the DataCite wizard out of Workspace resource menus while this workflow is being
+reworked. Before reintroducing an entry point, verify the recovery behavior and review the
+wizard's user-facing flow.
 
 A retry after a timeout must be able to tell whether the earlier attempt minted a DOI. Define
 durable draft/reserved, published and locally attached states in `cedar-bridge-server`, retain
@@ -54,50 +88,20 @@ records on the OpenView URL. Move orchestration, configuration and error mapping
 publish. Extend the opt-in `datacite`-tagged test, or add a sandbox smoke beside it, to cover the
 full mint and attach contract and the credential check.
 
-Reconcile existing document/graph DOI disagreement that blocks unrelated artifact updates.
-Seven production templates and one instance need this recovery before their pending repairs
-can be written:
+Establish how historical document/graph DOI disagreements arose; do not assume they prove a
+minting timeout. Extend offline regression coverage to ordinary unchanged-DOI updates after
+reconciliation and continued rejection of DOI replacement or deletion through ordinary updates.
+The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
-| Artifact | UUID | Existing DOI |
-| --- | --- | --- |
-| Human Cognitive Neuroscience Data | `0e0e551b-c465-41e6-9392-75803b1b95de` | `10.60745/k2wv-x835` |
-| FAIR-EuMon metadata template | `b530b495-bd45-4ba7-946c-f726b3066ba9` | `10.60745/ng90-tp91` |
-| 4 pair template | `1751b5af-306d-4a85-8103-6995b0ab4cc3` | `10.82658/266m-c687` |
-| DataCite V4.4 Aug23 | `4c9720f3-1d45-41ad-887c-5af725b1615f` | `10.82658/rwa3-kp36` |
-| Datacite DOI test template | `a9253f72-dbf2-4d33-85f2-65d663164e98` | `10.82658/qd02-b077` |
-| Another | `11a63aa9-5e4c-439d-adb7-ec9e92f6f36e` | `10.82658/mwtm-3888` |
-| Copy of Environmental Exposure Assessment | `de66a5b7-982c-49a0-a3b9-8a134af1954e` | `10.60745/kys3-pa43` |
-| HEAL study instance, 10453929 – Development of therapeutic antibodies | `44685302-6d30-41fa-b129-6875fb887912` | `10.82658/aqdn-5e14` |
-
-Their `PUT ?verbatim=true` requests preserve the stored document's DOI but receive HTTP 400
-`doiCanNotBeAltered`, with that DOI in `doiInRequest` and `storedDoi: null`.
-`AbstractResourceServerResource` compares the request against `folderServerOldResource.getDOI()`,
-so the document and folder/graph metadata disagree. Establish how that disagreement arose;
-do not assume it proves a minting timeout. Provide a verified reconciliation path that preserves
-the existing DOI, restores its attachment consistently, and makes an unrelated update succeed.
-Do not remove the DOI or bypass DOI immutability to unblock the repair.
-
-Add regression coverage for a document DOI with missing graph metadata, interrupted attachment
-and retry, successful unchanged-DOI updates after reconciliation, and continued rejection of DOI
-replacement or deletion through ordinary updates. Recheck the seven templates and their dependent
-instances before retrying the pending schema patches. The HEAL instance needs only its stray
-`_annotations/@id` removed while retaining the DOI annotation; the attempted conditional write
-was rejected with the same unchanged-DOI error. Evidence is in
-`.cedar/repairs/2026-09-25-stray-annotation-id/`. The seven templates still need optional annotation
-declarations; Human Cognitive Neuroscience Data and FAIR-EuMon also need their pending context
-declaration repairs. Write-rejection evidence is retained in
-`.cedar/repairs/2026-09-26-annotation-backfill/` and
-`.cedar/repairs/2026-09-25-context-additional/apply-summary.json` under the local CEDAR root.
-The HEAL instance's refreshed, fully validating proposal and unchanged readback after another
-DOI refusal are in `.cedar/repairs/2026-09-26-annotation-instance-cleanup/44685302-6d30-41fa-b129-6875fb887912/`.
-
-### 3. Show Server Validation Findings in Workspace
+### 7. Show Server Validation Findings in Workspace
 
 A rejected create or update should show the user what the server refused. Render the problems
 in the server's `validationReport` with their paths and messages in Workspace's metadata editor,
-keep the document dirty, and provide navigation to the affected field across pages and repeated
-elements where possible. State the validation summary and the missing-required-field message
-through Workspace's language files, in English and Hungarian.
+keep the document dirty, and take the user to each affected field with CEE's `reveal`, as the list
+of CEE's own findings already does. That needs each server path mapped to a CEE location: the
+component path, and the entry of each repeating field or element along it. State the validation
+summary and the missing-required-field message through Workspace's language files, in English and
+Hungarian.
 
 Establish which CEE findings predict REST rejection and which are advisory, and gate Save only on
 the former. The `requiredValue: true` / `minItems: 0` case in CEE's
@@ -113,7 +117,7 @@ reports, in `src/app/metadata-editor.spec.ts` and the Playwright interaction sui
 
 ## Embeddable Editor and Model Library
 
-### 4. Whole-Component Runtime Theme Overrides
+### 8. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -122,7 +126,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 5. Authoring Feedback for Unsupported Markup
+### 9. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -135,7 +139,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 6. Reduce Embedded Font Payload
+### 10. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -181,7 +185,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 7. Display Host-Supplied Validation Findings in CED
+### 11. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -192,7 +196,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 8. Define the Three Profiles
+### 12. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -212,7 +216,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 13. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -226,14 +230,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 10. Keyboard and Screen-Reader Access
+### 14. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 11. Complete the Template Designer
+### 15. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -244,3 +248,23 @@ templates include is saved, the Template Editor offers to write the change into 
 draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Workspace nor the
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
+
+### 16. Enforce CED Authoring Style Contracts
+
+Apply central authoring recipes and rendered contracts across every field and
+element settings surface, including metadata labels, select-arrow clearance and
+controlled-term default rows. Extend coverage beyond the annotation entry row. Test
+the approved font weights and upright labels, compact row spacing, final table
+border and empty/populated alignment across standalone fields, nested fields and
+elements, all settings tabs, desktop and narrow widths, real CEF and host overrides.
+Reuse the field-type matrix rather than relying on one representative text field.
+
+Consolidate CED's overlapping global, shared and component rules around the existing
+token recipes, preserving the agreed presentation. Assign ownership for each role
+and remove duplicate or unused emitted rules. Reduce the existing adoption baseline
+surface by surface and keep resolved entries pruned after review; do not expand allowances
+or replace values with semantically unrelated tokens to make the scanner green.
+
+Keep validation timing, save state and default-value isolation in behavior tests;
+they cannot be guaranteed by CSS tokens. The measured coverage and source ownership
+are documented in the runbook's **CED token coverage audit**.

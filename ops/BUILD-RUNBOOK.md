@@ -567,6 +567,13 @@ refuses dispatch. Public CEE publication and executable equivalence remain requi
 by `release plan|start` once the train artifacts exist. Ordinary development trains
 need none of these options.
 
+The pre-train checks also survey every release repository's remote main/develop
+sources and required license files. Main-only paths are labeled as declared generated
+distributions or source/unclassified files; neither label bypasses review. After reviewing
+the replacement, repeat `--accept-main-only REPOSITORY` for each accepted repository.
+This train option requires release intent and does not carry acceptance into a later
+`release plan|start`: supply the reviewed acceptance there again.
+
 ### Nexus failure budget and optional write probe
 
 Train reads/uploads now stop after three transient attempts. HTTP 500 stops

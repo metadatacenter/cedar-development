@@ -29,6 +29,21 @@ arithmetic, and packs each surface from a clean commit archive. A `prepack` depe
 seconds. Registry inventories, digests and CEE equivalence require the completed train and remain
 in `plan`.
 
+For one combined read-only report, use:
+
+```bash
+cedarcli release readiness --full --version <VER> --next-version <NEXT> \
+  --model-version <PUBLIC_MODEL> --cee-version <PUBLIC_CEE> --from-train <TRAIN_ID>
+```
+
+This reports public tarball integrity and identity, CEE's declared and embedded model pin,
+consumer manifest/lock pins, exact-source CI, matching whole-stack smoke, clean/pushed
+sources, release prerequisites, and the train's artifact/equivalence and source-eligibility
+checks. Each gap includes a next action. Before a train exists, omit `--from-train`;
+its evidence is explicitly `not checked`, not green. Omitted versions and skipped packing
+are likewise incomplete. The command returns nonzero for failed or incomplete evidence.
+It does not dispatch, publish, accept exceptions, or replace `release plan|start`.
+
 ### The Plan
 
 The route proper begins with one read-only plan and four explicit inputs. Nothing is inferred
@@ -337,6 +352,24 @@ the exact-commit CI probe and the remote survey.
 
 ## Watching and Finishing
 
+`start` and `resume` automatically summarize measured stage timings on completion.
+`cedarcli release timings` reads them later; `--compare <VER>` selects a prior local
+release ledger (otherwise the newest other ledger with timing evidence is used).
+Each attempt retains its result and wall time. CI polling sleeps and transient retry
+backoff are measured separately from execution, which includes build work, network
+requests and CI probes. Failed attempts remain in the totals. A process killed before
+its final timing write leaves an explicitly incomplete record. Older ledgers have no
+measured split and are reported as unavailable. Comparisons require matching workload
+and concurrency signatures and complete timing evidence; source and network conditions
+may still differ, so a delta is an observation rather than a benchmark.
+
+Before resuming, `cedarcli release resume --dry-run` explains the recorded phase,
+completed phases/tasks to preserve, the exact preflight checks the next stage repeats,
+and the remaining build, ref, publication, CI and acceptance operations. It reads the
+ledger only: no toolchain activation, lock acquisition, network probes, builds or writes.
+Recorded completion remains provisional until real resume verifies its evidence. Partial
+version preparation explicitly previews the required fresh frontend/version attempt.
+
 ```bash
 cedarcli release status --watch
 ```
@@ -347,6 +380,12 @@ flooding the terminal; add `--verbose` only when live raw output is useful. The 
 state change and otherwise a quiet one-minute heartbeat with elapsed time, the active task, phase
 counts, Maven file counts, a scheduled transient retry, and the exact terminal failure. Ctrl-C
 stops only the watcher; it remains attached while automatic backoff is in progress.
+
+The controller itself also emits a one-minute progress heartbeat during long stages,
+including parallel task identifiers, the attempt log directory, and pending development
+CI links. Unchanged CI polling messages are limited to once a minute. One-shot status
+checks the kernel-held release lock to distinguish a running controller from a stopped
+one: it recommends watching the running controller and resuming a stopped release.
 
 Without `--watch`, `release status` is a one-shot phase table. It says `COMPLETE` only at acceptance,
 marks the single next or failed phase, and prints the exact safe commands to run next. Every Maven

@@ -25,7 +25,7 @@ import { argv } from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
+import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite, VALUERECOMMENDER } from './rest/lib.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as artifacts from './rest/suites/artifacts.mjs';
@@ -71,6 +71,7 @@ if (requested.length && selected.length !== requested.length) {
 
 const started = Date.now();
 let auth1;
+let adminAuth;
 let user1Profile;
 let phaseStarted = Date.now();
 
@@ -135,6 +136,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 try {
   const { user1, user2, admin } = await actors();
   auth1 = user1.auth;
+  adminAuth = admin?.auth;
   user1Profile = user1.profile;
   const homeFolderId = user1.profile.homeFolderId;
   if (!homeFolderId) throw new Error('the first user has no homeFolderId');
@@ -211,6 +213,27 @@ try {
     const complaintsAfter = await workerComplaints();
     check(complaintsAfter.length === 0, 'and the worker drained everything the run queued',
         complaintsAfter.map(c => `${c.name}: ${c.message}`).join('; '));
+
+    // Queue health alone missed a corrupted status map: the worker logged a null-pointer
+    // failure, treated the missing status as idle, and still acknowledged its messages.
+    let validStatus = false;
+    let statusDetail = 'The administrator key is required to inspect rules-generation status';
+    if (adminAuth) {
+      try {
+        const response = await call(adminAuth, 'GET', '/command/generate-rules/status', undefined,
+            { base: VALUERECOMMENDER });
+        const rows = response.body;
+        validStatus = response.status === 200 && Array.isArray(rows) && rows.every(row =>
+          row && typeof row.templateId === 'string' && row.templateId.length > 0 && row.startTime != null &&
+          (row.status === 'PROCESSING' ? row.finishTime == null && row.rulesIndexedCount == null
+            : row.status === 'COMPLETED' && row.finishTime != null && Number.isInteger(row.rulesIndexedCount))) &&
+          new Set(rows.map(row => row.templateId)).size === rows.length;
+        statusDetail = `HTTP ${response.status}; the status list must contain distinct, complete generation records`;
+      } catch (error) {
+        statusDetail = error.message;
+      }
+    }
+    check(validStatus, 'and rules-generation status contains complete, non-null entries', statusDetail);
   }
 }
 

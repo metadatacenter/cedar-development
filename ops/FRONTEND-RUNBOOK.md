@@ -46,6 +46,43 @@ navigation, collapsible side panels and Info/Version tabs. Category, latest-vers
 type filters are intentionally absent. Artifact/folder menus use existing REST operations
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
+The metadata editor lists CEE's findings above the form. Errors refuse Save, and Save says
+so when the pointer rests on it. Warnings, which are an unfilled requirement or a list short
+of its minimum, leave Save available. Each finding is a link that asks CEE to `reveal` its field, which turns
+the page and moves each repeating element to the entry that holds it. A repeated element
+or field in the label carries that entry's number, as in "Author 2 · Email". The server's
+own validation findings are not listed yet; that work is in the
+[frontend roadmap](FRONTEND-ROADMAP.md).
+
+The selection toolbar exposes the shared bin as an icon-only button in both grid and list views;
+its accessible name retains **Delete (N)** for assistive technology.
+Dragging items onto that bin opens the same confirmation; the drop itself never deletes them.
+The drag hint reads “Drag onto a folder or the trash icon” without a leading icon.
+The bin highlights during a drag and previews “Drop to confirm deletion” on hover. Items with
+delete permission can use this target even without move permission; folder drops still require
+move permission for every dragged item. Cancelling restores focus to the bin and keeps selection.
+When no folders are selected, it opens a compact confirmation asking “Do you want to delete these
+N items?” with Cancel and Delete. Permission/revision checks still run before Delete is enabled;
+failures show their explanation and allow another check. Selections containing folders open the
+detailed confirmation with selected names, distinct recursive counts and the complete inventory. Selected descendants are covered by their selected ancestor, so they are counted and
+deleted once. Folder operations retain their server-issued inventory tokens; individual artifacts
+use freshly read capabilities and content ETags. Any known blocker disables the entire selection.
+Each folder remains a separate deletion boundary: template references outside that folder block
+it, even if the instances are also selected. Individually selected templates with reported instances
+are refused before writes; the backend retains the authoritative reference check.
+Execution stops at the first failure and displays confirmed progress, without claiming rollback or
+retrying automatically. Refresh prepares only the remaining selection after confirmed successes;
+an uncertain result may require closing the dialog and selecting the remaining items afresh.
+The combined confirmation uses the existing shared dialog/table recipes and destructive color roles.
+`selection-deletion.spec.ts` and `browser/tests/selection-deletion.spec.mjs` cover overlap,
+permissions, conditional writes, cancellation/focus, partial failure and desktop/phone presentation.
+
+The eye preview opens artifacts read-only. **Try out**, beside the close button, remounts
+CEE/CEF in editable mode with an isolated copy of the artifact. Trial entries are never saved;
+**Back to preview** or closing the dialog discards them. Downloads remain disabled. The
+Workspace browser preview suite exercises all four artifact kinds with the real editor bundle
+in Chromium and WebKit and checks that no artifact writes occur.
+
 The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
 It shows the owner and direct user/group grants to any reader, with searchable principals
 and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
@@ -103,9 +140,11 @@ its initial baseline records existing typography and layout debt.
 In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
-sharing between two users, CEE metadata entry, downloads, versioning, OpenView and
-conditional writes. Its fixtures are removed after each run; the Workspace result and
-failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
+sharing between two users, CEE metadata entry, versioning, OpenView and conditional writes.
+The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
+current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
+by the REST download suite, and the main browser smoke exercises CEE download controls.
+Each Workspace run removes its fixtures; the result and failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
 `npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
 runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
 and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).
@@ -171,6 +210,40 @@ on older components. Release preparation remains a separate operation.
 
 ### The Reactor
 
+**Mandatory: a frontend reactor build and every development E2E acceptance run must use the
+latest development pins of ALL CEDAR components in every consumer. No component is exempt.**
+This includes the TypeScript model library, design tokens, CEE/CEF, CED/CEFD and CETP, their
+transitive CEDAR dependencies, and any components added later. It applies to all hosts, including
+the combined editor, Workspace, Designer, OpenView, Bridging and the component demos.
+
+“Latest development” means the current development sources, including the edits under test,
+built together in dependency order. Fetch remote references and resolve any checkout behind its
+development head before claiming latest-development coverage; preserve local work. A registry
+`dev` tag, a version containing `dev`, a matching pair of displayed versions, or a healthy process
+does not prove freshness. The selected package must match the current source fingerprint, and
+every installed and served copy must match that selected artifact.
+
+Development pins may be the reactor's immutable local artifact hashes and resolved dependency
+locks, or newly published immutable dev versions with updated consumer manifests and locks.
+The current local reactor uses the former and leaves tracked registry pins unchanged. That is
+valid only when **every** consumer actually resolves and serves the fresh selection. An old
+checked-in pin must never determine the component used by a development E2E run.
+
+**Fail closed on stale, missing or unverified components.** Do not restore old pins or an old
+`.reactor/runtime.json`, remove the active selection, substitute a stable release, disable a
+freshness/integration gate, or skip a failing component to obtain a green build or smoke result.
+After a failure, the previous runtime may remain available for diagnosis; it cannot be accepted
+as the latest development build. Fix the failure, rebuild affected consumers, redeploy and verify
+the complete selection before rerunning all smoke tiers.
+
+`cedarcli test e2e` does not itself rebuild the frontend dependency graph or establish that all
+components came from the latest sources. A standalone passing smoke result is therefore
+insufficient. First complete `cedarcli build frontends`, which includes deployment and smoke,
+or reuse its verified runtime only while all relevant source fingerprints, resolved pins and
+served artifacts still match. If sources change, rebuild before accepting another E2E run.
+Retain the reactor build record and runtime selection alongside the smoke report so freshness
+and test success can both be checked. These requirements also apply to direct `ops/e2e` commands.
+
 **“Full frontend reactor” means `cedarcli build frontends`.** The agreed completion contract is:
 
 1. Build all frontend libraries, embeddable components and browser applications from their
@@ -205,6 +278,21 @@ packages, and runs the whole-stack smoke tiers. A failure at any stage returns n
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
 
+Before a failed isolated frontend build is cleaned up, the CLI retains its command log
+and available `test-results`, `playwright-report`, `surefire-reports`,
+`failsafe-reports`, and `coverage` files under
+`$CEDAR_HOME/.cedar/build-reports/failures/`. The failure prints the exact directory.
+Each bundle is capped at 250 MiB of copied files; `manifest.json` lists retained files
+and files omitted for size. Dependencies, Git metadata and symlinks are excluded.
+Successful builds do not retain these diagnostic copies. Remove old bundles when no
+longer needed; the cap is per failure, not a total retention quota.
+
+`cedarcli build diagnostics` previews age/size retention (14 days and 1024 MiB by
+default). Set `--days` and `--max-mib` to choose a policy; add `--apply` to delete
+the selected bundles. Only completed bundles carrying the CLI's diagnostic marker
+are eligible. Older unmarked reports, interrupted captures, unrelated directories and
+symlinks are preserved. A preview does not delete anything or alter release evidence.
+
 For a compile-only estate build, `cedarcli build all --skip-tests` skips both Java
 and frontend verification suites while retaining dependency-ordered frontend builds.
 It does not claim full reactor verification or run the frontend deployment/smoke sequence.
@@ -215,6 +303,11 @@ checkout. Their child-process `CEDAR_HOME` points there, so a server's `/srv/ced
 does not redirect those checks to an absent or stale sibling `cedar-test-artifacts`.
 
 #### Bounded parallel builds and test gates
+
+On the 16-core workstation, which runs little else, build with
+`cedarcli build --jobs 2 --workers 12 frontends`. Twelve workers per repository measured
+faster than the default of eight, and sixteen gained little over twelve. The defaults suit a
+smaller or shared machine.
 
 `cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
 repositories at once, with two workers per repository. Two repositories is the default;
@@ -289,8 +382,8 @@ and 42.7 s at sixteen, so twelve captured most of the available gain.
 These are component timings, not a full-reactor before/after result: dependency
 installation, deployment and whole-stack smoke are outside the comparison, and
 build/transform caches were warm except in the explicitly uncached Jest sweep.
-For this M4, `cedarcli build --jobs 2 --workers 12 frontends` is a useful tuning
-candidate; eight remains the portable default. Preserve all gates when comparing.
+Twelve is therefore the setting for this M4, and eight remains the portable default.
+Preserve all gates when comparing.
 
 After aligning designer expectations with the model's derived-title policy, the
 current-source reactor at two jobs and twelve workers passed in 332.2 seconds for
@@ -556,17 +649,17 @@ It is TypeScript, not JSON, and is compiled in.
 
 The bundle registers two custom elements from one bootstrap.
 `cedar-embeddable-editor` renders a template as a form, and `cedar-embeddable-field`
-renders one field's control with nothing around it — no label, no description, no
-card — for a host that holds a field artifact rather than a template. The CEDAR
-Embeddable Designer is the host that wants the second: an author giving a field a
-default value needs the control the field will actually have, and that control is
-the editor's.
+renders one field from its artifact. Editable CEF supplies the bare value control
+for hosts such as CED's default-value editor. Read-only CEF owns the complete field
+presentation: label, type, description and applicable constraints, choices, sources
+and declared defaults. A supplied value remains visible and read-only.
 
-Both draw the same component. `CedarFieldWidgetComponent` owns the routing from an
-input type to one of the eighteen widgets, the four static blocks, and the
-read-only choice between a control and a statement of what the field will accept;
-the component renderer draws one per field of a form, and the element draws one.
-Neither has a widget switch of its own, so a widget added or rerouted reaches both.
+`CedarFieldPresentationComponent` owns the shared label, description and content
+layout for CEE fields and read-only CEF. CEE projects its occurrence pager into the
+same presentation. `CedarFieldWidgetComponent` owns the control/static-content routing
+and the read-only choice between a value and its specification; editable CEF uses
+that bare widget directly. Empty specifications do not draw empty boxes. Workspace
+preview dialogs supply artifacts and dialog controls, not field descriptions.
 
 Registering them together is deliberate. `defineCustomElementOnce` takes a name and
 `bootstrap-once.ts` still claims one page-wide slot, so two copies of the bundle
@@ -585,8 +678,8 @@ The value crosses the boundary as a discriminated union rather than as text
 (`CedarEmbeddableFieldValue` in `cee-public-api.ts`): a literal, a number, an ISO
 temporal literal, an IRI with a label, a list of literals, or an attribute-value
 field's named slots. An attribute-value field is read but not written — its slots are named
-by the control that creates them — and a page break is refused outright, since it
-divides a form and this element has none.
+by the control that creates them. A standalone page break is described by its label
+and type without creating form pagination.
 
 <a id="cee-where-the-design-values-come-from"></a>
 
@@ -1269,11 +1362,15 @@ instance, while cursors remain UI state. Rebuilding records the exact
 template/instance pair so the inner editor does not reconstruct the same tree after
 `DataContext.setInputTemplate` has already done so.
 
-Keep the data-quality report's distinction intact when changing this model. Its
-validity checks inspect the whole instance, but its `valueTree` is a snapshot of the
-occurrence currently displayed. Its recursion now receives a component-state node
-and moves into an occurrence container explicitly; do not restore the old casts that
-treated containers and nodes as interchangeable.
+The data quality report never reads those cursors. It walks the instance itself,
+entry by entry, so the page and the entries on screen cannot change what it reports,
+and each problem records the entry taken at each repeating field or element along its
+path, outermost first, as `occurrences`. That is the location `reveal` consumes, and
+the same bad value in two entries is two problems. A requirement on a field inside a
+repeating element is still met by a value in any entry, so a `required` problem names
+no entry. A repeatable list that a stored instance omits is reported as the empty list
+CEE writes, which is why there is no `missingProperty` code. The contract is in
+`harness/test/report-locations.spec.ts`.
 
 <a id="cee-running-against-the-old-template-parser"></a>
 
@@ -1486,8 +1583,8 @@ cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **over 490 passing** in about a minute and a half — 497 on 3 September 2026,
-416 on 17 August. The count grows as tests are added; treat a *fall* as something to
+Expect **over 770 passing** in about a minute and a half — 774 on 2 October 2026,
+497 on 3 September. The count grows as tests are added; treat a *fall* as something to
 explain. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
@@ -1677,6 +1774,20 @@ link onto the next — and the specs of the widgets they sat in pin the rest, wi
 two coordinator specs for the two that were claims about markup: the numeric
 field's verdict reaching a `mat-error`, and the text field's link giving way to
 an input.
+
+A value that breaks a constraint shows its error as soon as the widget holds it,
+whether the user typed it or a stored instance supplied it. `holdsConstraintError`,
+in `edited-field-error-state-matcher.ts`, is the rule every widget's error-state
+matcher shares. An empty required field waits until the user edits it or a host
+reveals it, and a reveal marks the controls a widget names in `revealedControls()` as
+touched. The problems no control can find are stated under the field by
+`app-cedar-field-problems`, from the report: a stored choice outside the options, a
+term missing its label or IRI, an authority identifier that is not an IRI, a list
+longer than its maximum, and, once the user has been taken to it, a list shorter than
+its minimum. A new problem code needs a widget's `mat-error` or an entry among that
+component's notices; with neither, the report lists the problem and the field says
+nothing. `visual/tests/stored-problems.spec.ts` loads a fixture holding a bad value of
+every kind, and a new code belongs in it.
 
 ---
 
@@ -2188,11 +2299,12 @@ Workspace's template and element links open `cedar-template-designer` on the
 Designer hostname. That repository is a thin authenticated CED host; the combined
 `cedar-template-editor` retains its separate authoring implementation.
 
-Run `npm ci` in `cedar-template-designer`, then
-`cedarcli native restart frontend designer`. Its lock pins CED and CETP from
-Nexus and CEE/CEF 2.0.15 from npmjs. No sibling checkout is required. The first
-component snapshots are CED `0.1.0-dev.20260916.2593d382` and CETP
-`0.1.0-dev.20260915.0ec47d9c` under `@org.metadatacenter`.
+For development and E2E, run `cedarcli build frontends` to build and activate the latest
+development pins of CED, CEE/CEF, CETP and their dependencies under
+[the reactor contract](#the-reactor). A standalone `npm ci` uses the host's registry lock;
+that installation alone does not satisfy the development freshness requirement. With a verified
+reactor selection active, `cedarcli native restart frontend designer` reinstalls that selection
+and prepares the served bundles. Server payloads use their separately captured package locks.
 
 The host verifies each installed bundle against its published SHA-256, and
 `app/components/manifest.json` records each package's name, version and digest.
@@ -2480,9 +2592,18 @@ header. That key arrived in CEE 2.0.4-dev. An older bundle reports it as one it
 does not know and drops that key alone, so the preview still renders read-only and
 still shows the two buttons.
 
-CEE takes one assignment to its template and reports and ignores a second, so the
-designer replaces the element when the template settles rather than reassigning
-it; a burst of typing therefore costs one rebuild, not one per keystroke.
+CEE accepts a new template while no instance is loaded, so the designer reassigns
+the one preview element once the template settles; a burst of typing costs one
+rebuild, not one per keystroke.
+
+The preview follows the designer's selection, one way. Selecting a field or element
+asks CEE to `reveal` it by the property keys the written template holds it under
+(`TemplateService.previewPath`), with `focus: false`, so the author keeps typing in
+the designer. It asks again after each rebuild, so a field just added is found in the
+first form that contains it. CEE gained `reveal` in `2.0.19-dev.20261002.84b6c0ea`,
+and an older bundle leaves the preview where it is. The CI job's CEE pin has to be
+`d9b5347a` or later for the same reason: against an older CEE, the test that follows
+a field onto the second page fails.
 
 **The picker needs a local terminology server.** It reads the version-aware
 `/search`, which production does not serve — `POST
@@ -2526,22 +2647,24 @@ a mistake worth remembering.
 ### Shared Component Defaults and Configuration
 
 CEE/CEF and CED/CEFD consume `cedar-design-tokens` at build time. The package owns
-the font stack and embedded Roboto sources, type scale, palettes, semantic error,
-advisory and authoring roles, compact/authoring control defaults, and the optional
-4/8/12/16/24px spacing scale. Material remains inside CEE's adapter; CED uses CSS
+the whole vocabulary, 61 tokens: the font stack and embedded Roboto sources, five type
+sizes and two weights, the theme colour, three text colours, two rules, three surfaces,
+the status pairs, the two control densities, the 4/8/12/16/24px spacing scale, one
+corner radius and a pill, two shadows, motion and layers. Its README lists them and the
+replacement for every retired name. Material remains inside CEE's adapter; CED uses CSS
 properties and its native-control adapter. Geometry unique to one component stays
 local.
 
 CEE/CEF default to 36px compact controls. `density="authoring"` selects 32px height,
-12px text, 18px line height and 2px corners. CED/CEFD native settings and embedded
+12px text, 18px line height and the shared 4px corner. CED/CEFD native settings and embedded
 CEF use that authoring profile. Both profiles consult public `--cedar-control-*`
 host overrides first. Components must not assign those public properties internally;
 token defaults use separate names such as `--cedar-control-height-authoring`.
 The tokens package tests that its generated CSS cannot shadow the override names.
 
-Error text and borders use `color-error` (#b42318), advisory text uses
-`color-warning`, and advisory backgrounds use `surface-advisory`. The old Material
-`color-warn` remains exported for compatibility. The shared `fonts` Sass export
+Error text and borders use `status-error-text` (#b42318), advisory text uses
+`status-warning-text`, and advisory backgrounds use `status-warning-surface`. Material's
+red is no longer a CEDAR colour anywhere. The shared `fonts` Sass export
 contains 21 embedded font faces and no selectors or external font requests.
 Font registrars import it outside shadow DOM. Sharing the source preserves
 self-contained bundles rather than introducing a runtime font download.
@@ -2559,10 +2682,11 @@ adapters, browser tests check meanings and dimensions, and CEE/CED screenshot
 baselines use their pinned Linux ARM containers with zero pixel tolerance.
 
 Interface typography uses regular 400 and medium 500, with a 12px minimum for
-small labels and count badges. OpenView retains a distinct 34px artifact title.
-The token source defines regular/medium weights, the display role and a shared
-system monospace stack. New CSS roles use fallback values so older pinned token
-packages remain buildable; advance pins after publishing a new immutable snapshot.
+small labels and count badges. Every page, artifact and dialog title, OpenView's
+included, takes the shared artifact-title role. Material's per-level letter spacing
+is not used. Advance pins after publishing a new immutable snapshot; a consumer that
+references a retired token fails `cedarcli check design-tokens --strict`, which names
+the replacement.
 
 CEE's production build also emits `cedar-embeddable-editor.host-fonts.js` and
 `bundle-manifest.host-fonts.json`. This entry point uses the shared Lucide registry and
@@ -2621,12 +2745,21 @@ version. With the native profile sourced, the local development loop is:
 cd "$CEDAR_HOME/cedar-design-tokens"
 npm test
 npm pack --pack-destination /tmp
-# Use the exact tarball name npm pack printed, in each consumer:
+mkdir -p /tmp/cedar-tokens && tar -xzf /tmp/<token-tarball>.tgz -C /tmp/cedar-tokens
+# In each consumer, install its lock, then replace only the token package:
 cd "$CEDAR_HOME/cedar-embeddable-editor"
-npm install --no-save --package-lock=false /tmp/<token-tarball>.tgz
-cd "$CEDAR_HOME/cedar-embeddable-designer"
-npm install --no-save --package-lock=false /tmp/<token-tarball>.tgz
+npm ci
+rm -rf node_modules/@org.metadatacenter/cedar-design-tokens
+cp -R /tmp/cedar-tokens/package node_modules/@org.metadatacenter/cedar-design-tokens
 ```
+
+Replace the package rather than installing the tarball. `npm install --no-save
+--package-lock=false` resolves every dependency again from its range, so a consumer
+silently builds against newer packages than its lock names. On 2026-09-30 it moved
+CEE from Angular 22.2.0 to 22.2.1, which shifted overlay text by a fraction of a pixel
+and changed a screenshot the source change had not touched. The token package has no
+dependencies, so replacing it leaves the rest of the locked graph exact, as the
+consumer CI does.
 
 Build CEE/CEF first, then use its built bundle as `CEF_BUNDLE` for the CED browser
 gate. Tests cover both profiles, inherited host overrides in all four elements,
@@ -2654,9 +2787,14 @@ the scanner scope, exact-declaration exceptions, CI base-revision comparison and
 rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
 
 The tokens package exports opt-in `patterns` Sass recipes for titles, menus, dialogs,
-forms, toolbars, tabs, table cells and empty states. Its `UI-CONTRACTS.md` records
-required behavior and the suites that verify it. Workspace, Groups and Permissions
-consume these recipes; CEE remains the visual reference.
+forms, required marks, tabs, breadcrumbs, resource cards, table cells and empty states.
+Its `UI-CONTRACTS.md` records required behavior and the suites that verify it. Workspace,
+Groups and Permissions consume these recipes, OpenView's folders share Workspace's
+breadcrumb and card recipes, and every tab row in Workspace, CED and CETP uses the tab
+recipe. A component in its own shadow root declares the shared properties on its host with
+`custom-properties.declare`; CETP does, and re-points the shared roles at its `--cetp-*`
+host properties. The strict adoption check rejects a consumer that redefines a shared token
+and fails when a token has no consumer.
 
 Token pull requests and develop pushes run `Consumer contracts` across all eight
 consumers. Each job records both source SHAs and the packed candidate hash, installs
@@ -2665,6 +2803,21 @@ Every packed file is compared byte for byte. All eight consumers build; CEE, CED
 CETP and Workspace run their existing pinned Linux ARM64 visual suites without
 updating baselines. This complements each consumer's own CI and catches shared
 changes before publication. It does not install repository approval rules.
+
+Workspace imports the token package's scoped `native-choices.css` at its application
+root. The same stylesheet draws native single-select chevrons and date picker
+indicators from the icon registry. The source adoption gate verifies both the import
+and the root class, and browser contracts compare checkbox/radio colours with the live
+token roles in Groups, Permissions, filters and draft sharing. These checks include disabled
+states, keyboard focus and host colour overrides. The legacy Groups page keeps
+its own local brand palette; it does not participate in this token contract.
+
+Workspace's remaining adoption baseline preserves local layout dimensions: avatar
+and checkbox sizes, header/viewport calculations, screen-reader clipping, and the
+existing Groups/Permissions offsets and padding. Privacy prose keeps its existing
+line spacing. Review these in context rather than substituting a same-valued token
+with a different meaning or changing approved geometry just to reduce the count.
+Exact shared control-height and standard-spacing matches use tokens instead.
 
 Workspace's `npm run test:visual` runs its built Angular application in the pinned
 Playwright container, covering desktop/375px screenshots, Axe accessibility, keyboard
@@ -2691,3 +2844,152 @@ overrides and the supported read-only modes. Use keyboard focus and invalid
 field values to inspect those states. The page shows a missing-bundle message
 instead of substituting mock components. Its browser test joins the existing
 real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
+
+#### CED token coverage audit (2026-09-30)
+
+The source `cedarcli check design-tokens --strict --json` audit passes the
+new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
+The scanner reports **139 existing findings**:
+28 utility styles, 13 colors, 21 spacing declarations, 56 geometry declarations,
+15 typography declarations and six dynamic styles. These are source findings,
+including development surfaces, not 139 demonstrated visual defects. Resolved baseline allowances are pruned rather than retained as permission for drift to return.
+
+The registered CED inventory has 26 surfaces and 15 contract registrations, with
+one documented difference. Central contracts now include authoring label and
+control typography and compact table-cell density, exercised on the annotation
+entry row at desktop and 375px widths. The broader field/element matrix remains in
+CED's browser tests. Select-arrow clearance and controlled-term default-row
+alignment still lack central rendered contracts, and menu/dialog contracts still
+check only surface color and corner radius.
+
+Shared values live in `cedar-design-tokens/_tokens.scss`; native authoring recipes
+live in `_authoring.scss`, alongside general `_patterns.scss` and `_controls.scss`.
+CED imports authoring recipes directly. `src/authoring.scss` selects the applicable
+surfaces for both designer elements without copying recipe declarations. Component
+styles own content-specific layout. Preferences and Presets use the central
+settings-dialog structure; field cards, the palette and sidebar use semantic
+text, surface, border and theme roles rather than independent gray/green palettes.
+Do not reintroduce local control/table recipe
+copies or corrective authoring geometry in `src/styles.css`.
+
+This is not complete adoption: utility styling and component overrides remain,
+including the field-settings stylesheet shared by three components. Token references
+do not prevent an omitted recipe or cascade override from changing presentation.
+
+For this class of regression, review the computed properties on the actual
+standalone and nested authoring surfaces, with real CEF loaded, at desktop and
+375px widths and with supported host overrides. Check label weight/style,
+control/value weight, row density, the final table rule, select trailing space and
+empty/populated default-row alignment. A same-valued token substitution is not
+proof that the correct semantic role or shared recipe is used. Baselines must
+remain tied to approved presentation, not regenerated to accept unexpected output.
+
+CEE currently has **138 existing findings**: 57 spacing, 25 geometry,
+30 color and 26 typography declarations. These counts are legacy findings, not
+approved exceptions. CEE's `STYLING.md` records ownership by surface; CED's README
+records the corresponding boundary. Read-only specification boxes, separators and
+links share central recipes, including standalone defaults and supported host
+overrides. The CED property, type and default-term dialogs use the central surface
+recipe rather than documented radius deviations.
+
+Accept local content geometry, framework-adapter arithmetic and deliberate host
+fixtures only with a specific reason and rendered evidence. Ordinary labels,
+controls, state colors and dialog surfaces remain shared design work. A reasoned
+exception is limited to its reviewed occurrence count; additional copies fail the
+gate. Prune resolved baseline entries, and do not classify all remaining findings
+as acceptable merely to report a smaller debt total.
+
+Tokens also cannot enforce validation timing, save-state terminology or separation
+of selected values from defaults. Those require application-state tests. Finally,
+source adoption, installed package pins and served component bytes are separate
+checks: retain all three alongside the reactor and smoke evidence. Remaining
+centralization and rendered-contract work is tracked under **Enforce CED Authoring
+Style Contracts** in the frontend roadmap.
+
+## Surface inventory and token coverage
+
+The modern UI hierarchy is generated from `.ui-surfaces.json` in Workspace, CED,
+CEE, the Template Designer host and OpenView. These registries own surface names, stable
+IDs, hierarchy and the links to source and rendered contracts; the Markdown preview
+is generated output. Keep CEE/CEF as opaque entries and register their exposed
+menus/dialogs separately.
+
+OpenView's registry is at `cedar-openview/.ui-surfaces.json`; its application source
+is under `cedar-openview-src`. CI checks that nested source for unregistered
+menus/dialogs and literal Angular routes, and checks registered source anchors.
+Its folder and template pages and its not-found and not-open error cards are also
+checked as rendered pages by `browser/`, a Playwright suite that serves the built
+application and answers the open API from fixtures. Run it with `npm ci && npm test`
+in `browser/` after `npm run build` in `cedar-openview-src`. The other resource
+pages, the metadata panel and the empty folder have source coverage only. CEE stays
+opaque and shares CEE's existing registrations.
+
+`cedarcli check design-tokens --strict` checks registration coverage alongside
+source-style adoption. `--sync-surfaces` refreshes generated browser helpers from
+`cedar-design-tokens`; `--surface-inventory <path.md>` generates the hierarchy.
+Each owning repository's ordinary browser suite includes `surfaces.spec.*`, which
+opens registered surfaces at desktop/narrow widths and attaches measured style
+values. The offline CLI check does not run those browser cases.
+
+Add/change/remove registrations with the source change. Existing measured visual
+debt is exact and cannot grow in a feature PR; resolved debt must be removed.
+See `cedar-design-tokens/README.md`, “Maintained surface registry”, for the schema,
+central contracts, discovery limitations, generated helpers and maintenance steps.
+
+### Give a user or LLM the current surface hierarchy
+
+For requests such as “Show me the modern UI surface hierarchy”, use the registries
+to regenerate the list; do not reconstruct it from memory or hand-edit the output.
+From `$CEDAR_HOME`, run:
+
+```bash
+cedarcli check design-tokens --surface-inventory "$CEDAR_HOME/output/modern-workspace-ui-inventory.md"
+```
+
+If the shell has no `cedarcli` alias, use
+`bash "$CEDAR_HOME/cedar-cli/cli.sh"` in its place. The command needs the sibling
+`cedar-design-tokens`, `cedar-workspace`, `cedar-embeddable-designer`,
+`cedar-embeddable-editor`, `cedar-template-designer` and `cedar-openview` checkouts. It validates the
+registries before generating the hierarchy and does not require a running stack.
+Resolve reported registration errors before presenting the list as current.
+
+Read the generated Markdown and, in Codex, open that file with `open_in_codex` for
+in-app preview. Return names and nesting only unless the user asks for detail.
+Keep the registered category order and opaque embedded-component entries; menus
+and dialogs exposed by those components appear in their registered shared sections.
+Change names or hierarchy in the owning `.ui-surfaces.json`, then regenerate.
+The output file is a disposable local view; the committed registries are the
+maintained source of truth.
+
+### Printable surface checklist (PDF)
+
+When asked for a surface summary, surface checklist or full surface inventory as a
+PDF, produce the **complete checklist on one landscape page**, with **one separate,
+initially unchecked checkbox for every entry** in the freshly generated hierarchy.
+This is a sheet for checking each surface individually, not a condensed summary.
+Use the inventory command above first and resolve registration errors before
+rendering. Include all registered sections across Workspace, CED, CEE, the Template
+Designer host and OpenView unless the user explicitly requests a narrower scope.
+
+Preserve the generated names, category order and nesting. Do not merge entries
+(for example, Copy and Move), replace children with a parent checkbox, remove
+repeated names in different contexts, or omit entries to fit the page. Keep opaque
+component entries and their separately registered exposed menus/dialogs. Retain
+labels that are already combined in the maintained registry; do not invent a
+different hierarchy in the PDF.
+
+Use landscape US Letter, four columns, readable text of at least 9 points and
+checkboxes large enough to tick on paper. Wrap full labels, keep headings with
+their first entries, and mark continued sections at column breaks. The checkboxes
+should also be interactive PDF fields. Include the generation date, reviewer line
+and total checkbox count. If future inventory growth prevents a readable one-page
+Letter layout, use a larger landscape sheet and state its paper size; never silently
+drop or collapse entries.
+
+Save the PDF on the user's Desktop as `CEDAR-Workspace-Surface-Checklist.pdf`,
+unless another destination is requested. Before delivery, verify that it has
+exactly one landscape page, that every generated inventory entry appears in order
+with its own checkbox, and that the PDF field/widget counts match the inventory
+entry count with every checkbox unchecked. Render and visually inspect the final
+page for clipping, overlaps, orphan headings and legibility. Deliver the full PDF;
+a Markdown hierarchy or an abbreviated checklist does not satisfy this request.

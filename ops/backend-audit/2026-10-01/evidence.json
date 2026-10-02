@@ -1,0 +1,155 @@
+{
+  "date": "2026-10-01",
+  "purpose": "Backend audit: regression reproductions, not production fixes",
+  "source_commits": {
+    "cedar-parent": "e70f7b54449f5a3a1b8b4ac3e747060a8e65efe5",
+    "cedar-microservice-libraries": "8ae520a4f12ef86df7e5272aa2302e6f893f9d7d",
+    "cedar-artifact-server": "fd5a7b020e21107996b1d14c2060297c11f2668f",
+    "cedar-resource-server": "a304b270e0eddc49ed917cbc5e18bebceaac35a0",
+    "cedar-worker-server": "dbad744d3ae91cf4135956529b2517fcf0fd6b0a"
+  },
+  "environment": "Java 17; real embedded Redis and Mongo; resource HTTP and embedded Neo4j with controlled artifact HTTP boundary; no production data",
+  "new_cases": [
+    {
+      "class": "org.metadatacenter.worker.CloneAcknowledgementAuditTest",
+      "test_source": "tests/cedar-worker-server/cedar-worker-server-core/src/test/java/org/metadatacenter/worker/CloneAcknowledgementAuditTest.java",
+      "cases": [
+        {
+          "name": "successfulCloneIsNotRepeatedWhenOnlyAcknowledgementFails(boolean)[1]",
+          "result": "failed",
+          "message": "only acknowledgement failed; successful cloning must run once ==> expected: <1> but was: <2>"
+        },
+        {
+          "name": "successfulCloneIsNotRepeatedWhenOnlyAcknowledgementFails(boolean)[2]",
+          "result": "failed",
+          "message": "only acknowledgement failed; successful cloning must run once ==> expected: <1> but was: <2>"
+        }
+      ]
+    },
+    {
+      "class": "org.metadatacenter.cedar.artifact.resources.ArtifactRecreationAuditTest",
+      "test_source": "tests/cedar-artifact-server/cedar-artifact-server-application/src/test/java/org/metadatacenter/cedar/artifact/resources/ArtifactRecreationAuditTest.java",
+      "cases": [
+        {
+          "name": "staleUpdateCannotOverwriteARecreatedArtifact",
+          "result": "failed",
+          "message": "an old editor must not overwrite a replacement; old=\"1\", replacement=\"1\" ==> expected: <412> but was: <200>"
+        },
+        {
+          "name": "staleDeleteCannotDeleteARecreatedArtifact",
+          "result": "failed",
+          "message": "a validator from the deleted incarnation must not delete its replacement; old=\"1\", replacement=\"1\" ==> expected: <412> but was: <204>"
+        },
+        {
+          "name": "ordinaryUpdateStillRejectsThePreviousValidator",
+          "result": "passed",
+          "message": null
+        }
+      ]
+    },
+    {
+      "class": "org.metadatacenter.cedar.resource.resources.CrossStoreSequenceAuditTest",
+      "test_source": "tests/cedar-resource-server/cedar-resource-server-application/src/test/java/org/metadatacenter/cedar/resource/resources/CrossStoreSequenceAuditTest.java",
+      "cases": [
+        {
+          "name": "aDelayedEarlierWriteCannotReplaceTheGraphOfALaterSuccessfulWrite",
+          "result": "failed",
+          "message": "the earlier HTTP reply must not project stale metadata over the already committed successor ==> expected: <Second writer> but was: <First writer>"
+        },
+        {
+          "name": "aCopyCleansUpItsDocumentWhenTheDestinationDisappears",
+          "result": "failed",
+          "message": "a refused copy must discard the newly created content-store orphan ==> expected: <false> but was: <true>"
+        },
+        {
+          "name": "sequentialEditsKeepContentAndGraphInAgreement",
+          "result": "passed",
+          "message": null
+        }
+      ]
+    }
+  ],
+  "adjacent_suites": [
+    {
+      "class": "org.metadatacenter.cedar.resource.resources.TemplatesResourceWriteSuccessTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "class": "org.metadatacenter.cedar.resource.resources.CommandOpenResourceTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "class": "org.metadatacenter.cedar.resource.resources.CommandFileSystemResourceTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "class": "org.metadatacenter.cedar.resource.restore.Neo4jArtifactRestoreOutboxTest",
+      "tests": "14",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    }
+  ],
+  "findings": [
+    {
+      "priority": "P1",
+      "title": "Delete/recreate reuses a validator from the previous document incarnation",
+      "source": "cedar-microservice-libraries/cedar-template-operations-library/src/main/java/org/metadatacenter/server/dao/mongodb/GenericLDDaoMongoDB.java",
+      "line": 68
+    },
+    {
+      "priority": "P1",
+      "title": "Delayed content-write reply projects older metadata over a newer successful graph update",
+      "source": "cedar-resource-server/cedar-resource-server-application/src/main/java/org/metadatacenter/cedar/resource/resources/AbstractResourceServerResource.java",
+      "line": 824
+    },
+    {
+      "priority": "P2",
+      "title": "Clone acknowledgement failure repeats completed non-idempotent work",
+      "source": "cedar-worker-server/cedar-worker-server-core/src/main/java/org/metadatacenter/worker/CloneInstancesQueueProcessor.java",
+      "line": 134
+    },
+    {
+      "priority": "P2",
+      "title": "Copy leaves a content-store orphan when graph registration cannot complete",
+      "source": "cedar-resource-server/cedar-resource-server-application/src/main/java/org/metadatacenter/cedar/resource/resources/CommandFileSystemResource.java",
+      "line": 258
+    }
+  ],
+  "reproducer_verification": {
+    "script": "reproduce.sh",
+    "temporary_source_copies": true,
+    "suites": [
+      {
+        "class": "org.metadatacenter.cedar.artifact.resources.ArtifactRecreationAuditTest",
+        "tests": 3,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "org.metadatacenter.cedar.resource.resources.CrossStoreSequenceAuditTest",
+        "tests": 3,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "org.metadatacenter.worker.CloneAcknowledgementAuditTest",
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  }
+}

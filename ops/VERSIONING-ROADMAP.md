@@ -644,8 +644,8 @@ The controls wait on the backend meaning of both actions, which item 7 settles.
    coverage and the non-derivable acronyms, before any run against the live template store.
 
    The data half is a defect in stored artifacts rather than in code, so it is also a production
-   patch item, under Production Artifact Patch on
-   [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md#production-data) — patch what is stored before
+   patch item, under the production-data item on
+   [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md) — patch what is stored before
    requiring the new shape of anything that reads it.
 
 - **9. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** Improve display for the

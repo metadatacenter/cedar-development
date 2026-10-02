@@ -1,0 +1,183 @@
+{
+  "source_commits": {
+    "cedar-microservice-libraries": "41aeef250f7ea4267955eb3f0ebff8dddc7fd221",
+    "cedar-artifact-server": "19e57df1e190420aac525498f11608568f7f5c32",
+    "cedar-resource-server": "21cdea46b2ff3266faadd62c9723b55e1bfc29c7",
+    "cedar-worker-server": "7aa628212fff4fd22b12372fab0c5ea5c6fa5233"
+  },
+  "backend_build": {
+    "command": "cedarcli build java",
+    "exit_code": 0,
+    "reactors": [
+      "cedar-parent",
+      "cedar-libraries",
+      "cedar-project",
+      "cedar-clients"
+    ],
+    "per_class_report_totals": {
+      "tests": 5960,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 6
+    }
+  },
+  "regression_suites_in_backend_build": [
+    {
+      "suite": "org.metadatacenter.cedar.artifact.resources.TemplateDeletionRaceTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.server.resource.CloneInstancesExecutorServiceTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.artifact.resources.ArtifactRecreationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.worker.CloneAcknowledgementTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.resource.resources.CrossStoreSequenceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.resource.restore.Neo4jArtifactRestoreOutboxTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "opensearch_integration": {
+    "suite": "org.metadatacenter.cedar.resource.resources.IndexedSearchOpenSearchIT",
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "version": "2.19.1",
+    "fixture": "UUID-named test index and embedded Neo4j; real resource HTTP"
+  },
+  "native_redeployment": {
+    "command": "cedarcli native restart microservices",
+    "status_command": "cedarcli native status",
+    "microservices_healthy": 15,
+    "microservice_binaries_current": 15,
+    "applications_healthy": 22,
+    "infrastructure_available": 8
+  },
+  "rest_smoke": {
+    "command": "npm run smoke:rest -- --workers=4",
+    "runId": "2026-10-02T04-48-31",
+    "startedAt": "2026-10-02T04:48:31.745Z",
+    "finishedAt": "2026-10-02T04:49:21.043Z",
+    "durationSeconds": 49.3,
+    "verdict": "PASS",
+    "selectedSuites": [
+      "folders",
+      "artifacts",
+      "versioning",
+      "groups",
+      "sharing",
+      "group-sharing",
+      "openness",
+      "categories",
+      "validation",
+      "search",
+      "finding",
+      "authentication",
+      "pagination",
+      "negotiation",
+      "download",
+      "contract",
+      "inclusion",
+      "apidocs",
+      "freeze"
+    ],
+    "workers": 4,
+    "counts": {
+      "passed": 1063,
+      "failed": 0,
+      "skipped": 0,
+      "total": 1063
+    },
+    "inventoryMatched": true,
+    "cleanup": "No stamped folders, artifacts or categories left; worker drained all queued work"
+  },
+  "scope": [
+    "Local development stack only.",
+    "This REST-only run is not the complete browser/release smoke gate.",
+    "Historical pre-fix failures remain in evidence.json; these results verify the implemented fixes."
+  ],
+  "frontend_smoke": {
+    "reactor_build": "6c3cbba6410c72a9265c4ca0af3143ad20fe4d1b936a82127598cf6214b19433",
+    "source_snapshots_matched_before_and_after": 15,
+    "frontend_repositories_not_behind_fetched_develop": 13,
+    "application_runtime_installs_verified": 7,
+    "tiers": [
+      {
+        "command": "npm run smoke",
+        "exit_code": 0,
+        "coverage": "Combined Workspace/Designer/CEE journey and metadata first-save/re-save"
+      },
+      {
+        "command": "npm run smoke:workspace:modern:full",
+        "exit_code": 0,
+        "coverage": "Split Workspace, CED host, Profile/Settings/Groups/Privacy, logout and retired routes, recursive folder deletion"
+      }
+    ],
+    "scope": "Browser tiers were run directly after the earlier passing REST smoke, against the same backend implementation and the verified current frontend reactor. This does not create a combined release smoke-gate record.",
+    "verified_at_utc": "2026-10-02T05:06:30.677730+00:00"
+  },
+  "export_test_followup": {
+    "commit": "2f0413d500d625e2129bc79cb8d9c5ce5403039b",
+    "reason": "CI reordered shared fixture use and exposed a JSON-export assertion that hardcoded revision 1 after recreation.",
+    "change": "Compare the representation ETag with the canonical instance revision; repeat the test after deletion/recreation of its identifier.",
+    "production_code_changed": false,
+    "local_tests": {
+      "TemplateInstanceToJsonTest": 2,
+      "TemplateInstanceToRdfTest": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "github_ci": {
+    "cedar-microservice-libraries": {
+      "commit": "41aeef250f7ea4267955eb3f0ebff8dddc7fd221",
+      "conclusion": "success",
+      "run": "https://github.com/metadatacenter/cedar-microservice-libraries/actions/runs/36966335907"
+    },
+    "cedar-artifact-server": {
+      "commit": "2f0413d500d625e2129bc79cb8d9c5ce5403039b",
+      "conclusion": "success",
+      "run": "https://github.com/metadatacenter/cedar-artifact-server/actions/runs/36967187889"
+    },
+    "cedar-resource-server": {
+      "commit": "21cdea46b2ff3266faadd62c9723b55e1bfc29c7",
+      "conclusion": "success",
+      "run": "https://github.com/metadatacenter/cedar-resource-server/actions/runs/36966706542"
+    },
+    "cedar-worker-server": {
+      "commit": "7aa628212fff4fd22b12372fab0c5ea5c6fa5233",
+      "conclusion": "success",
+      "run": "https://github.com/metadatacenter/cedar-worker-server/actions/runs/36966713285"
+    }
+  }
+}

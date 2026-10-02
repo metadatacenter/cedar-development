@@ -1,8 +1,8 @@
 // Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
-import { actors, call, mutate, enc, OPENVIEW } from "./rest/lib.mjs";
+import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -28,6 +28,12 @@ let page,
   folderId,
   step = "login";
 const modal = (p) => p.locator("dialog[open]");
+// A version is entered as three numbers, one per box of the dialog's picker.
+async function enterVersion(p, version) {
+  const parts = version.split(".");
+  for (const [index, name] of ["Major", "Minor", "Patch"].entries())
+    await modal(p).getByRole("textbox", { name, exact: true }).fill(parts[index]);
+}
 const row = (p, name) =>
   p
     .locator("tbody tr")
@@ -38,6 +44,9 @@ const showInformation = (p, name) =>
   row(p, name).locator("td").nth(1).click();
 async function ready(p) {
   await p.getByRole("button", { name: "New", exact: true }).waitFor();
+  // This journey selects rows and date cells. Workspace defaults to the grid, so select
+  // the table explicitly after every full navigation; do not depend on an old default.
+  await p.getByRole("button", { name: "List view", exact: true }).click();
   await p.waitForFunction(
     () =>
       document.querySelector(".table-scroll")?.getAttribute("aria-busy") ===
@@ -48,7 +57,6 @@ async function login(username, password) {
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
     viewport: { width: 1500, height: 1000 },
-    acceptDownloads: true,
   });
   context.setDefaultTimeout(25000);
   await context.route("**/*", async (route) => {
@@ -107,8 +115,9 @@ async function listing(p, id = folderId) {
 async function listed(p, name, id = folderId) {
   for (let i = 0; i < 15; i++) {
     await listing(p, id);
-    if (await row(p, name).count()) return;
-    await p.waitForTimeout(500);
+    // A non-waiting count can observe the old grid DOM just after the view-switch click.
+    // Wait for the actual row before reloading for eventual search-index consistency.
+    if (await row(p, name).waitFor({state: "visible", timeout: 1000}).then(() => true, () => false)) return;
   }
   throw new Error("Not listed: " + name);
 }
@@ -137,13 +146,14 @@ async function write(
   status = 200,
   conditional = false,
 ) {
-  const pending = p.waitForResponse(
-    (r) =>
-      r.request().method() === method &&
-      new URL(r.url()).pathname.startsWith(path),
-  );
-  await gesture();
-  const response = await pending;
+  const [response] = await Promise.all([
+    p.waitForResponse(
+      (r) =>
+        r.request().method() === method &&
+        new URL(r.url()).pathname.startsWith(path),
+    ),
+    gesture(),
+  ]);
   assert.ok(
     (Array.isArray(status) ? status : [status]).includes(response.status()),
     `${method} ${path} returned ${response.status()}, expected ${status}: ${JSON.stringify(bodies.get(method + " " + response.url()))?.slice(0, 1200)}`,
@@ -155,8 +165,9 @@ async function write(
     );
   return bodies.get(method + " " + response.url());
 }
-// OpenView changes confirm with "Ok" rather than "Save".
-const confirmLabel = (path) => (path.includes("-open") ? "Ok" : "Save");
+// OpenView changes, publications and drafts confirm with "Ok" rather than "Save".
+const confirmLabel = (path) =>
+  /-open|publish-artifact|create-draft-artifact/.test(path) ? "Ok" : "Save";
 async function save(p, method, path, status = 200, conditional = false) {
   const data = await write(
     p,
@@ -183,7 +194,7 @@ async function editor(p, name) {
   await row(p, name).getByRole("link", { name, exact: true }).click();
   await p
     .locator("#state")
-    .filter({ hasText: /^(No unsaved changes|Unsaved changes)$/ })
+    .filter({ hasText: /^Unmodified$/ })
     .waitFor();
 }
 async function editorSave(p, method, collection, status = 200) {
@@ -293,11 +304,11 @@ async function constrainToDoidDiseaseBranch(p) {
     .locator("app-field-type-picker")
     .getByRole("button", { name: "Controlled Terms", exact: true })
     .click();
-  await p.locator('input[aria-label="Field name"]:focus').fill("Disease");
-  const settings = p
+  const field = p
     .locator("app-field-card")
-    .filter({ has: p.locator("app-controlled-term-config") })
-    .locator("app-field-settings");
+    .filter({ has: p.locator("app-controlled-term-config") });
+  await field.getByRole("textbox", { name: "Field display name", exact: true }).fill("Disease");
+  const settings = field.locator("app-field-settings");
   const toggle = settings.locator(".settings-toggle");
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
   await settings.getByRole("tab", { name: "Constraints", exact: true }).click();
@@ -416,7 +427,12 @@ try {
       .getByRole("button", { name: "Actions for " + names.destination, exact: true }).click();
     const resourceMenu = page.locator(".resource-menu");
     await resourceMenu.waitFor();
-    assert.equal(await resourceMenu.getByRole("button").count(), 18);
+    assert.deepEqual(
+      (await resourceMenu.getByRole("button").allTextContents()).map((label) => label.trim()),
+      ["Open", "Permissions…", "Move", "Rename", "Delete", "Enable Openview",
+        "Disable Openview", "Open in OpenView"],
+      "The folder menu must offer only applicable actions in order",
+    );
     await page.waitForFunction(() => {
       const menu = document.querySelector(".resource-menu");
       const rect = menu?.getBoundingClientRect();
@@ -424,7 +440,7 @@ try {
     });
     if (height === 1000) {
       assert.equal(await resourceMenu.evaluate((m) => m.scrollHeight <= m.clientHeight), true,
-        "All legacy menu actions should fit without scrolling on a tall viewport");
+        "All Workspace menu actions should fit without scrolling on a tall viewport");
     }
     const last = resourceMenu.getByRole("button", { name: "Open in OpenView", exact: true });
     await last.scrollIntoViewIfNeeded();
@@ -434,7 +450,7 @@ try {
     await page.keyboard.press("Escape");
   }
   await page.setViewportSize({ width: 1500, height: 1000 });
-  pass("All legacy artifact menu actions fit tall screens and remain reachable on short screens");
+  pass("Applicable folder menu actions fit tall screens and remain reachable on short screens");
   step = "session-retry";
   await ready(page);
   // Inject one expired-access-token response, then let the real refresh and
@@ -527,7 +543,7 @@ try {
       kind === "template"
         ? page.getByPlaceholder("Template name", { exact: true })
         : page.getByRole("textbox", {
-            name: kind === "field" ? "Field name" : "Element name",
+            name: kind === "field" ? "Field display name" : "Element name",
             exact: true,
           });
     await input.fill(names[kind]);
@@ -538,7 +554,7 @@ try {
         .getByRole("button", { name: "Text", exact: true })
         .click();
       await page
-        .getByRole("textbox", { name: "Field name", exact: true })
+        .getByRole("textbox", { name: "Field display name", exact: true })
         .fill("Notes");
       await constrainToDoidDiseaseBranch(page);
     }
@@ -948,9 +964,9 @@ try {
     .fill("Unsaved navigation");
   await page
     .locator(".metadata-toolbar [role=status]")
-    .filter({ hasText: "Unsaved changes" })
+    .filter({ hasText: "Modified" })
     .waitFor();
-  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Workspace", exact: true }).click();
   const discard = page
     .locator("dialog.confirmation-dialog")
     .filter({ hasText: "Discard unsaved metadata changes?" });
@@ -965,7 +981,7 @@ try {
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: /^Saved$/ })
     .waitFor();
-  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Back to Workspace", exact: true }).click();
   await ready(page);
   pass(
     "CEE host loads no AngularJS, saves without remounting, guards navigation and recognizes exact reverts",
@@ -1030,30 +1046,12 @@ try {
   pass(
     "Populate → CEE create, redirect, re-edit, conditional save and Workspace listing",
   );
-  step = "downloads";
-  await listed(page, names.template);
-  for (const label of [
-    "Download JSON",
-    "Download YAML",
-    "Download Compact YAML",
-  ]) {
-    const pending = page.waitForEvent("download");
-    await menu(page, names.template, label);
-    const download = await pending;
-    assert.match(download.suggestedFilename(), /\.(json|yaml)$/);
-    assert.equal(await download.failure(), null);
-    const contents = await readFile(await download.path(), "utf8");
-    assert.ok(
-      contents.includes(names.template),
-      "Download contains the authored template",
-    );
-    if (label === "Download JSON")
-      assert.equal(JSON.parse(contents)["@id"], artifacts.template);
-  }
-  pass("JSON, YAML and compact YAML downloads");
+  // Workspace no longer offers artifact downloads. The REST download suite covers JSON,
+  // YAML and compact YAML for every artifact kind; editor download controls have browser coverage.
   step = "copy-move";
+  await listed(page, names.template);
   await menu(page, names.template, "Copy");
-  await modal(page).getByLabel("Name", { exact: true }).fill(names.copy);
+  await modal(page).getByLabel("Name of copy", { exact: true }).fill(names.copy);
   const copy = await save(
     page,
     "POST",
@@ -1064,8 +1062,8 @@ try {
   await listed(page, names.copy);
   await menu(page, names.copy, "Move");
   await modal(page)
-    .locator(".folder-list")
-    .getByRole("button", { name: "▰ " + names.destination, exact: true })
+    .locator("cedar-folder-list")
+    .getByRole("button", { name: names.destination, exact: true })
     .click();
   await save(page, "POST", "/command/move-resource-to-folder", 201, true);
   await listed(page, names.copy, destination);
@@ -1073,11 +1071,11 @@ try {
   step = "versioning";
   await listed(page, names.template);
   await menu(page, names.template, "Publish");
-  await modal(page).getByLabel("Version", { exact: true }).fill("1.0.0");
+  await enterVersion(page, "1.0.0");
   await save(page, "POST", "/command/publish-artifact", [200, 201]);
   await listed(page, names.template);
   await menu(page, names.template, "Create Draft");
-  await modal(page).getByLabel("Version", { exact: true }).fill("1.1.0");
+  await enterVersion(page, "1.1.0");
   const draft = await save(page, "POST", "/command/create-draft-artifact", 201);
   assert.ok(draft["@id"]);
   assert.notEqual(draft["@id"], artifacts.template);
@@ -1090,21 +1088,22 @@ try {
   await listed(page, names.template);
   await showInformation(page, names.template);
   await page.getByRole("tab", { name: "Version", exact: true }).click();
-  await page
-    .getByRole("tabpanel")
-    .locator("dd")
-    .filter({ hasText: /^1\.0\.0$/ })
+  // The tab describes the selected version and names the other one: the draft
+  // as the latest version, or the published template as a previous one.
+  const panel = page.getByRole("tabpanel");
+  const versionCell = panel.locator("dd").nth(1);
+  await versionCell.waitFor();
+  const shown = (await versionCell.textContent()).trim();
+  assert.ok(["1.0.0", "1.1.0"].includes(shown), `Version tab shows ${shown}`);
+  await panel
+    .locator(shown === "1.0.0" ? ".latest-version" : ".previous-versions")
+    .filter({ hasText: shown === "1.0.0" ? "· 1.1.0 · Draft" : "· 1.0.0 · Published" })
     .waitFor();
-  await page
-    .getByRole("tabpanel")
-    .locator("dd")
-    .filter({ hasText: /^1\.1\.0$/ })
-    .waitFor();
-  await page.getByRole("tab", { name: "Info", exact: true }).click();
-  pass("Info and Version panels show the published/draft chain");
+  await page.getByRole("tab", { name: "Details", exact: true }).click();
+  pass("Details and Version panels show the published/draft chain");
   step = "openview";
   await listed(page, names.copy, destination);
-  await menu(page, names.copy, "Make Open");
+  await menu(page, names.copy, "Enable Openview");
   await save(page, "POST", "/command/make-artifact-open", 200, true);
   for (let i = 0; i < 20; i++) {
     const r = await call(
@@ -1133,7 +1132,7 @@ try {
       ?.shadowRoot?.textContent;
     return content?.includes(name) && content.includes("Notes");
   }, names.copy);
-  await menu(page, names.copy, "Make Not Open");
+  await menu(page, names.copy, "Disable Openview");
   await save(page, "POST", "/command/make-artifact-not-open", 200, true);
   for (let i = 0; i < 20; i++) {
     const r = await call(
@@ -1151,7 +1150,7 @@ try {
   pass("OpenView open/render/close");
   step = "folder-openview";
   await listed(page, names.destination);
-  await menu(page, names.destination, "Make Open");
+  await menu(page, names.destination, "Enable Openview");
   await save(page, "POST", "/command/make-folder-open", 200, true);
   assert.equal(
     (
@@ -1161,7 +1160,7 @@ try {
     ).status,
     200,
   );
-  await menu(page, names.destination, "Make Not Open");
+  await menu(page, names.destination, "Disable Openview");
   await save(page, "POST", "/command/make-folder-not-open", 200, true);
   assert.ok(
     [401, 403, 404].includes(
@@ -1178,7 +1177,8 @@ try {
   await row(page, names.copy)
     .getByRole("link", { name: names.copy, exact: true })
     .click();
-  await page.locator("#state").filter({ hasText: /^No unsaved changes$/ }).waitFor();
+  // An artifact just read from the server is unmodified, not saved.
+  await page.locator("#state").filter({ hasText: /^Unmodified$/ }).waitFor();
   assert.equal(
     (await mutate(user1.auth, "DELETE", "/templates/" + enc(copy["@id"])))
       .status,
@@ -1290,6 +1290,48 @@ try {
     }
   }
   pass("Conditional deletion through Workspace");
+  step = "selected-folder-and-artifact-delete";
+  const bulkCreated = [];
+  async function bulkCreate(collection, parent, name, type, extra = {}) {
+    const response = await call(user1.auth, "POST", "/" + collection +
+      (type ? "?folder_id=" + enc(parent) : ""),
+      type ? artifactBody(type, name, extra) : {folderId: parent, name, description: "Selection deletion smoke fixture"});
+    assert.equal(response.status, 201, response.text);
+    const item = {collection, id: response.body["@id"]};
+    created.push(item); bulkCreated.push(item);
+    return item.id;
+  }
+  const bulkRoot = await bulkCreate("folders", user1.profile.homeFolderId, `Selection deletion ${stamp}`);
+  const bulkFolder = await bulkCreate("folders", bulkRoot, `Selected folder ${stamp}`);
+  const bulkEmpty = await bulkCreate("folders", bulkRoot, `Selected empty folder ${stamp}`);
+  const bulkNested = await bulkCreate("folders", bulkFolder, `Nested folder ${stamp}`);
+  const bulkTemplate = await bulkCreate("templates", bulkFolder, `Nested template ${stamp}`, "template");
+  await bulkCreate("template-instances", bulkNested, `Nested instance ${stamp}`, "instance", {"schema:isBasedOn":bulkTemplate});
+  const bulkField = await bulkCreate("template-fields", bulkRoot, `Selected field ${stamp}`, "field");
+  await listing(page, bulkRoot);
+  for (const [index, id] of [bulkFolder, bulkEmpty, bulkField].entries()) {
+    await page.locator(`[data-resource-id="${id}"] .resource-icon`).click({modifiers:index ? ["ControlOrMeta"] : []});
+  }
+  const bulkAction = page.getByRole("button", {name:"Delete (3)",exact:true});
+  const bulkSource = await page.locator(`[data-resource-id="${bulkFolder}"] .resource-icon`).boundingBox();
+  const bulkBin = await bulkAction.boundingBox();
+  await page.mouse.move(bulkSource.x + bulkSource.width / 2, bulkSource.y + bulkSource.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bulkSource.x + bulkSource.width / 2 + 10, bulkSource.y + bulkSource.height / 2 + 10, {steps:3});
+  await page.mouse.move(bulkBin.x + bulkBin.width / 2, bulkBin.y + bulkBin.height / 2, {steps:12});
+  await page.locator('.selection-delete.explorer-delete-target').waitFor();
+  await page.mouse.up();
+  await modal(page).getByText("Total items to delete: 6.", {exact:false}).waitFor();
+  await modal(page).getByRole("button", {name:"Cancel",exact:true}).click();
+  for (const item of bulkCreated) assert.equal((await call(user1.auth,"GET","/"+item.collection+"/"+enc(item.id))).status,200);
+  await bulkAction.click();
+  await modal(page).getByText("Total items to delete: 6.", {exact:false}).waitFor();
+  await modal(page).getByRole("button",{name:"Delete selected items and contents",exact:true}).click();
+  await modal(page).waitFor({state:"hidden"});
+  for (const item of bulkCreated.filter(item=>item.id!==bulkRoot)) {
+    assert.equal((await call(user1.auth,"GET","/"+item.collection+"/"+enc(item.id))).status,404);
+  }
+  pass("Bin drop cancels safely; clicking Delete then removes two folders, nested template/instance and a separate artifact");
   assert.deepEqual(errors, []);
   pass("No uncaught browser errors");
   step = "complete";
@@ -1302,6 +1344,10 @@ try {
     })
     .catch(() => {});
   console.error("FAILED STEP:", step);
+  console.error("Designer validation:", await page?.evaluate(() => {
+    const editor = document.querySelector("cedar-embeddable-designer, cedar-embeddable-field-designer");
+    return editor?.validationReport ?? null;
+  }).catch(() => null));
   console.error(
     await page
       ?.locator("body")

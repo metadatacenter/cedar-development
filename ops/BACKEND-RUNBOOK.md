@@ -756,6 +756,95 @@ and the relay stops rather than overwriting newer content. A parked job stays in
 an artifact that could not be put back is one the two stores still disagree about and someone has to
 be able to find it. `CedarArtifactRestoreOutbox` nodes are those records.
 
+### After an Artifact Graph Update Commits
+
+Ordinary saves, DOI writes and inclusion propagation commit a `CedarVersionProjection` job in the
+same Neo4j transaction as the graph update and retirement of its compensation record. The job keeps
+the document snapshot for inclusion rebuilding; a subsequent save replaces that snapshot. Template
+updates also record their instances' reindex jobs in that transaction. OpenView changes and category
+attachments/removals record index work with their graph changes.
+
+The request attempts its own artifact immediately; `VersionProjectionService` retries pending jobs
+every five seconds, including after restart. It re-reads the current graph and pending snapshot, so a
+late callback from an older request cannot replay that request's stale metadata or inclusion list.
+Publish, draft and deletion requests attempt their own affected version chain directly, so an older
+job awaiting a recommender notification cannot leave their search actions stale. Deletion captures
+the affected identifiers before removing the graph node. The background batch still stops after one
+failed attempt, limiting dependency timeouts per pass.
+Graph updates, lifecycle transitions and these projections share the existing Neo4j lifecycle lock.
+This also serializes projection attempts across resource-server processes; a slow downstream call
+holds that lock until its configured timeout, so downstream latency can delay other graph writes.
+Search replaces the document under its stable identifier without a delete-before-index gap, then
+removes legacy generated-ID copies. The durable path makes one index attempt per target instead of
+the interactive client's retry loop; a failed rebuild mirror also leaves the job pending.
+
+A successful content/graph save remains successful when inclusion, search or the value-recommender
+queue is temporarily unavailable. The job remains pending until every applicable operation has
+succeeded; the relay rotates failed jobs and stops that batch after one failure. Replays are
+idempotent and queue delivery is at least once: a lost acknowledgement can produce a duplicate
+notification. Deletion removes pending update work under the same lock. This is recovery of derived
+state after a graph commit; failed-create cleanup is described below.
+
+Inspect `CedarVersionProjection` nodes for `resourceId`, `updatedAt`, `attempts`, `syncPrevious` and
+an optional `content` snapshot. A rising attempts count means the resource server's warning log
+should identify the unavailable stage. Do not discard a pending job to clear that symptom.
+`ArtifactProjectionTransitionTest` exercises reordered requests, downstream outages, lost enqueue
+acknowledgements, restart, rollback and delete/recreate against persisted state. The resource HTTP
+suite also verifies that a search outage preserves both the successful save and its recovery job.
+
+Verification on 2026-10-02 added fifteen regression cases. All Maven reactors in `cedarcli build java`
+compiled and passed their suites: 5,995 reported cases, six existing skips, no failures or errors.
+The CLI's final workspace-invariant check reported concurrent changes in `cedar-embeddable-editor`;
+no backend input was reported changed during the build. After redeploying all fifteen microservices,
+`cedarcli test e2e --rest-workers 4` passed all 1,063 REST checks and both browser tiers (report
+`ops/e2e/reports/smoke-gate/519dcbf2c958e3a2.json`). Every backend reported healthy/current, and the
+post-REST lifecycle audit found no schema-history errors and zero pending projections or active
+deletions. Three parked deletion records predate this work (September 4 and 16) and remain untouched.
+
+### After an Artifact Create Fails
+
+Ordinary creates, draft creation, copies and worker clones persist a `CedarArtifactCreateCleanup`
+record **before** requesting content storage. If recording intent fails, no content request is sent.
+A successful content response adds the new artifact's identifier and exact revision condition. The
+conditional-write parser normalizes representation validators such as `"1--gzip"` to `"1"`; unknown
+or wildcard validators never authorize cleanup. The HTTP recovery tests exercise gzip responses.
+Graph registration
+checks that cleanup has not started and removes the record in the same Neo4j transaction as creating
+the workspace node. A lost graph-commit acknowledgement or a subsequent indexing failure therefore
+cannot cause successful content to be deleted.
+
+The request attempts pending cleanup immediately; resource and worker relays resume jobs after thirty
+seconds and poll every five seconds. Cleanup commits its registration fence before calling the
+artifact server, then holds the shared lifecycle lock while checking for a workspace node and issuing
+`DELETE` with the recorded `If-Match`. If the delete succeeds but its acknowledgement is lost, the
+fence still prevents a delayed create from registering the missing document. Retrying a missing
+artifact (404) finishes the job. A changed or recreated document (412) is retained and the job parked.
+
+An unknown content response, missing validator, existing workspace node, permanent client refusal,
+or sixty failed attempts parks the record and logs a warning. Transient failures, including 408 and
+429, remain eligible for retry. A response lost before its generated identifier is recorded leaves
+an intent with an unknown artifact identity; it needs inspection, never a guessed delete. A late
+response can supply that evidence while no cleanup has occurred. Parked records are retained rather
+than silently cleared. Inspect them with read-only Cypher:
+
+```cypher
+MATCH (j:CedarArtifactCreateCleanup)
+RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt,
+       j.attempts, j.lastStatus, j.cleanupStarted, j.parked, j.parkedReason
+ORDER BY j.createdAt
+```
+
+Deploy the resource server and worker with the matching workspace/search libraries: producers,
+registration transactions and relays share this protocol. Both relays use the same graph lock, so
+multiple processes cannot race registration against cleanup. A slow artifact-server call holds that
+lock until its configured timeout, as projection recovery does. Tests cover persisted restart,
+rollback, lost acknowledgements, delayed registration, later revisions, ownership transfer, and real
+resource HTTP failures across ordinary creation, copies and drafts. The cleanup change adds seventeen
+regression cases; two more cover an unavailable recommender notification in an unrelated artifact or
+the same version chain. `ResourceStateRoundTripIT` also exercises publish/draft/delete transitions
+against a real OpenSearch index with Redis unavailable, requiring details, folder listings and search
+to offer the same actions immediately after each transition.
+
 ## The Redis Queues, and Where Failed Permission Events Go
 
 Five persistent queues carry work between services. Their names are set in
@@ -779,6 +868,14 @@ memory, and a failed batch is retried before its messages are dead-lettered. The
 NCBI consumer acknowledges handled submissions, dead-letters malformed ones, and wakes for shutdown
 by interrupting its blocking connection; it does not enqueue the old JSON `null` sentinel or log an
 empty one-second blocking-pop timeout as an error.
+
+The value-recommender status endpoint returns synchronized snapshots across generation start,
+completion and restart. The worker defers an update when its template is already processing or
+the configured concurrency limit is reached. A failed or incomplete status response, refused
+generation request, or failed requeue propagates to the claim/acknowledge consumer for its existing
+retry/dead-letter handling; an unknown status never counts as idle capacity. REST smoke checks the
+status records after the concurrent artifact suites, since healthy queues alone cannot detect a
+corrupted status list. Deploy the recommender server before a worker using the stricter status reader.
 
 The search-permission queue is the most security-sensitive one, but every worker dead-letter queue
 is worth watching. For example:
@@ -1498,9 +1595,9 @@ the additions only relax validation; open containers require live dependent-inst
 Never replace a stored template with a complete model rendering merely to add these declarations.
 
 The 2026-09-26 UTC production pass enumerated 4,834 templates and patched 4,826 with verified
-readbacks and Java validation. Seven unchanged-document-DOI/null-graph-DOI refusals and one indexed
-404 remain. All five transient DNS/HTTP500 failures succeeded on a checked retry. No instance was
-written. All 2,146 live dependents of 290 open-container templates retained their validation results;
+readbacks and Java validation. That pass left seven unchanged-document-DOI/null-graph-DOI refusals
+and one indexed 404; the seven refusals were recovered on 2026-09-27 as described below. All five
+transient DNS/HTTP500 failures succeeded on a checked retry. No instance was written in that pass. All 2,146 live dependents of 290 open-container templates retained their validation results;
 the other 4,543 candidates only relaxed closed containers. A retained scan of 150,580 instances
 identified 24 annotation-bearing sources, all freshly checked against production: 13 now validate,
 11 retain malformed annotations, and all 24 bodies are unchanged. Their unrelated errors are
@@ -1520,9 +1617,9 @@ The first three lost only the bogus element-instance identifier at `/_annotation
 also lost an empty optional `/url/0/@id`, and the last instance lost an empty optional project-website
 identifier. All DOI annotations and populated values were preserved. Each exact readback validates,
 both YAML writers produce identical bytes, all four conversions agree on JSON content/order, and
-all four completed instances validate. The HEAL correction still receives `doiCanNotBeAltered` and
-its readback is unchanged. All 14 previously prepared value repairs were freshly rechecked; only
-the project-website case became writable, leaving 13 blocked by other validation errors.
+all four completed instances validate. At that point the HEAL correction still received
+`doiCanNotBeAltered` and its readback was unchanged; its recovery is recorded below. All 14
+previously prepared value repairs were freshly rechecked; only the project-website case became writable, leaving 13 blocked by other validation errors.
 That pass reduced the retained primary pipeline count to 60. Evidence is in
 `.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
 
@@ -1558,7 +1655,7 @@ Originals and evidence are under `.cedar/repairs/2026-09-26-empty-not-applicable
 
 A dependency audit for making `Source Hyperlink` repeatable in template
 `05ce128b-c631-45c8-bfcf-a229ea1fcce5` found 368 instances requiring object-to-array migration.
-356 proposed bodies validate; 12 retain their existing errors: eight country IRIs and four source
+That initial pass found 356 valid proposed bodies; 12 retained their existing errors: eight country IRIs and four source
 links, two also with numeric literals. The proposed template and target F050TUN
 (`c59f4f3f-b271-4aae-b568-b6ace06a2406`) pass all four conversion paths, but no production writes
 were made because the full dependent migration cannot validate. Retained sources, proposals,
@@ -1619,9 +1716,10 @@ and element-occurrence identifiers retain their stricter reader rules.
 A fresh GET-only replay of all eight Niger instances passes stored validation and all four
 completed conversion paths; generated JSON content/order agrees and YAML bytes match. Every
 output retains the exact source IRI. A fresh dependency inventory also validates all 368 proposed
-repeatable-link migration bodies under the updated validator. The production deployment still
-needs these libraries before that migration can run. Evidence, classpath, originals and outputs
-are under `.cedar/repairs/2026-09-26-unicode-iri-library/`; no production artifacts were changed.
+repeatable-link migration bodies under the updated validator. That pass still required production
+adoption of these libraries. Evidence, classpath, originals and outputs are under
+`.cedar/repairs/2026-09-26-unicode-iri-library/`; it changed no production artifacts. The migration
+subsequently completed on production 2.9.19 as recorded below.
 
 The `Cell` instance `a20e4a8a-81b2-4cbd-8911-29a439b30ed2` now uses the template's
 `Publications_title` field and property mapping. Its malformed nested array exactly duplicated
@@ -1727,12 +1825,34 @@ path. Originals, candidates, write intents and readbacks are under
 `.cedar/repairs/2026-09-26-eight-decisions/`. The three FAIR Workflows migrations and the ambiguous
 GENASIS URL remain deferred, preserving their sources.
 
-The retained primary pipeline count under the latest libraries is now 29: annotations 8,
-malformed/empty IRIs 11, mixed values 5, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 4 remain deferred
-for an agreed field migration or URL destination, the approved F050TUN migration awaits production library adoption, and one
-otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
-production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
+After the 2026-09-27 DOI recovery and repeatable-link migration, the retained primary pipeline
+count under the latest libraries is 27: annotations 7, malformed/empty IRIs 10, mixed values 5,
+multiple datatypes 3, numeric literals 2. Of these, 23 have known narrow corrections blocked by
+unrelated validation errors and 4 remain deferred for an agreed field migration or URL destination.
+These are targeted updates, not a fresh full instance census.
+
+The repeatable-link migration completed on production 2.9.19 on 2026-09-27. A fresh all-version,
+all-publication-state inventory found 368 dependents of VODAN-COVID-Migrants-Tunisia
+`05ce128b-c631-45c8-bfcf-a229ea1fcce5`. Before any writes, every candidate passed the deployed
+validator and all four local Java/TypeScript conversion paths. Only `Source Hyperlink` changed:
+the template field became an array with `minItems: 1`; every instance's existing object became
+one array entry, except F050TUN (`c59f4f3f-b271-4aae-b568-b6ace06a2406`), whose approved pair of
+URLs became two entries. Whole-document inverse checks preserve all other values, context
+mappings, identifiers and provenance.
+
+The template and all 368 conditional verbatim writes returned 200 with exact readbacks. The first
+instance write exercised a previously blocked Niger Unicode identifier. A final fresh inventory
+was unchanged, and every stored instance validated through production against its actual stored
+template. All four completed conversion paths validate; generated JSON content/order agrees and
+Java/TypeScript YAML is byte-identical for every instance. Production YAML downloads for all eight
+Niger instances preserve the exact Unicode country IRI and pass both library readers plus template
+completion. No new deployment was required and no DOI or field value was removed.
+
+Private originals, ETags, candidates, remote validation reports, write intents/responses, final
+readbacks and conversion outputs are retained under
+`$CEDAR_HOME/.cedar/repairs/2026-09-27-repeatable-source-hyperlink/`. The schema declaration backlog
+remains 46; the eight Unicode cases no longer await backend deployment verification. Production
+terminology access and adoption by other editor consumers are separate checks.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
@@ -2232,6 +2352,29 @@ see a body, and keep open JSON-LD artifacts open with `additionalProperties: tru
 a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
 request and response schemas in resource, artifact, group, messaging, and worker server CI.
 
+### Request-body boundaries
+
+`cedarcli check openapi` requires every object request body to state `additionalProperties`
+explicitly. It resolves request-body and schema references and checks composed alternatives and
+array payload members. Commands and options are closed (`false`); artifact documents and
+preference maps are explicitly open. This is a declaration check, not a replacement for runtime
+validation: typed command reads use `JsonMapper.STRICT_MAPPER`, and tree-reading handlers check
+the accepted property names. Response and stored-record consumers use `TOLERANT_MAPPER` so new
+producer fields do not break them. Configure a copy when a consumer needs custom modules or
+handlers; never mutate either shared mapper. Specialized serializers and standalone model/ingest
+tools retain their own format-specific mappers.
+
+Artifact bodies pass their template-defined properties through the REST boundary and are checked
+by the artifact/model validator, including required content. There is no second generic REST
+minimum-content rule for artifacts. User preference updates retain dotted `uiPreferences.*` keys;
+the existing profile rules decide which preference paths can be updated.
+
+**Client-visible change:** `PATCH /groups/{id}` rejects `{}` and non-object bodies with 400,
+matching its published `minProperties: 1`. Callers must name at least one accepted property.
+A nonempty patch whose values already match still returns 200 with the same ETag; explicit null
+still removes the description, and cannot remove the name. Include this change in the release
+notice to external API callers. Messaging merge patches already require `notificationStatus`.
+
 ## Artifact Versioning Contract
 
 Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;
@@ -2348,6 +2491,37 @@ check remains atomic when two requests pass the HTTP read check at the same time
 without the internal field read as revision zero and acquire revision one on their first conditional
 update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
 
+Each artifact collection has a companion `<collection>_revision_history` collection, keyed by the
+artifact identifier. It records revision high-water marks before mutation and survives both ordinary
+and bulk deletion. Recreating an identifier therefore cannot reuse a validator from its previous
+incarnation. Include these collections in document-store backups and preserve them during data
+maintenance; deleting the ledger defeats that guarantee. Creation responses carry the revision
+assigned by insertion, not a later read or an assumed initial value.
+
+The live artifact service coordinates instance writes with template deletion and structural inclusion
+updates through `<template-collection>_reference_reservations`. An instance write records its
+reservation before checking the template's fence and the exact template revision used for validation.
+A delete or guarded inclusion update installs a unique fence, then checks reservations and stored
+references before its conditional mutation. Competing attempts cannot remove each other's fences.
+The fence is internal metadata and is absent from public JSON. This works on the pinned standalone
+MongoDB without depending on a lock in one JVM.
+
+Structural inclusion propagation uses the service-key-protected `PUT /templates/{id}/inclusion`
+endpoint, with the target's content ETag. It requires an existing template and refuses both stored
+and in-flight instance references. The resource server also checks publication against the target
+body read with that ETag. An instance validated before an inclusion update cannot subsequently
+commit against the old template revision; it receives 412 and must be validated again.
+
+A write whose database outcome is uncertain retains its reservation and blocks deletion or structural
+inclusion updates of that template. Confirm the originating request/process has stopped and inspect
+the stored instance before repairing an unresolved reservation; do not remove a live reservation merely because it is old.
+Settled reservations and conditional updates that can no longer commit are reaped by a later
+guarded mutation.
+A new conditional delete can take over an abandoned deletion fence, and a successful template edit
+supersedes it by advancing the revision. Raw maintenance services used by imports and test seeding
+are outside this live request protocol: run document imports with live writers stopped.
+
+
 Strong validators must also survive the public reverse proxy. Every Jersey response carrying a
 strong ETag receives `Cache-Control: no-transform` from the shared
 `StrongEtagResponseFilter`; existing cache directives are preserved. Cloudflare can otherwise
@@ -2458,6 +2632,84 @@ complete rebuild. The latest 100 records are retained in worker memory, so a wor
 history and interrupts a running regeneration; resubmit after confirming the old process stopped.
 
 ## Testing CEDAR
+
+<a id="backend-sequence-audit-reproducers"></a>
+
+### Backend sequence audits and regression coverage
+
+`ops/backend-audit/2026-10-01/` records the first audit at its original commits: six failed cases
+across four defects and two passing controls. `ops/backend-audit/2026-10-01-followup/` records three
+failed cases across two further defects and three passing controls. Their `evidence.json` files
+retain the original outcomes. Historical test sources are evidence, not accepted failing behavior
+in the normal build. No production data is included.
+
+The permanent coverage belongs to the affected services:
+
+| Suite | Sequence it protects |
+| --- | --- |
+| Artifact `ArtifactRecreationTest` | Delete/recreate the same identifier, then submit an old update or delete. |
+| Artifact `TemplateDeletionRaceTest` | Create after a zero-reference count, delete or propagate a structural inclusion after validation, and mutate while another service holds a reservation; distinguish a rejected write from a lost acknowledgement. |
+| Resource `CrossStoreSequenceTest` | Delay an earlier successful content reply until the next save has updated the graph; remove a copy destination while its content POST is in flight. |
+| Resource `Neo4jArtifactRestoreOutboxTest` | Keep the newer revision fence after job completion and outbox restart. |
+| Worker `CloneAcknowledgementTest` | False acknowledgements, exceptions before/after Redis removal, and recovery of a begun execution with duplicate delivery. |
+| Search library `CloneInstancesExecutorServiceTest` | Conditionally discard a worker clone that never reaches its destination graph, including an ownership transfer after its document POST. |
+| Workspace library `InstanceCloneOwnershipTest` | Transfer the instance or destination folder while a background clone waits; check ownership under graph locks before registration and provenance creation. |
+| Resource `InclusionTransitionTest` | Publish or edit an inclusion target, or create its first instance, after propagation preflight. |
+| Resource `DraftTransitionTest` | Two draft requests pass preflight together; a successful request loses its client response and is retried. Require one successor and one clone job. |
+| Resource `RecursiveDeletionTransitionTest`, `RecursiveFolderDeletionTest` | Interrupt deletion, move a surviving subtree, edit content, add an outside reference, or lose a delete acknowledgement; require fresh confirmation before continuing. |
+| Resource `IndexedSearchOpenSearchIT`, `OpenArtifactsResourceTest` | Move a subtree into and out of an open ancestor; revoke a direct grant and deliver an older index write. Search rechecks current graph access while retained direct grants remain usable. |
+
+The ordinary suites run in `cedarcli build java`. The OpenSearch case belongs to the existing
+`opensearch-it` profile and requires OpenSearch 2.19.1. It creates a UUID-named `cedar-search-it-*`
+index, removes only that index, and uses embedded Neo4j plus real resource HTTP. The suite covers
+both a refreshed index with an older continuation and a deliberately delayed stale
+index write after revocation. Ordinary, offset-based deep, and continuation searches recheck the live
+graph before returning indexed hits.
+
+The fixes passed the full backend build and a native redeploy with all fifteen microservice binaries
+current. The subsequent REST smoke passed all 1,063 checks across nineteen suites, without skips,
+leftover fixtures or queued worker work. Sanitized build, regression and smoke results are retained in
+`ops/backend-audit/2026-10-01-followup/verification.json`; the original failing observations remain in
+`evidence.json`.
+
+The subsequent five-workflow pass adds 22 regression cases: nineteen in the ordinary build and
+three in the OpenSearch profile. It covers inherited access during moves, inclusion propagation,
+clone ownership, concurrent drafts and interrupted recursive deletion. The full build reports 5,980
+cases (six skipped, no failures or errors), all fifteen redeployed microservice binaries are current,
+and REST smoke passes 1,063 checks with no skips or leftovers. Its source commits and sanitized
+results are in `ops/backend-audit/2026-10-01-transitions/verification.json`. Both browser smoke tiers
+also pass against these backend changes. The record includes the test-only correction that scopes
+recursive deletion assertions to their own resources when suites share an outbox.
+
+The first audit runner overlays its original eight cases into temporary source copies. The follow-up
+runner runs the current artifact race and OpenSearch suites from temporary copies; its archived
+`*AuditTest` sources describe the pre-fix measurement and are not overlaid. Both source the native
+development profile, use cached Maven dependencies offline, retain their scratch/log directory and
+leave the working checkouts unchanged:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+bash "$CEDAR_HOME/cedar-development/ops/backend-audit/2026-10-01/reproduce.sh"
+bash "$CEDAR_HOME/cedar-development/ops/backend-audit/2026-10-01-followup/reproduce.sh"
+```
+
+Creation cleanup uses the exact ETag returned by the content POST. Once an artifact reaches the graph,
+a later indexing failure must not cause its document to be discarded. Cleanup failure is still logged
+for inspection; durable cleanup and ordering of post-graph derived work remain in the roadmap.
+
+A clone execution is fenced in Redis before invoking the non-idempotent handler. An acknowledgement
+failure retries acknowledgement alone, including an acknowledgement whose successful reply was lost.
+Recovery of an execution that already began moves it to the dead-letter queue for inspection instead
+of repeating potentially completed copies. Inspect its folders and instances before manually replaying
+it. Claims recovered before execution began retain their normal retry behavior.
+
+Deep-search continuations retain snapshot ordering and counts, but each returned hit is authorized
+against the current graph and gets current caller permissions. A page can be empty while carrying a
+continuation because denied hits still advance the snapshot position; clients must follow the token
+until it is absent. A permissions refresh in OpenSearch is no longer a prerequisite for denying a
+revoked grant on a continuation.
+
+### Default test environment
 
 Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, Redis or
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
@@ -2691,6 +2943,16 @@ than nine tenths of its checks in under a fifth of the time. The CLI's own prefl
 eight seconds to the recorded time. A gate record is named by the digest of the sources it tested,
 so a second run against unchanged sources replaces the first run's record, which is how the third
 run's breakdown was lost.
+
+Development E2E requires the **latest development pins of ALL components**, including every
+frontend library and embedded component in every host. Follow the
+[mandatory reactor freshness contract](FRONTEND-RUNBOOK.md#the-reactor) before running this gate.
+`cedarcli test e2e` does not rebuild the frontend graph: a green result against old pins is not
+acceptable latest-development evidence. Use `cedarcli build frontends` to build, deploy and
+verify the complete current-source selection and run smoke; a standalone rerun may reuse that
+selection only while its sources, dependency pins and served bytes remain verified and unchanged.
+Never restore an older component or runtime selection to make smoke pass. Backend binaries must
+likewise be built from the development sources under test and redeployed before acceptance.
 
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
@@ -3594,7 +3856,7 @@ the walk.
 pass. The first is whether each stored template, element, field and instance passes
 `cedar-model-validation-library`, the gate nothing enters production without; an instance is
 validated against the exact template its `schema:isBasedOn` names. The second is how many artifacts
-carry one of the legacy shapes the [backend roadmap's production-data item](./BACKEND-ROADMAP.md#production-data)
+carry one of the legacy shapes the [backend roadmap's production-data item](./BACKEND-ROADMAP.md)
 lists. Those are shapes a valid artifact may still have, so every count is split by verdict. The
 walk is the REST audit's: the script imports `cedar_artifact_rest_audit.py` for the GET-only client,
 the `/search-deep` enumeration and its minting rules, so the two audits see the same artifact set.
@@ -4841,11 +5103,21 @@ referenced by any `version_tag`.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
+**Prerequisite for every development E2E run: latest development pins of ALL components,
+verified in every consumer.** Follow [the reactor contract](FRONTEND-RUNBOOK.md#the-reactor):
+`cedarcli build frontends` builds the complete current-source dependency graph, redeploys it,
+verifies the selected components and runs all smoke tiers. After backend changes, also build
+and redeploy the current Java sources. Use `cedarcli test e2e --rest-workers 4` for a complete
+smoke rerun only while that verified build is still current. Neither a passing smoke result nor
+matching displayed CEE versions establishes freshness by itself. Missing, stale or unverified
+components block acceptance; falling back to old pins is forbidden.
+
 One command that proves the whole stack works from the outside, the way users would exercise it.
 The Playwright script logs in through the real Keycloak form, uses Workspace and Designer to create
 and mutate a template, populates and re-edits an instance in CEE, presents the template anonymously
 in OpenView, and conditionally deletes its artifacts. Pass = exit 0; a failure leaves a screenshot
-in `ops/e2e/failures/`.
+in `ops/e2e/failures/`. The direct commands below run the legacy browser tier for diagnosis;
+they do not replace the full CLI smoke gate or its development freshness prerequisite.
 
 ```bash
 cd ops/e2e
@@ -5119,26 +5391,62 @@ rather than curing it.
 (already configured on this machine).
 
 
-### Misplaced annotation identifier: reader rejection and blocked source repair
+### Recovering an existing DOI attachment
 
-Both TypeScript annotation readers now reject scalar/array/null annotation entries and objects
-without a value/id, matching Java instead of silently dropping them. The exact stored HEAL instance
-`44685302-6d30-41fa-b129-6875fb887912` is rejected by both JSON readers. A proposed patch removing
-only `/_annotations/@id` yields identical four-path output and preserves its DOI annotation.
-The source template `d01330c7-ccd1-4e99-856a-86e08937347c` contains no misplaced identifier.
-The 2026-09-26 annotation backfill added its optional instance annotation declarations; the instance
-is now rejected specifically for malformed `/_annotations/@id`, rather than annotations being
-forbidden. Its body remains unchanged, and the DOI write guard still needs reconciliation before
-the prepared instance correction can be written.
+When a document already carries a DOI but its graph projection does not, production 2.9.19 can
+repair the attachment through `POST /command/annotations/doi`, with `@id` set to the full artifact
+identifier and `doi` set to the exact stored `_annotations["https://datacite.com/doi"]["@id"]` value.
+This endpoint does not mint a DOI or call DataCite. The existing-document branch updates the graph
+only; it rejects a different DOI and is idempotent for the same DOI.
 
-The conditional `PUT ?verbatim=true` was attempted on 2026-09-25 with the current ETag and rejected
-HTTP 400 `doiCanNotBeAltered`: request DOI `https://doi.org/10.82658/aqdn-5e14`, `storedDoi: null`.
-Readback confirmed the source is unchanged. No template was written and no DOI was removed.
-Pre-images, candidate, validation, reader checks and rejection are retained in
-`.cedar/repairs/2026-09-25-stray-annotation-id/`. The existing DOI recovery roadmap tracks this
-instance alongside the two previously blocked templates. TypeScript's 3,753 tests and shared
-166-YAML / 83-JSON parity checks pass.
+First retain the document, its ETag and graph metadata, and verify the existing DOI. The details
+response's `pathInfo` entry matching the artifact's `@id` exposes graph `doi`; its absence at the
+details response root does not establish a missing DOI. After the command, read both back: require
+the exact document and ETag to remain unchanged and the graph DOI to match. Graph modification
+provenance advances when its attachment is repaired; document provenance does not change.
+Then separately validate any pending content repair, check dependent instances and use the fresh
+strong ETag with `PUT ?verbatim=true`. Preserve the DOI and the ordinary immutability guard.
 
+On 2026-09-27 this recovered all eight known write refusals: seven templates and the HEAL instance.
+All eight recovery commands returned 200; document bodies and revisions were unchanged. Eight
+subsequent conditional repairs returned 200 with exact readbacks and preserved document provenance:
+
+| Repair | Artifacts | Dependent instances checked |
+| --- | ---: | ---: |
+| Optional annotation declarations and `@nest` mappings | 7 templates | 8 |
+| Three nested context `additionalProperties` declarations | 2 of those templates | The same 8 |
+| Remove the malformed `/_annotations/@id` | 1 HEAL instance | Its current template checked |
+
+All eight stored artifacts validate. Every dependent instance is unchanged and valid. The four
+Java/TypeScript conversion paths agree on JSON content/order and YAML bytes; generated schemas
+validate, as does the completed HEAL output in all four paths. No new production code or deployment
+was needed. The focused DOI command integration suite passes nine tests, including document-only
+DOI recovery, retry without rewriting, and rejection of a conflicting DOI before and after recovery.
+Private preimages, exact proposals, command/write intents, readbacks and conversion evidence are
+retained under `$CEDAR_HOME/.cedar/repairs/2026-09-27-doi-recovery/`.
+
+This completes the known writable annotation-backfill cohort: 4,833 templates across both passes;
+the indexed `.net` template still returns 404. The retained schema strict-reader backlog falls to
+46 templates (42 context declarations and 4 missing-child requirements), and the retained instance
+pipeline backlog falls to 28. These are targeted updates to prior audits, not a fresh corpus census.
+The broader DataCite timeout/retry state-machine work remains in the frontend roadmap.
+
+### Misplaced annotation identifier: reader rejection and source repair
+
+Both TypeScript annotation readers reject scalar/array/null annotation entries and objects without
+a value/id, matching Java instead of silently dropping them. The HEAL instance
+`44685302-6d30-41fa-b129-6875fb887912` formerly carried a bogus element-instance identifier at
+`/_annotations/@id`. Its template `d01330c7-ccd1-4e99-856a-86e08937347c` had no misplaced identifier;
+the 2026-09-26 annotation backfill added its optional instance annotation declarations.
+
+Conditional writes on 2026-09-25 and 2026-09-26 were refused with `doiCanNotBeAltered`: the document
+held `https://doi.org/10.82658/aqdn-5e14`, while the graph DOI was null. After recovering that exact
+attachment on 2026-09-27, the conditional instance repair succeeded. Only `/_annotations/@id` was
+removed. The DOI annotation, field values, provenance and identifiers elsewhere are unchanged.
+The stored body validates, both YAML writers emit identical bytes, and all four JSON conversions
+agree on content and order and validate after template completion. Earlier refusal evidence remains
+under `.cedar/repairs/2026-09-25-stray-annotation-id/`; successful recovery, repair and conversion
+checks are under `.cedar/repairs/2026-09-27-doi-recovery/`.
 
 TypeScript's JSON/YAML identifier readers reject raw ASCII spaces and control characters without
 trimming or URL auto-encoding, matching Java for the malformed E106TUN link. This is a targeted
@@ -5150,3 +5458,51 @@ sources and rejects only the two already-invalid URI/annotation cases. Evidence 
 JSON/YAML parity checks pass. The GeoExposure CASTNET template declares both URL fields as links;
 its duplicate `@value` members are not permitted by those field schemas. No production patch
 was performed for either URL case.
+
+## Recursive Workspace folder deletion
+
+The Workspace folder-delete dialog uses `GET /folders/{id}/deletion` to prepare a server-owned
+inventory, followed by `POST` to the same path with its `token` after explicit confirmation. The
+historical `DELETE /folders/{id}` remains empty-folder-only for existing clients.
+
+The inventory traverses the graph without permission, version or publication filters and includes
+its root. Only the selected folder's explicit owner may request or execute recursive deletion;
+Editor and Manager grants alone are insufficient. Ownership is checked at the start and end of
+inventory and before each deletion, so a transfer revokes the former owner's operation. Descendants
+need not share that owner. Every descendant still requires delete capability and the user's
+type-specific delete permission.
+Unreadable descendants still count; their names and identifiers are redacted in the response.
+Any item without delete permission blocks deletion. Home and system roots are refused immediately. Protected descendant folders also
+block the operation. The dialog lists Folder, Template, Element, Field and Instance counts and offers
+the complete readable inventory, with restricted entries represented anonymously.
+
+Template references come from Mongo, through the service-key-protected artifact endpoint
+`POST /templates/deletion-references`, rather than search results or the graph's instance count.
+An instance is internal only when its exact identifier occurs in the inventoried tree. Every other
+reference, including one missing from the graph or invisible to the caller, is external. The response
+reports the number of templates with instances, the number with external instances, and the external
+instance count. Internal references do not block deletion: all instances run before templates.
+
+Confirmation is bound to the user, root, resource identifiers, topology, content and graph revisions,
+permissions and reference identifiers. The server recomputes this inventory before applying it; a
+changed or blocked plan deletes nothing. The client cannot supply extra deletion identifiers.
+Execution rechecks each item's location, permission and graph revision, uses the recorded content
+ETag for artifact deletion, and deletes folders deepest-first only when empty. It stops on the first
+refusal, conflict, unavailable dependency or pending artifact cleanup. The template endpoint retains
+its final content-store reference check. A refused artifact request abandons its outbox job; it must
+not become an automatic deletion after the blocker later disappears.
+
+This is an optimistic, cross-store operation, not a rollback transaction. Concurrent changes after
+execution begins can stop it after some items have been removed. The response reports confirmed
+counts, and the UI requires a fresh inventory and another confirmation before continuing. An HTTP
+failure can leave completion uncertain; the client refreshes the listing and never automatically
+replays the deletion. Existing per-artifact deletion jobs complete content/graph/search cleanup after
+failures. Neither the confirmation token nor a folder operation bypasses those artifact safeguards.
+
+Operational responses include stable `FOLDER_DELETE_*` codes. Workspace translates those codes
+and network/error fallbacks into its bundled English and Hungarian messages; raw server messages
+are not displayed in this dialog. An owner refusal uses HTTP 403 and `FOLDER_DELETE_NOT_OWNER`.
+
+Verification: `cedarcli test e2e` includes the recursive-delete probe in its modern Workspace tier.
+For the focused real-stack check, run `npm run smoke:folder-delete` from `ops/e2e` with the native
+profile sourced. It creates disposable resources as both test users and removes only those fixtures.

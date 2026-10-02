@@ -1063,6 +1063,7 @@
     "freeze\u001ffreeze: publishing pins every served controlled-term constraint to its current version\u001fthe CEDARVS value-set constraint is pinned to the collection's current version",
     "freeze\u001ffreeze: publishing pins every served controlled-term constraint to its current version\u001fan unserved value-set constraint is left unpinned",
     "runner\u001frunner: clean-stack postflight\u001fthe run leaves no stamped folders, artifacts, or categories behind",
-    "runner\u001frunner: clean-stack postflight\u001fand the worker drained everything the run queued"
+    "runner\u001frunner: clean-stack postflight\u001fand the worker drained everything the run queued",
+    "runner\u001frunner: clean-stack postflight\u001fand rules-generation status contains complete, non-null entries"
   ]
 }

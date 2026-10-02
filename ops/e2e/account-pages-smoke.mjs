@@ -113,7 +113,7 @@ try {
       200,
     );
     await key().waitFor({ state: "detached" });
-    await page.getByRole("link", { name: "Workspace", exact: true }).click();
+    await page.getByRole("link", { name: "Back to Workspace", exact: true }).click();
     await page.locator("cedar-workspace-page").waitFor();
     console.log(
       "PASS: Profile is Angular-only; account, key create/reveal/hide/regenerate/delete, and Workspace return",
@@ -309,6 +309,7 @@ try {
       path: "/tmp/cedar-modern-groups.png",
       fullPage: true,
     });
+    await page.getByRole("tab", { name: "Delete group", exact: true }).click();
     await mutation(
       "DELETE",
       path,
@@ -355,7 +356,7 @@ try {
         0,
       );
     }
-    await page.getByRole("link", { name: "Workspace", exact: true }).click();
+    await page.getByRole("link", { name: "Back to Workspace", exact: true }).click();
     await page.locator("cedar-workspace-page").waitFor();
     console.log(
       "PASS: Privacy policy, responsive layout, and all four standalone Angular-only routes",

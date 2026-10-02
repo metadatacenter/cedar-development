@@ -48,7 +48,7 @@ async function open(path) {
     await page.locator('#kc-login').click();
   }
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
-  await page.waitForFunction(() => ['Not saved yet', 'No unsaved changes', 'Unsaved changes'].includes(document.getElementById('state').textContent));
+  await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
   if (path.startsWith('/fields/edit/')) {
     // Settings open expanded; expand them only if a later default collapses them again.
     const expand = page.getByRole('button', { name: 'Expand field settings', exact: true });
@@ -62,10 +62,11 @@ try {
     const params = new URLSearchParams({ folderId: user1.profile.homeFolderId, returnTo: workspaceBase + '/dashboard' });
     await open(`/${route}/create?${params}`);
     if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
-    const nameInput = () => kind === 'template' ? page.getByPlaceholder('Template name', { exact: true }) : page.getByRole('textbox', { name: kind === 'field' ? 'Field name' : 'Element name', exact: true });
+    const nameInput = () => kind === 'template' ? page.getByPlaceholder('Template name', { exact: true }) : page.getByRole('textbox', { name: kind === 'field' ? 'Field display name' : 'Element name', exact: true });
     const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Add helper instructions for users...' : 'Add description...', { exact: true });
     await page.waitForFunction(() => document.getElementById('save').disabled);
-    assert.equal(await page.locator('#state').textContent(), 'Not saved yet');
+    // A new artifact is unmodified until it is edited.
+    assert.equal(await page.locator('#state').textContent(), 'Unmodified');
     await nameInput().fill(name);
     await page.waitForFunction(() => !document.getElementById('save').disabled);
     for (const blank of ['', '   ']) {
@@ -120,7 +121,7 @@ try {
       await page.getByPlaceholder('Template name', { exact: true }).fill(name + ' revised');
       await page.getByRole('button', { name: /^Add field$/ }).click();
       await page.locator('app-field-type-picker').getByRole('button', { name: 'Text', exact: true }).click();
-      await page.getByRole('textbox', { name: 'Field name', exact: true }).fill('Added after metadata');
+      await page.getByRole('textbox', { name: 'Field display name', exact: true }).fill('Added after metadata');
       await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
       await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
@@ -138,13 +139,13 @@ try {
       const unchanged = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
       assert.equal(unchanged.body['bibo:status'], 'bibo:draft');
       assert.equal(unchanged.body['schema:description'], 'Changed while version confirmation was open');
-      assert.equal(await page.getByRole('textbox', { name: 'Field name', exact: true }).inputValue(), 'Added after metadata');
+      assert.equal(await page.getByRole('textbox', { name: 'Field display name', exact: true }).inputValue(), 'Added after metadata');
       console.log('PASS: stale version confirmation rejected without publishing, edits retained');
       await open(`/${route}/edit/${enc(id)}?${params}`);
       await page.getByPlaceholder('Template name', { exact: true }).fill(name + ' revised');
       await page.getByRole('button', { name: /^Add field$/ }).click();
       await page.locator('app-field-type-picker').getByRole('button', { name: 'Text', exact: true }).click();
-      await page.getByRole('textbox', { name: 'Field name', exact: true }).fill('Added after metadata');
+      await page.getByRole('textbox', { name: 'Field display name', exact: true }).fill('Added after metadata');
       await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
       const versionResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/command/publish-create-draft-template/'));
