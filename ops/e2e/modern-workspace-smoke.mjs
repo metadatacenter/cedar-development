@@ -165,8 +165,9 @@ async function write(
     );
   return bodies.get(method + " " + response.url());
 }
-// OpenView changes confirm with "Ok" rather than "Save".
-const confirmLabel = (path) => (path.includes("-open") ? "Ok" : "Save");
+// OpenView changes, publications and drafts confirm with "Ok" rather than "Save".
+const confirmLabel = (path) =>
+  /-open|publish-artifact|create-draft-artifact/.test(path) ? "Ok" : "Save";
 async function save(p, method, path, status = 200, conditional = false) {
   const data = await write(
     p,
@@ -1087,15 +1088,16 @@ try {
   await listed(page, names.template);
   await showInformation(page, names.template);
   await page.getByRole("tab", { name: "Version", exact: true }).click();
-  await page
-    .getByRole("tabpanel")
-    .locator("dd")
-    .filter({ hasText: /^1\.0\.0$/ })
-    .waitFor();
-  await page
-    .getByRole("tabpanel")
-    .locator("dd")
-    .filter({ hasText: /^1\.1\.0$/ })
+  // The tab describes the selected version and names the other one: the draft
+  // as the latest version, or the published template as a previous one.
+  const panel = page.getByRole("tabpanel");
+  const versionCell = panel.locator("dd").nth(1);
+  await versionCell.waitFor();
+  const shown = (await versionCell.textContent()).trim();
+  assert.ok(["1.0.0", "1.1.0"].includes(shown), `Version tab shows ${shown}`);
+  await panel
+    .locator(shown === "1.0.0" ? ".latest-version" : ".previous-versions")
+    .filter({ hasText: shown === "1.0.0" ? "· 1.1.0 · Draft" : "· 1.0.0 · Published" })
     .waitFor();
   await page.getByRole("tab", { name: "Details", exact: true }).click();
   pass("Details and Version panels show the published/draft chain");
