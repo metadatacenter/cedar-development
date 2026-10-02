@@ -767,6 +767,10 @@ attachments/removals record index work with their graph changes.
 The request attempts its own artifact immediately; `VersionProjectionService` retries pending jobs
 every five seconds, including after restart. It re-reads the current graph and pending snapshot, so a
 late callback from an older request cannot replay that request's stale metadata or inclusion list.
+Publish, draft and deletion requests attempt their own affected version chain directly, so an older
+job awaiting a recommender notification cannot leave their search actions stale. Deletion captures
+the affected identifiers before removing the graph node. The background batch still stops after one
+failed attempt, limiting dependency timeouts per pass.
 Graph updates, lifecycle transitions and these projections share the existing Neo4j lifecycle lock.
 This also serializes projection attempts across resource-server processes; a slow downstream call
 holds that lock until its configured timeout, so downstream latency can delay other graph writes.
@@ -779,7 +783,7 @@ queue is temporarily unavailable. The job remains pending until every applicable
 succeeded; the relay rotates failed jobs and stops that batch after one failure. Replays are
 idempotent and queue delivery is at least once: a lost acknowledgement can produce a duplicate
 notification. Deletion removes pending update work under the same lock. This is recovery of derived
-state after a graph commit; failed-create cleanup is a separate contract.
+state after a graph commit; failed-create cleanup is described below.
 
 Inspect `CedarVersionProjection` nodes for `resourceId`, `updatedAt`, `attempts`, `syncPrevious` and
 an optional `content` snapshot. A rising attempts count means the resource server's warning log
@@ -796,6 +800,47 @@ no backend input was reported changed during the build. After redeploying all fi
 `ops/e2e/reports/smoke-gate/519dcbf2c958e3a2.json`). Every backend reported healthy/current, and the
 post-REST lifecycle audit found no schema-history errors and zero pending projections or active
 deletions. Three parked deletion records predate this work (September 4 and 16) and remain untouched.
+
+### After an Artifact Create Fails
+
+Ordinary creates, draft creation, copies and worker clones persist a `CedarArtifactCreateCleanup`
+record **before** requesting content storage. If recording intent fails, no content request is sent.
+A successful content response adds the new artifact's identifier and exact ETag. Graph registration
+checks that cleanup has not started and removes the record in the same Neo4j transaction as creating
+the workspace node. A lost graph-commit acknowledgement or a subsequent indexing failure therefore
+cannot cause successful content to be deleted.
+
+The request attempts pending cleanup immediately; resource and worker relays resume jobs after thirty
+seconds and poll every five seconds. Cleanup commits its registration fence before calling the
+artifact server, then holds the shared lifecycle lock while checking for a workspace node and issuing
+`DELETE` with the recorded `If-Match`. If the delete succeeds but its acknowledgement is lost, the
+fence still prevents a delayed create from registering the missing document. Retrying a missing
+artifact (404) finishes the job. A changed or recreated document (412) is retained and the job parked.
+
+An unknown content response, missing validator, existing workspace node, permanent client refusal,
+or sixty failed attempts parks the record and logs a warning. Transient failures, including 408 and
+429, remain eligible for retry. A response lost before its generated identifier is recorded leaves
+an intent with an unknown artifact identity; it needs inspection, never a guessed delete. A late
+response can supply that evidence while no cleanup has occurred. Parked records are retained rather
+than silently cleared. Inspect them with read-only Cypher:
+
+```cypher
+MATCH (j:CedarArtifactCreateCleanup)
+RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt,
+       j.attempts, j.lastStatus, j.cleanupStarted, j.parked, j.parkedReason
+ORDER BY j.createdAt
+```
+
+Deploy the resource server and worker with the matching workspace/search libraries: producers,
+registration transactions and relays share this protocol. Both relays use the same graph lock, so
+multiple processes cannot race registration against cleanup. A slow artifact-server call holds that
+lock until its configured timeout, as projection recovery does. Tests cover persisted restart,
+rollback, lost acknowledgements, delayed registration, later revisions, ownership transfer, and real
+resource HTTP failures across ordinary creation, copies and drafts. The cleanup change adds seventeen
+regression cases; two more cover an unavailable recommender notification in an unrelated artifact or
+the same version chain. `ResourceStateRoundTripIT` also exercises publish/draft/delete transitions
+against a real OpenSearch index with Redis unavailable, requiring details, folder listings and search
+to offer the same actions immediately after each transition.
 
 ## The Redis Queues, and Where Failed Permission Events Go
 

@@ -1418,12 +1418,3 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
-
-## Correctness
-
-- **26. Make failed-create cleanup durable.** A document can remain without a workspace node when
-  graph registration fails and the conditional discard also fails, or the process stops before
-  cleanup. Persist cleanup intent for ordinary creates, draft creation, copies and worker clones;
-  recover it without deleting a subsequently edited or recreated artifact. Keep uncertain outcomes
-  visible for inspection, and distinguish an unregistered document from an operation that reached
-  the graph but failed during indexing.
