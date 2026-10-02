@@ -2394,6 +2394,29 @@ check remains atomic when two requests pass the HTTP read check at the same time
 without the internal field read as revision zero and acquire revision one on their first conditional
 update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
 
+Each artifact collection has a companion `<collection>_revision_history` collection, keyed by the
+artifact identifier. It records revision high-water marks before mutation and survives both ordinary
+and bulk deletion. Recreating an identifier therefore cannot reuse a validator from its previous
+incarnation. Include these collections in document-store backups and preserve them during data
+maintenance; deleting the ledger defeats that guarantee. Creation responses carry the revision
+assigned by insertion, not a later read or an assumed initial value.
+
+The live artifact service coordinates instance writes with template deletion through
+`<template-collection>_reference_reservations`. An instance write records its reservation before
+checking the template's deletion fence. A delete installs a unique fence, then checks reservations
+and stored references before its conditional removal. Competing delete attempts cannot remove each
+other's fences. The fence is internal metadata and is absent from public JSON. This works on the
+pinned standalone MongoDB without depending on a lock in one JVM.
+
+A write whose database outcome is uncertain retains its reservation and blocks deletion of that
+template. Confirm the originating request/process has stopped and inspect the stored instance before
+repairing an unresolved reservation; do not remove a live reservation merely because it is old.
+Settled reservations and conditional updates that can no longer commit are reaped by a later delete.
+A new conditional delete can take over an abandoned deletion fence, and a successful template edit
+supersedes it by advancing the revision. Raw maintenance services used by imports and test seeding
+are outside this live request protocol: run document imports with live writers stopped.
+
+
 Strong validators must also survive the public reverse proxy. Every Jersey response carrying a
 strong ETag receives `Cache-Control: no-transform` from the shared
 `StrongEtagResponseFilter`; existing cache directives are preserved. Cloudflare can otherwise
@@ -2505,29 +2528,67 @@ history and interrupts a running regeneration; resubmit after confirming the old
 
 ## Testing CEDAR
 
-### Backend sequence audit reproducers
+<a id="backend-sequence-audit-reproducers"></a>
 
-`ops/backend-audit/2026-10-01/` retains eight cases from the backend sequence audit: six assertions
-fail across four confirmed defects, and two controls pass. The defects concern identifier reuse,
-reordered save responses, clone acknowledgement failure and a disappearing copy destination. The
-35 adjacent visibility, copy, save and compensation tests passed. `evidence.json` records the
-audited commits, individual outcomes and the repeat run from temporary source copies. No production
-data is included.
+### Backend sequence audits and regression coverage
 
-With the normal Java 17 dependencies and embedded database binaries already cached, run:
+`ops/backend-audit/2026-10-01/` records the first audit at its original commits: six failed cases
+across four defects and two passing controls. `ops/backend-audit/2026-10-01-followup/` records three
+failed cases across two further defects and three passing controls. Their `evidence.json` files
+retain the original outcomes. Historical test sources are evidence, not accepted failing behavior
+in the normal build. No production data is included.
+
+The permanent coverage belongs to the affected services:
+
+| Suite | Sequence it protects |
+| --- | --- |
+| Artifact `ArtifactRecreationTest` | Delete/recreate the same identifier, then submit an old update or delete. |
+| Artifact `TemplateDeletionRaceTest` | Create after a zero-reference count, delete after validation, and delete while another service instance holds a reservation; distinguish a rejected write from a lost acknowledgement. |
+| Resource `CrossStoreSequenceTest` | Delay an earlier successful content reply until the next save has updated the graph; remove a copy destination while its content POST is in flight. |
+| Resource `Neo4jArtifactRestoreOutboxTest` | Keep the newer revision fence after job completion and outbox restart. |
+| Worker `CloneAcknowledgementTest` | False acknowledgements, exceptions before/after Redis removal, and recovery of a begun execution with duplicate delivery. |
+| Search library `CloneInstancesExecutorServiceTest` | Conditionally discard a worker clone that never reaches its destination graph. |
+| Resource `IndexedSearchOpenSearchIT` | Revoke graph access, refresh the indexed ACL, then resume an older search snapshot. Ordinary search and continuation controls remain. |
+
+The ordinary suites run in `cedarcli build java`. The OpenSearch case belongs to the existing
+`opensearch-it` profile and requires OpenSearch 2.19.1. It creates a UUID-named `cedar-search-it-*`
+index, removes only that index, and uses embedded Neo4j plus real resource HTTP. Revocation is checked
+against the live graph and a refreshed index before the older continuation is tested, so queue lag
+cannot explain the outcome.
+
+The fixes passed the full backend build and a native redeploy with all fifteen microservice binaries
+current. The subsequent REST smoke passed all 1,063 checks across nineteen suites, without skips,
+leftover fixtures or queued worker work. Sanitized build, regression and smoke results are retained in
+`ops/backend-audit/2026-10-01-followup/verification.json`; the original failing observations remain in
+`evidence.json`.
+
+The first audit runner overlays its original eight cases into temporary source copies. The follow-up
+runner runs the current artifact race and OpenSearch suites from temporary copies; its archived
+`*AuditTest` sources describe the pre-fix measurement and are not overlaid. Both source the native
+development profile, use cached Maven dependencies offline, retain their scratch/log directory and
+leave the working checkouts unchanged:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
 bash "$CEDAR_HOME/cedar-development/ops/backend-audit/2026-10-01/reproduce.sh"
+bash "$CEDAR_HOME/cedar-development/ops/backend-audit/2026-10-01-followup/reproduce.sh"
 ```
 
-The runner copies the three relevant repositories into a fresh temporary directory, adds the audit
-tests there and runs targeted Maven suites offline. It sources the native development profile and
-uses the tests' isolated Mongo, Redis, Neo4j and HTTP fixtures. It prints the retained scratch/log
-location and exits nonzero while any regression fails. A compiler or fixture error is not a reproduced
-bug: inspect the assertion results and require zero test errors. The working checkouts remain
-unchanged. As fixes land, move their tests into the owning service suites and remove the corresponding
-open roadmap work; the recorded audit results remain historical evidence.
+Creation cleanup uses the exact ETag returned by the content POST. Once an artifact reaches the graph,
+a later indexing failure must not cause its document to be discarded. Cleanup failure is still logged
+for inspection; durable cleanup and ordering of post-graph derived work remain in the roadmap.
+
+A clone execution is fenced in Redis before invoking the non-idempotent handler. An acknowledgement
+failure retries acknowledgement alone, including an acknowledgement whose successful reply was lost.
+Recovery of an execution that already began moves it to the dead-letter queue for inspection instead
+of repeating potentially completed copies. Inspect its folders and instances before manually replaying
+it. Claims recovered before execution began retain their normal retry behavior.
+
+Deep-search continuations retain snapshot ordering and counts, but each returned hit is authorized
+against the current graph and gets current caller permissions. A page can be empty while carrying a
+continuation because denied hits still advance the snapshot position; clients must follow the token
+until it is absent. A permissions refresh in OpenSearch is no longer a prerequisite for denying a
+revoked grant on a continuation.
 
 ### Default test environment
 

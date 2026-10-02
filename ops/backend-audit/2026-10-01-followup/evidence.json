@@ -1,0 +1,61 @@
+{
+  "audit": "Follow-up backend sequence audit",
+  "observed_at_utc": "2026-10-02T04:02:22.284537+00:00",
+  "source_commits": {
+    "cedar-parent": "e70f7b54449f5a3a1b8b4ac3e747060a8e65efe5",
+    "cedar-microservice-libraries": "8ae520a4f12ef86df7e5272aa2302e6f893f9d7d",
+    "cedar-artifact-server": "fd5a7b020e21107996b1d14c2060297c11f2668f",
+    "cedar-resource-server": "a304b270e0eddc49ed917cbc5e18bebceaac35a0"
+  },
+  "fixture_boundaries": [
+    "Artifact HTTP and real embedded Mongo. Decorators pause real calls without altering results.",
+    "Resource HTTP, embedded Neo4j and a UUID-named local OpenSearch 2.19.1 index. Graph access is revoked first; direct index refresh removes worker timing as an explanation.",
+    "No production stores or existing development search indexes were changed."
+  ],
+  "result": {
+    "tests": 6,
+    "failed": 3,
+    "passed": 3,
+    "errors": 0
+  },
+  "cases": [
+    {
+      "class": "org.metadatacenter.cedar.artifact.resources.TemplateDeletionRaceAuditTest",
+      "test": "templateDeletedAfterValidationMustPreventInstanceInsertion",
+      "outcome": "failed",
+      "assertion": "DELETE returned 204 and template GET returned 404, but the concurrent POST returned 201 and instance GET returned 200: a persisted instance now references a missing template ==> expected: <false> but was: <true>"
+    },
+    {
+      "class": "org.metadatacenter.cedar.artifact.resources.TemplateDeletionRaceAuditTest",
+      "test": "anAlreadyStoredInstanceBlocksDeletion",
+      "outcome": "passed"
+    },
+    {
+      "class": "org.metadatacenter.cedar.artifact.resources.TemplateDeletionRaceAuditTest",
+      "test": "instanceCreatedAfterTheReferenceCountMustPreventTemplateDeletion",
+      "outcome": "failed",
+      "assertion": "DELETE returned 204 and template GET returned 404, but the concurrent POST returned 201 and instance GET returned 200: a persisted instance now references a missing template ==> expected: <false> but was: <true>"
+    },
+    {
+      "class": "org.metadatacenter.cedar.resource.resources.SearchRevocationAuditTest",
+      "test": "continuationMustNotReturnMetadataAfterTheIndexedGrantIsRevoked",
+      "outcome": "failed",
+      "assertion": "an old continuation must not expose revoked metadata after graph and live index deny it: [{\"resourceType\":\"template\",\"currentUserPermissions\":{\"role\":\"viewer\",\"capabilities\":[\"readResource\"],\"availableActions\":[\"copyFromResource\",\"populate\"],\"owner\":false,\"createDraftErrorKey\":\"versioningOnlyByOwner\",\"publishErrorKey\":\"versioningOnlyByOwner\"},\"isOpen\":false,\"isOpenImplicitly\":false,\"trustedBy\":null,\"activeUserCanRead\":true,\"everybodyPermission\":null,\"pav:version\":null,\"bibo:status\":null,\"isLatestVersion\":null,\"isLatestDraftVersion\":null,\"isLatestPublishedVersion\":null,\"doi\":null,\"ownedBy\":null,\"pav:createdBy\":null,\"oslc:modifiedBy\":null,\"ownedByUserName\":null,\"createdByUserName\":null,\"lastUpdatedByUserName\":null,\"@id\":\"https://repo.metadatacenter.org/templates/search-wire-it-0a579c99-1a71-4af7-ae61-ab58c4a0e404-revocation-1\",\"schema:description\":null,\"schema:identifier\":null,\"schema:name\":\"revocationprobe0a579c991a714af7ae61ab58c4a0e404 confidential 1\",\"pav:createdOn\":null,\"pav:lastUpdatedOn\":null,\"sourceHash\":null}] ==> expected: <[]> but was: <[https://repo.metadatacenter.org/templates/search-wire-it-0a579c99-1a71-4af7-ae61-ab58c4a0e404-revocation-1]>"
+    },
+    {
+      "class": "org.metadatacenter.cedar.resource.resources.SearchRevocationAuditTest",
+      "test": "searchDeepContinuationReturnsEveryPermittedDocumentExactlyOnce",
+      "outcome": "passed"
+    },
+    {
+      "class": "org.metadatacenter.cedar.resource.resources.SearchRevocationAuditTest",
+      "test": "termSearchReturnsOnlyDocumentsTheCallerMayRead",
+      "outcome": "passed"
+    }
+  ],
+  "retained_run": "/var/folders/c1/gtt0h33d00z7yg3w_fkfyhl40000gr/T/cedar-backend-followup.GQWc2b",
+  "limitations": [
+    "These are pre-fix observations. Regression tests are promoted to the owning server suites with the fixes.",
+    "Full backend build and runtime REST verification are recorded separately after implementation."
+  ]
+}
