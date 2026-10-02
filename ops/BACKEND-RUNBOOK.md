@@ -756,6 +756,47 @@ and the relay stops rather than overwriting newer content. A parked job stays in
 an artifact that could not be put back is one the two stores still disagree about and someone has to
 be able to find it. `CedarArtifactRestoreOutbox` nodes are those records.
 
+### After an Artifact Graph Update Commits
+
+Ordinary saves, DOI writes and inclusion propagation commit a `CedarVersionProjection` job in the
+same Neo4j transaction as the graph update and retirement of its compensation record. The job keeps
+the document snapshot for inclusion rebuilding; a subsequent save replaces that snapshot. Template
+updates also record their instances' reindex jobs in that transaction. OpenView changes and category
+attachments/removals record index work with their graph changes.
+
+The request attempts its own artifact immediately; `VersionProjectionService` retries pending jobs
+every five seconds, including after restart. It re-reads the current graph and pending snapshot, so a
+late callback from an older request cannot replay that request's stale metadata or inclusion list.
+Graph updates, lifecycle transitions and these projections share the existing Neo4j lifecycle lock.
+This also serializes projection attempts across resource-server processes; a slow downstream call
+holds that lock until its configured timeout, so downstream latency can delay other graph writes.
+Search replaces the document under its stable identifier without a delete-before-index gap, then
+removes legacy generated-ID copies. The durable path makes one index attempt per target instead of
+the interactive client's retry loop; a failed rebuild mirror also leaves the job pending.
+
+A successful content/graph save remains successful when inclusion, search or the value-recommender
+queue is temporarily unavailable. The job remains pending until every applicable operation has
+succeeded; the relay rotates failed jobs and stops that batch after one failure. Replays are
+idempotent and queue delivery is at least once: a lost acknowledgement can produce a duplicate
+notification. Deletion removes pending update work under the same lock. This is recovery of derived
+state after a graph commit; failed-create cleanup is a separate contract.
+
+Inspect `CedarVersionProjection` nodes for `resourceId`, `updatedAt`, `attempts`, `syncPrevious` and
+an optional `content` snapshot. A rising attempts count means the resource server's warning log
+should identify the unavailable stage. Do not discard a pending job to clear that symptom.
+`ArtifactProjectionTransitionTest` exercises reordered requests, downstream outages, lost enqueue
+acknowledgements, restart, rollback and delete/recreate against persisted state. The resource HTTP
+suite also verifies that a search outage preserves both the successful save and its recovery job.
+
+Verification on 2026-10-02 added fifteen regression cases. All Maven reactors in `cedarcli build java`
+compiled and passed their suites: 5,995 reported cases, six existing skips, no failures or errors.
+The CLI's final workspace-invariant check reported concurrent changes in `cedar-embeddable-editor`;
+no backend input was reported changed during the build. After redeploying all fifteen microservices,
+`cedarcli test e2e --rest-workers 4` passed all 1,063 REST checks and both browser tiers (report
+`ops/e2e/reports/smoke-gate/519dcbf2c958e3a2.json`). Every backend reported healthy/current, and the
+post-REST lifecycle audit found no schema-history errors and zero pending projections or active
+deletions. Three parked deletion records predate this work (September 4 and 16) and remain untouched.
+
 ## The Redis Queues, and Where Failed Permission Events Go
 
 Five persistent queues carry work between services. Their names are set in

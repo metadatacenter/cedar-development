@@ -1421,13 +1421,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Correctness
 
-- **26. Order and recover the derived work after artifact graph updates.** Inclusion updates,
-  search indexing and value-recommender notifications happen after the graph transaction. Ensure
-  an earlier request paused at that boundary cannot resume and overwrite a successor's derived
-  state. Give unfinished projection work durable recovery across process failure, and cover
-  reordered completion and unavailable downstream services with persisted-state assertions.
-
-- **27. Make failed-create cleanup durable.** A document can remain without a workspace node when
+- **26. Make failed-create cleanup durable.** A document can remain without a workspace node when
   graph registration fails and the conditional discard also fails, or the process stops before
   cleanup. Persist cleanup intent for ordinary creates, draft creation, copies and worker clones;
   recover it without deleting a subsequently edited or recreated artifact. Keep uncertain outcomes
