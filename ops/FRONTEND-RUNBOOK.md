@@ -513,9 +513,23 @@ disposable checkouts; it does not update this reference consumer in the source c
 component is never stamped, built or published by `publish components`; only its declared pins move.
 Do not use this command as evidence that a reactor's complete dependency graph was published.
 
+CEE is followed too, from a different witness. Its CI publishes a development package from every
+push to `develop` and names it `<base>-dev.<date>.<sha7>` after the commit it built, so the command
+derives that name from CEE's `develop` head and asks Nexus whether it holds the package. CEE's
+consumers are not declared under `components`: they are the inventory a release pins the public CEE
+into, each frontend's `ceeConsumer` and the `additionalCeeConsumers`, so the two lists cannot
+disagree. The consumers stay where they are, and the plan says why, while CEE's `develop` is
+unpushed, holds uncommitted changes, is a release-preparation commit, or names a package Nexus does
+not hold yet. A run that moves one of CEE's own pins, such as the design tokens, skips CEE, because
+its CI package predates that change: commit and push CEE, let its CI publish, and run the command
+again. After a release, this is the only command that moves the consumers from the public CEE to
+the newest development package.
+
 Applying it stamps the component's next development version from its `develop` head, runs its dist
 command, publishes the staged package under the `dev` tag, then repoints each consumer's manifest,
-moves its lock, and re-stages its served bundles.
+moves its lock, and re-stages its served bundles. A consumer that names the published package itself
+gets a plain version. One that knows the package by another name gets npm's alias form, as every CEE
+consumer does: it names `cedar-embeddable-editor`, and the development package is scoped.
 
 When a development reactor is active, pin updates only change manifests and locks
 (`npm install --package-lock-only --ignore-scripts`): they leave installed packages and served
