@@ -46,6 +46,14 @@ navigation, collapsible side panels and Info/Version tabs. Category, latest-vers
 type filters are intentionally absent. Artifact/folder menus use existing REST operations
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
+The metadata editor lists CEE's findings above the form. Errors refuse Save, and Save says
+so when the pointer rests on it. Warnings, which are an unfilled requirement or a list short
+of its minimum, leave Save available. Each finding is a link that asks CEE to `reveal` its field, which turns
+the page and moves each repeating element to the entry that holds it. A repeated element
+or field in the label carries that entry's number, as in "Author 2 · Email". The server's
+own validation findings are not listed yet; that work is in the
+[frontend roadmap](FRONTEND-ROADMAP.md).
+
 The selection toolbar exposes the shared bin as an icon-only button in both grid and list views;
 its accessible name retains **Delete (N)** for assistive technology.
 Dragging items onto that bin opens the same confirmation; the drop itself never deletes them.
@@ -1354,11 +1362,15 @@ instance, while cursors remain UI state. Rebuilding records the exact
 template/instance pair so the inner editor does not reconstruct the same tree after
 `DataContext.setInputTemplate` has already done so.
 
-Keep the data-quality report's distinction intact when changing this model. Its
-validity checks inspect the whole instance, but its `valueTree` is a snapshot of the
-occurrence currently displayed. Its recursion now receives a component-state node
-and moves into an occurrence container explicitly; do not restore the old casts that
-treated containers and nodes as interchangeable.
+The data quality report never reads those cursors. It walks the instance itself,
+entry by entry, so the page and the entries on screen cannot change what it reports,
+and each problem records the entry taken at each repeating field or element along its
+path, outermost first, as `occurrences`. That is the location `reveal` consumes, and
+the same bad value in two entries is two problems. A requirement on a field inside a
+repeating element is still met by a value in any entry, so a `required` problem names
+no entry. A repeatable list that a stored instance omits is reported as the empty list
+CEE writes, which is why there is no `missingProperty` code. The contract is in
+`harness/test/report-locations.spec.ts`.
 
 <a id="cee-running-against-the-old-template-parser"></a>
 
@@ -1571,8 +1583,8 @@ cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **over 490 passing** in about a minute and a half — 497 on 3 September 2026,
-416 on 17 August. The count grows as tests are added; treat a *fall* as something to
+Expect **over 770 passing** in about a minute and a half — 774 on 2 October 2026,
+497 on 3 September. The count grows as tests are added; treat a *fall* as something to
 explain. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
@@ -1762,6 +1774,20 @@ link onto the next — and the specs of the widgets they sat in pin the rest, wi
 two coordinator specs for the two that were claims about markup: the numeric
 field's verdict reaching a `mat-error`, and the text field's link giving way to
 an input.
+
+A value that breaks a constraint shows its error as soon as the widget holds it,
+whether the user typed it or a stored instance supplied it. `holdsConstraintError`,
+in `edited-field-error-state-matcher.ts`, is the rule every widget's error-state
+matcher shares. An empty required field waits until the user edits it or a host
+reveals it, and a reveal marks the controls a widget names in `revealedControls()` as
+touched. The problems no control can find are stated under the field by
+`app-cedar-field-problems`, from the report: a stored choice outside the options, a
+term missing its label or IRI, an authority identifier that is not an IRI, a list
+longer than its maximum, and, once the user has been taken to it, a list shorter than
+its minimum. A new problem code needs a widget's `mat-error` or an entry among that
+component's notices; with neither, the report lists the problem and the field says
+nothing. `visual/tests/stored-problems.spec.ts` loads a fixture holding a bad value of
+every kind, and a new code belongs in it.
 
 ---
 
@@ -2566,9 +2592,18 @@ header. That key arrived in CEE 2.0.4-dev. An older bundle reports it as one it
 does not know and drops that key alone, so the preview still renders read-only and
 still shows the two buttons.
 
-CEE takes one assignment to its template and reports and ignores a second, so the
-designer replaces the element when the template settles rather than reassigning
-it; a burst of typing therefore costs one rebuild, not one per keystroke.
+CEE accepts a new template while no instance is loaded, so the designer reassigns
+the one preview element once the template settles; a burst of typing costs one
+rebuild, not one per keystroke.
+
+The preview follows the designer's selection, one way. Selecting a field or element
+asks CEE to `reveal` it by the property keys the written template holds it under
+(`TemplateService.previewPath`), with `focus: false`, so the author keeps typing in
+the designer. It asks again after each rebuild, so a field just added is found in the
+first form that contains it. CEE gained `reveal` in `2.0.19-dev.20261002.84b6c0ea`,
+and an older bundle leaves the preview where it is. The CI job's CEE pin has to be
+`d9b5347a` or later for the same reason: against an older CEE, the test that follows
+a field onto the second page fails.
 
 **The picker needs a local terminology server.** It reads the version-aware
 `/search`, which production does not serve — `POST

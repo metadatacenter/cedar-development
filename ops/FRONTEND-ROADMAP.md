@@ -97,9 +97,11 @@ The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#r
 
 A rejected create or update should show the user what the server refused. Render the problems
 in the server's `validationReport` with their paths and messages in Workspace's metadata editor,
-keep the document dirty, and provide navigation to the affected field across pages and repeated
-elements where possible. State the validation summary and the missing-required-field message
-through Workspace's language files, in English and Hungarian.
+keep the document dirty, and take the user to each affected field with CEE's `reveal`, as the list
+of CEE's own findings already does. That needs each server path mapped to a CEE location: the
+component path, and the entry of each repeating field or element along it. State the validation
+summary and the missing-required-field message through Workspace's language files, in English and
+Hungarian.
 
 Establish which CEE findings predict REST rejection and which are advisory, and gate Save only on
 the former. The `requiredValue: true` / `minItems: 0` case in CEE's
