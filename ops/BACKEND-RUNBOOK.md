@@ -2401,17 +2401,25 @@ incarnation. Include these collections in document-store backups and preserve th
 maintenance; deleting the ledger defeats that guarantee. Creation responses carry the revision
 assigned by insertion, not a later read or an assumed initial value.
 
-The live artifact service coordinates instance writes with template deletion through
-`<template-collection>_reference_reservations`. An instance write records its reservation before
-checking the template's deletion fence. A delete installs a unique fence, then checks reservations
-and stored references before its conditional removal. Competing delete attempts cannot remove each
-other's fences. The fence is internal metadata and is absent from public JSON. This works on the
-pinned standalone MongoDB without depending on a lock in one JVM.
+The live artifact service coordinates instance writes with template deletion and structural inclusion
+updates through `<template-collection>_reference_reservations`. An instance write records its
+reservation before checking the template's fence and the exact template revision used for validation.
+A delete or guarded inclusion update installs a unique fence, then checks reservations and stored
+references before its conditional mutation. Competing attempts cannot remove each other's fences.
+The fence is internal metadata and is absent from public JSON. This works on the pinned standalone
+MongoDB without depending on a lock in one JVM.
 
-A write whose database outcome is uncertain retains its reservation and blocks deletion of that
-template. Confirm the originating request/process has stopped and inspect the stored instance before
-repairing an unresolved reservation; do not remove a live reservation merely because it is old.
-Settled reservations and conditional updates that can no longer commit are reaped by a later delete.
+Structural inclusion propagation uses the service-key-protected `PUT /templates/{id}/inclusion`
+endpoint, with the target's content ETag. It requires an existing template and refuses both stored
+and in-flight instance references. The resource server also checks publication against the target
+body read with that ETag. An instance validated before an inclusion update cannot subsequently
+commit against the old template revision; it receives 412 and must be validated again.
+
+A write whose database outcome is uncertain retains its reservation and blocks deletion or structural
+inclusion updates of that template. Confirm the originating request/process has stopped and inspect
+the stored instance before repairing an unresolved reservation; do not remove a live reservation merely because it is old.
+Settled reservations and conditional updates that can no longer commit are reaped by a later
+guarded mutation.
 A new conditional delete can take over an abandoned deletion fence, and a successful template edit
 supersedes it by advancing the revision. Raw maintenance services used by imports and test seeding
 are outside this live request protocol: run document imports with live writers stopped.
@@ -2543,24 +2551,38 @@ The permanent coverage belongs to the affected services:
 | Suite | Sequence it protects |
 | --- | --- |
 | Artifact `ArtifactRecreationTest` | Delete/recreate the same identifier, then submit an old update or delete. |
-| Artifact `TemplateDeletionRaceTest` | Create after a zero-reference count, delete after validation, and delete while another service instance holds a reservation; distinguish a rejected write from a lost acknowledgement. |
+| Artifact `TemplateDeletionRaceTest` | Create after a zero-reference count, delete or propagate a structural inclusion after validation, and mutate while another service holds a reservation; distinguish a rejected write from a lost acknowledgement. |
 | Resource `CrossStoreSequenceTest` | Delay an earlier successful content reply until the next save has updated the graph; remove a copy destination while its content POST is in flight. |
 | Resource `Neo4jArtifactRestoreOutboxTest` | Keep the newer revision fence after job completion and outbox restart. |
 | Worker `CloneAcknowledgementTest` | False acknowledgements, exceptions before/after Redis removal, and recovery of a begun execution with duplicate delivery. |
-| Search library `CloneInstancesExecutorServiceTest` | Conditionally discard a worker clone that never reaches its destination graph. |
-| Resource `IndexedSearchOpenSearchIT` | Revoke graph access, refresh the indexed ACL, then resume an older search snapshot. Ordinary search and continuation controls remain. |
+| Search library `CloneInstancesExecutorServiceTest` | Conditionally discard a worker clone that never reaches its destination graph, including an ownership transfer after its document POST. |
+| Workspace library `InstanceCloneOwnershipTest` | Transfer the instance or destination folder while a background clone waits; check ownership under graph locks before registration and provenance creation. |
+| Resource `InclusionTransitionTest` | Publish or edit an inclusion target, or create its first instance, after propagation preflight. |
+| Resource `DraftTransitionTest` | Two draft requests pass preflight together; a successful request loses its client response and is retried. Require one successor and one clone job. |
+| Resource `RecursiveDeletionTransitionTest`, `RecursiveFolderDeletionTest` | Interrupt deletion, move a surviving subtree, edit content, add an outside reference, or lose a delete acknowledgement; require fresh confirmation before continuing. |
+| Resource `IndexedSearchOpenSearchIT`, `OpenArtifactsResourceTest` | Move a subtree into and out of an open ancestor; revoke a direct grant and deliver an older index write. Search rechecks current graph access while retained direct grants remain usable. |
 
 The ordinary suites run in `cedarcli build java`. The OpenSearch case belongs to the existing
 `opensearch-it` profile and requires OpenSearch 2.19.1. It creates a UUID-named `cedar-search-it-*`
-index, removes only that index, and uses embedded Neo4j plus real resource HTTP. Revocation is checked
-against the live graph and a refreshed index before the older continuation is tested, so queue lag
-cannot explain the outcome.
+index, removes only that index, and uses embedded Neo4j plus real resource HTTP. The suite covers
+both a refreshed index with an older continuation and a deliberately delayed stale
+index write after revocation. Ordinary, offset-based deep, and continuation searches recheck the live
+graph before returning indexed hits.
 
 The fixes passed the full backend build and a native redeploy with all fifteen microservice binaries
 current. The subsequent REST smoke passed all 1,063 checks across nineteen suites, without skips,
 leftover fixtures or queued worker work. Sanitized build, regression and smoke results are retained in
 `ops/backend-audit/2026-10-01-followup/verification.json`; the original failing observations remain in
 `evidence.json`.
+
+The subsequent five-workflow pass adds 22 regression cases: nineteen in the ordinary build and
+three in the OpenSearch profile. It covers inherited access during moves, inclusion propagation,
+clone ownership, concurrent drafts and interrupted recursive deletion. The full build reports 5,980
+cases (six skipped, no failures or errors), all fifteen redeployed microservice binaries are current,
+and REST smoke passes 1,063 checks with no skips or leftovers. Its source commits and sanitized
+results are in `ops/backend-audit/2026-10-01-transitions/verification.json`. Both browser smoke tiers
+also pass against these backend changes. The record includes the test-only correction that scopes
+recursive deletion assertions to their own resources when suites share an outbox.
 
 The first audit runner overlays its original eight cases into temporary source copies. The follow-up
 runner runs the current artifact race and OpenSearch suites from temporary copies; its archived

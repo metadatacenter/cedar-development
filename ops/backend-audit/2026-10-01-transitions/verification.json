@@ -1,0 +1,311 @@
+{
+  "source_commits": {
+    "cedar-microservice-libraries": "3431c18d9206691c7779a2af4dd6752b14a17309",
+    "cedar-artifact-server": "2e18554ca3c9ca9c6316717be7bc72e78b6ef02e",
+    "cedar-resource-server": "e02c7c4c9cf6b10d7977cf142e3857ea401c00ed"
+  },
+  "workflows": [
+    {
+      "workflow": "Inherited access, moves, delayed index writes and retained direct grants",
+      "commits": {
+        "cedar-resource-server": [
+          "9f0b257"
+        ]
+      },
+      "new_cases": 4,
+      "result": "Ordinary and offset-deep searches now recheck graph access; continuation already did. Moves update inherited openness without erasing direct grants.",
+      "pre_fix_failures": 2
+    },
+    {
+      "workflow": "Inclusion propagation overtaken by publication, editing or first instances",
+      "commits": {
+        "cedar-microservice-libraries": [
+          "249b1a41"
+        ],
+        "cedar-artifact-server": [
+          "2e18554"
+        ],
+        "cedar-resource-server": [
+          "b97314a"
+        ]
+      },
+      "new_cases": 6,
+      "result": "Publication is checked against the fetched revision. Structural propagation fences stored and in-flight instances, and instance writes require the exact template revision used for validation. Concurrent edits remain ETag-protected.",
+      "pre_fix_failures": 2
+    },
+    {
+      "workflow": "Ownership transfers during background instance cloning",
+      "commits": {
+        "cedar-microservice-libraries": [
+          "3431c18d"
+        ]
+      },
+      "new_cases": 6,
+      "result": "Registration holds source and destination graph locks while checking their current owner and creating the clone and provenance; rejected registration conditionally removes its new content revision."
+    },
+    {
+      "workflow": "Concurrent next drafts and retry after a lost client response",
+      "commits": {
+        "cedar-resource-server": [
+          "b8fdd1a"
+        ]
+      },
+      "new_cases": 2,
+      "result": "Existing version-chain guard holds: one successor, one clone job, and conditional cleanup of the losing document. Client cancellation followed by retry does not duplicate work.",
+      "production_changes": false
+    },
+    {
+      "workflow": "Interrupted recursive deletion followed by a changed tree or lost acknowledgement",
+      "commits": {
+        "cedar-resource-server": [
+          "60e42cf"
+        ]
+      },
+      "new_cases": 4,
+      "result": "Existing confirmation protocol holds: stop on failure, reject stale confirmation, preserve moved subtrees, use edited content revisions, and refuse newly introduced outside references. Unknown outcomes require re-inventory.",
+      "production_changes": false
+    }
+  ],
+  "new_regression_cases": 22,
+  "backend_build": {
+    "command": "cedarcli build java",
+    "exit_code": 0,
+    "reactors": [
+      "cedar-parent",
+      "cedar-libraries",
+      "cedar-project",
+      "cedar-clients"
+    ],
+    "per_class_report_totals": {
+      "tests": 5980,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 6
+    },
+    "source_commits": {
+      "cedar-microservice-libraries": "3431c18d9206691c7779a2af4dd6752b14a17309",
+      "cedar-artifact-server": "2e18554ca3c9ca9c6316717be7bc72e78b6ef02e",
+      "cedar-resource-server": "60e42cf9298efcccc89e2ccc83f11501de243143"
+    }
+  },
+  "regression_suites_in_backend_build": [
+    {
+      "suite": "org.metadatacenter.server.neo4j.proxy.InstanceCloneOwnershipTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.artifact.resources.TemplateDeletionRaceTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.server.resource.CloneInstancesExecutorServiceTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.resource.deletion.RecursiveFolderDeletionTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.resource.resources.RecursiveDeletionTransitionTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.resource.resources.OpenArtifactsResourceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.resource.resources.DraftTransitionTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "org.metadatacenter.cedar.resource.resources.InclusionTransitionTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "opensearch_integration": {
+    "suite": "org.metadatacenter.cedar.resource.resources.IndexedSearchOpenSearchIT",
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "profile": "opensearch-it",
+    "fixture": "Local OpenSearch 2.19.1 with a UUID test index; real resource HTTP and embedded Neo4j"
+  },
+  "native_redeployment": {
+    "command": "cedarcli native restart microservices",
+    "microservices_healthy": 15,
+    "microservice_binaries_current": 15,
+    "applications_healthy": 22,
+    "infrastructure_available": 8,
+    "source_commits": {
+      "cedar-microservice-libraries": "3431c18d9206691c7779a2af4dd6752b14a17309",
+      "cedar-artifact-server": "2e18554ca3c9ca9c6316717be7bc72e78b6ef02e",
+      "cedar-resource-server": "60e42cf9298efcccc89e2ccc83f11501de243143"
+    },
+    "post_smoke_health": {
+      "command": "cedarcli native health",
+      "exit_code": 0,
+      "applications_healthy": 22
+    },
+    "final_resource_redeploy": {
+      "command": "cedarcli native restart microservice resource",
+      "source_commit": "e02c7c4c9cf6b10d7977cf142e3857ea401c00ed",
+      "reason": "The test-isolation verification repackaged the resource jar; redeploy it and repeat REST smoke even though production sources did not change."
+    }
+  },
+  "rest_smoke": {
+    "command": "npm run smoke:rest -- --workers=4",
+    "runId": "2026-10-02T06-02-22",
+    "startedAt": "2026-10-02T06:02:22.758Z",
+    "finishedAt": "2026-10-02T06:03:08.400Z",
+    "durationSeconds": 45.6,
+    "verdict": "PASS",
+    "selectedSuites": [
+      "folders",
+      "artifacts",
+      "versioning",
+      "groups",
+      "sharing",
+      "group-sharing",
+      "openness",
+      "categories",
+      "validation",
+      "search",
+      "finding",
+      "authentication",
+      "pagination",
+      "negotiation",
+      "download",
+      "contract",
+      "inclusion",
+      "apidocs",
+      "freeze"
+    ],
+    "workers": 4,
+    "counts": {
+      "passed": 1063,
+      "failed": 0,
+      "skipped": 0,
+      "total": 1063
+    },
+    "inventoryMatched": true,
+    "cleanup": "No stamped folders, artifacts or categories left; worker drained all queued work"
+  },
+  "scope": [
+    "Local development stack only.",
+    "The REST smoke is not a combined browser/release gate.",
+    "Nineteen new cases run in the default build; three additional new cases run in the OpenSearch integration profile.",
+    "Known roadmap work for durable downstream projections and failed-create cleanup after process failure remains separate."
+  ],
+  "github_ci": {
+    "cedar-microservice-libraries": {
+      "commit": "3431c18d9206691c7779a2af4dd6752b14a17309",
+      "conclusion": "success",
+      "run": "https://github.com/metadatacenter/cedar-microservice-libraries/actions/runs/36970397468"
+    },
+    "cedar-artifact-server": {
+      "commit": "2e18554ca3c9ca9c6316717be7bc72e78b6ef02e",
+      "conclusion": "success",
+      "run": "https://github.com/metadatacenter/cedar-artifact-server/actions/runs/36970839013"
+    },
+    "cedar-resource-server": {
+      "commit": "e02c7c4c9cf6b10d7977cf142e3857ea401c00ed",
+      "conclusion": "success",
+      "run": "https://github.com/metadatacenter/cedar-resource-server/actions/runs/36971509773"
+    }
+  },
+  "frontend_smoke": {
+    "tiers": [
+      {
+        "command": "npm run smoke",
+        "exit_code": 0,
+        "coverage": "Workspace/Designer/CEE, sharing and owner transfer, publication and new draft, OpenView open/close, metadata first save and re-save"
+      },
+      {
+        "command": "npm run smoke:workspace:modern:full",
+        "exit_code": 0,
+        "coverage": "Split Workspace, CED host, Profile/Settings/Groups/Privacy, logout, retired routes and recursive folder deletion"
+      }
+    ],
+    "scope": "Both browser tiers ran directly after the passing REST smoke against the new backend binaries; this does not create a combined release smoke-gate record."
+  },
+  "test_isolation_followup": {
+    "commit": "e02c7c4c9cf6b10d7977cf142e3857ea401c00ed",
+    "production_code_changed": false,
+    "initial_ci_run": "https://github.com/metadatacenter/cedar-resource-server/actions/runs/36970841746",
+    "reason": "CI ordered another suite before the recursive deletion tests, leaving an unrelated durable deletion job in the shared embedded graph. The new assertion incorrectly required the entire outbox to be empty.",
+    "change": "Query pending jobs only for the tested tree, and deliberately seed an unrelated parked job so the isolation assumption is exercised in every run.",
+    "verification": {
+      "command": "./mvnw -o -pl cedar-resource-server-application -am -Popensearch-it verify",
+      "exit_code": 0,
+      "per_class_report_totals": {
+        "tests": 291,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "rest_smoke_before_test_isolation_followup": {
+    "command": "npm run smoke:rest -- --workers=4",
+    "runId": "2026-10-02T05-49-09",
+    "startedAt": "2026-10-02T05:49:09.003Z",
+    "finishedAt": "2026-10-02T05:49:54.725Z",
+    "durationSeconds": 45.7,
+    "verdict": "PASS",
+    "selectedSuites": [
+      "folders",
+      "artifacts",
+      "versioning",
+      "groups",
+      "sharing",
+      "group-sharing",
+      "openness",
+      "categories",
+      "validation",
+      "search",
+      "finding",
+      "authentication",
+      "pagination",
+      "negotiation",
+      "download",
+      "contract",
+      "inclusion",
+      "apidocs",
+      "freeze"
+    ],
+    "workers": 4,
+    "counts": {
+      "passed": 1063,
+      "failed": 0,
+      "skipped": 0,
+      "total": 1063
+    },
+    "inventoryMatched": true,
+    "cleanup": "No stamped folders, artifacts or categories left; worker drained all queued work"
+  }
+}
