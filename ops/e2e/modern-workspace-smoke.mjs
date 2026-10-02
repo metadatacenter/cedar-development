@@ -193,7 +193,7 @@ async function editor(p, name) {
   await row(p, name).getByRole("link", { name, exact: true }).click();
   await p
     .locator("#state")
-    .filter({ hasText: /^(Saved|Modified)$/ })
+    .filter({ hasText: /^Unmodified$/ })
     .waitFor();
 }
 async function editorSave(p, method, collection, status = 200) {
