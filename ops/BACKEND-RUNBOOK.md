@@ -869,6 +869,14 @@ NCBI consumer acknowledges handled submissions, dead-letters malformed ones, and
 by interrupting its blocking connection; it does not enqueue the old JSON `null` sentinel or log an
 empty one-second blocking-pop timeout as an error.
 
+The value-recommender status endpoint returns synchronized snapshots across generation start,
+completion and restart. The worker defers an update when its template is already processing or
+the configured concurrency limit is reached. A failed or incomplete status response, refused
+generation request, or failed requeue propagates to the claim/acknowledge consumer for its existing
+retry/dead-letter handling; an unknown status never counts as idle capacity. REST smoke checks the
+status records after the concurrent artifact suites, since healthy queues alone cannot detect a
+corrupted status list. Deploy the recommender server before a worker using the stricter status reader.
+
 The search-permission queue is the most security-sensitive one, but every worker dead-letter queue
 is worth watching. For example:
 
