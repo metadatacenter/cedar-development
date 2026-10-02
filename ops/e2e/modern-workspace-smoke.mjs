@@ -1175,7 +1175,8 @@ try {
   await row(page, names.copy)
     .getByRole("link", { name: names.copy, exact: true })
     .click();
-  await page.locator("#state").filter({ hasText: /^Saved$/ }).waitFor();
+  // An artifact just read from the server is unmodified, not saved.
+  await page.locator("#state").filter({ hasText: /^Unmodified$/ }).waitFor();
   assert.equal(
     (await mutate(user1.auth, "DELETE", "/templates/" + enc(copy["@id"])))
       .status,

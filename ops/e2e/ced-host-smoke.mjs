@@ -48,7 +48,7 @@ async function open(path) {
     await page.locator('#kc-login').click();
   }
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
-  await page.waitForFunction(() => ['Not saved', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
+  await page.waitForFunction(() => ['Not saved', 'Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
   if (path.startsWith('/fields/edit/')) {
     // Settings open expanded; expand them only if a later default collapses them again.
     const expand = page.getByRole('button', { name: 'Expand field settings', exact: true });
