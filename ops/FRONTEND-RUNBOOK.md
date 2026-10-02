@@ -296,6 +296,11 @@ does not redirect those checks to an absent or stale sibling `cedar-test-artifac
 
 #### Bounded parallel builds and test gates
 
+On the 16-core workstation, which runs little else, build with
+`cedarcli build --jobs 2 --workers 12 frontends`. Twelve workers per repository measured
+faster than the default of eight, and sixteen gained little over twelve. The defaults suit a
+smaller or shared machine.
+
 `cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
 repositories at once, with two workers per repository. Two repositories is the default;
 the worker default is half the detected CPU count, at least one and capped at eight
@@ -369,8 +374,8 @@ and 42.7 s at sixteen, so twelve captured most of the available gain.
 These are component timings, not a full-reactor before/after result: dependency
 installation, deployment and whole-stack smoke are outside the comparison, and
 build/transform caches were warm except in the explicitly uncached Jest sweep.
-For this M4, `cedarcli build --jobs 2 --workers 12 frontends` is a useful tuning
-candidate; eight remains the portable default. Preserve all gates when comparing.
+Twelve is therefore the setting for this M4, and eight remains the portable default.
+Preserve all gates when comparing.
 
 After aligning designer expectations with the model's derived-title policy, the
 current-source reactor at two jobs and twelve workers passed in 332.2 seconds for
