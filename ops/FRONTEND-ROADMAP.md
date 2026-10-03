@@ -175,9 +175,34 @@ serving fonts as extra files changes that contract.
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
 
+### 11. Retire the Shared Monospace Face
+
+`font-family-monospace` is the only font role without an embedded face. It resolves to SF Mono or
+Menlo on a Mac and to the browser's generic monospace elsewhere, so the same string draws
+differently on each platform. Monitoring reads it for log lines, configuration values, its matrices
+and every `code` element. Outside Monitoring, the uses are scattered:
+
+- the term picker's term IRIs, in its selection bar and its term details, and its release hashes, in
+  the release list and the constraint table
+- `code` in CED's CEE preview, and CED's development status bar
+- the identifier, example and API key on Workspace's profile page
+- field values on CEE's demo page
+
+Set these in the body font. The term picker gives its IRI line a 1.5 line height because a monospace
+face needed the taller box, so revisit that height with Roboto. Where digits in a column must line
+up, `font-variant-numeric: tabular-nums` can align them, provided the embedded faces keep Roboto's
+tabular figures.
+
+Monitoring is then the token's only reader, which the two-reader rule refuses. Decide whether its
+logs and values also take the body font, or whether Monitoring keeps a monospace stack of its own.
+The second needs the source check and the rendered surface check, which accept only the
+vocabulary's families, to allow one family a host owns. Either way, retire the token, name its
+replacement in `tools/retired-tokens.json`, and reduce the rendered check's `font-family` scale to
+the body font.
+
 <a id="ced"></a>
 
-### 11. Clear the Ember Demo's Remaining Advisories
+### 12. Clear the Ember Demo's Remaining Advisories
 
 The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
 which reaches it through ember-cli, stylelint and ember-template-lint, and no released `braces`
@@ -194,7 +219,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 12. Display Host-Supplied Validation Findings in CED
+### 13. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -205,7 +230,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 13. Define the Three Profiles
+### 14. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -225,7 +250,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 14. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 15. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -239,14 +264,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 15. Keyboard and Screen-Reader Access
+### 16. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 16. Complete the Template Designer
+### 17. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -258,7 +283,7 @@ draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Wo
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
 
-### 17. Enforce CED Authoring Style Contracts
+### 18. Enforce CED Authoring Style Contracts
 
 Apply central authoring recipes and rendered contracts across every field and
 element settings surface, including metadata labels, select-arrow clearance and
