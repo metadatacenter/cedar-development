@@ -4,7 +4,7 @@
 #
 # Runs the 15 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
 # apart from the like-named microservices: ui-main (the AngularJS monolith) and the two previews
-# being split out of it use Node (Workspace) and gulp (Designer); the other Angular applications use `ng serve`,
+# being split out of it each use a Node host script; the other Angular applications use `ng serve`,
 # as detached background processes, each logging to $CEDAR_HOME/log/, PIDs in $CEDAR_HOME/log/run/.
 # macOS uses a non-restarting launchd submitted job so the services survive shells whose command
 # runner reaps its whole process group; other systems retain the nohup launcher. One `status` view
@@ -522,7 +522,7 @@ run_one_foreground() {
       if [[ "$name" == ui-workspace ]]; then
         exec node tools/workspace.mjs start
       fi
-      exec gulp ;;
+      exec node scripts/designer.mjs start ;;
     ui-openview|ui-content|ui-monitoring|ui-bridging)
       local dir ng; dir=$(fe_dir "$name")
       cd "$dir" || return 1

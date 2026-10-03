@@ -323,7 +323,7 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 | resource | 9007 | 9107 | | | | |
 | group | 9009 | 9109 | | frontend (gulp) | 4200 | — |
 | impex | 9008 | 9108 | | workspace (Angular) | 4201 | — |
-| | | | | designer (gulp preview) | 4202 | — |
+| | | | | designer (Node preview) | 4202 | — |
 | | | | | Keycloak | 8080 / 8443 (https) | |
 
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`. The same report
