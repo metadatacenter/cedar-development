@@ -117,6 +117,43 @@ curl -s https://registry.npmjs.org/cedar-embeddable-editor \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["dist-tags"])'
 ```
 
+## Advancing the Session Page's Design Tokens
+
+The session page that `cedar-cee-mcp` serves styles its bar, status line and Done button with the
+shared CEDAR design tokens. The Maven build has no npm, and the token package exists only as
+development builds on Nexus, which its cleanup removes. The two compiled stylesheets the page links
+are therefore vendored in `src/main/resources/web/vendor/cedar-design-tokens/`, beside a
+`manifest.json` that names their version and each file's SHA-256 digest.
+
+`cedarcli check design-tokens --repo mcp/cedar-cee-mcp --strict` treats the manifest as the pin. It
+fails when a file no longer matches its digest, when the copy's `custom-properties.css` does not
+declare the tokens held at the commit the version names, and when the page reads a token the pinned
+version lacks. A pin that lags the token checkout does not fail. Advance it when the page needs a
+newer token or when a value it reads has changed. To advance it, take the version the `dev`
+dist-tag names, replace the two files from that tarball, and rewrite the manifest.
+
+```bash
+cd $CEDAR_HOME/mcp/cedar-cee-mcp/src/main/resources/web/vendor/cedar-design-tokens
+version=$(curl -s https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-design-tokens \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["dist-tags"]["dev"])')
+curl -sf "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-$version.tgz" \
+  | tar -xzf - --strip-components=2 package/dist/custom-properties.css package/dist/secondary-action.css
+python3 - "$version" <<'PY'
+import hashlib, json, pathlib, sys
+manifest = json.loads(pathlib.Path('manifest.json').read_text())
+manifest['version'] = sys.argv[1]
+manifest['files'] = {name: hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() for name in manifest['files']}
+pathlib.Path('manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+PY
+```
+
+Then run the check and the suite, and open a session with the console visible. A rebuilt jar reaches
+a client only after it restarts, as
+[A Rebuilt Jar Does Not Take Effect Until the Server Restarts](#a-rebuilt-jar-does-not-take-effect-until-the-server-restarts)
+explains. A page that links another of the package's stylesheets adds it to the manifest, to
+`CeeWebServer.TOKEN_STYLESHEETS` and to the page in one change; the unit suite fails while the three
+disagree.
+
 ## The Dependency That Breaks a Rebuild
 
 The MCP SDK validates tool schemas with `json-schema-validator` 3.x, and loads it at startup.
