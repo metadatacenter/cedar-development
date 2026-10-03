@@ -2705,7 +2705,7 @@ The tokens package tests that its generated CSS cannot shadow the override names
 Error text and borders use `status-error-text` (#b42318), advisory text uses
 `status-warning-text`, and advisory backgrounds use `status-warning-surface`. Material's
 red is no longer a CEDAR colour anywhere. The shared `fonts` Sass export
-contains 21 embedded font faces and no selectors or external font requests.
+contains 14 embedded font faces, Roboto 400 and 500, and no selectors or external font requests.
 Font registrars import it outside shadow DOM. Sharing the source preserves
 self-contained bundles rather than introducing a runtime font download.
 
@@ -2821,7 +2821,9 @@ after removing existing findings. Policy 2 includes Angular styles, inline templ
 style bindings and utility classes. Unknown shared properties cannot be baselined.
 CI rejects increased allowances against the trusted base revision, and `--strict` fails
 while a baseline keeps allowances its code no longer needs. Policy 3 adds focus outlines,
-single-corner radii, opacity, easing, `color-mix()` and negative lengths. The offline
+single-corner radii, opacity, easing, `color-mix()` and negative lengths; policy 4 adds
+Material's theme inputs and the routes around the template scan, such as host metadata,
+Tailwind's arbitrary properties and SVG text attributes. The offline
 scanner reads versioned sources and needs no npm build. It compares each pin with the
 version the local token checkout's head publishes under, not with the latest Nexus
 publication, and fails when the pinned package lacks a token the repository reads. This complements `cedarcli check components`;
