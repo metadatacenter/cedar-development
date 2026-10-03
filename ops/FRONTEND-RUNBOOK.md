@@ -2907,8 +2907,8 @@ CED's browser tests. Select-arrow clearance and controlled-term default-row
 alignment still lack central rendered contracts, and menu/dialog contracts still
 check only surface color and corner radius.
 
-Shared values live in `cedar-design-tokens/_tokens.scss`; native authoring recipes
-live in `_authoring.scss`, alongside general `_patterns.scss` and `_controls.scss`.
+Shared values live in `cedar-design-tokens/scss/_tokens.scss`; native authoring recipes
+live in `scss/_authoring.scss`, alongside general `_patterns.scss` and `_controls.scss`.
 CED imports authoring recipes directly. `src/authoring.scss` selects the applicable
 surfaces for both designer elements without copying recipe declarations. Component
 styles own content-specific layout. Preferences and Presets use the central
