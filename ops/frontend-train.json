@@ -152,20 +152,22 @@
       "repository": "cedar-model-typescript-library",
       "publishedName": "@org.metadatacenter/cedar-model-typescript-library",
       "sourceManifest": "package.json",
-      "publishedBy": "build train",
-      "reference": {
-        "repository": "cedar-embeddable-editor",
-        "manifest": "package.json",
-        "dependency": "cedar-model-typescript-library"
-      },
+      "publishedBy": "repository's CI",
       "consumers": [
+        {
+          "repository": "cedar-embeddable-editor",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
+        },
         {
           "repository": "cedar-embeddable-designer",
           "dependency": "cedar-model-typescript-library",
           "manifest": "package.json",
           "lock": "package-lock.json"
         }
-      ]
+      ],
+      "followsHead": true
     }
   ],
   "frontends": [
