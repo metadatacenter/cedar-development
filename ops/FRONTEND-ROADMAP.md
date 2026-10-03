@@ -49,8 +49,8 @@ between revisions.
 
 A deployment should never need a hand-edited modifier to make a new code revision visible.
 Decide whether any cached asset can legitimately differ while its source commit stays fixed. If
-none can, remove the variable from Workspace's build tooling, the Template Editor and Template
-Designer Gulp builds, the native build-info writer, the three Docker build entrypoints and the
+none can, remove the variable from Workspace's build tooling, the Template Editor's Gulp build,
+the Template Designer's host script, the native build-info writer, the three Docker build entrypoints and the
 microservices Compose file. Otherwise keep a narrowly named override and add a test proving the
 same-commit case it serves. Remove the step that chooses a modifier from the production
 deployment runbook either way.
@@ -177,6 +177,15 @@ would more than offset.
 
 <a id="ced"></a>
 
+### 11. Clear the Ember Demo's Remaining Advisories
+
+The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
+which reaches it through ember-cli, stylelint and ember-template-lint, and no released `braces`
+fixes. Every other lock outside the legacy Template Editor audits clean, and nothing the demo ships
+contains `braces`. When a fixed `braces` is published, refresh the demo's lock, run its lint, tests
+and build, and record the baselines. If none is, decide whether the demo needs stylelint and
+ember-template-lint, knowing that ember-cli would still bring `braces` without them.
+
 ## CED
 
 Design Basic, Semantic and Modular as interfaces suited to their audiences.
@@ -185,7 +194,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 11. Display Host-Supplied Validation Findings in CED
+### 12. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -196,7 +205,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 12. Define the Three Profiles
+### 13. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -216,7 +225,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 13. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 14. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -230,14 +239,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 14. Keyboard and Screen-Reader Access
+### 15. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 15. Complete the Template Designer
+### 16. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -249,7 +258,7 @@ draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Wo
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
 
-### 16. Enforce CED Authoring Style Contracts
+### 17. Enforce CED Authoring Style Contracts
 
 Apply central authoring recipes and rendered contracts across every field and
 element settings surface, including metadata labels, select-arrow clearance and
