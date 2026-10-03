@@ -333,8 +333,8 @@ service nginx start
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
 | `cedarcli release start` / `resume` | Versions and publishes Workspace and Designer with the other platform repositories; stable npm tarballs go to CEDAR Nexus. |
-| `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` + Gulp, and writes the static payload identities nginx serves. |
-| `gulp` (in template-editor or Workspace) | Copies the pinned CEE bundle and builds that AngularJS host. |
+| `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` and each application's own payload build, and writes the static payload identities nginx serves. |
+| `gulp` (in template-editor) | Copies the pinned CEE bundle and builds that AngularJS host. |
 
 ## Split Frontend Cutover and Rollback (Migration Only)
 
@@ -347,8 +347,8 @@ and neither cutover nor rollback rebuilds an application or changes stored data.
 ### Local Route-Only Rehearsal
 
 Run the automated routing rehearsal before preparing a staging change. It requires the monolith,
-Workspace, and Designer to be listening locally on ports 4200-4202; they can be native Gulp servers
-or already-built local images.
+Workspace, and Designer to be listening locally on ports 4200-4202; they can be native development
+servers or already-built local images.
 
 ```sh
 cd "$CEDAR_HOME/cedar-docker-deploy/cedar-frontend"

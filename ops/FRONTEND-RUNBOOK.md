@@ -46,6 +46,17 @@ navigation, collapsible side panels and Info/Version tabs. Category, latest-vers
 type filters are intentionally absent. Artifact/folder menus use existing REST operations
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
+The Details tab names the artifact a resource was derived from, and an instance's template with its
+version and status, and it says when a template has no instances or none the user can read. The
+Version tab describes the selected artifact alone, and its Status line marks the latest version.
+Below that the tab names the latest version, the next version and the previous versions, each as a
+linked name with its version, status and a copy button. Publish and Create Draft check the version
+as it is entered. They refuse anything below 0.0.1, and Create Draft also refuses anything not
+later than the published version. Both confirm with Ok and close without a discard prompt. Create Draft asks only for the version and the
+destination folder, and the draft keeps the published version's sharing. Returning from an editor
+reselects the artifact it opened, through a `selected` parameter added to the dashboard address
+without re-encoding the rest of it.
+
 The metadata editor lists CEE's findings above the form. Errors refuse Save, and Save says
 so when the pointer rests on it. Warnings, which are an unfilled requirement or a list short
 of its minimum, leave Save available. Each finding is a link that asks CEE to `reveal` its field, which turns
@@ -496,7 +507,7 @@ cannot resolve the same generated lock. The mount exposes only immutable tarball
 
 ```shell
 cedarcli publish components                # report what would move
-cedarcli publish components --apply        # stamp, publish, repoint, re-stage
+cedarcli publish components --apply        # publish, repoint, re-stage
 cedarcli publish components --component ced
 ```
 
@@ -505,25 +516,27 @@ declaration names the repository, the published package, the package it stages, 
 builds it, and every consumer whose pin follows it. The design tokens publish from their checkout
 root and declare `"."`; the term picker and the designer stage under `dist-npm/`.
 
-A component something else publishes is declared to be followed instead, with `publishedBy` and a
-`reference`. The TypeScript model library is the one: this command follows CEE's checked-in model pin when
-updating the designer. It does not discover the latest model source or consume local reactor
-artifacts. The build train publishes and wires its own model, CEE and shared-component versions in
-disposable checkouts; it does not update this reference consumer in the source checkout. A followed
-component is never stamped, built or published by `publish components`; only its declared pins move.
-Do not use this command as evidence that a reactor's complete dependency graph was published.
+A component that something else publishes is followed instead: `publish components` never builds
+or publishes it, and only its declared pins move. The model library and CEE are the two. Each one's
+CI publishes a development package from every push to `develop` and names it
+`<base>-dev.<date>.<sha7>` after the commit it built, so the command derives that name from the
+component's `develop` head and asks Nexus whether it holds the package. The model library is
+declared under `components` with `publishedBy` and `followsHead`, and its consumers are CEE and the
+designer. A run that repoints CEE's model pin also repoints its visual suite's, which the
+configuration records under `cee.additionalModelConsumers`. CEE's consumers are not declared under
+`components`: they are the inventory a release pins the public CEE into, each frontend's
+`ceeConsumer` and the `additionalCeeConsumers`, so the two lists cannot disagree. A declaration can
+instead name a `reference` consumer whose pin gives the version to follow, and nothing uses that form
+now.
 
-CEE is followed too, from a different witness. Its CI publishes a development package from every
-push to `develop` and names it `<base>-dev.<date>.<sha7>` after the commit it built, so the command
-derives that name from CEE's `develop` head and asks Nexus whether it holds the package. CEE's
-consumers are not declared under `components`: they are the inventory a release pins the public CEE
-into, each frontend's `ceeConsumer` and the `additionalCeeConsumers`, so the two lists cannot
-disagree. The consumers stay where they are, and the plan says why, while CEE's `develop` is
+A followed component's consumers stay where they are, and the plan says why, while its `develop` is
 unpushed, holds uncommitted changes, is a release-preparation commit, or names a package Nexus does
-not hold yet. A run that moves one of CEE's own pins, such as the design tokens, skips CEE, because
-its CI package predates that change: commit and push CEE, let its CI publish, and run the command
-again. After a release, this is the only command that moves the consumers from the public CEE to
-the newest development package.
+not hold yet. A run that moves one of the component's own pins, such as CEE's design tokens, skips
+it, because its CI package predates that change: commit and push it, let its CI publish, and run the
+command again. After a release, this is the only command that moves the consumers from the public
+CEE to the newest development package. The build train publishes and wires its own model, CEE and
+shared-component versions in disposable checkouts and changes no source checkout, so do not use this
+command as evidence that a reactor's complete dependency graph was published.
 
 Applying it derives the component's development version from its pushed `develop` head,
 `<base>-dev.<commit date>.<head>`, and publishes it unless the registry already holds that version.
@@ -958,8 +971,8 @@ CEE: each declares an asset glob that copies `cedar-embeddable-editor.js` out of
 `node_modules`, and loads it through a script tag in `index.html`. A **running `ng
 serve` still serves what it started with**, because a `node_modules` swap is not a
 source change, so `ui-openview` and `ui-bridging` need restarting and the restart is
-the deploy; the same `.angular/cache` caveat above applies to openview. Native
-Workspace and monolith Gulp servers need no restart — each serves the file
+the deploy; the same `.angular/cache` caveat above applies to openview. The native
+Workspace server and the monolith's Gulp server need no restart — each serves the file
 `copy:cee` wrote, so there the copy is the deploy. A Workspace preview image must
 instead be rebuilt and recreated because its CEE bundle was copied into the image.
 
@@ -2335,8 +2348,14 @@ for the override names. [`cedarcli check components`](#component-staleness) meas
 what is served against what is pinned. The frontend train updates Designer's CEE pin alongside
 its other CEE consumers; CED and CETP remain explicit immutable package pins.
 
+`npm start` runs `scripts/designer.mjs`, which writes `app/config`, stages the bundles, and in
+develop mode serves `app/`, answering a route with `index.html` and a missing asset with 404. In
+server mode it stops after staging, and the native payload build and the Docker image run it that
+way. The host has no Gulp build.
+
 The host owns SSO, repository child search, permission checks, dirty navigation,
-ETag saves and the instance-aware template version confirmation. Standalone
+ETag saves and the instance-aware template version confirmation, whose Discard choice restores the
+template as it was opened and keeps the designer open. Standalone
 field-document routes use CEFD from the same CED bundle; fields inside templates
 and elements use the same field controls. During development, explicitly stage
 the local CED bundle with `CEDAR_CED_BUNDLE` until a CEFD-containing Nexus snapshot

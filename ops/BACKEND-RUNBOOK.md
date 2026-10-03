@@ -334,8 +334,8 @@ In Docker only the application port is published to the host. Admin connectors b
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
-Frontends (HTTP-root health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
-gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
+Frontends (HTTP-root health): `ui-main` 4200 under Gulp; `ui-workspace` 4201 and `ui-designer` 4202
+under their Node host scripts; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
 `ng serve`.
 
 ## API-Key Credentials and Management Identifiers

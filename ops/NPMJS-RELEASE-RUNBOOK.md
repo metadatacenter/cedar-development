@@ -547,6 +547,16 @@ That is CEE's own baseline alone. Pinning the release into its consumers moves t
 straight on to [Propagate a stable CEE release](#propagate-a-stable-cee-release) means refreshing
 the complete set together there instead of committing the same file twice.
 
+When a build train is waiting to back a CEDAR release, leave this commit until that release is
+accepted. `cedar-development` is one of the repositories the train captured, and the release refuses
+one whose `develop` has moved. The CEE commits above are safe: CEE is outside the release's drift
+check.
+
+Once CEE's CI has published the advanced head, `cedarcli publish components --apply` moves every
+consumer from the public CEE onto that development package, and the model library's consumers onto
+the model's newest one. [Recording a Pin](FRONTEND-RUNBOOK.md#recording-a-pin) describes how it
+follows both.
+
 ## Propagate a Stable CEE Release
 
 Publishing CEE does not update a frontend or an environment. Pin the exact stable version in all

@@ -347,8 +347,9 @@ Nexus and GitHub responsive throughout: about ten minutes to clone forty reposit
 CEE in seven consumers, twenty to run the forty release and next-development builds, fifteen to
 deploy the six snapshot trees, under ten to integrate and push forty remotes, ten to upload and
 verify the eight release artifacts, and one to accept. The release before it, 2.9.7, ran 2 hours
-41 minutes through the same phases. Plan on its own takes about two and a half minutes, most of it
-the exact-commit CI probe and the remote survey.
+41 minutes through the same phases. Release 2.9.20 ran 67 minutes, 24 of them in the development
+phase and 20 of those waiting for `cedar-project`'s CI on the new `develop`. Plan on its own takes
+about two and a half minutes, most of it the exact-commit CI probe and the remote survey.
 
 ## Watching and Finishing
 
