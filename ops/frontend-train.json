@@ -662,8 +662,7 @@
           "npm",
           "test",
           "--",
-          "--watch=false",
-          "--browsers=ChromeHeadless"
+          "--watch=false"
         ]
       ],
       "setup": [
@@ -694,8 +693,7 @@
           "npm",
           "test",
           "--",
-          "--watch=false",
-          "--browsers=ChromeHeadless"
+          "--watch=false"
         ]
       ],
       "setup": [
@@ -728,8 +726,7 @@
           "npm",
           "test",
           "--",
-          "--watch=false",
-          "--browsers=ChromeHeadless"
+          "--watch=false"
         ]
       ],
       "setup": [
