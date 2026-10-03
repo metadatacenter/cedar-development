@@ -2685,12 +2685,13 @@ a mistake worth remembering.
 
 ### Shared Component Defaults and Configuration
 
-CEE/CEF and CED/CEFD consume `cedar-design-tokens` at build time. The package owns
+Every modern frontend consumes `cedar-design-tokens` at build time: CEE/CEF, CED/CEFD,
+CETP, Workspace, OpenView, Monitoring, Bridging and the Template Designer host. The package owns
 the whole vocabulary, 61 tokens: the font stack and embedded Roboto sources, five type
 sizes and two weights, the theme colour, three text colours, two rules, three surfaces,
 the status pairs, the two control densities, the 4/8/12/16/24px spacing scale, one
-corner radius and a pill, two shadows, motion and layers. Its README lists them and the
-replacement for every retired name. Material remains inside CEE's adapter; CED uses CSS
+corner radius and a pill, two shadows, motion and layers. Its README lists them, and
+`tools/retired-tokens.json` names the replacement for every retired name. Material remains inside CEE's adapter; CED uses CSS
 properties and its native-control adapter. Geometry unique to one component stays
 local.
 
@@ -2708,8 +2709,8 @@ contains 21 embedded font faces and no selectors or external font requests.
 Font registrars import it outside shadow DOM. Sharing the source preserves
 self-contained bundles rather than introducing a runtime font download.
 
-Modern Workspace, CEE/CEF, CED/CEFD and CETP use the tokens package's `icons`
-export: curated Lucide SVGs behind CEDAR semantic names, shared 16/20/24px sizes
+Modern Workspace, CEE/CEF, CED/CEFD, CETP, OpenView, Monitoring and Bridging use the
+tokens package's `icons` export: curated Lucide SVGs behind CEDAR semantic names, shared 16/20/24px sizes
 and a 2-unit stroke. Thin Angular adapters render that registry; CEE uses a
 `cedarIcon` directive on Material hosts and no longer ships an icon font.
 Icon-only controls retain accessible names while SVGs are decorative.
@@ -2818,9 +2819,12 @@ OpenView, Monitoring, Bridging and the Template Designer host,
 motion drift, `--json` for an archived report, and `--repo <name> --prune-baseline`
 after removing existing findings. Policy 2 includes Angular styles, inline templates,
 style bindings and utility classes. Unknown shared properties cannot be baselined.
-CI rejects increased allowances against the trusted base revision, including unused
-allowances. The offline scanner reads versioned sources and needs no npm build. The version comparison is against the local token package,
-not the latest Nexus publication. This complements `cedarcli check components`;
+CI rejects increased allowances against the trusted base revision, and `--strict` fails
+while a baseline keeps allowances its code no longer needs. Policy 3 adds focus outlines,
+single-corner radii, opacity, easing, `color-mix()` and negative lengths. The offline
+scanner reads versioned sources and needs no npm build. It compares each pin with the
+version the local token checkout's head publishes under, not with the latest Nexus
+publication, and fails when the pinned package lacks a token the repository reads. This complements `cedarcli check components`;
 it does not prove which bundle a host serves. The token repository's README owns
 the scanner scope, exact-declaration exceptions, CI base-revision comparison and
 rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
