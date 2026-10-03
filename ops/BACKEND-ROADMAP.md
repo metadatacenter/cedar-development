@@ -536,20 +536,46 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
   Category Viewer and Editor grants already use the canonical `VIEWER_ROLE` and `EDITOR_ROLE` names.
 
-  Before migrating category data, add `CLASSIFIER_ROLE` as the canonical Classifier relationship.
-  Make the application read both `CANATTACHCATEGORY` and `CLASSIFIER_ROLE`, read both
-  `CANWRITECATEGORY` and `MANAGER_ROLE`, and write only the canonical names. Deploy that compatibility
-  code to every environment before changing stored relationships.
+  Neither family writes the canonical names yet. `RelationLabel` resolves four roles to legacy names:
+  Viewer to `CANREAD` and Manager to `CANWRITE` for resources, Classifier to `CANATTACHCATEGORY` and
+  Manager to `CANWRITECATEGORY` for categories. Both `replacePermissions` builders also create the
+  legacy types directly. Before migrating, add `CLASSIFIER_ROLE` as the canonical Classifier
+  relationship. Make the application read both the legacy and the canonical name of each role, and
+  write only the canonical names. Deploy that compatibility code to every environment before changing
+  stored relationships, or a patched graph collects legacy grants again.
 
   Patch the production graph to rename artifact and folder `CANREAD` relationships to `VIEWER_ROLE`
   and `CANWRITE` relationships to `MANAGER_ROLE`. In the same migration, rename category
   `CANATTACHCATEGORY` relationships to `CLASSIFIER_ROLE` and `CANWRITECATEGORY` relationships to
-  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family.
+  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family. Neo4j cannot change
+  a relationship's type, so the patch merges the canonical relationship between the same two nodes
+  and deletes the legacy one. The patch must preserve each grant's endpoints, make no access changes,
+  and be safe to run again. Merging rather than creating keeps a second run from duplicating a grant
+  the application has since written under its canonical name.
 
-  Rehearse the patch against a recent production copy and record the relationship counts before and
-  after it runs. Take a recoverable backup immediately before applying it in production. The patch
-  must preserve each relationship's endpoints and properties, make no access changes, and be safe to
-  run again. After applying it, regenerate the search index from Neo4j and verify the role counts and
+  On 2026-10-03 production held 5,220 legacy grants: 1,755 `CANREAD`, 3,464 `CANWRITE`, one
+  `CANWRITECATEGORY` and no `CANATTACHCATEGORY`. That is few enough for one short transaction. The
+  builders create grants without properties, so a grant's type and the `_id` of its two endpoints
+  describe it completely.
+
+  The patch needs no full dump. Production runs Neo4j 5.23.0 Community, which dumps a database only
+  while it is stopped, so a dump would take the graph away from every server for as long as it ran.
+  The patch matches only the four legacy types and touches no node, so a read-only export of every
+  legacy grant, taken immediately before it runs, records everything it can delete. If a committed
+  patch proves wrong, the export says exactly which grants to recreate. Write the export to `/srv`,
+  not to the 4 GB `/var` volume on `cedr-prd-app-05`.
+
+  Apply the patch in a single transaction. In `cypher-shell`, open it with `:begin`, run the patch,
+  compare the relationship counts with those recorded beforehand, and finish with `:commit` or
+  `:rollback`. A failure rolls back the whole patch, and nothing becomes durable until the counts
+  agree. The open transaction locks every endpoint node and blocks writes to them, so keep it to
+  seconds. Ending the same transaction with `:rollback` rehearses the patch against current
+  production data without a copy.
+
+  After applying the patch, regenerate the search index from Neo4j. The rebuild reads every
+  filesystem resource from the folder server, 310,463 of them on 2026-10-03, at a rate nobody has
+  measured, so time a rebuild on staging before choosing a window. Users do not wait for it, because
+  search keeps serving the old index until the new one is complete. Then verify the role counts and
   representative direct, group and inherited access paths for artifacts, folders and categories.
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
   `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
