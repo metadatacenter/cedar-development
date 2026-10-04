@@ -2978,10 +2978,10 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
 The source `cedarcli check design-tokens --strict --json` audit passes the
 new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-The scanner reports **34 existing findings**:
-28 geometry declarations, two utility styles, two dynamic styles, one color
+The scanner reports **28 existing findings**:
+22 geometry declarations, two utility styles, two dynamic styles, one color
 declaration and one typography declaration. These are source findings, including
-development surfaces, not 34 demonstrated visual defects. Resolved baseline
+development surfaces, not 28 demonstrated visual defects. Resolved baseline
 allowances are pruned rather than retained as permission for drift to return.
 
 The registered CED inventory has 36 entries and 33 rendered contracts, with no

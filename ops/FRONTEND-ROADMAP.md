@@ -235,8 +235,8 @@ cases, including the refusal of a published target, into `smoke:workspace:modern
 
 ### 13. Clear CED's Token Adoption Baseline
 
-CED's source baseline held 34 findings on 2026-10-04: 28 geometry declarations (mostly heights,
-z-indexes and outlines), two utility styles, two dynamic styles, one color declaration and one
+CED's source baseline held 28 findings on 2026-10-04: 22 geometry declarations (mostly heights,
+outlines and opacities), two utility styles, two dynamic styles, one color declaration and one
 typography declaration. Replace each with the shared role or recipe it stands for. A derived
 measurement only CED uses belongs in the tokens package's `spacing` export as a recipe. Prune each
 resolved entry, and never widen an allowance or substitute a semantically unrelated token to pass
