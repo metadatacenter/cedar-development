@@ -150,8 +150,6 @@ vocabulary's families, to allow one family a host owns. Either way, retire the t
 replacement in `tools/retired-tokens.json`, and reduce the rendered check's `font-family` scale to
 the body font.
 
-<a id="ced"></a>
-
 ### 7. Clear the Ember Demo's Remaining Advisories
 
 The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
@@ -160,6 +158,8 @@ fixes. Every other lock outside the legacy Template Editor audits clean, and not
 contains `braces`. When a fixed `braces` is published, refresh the demo's lock, run its lint, tests
 and build, and record the baselines. If none is, decide whether the demo needs stylelint and
 ember-template-lint, knowing that ember-cli would still bring `braces` without them.
+
+<a id="ced"></a>
 
 ## CED
 
