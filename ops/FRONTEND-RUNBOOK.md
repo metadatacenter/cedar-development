@@ -61,9 +61,9 @@ The metadata editor lists CEE's findings above the form. Errors refuse Save, and
 so when the pointer rests on it. Warnings, which are an unfilled requirement or a list short
 of its minimum, leave Save available. Each finding is a link that asks CEE to `reveal` its field, which turns
 the page and moves each repeating element to the entry that holds it. A repeated element
-or field in the label carries that entry's number, as in "Author 2 · Email". The server's
-own validation findings are not listed yet; that work is in the
-[frontend roadmap](FRONTEND-ROADMAP.md).
+or field in the label carries that entry's number, as in "Author 2 · Email". Server
+validation findings join that report for the submitted draft, with the original
+location and message retained when a location cannot be mapped to a form control.
 
 The selection toolbar exposes the shared bin as an icon-only button in both grid and list views;
 its accessible name retains **Delete (N)** for assistive technology.
@@ -2415,8 +2415,27 @@ server mode it stops after staging, and the native payload build and the Docker 
 way. The host has no Gulp build.
 
 The host owns SSO, repository child search, permission checks, dirty navigation,
-ETag saves and the instance-aware template version confirmation, whose Discard choice restores the
-template as it was opened and keeps the designer open. Standalone
+ETag saves and the instance-aware template version confirmation. Its central
+`DesignerCoordinator` combines readiness, permissions, CED validation, the submitted
+snapshot and server findings in one save report. Create checks the destination folder's
+capabilities; edit checks the loaded artifact and its report. Invalid or unnamed nested
+drafts block Save even before CED discloses their errors. Failed startup and loads offer
+Reload; script loading and asynchronous element registration both have bounded waits.
+Malformed repository child lists and update assessments cannot authorize an operation.
+
+Structured server findings retain their nested location and message, belong to the
+submitted snapshot and retire when it changes. Errors block Save, while server warnings
+remain advisory. The host lists those findings; attaching them to CED's own cards and
+navigation still requires the component API described in the frontend roadmap.
+Conflicts, permission loss and missing revision tokens preserve edits and require an
+explicit reload, with confirmation before discarding changes. An acknowledgement without
+an artifact identifier cannot trigger another create; the author is directed to inspect
+Workspace. Changes while an update assessment or version confirmation is pending cancel
+the write. Changes arriving after the write starts remain open after acknowledgement;
+the next update uses the returned ETag. If the write created a new artifact identity,
+Reload is required to adopt its server-owned version metadata before another save.
+The version confirmation's Discard choice restores the last saved baseline and keeps
+the designer open. Standalone
 field-document routes use CEFD from the same CED bundle; fields inside templates
 and elements use the same field controls. During development, explicitly stage
 the local CED bundle with `CEDAR_CED_BUNDLE` until a CEFD-containing Nexus snapshot
@@ -2427,7 +2446,10 @@ Version creation requires the original ETag in `If-Match`; the resource
 server conditionally publishes that exact source snapshot before creating the draft.
 Missing validators return 428 and concurrent changes return 412 with no draft created.
 
-Run `npm test` in the host repository for the host contract suite, and
+Run `npm test` in the host repository for the host contract suite, including
+`test/host-state-matrix.test.mjs`. `npm run test:browser` covers create/edit across
+template, element and field routes, nested reports, delayed saves, reload recovery and
+the existing visual surface contracts. Run
 `npm run smoke:ced-host` in `ops/e2e` for real browser create/update, stale-save
 rejection, instance-aware versioning and Workspace return. The older `login-smoke-test.mjs` still targets
 the combined editor's authoring UI; its legacy selectors do not exercise CED.
