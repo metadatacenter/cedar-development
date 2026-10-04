@@ -173,7 +173,8 @@ sharing between two users, CEE metadata entry, versioning, OpenView and conditio
 The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
 current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
 by the REST download suite, and the main browser smoke exercises CEE download controls.
-Each Workspace run removes its fixtures; the result and failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
+Each Workspace run removes its fixtures; the result and failure screenshots, including open
+second-user pages, are written under `/tmp/cedar-modern-workspace-smoke/`.
 `npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
 runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
 and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).

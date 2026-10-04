@@ -1354,6 +1354,17 @@ try {
       .innerText()
       .catch(() => ""),
   );
+  // A second user's page may own the failure; the original owner tab cannot explain it.
+  let otherPage = 0;
+  for (const context of browser.contexts()) for (const candidate of context.pages()) {
+    if (candidate === page || candidate.isClosed()) continue;
+    const index = ++otherPage;
+    await candidate.screenshot({
+      path: `/tmp/cedar-modern-workspace-smoke/failure-other-${index}.png`,
+      fullPage: true,
+    }).catch(() => {});
+    console.error(`Other browser page ${index}:`, await candidate.locator("body").innerText().catch(() => ""));
+  }
   throw error;
 } finally {
   await browser.close();
