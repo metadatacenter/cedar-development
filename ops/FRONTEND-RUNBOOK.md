@@ -145,6 +145,13 @@ Bootstrap visibility and asynchronous confirmation mechanics are replaced by nat
 and confirmation-event tests. Failed writes retain the last saved state and the failed
 intent; stale revisions block further writes until an explicit recovery read completes.
 Configuration and CEE assets finish writing before the development server starts.
+Workspace's operation coordinator owns listing, detail, menu, destination, description
+and preview requests by scope. Replacing a selection or closing its owner invalidates
+old replies, including failures and component callbacks. Folder navigation retains the
+last successful destination until a complete new listing arrives; malformed listings
+cannot become selectable. `workspace-state-matrix.spec.ts`,
+`preview-state-matrix.spec.ts` and the browser state-coordination suite cover reply
+ordering, permission loss, disposal, malformed responses and recovery.
 Use `npm run copy:cee` to refresh only the staged editor.
 Workspace participates in `cedarcli check design-tokens` and the shared CI adoption gate;
 its initial baseline records existing typography and layout debt.
