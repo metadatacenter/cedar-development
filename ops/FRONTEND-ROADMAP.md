@@ -235,20 +235,26 @@ cases, including the refusal of a published target, into `smoke:workspace:modern
 
 ### 13. Enforce CED Authoring Style Contracts
 
-Apply central authoring recipes and rendered contracts across every field and
-element settings surface, including metadata labels, select-arrow clearance and
-controlled-term default rows. Extend coverage beyond the annotation entry row. Test
-the approved font weights and upright labels, compact row spacing, final table
-border and empty/populated alignment across standalone fields, nested fields and
-elements, all settings tabs, desktop and narrow widths, real CEF and host overrides.
-Reuse the field-type matrix rather than relying on one representative text field.
+CED's settings surfaces draw from the shared authoring recipes, but the shared token gate checks
+little of the result. The authoring label, control and table-cell contracts are registered on the
+annotation entry row alone. Register them across every field and element settings surface:
+standalone fields, nested fields and elements, every settings tab, desktop and narrow widths, real
+CEF, and host overrides. Derive the registrations from the field-type matrix rather than from one
+representative text field.
 
-Consolidate CED's overlapping global, shared and component rules around the existing
-token recipes, preserving the agreed presentation. Assign ownership for each role
-and remove duplicate or unused emitted rules. Reduce the existing adoption baseline
-surface by surface and keep resolved entries pruned after review; do not expand allowances
-or replace values with semantically unrelated tokens to make the scanner green.
+A central contract requires each property to compute to a single token, so two checks have no
+contract. An authoring select reserves room for its chevron as the sum of an inset and the small
+icon size. A controlled-term default row's alignment is a relation between its value and its
+actions, not a property value. CED's own browser tests check both. Decide whether the contract
+format gains composite and geometric rules or these checks stay in CED's suites. The dialog
+contract checks only background color and corner radius. Decide what else it should require.
 
-Keep validation timing, save state and default-value isolation in behavior tests;
-they cannot be guaranteed by CSS tokens. The measured coverage and source ownership
-are documented in the runbook's **CED token coverage audit**.
+Clear the source baseline. On 2026-10-04 it held 34 findings: 28 geometry declarations (mostly
+heights, z-indexes and outlines), two utility styles, two dynamic styles, one color declaration and
+one typography declaration. Replace each with the shared role or recipe it stands for. A derived
+measurement only CED uses belongs in the tokens package's `spacing` export as a recipe. Prune each
+resolved entry, and never widen an allowance or substitute a semantically unrelated token to pass
+the scanner.
+
+Keep validation timing, save state and default-value isolation in behavior tests. CSS tokens cannot
+guarantee them.
