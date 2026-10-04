@@ -2192,10 +2192,19 @@ update passes synchronously through `ValidationCoordinator`, which owns pending
 settings edits, syntax errors, asynchronous checks, error visibility and the public
 validation report. It validates edits against their own node, retries related drafts
 together, and drops drafts whose node or setting no longer exists. Controls retain
-input buffers and read shared verdicts instead of caching model errors.
+input buffers and read shared verdicts instead of caching model errors; rejected
+default buffers survive control recreation in the coordinator. Asynchronous
+checks carry coordinator tickets tied to the current node; stale replies cannot
+change a replacement document or clear a newer check. Pending-only edits count as dirty.
 `TemplateService` coordinates commands and UI navigation;
 `core/model/document-validation.ts` validates a document snapshot and pending
-settings drafts without Angular state. Cards, the outline, the library sidebar and
+settings drafts without Angular state. Field settings are probed independently so
+one imported defect cannot hide another; container annotations use the same rules
+as field annotations. The JSON authoring reader retains numeric and temporal
+defaults that the model's strict reader would otherwise reject before editing.
+The default/constraint matrices cover template and element roots, single and
+repeated children, depths 0/1/3/6, relocation, repair order and serialization.
+Cards, the outline, the library sidebar and
 the save gate use the same report. An unserializable document clears the preview
 until repaired.
 `core/model/cedar-template.ts` remains the only model-library adapter. Presentation
