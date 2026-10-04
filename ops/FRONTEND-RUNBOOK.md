@@ -2187,9 +2187,17 @@ would suddenly be sharing one.
 
 ### Internal Boundaries
 
-`EditorSession` owns the authoring document and active container. `TemplateService`
-coordinates commands and UI navigation; `core/model/document-validation.ts`
-validates a document snapshot and pending settings drafts without Angular state.
+`EditorSession` owns the authoring document and active container. Every document
+update passes synchronously through `ValidationCoordinator`, which owns pending
+settings edits, syntax errors, asynchronous checks, error visibility and the public
+validation report. It validates edits against their own node, retries related drafts
+together, and drops drafts whose node or setting no longer exists. Controls retain
+input buffers and read shared verdicts instead of caching model errors.
+`TemplateService` coordinates commands and UI navigation;
+`core/model/document-validation.ts` validates a document snapshot and pending
+settings drafts without Angular state. Cards, the outline, the library sidebar and
+the save gate use the same report. An unserializable document clears the preview
+until repaired.
 `core/model/cedar-template.ts` remains the only model-library adapter. Presentation
 colors come from CSS tokens, never from the document service.
 
