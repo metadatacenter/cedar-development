@@ -2472,7 +2472,7 @@ The card-level Save field to library action has been removed; import and reuse
 remain available through Field Designer.
 
 The root template header has a settings chevron. **Display** offers full-width
-Header and Footer controls; **Template Metadata** lists identity and provenance,
+Header and Footer controls; **Template metadata** lists identity and provenance,
 ending with **Types**. Element metadata also offers Types, including a standalone
 element. Types uses CEF's read-only controlled-term summary and CETP with
 `termTypes = ['class']`, without `maximumTerms`. Done writes the allowed instance
