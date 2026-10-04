@@ -2978,10 +2978,10 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
 The source `cedarcli check design-tokens --strict --json` audit passes the
 new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-The scanner reports **28 existing findings**:
-22 geometry declarations, two utility styles, two dynamic styles, one color
-declaration and one typography declaration. These are source findings, including
-development surfaces, not 28 demonstrated visual defects. Resolved baseline
+The scanner reports **23 existing findings**:
+20 geometry declarations, two dynamic styles and one utility style. These are
+source findings, including development surfaces, not 23 demonstrated visual
+defects. Resolved baseline
 allowances are pruned rather than retained as permission for drift to return.
 
 The registered CED inventory has 36 entries and 33 rendered contracts, with no
@@ -3026,12 +3026,13 @@ links share central recipes, including standalone defaults and supported host
 overrides. The CED property, type and default-term dialogs use the central surface
 recipe rather than documented radius deviations.
 
-Accept local content geometry, framework-adapter arithmetic and deliberate host
-fixtures only with a specific reason and rendered evidence. Ordinary labels,
-controls, state colors and dialog surfaces remain shared design work. A reasoned
-exception is limited to its reviewed occurrence count; additional copies fail the
-gate. Prune resolved baseline entries, and do not classify all remaining findings
-as acceptable merely to report a smaller debt total.
+The gate admits no exceptions. It refuses any change to a repository's recorded
+exceptions, on a push as on a pull request, and no frontend records one. Local
+content geometry, framework-adapter arithmetic and deliberate host fixtures
+therefore leave the baseline only through a shared role or recipe, or a size named
+for their component in the `spacing` export. Otherwise they remain recorded debt.
+Ordinary labels, controls, state colors and dialog surfaces remain shared design
+work. Prune resolved baseline entries.
 
 Tokens also cannot enforce validation timing, save-state terminology or separation
 of selected values from defaults. Those require application-state tests. Finally,
