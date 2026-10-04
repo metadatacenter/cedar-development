@@ -2974,22 +2974,27 @@ field values to inspect those states. The page shows a missing-bundle message
 instead of substituting mock components. Its browser test joins the existing
 real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
-#### CED token coverage audit (2026-09-30)
+#### CED token coverage audit (2026-10-04)
 
 The source `cedarcli check design-tokens --strict --json` audit passes the
 new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-The scanner reports **139 existing findings**:
-28 utility styles, 13 colors, 21 spacing declarations, 56 geometry declarations,
-15 typography declarations and six dynamic styles. These are source findings,
-including development surfaces, not 139 demonstrated visual defects. Resolved baseline allowances are pruned rather than retained as permission for drift to return.
+The scanner reports **34 existing findings**:
+28 geometry declarations, two utility styles, two dynamic styles, one color
+declaration and one typography declaration. These are source findings, including
+development surfaces, not 34 demonstrated visual defects. Resolved baseline
+allowances are pruned rather than retained as permission for drift to return.
 
-The registered CED inventory has 26 surfaces and 15 contract registrations, with
-one documented difference. Central contracts now include authoring label and
-control typography and compact table-cell density, exercised on the annotation
-entry row at desktop and 375px widths. The broader field/element matrix remains in
-CED's browser tests. Select-arrow clearance and controlled-term default-row
-alignment still lack central rendered contracts, and menu/dialog contracts still
-check only surface color and corner radius.
+The registered CED inventory has 36 entries and 33 rendered contracts, with no
+recorded differences. The authoring label, control and table-cell contracts run at
+desktop and 375px widths on representative surfaces: the annotation entry row, a
+field's metadata, a field's constraint select, an element's metadata, a nested
+field's constraints, a default-value label beside real CEF, and a field's metadata
+under a host override of the shared type size. CED's own browser suites cover the
+field-type matrix, every field type in every settings tab. A central contract
+compares each property with a single token, so it cannot express select-arrow
+clearance, which is a sum of two tokens, or controlled-term default-row alignment,
+which is a relation between boxes. CED's browser tests check both. The dialog
+contract checks only surface color and corner radius.
 
 Shared values live in `cedar-design-tokens/scss/_tokens.scss`; native authoring recipes
 live in `scss/_authoring.scss`, alongside general `_patterns.scss` and `_controls.scss`.
@@ -3002,7 +3007,7 @@ Do not reintroduce local control/table recipe
 copies or corrective authoring geometry in `src/styles.css`.
 
 This is not complete adoption: utility styling and component overrides remain,
-including the field-settings stylesheet shared by three components. Token references
+including the field-settings stylesheet that the element card also loads. Token references
 do not prevent an omitted recipe or cascade override from changing presentation.
 
 For this class of regression, review the computed properties on the actual
@@ -3032,8 +3037,8 @@ Tokens also cannot enforce validation timing, save-state terminology or separati
 of selected values from defaults. Those require application-state tests. Finally,
 source adoption, installed package pins and served component bytes are separate
 checks: retain all three alongside the reactor and smoke evidence. Remaining
-centralization and rendered-contract work is tracked under **Enforce CED Authoring
-Style Contracts** in the frontend roadmap.
+baseline work is tracked under **Clear CED's Token Adoption Baseline** in the
+[frontend roadmap](FRONTEND-ROADMAP.md#ced).
 
 ## Surface inventory and token coverage
 
