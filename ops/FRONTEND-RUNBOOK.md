@@ -2203,7 +2203,7 @@ native compact controls retain the API in CEE's `STYLING.md`.
 | Command | What it covers |
 |---|---|
 | `npm test` | unit tests, through the Angular CLI's Vitest builder |
-| `npm run test:boundaries` | two properties of the source no type can express |
+| `npm run test:boundaries` | properties of the source no type can express: its import rules, and `autocomplete="off"` on every text box |
 | `npm run test:packaging` | the publish-channel rule, under `node --test` |
 | `npm run test:browser` | builds the distribution, then drives it in a real browser |
 | `npm run test:browser:prebuilt` | the browser suite, refusing a bundle that is not the code |
