@@ -1994,7 +1994,7 @@ published and *that commit's* date — so the bump commit carries a version nami
 its parent, as CEE's own dev versions do. Three files hold it by hand:
 `package.json`, `package-lock.json` (two spots) and `package-dist.json`.
 `package-dist.json` is also synchronised from `package.json` by
-`sync-package-version.js`, which `npm run build` runs first, so editing it is
+`scripts/sync-package-version.js`, which `npm run build` runs first, so editing it is
 belt and braces rather than required.
 
 From the library repository, on the Node its `.nvmrc` names:

@@ -308,6 +308,11 @@ See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and fa
 
 ## Conventions
 
+- Keep repository roots for README/license files, established guides, agent instructions,
+  standard build/tool configuration, package manifests and supported entry points. Put source
+  assets, helper scripts and examples in the repository's existing `src/`, `assets/`, `scripts/`,
+  `tools/` or `examples/` directories. Update imports, commands and packaging references when
+  moving a file; do not leave compatibility copies at the root merely to avoid updating callers.
 - Commit/push only when asked. Several `cedar-*` repos may be edited by parallel sessions —
   check `git status` and stage specific files; never blanket `git add -A`.
 - `cedarcli` is the control CLI and the first thing to reach for. It runs headless on every platform:
