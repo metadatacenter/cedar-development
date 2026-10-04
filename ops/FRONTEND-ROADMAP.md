@@ -13,39 +13,9 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
-## Cool Extensions
-
-Explore features that make CEDAR's templates, elements, fields and instances immediately
-useful and understandable, building on the eye preview for demos and everyday use.
-
-### 1. Drop In a Spreadsheet
-
-Let a user drop in a spreadsheet and choose a template. Propose a mapping from columns to
-template fields, preview a few resulting instances, and flag missing values and terminology
-mismatches before saving. Let the user review and adjust the mapping before creating structured,
-validated metadata. This is the larger signature demo feature.
-
-### 2. Show Example Metadata
-
-Add a “Show example” action that fills a template with clearly labeled synthetic example
-metadata. Demonstrate controlled terms, repeated elements and required fields so an unfamiliar
-template becomes understandable in seconds. Pair this with the preview’s “Try out” action.
-
-### 3. Explore Where an Artifact Is Used
-
-Show which templates reuse a selected element or field, then which instances were created from
-those templates. Let users click through these relationships to discover reusable content and
-understand how artifacts connect beyond their folder locations.
-
-### 4. Compare Templates Visually
-
-Let users select two templates and inspect their shared structure, differences and reused
-elements side by side. Support choosing a template to adopt and understanding what changed
-between revisions.
-
 ## Workspace and Browser Workflows
 
-### 5. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
+### 1. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
 
 A deployment should never need a hand-edited modifier to make a new code revision visible.
 Decide whether any cached asset can legitimately differ while its source commit stays fixed. If
@@ -70,7 +40,7 @@ works by restoring payloads and routing without inventing a new modifier.
 
 <a id="doi-minting-recovery"></a>
 
-### 6. Make DOI Minting Recovery-Safe
+### 2. Make DOI Minting Recovery-Safe
 
 Keep the DataCite wizard out of Workspace resource menus while this workflow is being
 reworked. Before reintroducing an entry point, verify the recovery behavior and review the
@@ -97,7 +67,7 @@ The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#r
 
 ## Embeddable Editor and Model Library
 
-### 7. Whole-Component Runtime Theme Overrides
+### 3. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -106,7 +76,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 8. Authoring Feedback for Unsupported Markup
+### 4. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -119,7 +89,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 9. Reduce Embedded Font Payload
+### 5. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -155,7 +125,7 @@ serving fonts as extra files changes that contract.
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
 
-### 10. Retire the Shared Monospace Face
+### 6. Retire the Shared Monospace Face
 
 `font-family-monospace` is the only font role without an embedded face. It resolves to SF Mono or
 Menlo on a Mac and to the browser's generic monospace elsewhere, so the same string draws
@@ -182,7 +152,7 @@ the body font.
 
 <a id="ced"></a>
 
-### 11. Clear the Ember Demo's Remaining Advisories
+### 7. Clear the Ember Demo's Remaining Advisories
 
 The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
 which reaches it through ember-cli, stylelint and ember-template-lint, and no released `braces`
@@ -199,7 +169,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 12. Display Host-Supplied Validation Findings in CED
+### 8. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -210,7 +180,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 13. Define the Three Profiles
+### 9. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -230,7 +200,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 14. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -244,14 +214,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 15. Keyboard and Screen-Reader Access
+### 11. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 16. Complete the Template Designer
+### 12. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -263,7 +233,7 @@ draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Wo
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
 
-### 17. Enforce CED Authoring Style Contracts
+### 13. Enforce CED Authoring Style Contracts
 
 Apply central authoring recipes and rendered contracts across every field and
 element settings surface, including metadata labels, select-arrow clearance and
