@@ -427,9 +427,10 @@ function noteCreated(json, base) {
  * administrator who created it — and an optional base covers what lives on another service, such as
  * a group.
  */
-export function cleanup(kind, path, name, auth, base) {
+export function cleanup(kind, path, name, auth, base, identity) {
   state().registry.unshift({ kind, path, name, auth, base });
-  state().registeredIds.add(decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)));
+  // Short paths carry a UUID; callers may supply the full stored identity for leak accounting.
+  state().registeredIds.add(identity ?? decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)));
 }
 
 /**

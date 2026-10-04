@@ -46,8 +46,9 @@ import * as contract from './rest/suites/contract.mjs';
 import * as inclusion from './rest/suites/inclusion.mjs';
 import * as apidocs from './rest/suites/apidocs.mjs';
 import * as freeze from './rest/suites/freeze.mjs';
+import * as addressing from './rest/suites/addressing.mjs';
 
-const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze];
+const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');

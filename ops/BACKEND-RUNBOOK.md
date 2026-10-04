@@ -338,6 +338,27 @@ Frontends (HTTP-root health): `ui-main` 4200 under Gulp; `ui-workspace` 4201 and
 under their Node host scripts; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
 `ng serve`.
 
+## Folder and artifact request addresses
+
+New clients retain the type in every folder and artifact selector: `folders/<uuid>`,
+`templates/<uuid>`, `template-elements/<uuid>`, `template-fields/<uuid>` and
+`template-instances/<uuid>`. A REST path already includes its collection, so it is
+`/templates/<uuid>`; a query or command body uses the whole selector, such as
+`folder_id=folders/<uuid>` or `{"@id":"templates/<uuid>","targetFolderId":"folders/<uuid>"}`.
+Encode parameter values normally when constructing a URL.
+
+The microservice resolves these selectors against its configured repository base before resource
+lookup and authorization. Nginx does not reconstruct an identity. Existing encoded full-IRI
+requests remain supported indefinitely, and legacy browser applications keep using them.
+Modern frontends, internal HTTP clients and the artifact REST MCP emit the new addresses for
+canonical UUID identities. OpenView accepts both link forms for folders and artifacts.
+
+This is an HTTP addressing contract, not a JSON-LD rewrite: document `@id`, `schema:isBasedOn`
+and other stored references retain full IRIs. Clients preserve full `.net` and foreign-host
+identities until an explicit data migration has changed the stored identity. Do not manufacture
+an `.org` identity for a stored `.net` artifact. Users, groups, categories and vocabulary IRIs
+are outside this contract. Both request forms use the same permission and revision checks.
+
 ## API-Key Credentials and Management Identifiers
 
 An API key has two identifiers with deliberately different jobs. Its `key` is the credential sent

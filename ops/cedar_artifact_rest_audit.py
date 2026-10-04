@@ -1313,8 +1313,14 @@ class GetOnlyClient:
         raise ResponseError(f"GET {url} exhausted its retry budget")
 
 
+def resource_path_id(identifier: str) -> str:
+    """Shorten canonical CEDAR UUID addresses, preserving legacy/foreign identity hosts."""
+    import re
+    return re.sub(r"^(?:https?://repo\.metadatacenter\.org[xy]?/)?(?:folders|templates|template-elements|template-fields|template-instances)/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$", r"\1", identifier)
+
+
 def typed_artifact_path(ref: ArtifactRef) -> str:
-    return f"/{ARTIFACT_PATHS[ref.artifact_type]}/{urllib.parse.quote(ref.artifact_id, safe='')}"
+    return f"/{ARTIFACT_PATHS[ref.artifact_type]}/{urllib.parse.quote(resource_path_id(ref.artifact_id), safe='')}"
 
 
 def search_deep_page(client: GetOnlyClient, artifact_type: str, limit: int, offset: Optional[int] = None,

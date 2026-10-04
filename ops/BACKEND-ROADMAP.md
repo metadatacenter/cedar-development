@@ -111,37 +111,36 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each kind of draft-template edit has a stated policy for the instances it affects, and
   an author sees that effect before the save lands.
 
-- **4. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
-  identity.** **Production consequence:** an addressing migration rather than a data one. Stored
-  identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
-  clients that build URLs in the current form need the legacy shape kept as an alias until traffic
-  shows it unused. Deferred by decision; recorded so the addressing is not settled by accident.
+- **4. Roll out type-qualified resource addressing to production and migrate legacy repository identities.**
+  Build and release the shared libraries and microservices through the normal train and release
+  gates, then deploy the microservices before the Angular 22 frontends and other clients that use
+  `<type>/<uuid>`. Update the artifact REST MCP and restart its client hosts so they load the new
+  server. Verify the same release in staging before the production cutover; retain the previous
+  release for rollback and roll clients back before any backend rollback that removes support
+  for the new request form.
 
-  CEDAR stores an artifact's identity as a full JSON-LD IRI, and three conventions ask for it. The
-  artifact and resource services take the whole percent-encoded IRI in one path segment. The repo
-  service takes the bare final identifier and rebuilds the IRI from the route's type
-  (`AbstractRepoResource.java:37`). OpenView accepts either and resolves a bare one before lookup
-  (`TemplatesResource.java:51`). Monitor carries identifiers in query parameters instead, and the
-  user service is addressed by a bare UUID although a user's stored identity is an IRI too.
+  Verify production folder operations, all four artifact types, permissions, conditional writes,
+  typed folder parameters and move/copy bodies, generated paging links, MCP calls and anonymous
+  OpenView navigation against the [addressing contract](BACKEND-RUNBOOK.md#folder-and-artifact-request-addresses).
+  Check both request forms directly at the microservices as well as through the public endpoints,
+  and confirm that document identities and stored references remain full IRIs.
+  Keep legacy frontends unchanged and full-IRI request compatibility indefinite. Identifier
+  reconstruction belongs in the microservices, with no nginx conversion layer.
 
-  A full IRI inside a path parameter is fragile because proxies and frameworks do not treat an
-  encoded slash alike. Where an intermediary decodes `%2F`, the value stops being one segment and
-  `/templates/{id}` no longer matches. Staging carries the cost in its configuration: two exact
-  `location =` blocks in `server-resource.inc.conf` name individual artifact identifiers and
-  re-encode the collapsed form into a `proxy_pass`, one block per artifact that arrived broken.
+  **Canonicalize the legacy identities.** Migrating the old `repo.metadatacenter.net` folders and
+  artifacts to `repo.metadatacenter.org` is agreed; they predate CEDAR's main public release.
+  Inventory all five types and check for collisions under the proposed `.org` identities. Build
+  an explicit old-to-new mapping, preserve UUIDs, and migrate MongoDB documents, Neo4j identities
+  and applicable references consistently, preserving grants and content. Save preimages and use
+  a recoverable procedure, update affected search projections, and verify dependent reads and
+  permissions. Users, groups, categories, embedded element-instance identities and vocabulary
+  IRIs are outside this migration; do not replace arbitrary `.net` strings or historical provenance.
+  The September instance enumeration counted 245 `.net` identities, but is neither a fresh census
+  nor coverage of all five types. Until migration is verified, clients must retain the exact full
+  IRI for legacy identities instead of silently retargeting them to `.org`.
 
-  **The proposed contract:** keep the full IRI as the stored identity and in JSON-LD fields such as
-  `@id`, and use the bare final identifier in resource-specific paths and query parameters, with the
-  route supplying the type and a shared parser rebuilding and validating the IRI before any store is
-  read. An endpoint that is genuinely untyped may keep a full IRI, as a stated exception rather than
-  an accident.
-
-  Deliver it the way the other contract changes go. One shared parser accepts both forms first —
-  OpenView's resolver is the working example — while server-generated links and shared clients
-  emit the bare form. Measure the legacy form, mark it deprecated, and remove legacy parsing and
-  the two nginx blocks only after a compatibility period and evidence that no caller depends on it.
-  Done when every resource-specific route takes the bare identifier, one parser owns the
-  reconstruction, and staging's per-artifact blocks are gone.
+  Review staging's two per-artifact nginx workarounds separately after checking the deployed
+  client traffic; preserving old encoded requests remains required.
 
 ## Security
 

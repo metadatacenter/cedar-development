@@ -147,7 +147,7 @@ def template_for(client, template_id: str, cache: dict[str, Any]) -> Optional[An
         return cache[template_id]
     try:
         cache[template_id] = client.get_json(
-            f"/templates/{urllib.parse.quote(template_id, safe='')}")
+            f"/templates/{urllib.parse.quote(rest.resource_path_id(template_id), safe='')}")
     except Exception:
         cache[template_id] = None
     return cache[template_id]
@@ -155,7 +155,7 @@ def template_for(client, template_id: str, cache: dict[str, Any]) -> Optional[An
 
 def both_representations(client, ref) -> tuple[Optional[str], Optional[str], list[str]]:
     """The two documents the server serves for one instance, and what refusing them looked like."""
-    quoted = urllib.parse.quote(ref.artifact_id, safe="")
+    quoted = urllib.parse.quote(rest.resource_path_id(ref.artifact_id), safe="")
     yaml_text = json_text = None
     problems: list[str] = []
     try:
