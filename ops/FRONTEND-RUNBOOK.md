@@ -1333,12 +1333,13 @@ through this service instead.
 
 Model-to-host mutation reporting also has one owner: `HandlerContext` reports a
 successful field or multi-instance operation to the wrapper, and the wrapper compares
-the serialized instance with the last serialization it published before emitting a
+the serialized instance and quality report with the last state it published before emitting a
 composed, bubbling `change`. This is a model contract, not forwarded browser traffic:
 focus, blur, paging, read-only controls and a no-op write emit nothing. The detail is
 `CeeChangeDetail` and carries the operation, component path, value, validity, full
 data-quality report, title and description. Field mutations also invoke the optional
-`eventHandler.valueChanged(path, value)` callback. Keep the serialization comparison
+`eventHandler.valueChanged(path, value)` callback. Unfinished edits can change validity without
+changing serialized metadata, and must also notify the host. Keep the state comparison
 at the wrapper boundary; reporting directly from widgets will miss non-native controls
 and will duplicate events when control implementations change.
 
@@ -1399,11 +1400,36 @@ The data quality report never reads those cursors. It walks the instance itself,
 entry by entry, so the page and the entries on screen cannot change what it reports,
 and each problem records the entry taken at each repeating field or element along its
 path, outermost first, as `occurrences`. That is the location `reveal` consumes, and
-the same bad value in two entries is two problems. A requirement on a field inside a
-repeating element is still met by a value in any entry, so a `required` problem names
-no entry. A repeatable list that a stored instance omits is reported as the empty list
+the same bad value in two entries is two problems. Each existing containing element
+must satisfy a required field; one filled element cannot satisfy an empty sibling.
+The counters count declarations, with a declaration complete only when all its
+containing elements satisfy it. A repeating field needs at least one answer within
+each containing element. A repeatable list that a stored instance omits is reported as the empty list
 CEE writes, which is why there is no `missingProperty` code. The contract is in
 `harness/test/report-locations.spec.ts`.
+
+`HandlerContext.validation` owns validation coordination. Loads and mutations rebuild
+the report before notifying the host. Stored data is checked by the pure report walk
+and `FieldValueValidator`; unfinished date/time and attribute-name drafts are keyed
+by their actual occurrence node, so paging cannot relocate them, copying duplicates
+them independently, and deleting a branch removes its issues. Attribute deletion
+uses the accepted name and removes its sibling value before publishing a change.
+Required values, minimum counts and unnamed attribute rows carry `severity: warning`;
+malformed values, bad template constraints and unfinished edits carry `severity: error`.
+Both affect `isValid`; CEE does not impose a save policy on hosts.
+
+JSON input recovery preserves malformed field IRIs and well-shaped numeric,
+temporal and IRI defaults for correction instead of rejecting the entire form.
+Malformed element atoms are reported at their occurrence and replaced only when a
+user edits a child field. Envelope identifiers still use the model reader's strict
+boundary; unsupported shapes can require a corrected input. An instance naming a
+different template remains invalid. The YAML parser retains the model library's
+strict default validation.
+
+`harness/test/validation-state-matrix.spec.ts` crosses depth 0/1/3/6, read-only/editable
+loads, all seven numeric types, bounds, malformed identifiers/defaults and repair/reload.
+`validation-state.coordinator.spec.ts` uses real Angular widgets for draft navigation,
+copy/delete and recovery; the browser matrix checks the shipped bundle and host events.
 
 <a id="cee-running-against-the-old-template-parser"></a>
 
