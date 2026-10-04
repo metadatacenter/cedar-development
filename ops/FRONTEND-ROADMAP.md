@@ -93,31 +93,11 @@ minting timeout. Extend offline regression coverage to ordinary unchanged-DOI up
 reconciliation and continued rejection of DOI replacement or deletion through ordinary updates.
 The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
-### 7. Show Server Validation Findings in Workspace
-
-A rejected create or update should show the user what the server refused. Render the problems
-in the server's `validationReport` with their paths and messages in Workspace's metadata editor,
-keep the document dirty, and take the user to each affected field with CEE's `reveal`, as the list
-of CEE's own findings already does. That needs each server path mapped to a CEE location: the
-component path, and the entry of each repeating field or element along it. State the validation
-summary and the missing-required-field message through Workspace's language files, in English and
-Hungarian.
-
-Establish which CEE findings predict REST rejection and which are advisory, and gate Save only on
-the former. The `requiredValue: true` / `minItems: 0` case in CEE's
-`harness/test/report-shape.spec.ts` shows that the two verdicts can differ. Treat the server's
-response as authoritative when the validators disagree or the template changes between edit and
-save.
-
-Cover invalid-to-valid and valid-to-invalid transitions, advisory-only reports, rejected
-creates and updates, correction followed by a successful save, and differing client and server
-reports, in `src/app/metadata-editor.spec.ts` and the Playwright interaction suite.
-
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 8. Whole-Component Runtime Theme Overrides
+### 7. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -126,7 +106,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 9. Authoring Feedback for Unsupported Markup
+### 8. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -139,7 +119,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 10. Reduce Embedded Font Payload
+### 9. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -175,7 +155,7 @@ serving fonts as extra files changes that contract.
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
 
-### 11. Retire the Shared Monospace Face
+### 10. Retire the Shared Monospace Face
 
 `font-family-monospace` is the only font role without an embedded face. It resolves to SF Mono or
 Menlo on a Mac and to the browser's generic monospace elsewhere, so the same string draws
@@ -202,7 +182,7 @@ the body font.
 
 <a id="ced"></a>
 
-### 12. Clear the Ember Demo's Remaining Advisories
+### 11. Clear the Ember Demo's Remaining Advisories
 
 The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
 which reaches it through ember-cli, stylelint and ember-template-lint, and no released `braces`
@@ -219,7 +199,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 13. Display Host-Supplied Validation Findings in CED
+### 12. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -230,7 +210,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 14. Define the Three Profiles
+### 13. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -250,7 +230,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 15. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 14. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -264,14 +244,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 16. Keyboard and Screen-Reader Access
+### 15. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 17. Complete the Template Designer
+### 16. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -283,7 +263,7 @@ draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Wo
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
 
-### 18. Enforce CED Authoring Style Contracts
+### 17. Enforce CED Authoring Style Contracts
 
 Apply central authoring recipes and rendered contracts across every field and
 element settings surface, including metadata labels, select-arrow clearance and

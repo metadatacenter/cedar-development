@@ -130,8 +130,19 @@ also removed. The Keycloak adapter and bundle are plain JavaScript used by Angul
 The metadata routes use a modern Angular CEE host. It loads the staged CEE bundle
 on demand, settles read-only permissions before configuration, saves with content
 ETags and preserves the editor across saves. Its dirty guard covers field/name edits,
-exact reverts, browser unload and edits made during a pending save. Quality reports
-are advisory. First save replaces the create URL through Angular routing; it does
+exact reverts, browser unload and edits made during a pending save. The host's central
+coordinator combines CEE findings with the server's structured validation report.
+Explicit severity takes precedence; older CEE reports treat missing required values
+and minimum counts as warnings, and other problems as errors. Errors block Save;
+warnings remain saveable. Server JSON Pointer locations map to CEE paths and nested
+occurrences, including escaped property names and controls that show all choices.
+Server findings belong to the submitted draft and retire when it changes; late
+rejections cannot attach old findings to a newer draft. Unmapped findings retain
+both path and message. Failed loads offer Retry. Conflicts and missing revisions
+retain edits and require an explicit reload, with confirmation before discarding
+changes. An incomplete create acknowledgement blocks another create and directs
+the author back to Workspace to inspect the result. `metadata-state-matrix.spec.ts`
+and the browser state-coordination suite cover these transitions. First save replaces the create URL through Angular routing; it does
 not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.
 
 `npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
