@@ -1511,10 +1511,18 @@ its live implementation during ordinary Maven tests. The TypeScript suite adds 1
 ordinary Jest/coverage gate and verifies a vendored fixture's SHA-256 and Java commit provenance.
 Both suites assert the complete field-type roster so new types require matrix coverage.
 
+A second matrix does the same for the values an instance holds. It has 60 cases: twenty value nodes,
+literal, IRI and label-only, each with the qualifying keys a value may carry (datatype, language,
+label, notation and preferred label), at the root of an instance, inside an element and as a
+repeated item. Java requires each node to survive JSON and YAML exactly, except that YAML leaves an
+unfilled value out, and records what it writes. TypeScript must write the same JSON and YAML, and
+read Java's YAML into the same JSON.
+
 ```bash
 # In cedar-artifact-library, using the runbook's Java 17 environment:
 ./mvnw -Dtest=FieldConcordanceMatrixTest -DupdateFieldConcordance=true test
-# Review and commit the Java implementation, generator and generated fixture first.
+./mvnw -Dtest=InstanceValueConcordanceMatrixTest -DupdateInstanceValueConcordance=true test
+# Review and commit the Java implementation, generators and generated fixtures first.
 # In cedar-model-typescript-library, alongside that committed Java checkout:
 npm run sync:concordance
 npm run test:concordance
