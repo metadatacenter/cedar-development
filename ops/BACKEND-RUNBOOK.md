@@ -2898,10 +2898,10 @@ write path (which proxies, so the per-service suites cannot follow it), publish 
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
-the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
+the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `deletion`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 1,063 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 1,208 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
@@ -5527,7 +5527,10 @@ Confirmation is bound to the user, root, resource identifiers, topology, content
 permissions and reference identifiers. The server recomputes this inventory before applying it; a
 changed or blocked plan deletes nothing. The client cannot supply extra deletion identifiers.
 Execution rechecks each item's location, permission and graph revision, uses the recorded content
-ETag for artifact deletion, and deletes folders deepest-first only when empty. It stops on the first
+ETag for artifact deletion, and deletes folders deepest-first only when empty. Instances go first. Among
+artifacts, each version goes before the version it was made from, because deleting a version rewrites
+its successor's `pav:previousVersion` and moves the successor's content ETag past the recorded one.
+It stops on the first
 refusal, conflict, unavailable dependency or pending artifact cleanup. The template endpoint retains
 its final content-store reference check. A refused artifact request abandons its outbox job; it must
 not become an automatic deletion after the blocker later disappears.

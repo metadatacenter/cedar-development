@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite, VALUERECOMMENDER } from './rest/lib.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
+import * as deletion from './rest/suites/deletion.mjs';
 import * as artifacts from './rest/suites/artifacts.mjs';
 import * as versioning from './rest/suites/versioning.mjs';
 import * as sharing from './rest/suites/sharing.mjs';
@@ -48,7 +49,7 @@ import * as apidocs from './rest/suites/apidocs.mjs';
 import * as freeze from './rest/suites/freeze.mjs';
 import * as addressing from './rest/suites/addressing.mjs';
 
-const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing];
+const ALL = [folders, deletion, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
