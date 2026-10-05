@@ -136,17 +136,20 @@ libraries in the service jars. Neither command restarts a running service. Stop 
 **Choose one deployment path.** For the normal maintenance-window deployment below, provision the
 key first, build the complete release, then stop/start all microservices using that procedure; do
 not also perform the rolling sequence. For a rolling backend deployment, restart in this order,
-stopping at the first failure:
+stopping at the first failure. Every caller of artifact must run the new code before artifact starts
+enforcing the key, and the callers may restart in any order among themselves. The sequence below
+is the one `cedarcli prod provision-artifact-key` prints, with repo added:
 
 ```bash
-# Move all affected authenticated callers onto the new resource/storage boundary first.
-cedarcli native restart resource
-cedarcli native restart bridge
-cedarcli native restart repo
-cedarcli native restart worker
+# Move the authenticated callers onto the new boundary first: bridge reads through resource, and
+# resource and worker send the service key.
+cedarcli native restart microservice bridge
+cedarcli native restart microservice resource
+cedarcli native restart microservice repo
+cedarcli native restart microservice worker
 
 # Artifact can now enforce the service key and expose its monitor count endpoint.
-cedarcli native restart artifact
+cedarcli native restart microservice artifact
 cedarcli native status
 ```
 
