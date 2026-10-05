@@ -212,7 +212,7 @@ cedarcli build all             # this deploy: ~0:11:24
 cedarcli native stop microservices
 cedarcli native status                 # confirm Java services are down
 cedarcli dev copy-keycloak-listener    # copy the event-listener jar into Keycloak, then kc.sh build
-cedarcli prod configure-frontends      # rewrite window.cedarDomain + content domain in the dist index.html's
+cedarcli prod configure-frontends      # write CEDAR_HOST into the three compiled Angular bundles
 cedarcli git status                    # all green; release is on main
 ```
 
@@ -330,7 +330,7 @@ service nginx start
 | `cedarcli check versions --strict` | Verifies every repo reports the expected version (incl. the modifier) and that no checkout is behind its remote. |
 | `cedarcli prod provision-artifact-key` | Creates or reuses the private service-key file on the native production application host; the launcher supplies it to artifact, resource and worker on their next start. Does not restart services. |
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
-| `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |
+| `cedarcli prod configure-frontends` | Writes `CEDAR_HOST` into the `cedarDomain` compiled into the OpenView, Bridging, and Monitoring bundles (`<repo>-dist/main-*.js`), from which each application derives its other URLs. Refuses unless each repository holds exactly one bundle with exactly one compiled value, and changes none until all three pass. `cedarcli prod reset-frontends` restores the committed bundles. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
 | `cedarcli release start` / `resume` | Versions and publishes Workspace and Designer with the other platform repositories; stable npm tarballs go to CEDAR Nexus. |
 | `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` and each application's own payload build, and writes the static payload identities nginx serves. |
