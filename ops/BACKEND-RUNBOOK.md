@@ -1518,10 +1518,22 @@ repeated item. Java requires each node to survive JSON and YAML exactly, except 
 unfilled value out, and records what it writes. TypeScript must write the same JSON and YAML, and
 read Java's YAML into the same JSON.
 
+A third covers how many occurrences a child takes, in 226 cases: seven kinds of child (three field
+types marked multiple, an element, and the three kinds that are lists by nature), single and with
+every combination of stated bounds, in a template and in an element. Java requires the JSON to state
+the bound the model starts with and any stated maximum, the YAML to carry both, the inflater to fill
+each repeated child to that bound, and the inflated instance to validate, except an attribute-value
+field with a minimum above zero, whose attributes no inflater can name. A maximum below the minimum
+is refused. A maximum of 0 means no upper bound to both libraries, but the validator reads it as no
+items, so those cases record no validity verdict. The fixture holds one base template per kind and
+container and each case's bounds, and every case asserts that its base with its bounds applied is
+exactly what Java writes.
+
 ```bash
 # In cedar-artifact-library, using the runbook's Java 17 environment:
 ./mvnw -Dtest=FieldConcordanceMatrixTest -DupdateFieldConcordance=true test
 ./mvnw -Dtest=InstanceValueConcordanceMatrixTest -DupdateInstanceValueConcordance=true test
+./mvnw -Dtest=MultiplicityConcordanceMatrixTest -DupdateMultiplicityConcordance=true test
 # Review and commit the Java implementation, generators and generated fixtures first.
 # In cedar-model-typescript-library, alongside that committed Java checkout:
 npm run sync:concordance
