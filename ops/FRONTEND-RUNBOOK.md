@@ -314,7 +314,9 @@ partial package on disk until the install scripts have run. A platform binary tr
 failed download then fails esbuild's postinstall with `Unknown system error -88`, or rolldown
 reports `Cannot find native binding` once the build loads it. A second drop fails the install
 and names the package, even when npm itself reports success. The debug log names the dropped
-package but not the error behind the drop.
+package but not the error behind the drop. In the build report, each install run in which npm
+dropped a package carries `droppedOptionalDependencies`, and the run after it shows whether
+installing again recovered.
 
 Before a failed isolated frontend build is cleaned up, the CLI retains its command log,
 npm's debug logs, and available `test-results`, `playwright-report`, `surefire-reports`,
