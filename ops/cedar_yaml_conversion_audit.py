@@ -101,49 +101,6 @@ def text_sha256(text: str) -> str:
 # --------------------------------------------------------------------------------------------------
 
 
-def run_maven(library: Path, java_home: Optional[str], goals: list[str], timeout: float) -> None:
-    environment = dict(os.environ)
-    if java_home:
-        environment["JAVA_HOME"] = java_home
-    completed = subprocess.run(["mvn", "-q", *goals], cwd=str(library), env=environment,
-                               capture_output=True, text=True, timeout=timeout)
-    if completed.returncode != 0:
-        tail = (completed.stderr or completed.stdout).strip().splitlines()[-8:]
-        raise RuntimeError(f"mvn {' '.join(goals)} failed in {library}:\n" + "\n".join(tail))
-
-
-def resolve_artifact_library_classpath(library: Path, java_home: Optional[str]) -> str:
-    """The artifact library's own classes and its dependency classpath, built on first use.
-
-    The dependency classpath carries ``cedar-model-validation-library`` too, since the artifact
-    library depends on it, so one JVM can convert and validate. The validation gate's classpath is
-    put ahead of it by the caller, which is what makes the verdict the locally built validator's.
-    """
-    classes = library / "target" / "classes"
-    classpath_file = library / "target" / "artifact-library-classpath.txt"
-    pom = library / "pom.xml"
-    if not pom.is_file():
-        raise RuntimeError(f"{library} is not a Maven project (no pom.xml)")
-    if not classes.is_dir():
-        print(f"Building {library.name} ...", flush=True)
-        run_maven(library, java_home, ["-DskipTests", "compile"], 1800)
-    if not classpath_file.is_file() or pom.stat().st_mtime > classpath_file.stat().st_mtime:
-        print(f"Resolving the {library.name} dependency classpath ...", flush=True)
-        run_maven(library, java_home, ["dependency:build-classpath",
-                                       f"-Dmdep.outputFile={classpath_file}"], 1800)
-    dependencies = classpath_file.read_text(encoding="utf-8").strip()
-    if not dependencies:
-        raise RuntimeError(f"{classpath_file} is empty; remove it and run the audit again")
-    return f"{classes}{os.pathsep}{dependencies}"
-
-
-def cedar_home() -> Path:
-    home = os.environ.get("CEDAR_HOME")
-    if home:
-        return Path(home).expanduser()
-    return Path(__file__).resolve().parent.parent.parent
-
-
 def resolve_toolchain(arguments: argparse.Namespace, parser: argparse.ArgumentParser
                       ) -> tuple[str, str, Path]:
     """The java binary, the classpath both Java libraries share, and the TypeScript entry point."""
@@ -165,16 +122,16 @@ def resolve_toolchain(arguments: argparse.Namespace, parser: argparse.ArgumentPa
             print("Resolving the validation library classpath (builds it on first use) ...", flush=True)
             validation = audit.run_validate_sh("classpath", 1800)
             artifact_library = Path(arguments.artifact_library).expanduser() if arguments.artifact_library \
-                else cedar_home() / "cedar-artifact-library"
+                else audit.cedar_home() / "cedar-artifact-library"
             if not artifact_library.is_dir():
                 parser.error(f"cedar-artifact-library not found at {artifact_library} "
                              "(set CEDAR_HOME or pass --artifact-library)")
-            classpath = f"{resolve_artifact_library_classpath(artifact_library, java_home)}{os.pathsep}{validation}"
+            classpath = f"{audit.resolve_artifact_library_classpath(artifact_library, java_home)}{os.pathsep}{validation}"
         except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
             parser.error(str(error))
 
     ts_library = Path(arguments.ts_library).expanduser() if arguments.ts_library \
-        else cedar_home() / "cedar-model-typescript-library" / "dist" / "index.js"
+        else audit.cedar_home() / "cedar-model-typescript-library" / "dist" / "index.js"
     if not ts_library.is_file():
         parser.error(f"TypeScript library entry point not found: {ts_library} "
                      "(run 'npm run build' in cedar-model-typescript-library, or pass --ts-library)")

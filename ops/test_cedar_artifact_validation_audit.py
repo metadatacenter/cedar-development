@@ -301,6 +301,17 @@ class AggregateTest(unittest.TestCase):
             record["schemaVersion"] = validation.get("schemaVersion", AUDIT.MODEL_VERSION)
         return record
 
+    def test_a_valid_artifact_the_reader_refuses_is_counted_as_unreadable(self):
+        aggregate = AUDIT.Aggregate()
+        refused = {"status": "refused", "message": 'child name "@foo" in TemplateSchemaArtifactRecord is reserved'}
+        aggregate.add(self.record("template", "valid", reader=refused))
+        aggregate.add(self.record("template", "valid", reader={"status": "read"}))
+        aggregate.add(self.record("template", "invalid", errorCount=1, reader=refused))
+        aggregate.add(self.record("element", "valid"))
+        self.assertEqual(aggregate.reader_by_type, {"template": {"refused": 2, "read": 1}})
+        # Only the valid one is what the server's validator alone would have stored and nothing can open.
+        self.assertEqual([entry["message"] for entry in aggregate.valid_but_unreadable], [refused["message"]])
+
     def test_conditions_are_counted_once_per_artifact_and_split_by_verdict(self):
         aggregate = AUDIT.Aggregate()
         two_titles = [{"rule": "title-not-canonical", "path": "/title", "value": {"title": "a", "caseOnly": True}},

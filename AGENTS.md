@@ -81,9 +81,11 @@ below have no CLI front end yet, so call them directly:
   `cedar-model-validation-library` on every template, element, field and instance, each instance
   validated against the template it names. One JVM, `cedar_validation_bridge.java`, stays up for the
   whole pass. It also counts the legacy shapes the backend roadmap's production-data item lists and
-  splits each count by verdict, since a valid artifact may still carry one. Streams one record per
-  artifact, reports progress every 200 artifacts, resumes. `--recheck` re-validates exactly the
-  artifacts a repair run reports having written, which is how a repair is proved.
+  splits each count by verdict, since a valid artifact may still carry one. Each template, element and
+  field is also read with `cedar-artifact-library`'s reader, which the artifact server applies on
+  write; a valid artifact the reader refuses is counted as stored and openable by nothing. Streams one
+  record per artifact, reports progress every 200 artifacts, resumes. `--recheck` re-validates
+  exactly the artifacts a repair run reports having written, which is how a repair is proved.
 - `cedar_yaml_conversion_audit.py` — the same GET-only walk over the schema artifacts alone,
   requesting each one as YAML through the resource server's Accept negotiation and converting it
   back to JSON Schema twice: once with `cedar-artifact-library`, once with

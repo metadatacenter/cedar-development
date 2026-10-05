@@ -24,6 +24,13 @@
 // An invalid answer lists the library's errors and warnings as {message, location}. Nothing but
 // answers goes to stdout; the library's logging goes to stderr.
 //
+// When cedar-artifact-library is on the classpath, a template, element or field is also read with
+// its JsonArtifactReader, and the answer carries "reader": {"status": "read" | "refused", "message",
+// "location"}. The artifact server refuses on write what that reader refuses, and every editor reads
+// an artifact through it or its TypeScript twin, so a refusal is an artifact nothing can open. The
+// reader is looked up rather than imported, so the tools that put only the validator on the
+// classpath start this bridge as before; "hello" says whether it is there.
+//
 // ops/cedar_artifact_validation_audit.py is the caller this exists for.
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -52,6 +59,17 @@ public class CedarValidationBridge {
   private static final int MESSAGE_LIMIT = 1000;
 
   private final ModelValidator validator = new CedarValidator();
+  private final Object reader = artifactReader();
+
+  /** The artifact library's JSON reader, or null when the library is not on the classpath. */
+  private static Object artifactReader() {
+    try {
+      return Class.forName("org.metadatacenter.artifacts.model.reader.JsonArtifactReader")
+          .getConstructor().newInstance();
+    } catch (ReflectiveOperationException | LinkageError e) {
+      return null;
+    }
+  }
   private final Map<String, JsonNode> templates;
   private final int templateCapacity;
 
@@ -118,6 +136,7 @@ public class CedarValidationBridge {
         case "hello" -> {
           answer.put("status", "ok");
           answer.put("validator", validator.getClass().getName());
+          answer.put("reader", reader == null ? null : reader.getClass().getName());
           answer.put("templateCache", templateCapacity);
           answer.put("java", System.getProperty("java.version"));
         }
@@ -197,6 +216,50 @@ public class CedarValidationBridge {
       ObjectNode warning = warnings.addObject();
       warning.put("message", truncate(item.getMessage()));
       warning.put("location", item.getLocation());
+    }
+    if (reader != null && !kind.equals("instance")) {
+      answer.set("reader", readerVerdict(kind, artifact));
+    }
+  }
+
+  /** Whether the artifact library's reader reads the artifact, and why not when it refuses. */
+  private ObjectNode readerVerdict(String kind, JsonNode artifact) {
+    ObjectNode verdict = MAPPER.createObjectNode();
+    String method = switch (kind) {
+      case "template" -> "readTemplateSchemaArtifact";
+      case "element" -> "readElementSchemaArtifact";
+      default -> "readFieldSchemaArtifact";
+    };
+    if (!(artifact instanceof ObjectNode node)) {
+      verdict.put("status", "refused");
+      verdict.put("message", "the artifact is not a JSON object");
+      return verdict;
+    }
+    try {
+      reader.getClass().getMethod(method, ObjectNode.class).invoke(reader, node.deepCopy());
+      verdict.put("status", "read");
+    } catch (java.lang.reflect.InvocationTargetException e) {
+      Throwable cause = e.getCause();
+      verdict.put("status", "refused");
+      verdict.put("exception", cause.getClass().getName());
+      verdict.put("message", truncate(String.valueOf(parseDetail(cause, "getParseErrorMessage", cause.getMessage()))));
+      Object location = parseDetail(cause, "getPath", null);
+      if (location != null) {
+        verdict.put("location", String.valueOf(location));
+      }
+    } catch (ReflectiveOperationException e) {
+      verdict.put("status", "error");
+      verdict.put("message", truncate(String.valueOf(e.getMessage())));
+    }
+    return verdict;
+  }
+
+  /** A property of the reader's ArtifactParseException, or the fallback for any other exception. */
+  private static Object parseDetail(Throwable cause, String getter, Object fallback) {
+    try {
+      return cause.getClass().getMethod(getter).invoke(cause);
+    } catch (ReflectiveOperationException e) {
+      return fallback;
     }
   }
 
