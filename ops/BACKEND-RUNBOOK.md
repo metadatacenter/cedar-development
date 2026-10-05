@@ -1526,8 +1526,9 @@ every combination of stated bounds, in a template and in an element. Java requir
 the bound the model starts with and any stated maximum, the YAML to carry both, the inflater to fill
 each repeated child to that bound, and the inflated instance to validate, except an attribute-value
 field with a minimum above zero, whose attributes no inflater can name. A maximum below the minimum
-is refused. A maximum of 0 means no upper bound to both libraries, but the validator reads it as no
-items, so those cases record no validity verdict. The fixture holds one base template per kind and
+is refused. The Template Editor stores a maximum of 0 to mean no upper bound, which JSON Schema, and
+so the validator, reads as no items. Both libraries' writers leave a 0 out, and the matrix checks that
+a template storing one is written as one stating none. The fixture holds one base template per kind and
 container and each case's bounds, and every case asserts that its base with its bounds applied is
 exactly what Java writes.
 
