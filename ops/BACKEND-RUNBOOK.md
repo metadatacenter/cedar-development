@@ -2823,15 +2823,16 @@ one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### Reproducing a Flake That Depends on Class Order
 
-Test classes share a JVM, so process-wide state outlives the class that set it. A test that holds a
-static field or a singleton past its own end decides what the next class sees, and JUnit 5 fixes
-neither class order nor method order in a way a reader can predict. Such a suite passes locally,
-passes five CI runs, and fails the sixth.
+Test classes share a JVM, so process-wide state can outlive the class that set it. The environment
+cleanup above and the Neo4j driver replacement cleanup below address known sources of leakage;
+other static state, system properties and test-owned executors still need their own cleanup. Use
+this procedure when a failure depends on the preceding tests. The diagnostic does not imply that
+the previously fixed leaks remain open.
 
-Surefire pins both halves of that order. `-Dsurefire.runOrder=alphabetical` and its
-`reversealphabetical` counterpart fix which class runs first, and
-`-Dtest='Leaker#theMethodThatLeaks,Victim'` fixes which method runs last before the victim. An
-intermittent failure then either happens on every run or on none.
+`-Dsurefire.runOrder=alphabetical` and its `reversealphabetical` counterpart select class order.
+Combine either with `-Dtest='Leaker#theMethodThatLeaks,Victim'` to select the suspected leaking
+method and the victim class; the `-Dtest` list alone does not specify execution order. Confirm the
+actual order in the test output and compare both runs to establish whether the failure depends on it.
 
 Running the whole suspect class first often proves nothing, because state usually escapes from
 particular methods rather than from all of them. The job-claim tests show it. Most of their claims
@@ -2849,22 +2850,22 @@ a missing file.
 
 ### What the Suites Actually Cover
 
-Roughly 113 test classes. They fall into layers, and it is worth knowing which layer a failure comes
-from, because they answer very different questions:
+The suites fall into layers that answer different questions. Use the current test reports for
+counts; this table describes the coverage each layer provides.
 
-| Layer | Classes | What a pass means |
-|---|---|---|
-| Config load | 16 | The server's YAML parses and env substitution resolves |
-| Boot smoke | 11 | The application starts |
-| Route surface | 7 | Every declared route answers, and answers 401 unauthenticated |
-| Model validation | 7 | Template, element, field and instance schema rules hold |
-| Artifact CRUD | 21 | Create, read, update, delete per artifact type, on embedded Mongo |
-| Workspace graph | 5 | Permissions, inheritance, moves, categories and revocation, in Neo4j |
-| Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
-| Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
-| Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 1,063 expected checks |
-| End-to-end smoke | 1 | The real stack, through a browser |
+| Layer | What a pass means |
+|---|---|
+| Config load | The server's YAML parses and env substitution resolves |
+| Boot smoke | The application starts |
+| Route surface | Endpoints in the selected inventory answer the expected status, usually 401 for protected routes without credentials |
+| Model validation | Template, element, field and instance schema rules hold |
+| Artifact CRUD | Create, read, update, delete per artifact type, on embedded Mongo |
+| Workspace graph | Permissions, inheritance, moves, categories and revocation, in Neo4j |
+| Matrices | Authorization, permission levels and artifact lifecycle, as tables |
+| Sharing and ownership | The `PUT .../permissions` round trip, including ownership transfer |
+| Content negotiation | YAML and JSON transcode both ways |
+| REST smoke | The real stack, no browser: 19 suites, 1,063 expected checks |
+| End-to-end smoke | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
 modes.** It logs in through Keycloak and treats browser-observed request and response headers as part
@@ -3352,10 +3353,13 @@ than stopping at the first, and fails on an empty table.
 
 Where the coverage is thin, stated plainly so nobody reads the class count as reassurance:
 
-- **Terminology's REST surface is largely untested.** Of its 27 classes, six are `@Tag("bioportal")`
-  and 26 methods are `@Disabled`, so a normal run exercises little of it. Serving ontologies from the
-  local SQLite store is what would let those tests run offline and deterministically, which makes it
-  the largest single coverage win available.
+- **Terminology has offline route and local-store coverage; live BioPortal behaviour remains
+  separate.** `TerminologyServerApplicationSmokeTest` discovers resources from Jersey's runtime
+  registration and probes protected routes for 401, with an explicit public-route exclusion list
+  and a separate valid-query probe for property search. `LocalStoreResourceTest` serves synthetic
+  SQLite snapshots through the real HTTP application without BioPortal. Tests tagged `bioportal`
+  remain excluded from the default build, and disabled tests provide no behavioural coverage.
+  Authentication probes do not establish the correctness of those external-service operations.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
 - **Dependency coverage is partial but deliberate.**
@@ -3381,19 +3385,25 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   Pagination is covered on a folder's contents and search (`pagination` suite); the other paged
   listings are not.
 
-One hard constraint when adding to the resource server: **eight test classes that boot a server is the
-ceiling** for that module. Each boots into the shared JVM and creates a Neo4j driver whose Netty
-event-loop threads are never reclaimed, and the ninth fails with "failed to create a child event
-loop". The failure appears only in a full run, never when the class runs alone, and it names whichever
-class happened to boot last rather than the one that exhausted the JVM — so it reads as a flaky new
-test. Merge into an existing class, or take up the roadmap item that fixes it properly.
+Repeated application boots reuse or replace the shared Neo4j services through
+`CedarDataServices.initializeNeo4jServices`. The same configuration reuses the existing proxy set;
+a different configuration closes the previous set before replacing it. `Neo4JProxies` owns one
+shared driver and closes its connection pool and Netty event-loop threads. The former eight-class
+ceiling caused by abandoned drivers is no longer a constraint on adding resource-server tests.
+Keep test-owned clients and executors scoped to their fixtures; a resource-exhaustion failure in a
+later class still warrants checking what earlier classes left running.
 
 The verification discipline that matters: **the suites verify logic; a redeploy plus the `ops/e2e`
-smoke test verifies reality.** The suites cannot see the live inter-service proxy round-trip or the
-real validation path. Two dependency migrations this stack went through (Apache HttpClient 4 to 5,
-and the JSON Schema validator swap) passed every suite yet had real runtime defects that only a
-redeploy and smoke run caught. After any change touching inter-service HTTP, validation, or startup
-wiring: rebuild, redeploy, and run `ops/e2e` before trusting green suites.
+smoke test verifies reality.** Backend-free suites exercise real HTTP against downstream stubs:
+`CommandFileSystemResourceTest` checks forwarding of the caller's `If-Match`,
+`TemplatesResourceWriteSuccessTest` checks returned ETags, and `ArtifactCountsResourceTest` checks
+caller identity and the configured internal service key. These tests verify the caller against a
+stub's contract; they do not prove that independently built services agree on that contract, or
+exercise the complete deployed authentication and validation path. Whole-stack smoke does not run
+in per-repository PR CI. Two dependency migrations (Apache HttpClient 4 to 5 and the JSON Schema
+validator swap) passed every suite yet had runtime defects caught by a development-stack redeploy
+and smoke run. After any change touching inter-service HTTP, validation, or startup wiring: rebuild,
+redeploy, and run `cedarcli test e2e` before trusting green suites.
 
 The full gate, in order:
 
@@ -3459,7 +3469,7 @@ and what it needs to run.
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
 | schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
 | submission | `SubmissionRoutesRespondTest` | `RouteSurface` 401 | none |
-| terminology | `TerminologyServerApplicationSmokeTest` | explicit | none |
+| terminology | `TerminologyServerApplicationSmokeTest` | runtime-derived `RouteSurface` 401 with public-route exceptions and a separate property-search probe | none |
 | user | `UserServerApplicationSmokeTest` | explicit | embedded Neo4j |
 | valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
@@ -3475,17 +3485,24 @@ stack or a live external API.
 
 ### Reading the Mechanism Column
 
-`RouteSurface` enumerates a resource class's endpoints by reflection and requires each to answer an
-expected status. Its value is that it covers routes nobody wrote a test for, and it fails rather than
-passes when the resource list is wrong — an empty surface is an explicit error, not a silent success.
-Adding an endpoint to a covered resource extends the assertion automatically.
+`RouteSurface` enumerates the supplied resource classes' endpoints by reflection and requires each
+to answer an expected status. Adding an endpoint to a covered resource extends the assertion
+automatically, and an empty surface is an explicit error. A nonempty but incomplete class list can
+still omit routes: worker, for example, supplies a manual list. Terminology discovers its classes
+from Jersey's runtime registration, so newly registered resources join the probe automatically.
+Runtime discovery alone cannot establish that every intended resource was registered; that needs
+an independent expected inventory. A 401 probe establishes rejection of an anonymous request, not
+successful authenticated behaviour or correct permissions for each role.
 
 `PermissionMatrix` is the heavier form, used where authorization is a grid rather than a gate: it
 asserts what each role may do to each artifact at each permission level.
 
 "Explicit" means the failure path is asserted directly in per-resource tests rather than derived from
-the route surface. It is not weaker — the artifact server's coverage is the deepest in the system —
-but it is per-endpoint, so a newly added endpoint is not covered until someone writes for it.
+the route surface. Artifact's CRUD suites exercise behaviour beyond an authentication probe, but a
+new endpoint does not automatically acquire a test. Artifact also registers
+`ArtifactServiceAuthenticationFilter` centrally for business resources: missing route reflection
+does not imply missing internal-service authentication. Tests of the caller's user credentials and
+permissions remain separate from that service-key gate.
 
 ### Two Services Have No 401 to Assert
 
@@ -3510,8 +3527,10 @@ The matrix is derived from the test sources by hand, so nothing fails when a new
 one. Wiring the derivation into the test-enabled `cedarcli build` mode would make a missing baseline
 break the build rather than go unnoticed.
 
-The "explicit" services — artifact, terminology, user — assert failure paths per endpoint rather than
-over the route surface, so a newly added endpoint is uncovered until someone writes for it.
+Artifact and user assert failure paths per endpoint without an automatic route inventory, so a
+newly added endpoint does not automatically gain coverage. Terminology has runtime-derived route
+probes; manual resource lists in other route suites and omitted runtime registrations have the
+limits described above.
 
 Open-view pins only the absent-artifact half of its contract. An artifact that exists but is not open
 needs a seeded graph and belongs with the sharing tests.
