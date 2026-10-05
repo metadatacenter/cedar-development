@@ -7523,47 +7523,56 @@ def only_dropped_orphan_literal_actions(before: Any, after: Any) -> Optional[str
     return None
 
 
-def reserved_value_child_edits(artifact: Any) -> dict[str, tuple[Any, Any]]:
-    """The exact edits for the approved @value → value child rename, including references."""
+# The approved renames of field children stored under a key the artifact library reserves, by stored
+# key. The library refuses every child name that begins with "@", so no editor can open an artifact
+# holding one. Each renamed child keeps its property IRI.
+RESERVED_CHILD_RENAMES = {"@value": "value", "@Type": "Type", "@xml:lang": "xml:lang"}
+
+
+def reserved_child_edits(artifact: Any) -> dict[str, tuple[Any, Any]]:
+    """The exact edits for the approved reserved child renames, including references."""
     edits = {}
     for path, node in schema_context_nodes(artifact):
         if node.get("@type") not in ("https://schema.metadatacenter.org/core/Template", ELEMENT_AT_TYPE):
             continue
         properties = node.get("properties", {})
-        child = properties.get("@value")
-        if not isinstance(child, dict) or child.get("@type") != FIELD_AT_TYPE:
-            continue
-        if "value" in properties or child.get("schema:name") != "@value":
-            raise TransformRefused("reserved child rename has a conflicting destination or name at " + path)
-        renamed = copy.deepcopy(child)
-        renamed["schema:name"] = "value"
-        edits[path + "/properties/@value"] = (child, ABSENT)
-        edits[path + "/properties/value"] = (ABSENT, renamed)
-        for suffix in ("/properties/@context/properties", "/_ui/propertyLabels", "/_ui/propertyDescriptions"):
-            mapping = value_at(artifact, path + suffix)
-            if not isinstance(mapping, dict) or "@value" not in mapping or "value" in mapping:
-                raise TransformRefused("missing or conflicting child reference at " + path + suffix)
-            old = mapping["@value"]
-            new = "value" if suffix == "/_ui/propertyLabels" and old == "@value" else old
-            edits[path + suffix + "/@value"] = (old, ABSENT)
-            edits[path + suffix + "/value"] = (ABSENT, new)
-        for suffix in ("/required", "/properties/@context/required", "/_ui/order"):
-            old = value_at(artifact, path + suffix)
-            if not isinstance(old, list) or "value" in old:
-                raise TransformRefused("missing or conflicting child list at " + path + suffix)
-            new = ["value" if v == "@value" else v for v in old]
-            if suffix == "/_ui/order" and "@value" not in old:
-                new.append("value")
-            edits[path + suffix] = (old, new)
+        for name, rename in RESERVED_CHILD_RENAMES.items():
+            child = properties.get(name)
+            if not isinstance(child, dict) or child.get("@type") != FIELD_AT_TYPE:
+                continue
+            if rename in properties or child.get("schema:name") != name:
+                raise TransformRefused("reserved child rename has a conflicting destination or name at " + path)
+            old_segment, new_segment = rest.json_pointer_component(name), rest.json_pointer_component(rename)
+            renamed = copy.deepcopy(child)
+            renamed["schema:name"] = rename
+            edits[path + "/properties/" + old_segment] = (child, ABSENT)
+            edits[path + "/properties/" + new_segment] = (ABSENT, renamed)
+            for suffix in ("/properties/@context/properties", "/_ui/propertyLabels", "/_ui/propertyDescriptions"):
+                mapping = value_at(artifact, path + suffix)
+                if not isinstance(mapping, dict) or name not in mapping or rename in mapping:
+                    raise TransformRefused("missing or conflicting child reference at " + path + suffix)
+                old = mapping[name]
+                new = rename if suffix == "/_ui/propertyLabels" and old == name else old
+                edits[path + suffix + "/" + old_segment] = (old, ABSENT)
+                edits[path + suffix + "/" + new_segment] = (ABSENT, new)
+            for suffix in ("/required", "/properties/@context/required", "/_ui/order"):
+                old = edits[path + suffix][1] if path + suffix in edits else value_at(artifact, path + suffix)
+                if not isinstance(old, list) or rename in old:
+                    raise TransformRefused("missing or conflicting child list at " + path + suffix)
+                new = [rename if v == name else v for v in old]
+                if suffix == "/_ui/order" and name not in old:
+                    new.append(rename)
+                edits[path + suffix] = (value_at(artifact, path + suffix), new)
     return edits
 
 
-def rename_reserved_value_child(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+def rename_reserved_child(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     result = copy.deepcopy(artifact)
     changes = []
-    for path, (old, new) in reserved_value_child_edits(artifact).items():
-        parent_path, key = path.rsplit("/", 1)
+    for path, (old, new) in reserved_child_edits(artifact).items():
+        parent_path, segment = path.rsplit("/", 1)
         parent = value_at(result, parent_path)
+        key = segment.replace("~1", "/").replace("~0", "~")
         if new is ABSENT:
             del parent[key]
         else:
@@ -7573,8 +7582,8 @@ def rename_reserved_value_child(artifact: Any) -> tuple[Any, list[dict[str, Any]
     return result, changes
 
 
-def only_renamed_reserved_value_child(before: Any, after: Any) -> Optional[str]:
-    expected = reserved_value_child_edits(before)
+def only_renamed_reserved_child(before: Any, after: Any) -> Optional[str]:
+    expected = reserved_child_edits(before)
     actual = {path: (old, new) for path, old, new in differences(before, after)}
     # Array element replacements are reported individually when their lengths are unchanged.
     for path, (old, new) in expected.items():
@@ -7801,10 +7810,10 @@ REPAIRS = {
         summary="add reviewed missing standard instance mappings or template context requirements",
         transform=apply_reviewed_standard_context, invariant=only_reviewed_standard_context,
     ),
-    "rename-reserved-value-child": Repair(
-        name="rename-reserved-value-child", condition="reserved-value-child",
-        summary="rename the approved @value child to value, preserving its property IRI and field content",
-        transform=rename_reserved_value_child, invariant=only_renamed_reserved_value_child,
+    "rename-reserved-child": Repair(
+        name="rename-reserved-child", condition="reserved-child-name",
+        summary="rename the approved reserved field children, preserving each property IRI and field content",
+        transform=rename_reserved_child, invariant=only_renamed_reserved_child,
     ),
     "drop-orphan-literal-actions": Repair(
         name="drop-orphan-literal-actions", condition="orphan-literal-actions",
