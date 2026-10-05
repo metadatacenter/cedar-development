@@ -308,12 +308,22 @@ packages, and runs the whole-stack smoke tiers. A failure at any stage returns n
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
 
-Before a failed isolated frontend build is cleaned up, the CLI retains its command log
-and available `test-results`, `playwright-report`, `surefire-reports`,
+An isolated build runs an install once more when npm drops an optional dependency. npm drops
+one whose download or install fails, records the drop only in its debug log, and leaves the
+partial package on disk until the install scripts have run. A platform binary truncated by a
+failed download then fails esbuild's postinstall with `Unknown system error -88`, or rolldown
+reports `Cannot find native binding` once the build loads it. A second drop fails the install
+and names the package, even when npm itself reports success. The debug log names the dropped
+package but not the error behind the drop.
+
+Before a failed isolated frontend build is cleaned up, the CLI retains its command log,
+npm's debug logs, and available `test-results`, `playwright-report`, `surefire-reports`,
 `failsafe-reports`, and `coverage` files under
 `$CEDAR_HOME/.cedar/build-reports/failures/`. The failure prints the exact directory.
-Each bundle is capped at 250 MiB of copied files; `manifest.json` lists retained files
-and files omitted for size. Dependencies, Git metadata and symlinks are excluded.
+npm writes its debug logs into the build's own cache rather than the copied repository, and a
+bundle keeps them under `npm-logs/`. Each bundle is capped at 250 MiB of copied files;
+`manifest.json` lists retained files and files omitted for size. Dependencies, Git metadata
+and symlinks are excluded.
 Successful builds do not retain these diagnostic copies. Remove old bundles when no
 longer needed; the cap is per failure, not a total retention quota.
 
