@@ -124,8 +124,9 @@ A `main` that holds content `develop` does not stops the release. What it holds 
 made straight to `main`, or a hotfix nobody back-merged, and the release replaces it with a push:
 the work leaves the branch that held it and nothing says so afterwards. Port it to `develop` and
 build a train from that source. Where `develop` dropped the file deliberately and `main` is simply
-behind, `--accept-main-only <repository>` takes the replacement and records that it was asked for.
-The version files a release stamps onto each branch separately do not count as divergence.
+behind, `--accept-main-only <repository>` takes the replacement. `start` records the acceptance in
+the ledger, and `release resume` applies it again. The version files a release stamps onto each
+branch separately do not count as divergence.
 
 `cedarcli check main` asks the same question of all forty-five repositories at any time, which is
 where it is cheap to answer. Asked during a release, it is already expensive.
@@ -233,8 +234,9 @@ When CI is genuinely broken for a reason that must not hold up a release, accept
 cedarcli release start ... --accept-red-develop cedar-repo-server=33211136456
 ```
 
-The acceptance names one repository and one run, and it is recorded in the ledger. No flag skips the
-check for everything.
+The acceptance names one repository and one run. `start` records it in the ledger, and
+`release resume` applies it again, so a release that stops before its remotes are written can still
+be resumed. No flag skips the check for everything.
 
 ## Running the Release
 
