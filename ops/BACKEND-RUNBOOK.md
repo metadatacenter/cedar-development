@@ -1509,7 +1509,9 @@ full YAML and compact YAML, including each reader's reconstructed JSON. Java ass
 feature values independently before recording output, and verifies the checked-in fixture against
 its live implementation during ordinary Maven tests. The TypeScript suite adds 1,963 checks to the
 ordinary Jest/coverage gate and verifies a vendored fixture's SHA-256 and Java commit provenance.
-Both suites assert the complete field-type roster so new types require matrix coverage.
+Both suites assert the complete field-type roster so new types require matrix coverage. The fixture
+records each field type's baseline whole and every other case as the keys and lines it changes, and
+Java asserts that each case rebuilds exactly what it wrote.
 
 A second matrix does the same for the values an instance holds. It has 60 cases: twenty value nodes,
 literal, IRI and label-only, each with the qualifying keys a value may carry (datatype, language,
