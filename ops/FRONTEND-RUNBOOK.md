@@ -545,7 +545,10 @@ cedarcli publish components --component ced
 Each component is declared in `cedar-development/ops/frontend-train.json` under `components`. A
 declaration names the repository, the published package, the package it stages, the command that
 builds it, and every consumer whose pin follows it. The design tokens publish from their checkout
-root and declare `"."`; the term picker and the designer stage under `dist-npm/`.
+root and declare `"."`; the term picker and the designer stage under `dist-npm/`. A published
+component is built from its checkout and named after its pushed `develop` head, so the checkout must
+stand at that head. One left on another branch, or whose `develop` is not pushed, is held back with
+the reason in the report.
 
 A component that something else publishes is followed instead: `publish components` never builds
 or publishes it, and only its declared pins move. The model library and CEE are the two. Each one's
