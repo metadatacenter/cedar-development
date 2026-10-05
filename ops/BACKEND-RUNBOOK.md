@@ -3848,9 +3848,11 @@ python3 ops/cedar_artifact_rest_audit.py \
 ```
 
 Resume validates the server, selected types, limit, ruleset and exact script SHA against the refs
-header. It skips completion records, and also treats an artifact ID already present in findings as
-complete to close the small crash window between flushing its findings and recording completion.
-Artifacts with no findings are still resumable because their completion lives in the refs sidecar.
+header. An artifact is finished once its completion record says it was fetched, and resume skips
+only those. One whose fetch failed is fetched again. One the run stopped inside, with its findings
+written and its completion not, has those findings withdrawn and is audited again, so each artifact
+is counted once. A record the stop cut in two, in either file, is dropped. Artifacts with no
+findings are still resumable because their completion lives in the refs sidecar.
 A complete run normally exits zero even when it finds defects; `--fail-on-findings` makes findings
 exit 1, while an incomplete run exits 2.
 
@@ -3975,7 +3977,8 @@ run is looked at. Four files sit together, named from `--out`:
 Ctrl-C and request failures keep what was written. Repeating the original arguments with `--resume`
 reads the refs and the records, treats every fetched artifact as done, retries the ones whose fetch
 failed, and rebuilds the summary from the records, so the counts after a resume are those of one
-uninterrupted run. The refs header pins the server, the types, the limit, the model version and the
+uninterrupted run. Bridge incidents are among them, read from the records they marked. A final record
+the stop cut in two is dropped and its artifact validated again. The refs header pins the server, the types, the limit, the model version and the
 exact script and bridge that started the run; a change to any of them needs a new run. A complete
 run exits zero even when artifacts are invalid, `--fail-on-invalid` makes them exit 1, and an
 incomplete run exits 2.
@@ -4446,7 +4449,9 @@ reporting them. What remains is content the round trip lost, reported with its p
 kind.
 
 The run streams one record per instance, including a `"clean": true` record for an instance with
-nothing to say, which is what `--resume` reads back to know what is done. `--limit` makes a sample
+nothing to say, which is what `--resume` reads back to know what is done. Each record names what it
+counted, so the summary after a resume covers every recorded instance, as one uninterrupted run's
+would. The refs file names the server it enumerated, and a resume against another one is refused. `--limit` makes a sample
 run, `--page-size` and `--fetch-workers` tune the walk, and `--timeout` bounds one read.
 
 ### Would a YAML Write Be Stored?
@@ -4949,6 +4954,9 @@ python3 ops/repairs/cedar_artifact_repair.py --from-records production-validatio
 `--condition` narrows a chain's target set; `--types` selects artifact kinds; `--limit` sizes a trial.
 Give each run its own `--out` and retain its preimages and ETags. Concurrent writes are refused by
 `If-Match`; investigate a `write-failed` result and use `--resume` to re-fetch rather than overwriting.
+A resume skips the artifacts the same chain of repairs already repaired or found clean, and tries
+every other outcome again. An interrupted parallel run records each write still in flight before
+it stops, so no write goes unrecorded, and the summary after a resume describes the whole repair.
 A no-change candidate is `already-clean` only after validation.
 
 Outcomes include `repaired`, `would-repair`, `already-clean`, `still-invalid`, `invariant-failed`,

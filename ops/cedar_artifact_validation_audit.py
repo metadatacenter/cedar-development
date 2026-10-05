@@ -912,6 +912,12 @@ class Aggregate:
         self.fetched_by_type[artifact_type] += 1
         self.validation_by_type[artifact_type][status] += 1
         reason = validation.get("reason")
+        # Counted from the record rather than when it happens, or a resumed run would forget every
+        # incident before the stop and could call an audit with bridge failures complete.
+        if record.get("bridgeIncident"):
+            self.bridge_incidents += 1
+        if status == "error" and str(reason or "").startswith("bridge: "):
+            self.bridge_incidents += 1
         if status == "skipped" and reason:
             self.skip_reasons_by_type[artifact_type][reason] += 1
         if status == "error" and reason:
@@ -1463,7 +1469,6 @@ def validation_result(bridge: ValidationBridge, resolver: TemplateResolver, ref:
                 return result, shape
             answer = bridge.validate(ref.artifact_type, artifact, result["templateId"])
     except BridgeError as error:
-        aggregate.bridge_incidents += 1
         result.update(status="error", reason=f"bridge: {error}")
         return result, shape
     status = answer.get("status")
@@ -1491,8 +1496,11 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridge:
         enumeration = arguments.resume_enumeration
         refs = arguments.resume_refs
         for key, record in arguments.resume_records.items():
-            aggregate.add(record)
+            # Only a fetched artifact is finished. One that failed is fetched again below and
+            # counted then, so counting it here as well reported every retried artifact twice, and
+            # a fetch failure the retry cleared still marked the run PARTIAL_ERRORS.
             if record.get("fetched"):
+                aggregate.add(record)
                 completed.add(key)
         print(f"Resuming from {refs_path}: {len(completed)}/{len(refs)} artifacts already complete", flush=True)
     else:
@@ -1586,7 +1594,8 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridge:
                 try:
                     resolver.remember(ref.artifact_id, artifact)
                 except BridgeError as bridge_error:
-                    aggregate.bridge_incidents += 1
+                    # Recorded on the template's own record, so a resumed run still counts it.
+                    record["bridgeIncident"] = f"caching the template: {bridge_error}"
                     print(f"! bridge failed while caching a template: {bridge_error}", file=sys.stderr)
             if bridge.process is None:
                 bridge_restarts += 1
@@ -1792,6 +1801,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if arguments.resume:
         header, refs = load_refs_manifest(refs_path, arguments, parser)
+        dropped = rest.trim_torn_tail(records_path)
+        if dropped:
+            print(f"Dropped the last {dropped} bytes of {records_path}: a record the stopped run cut short")
         records = load_existing_records(records_path, parser)
         known = {artifact_key(ref) for ref in refs}
         if set(records) - known:

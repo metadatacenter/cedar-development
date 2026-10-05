@@ -50,7 +50,7 @@ import re
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -8737,8 +8737,18 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
     return record
 
 
-def already_done(path: Path, parser: argparse.ArgumentParser) -> set[tuple[str, str]]:
-    done: set[tuple[str, str]] = set()
+def already_done(path: Path, chain: str, parser: argparse.ArgumentParser
+                 ) -> dict[tuple[str, str], dict[str, Any]]:
+    """The record of every artifact an earlier run of this repair finished, by artifact.
+
+    Finished means repaired or found already clean, by the same chain of repairs: an artifact
+    another repair finished in the same file is not finished for this one. Every other outcome is
+    tried again. A record without a ``repair`` field predates the field and is taken at its word.
+    """
+    done: dict[tuple[str, str], dict[str, Any]] = {}
+    dropped = rest.trim_torn_tail(path)
+    if dropped:
+        print(f"Dropped the last {dropped} bytes of {path}: a record the stopped run cut short")
     if not path.exists():
         return done
     try:
@@ -8747,8 +8757,10 @@ def already_done(path: Path, parser: argparse.ArgumentParser) -> set[tuple[str, 
                 if not line.strip():
                     continue
                 record = json.loads(line)
+                if record.get("repair", chain) != chain:
+                    continue
                 if record.get("outcome") in {"repaired", "already-clean"}:
-                    done.add((record["artifactType"], record["artifactId"]))
+                    done[(record["artifactType"], record["artifactId"])] = record
     except (OSError, ValueError) as error:
         parser.error(f"cannot read --out for --resume: {error}")
     return done
@@ -8929,18 +8941,25 @@ def main(argv: Optional[list[str]] = None) -> int:
         before = len(refs)
         refs = [ref for ref in refs if ref.artifact_id not in excluded]
         print(f"Excluded {before - len(refs)} artifact(s) named by {arguments.exclude_ids}")
-    done = already_done(records_path, parser) if arguments.resume else set()
+    chain = ",".join(repair.name for repair in repairs)
+    done = already_done(records_path, chain, parser) if arguments.resume else {}
+    finished = [done[(ref.artifact_type, ref.artifact_id)] for ref in refs
+                if (ref.artifact_type, ref.artifact_id) in done]
     pending = [ref for ref in refs if (ref.artifact_type, ref.artifact_id) not in done]
     if arguments.limit is not None:
         pending = pending[:arguments.limit]
-    by_type = collections.Counter(ref.artifact_type for ref in pending)
+    # The summary describes the whole repair, the artifacts an earlier run finished included, so a
+    # resumed run reports what one uninterrupted run would have.
+    by_type = collections.Counter(record["artifactType"] for record in finished)
+    by_type.update(ref.artifact_type for ref in pending)
 
     for repair in repairs:
         print(f"Repair: {repair.name} ({repair.summary})")
     print(f"Targets named by: {', '.join([c for c in conditions if c] + patterns) or 'nothing'}")
     print(f"Server: {arguments.server}")
-    print(f"Targets: {len(pending)} artifacts ({audit.counts_text(by_type)}) "
-          f"from {arguments.from_records}" + (f", {len(done)} already done" if done else ""))
+    print(f"Targets: {len(pending)} artifacts "
+          f"({audit.counts_text(collections.Counter(ref.artifact_type for ref in pending))}) "
+          f"from {arguments.from_records}" + (f", {len(finished)} already done" if finished else ""))
     print(f"Mode: {'APPLY, writing with PUT ?verbatim=true' if arguments.apply else 'dry run, no writes'}"
           + (f"; {arguments.workers} workers" if arguments.workers > 1 else "; serial"))
     print(f"Records: {records_path}; summary: {summary_path}")
@@ -8991,12 +9010,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     # guard, or its write lands in the middle of another worker's request and each reads the
     # other's answer.
     resolver = GuardedResolver(audit.TemplateResolver(client, guarded_bridge, 200))
-    progress = Progress(total=len(pending))
+    progress = Progress(total=len(finished) + len(pending))
     status = "COMPLETE"
     details: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     bookkeeping = threading.Lock()
     REPORTABLE = {"still-invalid", "invariant-failed", "transform-refused", "fetch-failed",
                   "write-failed"}
+
+    def book(record: dict[str, Any]) -> None:
+        progress.note(record["outcome"], len(record.get("pathsRemoved") or []))
+        if record["outcome"] == "repaired" and record.get("verified") is False:
+            details["unverified"].append({"artifactId": record["artifactId"],
+                                          "artifactType": record["artifactType"],
+                                          "detail": record.get("detail", "")})
+        if record["outcome"] in REPORTABLE:
+            details[record["outcome"]].append(
+                {"artifactId": record["artifactId"], "artifactType": record["artifactType"],
+                 "detail": record.get("detail", "")})
+
+    for record in finished:
+        book(record)
     try:
         with rest.open_private_text_file(records_path, append=arguments.resume) as stream:
 
@@ -9004,15 +9037,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 with bookkeeping:
                     stream.write(json.dumps(record, ensure_ascii=False) + "\n")
                     stream.flush()
-                    progress.note(record["outcome"], len(record.get("pathsRemoved") or []))
-                    if record["outcome"] == "repaired" and record.get("verified") is False:
-                        details["unverified"].append({"artifactId": ref.artifact_id,
-                                                      "artifactType": ref.artifact_type,
-                                                      "detail": record.get("detail", "")})
+                    book(record)
                     if record["outcome"] in REPORTABLE:
-                        details[record["outcome"]].append(
-                            {"artifactId": ref.artifact_id, "artifactType": ref.artifact_type,
-                             "detail": record.get("detail", "")})
                         print(f"! {record['outcome']} {ref.artifact_type} {ref.artifact_id}: "
                               f"{record.get('detail', '')[:200]}", file=sys.stderr)
                     if progress.due(arguments.progress_every, arguments.progress_seconds):
@@ -9028,12 +9054,26 @@ def main(argv: Optional[list[str]] = None) -> int:
                 with ThreadPoolExecutor(max_workers=arguments.workers) as pool:
                     futures = {pool.submit(repair_one, arguments, repairs, client, guarded_bridge,
                                            resolver, ref): ref for ref in pending}
+                    recorded: set[Future] = set()
                     try:
                         for future in as_completed(futures):
                             record_outcome(futures[future], future.result())
+                            recorded.add(future)
                     except BaseException:
                         for pending_future in futures:
                             pending_future.cancel()
+                        # A worker already inside an artifact finishes it, and may have written it.
+                        # Only its record says so, and only the record names the pre-image it saved,
+                        # so each one that finishes is recorded before the interruption goes on.
+                        # Unrecorded, a resumed run found the written artifact clean and reported it
+                        # as never needing the repair it had just been given.
+                        for running in futures:
+                            if running in recorded or running.cancelled():
+                                continue
+                            try:
+                                record_outcome(futures[running], running.result())
+                            except BaseException:  # noqa: BLE001 - the interruption is re-raised below
+                                continue
                         raise
     except KeyboardInterrupt:
         status = "INTERRUPTED"
@@ -9056,7 +9096,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "server": arguments.server,
         "finishedAt": audit.utc_now(),
         "elapsedSeconds": round(time.monotonic() - progress.started, 3),
-        "targets": len(pending),
+        "targets": len(finished) + len(pending),
         "targetsByType": dict(sorted(by_type.items())),
         "outcomes": {name: progress.outcomes[name] for name in OUTCOMES if progress.outcomes[name]},
         "pathsCleared": progress.paths_removed,

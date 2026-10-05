@@ -1580,6 +1580,36 @@ def open_private_text_file(path: Path, append: bool = False):
     return os.fdopen(descriptor, "a" if append else "w", encoding="utf-8")
 
 
+def rewrite_private_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
+    """Replace a streamed report with these records, owner-only, in one step."""
+    temporary = path.with_name(path.name + ".rewrite")
+    with open_private_text_file(temporary) as stream:
+        for record in records:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+    os.replace(temporary, path)
+
+
+def trim_torn_tail(path: Path) -> int:
+    """Cut a final line that a stopped run left half-written, and say how many bytes went.
+
+    A run killed while writing a record leaves that record without its newline. Resume appends,
+    so the next record would be glued onto the fragment and both would be lost, and a reader that
+    refuses the fragment refuses to resume at all. Only an unterminated final line is cut: a
+    complete line that does not parse is damage of another kind, and the reader still refuses it.
+    """
+    try:
+        with path.open("rb") as stream:
+            data = stream.read()
+    except FileNotFoundError:
+        return 0
+    if not data or data.endswith(b"\n"):
+        return 0
+    keep = data.rfind(b"\n") + 1
+    with path.open("r+b") as stream:
+        stream.truncate(keep)
+    return len(data) - keep
+
+
 def artifact_key(ref: ArtifactRef) -> tuple[str, str]:
     return ref.artifact_type, ref.artifact_id
 
@@ -1695,6 +1725,7 @@ def restore_resume_state(arguments: argparse.Namespace, manifest: dict[str, Any]
     state = AuditState(limit=arguments.limit, started_at=str(manifest["startedAt"]))
     state.expected_by_type.update(manifest.get("expectedByType", {}))
     state.enumerated_by_type.update(manifest.get("enumeratedByType", {}))
+    state.pagination_by_type.update(manifest.get("paginationByType", {}))
     state.listing_errors = int(manifest.get("listingErrors", 0))
     state.duplicates = int(manifest.get("duplicateSearchRowsSkipped", 0))
     state.total_count_changes.extend(manifest.get("searchTotalCountChanges", []))
@@ -2036,19 +2067,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     refs_path.parent.mkdir(parents=True, exist_ok=True)
 
     if arguments.resume:
+        for path in (refs_path, findings_path):
+            dropped = trim_torn_tail(path)
+            if dropped:
+                print(f"Dropped the last {dropped} bytes of {path}: a record the stopped run cut short")
         manifest, artifact_refs, completed = load_refs_manifest(refs_path, arguments, parser)
         existing_findings = load_existing_findings(findings_path, parser)
-        findings_by_key: dict[tuple[str, str], list[Finding]] = collections.defaultdict(list)
-        for item in existing_findings:
-            findings_by_key[(item.artifact_type, item.artifact_id)].append(item)
         known_refs = {artifact_key(ref) for ref in artifact_refs}
-        if set(findings_by_key) - known_refs:
+        if {(item.artifact_type, item.artifact_id) for item in existing_findings} - known_refs:
             parser.error("findings file contains artifact IDs absent from the resume refs file")
-        for key, items in findings_by_key.items():
-            completed.setdefault(key, not any(item.rule == "artifact-fetch-failed" for item in items))
+        # An artifact is finished once its completion is recorded, and only if it was fetched. One
+        # whose fetch failed is fetched again, and one the run stopped inside is audited again, so
+        # the findings either wrote are withdrawn rather than counted twice or counted half.
+        finished = {key for key, fetched in completed.items() if fetched}
+        kept = [item for item in existing_findings if (item.artifact_type, item.artifact_id) in finished]
+        if len(kept) != len(existing_findings):
+            rewrite_private_jsonl(findings_path, [item.json_record() for item in kept])
         arguments.artifact_refs = artifact_refs
-        arguments.completed = completed
-        arguments.resume_state = restore_resume_state(arguments, manifest, existing_findings, completed)
+        arguments.completed = {key: True for key in finished}
+        arguments.resume_state = restore_resume_state(arguments, manifest, kept, arguments.completed)
 
     try:
         client = GetOnlyClient(

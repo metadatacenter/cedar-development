@@ -329,6 +329,10 @@ class Aggregate:
         for lane in LANES:
             lane_outcome = outcome.get(lane, "skipped")
             self.outcomes[lane][lane_outcome] += 1
+            # Each lane that ended in a bridge error is one incident. Counting them from the record
+            # rather than as they happen is what lets a resumed run remember the ones before it.
+            if lane_outcome == "bridge-error":
+                self.bridge_incidents += 1
             self.outcomes_by_type[lane][kind][lane_outcome] += 1
             lane_record = record.get(lane) or {}
             convert = lane_record.get("convert") or {}
@@ -471,7 +475,7 @@ def summary_document(aggregate: Aggregate, enumeration: rest.AuditState, status:
         "failedArtifactIds": aggregate.failed_ids(),
         "fetchErrors": aggregate.fetch_errors,
         "notServedAsYaml": aggregate.not_yaml,
-        "bridgeIncidents": aggregate.bridge_incidents + bridges.incidents,
+        "bridgeIncidents": aggregate.bridge_incidents,
         "listingErrors": enumeration.listing_errors,
         "duplicateSearchRowsSkipped": enumeration.duplicates,
         "searchTotalCountChanges": enumeration.total_count_changes,
@@ -783,7 +787,7 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridges
             emit(record)
 
         if aggregate.fetch_errors or aggregate.not_yaml or enumeration.listing_errors \
-                or bridges.incidents:
+                or aggregate.bridge_incidents:
             status = "PARTIAL_ERRORS"
         elif enumeration.total_count_changes or enumeration.duplicates:
             status = "PARTIAL_CONCURRENT_CHANGES"
@@ -1037,6 +1041,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if arguments.resume:
         header, refs = load_refs_manifest(refs_path, arguments, parser)
+        dropped = rest.trim_torn_tail(records_path)
+        if dropped:
+            print(f"Dropped the last {dropped} bytes of {records_path}: a record the stopped run cut short")
         records = load_existing_records(records_path, parser)
         known = {audit.artifact_key(ref) for ref in refs}
         if set(records) - known:
