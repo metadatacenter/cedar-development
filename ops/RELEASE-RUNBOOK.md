@@ -356,8 +356,8 @@ about two and a half minutes, most of it the exact-commit CI probe and the remot
 ## Watching and Finishing
 
 `start` and `resume` automatically summarize measured stage timings on completion.
-`cedarcli release timings` reads them later; `--compare <VER>` selects a prior local
-release ledger (otherwise the newest other ledger with timing evidence is used).
+`cedarcli release timings` reads them later; `--compare <VER>` selects a prior release
+(otherwise the newest other release with timing evidence is used).
 Each attempt retains its result and wall time. CI polling sleeps and transient retry
 backoff are measured separately from execution, which includes build work, network
 requests and CI probes. Failed attempts remain in the totals. A process killed before
@@ -437,9 +437,10 @@ without releasing it; every other status remains incomplete.
 Local release state has a one-release retention policy. The current release keeps its ledger,
 numbered attempt, caches, and logs so `status` and `resume` remain complete. When a new release takes
 the current slot, the state layer immediately deletes every older ledger and attempt tree—including
-dependency caches and large logs—before the new attempt is prepared. There is no cleanup command
-and no archive tier: Git refs and published artifacts are the durable record after a release stops
-being current.
+dependency caches and large logs—before the new attempt is prepared. It first copies each deleted
+ledger's stage timings into `timings/<version>.json`, a few records that `release timings` compares
+against. There is no cleanup command and no archive tier: Git refs and published artifacts are the
+durable record after a release stops being current.
 
 ## If a Phase Fails
 
