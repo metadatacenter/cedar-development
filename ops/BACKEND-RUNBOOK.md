@@ -1325,7 +1325,12 @@ YAML is a first-class CEDAR representation, not a side format you convert to. Bo
 server and the artifact server negotiate it on the wire, so reading and writing artifacts as YAML
 needs no conversion step: ask for it with `Accept`, send it with `Content-Type`. Two media types
 are recognized, `application/yaml` (RFC 9512) and `application/x-yaml`. JSON stays the default when
-`Accept` is absent or a wildcard, and an `Accept` naming neither yields `406`.
+`Accept` is absent or a wildcard, and an `Accept` naming neither yields `406`. A download negotiates
+exactly as a `GET` does.
+
+An artifact the artifact library cannot read has no YAML form, although its stored JSON is still
+served. A YAML read of one answers with that JSON when `Accept` also admits JSON, and with a `406`
+saying why when it does not.
 
 All four artifact types accept it — `/templates`, `/template-elements`, `/template-fields`,
 `/template-instances` — on `GET`, `POST`, and `PUT`, plus `/{id}/download` on the resource server.
@@ -1357,6 +1362,7 @@ Two things to know before relying on it:
   `id` to author minimally. Semantic IDs used as controlled-term or link values are data and remain.
 - **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
   representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
+  An `Accept` of `application/n-quads` asks for the representation `rdf-nquad` names.
 
 Storage stays JSON on both servers: YAML is a request and response representation, transcoded per
 request, never a stored form.
