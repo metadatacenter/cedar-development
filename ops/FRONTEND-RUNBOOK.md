@@ -732,9 +732,12 @@ the field element from another — they describe values in the same model classe
 
 A field artifact is not a template, so the element wraps it in a synthetic one-field
 template before CEE builds anything from it (`util/single-field-template.ts`). The
-wrapping deliberately states no requiredness and no cardinality: both belong to a
-field's deployment, so the value the element acquires is single and is allowed to be
-absent, which is what a default value has to be. The wrapper template carries the
+wrapping states no cardinality, so the value the element acquires is single. It adds no
+requiredness either, but it keeps any the artifact states, because the model holds
+`requiredValue` on the field itself. CED writes a field on its own with
+`requiredValue: false`, so a default value may be empty, as a default must be. A host
+that passes a required field quiets the report of an empty value with
+`suppressEmptyFieldErrors`. The wrapper template carries the
 URN `urn:cedar:cee:single-field-template` as its `@id` — a template with none is
 reported, and no repository holds this one.
 
