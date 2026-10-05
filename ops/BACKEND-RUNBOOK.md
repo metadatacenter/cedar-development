@@ -5236,8 +5236,8 @@ This check intentionally stops at the authentication boundary; it does not enter
 mutate data.
 
 The route-only cutover and rollback can be rehearsed locally before that authorization. Start the
-monolith and the two extracted applications on ports 4200-4202 (native Gulp servers or the local
-preview images), then run:
+monolith and the two extracted applications on ports 4200-4202 (native development servers or the
+local preview images), then run:
 
 ```bash
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-frontend
@@ -5277,7 +5277,7 @@ The installer verifies each SAN, expiry, and CA signature before copying the lea
 nginx includes into `/opt/homebrew/etc/nginx/cedar`. It validates the nginx configuration and then
 reloads nginx when direct non-interactive sudo is available, otherwise it uses the CEDAR-scoped
 stop/start helpers. It adds only the two hostname virtual hosts; the monolith virtual host remains
-untouched. Local development can run native Gulp servers with
+untouched. Local development can run the two native development servers with
 `cedarcli native start frontend split-frontends`. The all-Docker variant uses the normal seven-frontend
 stack. Stop native listeners first because both modes publish the same ports:
 
@@ -5310,10 +5310,10 @@ backend containers nor stored CEDAR data.
 
 ### Native Staging Payloads (No Docker)
 
-Staging follows the existing monolith deployment model. Publish the npm artifacts on the release
-host with the explicit command above, but deploy from approved Git commits on the staging host. The
-staging profile must set `CEDAR_FRONTEND_BEHAVIOR=server`, the normal CEDAR host/REST variables, and
-the two exact HTTPS origins:
+Staging follows the existing monolith deployment model. Build trains and releases publish the npm
+packages, but the staging host deploys from approved Git commits. The staging profile must set
+`CEDAR_FRONTEND_BEHAVIOR=server`, the normal CEDAR host/REST variables, and the two exact HTTPS
+origins:
 
 ```bash
 export CEDAR_WORKSPACE_FRONTEND_URL=https://<workspace-staging-host>
@@ -5324,15 +5324,23 @@ cedarcli git pull                   # or check out the exact approved commits/ta
 cedarcli build split-frontends --server-payload
 ```
 
-The last command refuses a dirty source checkout, runs `npm ci` and Gulp for both repositories, and
-writes a no-store `app/config/build-info.json` containing the package version, full source commit,
-version modifier, and SHA-256 of the exact generated tree. Gulp exits in `server` mode. Native nginx
-serves `$CEDAR_HOME/cedar-workspace/app` and `$CEDAR_HOME/cedar-template-designer/app` directly, so
-there is no frontend container and no long-running Gulp service on staging. Install and validate the
-two static-root virtual hosts, certificates, Keycloak entries, and backend CORS list separately;
-then run the deployment and authenticated smokes before any route switch.
+The last command refuses a dirty source checkout and runs `npm ci` in both repositories. It then
+runs Workspace's Angular build and Template Designer's staging script, each of which writes its
+`app` tree and exits in `server` mode. Finally it writes a no-store `app/config/build-info.json`
+containing the package version, full source commit, version modifier, and SHA-256 of the exact
+generated tree. Native nginx serves `$CEDAR_HOME/cedar-workspace/app` and
+`$CEDAR_HOME/cedar-template-designer/app` directly, so there is no frontend container and no
+long-running development server on staging. Install and validate the two static-root virtual hosts,
+certificates, Keycloak entries, and backend CORS list separately; then run the deployment and
+authenticated smokes before any route switch.
 
-`cedarcli build split-frontends` without `--server-payload` only installs the locked dependencies.
+On a host that also serves the monolith, `cedarcli build server-frontends --server-payload` builds
+all three trees with the same checks. The monolith's build runs `npm ci` and Gulp, refreshes the
+modification time of `app/config/version.js` so that a browser holding the old file fetches the new
+one, and writes its own `build-info.json`.
+
+Without `--server-payload`, `cedarcli build split-frontends` builds Workspace and installs Template
+Designer's locked dependencies in an isolated checkout, leaving both working trees as they are.
 `cedarcli native start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
 4202, not for a staging static payload.
 
