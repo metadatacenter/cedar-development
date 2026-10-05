@@ -1555,6 +1555,13 @@ JSON-LD names beginning `@`, CEDAR instance metadata keys and `__proto__`, `cons
 TypeScript dictionaries also have null prototypes so an exposed-map write cannot silently lose
 `__proto__`. Writers reject forbidden entries introduced through those exposed maps.
 
+The meta-schema cannot express this rule, so `cedar-model-validation-library` accepts a template
+whose child is keyed `@foo` or `__proto__`, or whose attribute-value group is keyed `name`. The
+artifact server therefore also reads every template, element and field it is asked to store with
+the artifact library's reader, and refuses one the reader refuses, with the reader's message in the
+validation report. Every editor and viewer opens an artifact through that reader or its TypeScript
+twin, so the server stores no schema artifact they cannot open. Instances are not read on write.
+
 Ordinary fields may use YAML scalar spellings (`true`, `null`, `yes`, numeric or date-like names)
 and YAML structural keys (`type`, `name`, `children`): writers quote where needed and preserve
 those names beneath `children`. Attribute-value group keys occupy the surrounding YAML mapping,
