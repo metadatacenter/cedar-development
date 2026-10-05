@@ -2988,7 +2988,11 @@ and release preflights require. Before anything runs it reads the controller's s
 while any managed service is unhealthy, stale, or served by a process the controller does not
 manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
 `npm run smoke` and `npm run smoke:workspace:modern:full`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
-heads, beside a `latest.json` copy. `cedarcli publish train` and `cedarcli release plan` look up the
+heads, beside a `latest.json` copy. The record names what the stack ran, so a checkout with another
+commit than its `develop` head checked out stops the run before it records anything. A modified or
+untracked file marks its repository dirty, since the build compiled it, and the gates refuse a dirty
+repository. A train repository not checked out here is named, and the gates refuse a train or a
+release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
 `rest-smoke-<digest>.json`.
