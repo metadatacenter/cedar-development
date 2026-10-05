@@ -729,9 +729,10 @@ def resolve_toolchain(arguments: argparse.Namespace, parser: argparse.ArgumentPa
             print("Resolving the validation library classpath (builds it on first use) ...", flush=True)
             validation = run_validate_sh("classpath", 900)
             # The artifact library goes on the classpath too, so the bridge also reports whether its
-            # reader reads each schema artifact: what the artifact server refuses on write.
-            artifact_library = Path(arguments.artifact_library).expanduser() if arguments.artifact_library \
-                else cedar_home() / "cedar-artifact-library"
+            # reader reads each schema artifact: what the artifact server refuses on write. The other
+            # tools that share this resolver have no --artifact-library and take the default checkout.
+            override = getattr(arguments, "artifact_library", None)
+            artifact_library = Path(override).expanduser() if override else cedar_home() / "cedar-artifact-library"
             if not artifact_library.is_dir():
                 parser.error(f"cedar-artifact-library not found at {artifact_library} "
                              "(set CEDAR_HOME or pass --artifact-library)")
