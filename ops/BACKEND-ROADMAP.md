@@ -13,38 +13,27 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Features
 
-- **1. Add artifact-library checks to the write path.** Direct JSON writes currently validate
-  through `cedar-model-validation-library`; they do not also prove that the Java artifact model
-  can read and render the submitted document. YAML conversion exercises the artifact library,
-  but that does not establish the same contract for a JSON submission. Add this check alongside
-  schema validation so a successful save does not leave an artifact that model readers or exports
-  subsequently reject. Instance validation must still use the actual template: model readability
-  alone does not establish that field values satisfy its declarations.
+- **1. Complete instance-reader and rendering checks on artifact writes.** Add the Java
+  artifact-library instance reader alongside validation against the instance's actual template,
+  and verify that templates, elements, fields and instances can be rendered as JSON and YAML
+  before storing them. Model readability must not replace template-dependent instance validation.
 
-  Refresh the disagreement inventory against the current libraries before choosing enforcement.
-  Historical examples included missing temporal granularity, malformed version strings and
-  constraints inappropriate for a field's input type; subsequent validator and reader fixes mean
-  they must not be assumed to remain gaps. Both schemas and instances have now been audited through
-  the Java/TypeScript pipelines. Use that evidence and the remaining production-data findings,
-  recheck the current submitted candidates, and distinguish source defects from conversion defects.
+  Check the exact candidate that would be stored after ordinary completion and metadata handling;
+  for a verbatim write, check the supplied body unchanged. Run model checks on a copy and discard
+  the rendered output: verification must not replace the submitted document with a canonical
+  rendering. A repair must remain possible when its candidate passes even if the old stored body
+  cannot be read or rendered. Reject reader or renderer failures with actionable diagnostics,
+  retaining field paths where available.
 
-  Measure the additional write-path cost for representative schemas and instances, including large
-  and nested artifacts. Earlier warm schema measurements put model read/render below schema
-  validation cost, but they do not establish the current combined write-path cost or the instance
-  overhead. Return actionable model-reader diagnostics with their field paths rather than burying
-  the useful explanation among JSON Schema branch failures.
+  Refresh the existing instance and conversion audit findings against the current libraries to
+  identify writes these additional checks would refuse, distinguish source defects from converter
+  defects, and plan any required repairs before rollout. Measure the incremental reader and
+  renderer cost on representative artifacts, including large and nested instances.
 
-  Decide whether findings initially warn or reject a write, and define how strict-reader errors
-  and compatibility warnings differ. Evaluate the exact candidate that would be stored after the
-  ordinary write path's completion and metadata handling; for a verbatim write, evaluate the supplied
-  body unchanged. A repair whose resulting candidate passes both checks must remain possible even
-  when its previous stored body fails. Inventory otherwise legitimate edits that the extra check
-  would refuse and define a rollout or explicit exception policy for those cases.
-
-  This check does not authorize canonical rewriting: reading and rendering for verification must
-  not silently replace the submitted body with the model's output. Cover JSON and YAML creates,
-  ordinary updates, validated verbatim repairs, template-dependent instance failures and diagnostic
-  responses, then verify the deployed paths through whole-stack smoke.
+  Cover JSON and YAML creates, ordinary updates, verbatim repairs, template-dependent instance
+  failures and reader/renderer diagnostics, then verify the deployed paths through whole-stack
+  smoke. Done when every accepted write passes the applicable schema validation and the artifact
+  library's read-and-render checks without the checks changing its stored content.
 
 - **2. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
