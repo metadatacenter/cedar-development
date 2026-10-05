@@ -262,7 +262,11 @@ requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code.
+its health says nothing about your latest code. `MISSING` means a process answers while no jar for
+the configured `CEDAR_VERSION` exists, which is what a version change leaves running until the new
+version is built. Both are warned about under the table, and `cedarcli test e2e` refuses to record a
+run while either exists, or while a container rather than the controller serves a service, since
+nothing then says which commit it runs.
 
 `current` therefore means the process is not older than its jar, which is narrower than it reads. A
 jar can itself have been built before its repository's `develop` head, and every row says `current`
@@ -2147,7 +2151,9 @@ Native restart accepts the same application groups as start and stop: `microserv
 `microservices`, `frontend <name>`, `frontends`, and `frontend split-frontends`. `restart all`
 restarts every managed application while infrastructure stays running. The old no-argument
 `restart` and flat service lists (`restart repo ui-openview`) remain compatibility aliases.
-Hybrid mode permits only frontend targets. A failed stop prevents the corresponding start step.
+Hybrid mode permits only frontend targets. A service that will not stop, such as one whose port
+another process holds, is reported and refused again by the start that follows; every other service
+is still started, and the command exits non-zero.
 
 ## Building CEDAR
 

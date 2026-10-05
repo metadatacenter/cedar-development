@@ -170,6 +170,30 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
             self.assertEqual("STALE", result.stdout.strip(), result.stderr)
 
+    def test_a_running_service_with_no_jar_for_its_version_is_missing(self):
+        """A version change leaves the old process up and no jar for the new version beside it."""
+        with tempfile.TemporaryDirectory() as directory:
+            absent = Path(directory) / "cedar-group-server-application-2.9.3-SNAPSHOT.jar"
+            running = self.run_library(f'jar_of() {{ echo "{absent}"; }}; binary_of group $$')
+            stopped = self.run_library(f'jar_of() {{ echo "{absent}"; }}; binary_of group ""')
+
+            self.assertEqual("MISSING", running.stdout.strip(), running.stderr)
+            self.assertEqual("-", stopped.stdout.strip(), stopped.stderr)
+
+    def test_restart_starts_every_service_after_a_stop_that_failed(self):
+        """One foreign listener made stop fail, and restart then left the whole stack down."""
+        with tempfile.TemporaryDirectory() as directory:
+            calls = Path(directory) / "calls"
+            stub = Path(directory) / "controller"
+            stub.write_text('#!/bin/bash\necho "$*" >> "' + str(calls) + '"\n'
+                            '[ "$1" = stop ] && exit 1\nexit 0\n')
+            stub.chmod(0o755)
+            result = self.run_library(f'SCRIPT_PATH="{stub}"; restart_services group user')
+
+            self.assertEqual(1, result.returncode, result.stderr)
+            self.assertEqual(["stop group user", "start group user"],
+                             calls.read_text().splitlines())
+
     @staticmethod
     def _cee_frontend(root, repository, wanted, installed, served=None):
         """A frontend checkout whose lock names one Editor and whose node_modules holds another."""
