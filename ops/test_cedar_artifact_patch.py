@@ -61,8 +61,9 @@ class InherentlyMultipleShapeTest(unittest.TestCase):
 
         direct = template["properties"]["direct"]
         nested = template["properties"]["element"]["items"]["properties"]["nested"]
+        # A required child takes the same bound as an optional one: requiredValue does not set it.
         self.assertEqual(("array", 0), (direct["type"], direct["minItems"]))
-        self.assertEqual(("array", 1), (nested["type"], nested["minItems"]))
+        self.assertEqual(("array", 0), (nested["type"], nested["minItems"]))
         self.assertEqual("stable-identifier", direct["items"]["schema:identifier"])
         self.assertEqual("preserve me", direct["items"]["_annotations"]["note"]["@value"])
         self.assertEqual([], self.findings(template))

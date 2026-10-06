@@ -129,7 +129,7 @@ class ArtifactPatchRepairRoundTripTest(unittest.TestCase):
             "properties": {
                 "choice": {
                     "type": "array",
-                    "minItems": 1,
+                    "minItems": 0,
                     "items": copy.deepcopy(field),
                 },
             },

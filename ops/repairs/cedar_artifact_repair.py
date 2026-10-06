@@ -632,11 +632,10 @@ def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
                 result["properties"][name] = repaired
                 continue
             stored = result["properties"][name]
-            constraints = repaired.get("_valueConstraints")
-            required = isinstance(constraints, dict) and constraints.get("requiredValue") is True
             minimum = stored.get("minItems")
             if not isinstance(minimum, int) or isinstance(minimum, bool):
-                minimum = 1 if required else 0
+                # The bound both model libraries read for a child that is multiple by nature.
+                minimum = 0
             maximum = stored.get("maxItems")
             bounded = maximum if isinstance(maximum, int) and not isinstance(maximum, bool) \
                 and maximum > 0 else None
