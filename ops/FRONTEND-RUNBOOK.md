@@ -2255,22 +2255,36 @@ update passes synchronously through `ValidationCoordinator`, which owns pending
 settings edits, syntax errors, asynchronous checks, error visibility and the public
 validation report. It validates edits against their own node, retries related drafts
 together, and drops drafts whose node or setting no longer exists. Controls retain
-input buffers and read shared verdicts instead of caching model errors; rejected
-default buffers survive control recreation in the coordinator. Asynchronous
-checks carry coordinator tickets tied to the current node; stale replies cannot
-change a replacement document or clear a newer check. Pending-only edits count as dirty.
+input buffers and read shared verdicts instead of caching model errors. Rejected
+default buffers and malformed settings groups survive control recreation in the
+coordinator. Native number controls hide malformed text from JavaScript, so the
+coordinator retains the invalid control's identity and the rest of its settings group;
+an unrelated edit or remount cannot silently accept the resulting empty value.
+Asynchronous checks and recovery actions belong to the current node, editing intent
+and editability revision. A newer rejected edit also invalidates an old recovery.
+Cancellation aborts the lookup, and terminology requests have a 30-second deadline.
+Pending-only edits count as dirty; read-only sessions cannot save.
 `TemplateService` coordinates commands and UI navigation;
 `core/model/document-validation.ts` validates a document snapshot and pending
-settings drafts without Angular state. Field settings are probed independently so
+settings drafts without Angular state. Reconciliation compares structured validation
+rules, independent of translated wording. `TerminologyEditCommands` owns membership,
+recovery and atomic default/constraint changes; views display their outcomes.
+Field settings are probed independently so
 one imported defect cannot hide another; container annotations use the same rules
 as field annotations. The JSON authoring reader retains numeric and temporal
 defaults that the model's strict reader would otherwise reject before editing.
 The default/constraint matrices cover template and element roots, single and
 repeated children, depths 0/1/3/6, relocation, repair order and serialization.
+Ownership/lifecycle matrices cover host mutation, editability changes, late success,
+denial and failure after cancellation or replacement, and control recreation.
+Public artifact snapshots are isolated from the live document and other event channels.
 Cards, the outline, the library sidebar and
 the save gate use the same report. An unserializable document clears the preview
 until repaired.
-`core/model/cedar-template.ts` remains the only model-library adapter. Presentation
+`core/model/cedar-template.ts` is the public facade of the model adapter. Its
+implementation under `core/model/cedar-model/` separates capabilities, metadata,
+terminology, reading and field/container writing. Import checks enforce the boundary
+and reject cycles, including cycles through local dependencies. Presentation
 colors come from CSS tokens, never from the document service.
 
 The shared package README describes design ownership and host styling. CED's
@@ -2314,8 +2328,9 @@ distribution someone handed you is legitimate — only a bundle a build contradi
 The two source properties are the ones a compiler cannot state: `ced-public-api.ts`
 must stay import-free, or the declaration the package ships names paths that are
 not in it, and the CEDAR model library must be reached through
-`core/model/cedar-template.ts` alone, which is what keeps its vocabulary out of the
-components. Neither breaks a build when it goes.
+the `core/model/cedar-model/` adapter module, exposed through
+`core/model/cedar-template.ts`, which keeps its vocabulary out of the components.
+The adapter's local dependency graph must also remain acyclic.
 
 `check:readme` compiles the README's TypeScript examples against the staged
 declaration, and checks that every `npm run` a reader is told to type is a script
