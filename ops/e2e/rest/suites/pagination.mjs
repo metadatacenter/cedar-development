@@ -3,10 +3,13 @@
 // row per page, invisible until someone notices a record that will not show up anywhere.
 //
 // Two listings are covered directly: a folder's contents, which nothing else touches, and search,
-// which the search suite reaches for propagation but not for the shape of a page. The invalid-argument
-// behaviour is crossed over both, because they share the validator that is supposed to reject a bad
-// limit and today does not.
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+// which the search suite reaches for propagation but not for the shape of a page. Every other listing
+// that pages, on every service, is held to the same refusal of a bad limit or offset, and those that
+// also page by number to the rule that a request pages one way or the other.
+import {
+  suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
+  TERMINOLOGY,
+} from '../lib.mjs';
 
 export const name = 'pagination';
 
@@ -210,6 +213,77 @@ export async function run({ user1, admin, folderId }) {
     check(nonNumeric.status >= 400 && nonNumeric.status < 500,
         `${endpoint.name} with a non-numeric limit is a client error, not a server fault`,
         `expected 4xx, got ${nonNumeric.status}`);
+  }
+
+  suite('pagination: every other listing refuses an invalid limit or offset with 400');
+
+  // The listings above are the ones whose rows this suite can count. Every other service that pages
+  // by limit and offset reads the arguments through the same validator, or one of its own, and each
+  // used to be checked by nothing. The administrator's listings are the monitor's, which only an
+  // administrator may read; a run without the key fails rather than leaving them unread.
+  const listings = [
+    { name: 'search-deep', path: `/search-deep?q=${enc(PAGE_TAG)}` },
+    { name: "the artifact server's templates", base: ARTIFACT_SERVER, path: '/templates' },
+    { name: "the artifact server's elements", base: ARTIFACT_SERVER, path: '/template-elements' },
+    { name: "the artifact server's fields", base: ARTIFACT_SERVER, path: '/template-fields' },
+    { name: "the artifact server's instances", base: ARTIFACT_SERVER, path: '/template-instances' },
+    { name: 'messages', base: MESSAGING, path: '/messages' },
+    { name: 'terminology search', base: TERMINOLOGY, path: '/bioportal/search?q=disease' },
+    { name: "an ontology's classes", base: TERMINOLOGY, path: '/bioportal/ontologies/DOID/classes' },
+    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
+  ];
+  if (check(!!admin, 'the administrator key is configured, so the monitor listings can be paged',
+      'CEDAR_ADMIN_USER_API_KEY is unset; the admin-only monitor listings cannot run')) {
+    for (const path of ['/logs/explorer/requests', '/logs/explorer/cypher', '/logs/explorer/outliers/requests',
+      '/logs/explorer/outliers/cypher', '/logs/usage/endpoints', '/logs/usage/cypher', '/logs/usage/users']) {
+      listings.push({ name: `the monitor's ${path}`, base: MONITOR, path, auth: admin.auth });
+    }
+  }
+  for (const listing of listings) {
+    const sep = listing.path.includes('?') ? '&' : '?';
+    const get = qs => call(listing.auth ?? auth, 'GET', `${listing.path}${sep}${qs}`, undefined, { base: listing.base });
+    const valid = await get('limit=2&offset=0');
+    if (!checkStatus(valid, 200, `${listing.name} answers a valid page`)) continue;
+    for (const bad of badArgs) {
+      const res = await get(bad.qs);
+      check(res.status === 400, `${listing.name} with ${bad.what} is refused with 400`,
+          `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
+    }
+    const nonNumeric = await get('limit=abc');
+    check(nonNumeric.status >= 400 && nonNumeric.status < 500,
+        `${listing.name} with a non-numeric limit is a client error, not a server fault`,
+        `expected 4xx, got ${nonNumeric.status}`);
+  }
+
+  suite('pagination: a listing that pages by number as well refuses both at once');
+
+  // Terminology and the external authorities still take a page number and a page size, for clients
+  // that predate limit and offset. A request may page one way or the other. A link a page answers
+  // with pages by offset, so a client paging by number can follow it; the authority search's links
+  // used to carry the page number too, and every one of them was refused.
+  const byNumber = [
+    { name: 'terminology search', base: TERMINOLOGY, path: '/bioportal/search?q=disease' },
+    { name: "an ontology's classes", base: TERMINOLOGY, path: '/bioportal/ontologies/DOID/classes' },
+    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
+  ];
+  for (const listing of byNumber) {
+    const sep = listing.path.includes('?') ? '&' : '?';
+    const both = await call(auth, 'GET', `${listing.path}${sep}page=1&pageSize=2&offset=2`, undefined,
+        { base: listing.base });
+    check(both.status === 400, `${listing.name} refuses a page number sent with an offset`,
+        `expected 400, got ${both.status}: ${(both.text ?? '').slice(0, 120)}`);
+    const numbered = await call(auth, 'GET', `${listing.path}${sep}page=1&pageSize=2`, undefined,
+        { base: listing.base });
+    if (!checkStatus(numbered, 200, `${listing.name} answers a page asked for by number`)) continue;
+    const links = Object.entries(numbered.body?.paging ?? {}).filter(([, link]) => typeof link === 'string');
+    check(links.length > 0, `${listing.name} answers a page by number with paging links`,
+        `paging was ${JSON.stringify(numbered.body?.paging ?? null).slice(0, 160)}`);
+    for (const [rel, link] of links) {
+      const followed = await call(auth, 'GET', link.replace(/^https?:[/][/][^/]+/, ''), undefined,
+          { base: listing.base });
+      check(followed.status === 200, `${listing.name}'s ${rel} link from a page by number can be followed`,
+          `${link} answered ${followed.status}: ${(followed.text ?? '').slice(0, 120)}`);
+    }
   }
 
   suite('pagination: a window the search index cannot serve is refused with 400');

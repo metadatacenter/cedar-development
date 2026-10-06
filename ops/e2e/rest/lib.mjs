@@ -16,6 +16,9 @@ export const HOST = env.CEDAR_HOST ?? 'metadatacenter.orgx';
 export const RESOURCE = env.CEDAR_RESOURCE_BASE ?? `https://resource.${HOST}`;
 export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
 export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
+export const MESSAGING = env.CEDAR_MESSAGING_BASE ?? `https://messaging.${HOST}`;
+export const MONITOR = env.CEDAR_MONITOR_BASE ?? `https://monitor.${HOST}`;
+export const BRIDGE = env.CEDAR_BRIDGE_BASE ?? `https://bridge.${HOST}`;
 // The artifact server, addressed directly on its port rather than through `artifact.${HOST}`. The
 // resource server proxies every artifact write and read to it, so the contract suite compares the two
 // sides of that hop — but the vhost is closed. Artifact requires internal service authentication
