@@ -3546,11 +3546,19 @@ asserts what each role may do to each artifact at each permission level.
 
 Artifact and user discover business resources from Jersey registration under their respective
 `org.metadatacenter.cedar.artifact.resources` and `org.metadatacenter.cedar.user.resources` packages.
-New registered classes and endpoint methods in those packages join the authentication probes
-automatically. The inventories require the existing resource classes to remain registered, reject
-empty surfaces and duplicate method/path identities, and have no public business-route exceptions.
-Shared index, health and diagnostic resources live outside those packages and retain their separate
-contracts and tests.
+Before probing, `ResourceRegistration.assertComplete` independently scans compiled classes in the
+same production directory or jar as the application class. Every concrete `@Path` class in the
+business package, including subpackages and nested classes, must match Jersey's registrations
+exactly. A new resource omitted from application wiring fails with its class name in the missing
+list; no manually maintained expected-class list needs updating. Abstract bases, interfaces,
+unannotated helpers and classes from test or dependency outputs do not enter the intended inventory.
+Inspection does not initialize classes or construct resource instances.
+
+New registered classes and endpoint methods then join the authentication probes automatically.
+The inventories reject empty surfaces and duplicate method/path identities, and have no public
+business-route exceptions. Shared index, health and diagnostic resources live outside those
+packages and retain their separate contracts and tests. A conditional business resource needs an
+explicit inventory/configuration decision; it must not be silently omitted to make a test pass.
 
 Artifact's `ArtifactServiceAuthenticationFilter` runs before endpoint user checks. Its route suite
 therefore sends four requests per endpoint: missing and invalid service keys with a valid user,
