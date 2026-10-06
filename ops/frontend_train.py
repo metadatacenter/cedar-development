@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -287,6 +288,7 @@ def record_plan(args: argparse.Namespace) -> None:
         "sourceManifest": f"trains/{args.version}.json",
         "sourceManifestSha256": sha256_bytes(source_content),
         "registry": config["registry"],
+        "retainedRegistry": config["retainedRegistry"],
         "model": {
             "name": model_name,
             "version": model_version,
@@ -948,6 +950,39 @@ def publish_frontends(args: argparse.Namespace) -> None:
         subprocess.run([str(helper), frontend["id"]], env=package_environment, check=True)
 
 
+def retain_package(registry: str, verified: dict) -> dict:
+    """Copy one verified train tarball, byte for byte, into the registry no cleanup touches.
+
+    Nexus removes a prerelease from the train registry three days after upload, and a release
+    pins the shared components its train built. The copy keeps the version and the bytes, so a
+    release lockfile can name the integrity the train verified at an address that lasts.
+    """
+    identity = f"{verified['name']}@{verified['version']}"
+    if registry_record(registry, verified["name"], verified["version"]) is None:
+        content = fetch(verified["tarball"])
+        if sha256_bytes(content) != verified["tarballSha256"]:
+            raise RuntimeError(f"{identity} tarball changed after verification")
+        with tempfile.TemporaryDirectory() as directory:
+            tarball = Path(directory) / "package.tgz"
+            tarball.write_bytes(content)
+            # npm refuses a prerelease without an explicit tag. The tag is never resolved: every
+            # consumer pins the exact version.
+            run_command([
+                "npm", "publish", str(tarball), "--tag", "train",
+                "--registry", registry, "--loglevel=notice",
+            ], Path(directory))
+    retained = verify_record(registry, {"name": verified["name"], "version": verified["version"]})
+    if (retained["integrity"], retained["tarballSha256"]) != (
+        verified["integrity"], verified["tarballSha256"]
+    ):
+        raise RuntimeError(f"retained {identity} differs from the tarball the train verified")
+    for field in ("repository", "revision"):
+        if verified.get(field):
+            retained[field] = verified[field]
+    print(f"Retained {identity} in {registry}")
+    return retained
+
+
 def complete(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     plan_path = args.state / "npm" / "trains" / f"{version}.json"
@@ -960,6 +995,14 @@ def complete(args: argparse.Namespace) -> None:
         verified.append(verify_record(plan["registry"], expected))
     for expected in plan.get("runtimePackages", []):
         verified.append(verify_record(expected["registry"], expected))
+    # Only the shared components are retained: a release pins them, while it pins the public
+    # CEE and publishes the frontends again under its own version.
+    retained_registry = plan.get("retainedRegistry")
+    components = {(item["name"], item["version"]) for item in plan.get("components", [])}
+    retained = [
+        retain_package(retained_registry, record) for record in verified
+        if retained_registry and (record["name"], record["version"]) in components
+    ]
     completed_at = dt.datetime.now(dt.timezone.utc).isoformat()
     completion = {
         "schemaVersion": 1,
@@ -971,6 +1014,9 @@ def complete(args: argparse.Namespace) -> None:
         "dockerInputs": plan["dockerInputs"],
         "packages": verified,
     }
+    if retained_registry:
+        completion["retainedRegistry"] = retained_registry
+        completion["retainedPackages"] = retained
     write_json(args.state / "npm" / "completed" / f"{version}.json", completion)
     current_path = args.state / "npm" / "current.json"
     current = load_json(current_path) if current_path.exists() else None

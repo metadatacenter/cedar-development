@@ -1,5 +1,6 @@
 {
   "registry": "https://nexus.bmir.stanford.edu/repository/npm-cedar/",
+  "retainedRegistry": "https://nexus.bmir.stanford.edu/repository/npm-cedar-releases/",
   "model": {
     "repository": "cedar-model-typescript-library",
     "sourceManifest": "package.json",

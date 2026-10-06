@@ -489,11 +489,16 @@ jobs:
           test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
           test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
           password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
           printf '%s\n' \
             '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
             "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
             "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
             '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
             > "$NPM_CONFIG_USERCONFIG"
 
       - name: Restore the exact train source checkouts
@@ -556,7 +561,7 @@ jobs:
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
 
-      - name: Verify npm tarballs and advance the npm pointer
+      - name: Verify npm tarballs, retain the shared components and advance the npm pointer
         run: |
           python3 controller/ops/frontend_train.py complete \
             --version "$TRAIN_VERSION" \
