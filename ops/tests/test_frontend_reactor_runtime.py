@@ -105,6 +105,23 @@ class ReactorRuntimeTest(unittest.TestCase):
             module.sync(self.home, self.frontend)
         module.sync(self.home, self.frontend, verify_only=True)
 
+    def test_an_install_npm_dropped_an_optional_dependency_from_runs_again(self):
+        from unittest.mock import patch
+        self.write(self.frontend / 'package.json', json.dumps({'dependencies': {'cedar-embeddable-editor': '2.0.16'}}).encode())
+        self.entry['resolved'] = 'https://registry.example/old.tgz'
+        self.lock()
+        attempts = []
+        def install(args, cwd, check):
+            attempts.append(args)
+            logs = next(a.split('=', 1)[1] for a in args if a.startswith('--logs-dir='))
+            if len(attempts) == 1:
+                (Path(logs) / '2026-10-06T03_00_00_000Z-debug-0.log').write_text(
+                    '21 verbose reify failed optional dependency /f/node_modules/@esbuild/darwin-arm64\n')
+        with patch.object(module.subprocess, 'run', side_effect=install):
+            module.sync(self.home, self.frontend)
+        self.assertEqual(2, len(attempts))
+        self.assertEqual(attempts[0][:3], ['npm', 'install', '--no-save'])
+
     def test_verification_never_removes_stale_install(self):
         self.write(self.frontend / 'package.json', json.dumps({'dependencies': {'cedar-embeddable-editor': '2.0.16'}}).encode())
         self.installed.write_bytes(b'old bundle')

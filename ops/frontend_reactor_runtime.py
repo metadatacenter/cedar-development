@@ -1,5 +1,6 @@
 """Verify a development frontend against its installed immutable reactor artifact."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -80,7 +81,26 @@ def sync(cedar_home: Path, frontend: Path, *, verify_only=False) -> None:
             elif package.exists():
                 shutil.rmtree(package)
         print('Installing local reactor components for ' + str(frontend), flush=True)
-        subprocess.run(['npm', 'install', '--no-save', '--ignore-scripts', '--no-audit', '--no-fund', *specs], cwd=frontend, check=True)
+        _npm_install_rule().install(
+            lambda attempt: subprocess.run(attempt, cwd=frontend, check=True),
+            ['npm', 'install', '--no-save', '--ignore-scripts', '--no-audit', '--no-fund', *specs],
+            lambda message: print(message, flush=True))
+
+
+def _npm_install_rule():
+    """cedar-cli's rule for an npm install: once more if npm dropped an optional dependency.
+
+    This script runs under the system Python, where the CLI's package is not importable, so the
+    module is loaded from the cedar-cli checkout beside this repository, as the train loads the
+    CLI's policies.
+    """
+    path = Path(__file__).resolve().parents[2] / 'cedar-cli' / 'org' / 'metadatacenter' / 'npm_install.py'
+    spec = importlib.util.spec_from_file_location('cedar_cli_npm_install', path)
+    if spec is None or spec.loader is None or not path.is_file():
+        raise RuntimeError('cedar-cli npm install rule is missing: ' + str(path))
+    rule = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rule)
+    return rule
 
 
 if __name__ == '__main__':

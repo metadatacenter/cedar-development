@@ -615,8 +615,10 @@ start_one() {
           echo "  $name: installing the dependencies its moved lockfile left behind"
           : > "$log"
           # CEDAR_HOME is unset for the install: a checkout that resolves a sibling through it
-          # picks up the workspace clone rather than its own dependency.
-          if ! (cd "$dir" && env -u CEDAR_HOME npm ci --no-audit --no-fund >> "$log" 2>&1); then
+          # picks up the workspace clone rather than its own dependency. cedar-cli's rule runs it
+          # again if npm dropped an optional dependency after a failed download.
+          if ! (cd "$dir" && env -u CEDAR_HOME python3 "$CEDAR_HOME/cedar-cli/org/metadatacenter/npm_install.py" \
+                  npm ci --no-audit --no-fund >> "$log" 2>&1); then
             echo "  $name: REFUSED TO START — npm ci failed; see $log" >&2
             return 1
           fi
