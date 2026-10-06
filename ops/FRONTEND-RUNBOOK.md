@@ -2551,35 +2551,36 @@ and `CedChildSource` public type for the callback contract. The host owns authen
 and permission filtering. Without that input, repository search reports unavailable.
 Imported definitions retain their identifiers, provenance and descendants. Each imported
 child takes its name as its key and its name and description as its display name and
-description; a key that clashes with a sibling's or is reserved is reported at once, and
+description. A key that clashes with a sibling's or is reserved is reported at once, and
 the child keeps a usable key until the author chooses one.
 
-Field settings start collapsed behind the grey chevron centered at the bottom
-of each card. Expanding it reveals underline tabs: Configuration, Display, Constraints
-or Content where the type takes them, Annotations and Field metadata. An element's
-settings have Configuration, Display, Annotations and Element metadata. Configuration
-opens first. It holds how the child's parent places it: the display name, display
-description and key on one row, the property IRI, Allow multiple with the minimum and
-maximum on the row below it, and a last row holding the requirement select with Hidden and
-Continue previous line. The display name and description are the parent's
+Field settings start collapsed behind the grey chevron centered at the bottom of each card.
+Expanding it reveals underline tabs: Configuration, Display, Constraints or Content where
+the type takes them, Annotations and Field metadata. An element's settings have
+Configuration, Display, Annotations and Element metadata. Configuration opens first. It
+holds how the child's parent places it, in rows. The display name and a wider display
+description come first. The requirement select follows with Hidden and Continue previous
+line. Allow multiple sits above the minimum and maximum, which share a row with the key, and
+the property IRI comes last. The display name and description are the parent's
 `_ui.propertyLabels` and `_ui.propertyDescriptions` entries, and the card header shows and
-edits the display name. Each control appears only on a child that can carry it. A static
-field has no requirement, multiplicity or Continue previous line, and an element has no
+edits the display name. A nested element's header gives its name input the accessible name
+Element display name. Each control appears only on a child that can carry it. A static field
+has no requirement, multiplicity or Continue previous line, and an element has no
 requirement, Hidden or Continue previous line. The bounds stay visible and disabled until
 Allow multiple is on. A profile that hides Required or Allow multiple hides that control
 here, and a field that is already multiple then still shows its bounds. A field edited in
-the Field Designer has no parent and so no Configuration tab; its header edits its own
-name.
+the Field Designer has no parent and so no Configuration tab. Its header edits its own name.
 
 **Display** edits the child's own name and description, its `schema:name` and
-`schema:description`; a field's own description is what CEE shows as its help. Every
-profile offers both. While a child is a draft its parent shows
-as itself, the display name and description are its own as well, so an edit from the
-header, Configuration or Display writes both. A parent that already shows the child differently
-keeps doing so, and each side then edits its own value. A label repeating the child's name
-or key is the writers' filler, not a different display name, as CEE and the Java library
-read it. The designer does not write `skos:prefLabel`, except that one only repeating the
-name moves with a rename, so CEE does not go on showing the old name.
+`schema:description`, under the labels Field name and Field description or Element name and
+Element description. CEE shows a field's own description as its help. Every profile offers
+both. While a child is a draft its parent shows as itself, the display name and description
+are its own as well, so an edit from the header, Configuration or Display writes both. A
+parent that already shows the child differently keeps doing so, and each side then edits its
+own value. A label repeating the child's name or key is the writers' filler, not a different
+display name, as CEE and the Java library read it. The designer does not write
+`skos:prefLabel`, except that one only repeating the name moves with a rename, so CEE does
+not go on showing the old name.
 
 A new child's key is its name as written. It follows the name until the name first loses
 focus and is the author's after that. A key must be unique among its siblings and must not
