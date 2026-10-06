@@ -3505,7 +3505,7 @@ and what it needs to run.
 
 | Service | Failure path pinned by | Mechanism | Backend |
 |---|---|---|---|
-| artifact | `CreateResourceTest`, `FindResourceTest` and peers | explicit per-resource | embedded Mongo |
+| artifact | `ArtifactRoutesAuthenticationTest`, CRUD suites | runtime-derived route inventory; independent service-key and user-credential 401 probes | embedded Mongo |
 | bridge | `BridgeRoutesRespondTest` | `RouteSurface` 401 | none |
 | group | `GroupsAuthorizationMatrixTest`, `GroupMembershipAuthorizationMatrixTest` | `PermissionMatrix` | embedded Neo4j |
 | impex | `ImpexRoutesRespondTest` | `RouteSurface` 401 | none |
@@ -3517,7 +3517,7 @@ and what it needs to run.
 | schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
 | submission | `SubmissionRoutesRespondTest` | `RouteSurface` 401 | none |
 | terminology | `TerminologyServerApplicationSmokeTest` | runtime-derived `RouteSurface` 401 with public-route exceptions and a separate property-search probe | none |
-| user | `UserServerApplicationSmokeTest` | explicit | embedded Neo4j |
+| user | `UsersResourceTest`, `UsersResourceNeo4jTest` | runtime-derived route inventory with missing/invalid user 401 probes; profile and key-management behaviour | in-memory users / embedded Neo4j |
 | valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
 
@@ -3544,12 +3544,23 @@ successful authenticated behaviour or correct permissions for each role.
 `PermissionMatrix` is the heavier form, used where authorization is a grid rather than a gate: it
 asserts what each role may do to each artifact at each permission level.
 
-"Explicit" means the failure path is asserted directly in per-resource tests rather than derived from
-the route surface. Artifact's CRUD suites exercise behaviour beyond an authentication probe, but a
-new endpoint does not automatically acquire a test. Artifact also registers
-`ArtifactServiceAuthenticationFilter` centrally for business resources: missing route reflection
-does not imply missing internal-service authentication. Tests of the caller's user credentials and
-permissions remain separate from that service-key gate.
+Artifact and user discover business resources from Jersey registration under their respective
+`org.metadatacenter.cedar.artifact.resources` and `org.metadatacenter.cedar.user.resources` packages.
+New registered classes and endpoint methods in those packages join the authentication probes
+automatically. The inventories require the existing resource classes to remain registered, reject
+empty surfaces and duplicate method/path identities, and have no public business-route exceptions.
+Shared index, health and diagnostic resources live outside those packages and retain their separate
+contracts and tests.
+
+Artifact's `ArtifactServiceAuthenticationFilter` runs before endpoint user checks. Its route suite
+therefore sends four requests per endpoint: missing and invalid service keys with a valid user,
+then missing and invalid user credentials with a valid service key. Raw HTTP requests bypass the
+base fixture's client filter, which otherwise silently supplies a service key. An authenticated
+normal user's count request must reach the permission check and answer 403, while an administrator's
+answers 200. User's inventory sends missing and invalid credentials to every business endpoint;
+its existing profile and API-key tests cover authenticated success and ownership refusals. These
+inventories supplement the per-operation behavioural suites rather than asserting that 401 alone
+proves an endpoint correct.
 
 ### Two Services Have No 401 to Assert
 
@@ -3568,16 +3579,11 @@ way it can say no.
 
 ### Known Gaps
 
-Three, none of them a missing row.
+Two, none of them a missing row.
 
 The matrix is derived from the test sources by hand, so nothing fails when a new service lands without
 one. Wiring the derivation into the test-enabled `cedarcli build` mode would make a missing baseline
 break the build rather than go unnoticed.
-
-Artifact and user assert failure paths per endpoint without an automatic route inventory, so a
-newly added endpoint does not automatically gain coverage. Terminology has runtime-derived route
-probes; manual resource lists in other route suites and omitted runtime registrations have the
-limits described above.
 
 Open-view pins only the absent-artifact half of its contract. An artifact that exists but is not open
 needs a seeded graph and belongs with the sharing tests.
