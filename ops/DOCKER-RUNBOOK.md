@@ -341,7 +341,9 @@ and CSS immutable, and makes stable fallback assets revalidate.
 for a local shell build. They are not the source of truth for a published train, and neither path
 uses a moving npm snapshot or dist-tag. A release rewrites them from the train it consumes, so on
 `develop` they name that train's packages and on a release tag they name the released frontends and
-the public CEE.
+the public CEE. `CEDAR_NPM_REGISTRY` names the registry the frontend images download from. It is
+`npm-cedar` on `develop` and `npm-cedar-releases` on a release tag, because Nexus removes a package
+from `npm-cedar` within thirty days and never removes one from `npm-cedar-releases`.
 
 The full core build inventory is 31 images: seven infrastructure images, two Java bases, fifteen
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
@@ -383,6 +385,8 @@ cedarcli docker start all --pull never
 Start resolves the current completed Docker train, which can lag the Maven pointer while images are
 still building. Use `--train <TRAIN_ID>` to select an exact Docker-complete train. When the images came
 from `docker build --local`, add `--local` to start so Compose selects the development tag instead.
+Nexus removes a train's images from both Docker repositories three days after upload, because every
+tag carries the train ID. An older train starts only on a machine that already holds its images.
 
 `--pull never` uses the images already present on the machine and fails if one is absent. This is
 the safe choice for locally built development images. Use `--pull missing` to fetch only absent

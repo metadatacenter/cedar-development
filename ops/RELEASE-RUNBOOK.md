@@ -112,8 +112,9 @@ The plan settles four groups of question:
   input before a long build is allowed to start. Every frontend lifecycle script in the captured
   lockfiles has an exact true/false `allowScripts` decision.
 - **The writes will be accepted.** Both Nexus credentials are available and authenticate, npm holds an
-  identity for CEDAR's Nexus registry, the release version is absent from both Maven and npm target
-  namespaces, and each remote accepts dry-run pushes of every ref the release can create: `main`,
+  identity for both of CEDAR's Nexus npm registries, `npm-cedar` and `npm-cedar-releases`, the
+  release version is absent from the Maven target and from both npm registries, and each remote
+  accepts dry-run pushes of every ref the release can create: `main`,
   `develop`, `release/pre-<VER>`, `release-<VER>`, and, where applicable,
   `release/post-<NEXT>`.
 - **The content is stampable.** Every file a Maven build regenerates with the version inside is
@@ -286,14 +287,18 @@ The release runs these phases, each verifying its work before the next begins:
 
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
    seven frontend consumer manifests and lockfiles. Shared-component pins (tokens, picker and
-   designer) also follow the train's verified package graph; their exact registry tarball and
-   integrity are checked before and after lock generation.
+   designer) also follow the train's verified package graph, at the copies the train retained in
+   `npm-cedar-releases`. The copies carry the train's versions and bytes, at an address Nexus does
+   not clean up. Their exact registry tarball and integrity are checked before and after lock
+   generation, and
+   preparation refuses a lockfile that still installs any tarball from another Nexus repository.
 2. Stamp `<VER>` and `<NEXT>` from the same source commits, and move the copyright year in every
    `license.txt` to the release year. Both variants retain the stable public CEE wiring. The
    Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's
-   recorded inputs: the next-development tree names the train's own packages, which exist the
-   moment the release pushes, and the release tree names the released frontends at `<VER>` and
-   OpenView's Editor at the public CEE version, which Nexus and npmjs keep for good.
+   recorded inputs. The next-development tree names the train's own packages, which exist the
+   moment the release pushes. The release tree names the released frontends at `<VER>`, OpenView's
+   Editor at the public CEE version, and `npm-cedar-releases` as `CEDAR_NPM_REGISTRY`, because
+   those two registries keep a package indefinitely.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. Generated distribution bytes are inventoried, so an ignored
    `dist` file cannot change before publication. Each test-bearing Maven task checks for embedded
@@ -317,8 +322,10 @@ The release runs these phases, each verifying its work before the next begins:
    and retain explicitly declared runtime assets that npm normally excludes. OpenView's packaged
    `node_modules` assets therefore include the exact CEE and Web Components files committed in its
    release distribution. The model-library demo's ignored `dist` is copied only from its
-   byte-inventoried release build. Publish to CEDAR Nexus, then download each registry tarball and
-   verify its integrity, content hash, provenance, and runtime-asset hashes.
+   byte-inventoried release build. Publish each tarball to `npm-cedar` and the same bytes to
+   `npm-cedar-releases`, then download it from both and verify its integrity, content hash,
+   provenance, and runtime-asset hashes. Nexus removes a release from `npm-cedar` thirty days after
+   upload, so the retained copy is the one that lasts.
 9. Accept the release, proving from outside the ledger that it holds. Acceptance also runs the
    captured build-train configuration validator against the complete `<NEXT>` workspace and its
    exact expected snapshot version, so `develop` is not considered ready merely because version
