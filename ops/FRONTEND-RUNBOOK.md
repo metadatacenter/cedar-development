@@ -2553,8 +2553,20 @@ Imported definitions retain their identifiers, provenance and descendants; confl
 child names are resolved in their parent placements.
 
 Field settings start collapsed behind the grey chevron centered at the bottom
-of each card. Expanding it reveals underline tabs for the applicable values,
-display, constraints, details, occurrences and metadata controls. Switching tabs
+of each card. Expanding it reveals underline tabs: Configuration, Display, Constraints
+or Content where the type takes them, Annotations and Field metadata. An element's
+settings have Configuration, Display, Annotations and Element metadata. Configuration
+opens first. It holds the settings of a child's place in its parent: the requirement,
+the key and the description on one row, Allow multiple with the minimum and maximum on
+the row below it, and Hidden and Continue previous line together on the last row. The
+description is the one Display also edits. Each control appears only on a child that can
+carry it. A static field offers its key, description and Hidden, and an element offers
+its key, description, Allow multiple and the bounds. The bounds stay visible and disabled
+until Allow multiple is on. A profile that hides Required or
+Allow multiple hides that control here, and a field that is already multiple then still
+shows its bounds. A field edited in the Field Designer has no parent and so no
+Configuration tab. A key must be unique among its siblings and must not be a reserved
+name; an invalid key shows its error below the input and is not saved. Switching tabs
 or collapsing the panel retains incomplete input; valid settings update immediately
 without Apply buttons. Identity and provenance appear under Field metadata. Imported labels, identifiers, annotations and property IRIs remain
 preserved in the model. Published fields allow tab
@@ -2635,7 +2647,7 @@ their datatype ranges; long is limited to JavaScript's exact integer range
 (-9007199254740991 to 9007199254740991), because the model stores numbers rather than
 arbitrary-precision integers. Float checks overflow and nonzero underflow. Invalid
 and incomplete numeric input stays in the panel until corrected and does not replace
-the saved settings. Occurrences appears immediately before Field metadata.
+the saved settings.
 
 Rebuild CEE and refresh the sibling copy when testing defaults: an older CEE
 bundle may omit email, phone, link and authority defaults from its preview even
