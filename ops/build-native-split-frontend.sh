@@ -38,6 +38,9 @@ if [[ -n "$(git -C "$root" status --porcelain --untracked-files=normal)" ]]; the
 fi
 
 cd "$root"
+# Nexus purges old development and release packages, so a lockfile can outlive the tarballs it
+# names. Name every one that is gone before npm ci fails on the first.
+python3 "$CEDAR_HOME/cedar-development/ops/npm_lock_availability.py" package-lock.json
 npm ci
 if [[ "$1" == workspace ]]; then
   CEDAR_SOURCE_COMMIT="$source_commit" npm run build:deployment

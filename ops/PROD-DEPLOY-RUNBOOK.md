@@ -246,6 +246,15 @@ staging or production payload, omitting the native build is a deployment failure
 serves the two generated `app` trees directly. It uses no Docker. Compare the Workspace-served CEE
 bundle hash with the package staged by the CEE release before changing routes.
 
+Before `npm ci`, the build checks that Nexus still serves every tarball the lockfile installs from
+it, or that the host's npm cache holds it, and names each one that is neither. Release 2.9.21 and
+earlier pin the shared components in `npm-cedar`, which removes a prerelease three days after
+upload. Later releases pin them in `npm-cedar-releases`, which nothing cleans up. To deploy an
+earlier release after its pins are gone, copy each named tarball from a machine whose npm cache
+still holds it, check that its SHA-512 matches the lockfile's integrity, and run
+`npm cache add <file>.tgz` on the host as the building user. `npm ci` then installs it from the
+cache without asking Nexus.
+
 ### 7 · Database Migrations
 **App MySQL — as root, on the app host:**
 ```bash
@@ -336,7 +345,7 @@ service nginx start
 | `cedarcli prod configure-frontends` | Writes `CEDAR_HOST` into the `cedarDomain` compiled into the OpenView, Bridging, and Monitoring bundles (`<repo>-dist/main-*.js`), from which each application derives its other URLs. Refuses unless each repository holds exactly one bundle with exactly one compiled value, and changes none until all three pass. `cedarcli prod reset-frontends` restores the committed bundles. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
 | `cedarcli release start` / `resume` | Versions and publishes Workspace and Designer with the other platform repositories; stable npm tarballs go to CEDAR Nexus. |
-| `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` and each application's own payload build, and writes the static payload identities nginx serves. |
+| `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, names any locked Nexus tarball that is gone, runs `npm ci` and each application's own payload build, and writes the static payload identities nginx serves. |
 | `gulp` (in template-editor) | Copies the pinned CEE bundle and builds that AngularJS host. |
 
 ## Split Frontend Cutover and Rollback (Migration Only)
