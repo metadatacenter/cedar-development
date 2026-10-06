@@ -175,8 +175,12 @@ records the advisory counts observed by the last successful baseline train. A ch
 graph stops in preflight and names the repository and lockfile. `cedarcli publish baselines` lists
 every lock whose digest has moved, and `cedarcli publish baselines --refresh` recomputes the digest
 and the `npm audit` counts of each and writes them to `frontend-train.json`; review the diff, commit
-it in `cedar-development`, and rerun. This is a no-silent-regression gate, not a claim that the
-legacy AngularJS build-time graphs contain no advisories. CEE's shipped dependency audit remains a
+it in `cedar-development`, and rerun. npm's audit service answers inconsistently for a while after
+an advisory is published, so a refresh can record a lock as clean that a later one does not. To see
+a lock's current state, ask npmjs directly:
+`npm audit --package-lock-only --prefer-online --registry=https://registry.npmjs.org/`. This is a
+no-silent-regression gate, not a claim that the legacy AngularJS build-time graphs contain no
+advisories. CEE's shipped dependency audit remains a
 separate blocking zero-vulnerability gate. npm 11 install scripts are similarly explicit: each
 required package/version is pinned in `allowScripts`, and the train enables
 `strict-allow-scripts`, so a newly introduced lifecycle script fails instead of merely warning.

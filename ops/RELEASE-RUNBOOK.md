@@ -124,8 +124,9 @@ A `main` that holds content `develop` does not stops the release. What it holds 
 made straight to `main`, or a hotfix nobody back-merged, and the release replaces it with a push:
 the work leaves the branch that held it and nothing says so afterwards. Port it to `develop` and
 build a train from that source. Where `develop` dropped the file deliberately and `main` is simply
-behind, `--accept-main-only <repository>` takes the replacement and records that it was asked for.
-The version files a release stamps onto each branch separately do not count as divergence.
+behind, `--accept-main-only <repository>` takes the replacement. `start` records the acceptance in
+the ledger, and `release resume` applies it again. The version files a release stamps onto each
+branch separately do not count as divergence.
 
 `cedarcli check main` asks the same question of all forty-five repositories at any time, which is
 where it is cheap to answer. Asked during a release, it is already expensive.
@@ -233,8 +234,9 @@ When CI is genuinely broken for a reason that must not hold up a release, accept
 cedarcli release start ... --accept-red-develop cedar-repo-server=33211136456
 ```
 
-The acceptance names one repository and one run, and it is recorded in the ledger. No flag skips the
-check for everything.
+The acceptance names one repository and one run. `start` records it in the ledger, and
+`release resume` applies it again, so a release that stops before its remotes are written can still
+be resumed. No flag skips the check for everything.
 
 ## Running the Release
 
@@ -347,14 +349,15 @@ Nexus and GitHub responsive throughout: about ten minutes to clone forty reposit
 CEE in seven consumers, twenty to run the forty release and next-development builds, fifteen to
 deploy the six snapshot trees, under ten to integrate and push forty remotes, ten to upload and
 verify the eight release artifacts, and one to accept. The release before it, 2.9.7, ran 2 hours
-41 minutes through the same phases. Plan on its own takes about two and a half minutes, most of it
-the exact-commit CI probe and the remote survey.
+41 minutes through the same phases. Release 2.9.20 ran 67 minutes, 24 of them in the development
+phase and 20 of those waiting for `cedar-project`'s CI on the new `develop`. Plan on its own takes
+about two and a half minutes, most of it the exact-commit CI probe and the remote survey.
 
 ## Watching and Finishing
 
 `start` and `resume` automatically summarize measured stage timings on completion.
-`cedarcli release timings` reads them later; `--compare <VER>` selects a prior local
-release ledger (otherwise the newest other ledger with timing evidence is used).
+`cedarcli release timings` reads them later; `--compare <VER>` selects a prior release
+(otherwise the newest other release with timing evidence is used).
 Each attempt retains its result and wall time. CI polling sleeps and transient retry
 backoff are measured separately from execution, which includes build work, network
 requests and CI probes. Failed attempts remain in the totals. A process killed before
@@ -434,9 +437,10 @@ without releasing it; every other status remains incomplete.
 Local release state has a one-release retention policy. The current release keeps its ledger,
 numbered attempt, caches, and logs so `status` and `resume` remain complete. When a new release takes
 the current slot, the state layer immediately deletes every older ledger and attempt tree—including
-dependency caches and large logs—before the new attempt is prepared. There is no cleanup command
-and no archive tier: Git refs and published artifacts are the durable record after a release stops
-being current.
+dependency caches and large logs—before the new attempt is prepared. It first copies each deleted
+ledger's stage timings into `timings/<version>.json`, a few records that `release timings` compares
+against. There is no cleanup command and no archive tier: Git refs and published artifacts are the
+durable record after a release stops being current.
 
 ## If a Phase Fails
 

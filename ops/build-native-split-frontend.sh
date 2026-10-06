@@ -41,11 +41,14 @@ cd "$root"
 npm ci
 if [[ "$1" == workspace ]]; then
   CEDAR_SOURCE_COMMIT="$source_commit" npm run build:deployment
+elif [[ "$1" == designer ]]; then
+  # The designer's start script configures and stages, and in server mode serves nothing.
+  CEDAR_SOURCE_COMMIT="$source_commit" npm start
 else
   CEDAR_SOURCE_COMMIT="$source_commit" npx gulp
 fi
 
-# Gulp preserves the mtime of app/config/version.js, so a client that already holds it revalidates
+# The monolith's Gulp build preserves the mtime of app/config/version.js, so a client that already holds it revalidates
 # and is answered 304 -- it keeps the previous bundle however clean the build was. The version
 # modifier exists to defeat that, and cannot while the file looks unchanged to a conditional
 # request. Doing it here is what stops it being a step somebody has to remember.

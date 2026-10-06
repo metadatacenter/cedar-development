@@ -446,10 +446,21 @@ For CED integration, assign `constraintSet = { constraints, actions }` and use
 `selectionMode = 'constraints'`. The picker edits a draft and emits the entire set
 on Done; `constraintsChanged` invalidates a host's pending validation, and Cancel
 leaves the original intact. Branch depth is editable in each branch's details.
-A bin icon removes an individual constraint. Exclusion and reordering controls are
-deferred to the roadmap; saved actions remain inspectable and are preserved unchanged. `selectionMode = 'term'` retains single-term output
+A bin icon removes an individual constraint or saved action. Exclusion and reordering controls are
+deferred to the roadmap; retained actions are preserved unchanged. `selectionMode = 'term'` retains single-term output
 for defaults. Multiple fixed `sources` appear in a vocabulary/release selector so
 two pins of the same acronym are searched and browsed separately.
+
+The picker validates the supplied draft as well as edits before Done. Its central
+report identifies invalid identifiers, releases, depths, actions, duplicate entries,
+disabled types and limits by row. Invalid rows remain removable; invalid depth edits
+remain errors until corrected. Requests belong to their query, endpoint, scope and
+release, so late search, history and nested hierarchy replies cannot replace newer
+state. A pinned term remains unselectable until that release is verified. Failed
+tree reads can be retried, and cyclic paths cannot recurse indefinitely.
+`picker-state-matrix.spec.ts` covers response ordering, invalid incoming data,
+nested release changes, paging and correction; the browser state-coordination tests
+exercise the same recovery controls in the built component.
 
 ## What the Picker Reads
 

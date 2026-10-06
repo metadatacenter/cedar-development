@@ -23,8 +23,14 @@ progress report, and an interrupted run continues with ``--resume``.
       --server https://resource.metadatacenter.org \\
       --out production-validation.jsonl
 
-Requires JDK 17 and a built ``cedar-model-validation-library``; ``cedar_validate.sh`` resolves both.
-No third-party Python packages are required.
+A template, element or field is also read with ``cedar-artifact-library``'s reader. The artifact
+server refuses on write what that reader refuses, and every editor and viewer opens an artifact
+through it or its TypeScript twin, so the summary's ``reader.validButUnreadable`` counts the stored
+artifacts the validator accepts and nothing can open.
+
+Requires JDK 17, a built ``cedar-model-validation-library`` and a ``cedar-artifact-library`` checkout;
+``cedar_validate.sh`` resolves the first two, and the artifact library's classpath is built on first
+use. No third-party Python packages are required.
 """
 
 from __future__ import annotations
@@ -666,21 +672,74 @@ def run_validate_sh(subcommand: str, timeout: float) -> str:
     return lines[-1].strip()
 
 
+def run_maven(library: Path, java_home: Optional[str], goals: list[str], timeout: float) -> None:
+    environment = dict(os.environ)
+    if java_home:
+        environment["JAVA_HOME"] = java_home
+    completed = subprocess.run(["mvn", "-q", *goals], cwd=str(library), env=environment,
+                               capture_output=True, text=True, timeout=timeout)
+    if completed.returncode != 0:
+        tail = (completed.stderr or completed.stdout).strip().splitlines()[-8:]
+        raise RuntimeError(f"mvn {' '.join(goals)} failed in {library}:\n" + "\n".join(tail))
+
+
+def resolve_artifact_library_classpath(library: Path, java_home: Optional[str]) -> str:
+    """The artifact library's own classes and its dependency classpath, built on first use.
+
+    The dependency classpath carries ``cedar-model-validation-library`` too, since the artifact
+    library depends on it, so one JVM can convert and validate. The validation gate's classpath is
+    put ahead of it by the caller, which is what makes the verdict the locally built validator's.
+    """
+    classes = library / "target" / "classes"
+    classpath_file = library / "target" / "artifact-library-classpath.txt"
+    pom = library / "pom.xml"
+    if not pom.is_file():
+        raise RuntimeError(f"{library} is not a Maven project (no pom.xml)")
+    if not classes.is_dir():
+        print(f"Building {library.name} ...", flush=True)
+        run_maven(library, java_home, ["-DskipTests", "compile"], 1800)
+    if not classpath_file.is_file() or pom.stat().st_mtime > classpath_file.stat().st_mtime:
+        print(f"Resolving the {library.name} dependency classpath ...", flush=True)
+        run_maven(library, java_home, ["dependency:build-classpath",
+                                       f"-Dmdep.outputFile={classpath_file}"], 1800)
+    dependencies = classpath_file.read_text(encoding="utf-8").strip()
+    if not dependencies:
+        raise RuntimeError(f"{classpath_file} is empty; remove it and run the audit again")
+    return f"{classes}{os.pathsep}{dependencies}"
+
+
+def cedar_home() -> Path:
+    home = os.environ.get("CEDAR_HOME")
+    if home:
+        return Path(home).expanduser()
+    return Path(__file__).resolve().parent.parent.parent
+
+
 def resolve_toolchain(arguments: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[str, str]:
     """The java binary and the library classpath, from the validation gate unless overridden."""
     if not BRIDGE_SOURCE.is_file():
         parser.error(f"bridge source not found: {BRIDGE_SOURCE}")
     try:
         java = arguments.java or run_validate_sh("java", 60)
+        if not Path(java).is_file():
+            parser.error(f"java binary not found: {java}")
         if arguments.classpath:
             classpath = arguments.classpath
         else:
             print("Resolving the validation library classpath (builds it on first use) ...", flush=True)
-            classpath = run_validate_sh("classpath", 900)
+            validation = run_validate_sh("classpath", 900)
+            # The artifact library goes on the classpath too, so the bridge also reports whether its
+            # reader reads each schema artifact: what the artifact server refuses on write. The other
+            # tools that share this resolver have no --artifact-library and take the default checkout.
+            override = getattr(arguments, "artifact_library", None)
+            artifact_library = Path(override).expanduser() if override else cedar_home() / "cedar-artifact-library"
+            if not artifact_library.is_dir():
+                parser.error(f"cedar-artifact-library not found at {artifact_library} "
+                             "(set CEDAR_HOME or pass --artifact-library)")
+            java_home = str(Path(java).resolve().parent.parent)
+            classpath = f"{resolve_artifact_library_classpath(artifact_library, java_home)}{os.pathsep}{validation}"
     except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
         parser.error(str(error))
-    if not Path(java).is_file():
-        parser.error(f"java binary not found: {java}")
     return java, classpath
 
 
@@ -815,6 +874,9 @@ class Aggregate:
     instances_by_template: collections.Counter = field(default_factory=collections.Counter)
     title_case_only: collections.Counter = field(default_factory=collections.Counter)
     fetch_errors: list[dict[str, Any]] = field(default_factory=list)
+    reader_by_type: dict[str, collections.Counter] = field(
+        default_factory=lambda: collections.defaultdict(collections.Counter))
+    valid_but_unreadable: list[dict[str, Any]] = field(default_factory=list)
     fetch_errors_by_status: collections.Counter = field(default_factory=collections.Counter)
     unresolved_templates: dict[str, dict[str, Any]] = field(default_factory=dict)
     bridge_incidents: int = 0
@@ -850,6 +912,12 @@ class Aggregate:
         self.fetched_by_type[artifact_type] += 1
         self.validation_by_type[artifact_type][status] += 1
         reason = validation.get("reason")
+        # Counted from the record rather than when it happens, or a resumed run would forget every
+        # incident before the stop and could call an audit with bridge failures complete.
+        if record.get("bridgeIncident"):
+            self.bridge_incidents += 1
+        if status == "error" and str(reason or "").startswith("bridge: "):
+            self.bridge_incidents += 1
         if status == "skipped" and reason:
             self.skip_reasons_by_type[artifact_type][reason] += 1
         if status == "error" and reason:
@@ -874,6 +942,19 @@ class Aggregate:
                 entry = self.unresolved_templates.setdefault(
                     template_id, {"error": validation.get("detail", ""), "instances": 0})
                 entry["instances"] += 1
+        reader = validation.get("reader")
+        if isinstance(reader, dict):
+            self.reader_by_type[artifact_type][str(reader.get("status"))] += 1
+            # Valid to the validator and refused by the reader: stored, but nothing can open it, and
+            # the artifact server now refuses to store another like it.
+            if status == "valid" and reader.get("status") == "refused":
+                self.valid_but_unreadable.append({
+                    "artifactType": artifact_type,
+                    "artifactId": record["artifactId"],
+                    "artifactName": record.get("artifactName", ""),
+                    "message": reader.get("message", ""),
+                    "location": reader.get("location"),
+                })
         if artifact_type != "instance":
             self.schema_versions_by_type[artifact_type][record.get("schemaVersion") or "(absent)"] += 1
 
@@ -1007,7 +1088,7 @@ def summary_document(aggregate: Aggregate, enumeration: rest.AuditState, status:
             "bridgeSha256": file_sha256(BRIDGE_SOURCE),
             "restAuditRuleset": rest.AUDIT_RULESET_VERSION,
             "modelVersion": MODEL_VERSION,
-            "bridge": {key: bridge.hello.get(key) for key in ("validator", "java", "templateCache")},
+            "bridge": {key: bridge.hello.get(key) for key in ("validator", "reader", "java", "templateCache")},
             "bridgeStarts": bridge.starts,
         },
         "status": status,
@@ -1050,6 +1131,12 @@ def summary_document(aggregate: Aggregate, enumeration: rest.AuditState, status:
                 for template_id, count in aggregate.invalid_instances_by_template.most_common(50)
             ],
             "templatesWithInvalidInstances": len(aggregate.invalid_instances_by_template),
+        },
+        "reader": {
+            "available": bool(bridge.hello.get("reader")),
+            "byType": {kind: dict(sorted(counter.items())) for kind, counter in sorted(aggregate.reader_by_type.items())},
+            "validButUnreadable": len(aggregate.valid_but_unreadable),
+            "validButUnreadableArtifacts": aggregate.valid_but_unreadable[:200],
         },
         "conditions": conditions,
         "conditionsByTopic": {
@@ -1382,7 +1469,6 @@ def validation_result(bridge: ValidationBridge, resolver: TemplateResolver, ref:
                 return result, shape
             answer = bridge.validate(ref.artifact_type, artifact, result["templateId"])
     except BridgeError as error:
-        aggregate.bridge_incidents += 1
         result.update(status="error", reason=f"bridge: {error}")
         return result, shape
     status = answer.get("status")
@@ -1393,6 +1479,8 @@ def validation_result(bridge: ValidationBridge, resolver: TemplateResolver, ref:
             result["errors"] = errors
         if answer.get("warnings"):
             result["warnings"] = answer["warnings"]
+        if answer.get("reader"):
+            result["reader"] = answer["reader"]
     else:
         result.update(status="error",
                       reason=f"{answer.get('exception') or 'bridge'}: {answer.get('message') or status}")
@@ -1408,8 +1496,11 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridge:
         enumeration = arguments.resume_enumeration
         refs = arguments.resume_refs
         for key, record in arguments.resume_records.items():
-            aggregate.add(record)
+            # Only a fetched artifact is finished. One that failed is fetched again below and
+            # counted then, so counting it here as well reported every retried artifact twice, and
+            # a fetch failure the retry cleared still marked the run PARTIAL_ERRORS.
             if record.get("fetched"):
+                aggregate.add(record)
                 completed.add(key)
         print(f"Resuming from {refs_path}: {len(completed)}/{len(refs)} artifacts already complete", flush=True)
     else:
@@ -1503,7 +1594,8 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridge:
                 try:
                     resolver.remember(ref.artifact_id, artifact)
                 except BridgeError as bridge_error:
-                    aggregate.bridge_incidents += 1
+                    # Recorded on the template's own record, so a resumed run still counts it.
+                    record["bridgeIncident"] = f"caching the template: {bridge_error}"
                     print(f"! bridge failed while caching a template: {bridge_error}", file=sys.stderr)
             if bridge.process is None:
                 bridge_restarts += 1
@@ -1595,7 +1687,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="continue from --refs, appending to the existing records")
     parser.add_argument("--java", help="java binary (default: what cedar_validate.sh java resolves)")
     parser.add_argument("--classpath",
-                        help="validation library classpath (default: what cedar_validate.sh classpath resolves)")
+                        help="the whole Java classpath, artifact library and validator both "
+                             "(default: resolved from cedar_validate.sh and the artifact library checkout)")
+    parser.add_argument("--artifact-library",
+                        help="cedar-artifact-library checkout (default: $CEDAR_HOME/cedar-artifact-library)")
     parser.add_argument("--jvm-heap", default="2g", help="JVM maximum heap (default: 2g)")
     parser.add_argument("--template-cache", type=int, default=DEFAULT_TEMPLATE_CACHE,
                         help=f"templates kept for instance validation (default: {DEFAULT_TEMPLATE_CACHE})")
@@ -1644,6 +1739,10 @@ def print_final_summary(aggregate: Aggregate, status: str, total: int, paths: di
         print(f"title divergences differing only in letter case: {counts_text(aggregate.title_case_only)}")
     for kind, versions in sorted(aggregate.schema_versions_by_type.items()):
         print(f"schema versions ({kind}): {counts_text(versions)}")
+    for kind, counter in sorted(aggregate.reader_by_type.items()):
+        print(f"artifact library reader ({kind}): {counts_text(counter)}")
+    if aggregate.reader_by_type:
+        print(f"valid but unreadable, so stored and openable by nothing: {len(aggregate.valid_but_unreadable)}")
     print(f"fetch errors: {len(aggregate.fetch_errors)}; unresolved templates: {len(aggregate.unresolved_templates)}; "
           f"bridge incidents: {aggregate.bridge_incidents}")
     print(f"records: {paths['records']}")
@@ -1702,6 +1801,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if arguments.resume:
         header, refs = load_refs_manifest(refs_path, arguments, parser)
+        dropped = rest.trim_torn_tail(records_path)
+        if dropped:
+            print(f"Dropped the last {dropped} bytes of {records_path}: a record the stopped run cut short")
         records = load_existing_records(records_path, parser)
         known = {artifact_key(ref) for ref in refs}
         if set(records) - known:

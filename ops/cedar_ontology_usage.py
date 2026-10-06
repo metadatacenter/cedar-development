@@ -51,6 +51,12 @@ DEFAULT_SERVER = "https://resource.metadatacenter.org"
 TYPE_PATH = {"template": "templates", "element": "template-elements"}
 
 
+def resource_path_id(identifier: str) -> str:
+    """Shorten canonical CEDAR UUID addresses, preserving legacy/foreign identity hosts."""
+    import re
+    return re.sub(r"^(?:https?://repo\.metadatacenter\.org[xy]?/)?(?:folders|templates|template-elements|template-fields|template-instances)/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$", r"\1", identifier)
+
+
 class AuthError(Exception):
     """Raised on 401 so the run aborts cleanly and still emits partial results."""
 
@@ -258,7 +264,7 @@ def main():
                 if not aid:
                     continue
                 try:
-                    artifact = api_get(f"{args.server}/{path}/{urllib.parse.quote(aid, safe='')}", args.api_key)
+                    artifact = api_get(f"{args.server}/{path}/{urllib.parse.quote(resource_path_id(aid), safe='')}", args.api_key)
                 except AuthError:
                     raise  # token bad/expired — abort, but keep everything gathered so far
                 except Exception as e:  # one bad artifact must not abort the whole run

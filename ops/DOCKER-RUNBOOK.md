@@ -547,7 +547,7 @@ Each frontend has its own Node.js process; there is no shared frontend server:
 | --- | --- | --- | --- | ---: |
 | `cedar.metadatacenter.orgx` | `frontend` | `cedar-template-editor/app` | Gulp / gulp-connect | 4200 |
 | `workspace.metadatacenter.orgx` | `workspace` | `cedar-workspace/app` | Node static server | 4201 |
-| `designer.metadatacenter.orgx` | `designer` | `cedar-template-designer/app` | Gulp / gulp-connect | 4202 |
+| `designer.metadatacenter.orgx` | `designer` | `cedar-template-designer/app` | Node static server | 4202 |
 | `openview.metadatacenter.orgx` | `ui-openview` | `cedar-openview/cedar-openview-src` | Angular CLI / `ng serve` | 4220 |
 | `content.metadatacenter.orgx` | `ui-content` | `cedar-content-distribution` | Angular CLI / `ng serve` | 4240 |
 | `monitoring.metadatacenter.orgx` | `ui-monitoring` | `cedar-monitoring/cedar-monitoring-src` | Angular CLI / `ng serve` | 4300 |

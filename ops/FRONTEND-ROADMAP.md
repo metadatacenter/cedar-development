@@ -13,44 +13,14 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
-## Cool Extensions
-
-Explore features that make CEDAR's templates, elements, fields and instances immediately
-useful and understandable, building on the eye preview for demos and everyday use.
-
-### 1. Drop In a Spreadsheet
-
-Let a user drop in a spreadsheet and choose a template. Propose a mapping from columns to
-template fields, preview a few resulting instances, and flag missing values and terminology
-mismatches before saving. Let the user review and adjust the mapping before creating structured,
-validated metadata. This is the larger signature demo feature.
-
-### 2. Show Example Metadata
-
-Add a “Show example” action that fills a template with clearly labeled synthetic example
-metadata. Demonstrate controlled terms, repeated elements and required fields so an unfamiliar
-template becomes understandable in seconds. Pair this with the preview’s “Try out” action.
-
-### 3. Explore Where an Artifact Is Used
-
-Show which templates reuse a selected element or field, then which instances were created from
-those templates. Let users click through these relationships to discover reusable content and
-understand how artifacts connect beyond their folder locations.
-
-### 4. Compare Templates Visually
-
-Let users select two templates and inspect their shared structure, differences and reused
-elements side by side. Support choosing a template to adopt and understanding what changed
-between revisions.
-
 ## Workspace and Browser Workflows
 
-### 5. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
+### 1. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
 
 A deployment should never need a hand-edited modifier to make a new code revision visible.
 Decide whether any cached asset can legitimately differ while its source commit stays fixed. If
-none can, remove the variable from Workspace's build tooling, the Template Editor and Template
-Designer Gulp builds, the native build-info writer, the three Docker build entrypoints and the
+none can, remove the variable from Workspace's build tooling, the Template Editor's Gulp build,
+the Template Designer's host script, the native build-info writer, the three Docker build entrypoints and the
 microservices Compose file. Otherwise keep a narrowly named override and add a test proving the
 same-commit case it serves. Remove the step that chooses a modifier from the production
 deployment runbook either way.
@@ -70,7 +40,7 @@ works by restoring payloads and routing without inventing a new modifier.
 
 <a id="doi-minting-recovery"></a>
 
-### 6. Make DOI Minting Recovery-Safe
+### 2. Make DOI Minting Recovery-Safe
 
 Keep the DataCite wizard out of Workspace resource menus while this workflow is being
 reworked. Before reintroducing an entry point, verify the recovery behavior and review the
@@ -93,31 +63,11 @@ minting timeout. Extend offline regression coverage to ordinary unchanged-DOI up
 reconciliation and continued rejection of DOI replacement or deletion through ordinary updates.
 The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
-### 7. Show Server Validation Findings in Workspace
-
-A rejected create or update should show the user what the server refused. Render the problems
-in the server's `validationReport` with their paths and messages in Workspace's metadata editor,
-keep the document dirty, and take the user to each affected field with CEE's `reveal`, as the list
-of CEE's own findings already does. That needs each server path mapped to a CEE location: the
-component path, and the entry of each repeating field or element along it. State the validation
-summary and the missing-required-field message through Workspace's language files, in English and
-Hungarian.
-
-Establish which CEE findings predict REST rejection and which are advisory, and gate Save only on
-the former. The `requiredValue: true` / `minItems: 0` case in CEE's
-`harness/test/report-shape.spec.ts` shows that the two verdicts can differ. Treat the server's
-response as authoritative when the validators disagree or the template changes between edit and
-save.
-
-Cover invalid-to-valid and valid-to-invalid transitions, advisory-only reports, rejected
-creates and updates, correction followed by a successful save, and differing client and server
-reports, in `src/app/metadata-editor.spec.ts` and the Playwright interaction suite.
-
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 8. Whole-Component Runtime Theme Overrides
+### 3. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -126,7 +76,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 9. Authoring Feedback for Unsupported Markup
+### 4. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -139,7 +89,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 10. Reduce Embedded Font Payload
+### 5. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -175,6 +125,40 @@ serving fonts as extra files changes that contract.
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
 
+### 6. Retire the Shared Monospace Face
+
+`font-family-monospace` is the only font role without an embedded face. It resolves to SF Mono or
+Menlo on a Mac and to the browser's generic monospace elsewhere, so the same string draws
+differently on each platform. Monitoring reads it for log lines, configuration values, its matrices
+and every `code` element. Outside Monitoring, the uses are scattered:
+
+- the term picker's term IRIs, in its selection bar and its term details, and its release hashes, in
+  the release list and the constraint table
+- `code` in CED's CEE preview, and CED's development status bar
+- the identifier, example and API key on Workspace's profile page
+- field values on CEE's demo page
+
+Set these in the body font. The term picker gives its IRI line a 1.5 line height because a monospace
+face needed the taller box, so revisit that height with Roboto. Where digits in a column must line
+up, `font-variant-numeric: tabular-nums` can align them, provided the embedded faces keep Roboto's
+tabular figures.
+
+Monitoring is then the token's only reader, which the two-reader rule refuses. Decide whether its
+logs and values also take the body font, or whether Monitoring keeps a monospace stack of its own.
+The second needs the source check and the rendered surface check, which accept only the
+vocabulary's families, to allow one family a host owns. Either way, retire the token, name its
+replacement in `tools/retired-tokens.json`, and reduce the rendered check's `font-family` scale to
+the body font.
+
+### 7. Clear the Ember Demo's Remaining Advisories
+
+The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
+which reaches it through ember-cli, stylelint and ember-template-lint, and no released `braces`
+fixes. Every other lock outside the legacy Template Editor audits clean, and nothing the demo ships
+contains `braces`. When a fixed `braces` is published, refresh the demo's lock, run its lint, tests
+and build, and record the baselines. If none is, decide whether the demo needs stylelint and
+ember-template-lint, knowing that ember-cli would still bring `braces` without them.
+
 <a id="ced"></a>
 
 ## CED
@@ -185,7 +169,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 11. Display Host-Supplied Validation Findings in CED
+### 8. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -196,7 +180,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 12. Define the Three Profiles
+### 9. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -216,7 +200,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 13. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -230,14 +214,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 14. Keyboard and Screen-Reader Access
+### 11. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 15. Complete the Template Designer
+### 12. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -249,22 +233,29 @@ draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Wo
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
 
-### 16. Enforce CED Authoring Style Contracts
+### 13. Clear CED's Token Adoption Baseline
 
-Apply central authoring recipes and rendered contracts across every field and
-element settings surface, including metadata labels, select-arrow clearance and
-controlled-term default rows. Extend coverage beyond the annotation entry row. Test
-the approved font weights and upright labels, compact row spacing, final table
-border and empty/populated alignment across standalone fields, nested fields and
-elements, all settings tabs, desktop and narrow widths, real CEF and host overrides.
-Reuse the field-type matrix rather than relying on one representative text field.
+CED's source baseline held 23 findings on 2026-10-04. The shared token gate refuses any change to a
+repository's recorded exceptions, on a push as on a pull request, so no finding can be accepted
+with a written reason. A finding leaves the baseline only when its declaration gives way to a shared
+role or recipe, or to a size named for the designer in the tokens package's `spacing` export.
+Otherwise it stays as recorded debt. Never widen an allowance or substitute a semantically unrelated
+token to pass the scanner.
 
-Consolidate CED's overlapping global, shared and component rules around the existing
-token recipes, preserving the agreed presentation. Assign ownership for each role
-and remove duplicate or unused emitted rules. Reduce the existing adoption baseline
-surface by surface and keep resolved entries pruned after review; do not expand allowances
-or replace values with semantically unrelated tokens to make the scanner green.
+The remaining findings fall into four groups:
 
-Keep validation timing, save state and default-value isolation in behavior tests;
-they cannot be guaranteed by CSS tokens. The measured coverage and source ownership
-are documented in the runbook's **CED token coverage audit**.
+- **Measurements no role describes (13).** The overview's selected-item outline and the invalid
+  card's outline (two declarations each) could become shared recipes. The preview toolbar's bar,
+  select and close button (three), the checkbox tick and radio dot (two), and the settings toggle,
+  panel toggle, display-flag row and library badge (one each) would take designer sizes. None of
+  these changes what renders.
+- **Stacking order (2).** The settings toggle sits at 11, one above the sticky layer, so that it
+  clears the insertion area between cards. The library sidebar sits at 30, below the menu layer.
+  Layer recipes in the tokens package would keep that order.
+- **Local layout (7).** These are the library sidebar's drag indicator, divider and handle (three),
+  the two height bindings of its resizable split, the scrollbar width four CED surfaces share, and
+  the designer's 500px minimum height. CED's README treats sidebar resizing and drag handles as
+  local rules, but the gate admits no exception for them. Each needs a designer size, the split a
+  custom-property binding the scanner can read, or it stays as debt.
+- **Hover dimming (1).** The user menu's trigger dims to 80% opacity on hover, which no shared role
+  describes.

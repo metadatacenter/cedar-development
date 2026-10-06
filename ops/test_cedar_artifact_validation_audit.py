@@ -301,6 +301,17 @@ class AggregateTest(unittest.TestCase):
             record["schemaVersion"] = validation.get("schemaVersion", AUDIT.MODEL_VERSION)
         return record
 
+    def test_a_valid_artifact_the_reader_refuses_is_counted_as_unreadable(self):
+        aggregate = AUDIT.Aggregate()
+        refused = {"status": "refused", "message": 'child name "@foo" in TemplateSchemaArtifactRecord is reserved'}
+        aggregate.add(self.record("template", "valid", reader=refused))
+        aggregate.add(self.record("template", "valid", reader={"status": "read"}))
+        aggregate.add(self.record("template", "invalid", errorCount=1, reader=refused))
+        aggregate.add(self.record("element", "valid"))
+        self.assertEqual(aggregate.reader_by_type, {"template": {"refused": 2, "read": 1}})
+        # Only the valid one is what the server's validator alone would have stored and nothing can open.
+        self.assertEqual([entry["message"] for entry in aggregate.valid_but_unreadable], [refused["message"]])
+
     def test_conditions_are_counted_once_per_artifact_and_split_by_verdict(self):
         aggregate = AUDIT.Aggregate()
         two_titles = [{"rule": "title-not-canonical", "path": "/title", "value": {"title": "a", "caseOnly": True}},
@@ -637,3 +648,31 @@ class StaticFieldDemandedTest(unittest.TestCase):
         doc["_ui"]["order"] = ["Section", "Name"]
         doc["_ui"]["propertyLabels"] = {"Section": "A section"}
         self.assertNotIn("static-field-required", rules(doc))
+
+
+class ToolchainResolutionTest(unittest.TestCase):
+    """The resolver is shared by tools that do not define the audit's --artifact-library."""
+
+    def resolve(self, **options):
+        import argparse
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as home:
+            library = pathlib.Path(home) / "cedar-artifact-library"
+            library.mkdir()
+            java = pathlib.Path(home) / "jdk" / "bin" / "java"
+            java.parent.mkdir(parents=True)
+            java.touch()
+            arguments = argparse.Namespace(java=str(java), classpath=None, **options)
+            with mock.patch.dict(AUDIT.os.environ, {"CEDAR_HOME": home}), \
+                    mock.patch.object(AUDIT, "run_validate_sh", return_value="validation.jar"), \
+                    mock.patch.object(AUDIT, "resolve_artifact_library_classpath",
+                                      side_effect=lambda path, _: str(path)):
+                return AUDIT.resolve_toolchain(arguments, argparse.ArgumentParser())[1], str(library)
+
+    def test_a_caller_without_the_option_takes_the_default_checkout(self):
+        classpath, library = self.resolve()
+        self.assertEqual(classpath, f"{library}{AUDIT.os.pathsep}validation.jar")
+
+    def test_an_unset_option_takes_the_default_checkout(self):
+        classpath, library = self.resolve(artifact_library=None)
+        self.assertEqual(classpath, f"{library}{AUDIT.os.pathsep}validation.jar")

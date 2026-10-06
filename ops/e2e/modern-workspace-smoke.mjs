@@ -7,6 +7,9 @@ const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
 const stamp = Date.now();
+// Fixtures are canonical local identities; modern browser addresses retain only type/UUID.
+const selector = iri => iri.split("/").slice(-2).join("/");
+const pathId = iri => iri.substring(iri.lastIndexOf("/") + 1);
 const names = Object.fromEntries(
   [
     "folder",
@@ -107,7 +110,7 @@ async function login(username, password) {
   return p;
 }
 async function listing(p, id = folderId) {
-  await p.goto(base + "/dashboard" + (id ? "?folderId=" + enc(id) : ""), {
+  await p.goto(base + "/dashboard" + (id ? "?folderId=" + enc(selector(id)) : ""), {
     waitUntil: "domcontentloaded",
   });
   await ready(p);
@@ -457,7 +460,7 @@ try {
   // retried request reach Keycloak and the resource server.
   let attempts = 0;
   const contentsUrl = (url) =>
-    url.pathname === "/folders/" + enc(folderId) + "/contents";
+    url.pathname === "/folders/" + pathId(folderId) + "/contents";
   const expireOnce = async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     attempts++;
@@ -1124,7 +1127,7 @@ try {
     "https://openview." +
       new URL(base).hostname.split(".").slice(1).join(".") +
       "/templates/" +
-      enc(copy["@id"]),
+      pathId(copy["@id"]),
   );
   await publicPage.locator("cedar-embeddable-editor").waitFor();
   await publicPage.waitForFunction((name) => {
@@ -1192,7 +1195,7 @@ try {
   const deletedRead = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname ===
-        "/command/check-update-template/" + enc(copy["@id"]) &&
+        "/command/check-update-template/" + pathId(copy["@id"]) &&
       response.status() === 404,
   );
   await page.locator("#save").click();
@@ -1354,6 +1357,17 @@ try {
       .innerText()
       .catch(() => ""),
   );
+  // A second user's page may own the failure; the original owner tab cannot explain it.
+  let otherPage = 0;
+  for (const context of browser.contexts()) for (const candidate of context.pages()) {
+    if (candidate === page || candidate.isClosed()) continue;
+    const index = ++otherPage;
+    await candidate.screenshot({
+      path: `/tmp/cedar-modern-workspace-smoke/failure-other-${index}.png`,
+      fullPage: true,
+    }).catch(() => {});
+    console.error(`Other browser page ${index}:`, await candidate.locator("body").innerText().catch(() => ""));
+  }
   throw error;
 } finally {
   await browser.close();

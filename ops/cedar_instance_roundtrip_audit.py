@@ -147,7 +147,7 @@ def template_for(client, template_id: str, cache: dict[str, Any]) -> Optional[An
         return cache[template_id]
     try:
         cache[template_id] = client.get_json(
-            f"/templates/{urllib.parse.quote(template_id, safe='')}")
+            f"/templates/{urllib.parse.quote(rest.resource_path_id(template_id), safe='')}")
     except Exception:
         cache[template_id] = None
     return cache[template_id]
@@ -155,7 +155,7 @@ def template_for(client, template_id: str, cache: dict[str, Any]) -> Optional[An
 
 def both_representations(client, ref) -> tuple[Optional[str], Optional[str], list[str]]:
     """The two documents the server serves for one instance, and what refusing them looked like."""
-    quoted = urllib.parse.quote(ref.artifact_id, safe="")
+    quoted = urllib.parse.quote(rest.resource_path_id(ref.artifact_id), safe="")
     yaml_text = json_text = None
     problems: list[str] = []
     try:
@@ -208,30 +208,58 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-verify", action="store_true",
                         help="skip the pass that re-reads everything that failed; a failure is "
                              "then whatever the first ask returned, which overstates breakage")
+    parser.add_argument("--allow-http", action="store_true",
+                        help="allow plain HTTP, for a local test server")
     return parser
 
 
-def main() -> int:
-    arguments = build_parser().parse_args()
+def write_path_error_keys(record: dict[str, Any]) -> list[str]:
+    """Why a YAML write of this instance would be refused although the deployment holds it as valid."""
+    write_path = record.get("writePath") or {}
+    if not write_path.get("storedValid"):
+        return []
+    if "stage" in write_path:
+        return [f"[{write_path.get('stage')}] " + str(write_path.get("message", ""))[:70]]
+    return [error.get("message", "")[:90] for error in write_path.get("errors", [])]
+
+
+def count_record(record: dict[str, Any], tally: collections.Counter, loss_kinds: collections.Counter,
+                 write_path_errors: collections.Counter) -> None:
+    """What one record adds to the summary, from the record alone, so a resumed run counts the
+    instances an earlier run recorded exactly as it counts its own."""
+    tally.update(record.get("counted", []))
+    for loss in (record.get("roundtrip") or {}).get("losses", []):
+        loss_kinds[loss["kind"]] += 1
+    write_path_errors.update(write_path_error_keys(record))
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    arguments = build_parser().parse_args(argv)
 
     # Three attempts, not one. A read that fails once is usually a socket timeout or a name
     # lookup that did not answer, and asking again settles it; a run that tried once reported 208
     # such reads as failures out of 301,158, every one of which served on the next ask.
     client = rest.GetOnlyClient(arguments.server,
                                 pathlib.Path(arguments.key_file).read_text().strip(),
-                                timeout=arguments.timeout, retries=3)
+                                timeout=arguments.timeout, retries=3,
+                                allow_http=arguments.allow_http)
     refs_path = arguments.records.with_name(arguments.records.stem + "-refs.json")
     summary_path = arguments.records.with_name(arguments.records.stem + "-summary.json")
 
     if arguments.resume and refs_path.exists():
         stored = json.loads(refs_path.read_text())
+        # Resuming against another deployment would mix two deployments' answers in one summary.
+        if stored.get("server") != arguments.server.rstrip("/"):
+            raise SystemExit(f"{refs_path} enumerated {stored.get('server') or 'an unnamed server'}, "
+                             f"not {arguments.server}; start a new run")
         refs = [rest.ArtifactRef("instance", i, "") for i in stored["ids"]]
         enumeration = stored["enumeration"]
         print(f"resuming over {len(refs)} enumerated instances", flush=True)
     else:
         print("enumerating instances", flush=True)
         refs, enumeration = enumerate_instances(client, arguments.page_size, arguments.limit)
-        refs_path.write_text(json.dumps({"enumeration": enumeration,
+        refs_path.write_text(json.dumps({"server": arguments.server.rstrip("/"),
+                                         "enumeration": enumeration,
                                          "ids": [r.artifact_id for r in refs]}))
         print(f"enumerated {len(refs)} instances; search reports {enumeration['reported']}; "
               f"{enumeration['duplicateRowsSkipped']} duplicate rows skipped", flush=True)
@@ -240,16 +268,23 @@ def main() -> int:
                   "the walk is not stably ordered and may not have named every instance",
                   flush=True)
 
+    tally = collections.Counter()
+    loss_kinds = collections.Counter()
+    write_path_errors = collections.Counter()
     done: set[str] = set()
     if arguments.resume:
-        done = {record["id"] for record in read_records(arguments.records) if "id" in record}
+        dropped = rest.trim_torn_tail(arguments.records)
+        if dropped:
+            print(f"dropped the last {dropped} bytes of {arguments.records}: a record the stopped "
+                  "run cut short", flush=True)
+        for record in read_records(arguments.records):
+            if "id" in record and record["id"] not in done:
+                done.add(record["id"])
+                count_record(record, tally, loss_kinds, write_path_errors)
         print(f"{len(done)} already recorded; {len(refs) - len(done)} to go", flush=True)
 
     pending = [r for r in refs if r.artifact_id not in done]
     bridge = Bridge(arguments.classpath)
-    tally = collections.Counter()
-    loss_kinds = collections.Counter()
-    write_path_errors = collections.Counter()
     template_cache: dict[str, Any] = {}
     sent_templates: set[str] = set()
     losing: list[dict[str, Any]] = []
@@ -263,6 +298,7 @@ def main() -> int:
             for index, (ref, got, error) in enumerate(
                     rest.fetch_in_order(client, pending, arguments.fetch_workers, fetch=fetch), 1):
                 record: dict[str, Any] = {"id": ref.artifact_id}
+                counted: list[str] = []
                 yaml_text, json_text, problems = got if got else (None, None, [str(error)])
                 # The template every record names is what turns a per-instance finding into a
                 # per-template one. A defect in a stored template shape is repaired by fixing that
@@ -276,31 +312,31 @@ def main() -> int:
                         pass
                 if problems:
                     record["unserved"] = problems
-                    tally["unserved"] += 1
+                    counted.append("unserved")
 
                 if yaml_text is not None:
                     served = bridge.ask({"op": "serves", "yaml": yaml_text})
                     if served.get("status") != "ok":
                         record["serves"] = {"stage": served.get("stage"),
                                             "message": served.get("message")}
-                        tally[f"served-yaml-unreadable ({served.get('stage')})"] += 1
+                        counted.append(f"served-yaml-unreadable ({served.get('stage')})")
                     elif not served.get("reproduced"):
                         record["serves"] = {"differences": served.get("differences", [])}
-                        tally["served-yaml-not-reproduced"] += 1
+                        counted.append("served-yaml-not-reproduced")
                     else:
-                        tally["served-yaml-reproduced"] += 1
+                        counted.append("served-yaml-reproduced")
 
                 if json_text is not None and not arguments.no_write_path:
                     template_id = record.get("isBasedOn")
                     if not template_id:
                         record["writePath"] = {"stage": "template", "message": "names no template"}
-                        tally["write-path-no-template"] += 1
+                        counted.append("write-path-no-template")
                     else:
                         template = template_for(client, template_id, template_cache)
                         if template is None:
                             record["writePath"] = {"stage": "template",
                                                    "message": "its template could not be read"}
-                            tally["write-path-template-unreadable"] += 1
+                            counted.append("write-path-template-unreadable")
                         else:
                             verdict = ask_write_path(bridge, template_id, template, json_text,
                                                      sent_templates)
@@ -310,21 +346,17 @@ def main() -> int:
                                 record["writePath"] = {"stage": "template",
                                                        "message": "the bridge would not hold "
                                                                   "this template"}
-                                tally["write-path-template-not-cached"] += 1
+                                counted.append("write-path-template-not-cached")
                             elif verdict.get("status") != "ok":
                                 record["writePath"] = {"stage": verdict.get("stage"),
                                                        "message": verdict.get("message"),
                                                        "storedValid": verdict.get("storedValid")}
                                 held = "stored-valid" if verdict.get("storedValid") else "stored-invalid"
-                                tally[f"write-path-failed at {verdict.get('stage')}, {held}"] += 1
-                                if verdict.get("storedValid"):
-                                    write_path_errors[
-                                        f"[{verdict.get('stage')}] "
-                                        + str(verdict.get("message", ""))[:70]] += 1
+                                counted.append(f"write-path-failed at {verdict.get('stage')}, {held}")
                             elif verdict.get("accepted"):
-                                tally["write-path-accepted"] += 1
+                                counted.append("write-path-accepted")
                                 if not verdict.get("storedValid"):
-                                    tally["write-path-accepted-though-stored-invalid"] += 1
+                                    counted.append("write-path-accepted-though-stored-invalid")
                             else:
                                 record["writePath"] = {"errors": verdict.get("errors", []),
                                                        "errorCount": verdict.get("errorCount"),
@@ -332,25 +364,21 @@ def main() -> int:
                                 if verdict.get("storedValid"):
                                     # The deployment holds this as valid and the write path would
                                     # refuse it. That is this path's defect, not the data's.
-                                    tally["write-path-refused-though-stored-valid"] += 1
-                                    for error in verdict.get("errors", []):
-                                        write_path_errors[error.get("message", "")[:90]] += 1
+                                    counted.append("write-path-refused-though-stored-valid")
                                 else:
-                                    tally["write-path-refused-and-stored-invalid"] += 1
+                                    counted.append("write-path-refused-and-stored-invalid")
 
                 if json_text is not None:
                     trip = bridge.ask({"op": "roundtrip", "json": json_text})
                     if trip.get("status") != "ok":
                         record["roundtrip"] = {"stage": trip.get("stage"),
                                                "message": trip.get("message")}
-                        tally[f"json-unreadable ({trip.get('stage')})"] += 1
+                        counted.append(f"json-unreadable ({trip.get('stage')})")
                     elif trip.get("survives"):
-                        tally["survives"] += 1
+                        counted.append("survives")
                     else:
                         record["roundtrip"] = {"losses": trip.get("losses", [])}
-                        tally["loses-content"] += 1
-                        for loss in trip.get("losses", []):
-                            loss_kinds[loss["kind"]] += 1
+                        counted.append("loses-content")
                         losing.append({"id": ref.artifact_id, "losses": trip.get("losses", [])})
 
                 # Every instance gets a record, including one with nothing to say. Resume reads
@@ -358,6 +386,8 @@ def main() -> int:
                 # make a resumed run redo every clean instance.
                 if len(record) == 1:
                     record["clean"] = True
+                record["counted"] = counted
+                count_record(record, tally, loss_kinds, write_path_errors)
                 out.write(json.dumps(record, ensure_ascii=False) + "\n")
                 out.flush()
 
@@ -405,7 +435,8 @@ def main() -> int:
     summary = {"record": "instance-roundtrip-summary", "server": arguments.server,
                "verification": verified,
                "enumeration": enumeration,
-               "instances": len(refs), "processed": len(pending), "elapsedSeconds": round(elapsed, 1),
+               "instances": len(refs), "processed": len(done) + len(pending),
+               "processedThisRun": len(pending), "elapsedSeconds": round(elapsed, 1),
                "tally": dict(tally), "lossKinds": dict(loss_kinds),
                "writePathErrors": dict(write_path_errors),
                "templatesRead": len([t for t in template_cache.values() if t]),

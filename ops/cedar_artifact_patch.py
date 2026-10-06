@@ -438,10 +438,12 @@ def detect_inherently_multiple_shapes(document: JsonNode, source: str) -> Iterat
                 if declared.get("type") != "array":
                     min_items = declared.get("minItems")
                     if not isinstance(min_items, int) or isinstance(min_items, bool):
-                        # The bound both model libraries read a silent child with. An
-                        # attribute-value field takes zero, since requiring one would mean
-                        # requiring an attribute nobody has named yet.
-                        min_items = 0 if field.get("_ui", {}).get("inputType") == "attribute-value" else 1
+                        # The bound both model libraries read a silent child with. A checkbox
+                        # or multiple-choice list takes zero because choosing nothing is a state
+                        # it can mean, and an attribute-value field because requiring one would
+                        # mean requiring an attribute nobody has named yet. Neither consults
+                        # requiredValue.
+                        min_items = 0
                     max_items = declared.get("maxItems")
                     bounded_max = (max_items if isinstance(max_items, int)
                                    and not isinstance(max_items, bool) and max_items > 0 else None)

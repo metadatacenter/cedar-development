@@ -296,14 +296,21 @@ try {
       await page.getByLabel("Description", { exact: true }).inputValue(),
       "Local edit retained",
     );
+    // Reloading recovers the revision the server now holds and keeps what the user typed, so the
+    // edit survives the conflict and saves against the recovered tag.
     await page
       .getByRole("button", { name: "Reload group", exact: true })
       .click();
     await page.getByRole("button", { name: "Save", exact: true }).waitFor();
-    await page.waitForFunction(
-      () =>
-        document.querySelector("#group-description")?.value ===
-        "Concurrent update",
+    assert.equal(
+      await page.getByLabel("Description", { exact: true }).inputValue(),
+      "Local edit retained",
+    );
+    await mutation(
+      "PUT",
+      path,
+      () => page.getByRole("button", { name: "Save", exact: true }).click(),
+      200,
     );
     await page.screenshot({
       path: "/tmp/cedar-modern-groups.png",

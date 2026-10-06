@@ -1924,11 +1924,11 @@ class WrapInherentlyMultipleTest(unittest.TestCase):
         self.assertEqual(envelope["items"], before["properties"]["Colours"])
         self.assertEqual(changes[0]["inputType"], "checkbox")
 
-    def test_a_required_value_gives_the_envelope_a_lower_bound_of_one(self):
+    def test_a_required_value_leaves_the_envelope_a_lower_bound_of_zero(self):
         node = self.multi()
         node["_valueConstraints"] = {"requiredValue": True}
         after, _changes = REPAIR.wrap_inherently_multiple(template({"Colours": node}))
-        self.assertEqual(after["properties"]["Colours"]["minItems"], 1)
+        self.assertEqual(after["properties"]["Colours"]["minItems"], 0)
 
     def test_existing_bounds_move_to_the_envelope_and_leave_the_inner_definition(self):
         node = self.multi()

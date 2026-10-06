@@ -4,7 +4,7 @@
 #
 # Runs the 15 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
 # apart from the like-named microservices: ui-main (the AngularJS monolith) and the two previews
-# being split out of it use Node (Workspace) and gulp (Designer); the other Angular applications use `ng serve`,
+# being split out of it each use a Node host script; the other Angular applications use `ng serve`,
 # as detached background processes, each logging to $CEDAR_HOME/log/, PIDs in $CEDAR_HOME/log/run/.
 # macOS uses a non-restarting launchd submitted job so the services survive shells whose command
 # runner reaps its whole process group; other systems retain the nohup launcher. One `status` view
@@ -483,15 +483,18 @@ cee_of() {  # echoes current|STALE|- for the Embeddable Editor frontend $1 serve
 }
 
 # A service can be healthy and still be serving code from before the last build, which makes a green
-# gate meaningless. Compare when the process started against when its jar was written.
-binary_of() {  # echoes current|STALE|- for a service and the pid serving it
+# gate meaningless. Compare when the process started against when its jar was written. A process that
+# answers while no jar for the configured version exists is older still: a version change left it up,
+# and it serves a version nothing here can rebuild or restart into, so it is MISSING, not unknown.
+binary_of() {  # echoes current|STALE|MISSING|- for a service and the pid serving it
   local name=$1 pid=$2 jar j_epoch p_epoch
   if serves_cee "$name"; then cee_of "$name"; return; fi
   case "$name" in
     ui-*) echo '-'; return ;;
   esac
   jar=$(jar_of "$name")
-  [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
+  [ -n "$pid" ] || { echo '-'; return; }
+  [ -f "$jar" ] || { echo MISSING; return; }
   p_epoch=$(process_start_epoch "$pid") || { echo '-'; return; }
   j_epoch=$(file_mtime "$jar") || { echo '-'; return; }
   if [ "$j_epoch" -gt "$p_epoch" ]; then echo STALE; else echo current; fi
@@ -522,7 +525,7 @@ run_one_foreground() {
       if [[ "$name" == ui-workspace ]]; then
         exec node tools/workspace.mjs start
       fi
-      exec gulp ;;
+      exec node scripts/designer.mjs start ;;
     ui-openview|ui-content|ui-monitoring|ui-bridging)
       local dir ng; dir=$(fe_dir "$name")
       cd "$dir" || return 1
@@ -612,8 +615,10 @@ start_one() {
           echo "  $name: installing the dependencies its moved lockfile left behind"
           : > "$log"
           # CEDAR_HOME is unset for the install: a checkout that resolves a sibling through it
-          # picks up the workspace clone rather than its own dependency.
-          if ! (cd "$dir" && env -u CEDAR_HOME npm ci --no-audit --no-fund >> "$log" 2>&1); then
+          # picks up the workspace clone rather than its own dependency. cedar-cli's rule runs it
+          # again if npm dropped an optional dependency after a failed download.
+          if ! (cd "$dir" && env -u CEDAR_HOME python3 "$CEDAR_HOME/cedar-cli/org/metadatacenter/npm_install.py" \
+                  npm ci --no-audit --no-fund >> "$log" 2>&1); then
             echo "  $name: REFUSED TO START — npm ci failed; see $log" >&2
             return 1
           fi
@@ -821,11 +826,12 @@ health() {
 status() {
   printf "%-18s %-8s %-8s %-10s %-8s %s\n" SERVICE PID PORT HEALTH BINARY "ERRORS(log)"
   printf "%-18s %-8s %-8s %-10s %-8s %s\n" "------" "---" "----" "------" "------" "-----------"
-  local up=0 total=0 stale=0 cee_stale=0 unmanaged=0 foreign=0 docker_owned=0 cee_stale_names="" dir
+  local up=0 total=0 stale=0 missing=0 cee_stale=0 unmanaged=0 foreign=0 docker_owned=0 cee_stale_names="" dir
   while read -r name; do
     total=$((total+1))
     inspect_status "$name"
     [ "$STATUS_HEALTH" = healthy ] && up=$((up+1))
+    [ "$STATUS_BINARY" = MISSING ] && missing=$((missing+1))
     if [ "$STATUS_BINARY" = STALE ]; then
       if serves_cee "$name"; then
         cee_stale=$((cee_stale+1)); cee_stale_names="$cee_stale_names $name"
@@ -849,6 +855,7 @@ status() {
     echo "healthy: $up / $total   (login at https://cedar.$CEDAR_HOST once ui-main + resource/user are healthy)"
   fi
   [ "$stale" -gt 0 ] && echo "WARNING: $stale service(s) marked STALE — running a jar older than the build. Run: $0 restart"
+  [ "$missing" -gt 0 ] && echo "WARNING: $missing service(s) marked MISSING — running, with no jar built for $CEDAR_VERSION. Build them, then restart."
   [ "$cee_stale" -gt 0 ] && {
     echo "WARNING:$cee_stale_names marked STALE — serving an Embeddable Editor other than the one package-lock.json names."
     for name in $cee_stale_names; do
@@ -989,6 +996,17 @@ follow_log() {
   exec tail -F -n "$lines" "$log"
 }
 
+# Stop the named services, then start them. A service that will not stop, such as one whose port
+# another process holds, is reported by stop and refused again by start; every other service is
+# started either way. Exiting on the failed stop left the whole stack down for one foreign listener.
+restart_services() {
+  local failed=0
+  "$SCRIPT_PATH" stop "$@" || failed=1
+  sleep 2
+  "$SCRIPT_PATH" start "$@" || failed=1
+  return "$failed"
+}
+
 if [ "${CEDAR_SERVICES_LIBRARY_ONLY:-false}" = true ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -1004,7 +1022,7 @@ case "$cmd" in
            await_ready "${launched[@]}" || failed=1
            exit "$failed" ;;
   stop)    failed=0; while read -r n; do stop_one "$n" || failed=1; done < <(names "$@"); exit "$failed" ;;
-  restart) "$SCRIPT_PATH" stop "$@" || exit $?; sleep 2; "$SCRIPT_PATH" start "$@" ;;
+  restart) restart_services "$@"; exit $? ;;
   status)  status ;;
   status-tsv) status_tsv ;;
   watch)   while true; do clear; date; status; sleep 5; done ;;

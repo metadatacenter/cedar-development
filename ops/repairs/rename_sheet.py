@@ -21,7 +21,7 @@ VALUES = 10
 
 
 def get(artifact_id, segment):
-    url = f"https://resource.metadatacenter.org/{segment}/{urllib.parse.quote(artifact_id, safe='')}"
+    url = f"https://resource.metadatacenter.org/{segment}/{urllib.parse.quote(rest.resource_path_id(artifact_id), safe='')}"
     request = urllib.request.Request(url, headers={'Authorization': f'apiKey {KEY}', 'Accept': 'application/json'})
     try:
         with urllib.request.urlopen(request, timeout=90) as answer:

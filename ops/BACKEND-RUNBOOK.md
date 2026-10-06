@@ -262,7 +262,11 @@ requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code.
+its health says nothing about your latest code. `MISSING` means a process answers while no jar for
+the configured `CEDAR_VERSION` exists, which is what a version change leaves running until the new
+version is built. Both are warned about under the table, and `cedarcli test e2e` refuses to record a
+run while either exists, or while a container rather than the controller serves a service, since
+nothing then says which commit it runs.
 
 `current` therefore means the process is not older than its jar, which is narrower than it reads. A
 jar can itself have been built before its repository's `develop` head, and every row says `current`
@@ -323,7 +327,7 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 | resource | 9007 | 9107 | | | | |
 | group | 9009 | 9109 | | frontend (gulp) | 4200 | — |
 | impex | 9008 | 9108 | | workspace (Angular) | 4201 | — |
-| | | | | designer (gulp preview) | 4202 | — |
+| | | | | designer (Node preview) | 4202 | — |
 | | | | | Keycloak | 8080 / 8443 (https) | |
 
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`. The same report
@@ -334,9 +338,30 @@ In Docker only the application port is published to the host. Admin connectors b
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
-Frontends (HTTP-root health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
-gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
+Frontends (HTTP-root health): `ui-main` 4200 under Gulp; `ui-workspace` 4201 and `ui-designer` 4202
+under their Node host scripts; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
 `ng serve`.
+
+## Folder and artifact request addresses
+
+New clients retain the type in every folder and artifact selector: `folders/<uuid>`,
+`templates/<uuid>`, `template-elements/<uuid>`, `template-fields/<uuid>` and
+`template-instances/<uuid>`. A REST path already includes its collection, so it is
+`/templates/<uuid>`; a query or command body uses the whole selector, such as
+`folder_id=folders/<uuid>` or `{"@id":"templates/<uuid>","targetFolderId":"folders/<uuid>"}`.
+Encode parameter values normally when constructing a URL.
+
+The microservice resolves these selectors against its configured repository base before resource
+lookup and authorization. Nginx does not reconstruct an identity. Existing encoded full-IRI
+requests remain supported indefinitely, and legacy browser applications keep using them.
+Modern frontends, internal HTTP clients and the artifact REST MCP emit the new addresses for
+canonical UUID identities. OpenView accepts both link forms for folders and artifacts.
+
+This is an HTTP addressing contract, not a JSON-LD rewrite: document `@id`, `schema:isBasedOn`
+and other stored references retain full IRIs. Clients preserve full `.net` and foreign-host
+identities until an explicit data migration has changed the stored identity. Do not manufacture
+an `.org` identity for a stored `.net` artifact. Users, groups, categories and vocabulary IRIs
+are outside this contract. Both request forms use the same permission and revision checks.
 
 ## API-Key Credentials and Management Identifiers
 
@@ -1270,11 +1295,12 @@ not replace the deployment's ordinary database backup and restore procedure.
 Check 32 is the multi-select incident repair. It inspects only field deployments inside templates and
 elements; a standalone field artifact is the reusable inner definition and is intentionally left
 object-shaped. The rewrite preserves the complete inner schema, moves any settled positive bounds to
-the array envelope, supplies an absent `minItems` as one — zero for an attribute-value field, which
-both model libraries read that way — and reports without rewriting when existing bounds contradict
-each other. The Template Designer deliberately does not perform this
-repair on load: opening an artifact must not silently change what its next save writes. Audit it alone
-before considering a write:
+the array envelope, supplies an absent `minItems` as zero, and reports without rewriting when
+existing bounds contradict each other. Zero is the bound both model libraries read for a checkbox,
+multiple-choice list or attribute-value field that states none, whatever its `requiredValue`.
+`ops/repairs/cedar_artifact_repair.py` makes the same repair over REST and supplies the same bound.
+The Template Designer deliberately does not perform this repair on load: opening an artifact must not
+silently change what its next save writes. Audit it alone before considering a write:
 
 ```bash
 python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar --items 32
@@ -1300,7 +1326,12 @@ YAML is a first-class CEDAR representation, not a side format you convert to. Bo
 server and the artifact server negotiate it on the wire, so reading and writing artifacts as YAML
 needs no conversion step: ask for it with `Accept`, send it with `Content-Type`. Two media types
 are recognized, `application/yaml` (RFC 9512) and `application/x-yaml`. JSON stays the default when
-`Accept` is absent or a wildcard, and an `Accept` naming neither yields `406`.
+`Accept` is absent or a wildcard, and an `Accept` naming neither yields `406`. A download negotiates
+exactly as a `GET` does.
+
+An artifact the artifact library cannot read has no YAML form, although its stored JSON is still
+served. A YAML read of one answers with that JSON when `Accept` also admits JSON, and with a `406`
+saying why when it does not.
 
 All four artifact types accept it — `/templates`, `/template-elements`, `/template-fields`,
 `/template-instances` — on `GET`, `POST`, and `PUT`, plus `/{id}/download` on the resource server.
@@ -1332,6 +1363,7 @@ Two things to know before relying on it:
   `id` to author minimally. Semantic IDs used as controlled-term or link values are data and remain.
 - **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
   representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
+  An `Accept` of `application/n-quads` asks for the representation `rdf-nquad` names.
 
 Storage stays JSON on both servers: YAML is a request and response representation, transcoded per
 request, never a stored form.
@@ -1478,12 +1510,35 @@ full YAML and compact YAML, including each reader's reconstructed JSON. Java ass
 feature values independently before recording output, and verifies the checked-in fixture against
 its live implementation during ordinary Maven tests. The TypeScript suite adds 1,963 checks to the
 ordinary Jest/coverage gate and verifies a vendored fixture's SHA-256 and Java commit provenance.
-Both suites assert the complete field-type roster so new types require matrix coverage.
+Both suites assert the complete field-type roster so new types require matrix coverage. The fixture
+records each field type's baseline whole and every other case as the keys and lines it changes, and
+Java asserts that each case rebuilds exactly what it wrote.
+
+A second matrix does the same for the values an instance holds. It has 60 cases: twenty value nodes,
+literal, IRI and label-only, each with the qualifying keys a value may carry (datatype, language,
+label, notation and preferred label), at the root of an instance, inside an element and as a
+repeated item. Java requires each node to survive JSON and YAML exactly, except that YAML leaves an
+unfilled value out, and records what it writes. TypeScript must write the same JSON and YAML, and
+read Java's YAML into the same JSON.
+
+A third covers how many occurrences a child takes, in 226 cases: seven kinds of child (three field
+types marked multiple, an element, and the three kinds that are lists by nature), single and with
+every combination of stated bounds, in a template and in an element. Java requires the JSON to state
+the bound the model starts with and any stated maximum, the YAML to carry both, the inflater to fill
+each repeated child to that bound, and the inflated instance to validate, except an attribute-value
+field with a minimum above zero, whose attributes no inflater can name. A maximum below the minimum
+is refused. The Template Editor stores a maximum of 0 to mean no upper bound, which JSON Schema, and
+so the validator, reads as no items. Both libraries' writers leave a 0 out, and the matrix checks that
+a template storing one is written as one stating none. The fixture holds one base template per kind and
+container and each case's bounds, and every case asserts that its base with its bounds applied is
+exactly what Java writes.
 
 ```bash
 # In cedar-artifact-library, using the runbook's Java 17 environment:
 ./mvnw -Dtest=FieldConcordanceMatrixTest -DupdateFieldConcordance=true test
-# Review and commit the Java implementation, generator and generated fixture first.
+./mvnw -Dtest=InstanceValueConcordanceMatrixTest -DupdateInstanceValueConcordance=true test
+./mvnw -Dtest=MultiplicityConcordanceMatrixTest -DupdateMultiplicityConcordance=true test
+# Review and commit the Java implementation, generators and generated fixtures first.
 # In cedar-model-typescript-library, alongside that committed Java checkout:
 npm run sync:concordance
 npm run test:concordance
@@ -1533,6 +1588,13 @@ JSON-LD names beginning `@`, CEDAR instance metadata keys and `__proto__`, `cons
 `prototype` are forbidden. Instance readers and model mutation paths enforce the same rule;
 TypeScript dictionaries also have null prototypes so an exposed-map write cannot silently lose
 `__proto__`. Writers reject forbidden entries introduced through those exposed maps.
+
+The meta-schema cannot express this rule, so `cedar-model-validation-library` accepts a template
+whose child is keyed `@foo` or `__proto__`, or whose attribute-value group is keyed `name`. The
+artifact server therefore also reads every template, element and field it is asked to store with
+the artifact library's reader, and refuses one the reader refuses, with the reader's message in the
+validation report. Every editor and viewer opens an artifact through that reader or its TypeScript
+twin, so the server stores no schema artifact they cannot open. Instances are not read on write.
 
 Ordinary fields may use YAML scalar spellings (`true`, `null`, `yes`, numeric or date-like names)
 and YAML structural keys (`type`, `name`, `children`): writers quote where needed and preserve
@@ -2119,7 +2181,9 @@ Native restart accepts the same application groups as start and stop: `microserv
 `microservices`, `frontend <name>`, `frontends`, and `frontend split-frontends`. `restart all`
 restarts every managed application while infrastructure stays running. The old no-argument
 `restart` and flat service lists (`restart repo ui-openview`) remain compatibility aliases.
-Hybrid mode permits only frontend targets. A failed stop prevents the corresponding start step.
+Hybrid mode permits only frontend targets. A service that will not stop, such as one whose port
+another process holds, is reported and refused again by the start that follows; every other service
+is still started, and the command exits non-zero.
 
 ## Building CEDAR
 
@@ -2802,15 +2866,16 @@ one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### Reproducing a Flake That Depends on Class Order
 
-Test classes share a JVM, so process-wide state outlives the class that set it. A test that holds a
-static field or a singleton past its own end decides what the next class sees, and JUnit 5 fixes
-neither class order nor method order in a way a reader can predict. Such a suite passes locally,
-passes five CI runs, and fails the sixth.
+Test classes share a JVM, so process-wide state can outlive the class that set it. The environment
+cleanup above and the Neo4j driver replacement cleanup below address known sources of leakage;
+other static state, system properties and test-owned executors still need their own cleanup. Use
+this procedure when a failure depends on the preceding tests. The diagnostic does not imply that
+the previously fixed leaks remain open.
 
-Surefire pins both halves of that order. `-Dsurefire.runOrder=alphabetical` and its
-`reversealphabetical` counterpart fix which class runs first, and
-`-Dtest='Leaker#theMethodThatLeaks,Victim'` fixes which method runs last before the victim. An
-intermittent failure then either happens on every run or on none.
+`-Dsurefire.runOrder=alphabetical` and its `reversealphabetical` counterpart select class order.
+Combine either with `-Dtest='Leaker#theMethodThatLeaks,Victim'` to select the suspected leaking
+method and the victim class; the `-Dtest` list alone does not specify execution order. Confirm the
+actual order in the test output and compare both runs to establish whether the failure depends on it.
 
 Running the whole suspect class first often proves nothing, because state usually escapes from
 particular methods rather than from all of them. The job-claim tests show it. Most of their claims
@@ -2828,22 +2893,22 @@ a missing file.
 
 ### What the Suites Actually Cover
 
-Roughly 113 test classes. They fall into layers, and it is worth knowing which layer a failure comes
-from, because they answer very different questions:
+The suites fall into layers that answer different questions. Use the current test reports for
+counts; this table describes the coverage each layer provides.
 
-| Layer | Classes | What a pass means |
-|---|---|---|
-| Config load | 16 | The server's YAML parses and env substitution resolves |
-| Boot smoke | 11 | The application starts |
-| Route surface | 7 | Every declared route answers, and answers 401 unauthenticated |
-| Model validation | 7 | Template, element, field and instance schema rules hold |
-| Artifact CRUD | 21 | Create, read, update, delete per artifact type, on embedded Mongo |
-| Workspace graph | 5 | Permissions, inheritance, moves, categories and revocation, in Neo4j |
-| Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
-| Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
-| Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 1,063 expected checks |
-| End-to-end smoke | 1 | The real stack, through a browser |
+| Layer | What a pass means |
+|---|---|
+| Config load | The server's YAML parses and env substitution resolves |
+| Boot smoke | The application starts |
+| Route surface | Endpoints in the selected inventory answer the expected status, usually 401 for protected routes without credentials |
+| Model validation | Template, element, field and instance schema rules hold |
+| Artifact CRUD | Create, read, update, delete per artifact type, on embedded Mongo |
+| Workspace graph | Permissions, inheritance, moves, categories and revocation, in Neo4j |
+| Matrices | Authorization, permission levels and artifact lifecycle, as tables |
+| Sharing and ownership | The `PUT .../permissions` round trip, including ownership transfer |
+| Content negotiation | YAML and JSON transcode both ways |
+| REST smoke | The real stack, no browser: 19 suites, 1,063 expected checks |
+| End-to-end smoke | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
 modes.** It logs in through Keycloak and treats browser-observed request and response headers as part
@@ -2876,10 +2941,10 @@ write path (which proxies, so the per-service suites cannot follow it), publish 
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
-the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
+the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `deletion`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 1,063 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 1,208 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
@@ -2959,7 +3024,11 @@ and release preflights require. Before anything runs it reads the controller's s
 while any managed service is unhealthy, stale, or served by a process the controller does not
 manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
 `npm run smoke` and `npm run smoke:workspace:modern:full`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
-heads, beside a `latest.json` copy. `cedarcli publish train` and `cedarcli release plan` look up the
+heads, beside a `latest.json` copy. The record names what the stack ran, so a checkout with another
+commit than its `develop` head checked out stops the run before it records anything. A modified or
+untracked file marks its repository dirty, since the build compiled it, and the gates refuse a dirty
+repository. A train repository not checked out here is named, and the gates refuse a train or a
+release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
 `rest-smoke-<digest>.json`.
@@ -3331,10 +3400,13 @@ than stopping at the first, and fails on an empty table.
 
 Where the coverage is thin, stated plainly so nobody reads the class count as reassurance:
 
-- **Terminology's REST surface is largely untested.** Of its 27 classes, six are `@Tag("bioportal")`
-  and 26 methods are `@Disabled`, so a normal run exercises little of it. Serving ontologies from the
-  local SQLite store is what would let those tests run offline and deterministically, which makes it
-  the largest single coverage win available.
+- **Terminology has offline route and local-store coverage; live BioPortal behaviour remains
+  separate.** `TerminologyServerApplicationSmokeTest` discovers resources from Jersey's runtime
+  registration and probes protected routes for 401, with an explicit public-route exclusion list
+  and a separate valid-query probe for property search. `LocalStoreResourceTest` serves synthetic
+  SQLite snapshots through the real HTTP application without BioPortal. Tests tagged `bioportal`
+  remain excluded from the default build, and disabled tests provide no behavioural coverage.
+  Authentication probes do not establish the correctness of those external-service operations.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
 - **Dependency coverage is partial but deliberate.**
@@ -3360,19 +3432,25 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   Pagination is covered on a folder's contents and search (`pagination` suite); the other paged
   listings are not.
 
-One hard constraint when adding to the resource server: **eight test classes that boot a server is the
-ceiling** for that module. Each boots into the shared JVM and creates a Neo4j driver whose Netty
-event-loop threads are never reclaimed, and the ninth fails with "failed to create a child event
-loop". The failure appears only in a full run, never when the class runs alone, and it names whichever
-class happened to boot last rather than the one that exhausted the JVM — so it reads as a flaky new
-test. Merge into an existing class, or take up the roadmap item that fixes it properly.
+Repeated application boots reuse or replace the shared Neo4j services through
+`CedarDataServices.initializeNeo4jServices`. The same configuration reuses the existing proxy set;
+a different configuration closes the previous set before replacing it. `Neo4JProxies` owns one
+shared driver and closes its connection pool and Netty event-loop threads. The former eight-class
+ceiling caused by abandoned drivers is no longer a constraint on adding resource-server tests.
+Keep test-owned clients and executors scoped to their fixtures; a resource-exhaustion failure in a
+later class still warrants checking what earlier classes left running.
 
 The verification discipline that matters: **the suites verify logic; a redeploy plus the `ops/e2e`
-smoke test verifies reality.** The suites cannot see the live inter-service proxy round-trip or the
-real validation path. Two dependency migrations this stack went through (Apache HttpClient 4 to 5,
-and the JSON Schema validator swap) passed every suite yet had real runtime defects that only a
-redeploy and smoke run caught. After any change touching inter-service HTTP, validation, or startup
-wiring: rebuild, redeploy, and run `ops/e2e` before trusting green suites.
+smoke test verifies reality.** Backend-free suites exercise real HTTP against downstream stubs:
+`CommandFileSystemResourceTest` checks forwarding of the caller's `If-Match`,
+`TemplatesResourceWriteSuccessTest` checks returned ETags, and `ArtifactCountsResourceTest` checks
+caller identity and the configured internal service key. These tests verify the caller against a
+stub's contract; they do not prove that independently built services agree on that contract, or
+exercise the complete deployed authentication and validation path. Whole-stack smoke does not run
+in per-repository PR CI. Two dependency migrations (Apache HttpClient 4 to 5 and the JSON Schema
+validator swap) passed every suite yet had runtime defects caught by a development-stack redeploy
+and smoke run. After any change touching inter-service HTTP, validation, or startup wiring: rebuild,
+redeploy, and run `cedarcli test e2e` before trusting green suites.
 
 The full gate, in order:
 
@@ -3438,7 +3516,7 @@ and what it needs to run.
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
 | schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
 | submission | `SubmissionRoutesRespondTest` | `RouteSurface` 401 | none |
-| terminology | `TerminologyServerApplicationSmokeTest` | explicit | none |
+| terminology | `TerminologyServerApplicationSmokeTest` | runtime-derived `RouteSurface` 401 with public-route exceptions and a separate property-search probe | none |
 | user | `UserServerApplicationSmokeTest` | explicit | embedded Neo4j |
 | valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
@@ -3454,17 +3532,24 @@ stack or a live external API.
 
 ### Reading the Mechanism Column
 
-`RouteSurface` enumerates a resource class's endpoints by reflection and requires each to answer an
-expected status. Its value is that it covers routes nobody wrote a test for, and it fails rather than
-passes when the resource list is wrong — an empty surface is an explicit error, not a silent success.
-Adding an endpoint to a covered resource extends the assertion automatically.
+`RouteSurface` enumerates the supplied resource classes' endpoints by reflection and requires each
+to answer an expected status. Adding an endpoint to a covered resource extends the assertion
+automatically, and an empty surface is an explicit error. A nonempty but incomplete class list can
+still omit routes: worker, for example, supplies a manual list. Terminology discovers its classes
+from Jersey's runtime registration, so newly registered resources join the probe automatically.
+Runtime discovery alone cannot establish that every intended resource was registered; that needs
+an independent expected inventory. A 401 probe establishes rejection of an anonymous request, not
+successful authenticated behaviour or correct permissions for each role.
 
 `PermissionMatrix` is the heavier form, used where authorization is a grid rather than a gate: it
 asserts what each role may do to each artifact at each permission level.
 
 "Explicit" means the failure path is asserted directly in per-resource tests rather than derived from
-the route surface. It is not weaker — the artifact server's coverage is the deepest in the system —
-but it is per-endpoint, so a newly added endpoint is not covered until someone writes for it.
+the route surface. Artifact's CRUD suites exercise behaviour beyond an authentication probe, but a
+new endpoint does not automatically acquire a test. Artifact also registers
+`ArtifactServiceAuthenticationFilter` centrally for business resources: missing route reflection
+does not imply missing internal-service authentication. Tests of the caller's user credentials and
+permissions remain separate from that service-key gate.
 
 ### Two Services Have No 401 to Assert
 
@@ -3489,8 +3574,10 @@ The matrix is derived from the test sources by hand, so nothing fails when a new
 one. Wiring the derivation into the test-enabled `cedarcli build` mode would make a missing baseline
 break the build rather than go unnoticed.
 
-The "explicit" services — artifact, terminology, user — assert failure paths per endpoint rather than
-over the route surface, so a newly added endpoint is uncovered until someone writes for it.
+Artifact and user assert failure paths per endpoint without an automatic route inventory, so a
+newly added endpoint does not automatically gain coverage. Terminology has runtime-derived route
+probes; manual resource lists in other route suites and omitted runtime registrations have the
+limits described above.
 
 Open-view pins only the absent-artifact half of its contract. An artifact that exists but is not open
 needs a seeded graph and belongs with the sharing tests.
@@ -3801,9 +3888,11 @@ python3 ops/cedar_artifact_rest_audit.py \
 ```
 
 Resume validates the server, selected types, limit, ruleset and exact script SHA against the refs
-header. It skips completion records, and also treats an artifact ID already present in findings as
-complete to close the small crash window between flushing its findings and recording completion.
-Artifacts with no findings are still resumable because their completion lives in the refs sidecar.
+header. An artifact is finished once its completion record says it was fetched, and resume skips
+only those. One whose fetch failed is fetched again. One the run stopped inside, with its findings
+written and its completion not, has those findings withdrawn and is audited again, so each artifact
+is counted once. A record the stop cut in two, in either file, is dropped. Artifacts with no
+findings are still resumable because their completion lives in the refs sidecar.
 A complete run normally exits zero even when it finds defects; `--fail-on-findings` makes findings
 exit 1, while an incomplete run exits 2.
 
@@ -3928,7 +4017,8 @@ run is looked at. Four files sit together, named from `--out`:
 Ctrl-C and request failures keep what was written. Repeating the original arguments with `--resume`
 reads the refs and the records, treats every fetched artifact as done, retries the ones whose fetch
 failed, and rebuilds the summary from the records, so the counts after a resume are those of one
-uninterrupted run. The refs header pins the server, the types, the limit, the model version and the
+uninterrupted run. Bridge incidents are among them, read from the records they marked. A final record
+the stop cut in two is dropped and its artifact validated again. The refs header pins the server, the types, the limit, the model version and the
 exact script and bridge that started the run; a change to any of them needs a new run. A complete
 run exits zero even when artifacts are invalid, `--fail-on-invalid` makes them exit 1, and an
 incomplete run exits 2.
@@ -4399,7 +4489,9 @@ reporting them. What remains is content the round trip lost, reported with its p
 kind.
 
 The run streams one record per instance, including a `"clean": true` record for an instance with
-nothing to say, which is what `--resume` reads back to know what is done. `--limit` makes a sample
+nothing to say, which is what `--resume` reads back to know what is done. Each record names what it
+counted, so the summary after a resume covers every recorded instance, as one uninterrupted run's
+would. The refs file names the server it enumerated, and a resume against another one is refused. `--limit` makes a sample
 run, `--page-size` and `--fetch-workers` tune the walk, and `--timeout` bounds one read.
 
 ### Would a YAML Write Be Stored?
@@ -4834,7 +4926,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `repair-unambiguous-instance-structure` | Remove blank attribute-name references only when neither a value nor a context mapping exists for that name. Trim a child key only when the target is declared, absent, and pins exactly the existing property IRI. Replace empty nested element IDs with stable absolute IDs derived from the root instance ID and occurrence path, only where the schema permits an empty identity. Preserve every entered value and existing usable ID. Compose with a context repair when either alone would leave the instance invalid. |
 | `remove-reviewed-extra-schema-context` | With `--schema-context-removal-plan`, remove Java-reviewed datatype mappings from static-field schema contexts and unused `xsd`, `skos` or `openminds` prefixes where noncanonical. Plans pin complete before/after fingerprints. Preserve all actual metadata, instance-context schemas and referenced prefixes; inspect keys, values and nested context bindings when checking usage. Compare Java-generated YAML before and after to confirm modeled content is unchanged. |
 | `complete-reviewed-standard-context` | With `--standard-context-plan`, append Java-reviewed standard mapping names to a template's instance-context `required` list, or add absent canonical mappings to an instance. Plans pin complete before/after fingerprints. Template writes require complete, conflict-free dependent-instance checks with no instance patches pending. Existing mappings and entered values cannot be overwritten; an instance candidate must fully validate before writing. |
-| `rename-reserved-value-child` | After explicit approval and checking dependent instances, rename a child field declared as `@value` to `value`, including its context, required-list and UI references. Preserve the property IRI, identifiers, field constraints and inner literal `@value`; append the child to UI order when absent. Refuse conflicting destinations. |
+| `rename-reserved-child` | After explicit approval and checking dependent instances, rename a child field stored under a key the artifact library reserves: `@value` to `value`, `@Type` to `Type` and `@xml:lang` to `xml:lang`. Each rename covers the child's context, required-list and UI references, and a label equal to the old key follows it. Preserve the property IRI, identifiers, field constraints and inner literal `@value`; append the child to UI order when absent. Refuse conflicting destinations. |
 | `drop-orphan-literal-actions` | After approval, remove only nonempty vocabulary `actions` from literal `textfield` declarations with `@value`, no `@id`, and no active ontology/value-set/class/branch constraints. Preserve regexes, defaults, required flags and every other property. IRI fields and active vocabulary selections are excluded. |
 | `empty-derived-from` | Delete empty-string `pav:derivedFrom` at every depth; preserve populated provenance. |
 | `canonicalise-iri-field-required` | Remove legacy presence requirements only from unambiguous IRI fields. First verify each changed field's Java-rendered counterpart also declares `@id`, not `@value`, and has no `required` list. Preserve `_valueConstraints.requiredValue` and vocabulary constraints; validate the complete template and dependent instances. |
@@ -4902,6 +4994,9 @@ python3 ops/repairs/cedar_artifact_repair.py --from-records production-validatio
 `--condition` narrows a chain's target set; `--types` selects artifact kinds; `--limit` sizes a trial.
 Give each run its own `--out` and retain its preimages and ETags. Concurrent writes are refused by
 `If-Match`; investigate a `write-failed` result and use `--resume` to re-fetch rather than overwriting.
+A resume skips the artifacts the same chain of repairs already repaired or found clean, and tries
+every other outcome again. An interrupted parallel run records each write still in flight before
+it stops, so no write goes unrecorded, and the summary after a resume describes the whole repair.
 A no-change candidate is `already-clean` only after validation.
 
 Outcomes include `repaired`, `would-repair`, `already-clean`, `still-invalid`, `invariant-failed`,
@@ -5189,8 +5284,8 @@ This check intentionally stops at the authentication boundary; it does not enter
 mutate data.
 
 The route-only cutover and rollback can be rehearsed locally before that authorization. Start the
-monolith and the two extracted applications on ports 4200-4202 (native Gulp servers or the local
-preview images), then run:
+monolith and the two extracted applications on ports 4200-4202 (native development servers or the
+local preview images), then run:
 
 ```bash
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-frontend
@@ -5230,7 +5325,7 @@ The installer verifies each SAN, expiry, and CA signature before copying the lea
 nginx includes into `/opt/homebrew/etc/nginx/cedar`. It validates the nginx configuration and then
 reloads nginx when direct non-interactive sudo is available, otherwise it uses the CEDAR-scoped
 stop/start helpers. It adds only the two hostname virtual hosts; the monolith virtual host remains
-untouched. Local development can run native Gulp servers with
+untouched. Local development can run the two native development servers with
 `cedarcli native start frontend split-frontends`. The all-Docker variant uses the normal seven-frontend
 stack. Stop native listeners first because both modes publish the same ports:
 
@@ -5263,10 +5358,10 @@ backend containers nor stored CEDAR data.
 
 ### Native Staging Payloads (No Docker)
 
-Staging follows the existing monolith deployment model. Publish the npm artifacts on the release
-host with the explicit command above, but deploy from approved Git commits on the staging host. The
-staging profile must set `CEDAR_FRONTEND_BEHAVIOR=server`, the normal CEDAR host/REST variables, and
-the two exact HTTPS origins:
+Staging follows the existing monolith deployment model. Build trains and releases publish the npm
+packages, but the staging host deploys from approved Git commits. The staging profile must set
+`CEDAR_FRONTEND_BEHAVIOR=server`, the normal CEDAR host/REST variables, and the two exact HTTPS
+origins:
 
 ```bash
 export CEDAR_WORKSPACE_FRONTEND_URL=https://<workspace-staging-host>
@@ -5277,15 +5372,23 @@ cedarcli git pull                   # or check out the exact approved commits/ta
 cedarcli build split-frontends --server-payload
 ```
 
-The last command refuses a dirty source checkout, runs `npm ci` and Gulp for both repositories, and
-writes a no-store `app/config/build-info.json` containing the package version, full source commit,
-version modifier, and SHA-256 of the exact generated tree. Gulp exits in `server` mode. Native nginx
-serves `$CEDAR_HOME/cedar-workspace/app` and `$CEDAR_HOME/cedar-template-designer/app` directly, so
-there is no frontend container and no long-running Gulp service on staging. Install and validate the
-two static-root virtual hosts, certificates, Keycloak entries, and backend CORS list separately;
-then run the deployment and authenticated smokes before any route switch.
+The last command refuses a dirty source checkout and runs `npm ci` in both repositories. It then
+runs Workspace's Angular build and Template Designer's staging script, each of which writes its
+`app` tree and exits in `server` mode. Finally it writes a no-store `app/config/build-info.json`
+containing the package version, full source commit, version modifier, and SHA-256 of the exact
+generated tree. Native nginx serves `$CEDAR_HOME/cedar-workspace/app` and
+`$CEDAR_HOME/cedar-template-designer/app` directly, so there is no frontend container and no
+long-running development server on staging. Install and validate the two static-root virtual hosts,
+certificates, Keycloak entries, and backend CORS list separately; then run the deployment and
+authenticated smokes before any route switch.
 
-`cedarcli build split-frontends` without `--server-payload` only installs the locked dependencies.
+On a host that also serves the monolith, `cedarcli build server-frontends --server-payload` builds
+all three trees with the same checks. The monolith's build runs `npm ci` and Gulp, refreshes the
+modification time of `app/config/version.js` so that a browser holding the old file fetches the new
+one, and writes its own `build-info.json`.
+
+Without `--server-payload`, `cedarcli build split-frontends` builds Workspace and installs Template
+Designer's locked dependencies in an isolated checkout, leaving both working trees as they are.
 `cedarcli native start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
 4202, not for a staging static payload.
 
@@ -5487,7 +5590,10 @@ Confirmation is bound to the user, root, resource identifiers, topology, content
 permissions and reference identifiers. The server recomputes this inventory before applying it; a
 changed or blocked plan deletes nothing. The client cannot supply extra deletion identifiers.
 Execution rechecks each item's location, permission and graph revision, uses the recorded content
-ETag for artifact deletion, and deletes folders deepest-first only when empty. It stops on the first
+ETag for artifact deletion, and deletes folders deepest-first only when empty. Instances go first. Among
+artifacts, each version goes before the version it was made from, because deleting a version rewrites
+its successor's `pav:previousVersion` and moves the successor's content ETag past the recorded one.
+It stops on the first
 refusal, conflict, unavailable dependency or pending artifact cleanup. The template endpoint retains
 its final content-store reference check. A refused artifact request abandons its outbox job; it must
 not become an automatic deletion after the blocker later disappears.
