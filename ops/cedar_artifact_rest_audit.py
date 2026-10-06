@@ -964,6 +964,9 @@ def audit_schema_decisions(ref: ArtifactRef, node: Any, path: str = "",
             for child, mapping in mappings.items():
                 enum = mapping.get("enum") if isinstance(mapping, dict) else None
                 for index, iri in enumerate(enum if isinstance(enum, list) else []):
+                    # A JSON-LD keyword such as `@nest`, which `_annotations` maps to, is not an IRI.
+                    if isinstance(iri, str) and iri.startswith("@"):
+                        continue
                     yield from decision_iri(
                         ref, iri, f"{path}/properties/@context/properties/{json_pointer_component(child)}/enum/{index}",
                         "property IRI")

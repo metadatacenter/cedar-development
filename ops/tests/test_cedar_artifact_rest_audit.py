@@ -1140,7 +1140,8 @@ class DecisionClassTest(unittest.TestCase):
         ref = audit.ArtifactRef("template", "https://repo.example/templates/t")
         template = {"@id": "https://repo.example/templates/t", "@type": self.TEMPLATE, "pav:version": "1.0.0",
                     "schema:schemaVersion": "1.6.0", "properties": {
-                        "@context": {"properties": {"f": {"enum": ["https://schema.example/p"]}}}}}
+                        "@context": {"properties": {"f": {"enum": ["https://schema.example/p"]},
+                                                    "_annotations": {"enum": ["@nest"]}}}}}
         self.assertEqual([], self.rules(audit.audit_schema_decisions(ref, template, "", "template")))
 
     def test_an_instance_is_judged_at_its_non_value_positions_only(self):
