@@ -63,7 +63,7 @@ try {
     await open(`/${route}/create?${params}`);
     if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
     const nameInput = () => kind === 'template' ? page.getByPlaceholder('Template name', { exact: true }) : page.getByRole('textbox', { name: kind === 'field' ? 'Field display name' : 'Element name', exact: true });
-    const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Add helper instructions for users...' : 'Add description...', { exact: true });
+    const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Field description' : 'Add description...', { exact: true });
     await page.waitForFunction(() => document.getElementById('save').disabled);
     // A new artifact is unmodified until it is edited.
     assert.equal(await page.locator('#state').textContent(), 'Unmodified');
