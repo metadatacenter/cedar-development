@@ -3713,6 +3713,59 @@ def blank_orphan_property_labels(container: Any) -> list[str]:
             if isinstance(label, str) and not label.strip() and name not in declared]
 
 
+def empty_orphan_property_mappings(container: Any) -> list[str]:
+    """The property mappings in a container's ``@context`` that name no child and give an empty IRI.
+
+    A mapping says which property IRI a child's values carry. One that names no child is what a
+    deleted or never-created child left behind, and one whose IRI is the empty string maps nothing:
+    the readers refuse an empty property IRI. Where both hold, nothing reads the entry, so removing
+    it changes nothing the artifact says. A mapping that names a child, however
+    malformed, is left to a repair that can say which IRI the child should carry.
+    """
+    properties = container.get("properties") if isinstance(container, dict) else None
+    context = properties.get("@context") if isinstance(properties, dict) else None
+    mappings = context.get("properties") if isinstance(context, dict) else None
+    if not isinstance(mappings, dict):
+        return []
+    declared = {name for name, _child, _multiple in container_children(container)}
+    required = context.get("required") if isinstance(context.get("required"), list) else []
+    return [name for name, mapping in mappings.items()
+            if isinstance(mapping, dict) and mapping == {"enum": [""]}
+            and name not in declared and name not in required]
+
+
+def drop_empty_orphan_property_mappings(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a property mapping that names no child and maps it to an empty IRI."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name in empty_orphan_property_mappings(container):
+            del result["properties"]["@context"]["properties"][name]
+            changes.append({"path": f"{path}/properties/@context/properties/{rest.json_pointer_component(name)}",
+                            "replaced": container["properties"]["@context"]["properties"][name], "wrote": None})
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_empty_orphan_property_mappings(before: Any, after: Any) -> Optional[str]:
+    """The invariant: removing every empty orphan mapping from the pre-image gives the stored body."""
+    expected, _changes = drop_empty_orphan_property_mappings(before)
+    return None if expected == after else "/"
+
+
 def drop_blank_orphan_property_labels(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Remove a blank property label left behind by a child that no longer exists."""
     if not isinstance(artifact, dict):
@@ -8317,6 +8370,13 @@ REPAIRS = {
         transform=settle_controlled_term_field,
         invariant=only_settled_controlled_term_fields,
         error_pattern=IRI_INPUT_TYPE_ERROR,
+    ),
+    "drop-empty-orphan-property-mapping": Repair(
+        name="drop-empty-orphan-property-mapping",
+        condition="decision-iri-empty",
+        summary="remove a property mapping that names no child and maps it to an empty IRI",
+        transform=drop_empty_orphan_property_mappings,
+        invariant=only_dropped_empty_orphan_property_mappings,
     ),
     "drop-blank-orphan-property-label": Repair(
         name="drop-blank-orphan-property-label",

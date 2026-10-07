@@ -291,14 +291,22 @@ runtime tarball OpenView copies. Only then does `npm/current.json` advance. A tr
 the complete model → CEE → frontend chain; it never silently substitutes whichever dev packages
 happened to have been published before the train began.
 
+Nexus does not keep what a train publishes to `npm-cedar`. The repository's cleanup runs daily at
+08:00 UTC and removes a prerelease three days after upload and a release thirty days after it, so
+every package a train publishes there is gone within days. A release pins the train's design
+tokens, term picker and designer, so completion also copies those three tarballs, byte for byte
+and under the same version, into `npm-cedar-releases`, a repository with no cleanup policy that
+refuses a second upload of a version. The completion record lists the copies under
+`retainedPackages`, and a release refuses a train whose record has none.
+
 Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
 the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
-defaults name development packages, and Nexus keeps only the last couple of trains' development
-packages, so left alone they stop resolving within days and the Docker build's own CI goes red. A
-release rewrites them from the train's recorded inputs, as the release runbook describes. Every
+defaults name development packages, which Nexus removes three days after upload, so left alone
+they stop resolving within days and the Docker build's own CI goes red. A release rewrites them
+from the train's recorded inputs, as the release runbook describes. Every
 image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
 npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
 `/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
@@ -319,7 +327,9 @@ are optional and are not part of this pointer.
 At deployment time, `cedarcli docker start` reads that completion record again. It applies the
 selected pull policy, requires every selected local image tag to carry the recorded repository
 digest, and then starts Compose with pulling disabled. A tag that is absent, locally rebuilt, or
-now resolves to different registry content is rejected before any service starts.
+now resolves to different registry content is rejected before any service starts. Every image tag
+carries the train ID, and Nexus removes a `-dev.` tag from both Docker repositories three days after
+upload, so a machine can pull a train's images only within three days of the train.
 
 ## What a Train Costs
 

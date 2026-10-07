@@ -866,6 +866,160 @@ def audit_model_version(ref: ArtifactRef, node: Any, path: str, at_type: Optiona
                       "keeps whatever the client sends, so this does not correct itself", declared)
 
 
+# The open rule decisions: values the validator and the two model libraries still answer
+# differently, counted where production holds them so each can be settled against real data. Each
+# finding names its class and the position it was found at; none is a save failure today.
+DECISION_SPACE = re.compile(r"[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]")
+DECISION_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+DECISION_LEADING_ZERO = re.compile(r"(^|\.)0\d")
+DECISION_VERSION_KEYS = ("pav:version", "schema:schemaVersion")
+DECISION_IRI_INPUT_TYPES = {"link", "ext-ror", "ext-orcid", "ext-pfas", "ext-pubmed", "ext-rrid",
+                            "ext-nih-grant-id", "ext-doi"}
+# The properties each kind's meta-schema declares at its top level. A key outside them is valid,
+# because none of the meta-schemas closes its top level, and is what decision 5 is about.
+DECISION_DECLARED = {
+    "template": {"$schema", "@context", "@id", "@nest", "@type", "_ui", "additionalProperties", "bibo:status",
+                 "description", "oslc:modifiedBy", "pav:createdBy", "pav:createdOn", "pav:derivedFrom",
+                 "pav:lastUpdatedOn", "pav:previousVersion", "pav:version", "properties", "required",
+                 "schema:description", "schema:identifier", "schema:name", "schema:schemaVersion", "title",
+                 "type"},
+    "field": {"$schema", "@context", "@id", "@nest", "@type", "_ui", "_valueConstraints", "additionalProperties",
+              "bibo:status", "description", "oslc:modifiedBy", "pav:createdBy", "pav:createdOn",
+              "pav:lastUpdatedOn", "pav:version", "properties", "required", "schema:description",
+              "schema:identifier", "schema:name", "schema:schemaVersion", "skos:altLabel", "skos:prefLabel",
+              "title", "type"},
+    "static": {"$schema", "@context", "@id", "@type", "_ui", "additionalProperties", "description",
+               "oslc:modifiedBy", "pav:createdBy", "pav:createdOn", "pav:lastUpdatedOn", "pav:version",
+               "properties", "schema:description", "schema:name", "schema:schemaVersion", "title", "type"},
+}
+DECISION_DECLARED["element"] = DECISION_DECLARED["template"]
+
+
+def decision_iri_class(value: Any) -> Optional[str]:
+    """Which open IRI class a value at a non-value position falls in, if any."""
+    if not isinstance(value, str):
+        return None
+    if value == "":
+        return "empty"
+    if DECISION_SPACE.search(value):
+        return "space"
+    if not DECISION_SCHEME.match(value):
+        return "relative"
+    return None
+
+
+def decision_iri(ref: ArtifactRef, value: Any, path: str, position: str) -> Iterator[Finding]:
+    kind = decision_iri_class(value)
+    if kind is not None:
+        yield finding(ref, f"decision-iri-{kind}", "decision", path, f"{kind} IRI at a {position}", value)
+
+
+def decision_kind(node: dict, root_type: Optional[str]) -> Optional[str]:
+    at_type = node.get("@type")
+    if at_type == STATIC_TEMPLATE_FIELD:
+        return "static"
+    if at_type == TEMPLATE_FIELD:
+        return "field"
+    if at_type == TEMPLATE_ELEMENT:
+        return "element"
+    if isinstance(at_type, str) and at_type.endswith("/Template"):
+        return "template"
+    return root_type
+
+
+def audit_schema_decisions(ref: ArtifactRef, node: Any, path: str = "",
+                           root_type: Optional[str] = None) -> Iterator[Finding]:
+    """Every open decision class a schema node and the children it embeds hold."""
+    if not isinstance(node, dict):
+        return
+    kind = decision_kind(node, root_type)
+    if kind is not None:
+        for key in node:
+            if key not in DECISION_DECLARED[kind]:
+                yield finding(ref, "decision-property-undeclared", "decision",
+                              f"{path}/{json_pointer_component(key)}",
+                              f"a {kind} carries a top-level property its meta-schema does not declare", key)
+    yield from decision_iri(ref, node.get("@id"), f"{path}/@id", "schema @id")
+    for key in ("pav:derivedFrom", "pav:previousVersion"):
+        yield from decision_iri(ref, node.get(key), f"{path}/{json_pointer_component(key)}", key)
+    for key in DECISION_VERSION_KEYS:
+        stated = node.get(key)
+        if isinstance(stated, str) and stated == "0.0.0":
+            yield finding(ref, "decision-version-zero", "decision", f"{path}/{json_pointer_component(key)}",
+                          f"{key} is 0.0.0", stated)
+        elif isinstance(stated, str) and DECISION_LEADING_ZERO.search(stated):
+            yield finding(ref, "decision-version-leading-zero", "decision",
+                          f"{path}/{json_pointer_component(key)}", f"{key} has a part with a leading zero",
+                          stated)
+    properties = node.get("properties")
+    if isinstance(properties, dict):
+        for key in properties:
+            if key == "" or key.strip() == "":
+                yield finding(ref, "decision-child-key-blank" if key == "" else "decision-child-key-whitespace",
+                              "decision", f"{path}/properties/{json_pointer_component(key)}",
+                              "a child key with no visible character", key)
+        context = properties.get("@context")
+        mappings = context.get("properties") if isinstance(context, dict) else None
+        if isinstance(mappings, dict):
+            for child, mapping in mappings.items():
+                enum = mapping.get("enum") if isinstance(mapping, dict) else None
+                for index, iri in enumerate(enum if isinstance(enum, list) else []):
+                    # A JSON-LD keyword such as `@nest`, which `_annotations` maps to, is not an IRI.
+                    if isinstance(iri, str) and iri.startswith("@"):
+                        continue
+                    yield from decision_iri(
+                        ref, iri, f"{path}/properties/@context/properties/{json_pointer_component(child)}/enum/{index}",
+                        "property IRI")
+    constraints = node.get("_valueConstraints")
+    if isinstance(constraints, dict):
+        for group in ("ontologies", "classes", "branches", "valueSets"):
+            for index, entry in enumerate(constraints.get(group) or []):
+                if isinstance(entry, dict):
+                    yield from decision_iri(ref, entry.get("uri"), f"{path}/_valueConstraints/{group}/{index}/uri",
+                                            "constraint IRI")
+        for index, action in enumerate(constraints.get("actions") or []):
+            if isinstance(action, dict):
+                for key in ("termUri", "sourceUri"):
+                    yield from decision_iri(ref, action.get(key),
+                                            f"{path}/_valueConstraints/actions/{index}/{key}", "constraint IRI")
+        default = constraints.get("defaultValue")
+        input_type = (node.get("_ui") or {}).get("inputType") if isinstance(node.get("_ui"), dict) else None
+        if isinstance(default, dict):
+            yield from decision_iri(ref, default.get("termUri"), f"{path}/_valueConstraints/defaultValue/termUri",
+                                    "default IRI")
+        elif input_type in DECISION_IRI_INPUT_TYPES:
+            yield from decision_iri(ref, default, f"{path}/_valueConstraints/defaultValue", "default IRI")
+    for name, child, multiple, _error in direct_schema_children(node):
+        if child is not None:
+            where = f"{path}/properties/{json_pointer_component(name)}" + ("/items" if multiple else "")
+            yield from audit_schema_decisions(ref, child, where, None)
+
+
+def audit_instance_decisions(ref: ArtifactRef, node: Any, path: str = "", root: bool = True) -> Iterator[Finding]:
+    """The open IRI classes at an instance's non-value positions: its own @id, the template it names,
+    its provenance, and each element occurrence's @id. A field value's @id is a value position and
+    is left out."""
+    if not isinstance(node, dict):
+        if isinstance(node, list):
+            for index, item in enumerate(node):
+                yield from audit_instance_decisions(ref, item, f"{path}/{index}", False)
+        return
+    if root:
+        yield from decision_iri(ref, node.get("schema:isBasedOn"), "/schema:isBasedOn", "schema:isBasedOn")
+        yield from decision_iri(ref, node.get("pav:derivedFrom"), "/pav:derivedFrom", "pav:derivedFrom")
+    if root or isinstance(node.get("@context"), dict):
+        yield from decision_iri(ref, node.get("@id"), f"{path}/@id", "instance @id" if root else "occurrence @id")
+    for key, value in node.items():
+        if key.startswith("@") or key in ("schema:isBasedOn", "pav:derivedFrom"):
+            continue
+        if key.strip() == "":
+            yield finding(ref, "decision-child-key-blank" if key == "" else "decision-child-key-whitespace",
+                          "decision", f"{path}/{json_pointer_component(key)}", "a child key with no visible character",
+                          key)
+        if isinstance(value, (dict, list)):
+            yield from audit_instance_decisions(ref, value, f"{path}/{json_pointer_component(key)}", False)
+
+
 def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     if not isinstance(artifact, dict):
         return
@@ -888,6 +1042,8 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     yield from audit_provenance(ref, artifact, "")
     yield from audit_input_type(ref, artifact, "")
     yield from audit_default_value_kind(ref, artifact, "")
+    yield from audit_schema_decisions(ref, artifact, "", {"template": "template", "element": "element",
+                                                          "field": "field"}.get(ref.artifact_type))
 
     def walk(container: dict, path: str) -> Iterator[Finding]:
         properties = container.get("properties")
@@ -1194,6 +1350,7 @@ def audit_instance(ref: ArtifactRef, artifact: Any,
                       "template instance root has no @context object")
     yield from audit_value_ids(ref, artifact)
     yield from audit_structural_occurrence_ids(ref, artifact)
+    yield from audit_instance_decisions(ref, artifact)
     if template_shape is None:
         yield finding(ref, "template-analysis-unavailable", "audit-incomplete", "/schema:isBasedOn",
                       "template could not be resolved, so occurrence and attribute-name checks were skipped",

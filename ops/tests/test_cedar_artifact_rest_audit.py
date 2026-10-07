@@ -315,7 +315,9 @@ class RuleTests(unittest.TestCase):
             {"Study Name": {"enum": [""]}},
             [],
         )
-        rules = {item.rule for item in audit.audit_schema(self.ref(), artifact)}
+        # The decision family counts the same values for an open rule; DecisionClassTest covers it.
+        rules = {item.rule for item in audit.audit_schema(self.ref(), artifact)
+                 if not item.rule.startswith("decision-")}
         self.assertEqual(
             rules,
             {"child-id-unusable", "child-property-iri-unusable", "child-context-required-missing"},
@@ -1106,6 +1108,51 @@ class RestIntegrationTests(unittest.TestCase):
             self.assertEqual(report["refsFile"], str(refs))
             self.assertFalse(any("/search-deep" in path for _, path, _ in _FakeCedarHandler.requests))
             self.assertEqual(refs.stat().st_mode & 0o077, 0)
+
+
+class DecisionClassTest(unittest.TestCase):
+    """The open rule decisions are counted at the positions each one governs, and nowhere else."""
+
+    TEMPLATE = "https://schema.metadatacenter.org/core/Template"
+
+    def rules(self, findings):
+        return sorted(f.rule for f in findings if f.rule.startswith("decision-"))
+
+    def test_a_schema_carrying_each_class_reports_each_once(self):
+        ref = audit.ArtifactRef("template", "https://repo.example/templates/t")
+        child = {"@id": "fields/relative", "@type": audit.TEMPLATE_FIELD, "type": "object",
+                 "_ui": {"inputType": "link"}, "pav:version": "01.0.0",
+                 "_valueConstraints": {"defaultValue": "https://example.org/a b"}, "bogus": True}
+        template = {
+            "@id": "", "@type": self.TEMPLATE, "pav:version": "0.0.0", "pav:derivedFrom": "relative/source",
+            "properties": {
+                "@context": {"properties": {"f": {"enum": ["no-scheme"]}}},
+                "f": child, " ": {"type": "string"},
+            },
+        }
+        self.assertEqual(sorted([
+            "decision-child-key-whitespace", "decision-iri-empty", "decision-iri-relative",
+            "decision-iri-relative", "decision-iri-relative", "decision-iri-space",
+            "decision-property-undeclared", "decision-version-leading-zero", "decision-version-zero",
+        ]), self.rules(audit.audit_schema_decisions(ref, template, "", "template")))
+
+    def test_a_clean_schema_reports_none(self):
+        ref = audit.ArtifactRef("template", "https://repo.example/templates/t")
+        template = {"@id": "https://repo.example/templates/t", "@type": self.TEMPLATE, "pav:version": "1.0.0",
+                    "schema:schemaVersion": "1.6.0", "properties": {
+                        "@context": {"properties": {"f": {"enum": ["https://schema.example/p"]},
+                                                    "_annotations": {"enum": ["@nest"]}}}}}
+        self.assertEqual([], self.rules(audit.audit_schema_decisions(ref, template, "", "template")))
+
+    def test_an_instance_is_judged_at_its_non_value_positions_only(self):
+        ref = audit.ArtifactRef("instance", "https://repo.example/template-instances/i")
+        instance = {
+            "@id": "https://repo.example/template-instances/i", "@context": {}, "schema:isBasedOn": "templates/t",
+            "element": {"@context": {}, "@id": "occurrence one"},
+            "link": {"@id": "a value position with spaces"},
+        }
+        self.assertEqual(["decision-iri-relative", "decision-iri-space"],
+                         self.rules(audit.audit_instance_decisions(ref, instance)))
 
 if __name__ == "__main__":
     unittest.main()

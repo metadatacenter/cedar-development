@@ -565,7 +565,7 @@ try {
     if (kind === "template") {
       const created = await call(user1.auth, "GET", "/templates/" + enc(artifacts.template));
       assert.equal(
-        created.body.properties?.disease?._valueConstraints?.branches?.[0]?.uri,
+        created.body.properties?.Disease?._valueConstraints?.branches?.[0]?.uri,
         DOID_DISEASE,
         "the Disease field is constrained to the DOID disease branch",
       );
@@ -579,15 +579,13 @@ try {
         exact: true,
       });
       if (await expand.isVisible().catch(() => false)) await expand.click();
-      await page.getByRole("tab", { name: "Constraints", exact: true }).click();
+      // A field's own description, which CEE shows as its help, is on the Presentation tab.
+      await page.getByRole("tab", { name: "Presentation", exact: true }).click();
     }
     await page
-      .getByPlaceholder(
-        kind === "field"
-          ? "Add helper instructions for users..."
-          : "Add description...",
-        { exact: true },
-      )
+      .getByPlaceholder(kind === "field" ? "Field description" : "Add description...", {
+        exact: true,
+      })
       .fill("Updated by journey");
     if (kind === "template") await saveThroughExpiredToken(page, artifacts.template);
     else await editorSave(page, "PUT", collection);
@@ -920,7 +918,7 @@ try {
       "/template-instances/" +
         enc(decodeURIComponent(new URL(page.url()).pathname.split("/instances/edit/")[1])),
     )
-  ).body.disease?.["@id"];
+  ).body.Disease?.["@id"];
   assert.match(
     suggestedTerm ?? "",
     /^http:\/\/purl\.obolibrary\.org\/obo\/DOID_\d+$/,
@@ -948,12 +946,12 @@ try {
     200,
     true,
   );
-  // CED derives a field's key from its name, normalized: the field labelled "Notes" is stored as `notes`.
+  // CED keys a new field by its name as written, so the field named "Notes" is stored as `Notes`.
   const storedInstance = (
     await call(user1.auth, "GET", "/template-instances/" + enc(instanceId))
   ).body;
   assert.equal(
-    storedInstance.notes?.["@value"],
+    storedInstance.Notes?.["@value"],
     "Updated notes",
     `stored instance fields: ${Object.keys(storedInstance).filter((k) => !k.includes(":") && !k.startsWith("@"))}`,
   );
@@ -997,7 +995,7 @@ try {
     (
       await mutate(user1.auth, "PUT", instancePath, {
         ...beforeConflict.body,
-        notes: { "@value": "Concurrent metadata" },
+        Notes: { "@value": "Concurrent metadata" },
       })
     ).status,
     200,
@@ -1020,7 +1018,7 @@ try {
     "My unsaved metadata",
   );
   assert.equal(
-    (await call(user1.auth, "GET", instancePath)).body.notes["@value"],
+    (await call(user1.auth, "GET", instancePath)).body.Notes["@value"],
     "Concurrent metadata",
   );
   pass(

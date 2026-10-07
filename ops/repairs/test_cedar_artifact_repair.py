@@ -1263,6 +1263,41 @@ class SchemaKeyDemandTest(unittest.TestCase):
         self.assertEqual(REPAIR.only_dropped_schema_keys(before, {"@context": {}}, tmpl),
                          "/pav:version")
 
+
+class EmptyOrphanPropertyMappingTest(unittest.TestCase):
+    """A mapping naming no child and giving an empty IRI goes; every other mapping stays."""
+
+    FIELD = "https://schema.metadatacenter.org/core/TemplateField"
+
+    def element(self):
+        child = {"@id": "https://repo.example/fields/kept", "@type": self.FIELD, "type": "object"}
+        return {
+            "type": "array", "items": {"type": "object", "properties": {
+                "@context": {"properties": {
+                    "Kept": {"enum": ["https://schema.example/kept"]},
+                    "Gone": {"enum": [""]},
+                    "Named empty": {"enum": [""]},
+                    "Orphan with an IRI": {"enum": ["https://schema.example/orphan"]},
+                }, "required": ["Kept"]},
+                "Kept": child,
+                "Named empty": dict(child, **{"@id": "https://repo.example/fields/named"}),
+            }},
+        }
+
+    def test_only_the_empty_orphan_mapping_is_removed_at_any_depth(self):
+        template = {"@id": "https://repo.example/templates/t", "properties": {
+            "@context": {"properties": {"Element": {"enum": ["https://schema.example/e"]}}},
+            "Element": self.element()}}
+        after, changes = REPAIR.drop_empty_orphan_property_mappings(template)
+        mappings = after["properties"]["Element"]["items"]["properties"]["@context"]["properties"]
+        self.assertEqual({"Kept", "Named empty", "Orphan with an IRI"}, set(mappings))
+        self.assertEqual(["/properties/Element/items/properties/@context/properties/Gone"],
+                         [change["path"] for change in changes])
+        self.assertIsNone(REPAIR.only_dropped_empty_orphan_property_mappings(template, after))
+        self.assertEqual("/", REPAIR.only_dropped_empty_orphan_property_mappings(template, template))
+        self.assertIn("drop-empty-orphan-property-mapping", REPAIR.REPAIRS)
+
+
 if __name__ == "__main__":
     unittest.main()
 

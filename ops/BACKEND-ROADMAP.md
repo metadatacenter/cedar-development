@@ -1337,12 +1337,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the libraries read it as, where no instance holds a literal.
 
   **Require every literal field's value.** `literal-field-meta-schema.json` lets a literal field omit
-  `required`, so an instance of the field may leave its value out. Both libraries write `["@value"]`,
+  `required`, so an instance of the field may leave its value out. It also lets the field's
+  `properties` omit `@value`, so an instance has no slot for one. Both libraries write `["@value"]`,
   adding `@type` for a numeric or temporal field, and restore the list when they read a field without
-  it. The walk of 2026-09-29 found 77,006 literal fields without the list, and the
+  it.
+  The walk of 2026-09-29 found 77,006 literal fields without the list, and the
   `complete-literal-required` repair writes it wherever a field is unambiguously literal. Tighten the
-  meta-schema to demand `@value` of every literal field, and re-enable the six validation tests
-  disabled for this gap, once three things hold:
+  meta-schema to demand both the list and the `@value` slot of every literal field once three things
+  hold:
 
   - Each remaining field has a decision. Two templates cannot take the list without invalidating
     instances that omit a value: in one, 72 of 893 instances leave `@value` out, and in the other, 3
@@ -1364,6 +1366,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - The writers that still omit the list produce it. A generator of openMINDS-derived templates and
     elements wrote 67 affected artifacts in 2025 and 2026, and the RADx CSV2CEDAR generator was still
     in use in 2025. Neither lives in the estate, so their maintainers have to change them.
+
+  `cedar-model-validation-library` already holds a test of each rule for a standalone field, a field
+  in an element and a field in a template, six in all, disabled as known gaps:
+  `shouldFailMissingRequired` and `shouldFailMissingProperties_Value` in
+  `TemplateFieldValidationTest`, and `shouldFailMissingProperties_Field_Required` and
+  `shouldFailMissingProperties_Field_Properties_Value` in both `TemplateElementValidationTest` and
+  `TemplateValidationTest`. `cedarcli build java` reports them as its six skipped tests. The
+  tightening is done when all six run enabled and pass.
 
   **Make the model version explicit.** Decide what an artifact carrying no `schema:schemaVersion`
   gets, should one appear. The deployed population has never forced the question and the readers

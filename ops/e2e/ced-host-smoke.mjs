@@ -53,7 +53,7 @@ async function open(path) {
     // Settings open expanded; expand them only if a later default collapses them again.
     const expand = page.getByRole('button', { name: 'Expand field settings', exact: true });
     if (await expand.isVisible().catch(() => false)) await expand.click();
-    await page.getByRole('tab', { name: 'Display', exact: true }).click();
+    await page.getByRole('tab', { name: 'Presentation', exact: true }).click();
   }
 }
 try {
@@ -63,7 +63,7 @@ try {
     await open(`/${route}/create?${params}`);
     if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
     const nameInput = () => kind === 'template' ? page.getByPlaceholder('Template name', { exact: true }) : page.getByRole('textbox', { name: kind === 'field' ? 'Field display name' : 'Element name', exact: true });
-    const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Add helper instructions for users...' : 'Add description...', { exact: true });
+    const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Field description' : 'Add description...', { exact: true });
     await page.waitForFunction(() => document.getElementById('save').disabled);
     // A new artifact is unmodified until it is edited.
     assert.equal(await page.locator('#state').textContent(), 'Unmodified');

@@ -269,6 +269,7 @@ class FrontendTrainTest(unittest.TestCase):
 
             config = {
                 "registry": "https://registry.example/npm/",
+                "retainedRegistry": "https://registry.example/retained/",
                 "components": [{'id': 'tokens', 'repository': 'tokens',
                                 'publishedName': '@org.metadatacenter/tokens',
                                 'sourceManifest': 'package.json', 'stagedPackage': '.',
@@ -320,6 +321,7 @@ class FrontendTrainTest(unittest.TestCase):
             )
             self.assertEqual(model_sha, plan["model"]["revision"])
             self.assertEqual(cee_sha, plan["cee"]["revision"])
+            self.assertEqual("https://registry.example/retained/", plan["retainedRegistry"])
             self.assertEqual("train-owned", plan["model"]["publication"])
             self.assertEqual("train-owned", plan["cee"]["publication"])
             self.assertEqual(tokens_sha, plan['components'][0]['revision'])
@@ -942,6 +944,93 @@ class FrontendTrainTest(unittest.TestCase):
             )
             runtime = next(item for item in completion["packages"] if item["name"] == "runtime")
             self.assertEqual("https://registry.npmjs.org/", runtime["registryUsed"])
+            self.assertNotIn("retainedPackages", completion)
+
+    RETAINED = "https://registry.example/retained/"
+
+    def retention_plan(self, state):
+        plan = {
+            "version": VERSION,
+            "sourceManifestSha256": "a" * 64,
+            "registry": "https://registry.example/npm/",
+            "retainedRegistry": self.RETAINED,
+            "model": {"name": "model", "version": "1", "revision": "a" * 40},
+            "cee": {"name": "cee", "version": "2", "revision": "b" * 40},
+            "components": [{"name": "@org.metadatacenter/tokens", "version": "0.1.0-dev.t",
+                            "repository": "tokens", "revision": "e" * 40}],
+            "frontends": [{"name": "app", "version": "3", "revision": "c" * 40}],
+            "dockerInputs": {},
+        }
+        write(state / "npm" / "trains" / f"{VERSION}.json", plan)
+
+    @staticmethod
+    def verified(content):
+        def record(registry, expected):
+            return {
+                "name": expected["name"], "version": expected["version"],
+                "integrity": integrity_of(content),
+                "tarball": f"{registry}{expected['name']}.tgz",
+                "tarballSha256": hashlib.sha256(content).hexdigest(),
+                **{field: expected[field] for field in ("repository", "revision")
+                   if field in expected},
+            }
+        return record
+
+    def test_completion_copies_only_the_shared_components_into_the_retained_registry(self):
+        content = b"tokens tarball"
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            self.retention_plan(state)
+            published = []
+
+            def publish(command, cwd, environment=None):
+                published.append((command, Path(command[2]).read_bytes()))
+
+            with patch.object(frontend_train, "verify_record", side_effect=self.verified(content)), \
+                    patch.object(frontend_train, "registry_record", return_value=None), \
+                    patch.object(frontend_train, "fetch", return_value=content), \
+                    patch.object(frontend_train, "run_command", side_effect=publish):
+                frontend_train.complete(argparse.Namespace(version=VERSION, state=state))
+
+            self.assertEqual(1, len(published))
+            command, uploaded = published[0]
+            self.assertEqual(["npm", "publish"], command[:2])
+            self.assertEqual(["--tag", "train", "--registry", self.RETAINED],
+                             command[3:7])
+            # The scope's own registry setting outranks --registry, so the copy must override it.
+            self.assertIn(f"--@org.metadatacenter:registry={self.RETAINED}", command)
+            self.assertEqual(content, uploaded)
+            completion = frontend_train.load_json(
+                state / "npm" / "completed" / f"{VERSION}.json")
+            self.assertEqual(self.RETAINED, completion["retainedRegistry"])
+            [retained] = completion["retainedPackages"]
+            self.assertEqual(f"{self.RETAINED}@org.metadatacenter/tokens.tgz", retained["tarball"])
+            self.assertEqual(integrity_of(content), retained["integrity"])
+            self.assertEqual("e" * 40, retained["revision"])
+
+    def test_completion_refuses_a_retained_copy_with_different_bytes(self):
+        content = b"tokens tarball"
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            self.retention_plan(state)
+            train_record = self.verified(content)
+
+            def verify(registry, expected):
+                if registry == self.RETAINED:
+                    return train_record(registry, expected) | {"integrity": "sha512-other"}
+                return train_record(registry, expected)
+
+            with patch.object(frontend_train, "verify_record", side_effect=verify), \
+                    patch.object(frontend_train, "registry_record", return_value={"present": True}), \
+                    patch.object(frontend_train, "run_command") as run:
+                with self.assertRaisesRegex(RuntimeError, "differs from the tarball the train"):
+                    frontend_train.complete(argparse.Namespace(version=VERSION, state=state))
+            run.assert_not_called()
+            self.assertFalse((state / "npm" / "completed" / f"{VERSION}.json").exists())
+
+
+def integrity_of(content):
+    return "sha512-" + base64.b64encode(hashlib.sha512(content).digest()).decode()
 
 
 if __name__ == "__main__":

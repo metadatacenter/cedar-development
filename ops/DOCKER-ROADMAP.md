@@ -13,7 +13,13 @@ procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
    checks in CI and the authenticated navigation and long-request checks against staging. Promote
    the same completed digest manifest through development, staging, and production without
    rebuilding it, update each environment atomically, and make rollback select a previously tested
-   manifest and routing configuration. Retain test results, Compose and container diagnostics, and
+   manifest and routing configuration. Promotion also has to keep the images it promotes. Every
+   image carries only its train's tag, and Nexus removes a `-dev.` tag from both Docker repositories
+   three days after upload, so a release's images must be copied, under the release version, into
+   a repository with no cleanup policy. Bound how many releases that repository keeps, because
+   Community Edition cleanup selects by age and cannot keep the newest few. A release can already
+   rebuild its images from retained sources: Maven releases, `npm-cedar-releases` and npmjs.
+   Retain test results, Compose and container diagnostics, and
    evidence mapping source commits to the promoted digests. Declare the supported architectures,
    minimum Docker and Compose versions, and measured deployment resource requirements.
 

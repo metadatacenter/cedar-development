@@ -2549,24 +2549,60 @@ Done inserts the complete batch at the selected position and Cancel discards it.
 The embedding host supplies `childSource.search` and `childSource.load`; see CED's README
 and `CedChildSource` public type for the callback contract. The host owns authentication
 and permission filtering. Without that input, repository search reports unavailable.
-Imported definitions retain their identifiers, provenance and descendants; conflicting
-child names are resolved in their parent placements.
+Imported definitions retain their identifiers, provenance and descendants. Each imported
+child takes its name as its key and its name and description as its display name and
+description. A key that clashes with a sibling's or is reserved is reported at once, and
+the child keeps a usable key until the author chooses one.
 
-Field settings start collapsed behind the grey chevron centered at the bottom
-of each card. Expanding it reveals underline tabs for the applicable values,
-display, constraints, details, occurrences and metadata controls. Switching tabs
-or collapsing the panel retains incomplete input; valid settings update immediately
-without Apply buttons. Identity and provenance appear under Field metadata. Imported labels, identifiers, annotations and property IRIs remain
-preserved in the model. Published fields allow tab
-navigation and inspection while their editing controls remain disabled.
-**Display** includes a Language selector for templates, standalone and nested elements,
+Field settings start collapsed behind the grey chevron centered at the bottom of each card.
+Expanding it reveals underline tabs: Configuration, Presentation, Constraints or Content
+where the type takes them, Annotations and Metadata. An element's settings have
+Configuration, Presentation, Annotations and Metadata. Configuration opens first. It
+holds how the child's parent places it, in rows. The display name and a wider display
+description come first. The requirement select follows with Hidden and Continue previous
+line. Allow multiple sits above the minimum and maximum, which share a row with the key, and
+the property IRI comes last. The display name and description are the parent's
+`_ui.propertyLabels` and `_ui.propertyDescriptions` entries, and the card header shows and
+edits the display name. A nested element's header gives its name input the accessible name
+Element display name. Each control appears only on a child that can carry it. A static field
+has no requirement, multiplicity or Continue previous line, and an element has no
+requirement, Hidden or Continue previous line. The bounds stay visible and disabled until
+Allow multiple is on. A profile that hides Required or Allow multiple hides that control
+here, and a field that is already multiple then still shows its bounds. A field edited in
+the Field Designer has no parent and so no Configuration tab. Its header edits its own name.
+
+**Presentation** edits the child's own name and description, its `schema:name` and
+`schema:description`, under the labels Field name and Field description or Element name and
+Element description. CEE shows a field's own description as its help. Every profile offers
+both. While a child is a draft its parent shows as itself, the display name and description
+are its own as well, so an edit from the header, Configuration or Presentation writes both.
+A parent that already shows the child differently keeps doing so, and each side then edits
+its own value. A label repeating the child's name or key is the writers' filler, not a
+different display name, as CEE and the Java library read it. The designer does not write
+`skos:prefLabel`, except that one only repeating the name moves with a rename, so CEE does
+not go on showing the old name.
+
+A new child's key is its name as written. It follows the name until the name first loses
+focus and is the author's after that. A key must be unique among its siblings and must not
+be a reserved name; an invalid key shows its error below the input and is not saved, and
+the child keeps a usable key in the meantime. Switching tabs or collapsing the panel retains
+incomplete input; valid settings update immediately without Apply buttons. Identity and
+provenance appear under Metadata. Imported labels, identifiers, annotations and
+property IRIs remain preserved in the model.
+
+A published field or element keeps its own definition: its Presentation, value, Annotations
+and metadata controls are disabled, and its card says so. Its parent still places it, so its
+header name and description, its Configuration, its position and its removal stay available.
+Everything inside a published element is part of its published content and is locked,
+placement included, and the element offers no place to add a child.
+**Presentation** includes a Language selector for templates, standalone and nested elements,
 and all fields (including static fields). Its default, **Not specified**, leaves language
 unset; clearing a choice removes the explicit language. The bundled fixed list uses
 ISO 639-1 codes and English names from the [Library of Congress](https://www.loc.gov/standards/iso639-2/ISO-639-2_utf-8.txt),
 retrieved 2026-09-15. Imported tags outside the list remain available as the current
 value, without rewriting them. Published field controls remain disabled.
 
-The bottom of **Display** on non-static fields contains **Alternate questions**.
+The bottom of **Presentation** on non-static fields contains **Alternate questions**.
 Enter a question and select **Add question** to save it as an alternate label.
 Blank or whitespace-only questions and duplicates (ignoring surrounding whitespace)
 are rejected only on Add. The table is read-only;
@@ -2588,10 +2624,9 @@ and artifact round trips.
 The card-level Save field to library action has been removed; import and reuse
 remain available through Field Designer.
 
-The root template header has a settings chevron. **Display** offers full-width
-Header and Footer controls; **Template metadata** lists identity and provenance,
-ending with **Types**. Element metadata also offers Types, including a standalone
-element. Types uses CEF's read-only controlled-term summary and CETP with
+The root template header has a settings chevron. **Presentation** offers full-width
+Header and Footer controls. **Metadata** lists identity and provenance, ending with
+**Types**. An element's **Metadata** also offers Types, including a standalone element. Types uses CEF's read-only controlled-term summary and CETP with
 `termTypes = ['class']`, without `maximumTerms`. Done writes the allowed instance
 class IRIs into both `properties.@type.oneOf` enum branches; cancellation retains
 the saved set. These are allowed alternatives, not a requirement to assign all
@@ -2635,25 +2670,26 @@ their datatype ranges; long is limited to JavaScript's exact integer range
 (-9007199254740991 to 9007199254740991), because the model stores numbers rather than
 arbitrary-precision integers. Float checks overflow and nonzero underflow. Invalid
 and incomplete numeric input stays in the panel until corrected and does not replace
-the saved settings. Occurrences appears immediately before Field metadata.
+the saved settings.
 
 Rebuild CEE and refresh the sibling copy when testing defaults: an older CEE
 bundle may omit email, phone, link and authority defaults from its preview even
 when CED's output contains them. `npm start` refreshes the development host's
 copies; a manually served `dist-bundle/` needs the copy commands above again.
 
-Display label and Display description apply to the field's deployment in this
-template. CEE gives those overrides precedence over the field's own labels and
-description, and falls back to the artifact when an override is absent. Preferred
-label remains part of the reusable field's metadata. Annotation authoring is tracked in the designer roadmap.
+The display name and description apply to the child's deployment in this template. CEE
+gives them precedence over the child's own labels and description, and falls back to the
+artifact when the parent states no override. The preferred label remains part of the
+reusable field's metadata. Annotation authoring is tracked in the designer roadmap.
 
-Field metadata (for dynamic fields) and Element metadata end with a compact Property IRI box and **Edit**.
+Configuration (for dynamic fields and elements) holds a compact Property IRI box and **Edit**.
 They invoke CETP with `termTypes = ['property']` and `maximumTerms = 1`. Done
 applies the selected property IRI to the child placement in its parent JSON-LD
 context; cancellation preserves the existing IRI. The picker starts an empty
 replacement selection because an imported property IRI has no ontology/version
 provenance. The placement stores the IRI only; the ontology release chosen while
-browsing is not a versioned value constraint. Published field controls are disabled.
+browsing is not a versioned value constraint. The property IRI is the parent's, so a
+published child keeps it editable; inside a published element it is locked.
 
 Controlled defaults use the current `<cedar-embeddable-term-picker>` bundle's term-only mode,
 then verify membership through the configured terminology server's
