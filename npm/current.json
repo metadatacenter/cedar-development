@@ -1,8 +1,8 @@
 {
-  "completedAt": "2026-10-07T04:25:06.635524+00:00",
-  "completion": "npm/completed/2.9.22-dev.20261007.0356.json",
-  "plan": "npm/trains/2.9.22-dev.20261007.0356.json",
-  "planSha256": "bb446c1938bc5c2a91151cb420386614f9c5df5cc7f44638a700ecc71f1e7f5f",
+  "completedAt": "2026-10-07T17:30:23.247027+00:00",
+  "completion": "npm/completed/2.9.23-dev.20261007.1701.json",
+  "plan": "npm/trains/2.9.23-dev.20261007.1701.json",
+  "planSha256": "ea903162da4d786d3380f04769381126d391dc5e1aba2ef78a51e459b2bdebd1",
   "schemaVersion": 1,
-  "version": "2.9.22-dev.20261007.0356"
+  "version": "2.9.23-dev.20261007.1701"
 }
