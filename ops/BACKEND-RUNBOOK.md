@@ -2805,6 +2805,15 @@ successful bodies are also 502. Both paths report transport failure as 503 and p
 upstream `Retry-After` on a refusal. This workspace policy does not change the older multipart
 ImmPort submission flows.
 
+Chunked multipart uploads in impex and submission use the shared `ChunkUploadStore`. It validates
+Flow.js's fixed and merged-final-chunk layouts, the declared and actual byte counts, and the 5 GiB
+per-file ceiling before publishing a chunk. Identical retries are idempotent; conflicting metadata,
+bytes and filename aliases return 400. Completion counts distinct chunks and files, and impex/NCBI
+claim processing once. A consumed upload identifier cannot be reused until the process restarts.
+The ledger remains process-local: callers must resend all chunks after a restart. `ChunkUploadMatrixTest`
+covers ordering, retries, bounds, owner isolation and concurrent completion; both service adapters
+have adoption tests, and `ImpexUploadHttpTest` sends real authenticated multipart HTTP requests.
+
 Application relays use `ResponseRelay` for buffered response bytes and metadata. Protocol headers
 (`Retry-After`, authentication challenges, `Allow`, `Location`) and repeated representation headers
 survive; cookies, transport framing, content coding already decoded by HttpClient, and fields named
