@@ -3126,12 +3126,12 @@ menus/dialogs separately.
 OpenView's registry is at `cedar-openview/.ui-surfaces.json`; its application source
 is under `cedar-openview-src`. CI checks that nested source for unregistered
 menus/dialogs and literal Angular routes, and checks registered source anchors.
-Its folder and template pages and its not-found and not-open error cards are also
-checked as rendered pages by `browser/`, a Playwright suite that serves the built
-application and answers the open API from fixtures. Run it with `npm ci && npm test`
-in `browser/` after `npm run build` in `cedar-openview-src`. The other resource
-pages, the metadata panel and the empty folder have source coverage only. CEE stays
-opaque and shares CEE's existing registrations.
+`browser/` is a Playwright suite that serves the built application and answers the
+open API from fixtures. It checks every page as rendered: the folder and the empty
+folder, the template, element, field and instance pages, and the not-found, not-open
+and template-not-open error cards. Run it with `npm ci && npm test` in `browser/`
+after `npm run build` in `cedar-openview-src`. CEE stays opaque and shares CEE's
+existing registrations.
 
 `cedarcli check design-tokens --strict` checks registration coverage alongside
 source-style adoption. `--sync-surfaces` refreshes generated browser helpers from
