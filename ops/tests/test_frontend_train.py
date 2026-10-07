@@ -997,6 +997,8 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(["npm", "publish"], command[:2])
             self.assertEqual(["--tag", "train", "--registry", self.RETAINED],
                              command[3:7])
+            # The scope's own registry setting outranks --registry, so the copy must override it.
+            self.assertIn(f"--@org.metadatacenter:registry={self.RETAINED}", command)
             self.assertEqual(content, uploaded)
             completion = frontend_train.load_json(
                 state / "npm" / "completed" / f"{VERSION}.json")

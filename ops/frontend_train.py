@@ -967,10 +967,17 @@ def retain_package(registry: str, verified: dict) -> dict:
             tarball.write_bytes(content)
             # npm refuses a prerelease without an explicit tag. The tag is never resolved: every
             # consumer pins the exact version.
-            run_command([
+            command = [
                 "npm", "publish", str(tarball), "--tag", "train",
                 "--registry", registry, "--loglevel=notice",
-            ], Path(directory))
+            ]
+            # npm publishes a scoped package to its scope's registry, which the train's npmrc
+            # maps to the train registry, and ignores --registry. Only a scope override
+            # reaches the retained one.
+            if verified["name"].startswith("@"):
+                scope = verified["name"].split("/", 1)[0]
+                command.append(f"--{scope}:registry={registry}")
+            run_command(command, Path(directory))
     retained = verify_record(registry, {"name": verified["name"], "version": verified["version"]})
     if (retained["integrity"], retained["tarballSha256"]) != (
         verified["integrity"], verified["tarballSha256"]
