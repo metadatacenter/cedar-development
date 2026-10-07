@@ -618,9 +618,9 @@ Rates are refill rates; burst is the full token-bucket capacity, including the f
 The shipped values are observation starting points, not a measured production capacity commitment.
 A Redis failure uses the stricter of the total and selected operation failure policies. Observation
 always allows, including during a Redis failure. Enforced exhaustion returns 429 with `Retry-After`,
-`Cache-Control: no-store`, and a JSON error carrying `status`, `statusCode`, `errorType`, `error`,
-`message`, `policy` and `retryAfterSeconds`. Failure to check a closed policy returns 503 with the
-same shape. Cross-origin clients may read `Retry-After`. Neither response requests token refresh or
+`Cache-Control: no-store`, and the common `CedarError` JSON envelope. `errorKey` is
+`rateLimitExceeded`, with `policy` and `retryAfterSeconds` in `parameters`. Failure to check a
+closed policy returns 503 with `errorKey: rateLimitUnavailable` and the same envelope. Cross-origin clients may read `Retry-After`. Neither response requests token refresh or
 automatic mutation retries; the existing editor error paths retain edits and re-enable saving.
 
 Usage lives in the existing persistent Redis database under
@@ -2772,6 +2772,56 @@ against the current graph and gets current caller permissions. A page can be emp
 continuation because denied hits still advance the snapshot position; clients must follow the token
 until it is absent. A permissions refresh in OpenSearch is no longer a prerequisite for denying a
 revoked grant on a continuation.
+
+### REST response contracts
+
+`CedarResponse` builds native errors as `CedarError`: HTTP status, symbolic `status` and numeric
+`statusCode` agree, generated error bodies declare JSON, and internal exception objects are never
+serialized. A processing exception constructed from a cause uses a generic public message; its
+cause is retained for server logging. Empty successes have no synthetic error envelope. A 204,
+205, 304 or informational response discards even an explicitly supplied entity. A creation sets
+201 when `created(uri)` is called; a subsequent status wins, and a non-201 drops the creation
+location. A null status or a successful/null result passed to the error-only `from(result)` API
+is rejected explicitly.
+
+Use `status(int)` when relaying a numeric status. The enum remains a convenient named subset,
+not a filter for upstream answers. An unnamed error uses `HTTP_<code>` as its symbolic status.
+Jersey exception normalization retains protocol headers, including multiple authentication
+challenges, `Allow`, and `Retry-After`; representation headers are regenerated for the new body.
+Malformed query-parameter conversion is 400; a missing route remains 404. Explicit response
+entities bypass exception normalization, as Jersey requires.
+
+Success representations and intentional external payloads keep their own shapes. Recursive-folder
+plans, outcomes and `{code,message}` refusals also keep their published operation contract: the
+Workspace uses the `FOLDER_DELETE_*` codes for localization. Do not rewrite those as ordinary errors
+without migrating their consumers. Terminology property failures and request-quota refusals use
+the common native envelope.
+
+Dependency classification is declared per integration. LINCS retains its established gateway
+mapping for upstream 400/401/500 (and treats deployment-owned credential rejection 403 likewise);
+other statuses, including 429/504, are preserved. ImmPort workspace lookup relays client refusals
+except deployment-owned credential failures (401/403), which are 502; upstream 5xx and unusable
+successful bodies are also 502. Both paths report transport failure as 503 and preserve an
+upstream `Retry-After` on a refusal. This workspace policy does not change the older multipart
+ImmPort submission flows.
+
+Regression coverage runs in the normal backend-free Maven suites:
+
+- `CedarResponseInvariantTest` exercises builder ordering, numeric statuses, body restrictions and
+  invalid inputs. `ResponseContractMatrixTest` uses the production mapper registration through
+  real Jetty/Jersey HTTP, including routing, JSON binding, validation, authentication challenges,
+  quota errors, HEAD, creation headers and explicit operation responses.
+- `ArtifactServerAnswerMatrixTest` crosses command steps with upstream refusals through 429/504
+  and lost connections, checking status/reason preservation and unchanged artifact/graph state.
+- `SubmissionAnswerMatrixTest` runs authenticated LINCS and ImmPort workspace routes against a
+  bound loopback stub, including malformed replies, dropped connections and bounded timeouts.
+- `LocalStoreResourceTest` checks property-error envelopes against its temporary SQLite fixtures.
+  The existing `BioPortalAnswerMatrixTest` and `RegistryAnswerMatrixTest` retain their declared
+  external-service policies.
+
+Tests use explicit expected policies rather than consulting production mapping code. Stub call
+counts in the submission matrix prove that authentication or routing did not short-circuit the case.
+These contracts supplement the redeploy and whole-stack smoke gate; they do not replace it.
 
 ### Default test environment
 
