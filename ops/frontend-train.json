@@ -527,7 +527,7 @@
       "repository": "cedar-embeddable-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "5ffafc567ab281738b71f1188b655a34a39b381e850f777d236f9fc0d2e98a22",
+      "sha256": "7f07660b121cca4ce732fc58f9c7f14a34d2c5808e9f7ae4d63f244a1dda0441",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
