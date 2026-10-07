@@ -2805,6 +2805,14 @@ successful bodies are also 502. Both paths report transport failure as 503 and p
 upstream `Retry-After` on a refusal. This workspace policy does not change the older multipart
 ImmPort submission flows.
 
+Request logging initializes correlation before authentication and routing. An incoming global ID is
+retained and each request receives a fresh local ID. The response event uses the context that emitted
+START, even if another filter changes headers; OPTIONS emits neither START nor END. Both the response
+filter and an outer servlet scope remove thread-local state, including on failure and short-circuit
+paths. `RequestLoggingLifecycleTest` verifies reused workers and failure cleanup;
+`RequestLoggingHttpMatrixTest` verifies authentication/routing errors, concurrent requests and paired
+IDs through real Jetty with the production registration.
+
 Chunked multipart uploads in impex and submission use the shared `ChunkUploadStore`. It validates
 Flow.js's fixed and merged-final-chunk layouts, the declared and actual byte counts, and the 5 GiB
 per-file ceiling before publishing a chunk. Identical retries are idempotent; conflicting metadata,
