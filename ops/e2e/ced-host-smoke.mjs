@@ -13,7 +13,7 @@ const page = await context.newPage();
 const created = [];
 const errors = [];
 const responseBodies = new Map();
-// Capture writes before fulfilling them: the host navigates immediately after success.
+// Capture writes before fulfilling them, so each response body stays readable whatever the page does next.
 await page.route(url => /^\/(templates|template-elements|template-fields|command\/publish-create-draft-template)(?:\/|$)/.test(url.pathname), async intercepted => {
   const req = intercepted.request();
   if (!['POST', 'PUT'].includes(req.method())) return intercepted.continue();
@@ -28,18 +28,34 @@ await page.route(url => /^\/(templates|template-elements|template-fields|command
   await intercepted.fulfill({ response });
 });
 page.on('pageerror', error => errors.push(error.message));
-let savingNavigation = false;
+let afterSave = false;
 page.on('dialog', dialog => {
-  // Deliberate navigation away from stale edits may warn; successful Save must not.
-  if (savingNavigation) errors.push(`Unexpected ${dialog.type()} dialog after Save: ${dialog.message()}`);
+  // Deliberate navigation away from stale edits may warn. A successful Save, and leaving after it, must not.
+  if (afterSave) errors.push(`Unexpected ${dialog.type()} dialog after Save: ${dialog.message()}`);
   void dialog.accept();
 });
 async function save() {
-  savingNavigation = true;
+  afterSave = true;
   await page.locator('#save').click();
 }
+async function saved() {
+  await page.waitForFunction(() => document.getElementById('state').textContent === 'Saved');
+}
+/** Whether a URL is Designer's edit address for an artifact, by its short or full identity, with the given query. */
+function editAddress(url, route, id, params) {
+  const prefix = `/${route}/edit/`;
+  if (url.origin !== new URL(designerBase).origin || !url.pathname.startsWith(prefix)) return false;
+  const segment = decodeURIComponent(url.pathname.slice(prefix.length));
+  return (segment === id || id.endsWith('/' + segment)) && new URLSearchParams(url.search).toString() === params.toString();
+}
+async function showFieldDescription() {
+  // Settings open expanded; expand them only if a later default collapses them again.
+  const expand = page.getByRole('button', { name: 'Expand field settings', exact: true });
+  if (await expand.isVisible().catch(() => false)) await expand.click();
+  await page.getByRole('tab', { name: 'Presentation', exact: true }).click();
+}
 async function open(path) {
-  savingNavigation = false;
+  afterSave = false;
   await page.goto(designerBase + path);
   await page.locator('#username, cedar-embeddable-designer, cedar-embeddable-field-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
   if (await page.locator('#username').isVisible().catch(() => false)) {
@@ -49,12 +65,7 @@ async function open(path) {
   }
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
   await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
-  if (path.startsWith('/fields/edit/')) {
-    // Settings open expanded; expand them only if a later default collapses them again.
-    const expand = page.getByRole('button', { name: 'Expand field settings', exact: true });
-    if (await expand.isVisible().catch(() => false)) await expand.click();
-    await page.getByRole('tab', { name: 'Presentation', exact: true }).click();
-  }
+  if (path.startsWith('/fields/edit/')) await showFieldDescription();
 }
 try {
   for (const [kind, route, collection] of [['template', 'templates', 'templates'], ['element', 'elements', 'template-elements'], ['field', 'fields', 'template-fields']]) {
@@ -85,19 +96,30 @@ try {
     }
     assert.equal(response.status(), 201, JSON.stringify(body).slice(0, 1200));
     const id = body['@id'];
-    await page.waitForURL(workspaceBase + '/dashboard');
-    await open(`/${route}/edit/${enc(id)}?${params}`);
-    assert.equal(await nameInput().inputValue(), name);
+    // A successful save stays in Designer, at the new artifact's edit address with the same query.
+    await page.waitForURL(url => editAddress(url, route, id, params));
+    await saved();
+    const editUrl = page.url();
+    // The next save updates what the first stored rather than creating it again.
+    if (kind === 'field') await showFieldDescription();
     await descriptionInput().fill('Updated through CED');
     const updatedResponse = page.waitForResponse(res => res.request().method() === 'PUT' && res.url().includes(`/${collection}/`));
     await save();
     const update = await updatedResponse;
     assert.equal(update.status(), 200, JSON.stringify(responseBodies.get('PUT ' + update.url())).slice(0, 1200));
     assert.ok(update.request().headers()['if-match']);
-    await page.waitForURL(workspaceBase + '/dashboard');
+    await saved();
+    assert.equal(page.url(), editUrl);
+    assert.equal(created.filter(item => item.id === id).length, 1, 'The artifact was created once');
     const stored = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
     assert.equal(stored.body['schema:description'], 'Updated through CED');
-    console.log(`PASS: ${kind} create, reopen, conditional update, Workspace return`);
+    // Only Back to Workspace leaves Designer, for the address Workspace supplied.
+    await page.locator('#back').click();
+    await page.waitForURL(workspaceBase + '/dashboard');
+    await open(`/${route}/edit/${enc(id)}?${params}`);
+    assert.equal(await nameInput().inputValue(), name);
+    assert.equal(await descriptionInput().inputValue(), 'Updated through CED');
+    console.log(`PASS: ${kind} create and conditional update without leaving Designer, Workspace return, reopen`);
     // Concurrent backend edit must prevent the stale host from writing over it.
     await open(`/${route}/edit/${enc(id)}?${params}`);
     const external = { ...stored.body, 'schema:description': 'Concurrent editor' };
@@ -154,12 +176,17 @@ try {
       const versionBody = responseBodies.get('POST ' + version.url());
       assert.ok(version.ok(), JSON.stringify(versionBody).slice(0, 1200));
       assert.ok(versionBody['@id'], 'Versioning returns the new draft');
+      // The new draft opens in place, at its own edit address.
+      await page.waitForURL(url => editAddress(url, route, versionBody['@id'], params));
+      await saved();
+      assert.equal(await page.getByPlaceholder('Template name', { exact: true }).inputValue(), name + ' revised');
+      await page.locator('#back').click();
       await page.waitForURL(workspaceBase + '/dashboard');
       const oldTemplate = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
       assert.equal(oldTemplate.body['bibo:status'], 'bibo:published');
       const metadata = await call(user1.auth, 'GET', `/template-instances/${enc(seeded.body['@id'])}`);
       assert.equal(metadata.body['schema:isBasedOn'], id);
-      console.log('PASS: template with metadata confirms versioning, preserves cancellation, leaves instances on original');
+      console.log('PASS: template with metadata confirms versioning in place, preserves cancellation, leaves instances on original');
     }
 
   }

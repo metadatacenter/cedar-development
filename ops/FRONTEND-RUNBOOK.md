@@ -2465,7 +2465,10 @@ Conflicts, permission loss and missing revision tokens preserve edits and requir
 explicit reload, with confirmation before discarding changes. An acknowledgement without
 an artifact identifier cannot trigger another create; the author is directed to inspect
 Workspace. Changes while an update assessment or version confirmation is pending cancel
-the write. Changes arriving after the write starts remain open after acknowledgement;
+the write. A successful save stays in Designer. The host reads the stored artifact back
+and opens it, so the next update starts from what the server stored, and a created
+artifact or new draft takes its own edit address. Only Designer's Workspace control
+returns to Workspace. Changes arriving after the write starts remain open after acknowledgement;
 the next update uses the returned ETag. If the write created a new artifact identity,
 Reload is required to adopt its server-owned version metadata before another save.
 The version confirmation's Discard choice restores the last saved baseline and keeps
@@ -2484,8 +2487,9 @@ Run `npm test` in the host repository for the host contract suite, including
 `test/host-state-matrix.test.mjs`. `npm run test:browser` covers create/edit across
 template, element and field routes, nested reports, delayed saves, reload recovery and
 the existing visual surface contracts. Run
-`npm run smoke:ced-host` in `ops/e2e` for real browser create/update, stale-save
-rejection, instance-aware versioning and Workspace return. The older `login-smoke-test.mjs` still targets
+`npm run smoke:ced-host` in `ops/e2e` for real browser create and update without leaving
+Designer, stale-save rejection, instance-aware versioning and the return to Workspace.
+The older `login-smoke-test.mjs` still targets
 the combined editor's authoring UI; its legacy selectors do not exercise CED.
 
 <a id="ced-running-it-with-its-siblings"></a>

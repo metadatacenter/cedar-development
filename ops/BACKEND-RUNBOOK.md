@@ -5390,9 +5390,9 @@ similar in the admin console but cannot match the browser's `Origin` header. For
 set `CEDAR_SPLIT_KEYCLOAK_ORIGINS` to a comma-separated list of exact origins.
 
 `npm run smoke:workspace:modern:full` drives Workspace's real **New → Template** gesture, verifies
-that Designer receives the complete Workspace `returnTo` URL and returns to it after saving, and runs
-the rest of the split journey. A remote preview host runs it with `CEDAR_BASE` and
-`CEDAR_DESIGNER_BASE` set to its Workspace and Designer origins.
+that Designer receives the complete Workspace `returnTo` URL, stays open after saving and returns to
+that URL through its Workspace control, and runs the rest of the split journey. A remote preview
+host runs it with `CEDAR_BASE` and `CEDAR_DESIGNER_BASE` set to its Workspace and Designer origins.
 
 For a production-shaped local rehearsal, map `workspace.metadatacenter.orgx` and
 `designer.metadatacenter.orgx` to `127.0.0.1`, authorize their exact HTTPS callbacks and Web Origins
