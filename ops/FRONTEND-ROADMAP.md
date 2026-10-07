@@ -1,9 +1,9 @@
 # CEDAR Frontend — Roadmap
 
-Open work for the Workspace, the Template Designer, the Template Editor, the
-embeddable editor (CEE/CEF), the embeddable designer (CED), and their TypeScript model library.
-This roadmap also owns browser workflows whose completion spans a frontend and
-its supporting service.
+Open work for the Workspace, the Template Designer, the Template Editor, OpenView,
+Monitoring, Bridging, the embeddable editor (CEE/CEF), the embeddable designer (CED), and
+their TypeScript model library. This roadmap also owns browser workflows whose completion
+spans a frontend and its supporting service.
 
 See [FRONTEND-RUNBOOK.md](FRONTEND-RUNBOOK.md) for operating procedures and
 [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md) for backend work outside browser workflows.
@@ -13,9 +13,75 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
+## Static Frontend Delivery
+
+### 1. Apply the Cache Policy to OpenView, Monitoring and Bridging
+
+Staging and production serve OpenView, Monitoring and Bridging with no `Cache-Control` header. A
+browser then judges from a file's age how long its copy stays fresh, and can reuse an un-hashed
+file for weeks without asking the server. OpenView's folder page showed raw translation keys for
+this reason, because browsers held the June 2024 `en.json`. The canonical policy is in the
+`os-mirror` vhosts, with `staging-centos/etc/nginx/sites-enabled/frontend-openview.inc.conf` as the
+model. Until 2026-10-07 every mirrored copy failed `nginx -t`, so it could not have been installed.
+
+Apply it on staging (`cedr-stg-app-03`) first, then on production (`cedr-prd-app-05`), to each of
+the three vhosts, as root:
+
+1. Find the vhost with `grep -l -E "openview|monitoring|bridging" /etc/nginx/sites-enabled/*`. If
+   `grep -il puppet <vhost>` finds Puppet's marker, make the change in Puppet, or the next agent
+   run reverts it. alexskr edits these vhosts, so let alexskr know.
+2. Back the file up outside `sites-enabled`, for example to `/root/`. nginx may load every file in
+   that directory, so a copy there becomes a second server block.
+3. List existing headers with `grep -rn add_header /etc/nginx/nginx.conf /etc/nginx/conf.d <vhost>`.
+   An `add_header` in a `location` replaces the ones it would inherit, so repeat any `http`- or
+   `server`-level header, such as HSTS, inside each new location.
+4. In the HTTPS `server` block, add these locations above `location / {`:
+
+   ```nginx
+   location = /index.html { add_header Cache-Control "no-store" always; }
+   location ^~ /config/ {
+       add_header Cache-Control "no-store" always;
+       try_files $uri =404;
+   }
+   # esbuild names a hashed file name-XXXXXXXX.js, the hash being eight upper-case base32 characters.
+   location ~ "-[A-Z2-7]{8}\.(js|css)$" {
+       add_header Cache-Control "public, max-age=31536000, immutable" always;
+       try_files $uri =404;
+   }
+   ```
+
+   Then add `add_header Cache-Control "no-cache" always;` as the first line of the existing
+   `location / {` block, and keep the rest of it. The quotes around the regular expression are
+   required. `=404` keeps a request for a deleted bundle from receiving `index.html`, which the
+   browser would otherwise cache for a year under the bundle's name.
+5. Run `nginx -t`, and reload with `systemctl reload nginx` only if it passes.
+6. Check the headers. For OpenView, `/index.html` and the deep link must answer `no-store`, the
+   logo and the CEE bundle `no-cache`, and `main-*.js` `immutable`. Monitoring and Bridging answer
+   the same way for their own entry page and bundles.
+
+   ```bash
+   H=https://openview.staging.metadatacenter.org; for p in /index.html /folders/x /assets/img/logo/cedar-open-view-logo.png /node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js "/$(curl -s $H/index.html | grep -o 'main-[A-Z0-9]*\.js')"; do echo "$p: $(curl -sI "$H$p" | grep -i '^cache-control')"; done
+   ```
+
+Production sits behind Cloudflare, which adds `max-age=14400` to JavaScript and caches static
+files at its edge. After the reload, purge `openview.metadatacenter.org` there. If the CEE bundle
+still carries `max-age=14400`, set Cloudflare's Browser Cache TTL to "Respect Existing Headers".
+
+Headers reach a browser only when it next asks the server. A browser that holds the 2024 `en.json`
+keeps it until its copy expires, up to about 80 days after it fetched it. Only the new OpenView
+build fixes those visitors, because it reads no translation or configuration file at runtime. That
+build is on `develop` from `452c09f`, and production deploys from `main`, so decide whether it waits
+for the next release or a release is cut sooner.
+
+The item is complete when both hosts pass the header check for all three frontends and production
+serves OpenView from `452c09f` or later. The other origins move with
+[Retire `CEDAR_VERSION_MODIFIER` Cache Busting](#retire-version-modifier).
+
 ## Workspace and Browser Workflows
 
-### 1. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
+<a id="retire-version-modifier"></a>
+
+### 2. Retire `CEDAR_VERSION_MODIFIER` Cache Busting
 
 A deployment should never need a hand-edited modifier to make a new code revision visible.
 Decide whether any cached asset can legitimately differ while its source commit stays fixed. If
@@ -40,7 +106,7 @@ works by restoring payloads and routing without inventing a new modifier.
 
 <a id="doi-minting-recovery"></a>
 
-### 2. Make DOI Minting Recovery-Safe
+### 3. Make DOI Minting Recovery-Safe
 
 Keep the DataCite wizard out of Workspace resource menus while this workflow is being
 reworked. Before reintroducing an entry point, verify the recovery behavior and review the
@@ -67,7 +133,7 @@ The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#r
 
 ## Embeddable Editor and Model Library
 
-### 3. Whole-Component Runtime Theme Overrides
+### 4. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -76,7 +142,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 4. Authoring Feedback for Unsupported Markup
+### 5. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -89,7 +155,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 5. Reduce Embedded Font Payload
+### 6. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -125,7 +191,7 @@ serving fonts as extra files changes that contract.
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
 
-### 6. Retire the Shared Monospace Face
+### 7. Retire the Shared Monospace Face
 
 `font-family-monospace` is the only font role without an embedded face. It resolves to SF Mono or
 Menlo on a Mac and to the browser's generic monospace elsewhere, so the same string draws
@@ -150,7 +216,7 @@ vocabulary's families, to allow one family a host owns. Either way, retire the t
 replacement in `tools/retired-tokens.json`, and reduce the rendered check's `font-family` scale to
 the body font.
 
-### 7. Clear the Ember Demo's Remaining Advisories
+### 8. Clear the Ember Demo's Remaining Advisories
 
 The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
 which reaches it through ember-cli, stylelint and ember-template-lint, and no released `braces`
@@ -169,7 +235,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 8. Display Host-Supplied Validation Findings in CED
+### 9. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -180,7 +246,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 9. Define the Three Profiles
+### 10. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -200,7 +266,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -214,14 +280,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 11. Keyboard and Screen-Reader Access
+### 12. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 12. Complete the Template Designer
+### 13. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -233,7 +299,7 @@ draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Wo
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
 
-### 13. Clear CED's Token Adoption Baseline
+### 14. Clear CED's Token Adoption Baseline
 
 CED's source baseline held 23 findings on 2026-10-04. The shared token gate refuses any change to a
 repository's recorded exceptions, on a push as on a pull request, so no finding can be accepted
