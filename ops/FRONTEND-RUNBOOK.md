@@ -2555,9 +2555,9 @@ description. A key that clashes with a sibling's or is reserved is reported at o
 the child keeps a usable key until the author chooses one.
 
 Field settings start collapsed behind the grey chevron centered at the bottom of each card.
-Expanding it reveals underline tabs: Configuration, Display, Constraints or Content where
-the type takes them, Annotations and Field metadata. An element's settings have
-Configuration, Display, Annotations and Element metadata. Configuration opens first. It
+Expanding it reveals underline tabs: Configuration, Presentation, Constraints or Content
+where the type takes them, Annotations and Metadata. An element's settings have
+Configuration, Presentation, Annotations and Metadata. Configuration opens first. It
 holds how the child's parent places it, in rows. The display name and a wider display
 description come first. The requirement select follows with Hidden and Continue previous
 line. Allow multiple sits above the minimum and maximum, which share a row with the key, and
@@ -2571,14 +2571,14 @@ Allow multiple is on. A profile that hides Required or Allow multiple hides that
 here, and a field that is already multiple then still shows its bounds. A field edited in
 the Field Designer has no parent and so no Configuration tab. Its header edits its own name.
 
-**Display** edits the child's own name and description, its `schema:name` and
+**Presentation** edits the child's own name and description, its `schema:name` and
 `schema:description`, under the labels Field name and Field description or Element name and
 Element description. CEE shows a field's own description as its help. Every profile offers
 both. While a child is a draft its parent shows as itself, the display name and description
-are its own as well, so an edit from the header, Configuration or Display writes both. A
-parent that already shows the child differently keeps doing so, and each side then edits its
-own value. A label repeating the child's name or key is the writers' filler, not a different
-display name, as CEE and the Java library read it. The designer does not write
+are its own as well, so an edit from the header, Configuration or Presentation writes both.
+A parent that already shows the child differently keeps doing so, and each side then edits
+its own value. A label repeating the child's name or key is the writers' filler, not a
+different display name, as CEE and the Java library read it. The designer does not write
 `skos:prefLabel`, except that one only repeating the name moves with a rename, so CEE does
 not go on showing the old name.
 
@@ -2587,22 +2587,22 @@ focus and is the author's after that. A key must be unique among its siblings an
 be a reserved name; an invalid key shows its error below the input and is not saved, and
 the child keeps a usable key in the meantime. Switching tabs or collapsing the panel retains
 incomplete input; valid settings update immediately without Apply buttons. Identity and
-provenance appear under Field metadata. Imported labels, identifiers, annotations and
+provenance appear under Metadata. Imported labels, identifiers, annotations and
 property IRIs remain preserved in the model.
 
-A published field or element keeps its own definition: its Display, value, Annotations and
-metadata controls are disabled, and its card says so. Its parent still places it, so its
+A published field or element keeps its own definition: its Presentation, value, Annotations
+and metadata controls are disabled, and its card says so. Its parent still places it, so its
 header name and description, its Configuration, its position and its removal stay available.
 Everything inside a published element is part of its published content and is locked,
 placement included, and the element offers no place to add a child.
-**Display** includes a Language selector for templates, standalone and nested elements,
+**Presentation** includes a Language selector for templates, standalone and nested elements,
 and all fields (including static fields). Its default, **Not specified**, leaves language
 unset; clearing a choice removes the explicit language. The bundled fixed list uses
 ISO 639-1 codes and English names from the [Library of Congress](https://www.loc.gov/standards/iso639-2/ISO-639-2_utf-8.txt),
 retrieved 2026-09-15. Imported tags outside the list remain available as the current
 value, without rewriting them. Published field controls remain disabled.
 
-The bottom of **Display** on non-static fields contains **Alternate questions**.
+The bottom of **Presentation** on non-static fields contains **Alternate questions**.
 Enter a question and select **Add question** to save it as an alternate label.
 Blank or whitespace-only questions and duplicates (ignoring surrounding whitespace)
 are rejected only on Add. The table is read-only;
@@ -2624,10 +2624,9 @@ and artifact round trips.
 The card-level Save field to library action has been removed; import and reuse
 remain available through Field Designer.
 
-The root template header has a settings chevron. **Display** offers full-width
-Header and Footer controls; **Template metadata** lists identity and provenance,
-ending with **Types**. Element metadata also offers Types, including a standalone
-element. Types uses CEF's read-only controlled-term summary and CETP with
+The root template header has a settings chevron. **Presentation** offers full-width
+Header and Footer controls. **Metadata** lists identity and provenance, ending with
+**Types**. An element's **Metadata** also offers Types, including a standalone element. Types uses CEF's read-only controlled-term summary and CETP with
 `termTypes = ['class']`, without `maximumTerms`. Done writes the allowed instance
 class IRIs into both `properties.@type.oneOf` enum branches; cancellation retains
 the saved set. These are allowed alternatives, not a requirement to assign all

@@ -53,7 +53,7 @@ async function open(path) {
     // Settings open expanded; expand them only if a later default collapses them again.
     const expand = page.getByRole('button', { name: 'Expand field settings', exact: true });
     if (await expand.isVisible().catch(() => false)) await expand.click();
-    await page.getByRole('tab', { name: 'Display', exact: true }).click();
+    await page.getByRole('tab', { name: 'Presentation', exact: true }).click();
   }
 }
 try {

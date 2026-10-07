@@ -579,8 +579,8 @@ try {
         exact: true,
       });
       if (await expand.isVisible().catch(() => false)) await expand.click();
-      // A field's own description, which CEE shows as its help, is on the Display tab.
-      await page.getByRole("tab", { name: "Display", exact: true }).click();
+      // A field's own description, which CEE shows as its help, is on the Presentation tab.
+      await page.getByRole("tab", { name: "Presentation", exact: true }).click();
     }
     await page
       .getByPlaceholder(kind === "field" ? "Field description" : "Add description...", {
