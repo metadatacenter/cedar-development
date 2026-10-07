@@ -209,8 +209,14 @@ async function editorSave(p, method, collection, status = 200) {
     status,
     method === "PUT",
   );
-  await ready(p);
+  // A successful save stays in Designer.
+  await p.locator("#state").filter({ hasText: /^Saved$/ }).waitFor();
   return data;
+}
+// Designer's own control is the only way back to Workspace.
+async function backToWorkspace(p) {
+  await p.locator("#back").click();
+  await ready(p);
 }
 async function permissionAppearance(p, name) {
   const heading = modal(p).locator('h2');
@@ -349,8 +355,8 @@ async function saveThroughExpiredToken(p, templateId) {
     const url = new URL(response.url());
     if (response.request().method() === "PUT" && url.pathname.startsWith("/templates/"))
       saves.push(response.status());
-    // After the save succeeds the host returns to Workspace, whose own sign-in also calls the
-    // token endpoint; only the calls before that success belong to the designer's recovery.
+    // Only the calls before the save succeeds belong to the designer's recovery. A later one, such
+    // as Workspace's own sign-in after the return, does not.
     if (url.pathname.endsWith("/protocol/openid-connect/token") && !saves.includes(200))
       refreshes.push(response.status());
   };
@@ -377,7 +383,7 @@ async function saveThroughExpiredToken(p, templateId) {
     );
     await p.locator("#save").click();
     await saved;
-    await ready(p);
+    await p.locator("#state").filter({ hasText: /^Saved$/ }).waitFor();
   } finally {
     // The interception answers only the first save and then defers. Removing it while a request is
     // in flight races the context's capture route, so it stays installed.
@@ -562,6 +568,9 @@ try {
       await constrainToDoidDiseaseBranch(page);
     }
     artifacts[kind] = (await editorSave(page, "POST", collection, 201))["@id"];
+    // The new artifact stays open at its edit address, which keeps Workspace's address.
+    assert.equal(new URL(page.url()).pathname, `/${kind}s/edit/${pathId(artifacts[kind])}`);
+    assert.equal(new URL(page.url()).searchParams.get("returnTo"), returnUrl);
     if (kind === "template") {
       const created = await call(user1.auth, "GET", "/templates/" + enc(artifacts.template));
       assert.equal(
@@ -570,6 +579,7 @@ try {
         "the Disease field is constrained to the DOID disease branch",
       );
     }
+    await backToWorkspace(page);
     assert.equal(page.url(), returnUrl);
     await editor(page, names[kind]);
     if (kind === "field") {
@@ -589,7 +599,8 @@ try {
       .fill("Updated by journey");
     if (kind === "template") await saveThroughExpiredToken(page, artifacts.template);
     else await editorSave(page, "PUT", collection);
-    pass(`${label}: CED/CEFD create, reopen, conditional update, exact return`);
+    await backToWorkspace(page);
+    pass(`${label}: CED/CEFD create, reopen, conditional update, each staying in Designer, exact return`);
     if (kind === "template") {
       pass("CED authors a Disease field constrained to the DOID disease branch through the live term picker");
       pass("Designer save recovers from an expired access token through one refresh and one retry");

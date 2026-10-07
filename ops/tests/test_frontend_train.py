@@ -976,7 +976,7 @@ class FrontendTrainTest(unittest.TestCase):
             }
         return record
 
-    def test_completion_copies_only_the_shared_components_into_the_retained_registry(self):
+    def test_completion_copies_the_shared_components_and_their_model_into_the_retained_registry(self):
         content = b"tokens tarball"
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
@@ -992,21 +992,29 @@ class FrontendTrainTest(unittest.TestCase):
                     patch.object(frontend_train, "run_command", side_effect=publish):
                 frontend_train.complete(argparse.Namespace(version=VERSION, state=state))
 
-            self.assertEqual(1, len(published))
-            command, uploaded = published[0]
-            self.assertEqual(["npm", "publish"], command[:2])
-            self.assertEqual(["--tag", "train", "--registry", self.RETAINED],
-                             command[3:7])
-            # The scope's own registry setting outranks --registry, so the copy must override it.
-            self.assertIn(f"--@org.metadatacenter:registry={self.RETAINED}", command)
-            self.assertEqual(content, uploaded)
+            # The model is copied because the designer, built against it, pins it; CEE and the
+            # frontends are not, because a release pins the public CEE and republishes frontends.
+            self.assertEqual(2, len(published))
+            commands = {Path(command[2]).name: command for command, _ in published}
+            for command, uploaded in published:
+                self.assertEqual(["npm", "publish"], command[:2])
+                self.assertEqual(["--tag", "train", "--registry", self.RETAINED],
+                                 command[3:7])
+                self.assertEqual(content, uploaded)
+            # The scope's own registry setting outranks --registry, so a scoped copy must override it.
+            scoped = [command for command in commands.values()
+                      if f"--@org.metadatacenter:registry={self.RETAINED}" in command]
+            self.assertEqual(1, len(scoped))
             completion = frontend_train.load_json(
                 state / "npm" / "completed" / f"{VERSION}.json")
             self.assertEqual(self.RETAINED, completion["retainedRegistry"])
-            [retained] = completion["retainedPackages"]
-            self.assertEqual(f"{self.RETAINED}@org.metadatacenter/tokens.tgz", retained["tarball"])
-            self.assertEqual(integrity_of(content), retained["integrity"])
-            self.assertEqual("e" * 40, retained["revision"])
+            retained = {item["name"]: item for item in completion["retainedPackages"]}
+            self.assertEqual({"@org.metadatacenter/tokens", "model"}, set(retained))
+            tokens = retained["@org.metadatacenter/tokens"]
+            self.assertEqual(f"{self.RETAINED}@org.metadatacenter/tokens.tgz", tokens["tarball"])
+            self.assertEqual(integrity_of(content), tokens["integrity"])
+            self.assertEqual("e" * 40, tokens["revision"])
+            self.assertEqual("a" * 40, retained["model"]["revision"])
 
     def test_completion_refuses_a_retained_copy_with_different_bytes(self):
         content = b"tokens tarball"

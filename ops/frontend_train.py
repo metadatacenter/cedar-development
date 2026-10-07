@@ -1002,10 +1002,14 @@ def complete(args: argparse.Namespace) -> None:
         verified.append(verify_record(plan["registry"], expected))
     for expected in plan.get("runtimePackages", []):
         verified.append(verify_record(expected["registry"], expected))
-    # Only the shared components are retained: a release pins them, while it pins the public
-    # CEE and publishes the frontends again under its own version.
+    # Only the shared components, and the model this train built them against, are retained: a
+    # release pins them, while it pins the public CEE and publishes the frontends again under its
+    # own version. The model is retained because a component that follows it, the designer, keeps
+    # this train's model in its lockfile.
     retained_registry = plan.get("retainedRegistry")
     components = {(item["name"], item["version"]) for item in plan.get("components", [])}
+    if components:
+        components.add((plan["model"]["name"], plan["model"]["version"]))
     retained = [
         retain_package(retained_registry, record) for record in verified
         if retained_registry and (record["name"], record["version"]) in components

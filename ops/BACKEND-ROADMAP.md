@@ -706,10 +706,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   /command/import-cadsr-forms` and `GET /command/import-cadsr-forms-status`, and two gaps in what
   supports them are concrete. Import status is process-local: `CadsrImportStatusManager` is a
   singleton holding a `ConcurrentHashMap` keyed by upload identifier, so a redeploy during an import
-  leaves a caller asking about work the server no longer remembers. And no test imports anything.
-  The suite proves both routes reject an unauthenticated request (`ImpexRoutesRespondTest`) and
-  stops there. Name the owner, state the supported contract for both routes, decide whether
-  in-flight import state has to survive a restart, and cover an import end to end.
+  leaves a caller asking about work the server no longer remembers. Cover an authenticated import
+  through caDSR parsing and artifact creation in an integration test. Name the owner, state the
+  supported contract for both routes, and decide whether in-flight import state has to survive a restart.
 
   **Value Recommender server.** It serves recommendation and rule-generation/status commands and
   consumes the persistent value-recommender queue. Establish whether the Workbench or any external
