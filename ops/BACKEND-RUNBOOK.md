@@ -2805,8 +2805,19 @@ successful bodies are also 502. Both paths report transport failure as 503 and p
 upstream `Retry-After` on a refusal. This workspace policy does not change the older multipart
 ImmPort submission flows.
 
+Application relays use `ResponseRelay` for buffered response bytes and metadata. Protocol headers
+(`Retry-After`, authentication challenges, `Allow`, `Location`) and repeated representation headers
+survive; cookies, transport framing, content coding already decoded by HttpClient, and fields named
+by `Connection` do not. Repo and Monitor use that policy directly; OpenView additionally forces
+`Cache-Control: no-store` and keeps its JSON-only representation. Authenticated `ProxyUtil` calls
+never follow redirects, including when a caller supplies timeout overrides; external registry
+adapters retain their separately selected redirect policy.
+
 Regression coverage runs in the normal backend-free Maven suites:
 
+- `ProxyRelayContractTest` checks protocol headers and authenticated redirect refusal.
+  `ResponseRelayMatrixTest` crosses statuses, compressed replies and anonymous caching through real
+  upstream HTTP and Jetty; service tests verify that Repo and OpenView use the same policy.
 - `CedarResponseInvariantTest` exercises builder ordering, numeric statuses, body restrictions and
   invalid inputs. `ResponseContractMatrixTest` uses the production mapper registration through
   real Jetty/Jersey HTTP, including routing, JSON binding, validation, authentication challenges,
@@ -5370,8 +5381,8 @@ similar in the admin console but cannot match the browser's `Origin` header. For
 set `CEDAR_SPLIT_KEYCLOAK_ORIGINS` to a comma-separated list of exact origins.
 
 `npm run smoke:workspace:modern:full` drives Workspace's real **New → Template** gesture, verifies
-that Designer receives the complete Workspace `returnTo` URL and returns to it after saving, and runs
-the rest of the split journey. A remote preview host runs it with `CEDAR_BASE` and
+that Designer receives the complete Workspace `returnTo` URL, stays open after saving and returns to
+that URL through its Workspace control, and runs the rest of the split journey. A remote preview host runs it with `CEDAR_BASE` and
 `CEDAR_DESIGNER_BASE` set to its Workspace and Designer origins.
 
 For a production-shaped local rehearsal, map `workspace.metadatacenter.orgx` and
