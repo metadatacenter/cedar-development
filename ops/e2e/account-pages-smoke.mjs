@@ -72,7 +72,7 @@ async function mutation(method, path, action, status) {
       .catch(() => "none"),
   ]);
   if (first === "confirmation")
-    await confirmation.getByRole("button", { name: "OK", exact: true }).click();
+    await confirmation.getByRole("button", { name: "Yes", exact: true }).click();
   const response = await pending;
   assert.equal(response.status(), status);
   return response;

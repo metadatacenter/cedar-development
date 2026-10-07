@@ -807,7 +807,7 @@ try {
         await modal(p)
           .getByRole("checkbox", { name: `Make ${toName} the owner`, exact: true })
           .click();
-        await confirmation.getByRole("button", { name: "OK", exact: true }).click();
+        await confirmation.getByRole("button", { name: "Yes", exact: true }).click();
       },
       200,
     );
