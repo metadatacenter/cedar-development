@@ -294,9 +294,10 @@ happened to have been published before the train began.
 Nexus does not keep what a train publishes to `npm-cedar`. The repository's cleanup runs daily at
 08:00 UTC and removes a prerelease three days after upload and a release thirty days after it, so
 every package a train publishes there is gone within days. A release pins the train's design
-tokens, term picker and designer, so completion also copies those three tarballs, byte for byte
-and under the same version, into `npm-cedar-releases`, a repository with no cleanup policy that
-refuses a second upload of a version. The completion record lists the copies under
+tokens, term picker and designer, and the designer's lockfile pins the model library the train
+built it against. Completion therefore copies those four tarballs, byte for byte and under the
+same version, into `npm-cedar-releases`, a repository with no cleanup policy that refuses a second
+upload of a version. The completion record lists the copies under
 `retainedPackages`, and a release refuses a train whose record has none.
 
 Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
