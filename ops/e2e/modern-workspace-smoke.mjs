@@ -778,7 +778,7 @@ try {
   );
   await modal(page)
     .getByRole("alert")
-    .filter({ hasText: "Not saved: Set Test User 2 to viewer" })
+    .filter({ hasText: "Not saved: Set Test User 2 to Viewer" })
     .waitFor();
   await modal(page)
     .getByRole("button", { name: "Reload permissions", exact: true })
