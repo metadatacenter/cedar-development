@@ -419,7 +419,7 @@
       "repository": "cedar-openview",
       "lock": "cedar-openview-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "d12cac5399374a0d8b703dbe694ea21ada2d2b72f6b226b66f8389804bc4717f",
+      "sha256": "cb169e80d6b2a49981fe531a0d0b79713ceae44d88779bdee7482546206aab39",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -479,12 +479,12 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-ember-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "4f45528c8f390cd6a47bec2baffc1710d1d7515d45704a5adee6bc34bc53e929",
+      "sha256": "e2a3305ef5ae213e05495c76e61482c17e4814cf5f39785613475ce06326758f",
       "vulnerabilities": {
         "low": 0,
         "moderate": 22,
         "high": 15,
-        "critical": 2
+        "critical": 0
       }
     },
     {
