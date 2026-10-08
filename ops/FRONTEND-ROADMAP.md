@@ -298,27 +298,20 @@ focus returns to a useful control after each action.
 
 ### 11. Clear CED's Token Adoption Baseline
 
-CED's source baseline held 23 findings on 2026-10-04. The shared token gate refuses any change to a
+CED's source baseline held 8 findings on 2026-10-08. The shared token gate refuses any change to a
 repository's recorded exceptions, on a push as on a pull request, so no finding can be accepted
 with a written reason. A finding leaves the baseline only when its declaration gives way to a shared
 role or recipe, or to a size named for the designer in the tokens package's `spacing` export.
 Otherwise it stays as recorded debt. Never widen an allowance or substitute a semantically unrelated
 token to pass the scanner.
 
-The remaining findings fall into four groups:
+The remaining findings fall into two groups:
 
-- **Measurements no role describes (13).** The overview's selected-item outline and the invalid
-  card's outline (two declarations each) could become shared recipes. The preview toolbar's bar,
-  select and close button (three), the checkbox tick and radio dot (two), and the settings toggle,
-  panel toggle, display-flag row and library badge (one each) would take designer sizes. None of
-  these changes what renders.
-- **Stacking order (2).** The settings toggle sits at 11, one above the sticky layer, so that it
-  clears the insertion area between cards. The library sidebar sits at 30, below the menu layer.
-  Layer recipes in the tokens package would keep that order.
 - **Local layout (7).** These are the library sidebar's drag indicator, divider and handle (three),
   the two height bindings of its resizable split, the scrollbar width four CED surfaces share, and
   the designer's 500px minimum height. CED's README treats sidebar resizing and drag handles as
-  local rules, but the gate admits no exception for them. Each needs a designer size, the split a
-  custom-property binding the scanner can read, or it stays as debt.
+  local rules, but the gate admits no exception for them. The divider is a panel resize handle,
+  which `spacing.$resize-handle-width` already names. The others each need a designer size, and the
+  split a custom-property binding the scanner can read, or they stay as debt.
 - **Hover dimming (1).** The user menu's trigger dims to 80% opacity on hover, which no shared role
   describes.
