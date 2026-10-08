@@ -20,7 +20,6 @@ const userId = JSON.parse(
   Buffer.from(user1.auth.split(".")[1], "base64url").toString(),
 ).sub;
 const userPath = "/users/" + enc(userId);
-let originalDate;
 let groupId;
 const fixture = "Workspace account smoke " + Date.now();
 const browser = await chromium.launch({ headless: !process.env.HEADED });
@@ -120,32 +119,37 @@ try {
     );
   }
   if (area === "settings") {
-    const original = await call(user1.auth, "GET", userPath, undefined, {
-      base: USER_SERVER,
-    });
-    assert.equal(original.status, 200);
-    originalDate =
-      original.body.uiPreferences?.preferredDateFormat || "MM/DD/YYYY";
-    const next = originalDate === "YYYY-MM-DD" ? "DD/MM/YYYY" : "YYYY-MM-DD";
+    // Settings holds no preference since the date format left it. It reports what CEDAR is
+    // running, so it must name a real CEDAR and CEE version and write nothing, loaded or reloaded.
     await open("/settings");
-    await mutation(
-      "PUT",
-      "/users/",
-      () => page.getByLabel("Date format", { exact: true }).selectOption(next),
-      200,
-    );
-    await page
-      .getByRole("status")
-      .filter({ hasText: "Date format saved." })
-      .waitFor();
+    // Keycloak's token exchange posts on every load; it is sign-in, not a write to CEDAR.
+    const writes = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method()) && !path.startsWith("/realms/"))
+        writes.push(`${request.method()} ${path}`);
+    });
+    const versions = async () => {
+      const about = page.locator(".account-card").filter({
+        has: page.getByRole("heading", { name: "About CEDAR", exact: true }),
+      });
+      const fact = (term) =>
+        about
+          .locator("dt")
+          .filter({ hasText: new RegExp(`^${term}$`) })
+          .locator("xpath=following-sibling::dd[1]");
+      const release = /^\d+\.\d+\.\d+/;
+      await fact("CEDAR version").filter({ hasText: release }).waitFor();
+      // The CEE version reads "Loading…" until the editor has loaded, and "Unavailable" if it fails.
+      await fact("CEE version").filter({ hasText: release }).waitFor();
+      assert.equal(await page.getByLabel("Date format").count(), 0);
+    };
+    await versions();
     await page.reload();
-    await page.locator(".account-card").first().waitFor();
-    assert.equal(
-      await page.getByLabel("Date format", { exact: true }).inputValue(),
-      next,
-    );
+    await versions();
+    assert.deepEqual(writes, [], "Settings sent a write");
     console.log(
-      "PASS: Settings is Angular-only; date format saves and survives reload",
+      "PASS: Settings is Angular-only; it names the CEDAR and CEE versions and writes nothing",
     );
   }
   if (area === "groups") {
@@ -389,16 +393,6 @@ try {
       [204, 404].includes(removed.status),
       "Temporary group cleanup failed",
     );
-  }
-  if (originalDate !== undefined) {
-    const restored = await call(
-      user1.auth,
-      "PUT",
-      userPath,
-      { "uiPreferences.preferredDateFormat": originalDate },
-      { base: USER_SERVER },
-    );
-    assert.equal(restored.status, 200, "Date preference restore failed");
   }
   const current = await call(user1.auth, "GET", userPath, undefined, {
     base: USER_SERVER,
