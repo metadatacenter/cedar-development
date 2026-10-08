@@ -50,12 +50,13 @@ import re
 import sys
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, wait, FIRST_COMPLETED
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
@@ -8716,6 +8717,35 @@ class InvariantFailed(Exception):
     """A transform changed something it does not speak for."""
 
 
+class ReadbackFailed(RuntimeError):
+    """A completed write did not preserve its contract; stop scheduling more writes."""
+
+
+def modification_provenance_difference(document: Any, details: Any) -> Optional[str]:
+    """Check the graph metadata the browser shows, including its numeric sorting timestamp."""
+    if not isinstance(details, dict):
+        return "details response is not an object"
+    if document.get("oslc:modifiedBy") != details.get("oslc:modifiedBy"):
+        return "oslc:modifiedBy"
+    expected = document.get("pav:lastUpdatedOn")
+    actual = details.get("pav:lastUpdatedOn")
+    if expected is None:
+        return None if actual is None and details.get("lastUpdatedOnTS") in (None, 0) else "pav:lastUpdatedOn"
+    try:
+        expected_date = datetime.fromisoformat(expected.replace("Z", "+00:00"))
+        actual_date = datetime.fromisoformat(actual.replace("Z", "+00:00"))
+        if expected_date.tzinfo is None or actual_date.tzinfo is None:
+            return "pav:lastUpdatedOn (missing timezone)"
+        epoch = int(expected_date.timestamp())
+        if epoch != int(actual_date.timestamp()):
+            return "pav:lastUpdatedOn"
+        if details.get("lastUpdatedOnTS") != epoch:
+            return "lastUpdatedOnTS"
+    except (AttributeError, TypeError, ValueError):
+        return "pav:lastUpdatedOn (unparseable timestamp)"
+    return None
+
+
 def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: RepairClient,
                bridge: audit.ValidationBridge, resolver: audit.TemplateResolver,
                ref: rest.ArtifactRef) -> dict[str, Any]:
@@ -8790,6 +8820,14 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
                 record["detail"] = f"stored body differs from the submitted candidate at {difference[0]}"
             elif not valid_back:
                 record["detail"] = f"stored body does not validate: {explanation}"
+            else:
+                details = client.get_json(path + "/details")
+                record["graphProvenance"] = {key: details.get(key) for key in
+                    ("oslc:modifiedBy", "pav:lastUpdatedOn", "lastUpdatedOnTS")}
+                graph_difference = modification_provenance_difference(repaired, details)
+                if graph_difference is not None:
+                    record["verified"] = False
+                    record["detail"] = "graph modification provenance differs at " + graph_difference
         except Exception as error:  # noqa: BLE001
             record["verified"] = False
             record["detail"] = f"read-back failed: {error}"
@@ -8925,6 +8963,43 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ca-file", help="additional CA bundle")
     parser.add_argument("--allow-http", action="store_true", help="allow plain HTTP, for a local test server")
     return parser
+
+
+def run_repairs_parallel(pending, workers, perform, record_outcome):
+    """Keep at most one artifact per worker in flight; persist each outcome exactly once."""
+    refs = iter(pending)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {}
+        def fill():
+            while len(futures) < workers:
+                ref = next(refs, None)
+                if ref is None: break
+                futures[pool.submit(perform, ref)] = ref
+        recorded: set[Future] = set()
+        try:
+            fill()
+            while futures:
+                completed, _ = wait(futures, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    record = future.result()
+                    # record_outcome may raise *after* durably writing an unverified result.
+                    recorded.add(future)
+                    record_outcome(futures[future], record)
+                for future in completed:
+                    del futures[future]
+                    recorded.discard(future)
+                fill()
+        except BaseException:
+            for future in futures: future.cancel()
+            # Running writes finish and retain their preimage/outcome before stopping. Nothing
+            # else is submitted, and an outcome that triggered the stop is not recorded twice.
+            for future, ref in futures.items():
+                if future in recorded or future.cancelled(): continue
+                try:
+                    record_outcome(ref, future.result())
+                except BaseException:  # noqa: BLE001 - preserve the original interruption below
+                    continue
+            raise
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -9102,6 +9177,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                               f"{record.get('detail', '')[:200]}", file=sys.stderr)
                     if progress.due(arguments.progress_every, arguments.progress_seconds):
                         progress.report(applied=arguments.apply)
+                    if record["outcome"] == "repaired" and record.get("verified") is False:
+                        raise ReadbackFailed(record.get("detail", "repair readback did not verify"))
 
             if arguments.workers <= 1:
                 for ref in pending:
@@ -9110,35 +9187,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             else:
                 # Each artifact is independent and appears once, and every write carries If-Match, so
                 # workers cannot race one another onto the same document.
-                with ThreadPoolExecutor(max_workers=arguments.workers) as pool:
-                    futures = {pool.submit(repair_one, arguments, repairs, client, guarded_bridge,
-                                           resolver, ref): ref for ref in pending}
-                    recorded: set[Future] = set()
-                    try:
-                        for future in as_completed(futures):
-                            record_outcome(futures[future], future.result())
-                            recorded.add(future)
-                    except BaseException:
-                        for pending_future in futures:
-                            pending_future.cancel()
-                        # A worker already inside an artifact finishes it, and may have written it.
-                        # Only its record says so, and only the record names the pre-image it saved,
-                        # so each one that finishes is recorded before the interruption goes on.
-                        # Unrecorded, a resumed run found the written artifact clean and reported it
-                        # as never needing the repair it had just been given.
-                        for running in futures:
-                            if running in recorded or running.cancelled():
-                                continue
-                            try:
-                                record_outcome(futures[running], running.result())
-                            except BaseException:  # noqa: BLE001 - the interruption is re-raised below
-                                continue
-                        raise
+                run_repairs_parallel(pending, arguments.workers,
+                    lambda ref: repair_one(arguments, repairs, client, guarded_bridge, resolver, ref),
+                    record_outcome)
     except KeyboardInterrupt:
         status = "INTERRUPTED"
     except rest.AuthenticationError as error:
         status = "AUTHENTICATION_ERROR"
         print(f"! {error}", file=sys.stderr)
+    except ReadbackFailed as error:
+        status = "READBACK_FAILED"
+        print(f"! stopped further repairs: {error}", file=sys.stderr)
     except audit.BridgeError as error:
         status = "BRIDGE_FAILURE"
         print(f"! {error}", file=sys.stderr)
