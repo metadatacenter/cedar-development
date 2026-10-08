@@ -330,7 +330,7 @@ async function constrainToDoidDiseaseBranch(p) {
     .getByRole("button", { name: /^DOID Human Disease Ontology/ })
     .click();
   await picker.getByRole("button", { name: "done", exact: true }).click();
-  await picker.getByRole("tab", { name: /^branches/ }).click();
+  await picker.getByRole("tab", { name: /^Branches/ }).click();
   await picker
     .getByRole("button", { name: "disease 1 ontology", exact: true })
     .click();
