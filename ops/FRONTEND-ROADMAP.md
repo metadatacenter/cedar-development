@@ -295,16 +295,3 @@ Verify keyboard focus order across settings, palette actions and nested elements
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
-
-### 11. Clear CED's Token Adoption Baseline
-
-CED's source baseline held one finding on 2026-10-08. The library sidebar's two sections take
-their heights from `[style.height.%]` bindings, a share the divider computes as it is dragged, and
-the scanner cannot read a value that exists only at runtime. The shared token gate refuses any
-recorded exception, so the finding either leaves through a change of binding or stays as debt.
-
-Decide how the split states its sections' sizes. A `flex-basis` binding keeps today's geometry, but
-it clears the finding only because the scanner does not gate `flex-basis`. A `flex-grow` binding
-divides the space the insertion actions and the divider leave, which lowers the divider by about
-26px at its default position. Keeping the binding leaves the finding as recorded debt and closes
-the item.

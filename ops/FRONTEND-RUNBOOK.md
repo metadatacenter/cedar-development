@@ -3111,9 +3111,10 @@ work. Prune resolved baseline entries.
 Tokens also cannot enforce validation timing, save-state terminology or separation
 of selected values from defaults. Those require application-state tests. Finally,
 source adoption, installed package pins and served component bytes are separate
-checks: retain all three alongside the reactor and smoke evidence. Remaining
-baseline work is tracked under **Clear CED's Token Adoption Baseline** in the
-[frontend roadmap](FRONTEND-ROADMAP.md#ced).
+checks: retain all three alongside the reactor and smoke evidence. CED's baseline
+holds one finding by decision: the field library's two section heights, which its
+divider sets as it is dragged. No stylesheet can name a value that exists only at
+runtime, so the finding stays as recorded debt.
 
 ## Surface inventory and token coverage
 
