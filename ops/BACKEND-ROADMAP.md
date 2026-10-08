@@ -35,18 +35,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   smoke. Done when every accepted write passes the applicable schema validation and the artifact
   library's read-and-render checks without the checks changing its stored content.
 
-- **2. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
-  runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
-  tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
-  operator attention for two minutes of gate time, and CEE has shipped four public versions in a
-  week. Build `cedarcli release cee` as a resumable, ledger-backed route like the platform release:
-  pin the chosen public model, write the changelog entry, run the gate, open and merge the pull
-  request, rebuild and publish from `main`, verify the registry with a retry for the seconds npm's
-  read replicas lag behind a publish, tag, restore the next development version with the chosen
-  model snapshot, refresh the CEE lock baselines, and stop at each remote step it cannot prove. The
-  provenance comparison the platform release already performs verifies the published tarball. Once
-  the command exists, rewrite the npmjs runbook into a description of what it does and where it
-  stops.
+- **2. Give the public npm releases a CLI route.** Four packages publish outside the platform
+  release: `cedar-model-typescript-library`, `cedar-embeddable-editor` (CEE),
+  `cedar-embeddable-designer` (CED) and `cedar-embeddable-term-picker` (CETP). The model library and
+  CEE reach npmjs through the npmjs runbook. CEE's procedure alone is about twenty-five commands
+  across `develop`, a pull request, `main`, the registry, a tag, the development-state restore and
+  the train baseline refresh. CEE release 2.0.6 took an hour of operator attention for two minutes of
+  gate time, and CEE has shipped four public versions in a week. CED and CETP have no public release
+  yet, and CED's manifest still marks it private, so npm would refuse to publish it.
+
+  Build `cedarcli release npm <package>` as one resumable, ledger-backed route for all four, like the
+  platform release. For each package it pins the chosen public versions of the packages it builds
+  against, writes the changelog entry, runs the package's gate, and publishes from `main` after
+  merging the pull request. It then verifies the registry with a retry for the seconds npm's read
+  replicas lag behind a publish, tags the release, restores the next development version, refreshes
+  the lock baselines, and stops at each remote step it cannot prove. The route orders dependent
+  releases. CEE and CED both build against a pinned model library, so a model release comes first.
+  CETP builds against none of the other three, and a host page loads CED, CEE and CETP as separate
+  scripts, so none of those three waits for another. CEE, CED and CETP all compile in the design
+  tokens, so a token change reaches Nexus before any of them is built. The provenance comparison the
+  platform release already performs verifies the published CEE tarball, and the route applies the
+  same comparison to the other three. Once the command exists, rewrite the npmjs runbook into a
+  description of what it does and where it stops.
 
 - **3. Decide what happens to existing instances when a draft template changes.** An instance
   names its template by identifier rather than by version, and is validated against whatever that
