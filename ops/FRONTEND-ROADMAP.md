@@ -196,32 +196,7 @@ serving fonts as extra files changes that contract.
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
 
-### 6. Retire the Shared Monospace Face
-
-`font-family-monospace` is the only font role without an embedded face. It resolves to SF Mono or
-Menlo on a Mac and to the browser's generic monospace elsewhere, so the same string draws
-differently on each platform. Monitoring reads it for log lines, configuration values, its matrices
-and every `code` element. Outside Monitoring, the uses are scattered:
-
-- the term picker's term IRIs, in its selection bar and its term details, and its release hashes, in
-  the release list and the constraint table
-- `code` in CED's CEE preview, and CED's development status bar
-- the identifier, example and API key on Workspace's profile page
-- field values on CEE's demo page
-
-Set these in the body font. The term picker gives its IRI line a 1.5 line height because a monospace
-face needed the taller box, so revisit that height with Roboto. Where digits in a column must line
-up, `font-variant-numeric: tabular-nums` can align them, provided the embedded faces keep Roboto's
-tabular figures.
-
-Monitoring is then the token's only reader, which the two-reader rule refuses. Decide whether its
-logs and values also take the body font, or whether Monitoring keeps a monospace stack of its own.
-The second needs the source check and the rendered surface check, which accept only the
-vocabulary's families, to allow one family a host owns. Either way, retire the token, name its
-replacement in `tools/retired-tokens.json`, and reduce the rendered check's `font-family` scale to
-the body font.
-
-### 7. Clear the Advisories Waiting on Upstream
+### 6. Clear the Advisories Waiting on Upstream
 
 Two advisories remain in the frontend locks, and no release of either package fixes them. Both
 sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
@@ -264,7 +239,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 8. Display Host-Supplied Validation Findings in CED
+### 7. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -275,7 +250,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -289,7 +264,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 10. Keyboard and Screen-Reader Access
+### 9. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
