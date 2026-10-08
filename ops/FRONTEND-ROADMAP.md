@@ -298,20 +298,13 @@ focus returns to a useful control after each action.
 
 ### 11. Clear CED's Token Adoption Baseline
 
-CED's source baseline held 8 findings on 2026-10-08. The shared token gate refuses any change to a
-repository's recorded exceptions, on a push as on a pull request, so no finding can be accepted
-with a written reason. A finding leaves the baseline only when its declaration gives way to a shared
-role or recipe, or to a size named for the designer in the tokens package's `spacing` export.
-Otherwise it stays as recorded debt. Never widen an allowance or substitute a semantically unrelated
-token to pass the scanner.
+CED's source baseline held one finding on 2026-10-08. The library sidebar's two sections take
+their heights from `[style.height.%]` bindings, a share the divider computes as it is dragged, and
+the scanner cannot read a value that exists only at runtime. The shared token gate refuses any
+recorded exception, so the finding either leaves through a change of binding or stays as debt.
 
-The remaining findings fall into two groups:
-
-- **Local layout (7).** These are the library sidebar's drag indicator, divider and handle (three),
-  the two height bindings of its resizable split, the scrollbar width four CED surfaces share, and
-  the designer's 500px minimum height. CED's README treats sidebar resizing and drag handles as
-  local rules, but the gate admits no exception for them. The divider is a panel resize handle,
-  which `spacing.$designer-resize-handle-width` already names. The others each need a designer size, and the
-  split a custom-property binding the scanner can read, or they stay as debt.
-- **Hover dimming (1).** The user menu's trigger dims to 80% opacity on hover, which no shared role
-  describes.
+Decide how the split states its sections' sizes. A `flex-basis` binding keeps today's geometry, but
+it clears the finding only because the scanner does not gate `flex-basis`. A `flex-grow` binding
+divides the space the insertion actions and the divider leave, which lowers the divider by about
+26px at its default position. Keeping the binding leaves the finding as recorded debt and closes
+the item.
