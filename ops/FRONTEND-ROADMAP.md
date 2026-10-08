@@ -311,7 +311,7 @@ The remaining findings fall into two groups:
   the two height bindings of its resizable split, the scrollbar width four CED surfaces share, and
   the designer's 500px minimum height. CED's README treats sidebar resizing and drag handles as
   local rules, but the gate admits no exception for them. The divider is a panel resize handle,
-  which `spacing.$resize-handle-width` already names. The others each need a designer size, and the
+  which `spacing.$designer-resize-handle-width` already names. The others each need a designer size, and the
   split a custom-property binding the scanner can read, or they stay as debt.
 - **Hover dimming (1).** The user menu's trigger dims to 80% opacity on hover, which no shared role
   describes.
