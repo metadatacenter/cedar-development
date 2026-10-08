@@ -221,14 +221,27 @@ vocabulary's families, to allow one family a host owns. Either way, retire the t
 replacement in `tools/retired-tokens.json`, and reduce the rendered check's `font-family` scale to
 the body font.
 
-### 7. Clear the Ember Demo's Remaining Advisories
+### 7. Clear the Advisories Waiting on Upstream Releases
 
-The Ember CEE demo's lock still carries GHSA-vfj7-8cjw-p6xm, a denial of service in `braces`,
-which reaches it through ember-cli, stylelint and ember-template-lint, and no released `braces`
-fixes. Every other lock outside the legacy Template Editor audits clean, and nothing the demo ships
-contains `braces`. When a fixed `braces` is published, refresh the demo's lock, run its lint, tests
-and build, and record the baselines. If none is, decide whether the demo needs stylelint and
-ember-template-lint, knowing that ember-cli would still bring `braces` without them.
+Two advisories remain in the frontend locks, and no release of either package fixes them. Both
+sit in build, lint and test tooling, and nothing the affected projects ship contains them. Every
+other lock outside the legacy Template Editor audits clean.
+
+- `braces` (GHSA-vfj7-8cjw-p6xm, high) affects every release up to 3.0.3, the latest. It reaches
+  the Ember CEE demo only through `micromatch` 4.0.8. ember-cli, `@embroider/compat` by way of
+  broccoli and findup-sync, `@embroider/vite` by way of fast-glob, stylelint and ember-template-lint
+  6 all still require it in their latest releases. ember-template-lint 7 no longer does.
+- `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) affects every release up to 1.1.3, the latest. It
+  reaches the Ember demo through `underscore.string` 3.3.6, which broccoli 4 and `quick-temp`
+  require. It reaches the model library through `ts-jest`, `babel-plugin-istanbul` and
+  `@istanbuljs/load-nyc-config`, which still loads `js-yaml` 3 and with it `argparse` 1.
+
+No override helps while no fixed version exists. Dropping stylelint and ember-template-lint would
+not help either, because ember-cli and Embroider would still bring `braces`, and moving
+ember-template-lint to 7 removes one route for each package without clearing either. When
+`braces` or `sprintf-js` publishes a fix, or the packages above stop requiring them, refresh the
+affected locks, run each project's lint, tests and build, and refresh the train's lock baselines
+with `cedarcli publish baselines --refresh`.
 
 <a id="ced"></a>
 
