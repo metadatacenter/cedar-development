@@ -3693,17 +3693,30 @@ authenticated surface, so excluding the tagged tests does not silently drop a ro
 
 Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
-temurin with the Maven cache, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME` and
-`BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the surefire reports
-uploaded whatever the outcome. The search-library and resource-server workflows also upload their
-Failsafe reports, add the `opensearch-it` profile and an OpenSearch service; other component
-workflows remain backend-free. Jobs carry a hard timeout: twenty minutes for a component, thirty
-for those two OpenSearch jobs, forty-five for `cedar-project`, which builds nineteen repositories
-in one reactor.
+temurin, a cache of the Maven repository, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME`
+and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the surefire
+reports uploaded whatever the outcome. The search-library and resource-server workflows also upload
+their Failsafe reports, add the `opensearch-it` profile and an OpenSearch service; other component
+workflows remain backend-free. Jobs carry a hard timeout: twenty minutes for a component, thirty for
+those two OpenSearch jobs, forty-five for `cedar-project`, which builds nineteen repositories in one
+reactor.
 
 Two repositories are aggregators over `../` sibling paths that a lone checkout cannot satisfy, so
 `cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
 the workspace and run Maven from the aggregator directory.
+
+BMIR's Nexus is Community Edition. It refuses uploads while it has answered more than 100,000
+requests in the past 24 hours, and a 404 counts as a request, so two choices keep a build's traffic
+to it small. `.m2/nexus-settings.xml` lists Maven Central before the two Nexus repositories and asks
+each Nexus repository only for the kind of version it holds, so Nexus answers for CEDAR's own
+artifacts and little else. Measured on 2026-10-07, resolving `cedar-artifact-server` into an empty
+repository asked Nexus 119 times. With Nexus listed first, each of the 1,262 files fetched from
+Central had been preceded by two Nexus misses. The cache step falls back to the newest earlier cache
+when the POMs change, because a release bumps every version twice and an exact-match cache started
+every build from an empty repository. The train's `ops/maven-train-settings.xml` and the Docker
+images' `config/m2/settings.xml` list Central first for the same reason. When an upload to Nexus
+fails with 502 or 403, read the usage figures on the Nexus dashboard before retrying. A retry cannot
+succeed until the 24-hour count falls, and each one adds to it.
 
 Each of those workflows gives its tests the same block of `CEDAR_` environment entries, because a
 suite builds a real `CedarConfig` and a variable a component declares but does not receive stops it
