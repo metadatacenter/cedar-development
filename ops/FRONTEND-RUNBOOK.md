@@ -2888,7 +2888,9 @@ the replacement.
 
 CEE's production build also emits `cedar-embeddable-editor.host-fonts.js` and
 `bundle-manifest.host-fonts.json`. This entry point uses the shared Lucide registry and
-expects the host to register `CEE Roboto` 400/500 globally. The default bundle
+expects the host to register `CEDAR Roboto` 400/500 globally. CEE 2.0.21 and earlier
+name those faces `CEE Roboto`, so their host-font variant draws its text in the system
+stack beside a host that registers the shared faces. The default bundle
 continues to embed its fonts for standalone CEE/CEF use. Workspace copies and
 selects the host-font variant when its installed CEE package includes it, falling
 back to the default entry point for older package pins. The shared token source

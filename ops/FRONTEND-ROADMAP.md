@@ -160,43 +160,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 5. Reduce Embedded Font Payload
-
-CEE, CED and the term picker all resolve one font source,
-`@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
-reaches three components. The source defines seven unicode-range subsets at three weights, 21
-faces in all. CEE's standalone bundle and the term picker embed all 21, CED embeds the 14 at
-weights 400 and 500, and CEE's host-fonts bundle embeds none. Decoded sizes measured on
-2026-09-17:
-
-| subset | 300 | 400 | 500 | all three |
-| --- | ---: | ---: | ---: | ---: |
-| latin | 11,160 | 11,028 | 11,073 | 33,261 |
-| cyrillic-ext | 10,413 | 10,353 | 10,353 | 31,119 |
-| latin-ext | 7,842 | 7,737 | 7,677 | 23,256 |
-| cyrillic | 6,480 | 6,462 | 6,633 | 19,575 |
-| greek | 4,929 | 4,866 | 4,797 | 14,592 |
-| vietnamese | 3,450 | 3,498 | 3,474 | 10,422 |
-| greek-ext | 756 | 750 | 768 | 2,274 |
-
-latin and latin-ext together are 56,517 of the 134,499 bytes, so dropping the other five subsets
-would save 77,982 bytes where all three weights ship and 51,954 in CED, about 58% of the font
-payload in each case. Decide whether the components must render Cyrillic, Greek and Vietnamese,
-remembering that cyrillic-ext is the second-largest subset; latin-ext stays for Hungarian.
-Decide the fallback explicitly rather than by accident. The shipped stack is
-`CEE Roboto, Helvetica Neue, sans-serif`, so a dropped script would land on the host's
-sans-serif. Re-measure gzip on the production bundles rather than assuming the decoded figure.
-
-Make the tokens package's emitted-CSS test assert which subsets or unicode ranges are present,
-not only how many faces there are, so a dropped subset cannot return unnoticed. Rename the
-shared family from `CEE Roboto` in the same pass, coordinated across the three components'
-stylesheets. Preserve namespaced font faces and the single-artifact embedding contract, since
-serving fonts as extra files changes that contract.
-
-CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
-would more than offset.
-
-### 6. Clear the Advisories Waiting on Upstream
+### 5. Clear the Advisories Waiting on Upstream
 
 Two advisories remain in the frontend locks, and no release of either package fixes them. Both
 sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
@@ -239,7 +203,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 7. Display Host-Supplied Validation Findings in CED
+### 6. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -250,7 +214,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 7. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -264,7 +228,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 9. Keyboard and Screen-Reader Access
+### 8. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and

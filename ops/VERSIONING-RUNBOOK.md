@@ -649,8 +649,8 @@ twice in the DOM at runtime. That is a memory cost rather than a transfer one.
 The selectors matter: an unencapsulated stylesheet reaches the host page, so anything beyond a
 `@font-face` in that file would leak out of the component.
 
-Verified in a browser rather than assumed — `document.fonts` carries `CEE Roboto` at 400 and 500 and
-`document.fonts.check('14px "CEE Roboto"')` returns true.
+Verified in a browser rather than assumed — `document.fonts` carries `CEDAR Roboto` at 400 and 500 and
+`document.fonts.check('14px "CEDAR Roboto"')` returns true.
 
 A global stylesheet in `angular.json` would be the ordinary way to reach the document, and it does
 not work here: the CLI emits it as a separate `styles.css` that a host page never loads.
