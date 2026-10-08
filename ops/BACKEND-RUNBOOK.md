@@ -1521,17 +1521,17 @@ repeated item. Java requires each node to survive JSON and YAML exactly, except 
 unfilled value out, and records what it writes. TypeScript must write the same JSON and YAML, and
 read Java's YAML into the same JSON.
 
-A third covers how many occurrences a child takes, in 226 cases: seven kinds of child (three field
+A third covers how many occurrences a child takes, in 212 cases: seven kinds of child (three field
 types marked multiple, an element, and the three kinds that are lists by nature), single and with
 every combination of stated bounds, in a template and in an element. Java requires the JSON to state
 the bound the model starts with and any stated maximum, the YAML to carry both, the inflater to fill
-each repeated child to that bound, and the inflated instance to validate, except an attribute-value
-field with a minimum above zero, whose attributes no inflater can name. A maximum below the minimum
-is refused. The Template Editor stores a maximum of 0 to mean no upper bound, which JSON Schema, and
-so the validator, reads as no items. Both libraries' writers leave a 0 out, and the matrix checks that
-a template storing one is written as one stating none. The fixture holds one base template per kind and
-container and each case's bounds, and every case asserts that its base with its bounds applied is
-exactly what Java writes.
+each repeated child to that bound, and the inflated instance to validate. Both libraries refuse a
+maximum below the minimum. They also refuse an attribute-value field whose minimum is above zero,
+since no inflater can name its attributes. The Template Editor stores a maximum of 0 to mean no upper
+bound, which JSON Schema, and so the validator, reads as no items. Both libraries' writers leave a 0
+out, and the matrix checks that a template storing one is written as one stating none. The fixture
+holds one base template per kind and container and each case's bounds, and every case asserts that
+its base with its bounds applied is exactly what Java writes.
 
 ```bash
 # In cedar-artifact-library, using the runbook's Java 17 environment:
