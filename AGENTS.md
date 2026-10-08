@@ -172,8 +172,8 @@ The browser applications and embeddable components — `cedar-workspace`,
   TypeScript model library's build and release procedures; pointers to browser
   application deployment and stack operation.
 - [FRONTEND-ROADMAP.md](ops/FRONTEND-ROADMAP.md) — browser workflows, frontend delivery,
-  editor theming and host contracts, designer profiles, authoring and lifecycle,
-  and the model-library work those surfaces require.
+  editor theming and host contracts, authoring and lifecycle, and the model-library
+  work those surfaces require.
 - [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md) — public TypeScript model
   library and CEE releases, consumer pins, tarball verification, development channels,
   and adoption by a train-backed release.

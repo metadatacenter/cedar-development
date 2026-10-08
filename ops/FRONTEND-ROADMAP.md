@@ -234,11 +234,9 @@ ember-template-lint, knowing that ember-cli would still bring `braces` without t
 
 ## CED
 
-Design Basic, Semantic and Modular as interfaces suited to their audiences.
-Together they must cover its authoring capabilities. Keep CED responsible for
-editing, rendering, local validation and host-facing UI contracts. The embedding
-host owns storage, authentication, permissions, server validation requests,
-publishing, version allocation and provenance.
+Keep CED responsible for editing, rendering, local validation and host-facing UI
+contracts. The embedding host owns storage, authentication, permissions, server
+validation requests, publishing, version allocation and provenance.
 
 ### 8. Display Host-Supplied Validation Findings in CED
 
@@ -251,27 +249,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 9. Define the Three Profiles
-
-Basic, Semantic and Modular are the product structure, and each should be a distinct interface
-with its own field types, constraint editors and guidance. Replace the presets that carry their
-names, which only toggle visibility and hide field types, with profile definitions decided per
-field type and per control rather than by one boolean apiece.
-
-Decide what belongs in each profile. Reconsider whether Basic should offer Attribute Value,
-which asks an author to describe fields whose names a form-filler will supply later, and the
-seven external authority types. Reconsider whether it should hide Field Help Text, which the
-Basic profile's own mockup shows, and whether it should show the whole parameter surface of
-every type it offers. Carry any behavior a profile owns, such as hiding the element and import
-insertion actions in Basic, in the profile definition rather than in a check that lapses once a
-preference changes. Remove preferences that control nothing.
-
-Decide what a profile may change: visibility alone, or the editors and the guidance with it.
-Moving between profiles has to leave the template intact, which is what makes this question
-hard. A template authored in Modular and opened in Basic still contains everything Basic does
-not show. Every control on a card is a decision this item has to absorb.
-
-### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -285,14 +263,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 11. Keyboard and Screen-Reader Access
+### 10. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 12. Complete the Template Designer
+### 11. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
@@ -304,7 +282,7 @@ draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Wo
 Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
 cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
 
-### 13. Clear CED's Token Adoption Baseline
+### 12. Clear CED's Token Adoption Baseline
 
 CED's source baseline held 23 findings on 2026-10-04. The shared token gate refuses any change to a
 repository's recorded exceptions, on a push as on a pull request, so no finding can be accepted
