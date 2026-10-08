@@ -1243,15 +1243,16 @@ already holds, and several defects are in circulation there: an empty `pav:deriv
 `@id` on an element occurrence, a `_ui.pages` the meta-schema forbids, an attribute-value field
 naming an attribute nobody named, a temporal field declaring no `temporalType`, a `@context` term
 whose attribute is gone, controlled-term constraints predating the versioned source fields, an
-inherently multiple field deployed as an object rather than an array, and a static field the stored
-schema demands of every instance. An empty `pav:derivedFrom` stops the strict Java reader; the
-TypeScript compatibility reader opens it as absence and omits it on write. An ordinary server
-update rejects the unchanged empty value. A blank occurrence `@id` stops strict readers, while CEE
+inherently multiple field deployed as an object rather than an array, a static field the stored
+schema demands of every instance, and a description holding the translation key the legacy Template
+Designer stored when an author left the description empty. An empty `pav:derivedFrom` stops the
+strict Java reader; the TypeScript compatibility reader opens it as absence and omits it on write.
+An ordinary server update rejects the unchanged empty value. A blank occurrence `@id` stops strict readers, while CEE
 and the February 2024 TypeScript compatibility reader can turn it into `null` to request normal
 server minting; an unchanged blank identifier is rejected. The patch is still required for artifacts nobody edits and for
 consumers that correctly choose strict reading.
 
-One script finds and repairs all nine. It reports by default and writes only under `--apply`:
+One script finds and repairs all ten. It reports by default and writes only under `--apply`:
 
 ```bash
 python3 ops/cedar_artifact_patch.py --tree ../cedar-test-artifacts/artifacts
@@ -1274,7 +1275,7 @@ python3 -m venv /tmp/cedar-patch && /tmp/cedar-patch/bin/pip install pymongo
 
 Four things about a run are worth knowing before trusting its numbers. `--items` narrows it to the
 checks you mean, using the stable check numbers printed by the report, which matters because a full
-run over a large store reads every artifact. Report mode defaults to all nine checks, but `--apply`
+run over a large store reads every artifact. Report mode defaults to all ten checks, but `--apply`
 is refused unless `--items` is supplied explicitly and names at least one check. The
 `*-original.json` files in a tree are skipped: those are preprod
 captures kept beside their corrected copies so a defect stays legible, and `--include-originals` reads
@@ -1308,6 +1309,12 @@ python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar
 python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar \
   --items 32 --apply --backup-dir /var/backups/cedar-artifact-patch-<RUN_ID>
 ```
+
+Check 34 rewrites `schema:description`, which the resource server also keeps on the artifact's graph
+node and in the search index. A Mongo write reaches neither copy, so Workspace and search go on
+showing the key after the store is repaired. Re-save each repaired artifact through the resource
+server with `PUT ?verbatim=true` and the strong ETag of a fresh read. That refreshes both copies and
+keeps the artifact's version and provenance.
 
 A corpus run reports one unreadable file, and it is meant to be unreadable. `cee-suite/086` is not
 valid JSON and `templates/003` disagrees with its own `_ui.order`; both are named in

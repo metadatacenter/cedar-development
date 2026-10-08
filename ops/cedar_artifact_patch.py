@@ -105,9 +105,16 @@ ITEMS = {
     31: "constraint-iri",
     32: "inherently-multiple-shape",
     33: "static-field-required",
+    34: "description-key",
 }
 
 STATIC_TEMPLATE_FIELD = "https://schema.metadatacenter.org/core/StaticTemplateField"
+
+# What the legacy Template Designer stored for a description its author left empty. It filled the gap
+# with the translation of one of these keys. That translation is the empty string, but the
+# translations load asynchronously, and until they have loaded angular-translate answers with the key
+# itself, which is what was stored.
+DESCRIPTION_KEYS = {"VALIDATION.noDescriptionField", "VALIDATION.noDescriptionElement"}
 
 
 @dataclass
@@ -239,6 +246,26 @@ def detect_static_field_required(node: dict, source: str, path: str) -> Iterator
         yield Finding(33, source, f"{path}/{name}",
                       f"static field named in {', '.join(named)}, so no instance can satisfy it",
                       repair)
+
+
+def detect_description_key(node: dict, source: str, path: str) -> Iterator[Finding]:
+    """34. An artifact with no description has the empty string as its `schema:description`. The
+    legacy Template Designer saved a template, element or field whose author left the description
+    empty with a translation key in its place, and every editor and viewer that shows a description
+    then shows the key. Its designers now store the empty string without asking for a translation.
+
+    The correction is settled, so the repair is offered: the key becomes the empty string. A key is
+    not text anyone wrote, so nothing an author wrote is lost.
+
+    The resource server also keeps a description on the artifact's graph node and in the search
+    index, and a Mongo write reaches neither. Re-save each artifact repaired in a store through the
+    resource server with `PUT ?verbatim=true`, which refreshes both and keeps its provenance."""
+    description = node.get("schema:description")
+    # Below an artifact's root the same key also names the property in `@context` and `properties`.
+    if isinstance(description, str) and description in DESCRIPTION_KEYS:
+        yield Finding(34, source, f"{path}/schema:description",
+                      f"schema:description is the translation key {description}, emptying it",
+                      lambda: node.__setitem__("schema:description", ""))
 
 
 def detect_empty_attribute_name(node: dict, source: str, path: str) -> Iterator[Finding]:
@@ -551,6 +578,8 @@ def inspect_document(document: JsonNode, source: str, items: set[int], catalog: 
                 yield from detect_empty_attribute_name(node, source, path)
             if 33 in items:
                 yield from detect_static_field_required(node, source, path)
+            if 34 in items:
+                yield from detect_description_key(node, source, path)
             if 25 in items:
                 name = path.rsplit("/", 1)[-1] if path else ""
                 yield from detect_temporal_type(

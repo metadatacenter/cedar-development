@@ -191,6 +191,32 @@ class ArtifactPatchRepairRoundTripTest(unittest.TestCase):
         }
         self.assert_round_trip(33, defective, repaired)
 
+    def test_item_34_description_key_round_trip(self):
+        defective = {
+            "schema:description": "VALIDATION.noDescriptionField",
+            "properties": {
+                "@context": {"properties": {"schema:description": {"type": "string"}}},
+                "schema:description": {"type": "string"},
+                "element": {"schema:description": "VALIDATION.noDescriptionElement"},
+                "field": {"schema:description": "A description someone wrote"},
+            },
+        }
+        repaired = {
+            "schema:description": "",
+            "properties": {
+                "@context": {"properties": {"schema:description": {"type": "string"}}},
+                "schema:description": {"type": "string"},
+                "element": {"schema:description": ""},
+                "field": {"schema:description": "A description someone wrote"},
+            },
+        }
+        findings = list(PATCHER.inspect_document(defective, "fixture.json", {34}, Catalog()))
+        self.assertEqual(2, len(findings), findings)
+        for finding in findings:
+            finding.repair()
+        self.assertEqual(repaired, defective)
+        self.assertEqual([], list(PATCHER.inspect_document(defective, "fixture.json", {34}, Catalog())))
+
 
 if __name__ == "__main__":
     unittest.main()

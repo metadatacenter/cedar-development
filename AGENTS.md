@@ -70,8 +70,8 @@ below have no CLI front end yet, so call them directly:
 - `cedar_artifact_patch.py` — find and repair the defects stored artifacts carry rather than code: an
   empty `pav:derivedFrom` or `@id`, a forbidden `_ui.pages`, an unnamed attribute, a temporal field
   with no `temporalType`, an orphan `@context` term, a legacy constraint shape, a static field the
-  schema demands of every instance. Reads a tree of artifact files or a Mongo store, reports by
-  default, writes only under `--apply`.
+  schema demands of every instance, a translation key stored as a description. Reads a tree of
+  artifact files or a Mongo store, reports by default, writes only under `--apply`.
 - `cedar_artifact_rest_audit.py` — GET-only, permission-scoped production inventory for the hardened
   identifier and attribute-name rules. Defaults to the template/element schema-safety pass and can
   enumerate all four artifact kinds through `/search-deep` with `--types all`; it streams JSONL
