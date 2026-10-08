@@ -4993,14 +4993,237 @@ Apply requires `WRITE_ARTIFACT_VERBATIM`. Review the target set and dry-run repo
 JDK 17 and the validation-library classpath are resolved by `cedar_validate.sh`; use `--classpath`
 with a previously resolved classpath if a cold Maven cache fails or for repeated campaign runs.
 
+### Modification-provenance incident and read-only audit
+
+**2026-10-08 direct-store follow-up: 86,204 graph restorations verified; search verification running.**
+The prevention patch built successfully and is deployed. The first repair pass committed and
+verified 4,414 graph restorations and skipped one changed document. Its next 100-record batch
+included a previously parked deletion job, so the guarded transaction refused the entire batch.
+Every graph preimage in that refused batch was independently checked afterward: all 100 remained
+unchanged. The executor now filters pending lifecycle jobs before constructing a batch, while
+retaining the transactional guard; a regression test covers repairing an unrelated candidate while
+skipping a parked deletion.
+
+The original transient systemd launcher's default `KillMode=control-group` killed the native
+microservices it had restarted when the failed task exited. The operator restarted them outside
+that unit; resource, artifact and worker health checks passed. The corrected continuation uses
+`KillMode=process` and checks that setting before stopping services, so the CLI's persistent
+service descendants survive task exit. Its sealed plan under the same repair evidence directory's
+`continuation-1/` contains 81,790 remaining candidates, excludes the completed records, changed
+document and parked deletion, and retains a separate verified-only journal for the first pass.
+It took a fresh backup, committed and verified all 81,790 candidates with no skips, and restarted
+the microservices. Together with the first pass, 86,204 graph restorations are verified; the two
+passes' complete Mongo/graph/search verification remains pending until projection jobs drain.
+
+Search verification needs hours: `VersionProjectionService` consumes at most 25 jobs per
+five-second fixed delay, plus processing time. The verifier's deadline is now 24 hours rather
+than the initial two hours. Independently confirm application health after the operator task
+exits, in addition to checking the two passes' final verification reports.
+
+Read-only Mongo/Neo4j inspection compared all 302,412 documents with matching graph nodes across
+the four artifact collections. There are 302,422 artifact graph nodes, 467 Mongo-only documents,
+and 10 graph nodes without a Mongo document (one template, one element, four fields and four
+instances). These are live inventories, not an atomic snapshot; a template and user home were
+created between the earlier REST census and this one. The direct Mongo conversion was checked
+against REST hashes/revisions, first on the earlier 15-resource pilot and then on a balanced
+15-resource sample including instances.
+
+Modification metadata differs on 4,831 templates, 4,594 elements, 139,713 fields and 18,836
+instances. A complete independent search scroll enumerated 304,795 unique records, exactly matching
+the artifact and regular-folder graph census: every indexed provenance value agreed with the
+graph. This confirms the search display reflects the damaged graph metadata; no separate index
+drift was found. Home/system folders are intentionally excluded from the search comparison.
+
+Retained repair evidence proves 86,294 unchanged candidates. Of these, 88 have original modifier
+identities under a legacy user URI that no production User node resolves; they are held for review.
+The staged automatic plan therefore contains **86,206**: 4,511 templates, 1,710 elements, 78,629
+fields and 1,356 instances. Another 66,414 artifacts correlate with repairs but lack the original
+policy's unchanged-revision proof; the separate metadata-evidence preparation below addresses
+these. The orphan records and all other unproven differences remain outside this restoration.
+Evidence is retained under
+`$CEDAR_HOME/.cedar/repairs/2026-10-08-provenance-restoration/`, including the complete census,
+classification, independent index census and held identities.
+
+**Additional metadata-only plan, prepared but not applied:** `metadata-evidence-plan/preflight/`
+contains 66,271 ready candidates (220 templates, 2,140 elements, 60,683 fields and 3,228 instances)
+and 143 held records (140 elements and three instances whose original modifier IDs do not resolve
+to production users). The read-only preflight checked all 66,414 candidates against live stores.
+`ops/cedar_provenance_metadata.py propose` checks each retained verified repair event and saved
+preimage; `preflight` captures current document hashes/revisions and graph preimages. Its policy
+requires the current graph modifier to be the explicitly specified CEDAR Admin account, the graph
+date to fall within that artifact's logged repair window (120 seconds), and the document's original
+date/author to agree with the saved preimage. It does not require the whole current document to
+equal a reconstructed historical postimage. Non-Admin modifiers, pending lifecycle jobs, changing
+graph reads and unresolved original users are excluded.
+
+The executor accepts this policy only with both `--allow-repair-metadata` and `--repair-user URI`.
+The default policy remains strict. Current document hashes/revisions, graph revision and metadata
+guards still reject intervening edits, and the same guarded transaction and durable journals apply.
+No Mongo body is written. Before executing this additional plan, coordinate with the running search
+verifier before any maintenance outage, pause application writers and take a fresh backup. The
+prepared plan and helper files are sealed in `metadata-evidence-plan/SHA256SUMS`; no additional
+repair has been launched from that directory.
+
+The task-specific launcher checks a sealed manifest and exact released source baselines, preserves
+the old resource jar/source, builds the tested minimal prevention patches through `cedarcli`,
+pauses microservices, takes an offline Neo4j dump, and executes the tested restoration query in
+explicit transactions. `ops/cedar_provenance_apply.py` refuses changed candidates, unresolved
+modifiers and active application listeners. It durably journals graph preimages and guarded
+rollback parameters before each transaction, requires every requested row back, and checks whole
+graph postimages plus unchanged Mongo hashes/revisions after each batch. It never writes Mongo.
+An ambiguous commit stops the workflow for journal inspection; it is never retried automatically.
+After restart, `ops/cedar_provenance_verify.py` waits for projection jobs to drain and checks every
+restored candidate against Mongo, Neo4j and search. Its explicitly enabled log-queue option clears
+only the pending `CEDAR-QUEUE-app-log` list above 100,000 messages, leaving other work queues alone.
+The launcher requires the operator's interactive sudo authentication for the backup/service steps.
+Before the first launch, production source trees were clean and no repair had been applied;
+the first-pass and continuation state above supersedes that staging checkpoint.
+
+The production verbatim-write path used by the September 2026 repair campaigns preserves the
+Mongo document but still stamps Neo4j modification metadata with the repair caller and current time.
+The browser's details/listings and the search index therefore can say CEDAR Admin and the repair
+date while JSON retains the original author/date. Successful document readbacks did not detect it.
+Do not run further production repairs until the graph-provenance prevention fix is deployed and
+verified. The prepared fix projects the returned document's modification provenance for verbatim
+writes; ordinary edits still stamp the caller/time. Creation metadata, ownership, version and
+publication state are outside that fix.
+
+**2026-10-07 evening audit (2026-10-08 UTC): incomplete detailed census, fixes prepared locally.**
+Production resource reports `2.9.23`, modifier `-2026-10-03-1`. No production content or configuration
+was changed. All 304,796 resources returned by the workspace inventory were enumerated with stable
+counts and no duplicate identifiers: 302,421 artifacts and 2,375 regular/system folders. The 5,673
+user-home folders are excluded by that listing endpoint and were counted separately by Monitor.
+
+| Kind | Inventoried | Document bodies read successfully | Confirmed modification-provenance differences | Evidence-backed recovery candidates |
+|---|---:|---:|---:|---:|
+| Template | 4,834 | 4,833 | 4,831 | 4,596 |
+| Element | 5,307 | 5,306 | 4,594 | 1,713 |
+| Field | 141,694 | 98,069 | 96,805 | 77,323 |
+| Instance | 150,586 | Not yet read | Not yet established | None yet |
+
+There were 108,214 detailed observations, including six bodies returning 404 on repeat reads
+(one template, one element, four fields). The 106,230 confirmed modification differences exclude
+creation-only differences. No observed graph-details/listing disagreements, identity disagreements
+or graph numeric-timestamp defects were found. Independent search enumeration completed for all
+4,834 templates and 5,307 elements and agreed with their graph provenance. The field, instance and
+folder index enumerations did not finish. Listing/search representations omit numeric timestamps;
+their raw index sort values have not been verified.
+
+The full listing shows Admin as modifier for 4,831 templates, 4,546 elements, 139,364 fields and
+11,414 instances. Of the templates, 4,597 currently show September 25 in Pacific time; later repair
+writes have restamped others. Fields also show broad September 11/12 and September 29 campaigns.
+An Admin stamp alone is not proof of corruption. The offline plan contains **83,632** candidates
+with matching original provenance, recorded repair window, whole-body hash and content revision.
+Another 21,756 read artifacts correlate with a repair but lack the required unchanged-revision
+proof; 47,320 additional listed resources correlate but have not had their current documents read.
+They remain review items. The full classification, including every unobserved resource and 41
+campaign records without a retained write timestamp, is in `recovery/summary.json` and
+`recovery/review.jsonl`. A 15-resource GET-only preflight passed and produced sample guarded
+forward/rollback batches under `pilot-preflight/`; the complete candidate set has not been
+fresh-preflighted or applied.
+
+**Why the bulk reads stopped:** the audit traffic materially outpaced the production log consumer.
+The application-log queue rose from 4,381,558 at 04:18:27 UTC to 4,532,000 at 04:19:42. Stopping the
+two local readers reversed the growth: it was 4,476,925 at 04:29:49. Logging was 2,836 seconds behind
+at that last observation; lag can keep rising while a large queue drains. No queues were cleared or
+production services restarted. Complete the remaining audit from a read-only store export/snapshot
+with an agreed load budget; available SSH access did not authenticate. Do not blindly resume the
+high-volume REST walk. Both the audit and fresh-preflight tools now check Monitor's logging lag
+and queue depth, fail closed when unavailable, and stop at 100,000 queued messages or 600 seconds
+of lag by default. A production check proved the guard refuses to start the census at the current
+backlog. See `LOG-QUEUE-RUNBOOK.md` for consumer triage; changing logging configuration is a separate
+production change.
+
+Monitor's start/end counts were stable. Mongo held 68 more templates, 305 more elements, 80 more
+fields and four more instances than Neo4j: **457 net excess documents**, not an identifier-level
+orphan count. The six graph resources whose bodies return 404 show why a net count cannot settle
+both directions of drift. Reconcile identities against a store export before proposing recovery or
+deletion. Graph and index artifact totals agreed for all four kinds. Folder counts reconcile as
+2,373 regular + two system + 5,673 home folders; only regular folders belong in the index. Eight
+checked services reported healthy dependencies/consumers, but Worker also reported 451 app-log and
+one clone-instance dead-letter message. These are separate findings, not automatically repair damage.
+
+Local validation: the authoritative full Java build passed, as did all 1,471 REST checks and the
+complete legacy/modern whole-stack smoke gate after local redeployment. New tests cover historical
+and fractional timestamps, nullable provenance, ordinary edits, the outbox and fallback write paths,
+and guarded graph restoration. The repair safety suite passed 648 tests. Two smoke selectors were
+corrected to the existing confirmation dialog's `OK` label; no product interface changed. Nothing
+has been committed, pushed, released or deployed to production as part of this investigation.
+
+`ops/cedar_provenance_audit.py` makes only GET requests. It enumerates all versions and publication
+states of templates, elements, fields, instances and folders, then compares each artifact's JSON
+with its graph details and listing metadata. Folders have no corresponding artifact JSON. Separate
+`--index-only` enumeration uses the tautology `A OR (NOT A)` to force the indexed search path:
+`q=*` and unfiltered listings use Neo4j and cannot verify the independent search projection.
+Inventories retain counts, duplicates and pagination mode. A deployment without graph continuation
+support uses bounded parallel offset pages; this is a live census, not an atomic database snapshot.
+The final report must disclose unreadable objects, inventory changes and the permission scope; it
+cannot claim to discover database-only orphans through public APIs.
+Standard production automatically uses its Monitor endpoint for the load guard, checked at most
+every 15 seconds across workers. For another deployment, supply `--monitor-server <HTTPS origin>`.
+`--max-log-queue` and `--max-log-lag` are explicit load limits, not permission to overwhelm a
+consumer; establish capacity before raising them. A stopped run records
+`STOPPED_PRODUCTION_LOG_BACKPRESSURE` and retains its observations.
+
+```bash
+python3 ops/cedar_provenance_audit.py --api-key-file /private/path/to/key \
+  --out "$CEDAR_HOME/.cedar/audits/provenance-run" --workers 16
+# Interrupted runs reuse completed inventories and retry incomplete observations:
+python3 ops/cedar_provenance_audit.py --api-key-file /private/path/to/key \
+  --out "$CEDAR_HOME/.cedar/audits/provenance-run" --workers 16 --resume
+python3 ops/cedar_provenance_audit.py --api-key-file /private/path/to/key \
+  --out "$CEDAR_HOME/.cedar/audits/provenance-run" --index-only
+```
+
+`ops/cedar_provenance_plan.py` is an offline classifier. Supply the audit directory, `.cedar/repairs`,
+`--legacy-root "$CEDAR_HOME"` for historical root-level campaign logs, and the observed repair
+account identifier through `--repair-user`. Strong restoration candidates require matching
+preimage provenance, the repair's timestamp window, a matching complete post-repair document and
+its unchanged content revision. The annotation backfill retained full postimages. Historical
+`derive-title`, `pad-artifact-version` and `align-instance-context-iris` writes can reconstruct their
+recorded scalar assignments from the preimage, checking every prior value and the resulting whole
+document hash; they do not rerun the current transform. Array/removal transformations remain review
+items. A `-resource-record` ETag suffix distinguishes the PUT
+response representation while retaining the underlying artifact revision. Every ambiguous or
+changed state stays in `review.jsonl`. Creation-provenance differences are reported separately and
+must not be silently folded into this modification-only repair.
+
+After both censuses finish, `ops/cedar_provenance_report.py --audit <directory> --repair-user <IRI>`
+reconciles identifiers and provenance across the graph listing, graph details, artifact document
+and independent index. It also checks that numeric sort timestamps agree with the displayed dates.
+The private `reconciliation.jsonl` retains every discrepancy, including unreadable resources;
+`reconciliation-summary.json` separates complete enumeration from successful body/details reads.
+For an interrupted census, `--allow-partial` explicitly reports uncompleted index enumerations and
+document reads rather than classifying unread objects as absent or consistent.
+
+`ops/cedar_provenance_restore_plan.py` repeats fresh GET-only checks and prepares batches of at
+most 100 graph parameters, guarded rollback parameters and the tested Cypher query. It has no
+apply option. The query changes only modification author/date/sort timestamp and the graph revision,
+and queues search reprojection in the same transaction. It uses the existing lifecycle lock,
+refuses pending projection/restore/deletion jobs, and rejects a whole batch when any candidate is
+missing, duplicated or changed. The prepared query requires the current lock and projection relay;
+do not apply it blindly to an older deployment. Before an explicitly approved application, deploy
+the prevention fix, pause writes, repeat the fresh preflight, take a database backup, and require
+one returned row per candidate in each transaction. Afterwards verify unchanged JSON hashes and
+content ETags, correct details/listings, and the completed search projection before resuming writes.
+
+The restoration basis is the preserved **document** modification provenance. The old repair tools
+did not save pre-repair graph metadata, so this must not be described as an exact rollback of every
+historical graph-only action. Do not roll back repaired artifact content or overwrite later edits.
+The incident evidence is retained under `$CEDAR_HOME/.cedar/audits/2026-10-08-provenance/`.
+
 ### Repair Safety
 
 An applied repair must validate its
 complete candidate, save a new durable preimage without overwriting earlier attempts, send the
 current strong ETag in `If-Match` with `PUT ?verbatim=true`, and compare the entire read-back body
-with the submitted candidate. Idempotence is not read-back verification. An artifact for which no
-transform proposes a change still needs validation before it can be called clean. Production apply
-mode rejects `--no-verify`.
+with the submitted candidate. Also GET the typed `/details` endpoint and verify `oslc:modifiedBy`,
+`pav:lastUpdatedOn` (the same instant at graph seconds precision), and numeric `lastUpdatedOnTS`
+against the candidate. JSON equality alone does not verify the graph or the browser's metadata.
+An unverified write stops the run; at most one artifact per worker is in flight, and already-running
+workers finish and record their outcomes exactly once.
+Idempotence is not read-back verification. An artifact for which no transform proposes a change
+still needs validation before it can be called clean. Production apply mode rejects `--no-verify`.
 
 Schema validity alone does not establish preservation of meaning. Two equal field values are not
 equivalent assertions unless their explicit property IRIs also agree. The duplicate rule permits
