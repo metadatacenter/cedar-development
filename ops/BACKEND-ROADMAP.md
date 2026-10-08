@@ -1451,3 +1451,27 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
+
+- **26. Retire `cedar-util`.** Nothing builds against `cedar-util`, and no CI job, Docker image or
+  other repository reads it. It is still in cedarcli's repository list, so every release versions
+  it, and its two Python requirements files carry 36 Dependabot alerts. Most of what it holds is
+  superseded or historical. `cedar_artifact_patch.py` and `repairs/cedar_artifact_repair.py`
+  replaced its Python artifact patcher, and its 2017 and 2018 evaluation scripts survive only as a
+  record. Only the two production cron jobs whose scripts it holds may still be live.
+
+  First establish what production runs. The recorded crontab starts both jobs from
+  `/srv/cedar/cedar-util`. A nightly caDSR update runs `cedar-cadsr-tools`, which does the work.
+  An instance-sharing job runs every ten minutes and applies 16 rules, each granting one of five
+  groups access to the instances of one of 14 templates. Its script calls
+  `scripts/python/group_permissions_to_instances.py`, which moved to `scripts/python/cedar/utils/`
+  in 2020, so either production runs an older checkout or the job has failed ever since. The
+  production crontab and the cron mail or logs settle which.
+
+  Move each job that is live to `cedar-development/ops`, with requirements of its own, and ask the
+  owners of the five groups which sharing rules they still need. Then remove `cedar-util` from
+  cedarcli's repository list and the `goutil` alias, and point the cron and release-prerequisite
+  pages in `cedar-mkdocs-developer` at the new home. Keep the IntelliJ code style and the Insomnia
+  API collection only if someone still uses them, and archive the repository on GitHub.
+
+  Done when production runs nothing from `cedar-util`, no release, tool or document names it, and
+  the repository is archived.
