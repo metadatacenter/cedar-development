@@ -221,11 +221,14 @@ vocabulary's families, to allow one family a host owns. Either way, retire the t
 replacement in `tools/retired-tokens.json`, and reduce the rendered check's `font-family` scale to
 the body font.
 
-### 7. Clear the Advisories Waiting on Upstream Releases
+### 7. Clear the Advisories Waiting on Upstream
 
 Two advisories remain in the frontend locks, and no release of either package fixes them. Both
-sit in build, lint and test tooling, and nothing the affected projects ship contains them. Every
-other lock outside the legacy Template Editor audits clean.
+sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
+a denial of service that needs an attacker to supply the glob pattern or the format string, and
+here those come only from the projects' own configuration. Nothing waits on this item. The train's
+lock baselines record the current counts as reviewed, so trains and releases pass. Every other
+lock outside the legacy Template Editor audits clean.
 
 - `braces` (GHSA-vfj7-8cjw-p6xm, high) affects every release up to 3.0.3, the latest. It reaches
   the Ember CEE demo only through `micromatch` 4.0.8. ember-cli, `@embroider/compat` by way of
@@ -236,12 +239,22 @@ other lock outside the legacy Template Editor audits clean.
   require. It reaches the model library through `ts-jest`, `babel-plugin-istanbul` and
   `@istanbuljs/load-nyc-config`, which still loads `js-yaml` 3 and with it `argparse` 1.
 
+The likeliest way out is withdrawal rather than a fix. Both maintainers dispute their advisory,
+and neither has merged any of the fix pull requests opened since it was published. On 2026-10-05 a
+contributor asked the authority that issued the `braces` advisory to withdraw it. A withdrawn
+advisory drops out of `npm audit` with no change on CEDAR's side. stylelint's maintainers say its
+unreleased 18.0.0 drops its glob dependencies, which removes one route for `braces` and leaves the
+others.
+
 No override helps while no fixed version exists. Dropping stylelint and ember-template-lint would
 not help either, because ember-cli and Embroider would still bring `braces`, and moving
-ember-template-lint to 7 removes one route for each package without clearing either. When
-`braces` or `sprintf-js` publishes a fix, or the packages above stop requiring them, refresh the
-affected locks, run each project's lint, tests and build, and refresh the train's lock baselines
-with `cedarcli publish baselines --refresh`.
+ember-template-lint to 7 removes one route for each package without clearing either.
+
+When an advisory is withdrawn, lower the counts recorded for the affected locks in
+`ops/frontend-train.json` by hand. The locks themselves do not change, and
+`cedarcli publish baselines --refresh` refreshes only a lock whose digest has moved. When a package
+publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
+each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
 
 <a id="ced"></a>
 
