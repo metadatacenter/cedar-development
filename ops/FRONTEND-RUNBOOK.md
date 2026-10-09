@@ -2779,8 +2779,20 @@ npm --prefix browser test
 
 The preview mode selector offers Read-only (the default) and Editable, one at a
 time. Read-only shows what each field accepts; Editable lets an author try filling
-in the form. Preview answers do not change the template and reset when the template
-or preview mode changes. CEE applies configuration once, so a mode change replaces
+in the form. Preview answers do not change the template. Changing preview mode or
+loading a different template identifier resets them. Edits retaining the identifier
+carry compatible answers, unfinished widget drafts and occurrence cursors into the
+new form. Defaults follow the edited template until the reader changes them;
+explicit clearing and deletion survive subsequent edits. Occurrence history follows
+insertions and copies, so a coincidental default change does not take ownership of
+a reader's answer. Rejected values are repaired individually. A new configuration
+defect in an optional added element removes the smallest removable occurrence rather
+than clearing unrelated answers. Temporal conversion never promotes storage padding
+to precision the reader did not supply. The recursive operation and conversion
+matrices live in `carried-answers.matrix.spec.ts`; the actual datetime widget and
+original audit regressions live in `carried-answers.audit.spec.ts`. The domain gate
+also runs the framework-free migration suites and their seeded fuzz checks.
+CEE applies configuration once, so a mode change replaces
 the preview element; ordinary template updates reuse it. It also asks CEE to drop
 its Expand All and Collapse All buttons, through
 `showExpandCollapseAll`, because the designer has its own controls over the same
