@@ -17,6 +17,8 @@ import time
 from cedar_provenance_audit import atomic, digest, now
 from cedar_provenance_store import COLLECTIONS, Stores, public_document
 from cedar_provenance_metadata import CLASSIFICATION as METADATA_CLASSIFICATION, validate_metadata_evidence
+from cedar_provenance_user_alias import resolved_modifier
+from cedar_provenance_log_plan import CLASSIFICATION as LOG_CLASSIFICATION, validate_log_evidence
 
 CHANGED = {'oslc_modifiedBy', 'pav_lastUpdatedOn', 'lastUpdatedOnTS', '_cedarRevision'}
 
@@ -52,9 +54,11 @@ def pending_lifecycle_ids(stores, ids):
     return {identifier for identifier, pending in rows if pending}
 
 
-def prepare(candidate, stored, graph, repair_user=None):
-    metadata_policy = candidate.get('classification') == METADATA_CLASSIFICATION and bool(repair_user)
-    if candidate.get('classification') != 'eligible-unchanged-repair' and not metadata_policy:
+def prepare(candidate, stored, graph, repair_user=None, *, user_ids=None, allow_legacy_user_aliases=False,
+            allow_log_evidence=False):
+    metadata_policy = candidate.get('classification') == METADATA_CLASSIFICATION and bool(repair_user) and not allow_log_evidence
+    log_policy = candidate.get('classification') == LOG_CLASSIFICATION and bool(repair_user) and allow_log_evidence
+    if candidate.get('classification') != 'eligible-unchanged-repair' and not metadata_policy and not log_policy:
         raise ValueError('candidate lacks eligible classification')
     if stored is None or graph is None: raise ValueError('missing document or graph')
     if '_cedarDeletionToken' in stored: raise ValueError('pending deletion')
@@ -72,7 +76,11 @@ def prepare(candidate, stored, graph, repair_user=None):
     if original.tzinfo is None or not body.get('oslc:modifiedBy'):
         raise ValueError('missing original provenance')
     evidence = candidate.get('evidence') or {}
-    if metadata_policy:
+    if log_policy:
+        validate_log_evidence(candidate, body, {
+            'oslc:modifiedBy': graph.get('oslc_modifiedBy'), 'pav:lastUpdatedOn': graph.get('pav_lastUpdatedOn'),
+            'lastUpdatedOnTS': graph.get('lastUpdatedOnTS')}, repair_user)
+    elif metadata_policy:
         validate_metadata_evidence(candidate, body, {
             'oslc:modifiedBy': graph.get('oslc_modifiedBy'), 'pav:lastUpdatedOn': graph.get('pav_lastUpdatedOn'),
             'lastUpdatedOnTS': graph.get('lastUpdatedOnTS')}, repair_user)
@@ -80,10 +88,11 @@ def prepare(candidate, stored, graph, repair_user=None):
             or evidence.get('documentEtag') != candidate['expectedDocumentEtag']
             or evidence.get('beforeModification') != {k: body.get(k) for k in ('pav:lastUpdatedOn', 'oslc:modifiedBy')}):
         raise ValueError('retained evidence does not match document')
+    modifier = resolved_modifier(candidate, body, user_ids, allow_legacy_user_aliases)
     params = {'id': candidate['id'], 'expectedModifiedBy': graph['oslc_modifiedBy'],
               'expectedLastUpdatedOnTS': graph['lastUpdatedOnTS'],
               'expectedGraphRevision': graph.get('_cedarRevision', 1),
-              'modifiedBy': body['oslc:modifiedBy'], 'lastUpdatedOn': original.isoformat(timespec='seconds'),
+              'modifiedBy': modifier, 'lastUpdatedOn': original.isoformat(timespec='seconds'),
               'lastUpdatedOnTS': int(original.timestamp())}
     return {'id': candidate['id'], 'kind': candidate['kind'], 'parameters': params,
             'graphPreimage': graph, 'documentSha256': digest(body),
@@ -144,7 +153,8 @@ def verify(records, docs, graphs):
         if graph != expected: raise RuntimeError('graph postimage differs beyond approved fields')
 
 
-def apply(stores, plan, query_path, backup, out, repair_user=None):
+def apply(stores, plan, query_path, backup, out, repair_user=None, allow_legacy_user_aliases=False,
+          allow_log_evidence=False):
     paused()
     if not backup.is_file() or backup.stat().st_size == 0:
         raise RuntimeError('offline Neo4j backup missing')
@@ -152,10 +162,11 @@ def apply(stores, plan, query_path, backup, out, repair_user=None):
         candidates = [json.loads(line) for line in stream]
     if not candidates or len({c['id'] for c in candidates}) != len(candidates):
         raise ValueError('empty plan or duplicate identities')
-    allowed = {'eligible-unchanged-repair'} | ({METADATA_CLASSIFICATION} if repair_user else set())
+    allowed = {'eligible-unchanged-repair'} | ({METADATA_CLASSIFICATION} if repair_user and not allow_log_evidence else set())
+    if repair_user and allow_log_evidence: allowed.add(LOG_CLASSIFICATION)
     if any(c.get('classification') not in allowed for c in candidates):
         raise ValueError('plan includes unproven candidates')
-    users = {row[0] for row in stores.query('MATCH (u:User) RETURN u._id')}
+    users = [row[0] for row in stores.query('MATCH (u:User) RETURN u._id')]
     out.mkdir(parents=True, exist_ok=False)
     summary = {'status': 'RUNNING', 'startedAt': now(), 'candidates': len(candidates),
         'committed': 0, 'skipped': 0, 'planSha256': hashlib.sha256(plan.read_bytes()).hexdigest(),
@@ -176,9 +187,12 @@ def apply(stores, plan, query_path, backup, out, repair_user=None):
                     try:
                         if candidate['id'] in pending:
                             raise ValueError('pending lifecycle job, including parked deletion')
-                        if candidate['document']['oslc:modifiedBy'] not in users:
+                        target = resolved_modifier(candidate, candidate['document'], users, allow_legacy_user_aliases)
+                        if users.count(target) != 1:
                             raise ValueError('original modifier identity is unresolved')
-                        records.append(prepare(candidate, docs.get(candidate['id']), graphs.get(candidate['id']), repair_user))
+                        records.append(prepare(candidate, docs.get(candidate['id']), graphs.get(candidate['id']),
+                            repair_user, user_ids=users, allow_legacy_user_aliases=allow_legacy_user_aliases,
+                            allow_log_evidence=allow_log_evidence))
                     except ValueError as error:
                         skipped.write(json.dumps({'id': candidate['id'], 'reason': str(error)}) + '\n')
                         summary['skipped'] += 1
@@ -211,12 +225,19 @@ def main():
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--allow-repair-metadata', action='store_true', help='Opt into artifact-specific repair-window/preimage evidence without historical content equality')
     parser.add_argument('--repair-user', help='Required repair account identity for --allow-repair-metadata')
+    parser.add_argument('--allow-log-evidence', action='store_true',
+        help='Opt into sealed verbatim warning plus exact successful request evidence')
+    parser.add_argument('--allow-legacy-user-aliases', action='store_true',
+        help='Allow sealed legacy repo.metadatacenter.net user aliases with one live canonical UUID match')
     args = parser.parse_args()
     if not args.apply: parser.error('writes require --apply')
-    if args.allow_repair_metadata != bool(args.repair_user):
-        parser.error('--allow-repair-metadata and --repair-user must be supplied together')
+    if args.allow_repair_metadata and args.allow_log_evidence:
+        parser.error('select exactly one additional evidence policy')
+    if (args.allow_repair_metadata or args.allow_log_evidence) != bool(args.repair_user):
+        parser.error('--repair-user requires an explicit metadata or log evidence policy, and vice versa')
     os.umask(0o027)
-    apply(Stores(), args.plan, args.query, args.backup, args.out, args.repair_user)
+    apply(Stores(), args.plan, args.query, args.backup, args.out, args.repair_user,
+        args.allow_legacy_user_aliases, args.allow_log_evidence)
 
 
 if __name__ == '__main__': main()

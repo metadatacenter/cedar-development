@@ -4995,7 +4995,7 @@ with a previously resolved classpath if a cold Maven cache fails or for repeated
 
 ### Modification-provenance incident and read-only audit
 
-**2026-10-08 direct-store follow-up: 86,204 graph restorations verified; search verification running.**
+**2026-10-08 direct-store follow-up: 86,204 restorations fully verified; another 66,271 awaiting search.**
 The prevention patch built successfully and is deployed. The first repair pass committed and
 verified 4,414 graph restorations and skipped one changed document. Its next 100-record batch
 included a previously parked deletion job, so the guarded transaction refused the entire batch.
@@ -5012,8 +5012,9 @@ service descendants survive task exit. Its sealed plan under the same repair evi
 `continuation-1/` contains 81,790 remaining candidates, excludes the completed records, changed
 document and parked deletion, and retains a separate verified-only journal for the first pass.
 It took a fresh backup, committed and verified all 81,790 candidates with no skips, and restarted
-the microservices. Together with the first pass, 86,204 graph restorations are verified; the two
-passes' complete Mongo/graph/search verification remains pending until projection jobs drain.
+the microservices. Together with the first pass, all 86,204 restorations passed final
+Mongo/graph/search verification at 12:32 Pacific. Independent resource, artifact and worker
+health checks passed after the operator unit exited.
 
 Search verification needs hours: `VersionProjectionService` consumes at most 25 jobs per
 five-second fixed delay, plus processing time. The verifier's deadline is now 24 hours rather
@@ -5044,7 +5045,7 @@ Evidence is retained under
 `$CEDAR_HOME/.cedar/repairs/2026-10-08-provenance-restoration/`, including the complete census,
 classification, independent index census and held identities.
 
-**Additional metadata-only plan, prepared but not applied:** `metadata-evidence-plan/preflight/`
+**Additional metadata-only plan:** `metadata-evidence-plan/preflight/`
 contains 66,271 ready candidates (220 templates, 2,140 elements, 60,683 fields and 3,228 instances)
 and 143 held records (140 elements and three instances whose original modifier IDs do not resolve
 to production users). The read-only preflight checked all 66,414 candidates against live stores.
@@ -5061,8 +5062,56 @@ The default policy remains strict. Current document hashes/revisions, graph revi
 guards still reject intervening edits, and the same guarded transaction and durable journals apply.
 No Mongo body is written. Before executing this additional plan, coordinate with the running search
 verifier before any maintenance outage, pause application writers and take a fresh backup. The
-prepared plan and helper files are sealed in `metadata-evidence-plan/SHA256SUMS`; no additional
-repair has been launched from that directory.
+prepared plan and helper files are sealed in `metadata-evidence-plan/SHA256SUMS`.
+Its first launcher stopped before any outage or data changes because the preflight directory
+had the staging user's private group. The corrected execution under `metadata-evidence-run-2/`
+preserves that failed attempt and checks every sealed input as `cedar` before launch. It took
+a fresh backup, committed and batch-verified all 66,271 with zero skips, and restored all 15
+microservices to health after about five minutes. Search projection and final verification are
+still running; the currently running stage must not be modified.
+
+**Legacy user references, prepared but not applied:** the 88 original held records and 143
+metadata-policy holds are 231 artifacts (85 templates, 143 elements and three instances) with
+57 distinct `https://repo.metadatacenter.net/users/<UUID>` modifiers. A live check found exactly
+one current `https://metadatacenter.org/users/<same UUID>` User for every UUID. These are old URI
+references, not missing users. `ops/cedar_provenance_user_alias.py` prepares their plan using the
+existing content/revision and repair-evidence guards. The executor requires the explicit
+`--allow-legacy-user-aliases` option and rechecks unique live identity resolution. It restores
+only graph modification provenance, preserving Mongo bodies, ownership, creation metadata and
+user accounts. All 231 passed live preflight; 53 provenance tests passed locally and the 23
+apply/metadata/alias tests passed with the production Python runtime. The sealed launcher in
+`legacy-user-alias-plan/` refuses to run until `metadata-evidence-run-2` has fully verified.
+
+**Remaining Admin-modified artifacts, read-only follow-up:** all 7,419 unresolved records were
+re-read with unchanged original provenance. They include 6,802 filled instances, 552 elements,
+50 fields and 15 templates. The largest instance families are Genetic Construct (3,172), Mouse
+Image-based Expression (970), csv2caDSR export templates (880 across six templates), and
+VODAN-COVID-Migrants-Tunisia (368). The 880 caDSR-related entries are filled records whose stored
+original modifiers are non-Admin; their template names alone do not establish Admin-imported
+CDE definitions. Across all 7,419, 7,406 stored documents name a non-Admin modifier and 13 name
+Admin. All 2,643 with retained repair history still match the saved original date/author, but
+their graph dates are more than ten minutes later than the available repair event. The other
+4,776 lack usable retained repair evidence. Do not infer damage or authorize restoration from
+Admin attribution alone. Retained resource-server warnings and exact successful verbatim PUT
+access entries subsequently established matching actor, modifier and graph timestamps for 7,406;
+one has a potentially conflicting later request and remains held. Five more have matching warnings
+but only disconnected-client access results, and eight have Admin dates predating this incident.
+`ops/cedar_provenance_log_plan.py` preserves the selected raw log lines and fingerprints, checks
+artifact-ID hash collisions, and performs a fresh read-only preflight. All **7,405** selected
+artifacts passed (15 templates, 552 elements, 44 fields, 6,794 instances), including nine legacy
+modifier URIs resolving uniquely to six current users. The 14 held artifacts are excluded.
+
+The sealed `log-evidence-plan/` package is **prepared, not applied**, with no overlap with the
+metadata or 231-artifact alias plans. Its manual `launch-repair.sh` checks current-run final
+verification and other active repair units before an outage, validates every input as `cedar`,
+takes a fresh offline backup, and uses `KillMode=process`. The executor requires explicit
+`--allow-log-evidence` and `--allow-legacy-user-aliases` options, rechecks raw log proof and current
+content/revision/user guards, and skips changed candidates. The log policy supplies evidence for
+the write; original date/author come from the preserved document, never from an inferred date.
+The 64 local provenance tests and 36 staged production-runtime tests passed; the launcher gate
+was checked to refuse execution while the current run is still verifying. Evidence is retained
+in `admin-investigation/` and the sealed package on production. Downloaded production evidence
+is kept in private temporary storage outside versioned repositories.
 
 The task-specific launcher checks a sealed manifest and exact released source baselines, preserves
 the old resource jar/source, builds the tested minimal prevention patches through `cedarcli`,
