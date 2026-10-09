@@ -4,6 +4,7 @@ import copy
 import json
 import pathlib
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -69,12 +70,37 @@ class SemanticSafetyTest(unittest.TestCase):
 
 
 class WriteSafetyTest(unittest.TestCase):
-    def run_repair(self, mutate=None, body=None, valid=True):
+    def test_unverified_parallel_write_stops_before_launching_the_population_and_records_once(self):
+        release = threading.Event()
+        started, recorded = [], []
+        def perform(ref):
+            started.append(ref)
+            if ref == 1: release.wait(timeout=5)
+            return {'verified': False}
+        def record(ref, result):
+            recorded.append(ref)
+            release.set()
+            raise r.ReadbackFailed('graph provenance changed')
+        with self.assertRaises(r.ReadbackFailed):
+            r.run_repairs_parallel(range(1000), 2, perform, record)
+        self.assertLessEqual(len(started), 2)
+        self.assertEqual(sorted(recorded), sorted(started))
+        self.assertEqual(len(recorded), len(set(recorded)))
+
+    def test_successful_parallel_repairs_process_each_target_once(self):
+        recorded = []
+        r.run_repairs_parallel(range(50), 4, lambda ref: {'id': ref},
+                               lambda ref, result: recorded.append(result['id']))
+        self.assertEqual(sorted(recorded), list(range(50)))
+
+    def run_repair(self, mutate=None, body=None, valid=True, graph=None):
         class Client:
             def __init__(self):
                 self.body = body or {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old'}
             def get_with_etag(self, path):
                 return copy.deepcopy(self.body), '"1"'
+            def get_json(self, path):
+                return graph if graph is not None else copy.deepcopy(self.body)
             def put_verbatim(self, path, candidate, etag):
                 self.body = copy.deepcopy(candidate)
                 if mutate:
@@ -96,6 +122,20 @@ class WriteSafetyTest(unittest.TestCase):
 
     def test_readback_accepts_exact_candidate(self):
         self.assertTrue(self.run_repair()['verified'])
+
+    def test_exact_document_with_repair_admin_in_graph_is_not_verified(self):
+        result = self.run_repair(graph={'oslc:modifiedBy': 'repair-admin',
+                                       'pav:lastUpdatedOn': '2026-09-25T20:02:23-07:00'})
+        self.assertFalse(result['verified'])
+        self.assertIn('graph modification provenance differs', result['detail'])
+
+    def test_graph_date_offsets_match_but_sort_timestamp_must_be_numeric(self):
+        document = {'oslc:modifiedBy': 'author', 'pav:lastUpdatedOn': '2017-12-29T08:48:17.987-08:00'}
+        details = {'oslc:modifiedBy': 'author', 'pav:lastUpdatedOn': '2017-12-29T16:48:17Z',
+                   'lastUpdatedOnTS': 1514566097}
+        self.assertIsNone(r.modification_provenance_difference(document, details))
+        details['lastUpdatedOnTS'] = str(details['lastUpdatedOnTS'])
+        self.assertEqual(r.modification_provenance_difference(document, details), 'lastUpdatedOnTS')
 
     def test_no_transform_does_not_mean_valid(self):
         result = self.run_repair(body={'@id': 'urn:test'}, valid=False)

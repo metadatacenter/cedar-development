@@ -3,13 +3,14 @@
 // This is the core write path of the product and had no coverage of any sort before these suites:
 // a create proxies its content to the artifact server, so the per-service tests cannot follow it,
 // and they only assert the rejections that fire before the proxy.
+import { isDeepStrictEqual } from 'node:util';
 import {
   suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, KINDS, enc, RUN, HOST, ARTIFACT_SERVER,
 } from '../lib.mjs';
 
 export const name = 'artifacts';
 
-export async function run({ user1, user2, folderId }) {
+export async function run({ user1, user2, admin, folderId }) {
   suite('artifacts: create, read, update, delete per kind');
   const auth = user1.auth;
   const made = {};
@@ -133,6 +134,36 @@ export async function run({ user1, user2, folderId }) {
         checkStatus(await call(auth, 'PUT', at, updated, { headers: { 'If-Match': revision } }), 412,
             'a stale If-Match revision is refused');
       }
+    }
+  }
+
+  suite('artifacts: verbatim repairs preserve document and displayed provenance');
+  check(!!admin, 'an admin credential is available for the verbatim contract', 'missing local admin key');
+  if (admin) {
+    for (const { kind } of KINDS) {
+      const fixture = made[kind];
+      if (!fixture) continue;
+      const before = await call(auth, 'GET', fixture.at);
+      const candidate = structuredClone(before.body);
+      candidate['pav:lastUpdatedOn'] = '2017-12-29T08:48:17.987-08:00';
+      // Keep the original author: the repair runs as a different principal.
+      const result = await call(admin.auth, 'PUT', `${fixture.at}?verbatim=true`, candidate,
+          { headers: { 'If-Match': before.headers.get('etag') } });
+      if (!checkStatus(result, 200, `${kind}: admin verbatim repair succeeds`)) continue;
+      const after = await call(auth, 'GET', fixture.at);
+      const details = await call(auth, 'GET', `${fixture.at}/details`);
+      check(isDeepStrictEqual(after.body, candidate), `${kind}: verbatim JSON is preserved`, 'body changed');
+      check(details.body?.['oslc:modifiedBy'] === candidate['oslc:modifiedBy'],
+          `${kind}: displayed modifier remains the original author`, 'graph modifier was stamped');
+      const second = Math.floor(Date.parse(candidate['pav:lastUpdatedOn']) / 1000);
+      check(Math.floor(Date.parse(details.body?.['pav:lastUpdatedOn']) / 1000) === second
+            && details.body?.lastUpdatedOnTS === second,
+          `${kind}: displayed date and sort timestamp remain historical`, 'graph date was stamped');
+      const listing = await call(auth, 'GET', `/search-deep?id=${enc(fixture.id)}`);
+      const listed = listing.body?.resources?.find(row => row['@id'] === fixture.id);
+      check(listed?.['oslc:modifiedBy'] === candidate['oslc:modifiedBy']
+            && Math.floor(Date.parse(listed?.['pav:lastUpdatedOn']) / 1000) === second,
+          `${kind}: listing preserves modification provenance`, 'listing differs from document');
     }
   }
 

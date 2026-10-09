@@ -17,13 +17,48 @@ Sibling runbooks:
 
 ## The Store
 
-`$CEDAR_HOME/cedar-term/prod`, about 44 GB. Three things live there:
+The store is `$CEDAR_HOME/cedar-term/prod`. Three parts of it answer requests:
 
 - `catalog.sqlite` — every ontology the store knows, every snapshot of each, and the `latest` tag.
 - `search-index.sqlite` — the cross-snapshot full-text index, one current version an ontology,
   rebuilt from the catalog rather than authored.
 - `snapshots/<ACRONYM>/<version-id>.sqlite` — one file a release, holding its concepts, labels,
   edges and closure.
+
+The ingest also keeps what it downloads. Each ontology's `snapshots/<ACRONYM>/raw/` holds every
+source file under its content hash, as `<hash>.gz` when the ingest compressed it or `<hash>.raw`
+when the source served it already compressed. These originals are the only copy of a release that
+BioPortal may since have withdrawn, and re-extracting a release, as the property backfill does,
+reads them. Beside each original the ingest writes an uncompressed working copy for the parser,
+`<hash>.gz.expanded` or `<hash>.raw.expanded`, occasionally with a further `.noimports` variant.
+Nothing reads a working copy once its ingest has finished, and the next ingest of that release
+writes it again, so working copies can be deleted.
+
+Measured on 2026-10-07, the store held 1,266 ontologies and 5,400 catalogued snapshots in 133 GB, of
+which about 59 GB answers requests:
+
+| Part | Size | Answers requests |
+|---|---|---|
+| Catalogued snapshots | 47.4 GB | yes |
+| Search index | 11 GB | yes |
+| Catalog | 4 MB | yes |
+| Working copies | 62.6 GB | no |
+| Original downloads | 4.5 GB | no |
+| Snapshot files the catalog does not record | 2.7 GB | no |
+
+A snapshot file the catalog does not record cannot be served. Those on disk in October 2026 were
+left by runs in August.
+
+Delete the working copies while no ingest is running. The command removes a working copy only when
+its original is beside it:
+
+```bash
+find $CEDAR_HOME/cedar-term/prod/snapshots -path '*/raw/*' -type f -name '*.expanded*' \
+  -exec sh -c 'for f; do [ -e "${f%%.expanded*}" ] && rm -- "$f"; done' sh {} +
+```
+
+Keep the catalog, the catalogued snapshots and the originals in a backup off the workstation. The
+index is derived and rebuilds in minutes, so a backup can leave it out.
 
 The index file carries three SQL indexes, `term_by_acronym`, `term_by_iri` and `name_by_term`, and
 `SearchIndexJob` creates all three. A file built before `term_by_iri` existed does not have it, and
@@ -43,9 +78,9 @@ sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
 
 A snapshot's identity is a content hash over its own concepts, labels and edges, so correcting a
 snapshot in place changes the release's identity rather than repairing it. Re-ingesting is the
-repair, and it mints a new version id. **The file name is not the identity** — 1,061 of the 2,460
-snapshots are named something other than their `version_id`, written under an older rule, and the
-catalog's `file_path` is what resolves a snapshot.
+repair, and it mints a new version id. **The file name is not the identity** — 219 of the 5,400
+catalogued snapshots are named something other than their `version_id`, written under an older
+rule, and the catalog's `file_path` is what resolves a snapshot.
 
 ```bash
 sqlite3 $CEDAR_HOME/cedar-term/prod/catalog.sqlite \
@@ -168,6 +203,61 @@ grep -E "terminology store enabled|Cross-snapshot search index" $CEDAR_HOME/log/
 the applicable local allowlist still route remotely. A green fallback-enabled suite therefore does
 not prove local coverage. UMLS-licensed sources (SNOMEDCT, MEDDRA, RCD, ICPC2P) remain remote and
 cannot be pinned in this store.
+
+## Moving the Store to Another Host
+
+A staging or production host that serves the picker needs only the parts of the store that answer
+requests, about 59 GB. Ingest can stay on the workstation that keeps the originals, and the serving
+host then receives copies of the files it writes. Put the copy on a data volume with room to grow,
+not on a small system partition. On app-05, `/var` is 4 GB.
+
+Copy only what the catalog records, while no ingest or index job runs, since both write the store.
+The snapshot files go first and the catalog and index last, so the host's catalog never records a
+file the host lacks. Build the file list beside the store, because `/tmp` is swept:
+
+```bash
+cd $CEDAR_HOME/cedar-term/prod
+sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" > serving-snapshots.txt
+rsync -a --files-from=serving-snapshots.txt . <host>:<store>/
+rsync -a catalog.sqlite search-index.sqlite <host>:<store>/
+```
+
+`<store>` is the directory the host's settings name. A `catalog.sqlite-wal` or
+`search-index.sqlite-wal` beside either file means a writer has not finished, so wait for it rather
+than copy. The originals and the working copies never go to the serving host.
+
+Before serving from the copy, confirm that every snapshot the catalog records is present. A file
+can be missing at the source too. On 2026-10-07 the workstation's catalog recorded two FBBI
+snapshots, one of them `latest`, that were not on disk.
+
+```bash
+cd <store>
+sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" |
+  while read -r p; do [ -e "$p" ] || echo "missing: $p"; done
+```
+
+Name the store in the host's `set-env-internal.sh`. `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` lists the
+ontologies the host searches locally. Copy the workstation's value from its profile unless the host
+should serve fewer.
+
+```bash
+export CEDAR_TERMINOLOGY_STORE_CATALOG="<store>/catalog.sqlite"
+export CEDAR_TERMINOLOGY_STORE_INDEX="<store>/search-index.sqlite"
+export CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES="<the workstation's list>"
+```
+
+Re-source the environment, restart the terminology server, and confirm the store from the startup
+log as [Serving the Store](#serving-the-store) shows. Then ask for a search. A host without a
+catalog answers 503 with "Version-aware search needs the local terminology store, and no catalog is
+configured."
+
+```bash
+curl -s -X POST http://localhost:9004/search -H 'Content-Type: application/json' \
+  -d '{"query":"melanoma"}' | head -c 300
+```
+
+After a later ingest, repeat the copy in the same order and restart the terminology server. `rsync`
+replaces each file it updates, and a running server keeps reading the file it opened.
 
 ## What a Lookup Costs
 
@@ -559,8 +649,8 @@ twice in the DOM at runtime. That is a memory cost rather than a transfer one.
 The selectors matter: an unencapsulated stylesheet reaches the host page, so anything beyond a
 `@font-face` in that file would leak out of the component.
 
-Verified in a browser rather than assumed — `document.fonts` carries `CEE Roboto` at 400 and 500 and
-`document.fonts.check('14px "CEE Roboto"')` returns true.
+Verified in a browser rather than assumed — `document.fonts` carries `CEDAR Roboto` at 400 and 500 and
+`document.fonts.check('14px "CEDAR Roboto"')` returns true.
 
 A global stylesheet in `angular.json` would be the ordinary way to reach the document, and it does
 not work here: the CLI emits it as a separate `styles.css` that a host page never loads.

@@ -330,7 +330,7 @@ async function constrainToDoidDiseaseBranch(p) {
     .getByRole("button", { name: /^DOID Human Disease Ontology/ })
     .click();
   await picker.getByRole("button", { name: "done", exact: true }).click();
-  await picker.getByRole("tab", { name: /^branches/ }).click();
+  await picker.getByRole("tab", { name: /^Branches/ }).click();
   await picker
     .getByRole("button", { name: "disease 1 ontology", exact: true })
     .click();
@@ -778,7 +778,7 @@ try {
   );
   await modal(page)
     .getByRole("alert")
-    .filter({ hasText: "Not saved: Set Test User 2 to viewer" })
+    .filter({ hasText: "Not saved: Set Test User 2 to Viewer" })
     .waitFor();
   await modal(page)
     .getByRole("button", { name: "Reload permissions", exact: true })
@@ -807,7 +807,7 @@ try {
         await modal(p)
           .getByRole("checkbox", { name: `Make ${toName} the owner`, exact: true })
           .click();
-        await confirmation.getByRole("button", { name: "OK", exact: true }).click();
+        await confirmation.getByRole("button", { name: "Yes", exact: true }).click();
       },
       200,
     );

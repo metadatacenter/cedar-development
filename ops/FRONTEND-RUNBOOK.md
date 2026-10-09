@@ -2888,7 +2888,9 @@ the replacement.
 
 CEE's production build also emits `cedar-embeddable-editor.host-fonts.js` and
 `bundle-manifest.host-fonts.json`. This entry point uses the shared Lucide registry and
-expects the host to register `CEE Roboto` 400/500 globally. The default bundle
+expects the host to register `CEDAR Roboto` 400/500 globally. CEE 2.0.21 and earlier
+name those faces `CEE Roboto`, so their host-font variant draws its text in the system
+stack beside a host that registers the shared faces. The default bundle
 continues to embed its fonts for standalone CEE/CEF use. Workspace copies and
 selects the host-font variant when its installed CEE package includes it, falling
 back to the default entry point for older package pins. The shared token source
@@ -3111,9 +3113,10 @@ work. Prune resolved baseline entries.
 Tokens also cannot enforce validation timing, save-state terminology or separation
 of selected values from defaults. Those require application-state tests. Finally,
 source adoption, installed package pins and served component bytes are separate
-checks: retain all three alongside the reactor and smoke evidence. Remaining
-baseline work is tracked under **Clear CED's Token Adoption Baseline** in the
-[frontend roadmap](FRONTEND-ROADMAP.md#ced).
+checks: retain all three alongside the reactor and smoke evidence. CED's baseline
+holds one finding by decision: the field library's two section heights, which its
+divider sets as it is dragged. No stylesheet can name a value that exists only at
+runtime, so the finding stays as recorded debt.
 
 ## Surface inventory and token coverage
 
@@ -3126,12 +3129,12 @@ menus/dialogs separately.
 OpenView's registry is at `cedar-openview/.ui-surfaces.json`; its application source
 is under `cedar-openview-src`. CI checks that nested source for unregistered
 menus/dialogs and literal Angular routes, and checks registered source anchors.
-Its folder and template pages and its not-found and not-open error cards are also
-checked as rendered pages by `browser/`, a Playwright suite that serves the built
-application and answers the open API from fixtures. Run it with `npm ci && npm test`
-in `browser/` after `npm run build` in `cedar-openview-src`. The other resource
-pages, the metadata panel and the empty folder have source coverage only. CEE stays
-opaque and shares CEE's existing registrations.
+`browser/` is a Playwright suite that serves the built application and answers the
+open API from fixtures. It checks every page as rendered: the folder and the empty
+folder, the template, element, field and instance pages, and the not-found, not-open
+and template-not-open error cards. Run it with `npm ci && npm test` in `browser/`
+after `npm run build` in `cedar-openview-src`. CEE stays opaque and shares CEE's
+existing registrations.
 
 `cedarcli check design-tokens --strict` checks registration coverage alongside
 source-style adoption. `--sync-surfaces` refreshes generated browser helpers from
