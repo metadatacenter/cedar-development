@@ -618,8 +618,8 @@ the small cases discovered by a failing history.
 
 | Repository | Generated histories and their independent checks |
 |---|---|
-| `cedar-embeddable-designer` | Tree edits, moves, copies, deletes, defaults and serialization; compare against a plain adjacency model and check old snapshots remain unchanged. |
-| `cedar-embeddable-editor` | Nested occurrence and attribute operations; compare values, counts and pager positions against plain data. Host assignments check claims, atomic rejection, owned input snapshots and isolation between editors. |
+| `cedar-embeddable-designer` | Tree edits, moves, copies, deletes, defaults and serialization; compare against a plain adjacency model and check old snapshots remain unchanged. Deferred terminology replies check field intent ownership, recovery, dirty state and save blocking through edits, moves, reloads and read-only transitions. |
+| `cedar-embeddable-editor` | Nested occurrence and attribute operations; compare values, counts and pager positions against plain data. Host assignments check claims, atomic rejection, owned input snapshots and isolation between editors. Controlled-term and external-authority lookup histories combine timed queries, out-of-order replies, nested paging, template replacement, selection and destruction. |
 | `cedar-model-typescript-library` | Nested schema and instance serialization; compare authored content and JSON/YAML stability. Instance YAML deliberately omits context and unfilled field slots, so that lane checks the documented payload rather than exact JSON equality. |
 
 Run larger explorations from the respective repository, after loading the native
@@ -629,8 +629,14 @@ profile as for other direct npm commands:
 # CED: 2,000 editing histories
 CEDAR_FUZZ_RUNS=2000 npm test -- --watch=false --include='**/editing-history.fuzz.spec.ts'
 
+# CED: 2,000 histories with manually scheduled terminology responses
+CEDAR_FUZZ_RUNS=2000 npm test -- --watch=false --include='**/terminology-history.fuzz.spec.ts'
+
 # CEE: occurrence, attribute and host-assignment histories
 CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/shared/util/occurrence-history.fuzz.spec.ts src/app/modules/shared/util/host-input-history.fuzz.spec.ts
+
+# CEE: 2,000 histories each for controlled terms and external authorities
+CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/input-types/components/lookup-history.fuzz.spec.ts
 
 # Model library: 1,000 instance cases and 1,000 schema cases
 CEDAR_FUZZ_RUNS=1000 npm test -- --runInBand SerializationFuzz
@@ -640,7 +646,13 @@ CEDAR_FUZZ_RUNS=1000 npm test -- --runInBand SerializationFuzz
 its seed and a reduced command list: the test deletes commands while retaining
 the original assertion-message signature. This is a debugging aid, not a proof
 of the smallest possible reproduction. Each replay starts with fresh state.
-These tests do not explore browser event timing or asynchronous request completion.
+The asynchronous histories use deferred promises (CED) and a fake clock with
+controlled response streams (CEE), so response order and debounce boundaries are
+repeatable without network calls or sleeps. CED's async shrinker awaits each replay
+and also preserves the assertion site. Both suites use two editors to check
+isolation. CEE exercises real handlers, nested pager state, registry updates and
+autocomplete subscriptions; actual browser rendering and live network behavior
+remain the browser/integration suites' responsibility.
 
 The preview-answer carry tests have their own existing `CARRY_FUZZ_RUNS` and
 `CARRY_FUZZ_RUN` controls; they do not use the history-test variables above.
