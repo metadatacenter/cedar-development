@@ -609,6 +609,42 @@ Angular's own build reports 1.6s and 3.2s.
 The check reads the workspace rather than the repository registry, so a component counts
 as one as soon as a sibling installs it.
 
+## Seeded history tests
+
+The ordinary test gates include bounded, repeatable generated histories in CED,
+CEE and the TypeScript model library. These complement example and matrix tests:
+they explore combinations and operation order, while explicit regressions retain
+the small cases discovered by a failing history.
+
+| Repository | Generated histories and their independent checks |
+|---|---|
+| `cedar-embeddable-designer` | Tree edits, moves, copies, deletes, defaults and serialization; compare against a plain adjacency model and check old snapshots remain unchanged. |
+| `cedar-embeddable-editor` | Nested occurrence and attribute operations; compare values, counts and pager positions against plain data. Host assignments check claims, atomic rejection, owned input snapshots and isolation between editors. |
+| `cedar-model-typescript-library` | Nested schema and instance serialization; compare authored content and JSON/YAML stability. Instance YAML deliberately omits context and unfilled field slots, so that lane checks the documented payload rather than exact JSON equality. |
+
+Run larger explorations from the respective repository, after loading the native
+profile as for other direct npm commands:
+
+```bash
+# CED: 2,000 editing histories
+CEDAR_FUZZ_RUNS=2000 npm test -- --watch=false --include='**/editing-history.fuzz.spec.ts'
+
+# CEE: occurrence, attribute and host-assignment histories
+CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/shared/util/occurrence-history.fuzz.spec.ts src/app/modules/shared/util/host-input-history.fuzz.spec.ts
+
+# Model library: 1,000 instance cases and 1,000 schema cases
+CEDAR_FUZZ_RUNS=1000 npm test -- --runInBand SerializationFuzz
+```
+
+`CEDAR_FUZZ_SEED=1214` selects one seed instead of the run count. A failure prints
+its seed and a reduced command list: the test deletes commands while retaining
+the original assertion-message signature. This is a debugging aid, not a proof
+of the smallest possible reproduction. Each replay starts with fresh state.
+These tests do not explore browser event timing or asynchronous request completion.
+
+The preview-answer carry tests have their own existing `CARRY_FUZZ_RUNS` and
+`CARRY_FUZZ_RUN` controls; they do not use the history-test variables above.
+
 ## Embeddable Editor (CEE/CEF)
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
