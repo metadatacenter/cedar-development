@@ -894,6 +894,26 @@ NCBI consumer acknowledges handled submissions, dead-letters malformed ones, and
 by interrupting its blocking connection; it does not enqueue the old JSON `null` sentinel or log an
 empty one-second blocking-pop timeout as an error.
 
+Queue transfers check the types of all participating Redis keys before changing them and append to
+the destination before removing the source. Lua excludes other clients, but does not roll back an
+earlier command when a later one fails. A wrong-type destination must therefore leave the source
+message available for recovery; repairing the key permits the same claim or dead-letter transfer to
+be retried.
+
+Clone claims additionally carry a unique receipt in `<queue>:claims`, while pending and processing
+lists keep their existing raw JSON payloads. Begin, acknowledgement and dead-letter operations check
+that receipt atomically. Recovery assigns a new receipt when the message is claimed again, so an old
+consumer cannot start it after its replacement completed, remove the replacement's work, or clear
+its execution fence. An obsolete acknowledgement completes as a no-op; an obsolete dead-letter
+request does not move anything. The existing `<queue>:executions` fence still parks any recovered
+clone whose mutation outcome is uncertain rather than executing it again.
+
+**Deploying clone claim receipts:** fully stop every old worker before starting a worker with this
+protocol. Old binaries do not check receipts and cannot safely overlap new consumers. No queue drain
+or payload rewrite is needed: raw pending messages and pre-existing execution fences remain readable.
+If an old clone handler is still running after the shutdown grace period, establish that it has
+terminated before starting the replacement or replaying its uncertain event.
+
 The value-recommender status endpoint returns synchronized snapshots across generation start,
 completion and restart. The worker defers an update when its template is already processing or
 the configured concurrency limit is reached. A failed or incomplete status response, refused
@@ -991,7 +1011,7 @@ dependency simply parks the events again. Then move them back, oldest first, app
 whatever is already queued rather than jumping ahead of it:
 
 ```bash
-while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli eval "local m = redis.call('LPOP', KEYS[1]); if m then redis.call('RPUSH', KEYS[2], m); end; return m" 2 CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission > /dev/null; done
+while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli -e eval "local m = redis.call('LINDEX', KEYS[1], 0); if m then redis.call('RPUSH', KEYS[2], m); redis.call('LPOP', KEYS[1]); end; return m" 2 CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission > /dev/null || break; done
 ```
 
 A message that cannot be parsed is parked on its first failure rather than retried, since retrying
@@ -2770,6 +2790,7 @@ The permanent coverage belongs to the affected services:
 | Resource `CrossStoreSequenceTest` | Delay an earlier successful content reply until the next save has updated the graph; remove a copy destination while its content POST is in flight. |
 | Resource `Neo4jArtifactRestoreOutboxTest` | Keep the newer revision fence after job completion and outbox restart. |
 | Worker `CloneAcknowledgementTest` | False acknowledgements, exceptions before/after Redis removal, and recovery of a begun execution with duplicate delivery. |
+| Queue library `QueueRecoveryMatrixTest`; worker `CloneRecoveryOverlapTest` | Failed claim/recovery/dead-letter transfers preserve messages; repaired keys permit retries. Stale clone callbacks cannot mutate replacement claims, including a reused payload; two overlapping processors must not execute the same clone twice. Legacy execution fences remain effective. |
 | Search library `IndexRebuildConcurrencyTest` | Force Redis command interleavings around rebuild replacement, cleanup, write/delete tracking and snapshot reads; exercise concurrent clients and the in-memory store, stale cached generations, cap transitions, expiry and Redis failure. Uses bundled Redis on a private port. |
 | Search library `CloneInstancesExecutorServiceTest` | Conditionally discard a worker clone that never reaches its destination graph, including an ownership transfer after its document POST. |
 | Workspace library `InstanceCloneOwnershipTest` | Transfer the instance or destination folder while a background clone waits; check ownership under graph locks before registration and provenance creation. |
