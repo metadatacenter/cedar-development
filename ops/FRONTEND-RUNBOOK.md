@@ -612,7 +612,7 @@ as one as soon as a sibling installs it.
 ## Seeded history tests
 
 The ordinary test gates include bounded, repeatable generated histories in CED,
-CEE and the TypeScript model library. These complement example and matrix tests:
+CEE, Workspace, the term picker and the TypeScript model library. These complement example and matrix tests:
 they explore combinations and operation order, while explicit regressions retain
 the small cases discovered by a failing history.
 
@@ -621,6 +621,8 @@ the small cases discovered by a failing history.
 | `cedar-embeddable-designer` | Tree edits, moves, copies, deletes, defaults and serialization; compare against a plain adjacency model and check old snapshots remain unchanged. Deferred terminology replies check field intent ownership, recovery, dirty state and save blocking through edits, moves, reloads and read-only transitions. |
 | `cedar-embeddable-editor` | Nested occurrence and attribute operations; compare values, counts and pager positions against plain data. Host assignments check claims, atomic rejection, owned input snapshots and isolation between editors. Controlled-term and external-authority lookup histories combine timed queries, out-of-order replies, nested paging, template replacement, selection and destruction. |
 | `cedar-model-typescript-library` | Nested schema and instance serialization; compare authored content and JSON/YAML stability. Instance YAML deliberately omits context and unfilled field slots, so that lane checks the documented payload rather than exact JSON equality. |
+| `cedar-workspace` | Metadata create/edit histories compare the current draft, acknowledged baseline, revision and recovery requirements with a plain reference model. Saves, further edits, delayed responses, remote changes, discard confirmations and host recreation must preserve unsaved input and prevent duplicate uncertain creates. |
+| `cedar-embeddable-term-picker` | Search and hierarchy histories mix response ordering, paging, release selection, source/endpoint changes, constraint replacement, selection and component recreation. Plain result lists, tree pages and constraint identities check ownership, duplicate prevention, pinned-term verification and immutable host inputs. |
 
 Run larger explorations from the respective repository, after loading the native
 profile as for other direct npm commands:
@@ -638,6 +640,12 @@ CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/shared/util/occurrence-history.
 # CEE: 2,000 histories each for controlled terms and external authorities
 CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/input-types/components/lookup-history.fuzz.spec.ts
 
+# Workspace: 2,000 histories each for metadata creation and editing
+CEDAR_FUZZ_RUNS=2000 npx ng test --watch=false --include='**/metadata-history.fuzz.spec.ts'
+
+# Term picker: 2,000 versioned search, hierarchy and selection histories
+CEDAR_FUZZ_RUNS=2000 npx ng test --watch=false --include='**/picker-history.fuzz.spec.ts'
+
 # Model library: 1,000 instance cases and 1,000 schema cases
 CEDAR_FUZZ_RUNS=1000 npm test -- --runInBand SerializationFuzz
 ```
@@ -653,6 +661,14 @@ and also preserves the assertion site. Both suites use two editors to check
 isolation. CEE exercises real handlers, nested pager state, registry updates and
 autocomplete subscriptions; actual browser rendering and live network behavior
 remain the browser/integration suites' responsibility.
+
+Workspace's metadata histories exercise the real host with CEE's public boundary,
+HTTP and confirmation replies simulated; they do not replace CEE's own instance
+tests. The picker histories exercise the real component and replace only its
+terminology client. Both use fake clocks and awaited shrinking. Explicit histories
+pin save/edit acknowledgement and release-switching races alongside the generated
+cases. The default gates run 100 metadata histories per mode and 100 picker
+histories; extended counts apply to each mode independently.
 
 The preview-answer carry tests have their own existing `CARRY_FUZZ_RUNS` and
 `CARRY_FUZZ_RUN` controls; they do not use the history-test variables above.
