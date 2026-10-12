@@ -2806,6 +2806,77 @@ turn a race regression into an unexercised passing test. Bounded thread races su
 controlled schedules. Exploratory `*Experiment` classes are excluded by the default Surefire naming
 rules and require explicit `-Dtest=...` selection; they do not add their history loops to ordinary builds.
 
+**Application-log sequence audit (2026-10-11).** The original seventeen deterministic probes used
+the existing monitor database fixture, production logging/aggregation DAOs, and the worker's
+`UnitOfWorkAwareProxyFactory` construction. They produced twelve assertion failures, five passes and
+no test errors against the revisions recorded in the evidence. The cases
+took 1.05 seconds; the suite including database/server startup took 15.09 seconds. This is embedded
+MariaDB 11.4.5 evidence, not a production MySQL 8 run. Sanitized per-case results and source revisions
+are in `ops/backend-audit/2026-10-11-logging/evidence.json`.
+
+| Boundary | Observed result |
+| --- | --- |
+| Commit, lose acknowledgement, replay the same event | Replayed request START violates the unique request key; replayed Cypher inserts a second row and doubles its usage count. The worker retries persistence when acknowledgement fails. |
+| Request START, handler START, END arrival permutations | Only the chronological order preserves all fields. The other five lose duration and/or status; END before handler START does not recompute durations when START arrives. |
+| Completion after a settled-day aggregation | Raw duration becomes three seconds and status 503, but the rollup retains zero duration and zero errors. The marked raw row is eligible for pruning. |
+| Two aggregation transactions read the same row before either flushes | Both request and Cypher rollups count it twice. |
+| Lower auto-increment ID commits after SELECT but before marking | Both log types mark two rows after counting only one. The next batch sees no work; pruning removes both. The range-based marker includes a row the batch never read. |
+| Failure after rollup flush, before marking | Both log types roll back the rollup and marker together; retry counts once. |
+| Ordinary pruning controls | Both log types retain unaggregated rows and rows newer than the cutoff, and delete eligible rows only once. |
+
+The original failing source is archived beside that evidence as `LogHistoryExperiment.java`;
+it requires the recorded pre-fix APIs and is not compiled by the default build. Current coverage is
+`LogPersistenceCases`, inherited by `LogListingPagingTest.Persistence`. It runs in the existing
+monitor database/server fixture, with no additional database startup. Run it from
+`cedar-monitor-server`, with the native develop profile sourced and Java 17 selected:
+
+```bash
+./mvnw -o -pl cedar-monitor-server-application -am test -Dtest=LogListingPagingTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+The matrix covers all 24 arrival orders of filter START, handler START, exception and END;
+missing-fragment subsets; overlapping aggregators; delayed lower-ID commits; rollback; concurrent
+fragments and replay; legacy query messages; and replay after pruning. Small library tests cover
+wire identity and canonical legacy identities. Worker tests ensure a batch skipped because another
+worker owns its rows uses idle polling instead of spinning.
+The default additions are 48 database cases, three identity cases and two scheduler cases. The
+database cases took 3.23 seconds in the full backend build and share the existing startup.
+The full Java build and subsequent local redeploy/whole-stack smoke passed (1,471 REST checks,
+plus browser and modern Workspace suites); `verification.json` beside the original evidence records
+case outcomes and the working-tree source hashes.
+
+**Application-log persistence and rollout.** `log_event_receipt` is a durable, compact replay ledger:
+one row per request (a phase mask), one per Cypher execution. The receipt and raw mutation commit
+in the same transaction. New query messages carry an execution UUID; queued legacy messages use a
+canonical hash of their original payload. Truly identical legacy payloads cannot be distinguished
+as separate executions; new UUIDs remove that ambiguity. Receipt rows survive raw-log pruning and
+must not be deleted while an old queue message can be replayed. Their storage grows with traffic;
+a bounded replay horizon and an explicit receipt-retention policy are separate capacity work.
+
+A request fragment may arrive first and create the raw skeleton. A request phase is applied once;
+replays cannot overwrite the first accepted phase or recreate a pruned request. Durations are
+recomputed as their endpoints arrive. Live aggregation requires filter START, handler START, END
+and a response status. Incomplete requests remain visible in raw logs and are excluded from both
+permanent rollups and pruning. This includes requests that never reached a handler or whose events
+were dropped: the settle margin alone does not make those complete. They do not keep the scheduler
+busy. With all three phases present, later exception details do not change the status-based error
+count. An exception arriving after raw pruning is acknowledged without resurrecting that row.
+
+Aggregation uses `FOR UPDATE SKIP LOCKED` and marks only the selected IDs, committing rollups and
+markers together. Incomplete historical rows already marked by an older worker are protected from
+pruning; a missing phase arriving for one is rejected for reconciliation rather than silently
+changing its raw data while leaving the old rollup untouched. Previously wrong rollups are not
+repaired automatically, and pre-upgrade writes have no receipt proving whether they already ran.
+
+Both monitor and worker register the ledger entity. The additive DDL is
+`cedar-logging-operations-library/db-migrations/2026-10-12-log-event-receipts.sql`; local Hibernate
+schema update creates it as well. For deployment, create/verify the ledger and fully stop old worker
+consumers before starting the new worker: old consumers do not honor receipt or aggregation locks.
+The producer upgrade may follow because legacy payloads remain supported. Rollback may leave the
+ledger in place, but an old consumer forfeits the replay and aggregation guarantees. No existing
+raw table or index is dropped. Live aggregation and pruning retain their disabled defaults; this
+change is not authorization to enable them or to rewrite production history.
+
 The ordinary suites run in `cedarcli build java`. The OpenSearch case belongs to the existing
 `opensearch-it` profile and requires OpenSearch 2.19.1. It creates a UUID-named `cedar-search-it-*`
 index, removes only that index, and uses embedded Neo4j plus real resource HTTP. The suite covers

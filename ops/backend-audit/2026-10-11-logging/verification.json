@@ -1,0 +1,310 @@
+{
+  "date": "2026-10-11",
+  "scope": "Logging replay, request-fragment arrival order, and live aggregation regression fixes.",
+  "full_java_build": {
+    "command": "cedarcli build java",
+    "outcome": "pass",
+    "seconds": 313.059,
+    "stages": [
+      "cedar-parent",
+      "cedar-libraries",
+      "cedar-project",
+      "cedar-clients"
+    ]
+  },
+  "new_default_cases": {
+    "database": 48,
+    "identity": 3,
+    "worker_scheduler": 2,
+    "total": 53,
+    "database_case_seconds": 3.232,
+    "additional_database_startups": 0
+  },
+  "monitor_fixture": {
+    "tests": 67,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "cases": [
+    {
+      "name": "incompleteRequestsStayRawAndDoNotKeepTheSchedulerBusy(String)[1]",
+      "seconds": 0.262,
+      "outcome": "pass"
+    },
+    {
+      "name": "incompleteRequestsStayRawAndDoNotKeepTheSchedulerBusy(String)[2]",
+      "seconds": 0.054,
+      "outcome": "pass"
+    },
+    {
+      "name": "incompleteRequestsStayRawAndDoNotKeepTheSchedulerBusy(String)[3]",
+      "seconds": 0.051,
+      "outcome": "pass"
+    },
+    {
+      "name": "incompleteRequestsStayRawAndDoNotKeepTheSchedulerBusy(String)[4]",
+      "seconds": 0.061,
+      "outcome": "pass"
+    },
+    {
+      "name": "incompleteRequestsStayRawAndDoNotKeepTheSchedulerBusy(String)[5]",
+      "seconds": 0.063,
+      "outcome": "pass"
+    },
+    {
+      "name": "incompleteRequestsStayRawAndDoNotKeepTheSchedulerBusy(String)[6]",
+      "seconds": 0.072,
+      "outcome": "pass"
+    },
+    {
+      "name": "legacyQueryReplayHasStableIdentityButDistinctExecutionsStillCount",
+      "seconds": 0.059,
+      "outcome": "pass"
+    },
+    {
+      "name": "overlappingAggregatorsMustCountOnce(boolean)[1]",
+      "seconds": 0.044,
+      "outcome": "pass"
+    },
+    {
+      "name": "overlappingAggregatorsMustCountOnce(boolean)[2]",
+      "seconds": 0.057,
+      "outcome": "pass"
+    },
+    {
+      "name": "lateCompletionMustReachRollupsBeforePruning",
+      "seconds": 0.07,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[1]",
+      "seconds": 0.081,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[2]",
+      "seconds": 0.074,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[3]",
+      "seconds": 0.075,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[4]",
+      "seconds": 0.193,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[5]",
+      "seconds": 0.092,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[6]",
+      "seconds": 0.081,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[7]",
+      "seconds": 0.066,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[8]",
+      "seconds": 0.064,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[9]",
+      "seconds": 0.063,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[10]",
+      "seconds": 0.06,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[11]",
+      "seconds": 0.067,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[12]",
+      "seconds": 0.072,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[13]",
+      "seconds": 0.068,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[14]",
+      "seconds": 0.065,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[15]",
+      "seconds": 0.059,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[16]",
+      "seconds": 0.061,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[17]",
+      "seconds": 0.064,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[18]",
+      "seconds": 0.065,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[19]",
+      "seconds": 0.072,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[20]",
+      "seconds": 0.08,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[21]",
+      "seconds": 0.066,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[22]",
+      "seconds": 0.071,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[23]",
+      "seconds": 0.064,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[24]",
+      "seconds": 0.064,
+      "outcome": "pass"
+    },
+    {
+      "name": "delayedLowerIdCommitMustNotBeMarkedWithoutBeingCounted(boolean)[1]",
+      "seconds": 0.053,
+      "outcome": "pass"
+    },
+    {
+      "name": "delayedLowerIdCommitMustNotBeMarkedWithoutBeingCounted(boolean)[2]",
+      "seconds": 0.046,
+      "outcome": "pass"
+    },
+    {
+      "name": "replayAfterPruningCannotRecreateRawRowsOrInflateRollups(boolean)[1]",
+      "seconds": 0.065,
+      "outcome": "pass"
+    },
+    {
+      "name": "replayAfterPruningCannotRecreateRawRowsOrInflateRollups(boolean)[2]",
+      "seconds": 0.053,
+      "outcome": "pass"
+    },
+    {
+      "name": "concurrentReplaysAndFragmentsAreSerialized(boolean)[1]",
+      "seconds": 0.085,
+      "outcome": "pass"
+    },
+    {
+      "name": "concurrentReplaysAndFragmentsAreSerialized(boolean)[2]",
+      "seconds": 0.042,
+      "outcome": "pass"
+    },
+    {
+      "name": "replayCommittedCypherMustNotInflateUsage",
+      "seconds": 0.032,
+      "outcome": "pass"
+    },
+    {
+      "name": "pruningMustLeaveUnaggregatedRowsAndRespectCutoff(boolean)[1]",
+      "seconds": 0.039,
+      "outcome": "pass"
+    },
+    {
+      "name": "pruningMustLeaveUnaggregatedRowsAndRespectCutoff(boolean)[2]",
+      "seconds": 0.038,
+      "outcome": "pass"
+    },
+    {
+      "name": "failureBetweenFlushAndMarkMustRollBackAndRetryOnce(boolean)[1]",
+      "seconds": 0.052,
+      "outcome": "pass"
+    },
+    {
+      "name": "failureBetweenFlushAndMarkMustRollBackAndRetryOnce(boolean)[2]",
+      "seconds": 0.041,
+      "outcome": "pass"
+    },
+    {
+      "name": "legacyIncompleteAggregateIsProtectedFromPruningAndSilentMutation",
+      "seconds": 0.03,
+      "outcome": "pass"
+    },
+    {
+      "name": "failedPersistenceRollsBackItsReceiptAndCanBeRetried",
+      "seconds": 0.037,
+      "outcome": "pass"
+    },
+    {
+      "name": "replayCommittedRequestStartMustSucceedAndPreserveCompletion",
+      "seconds": 0.039,
+      "outcome": "pass"
+    }
+  ],
+  "native_redeployment": {
+    "services_ready": 15,
+    "backend_binaries": "all current",
+    "native_health": "22/22 healthy",
+    "infrastructure": "8/8 available",
+    "new_mysql_receipts_observed": 20727
+  },
+  "limitations": [
+    "The deterministic database matrix uses embedded MariaDB 11.4.5; local runtime smoke uses the native MySQL service.",
+    "Incomplete request fragments remain raw and unpruned. Previously incorrect rollups are not repaired automatically.",
+    "Receipts must be retained while their messages can be replayed; pre-upgrade database writes do not have receipts."
+  ],
+  "working_tree_source_sha256": {
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/AppLoggerExecutorService.java": "3ebf8155cfe73ad6296bd72440d731e040c5a58a9807adc1865d599ed954ba38",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/agg/LogAggregationService.java": "e321eb06e5e958d1b1f0d188f4e92fe58b1795336ac37f2f726d92c92e13475d",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/dao/ApplicationRequestLogDAO.java": "3ce8e76e5e404e6c5596e3916c16f6d9074d2376af1440197389e7abd1504c5e",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/dao/agg/AggregationRollupDAO.java": "4c41b88cffa49b0873faf3346498b235f64e65b58ba26132d2c694347b986484",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/dbmodel/ApplicationRequestLog.java": "e6228d1a03a9acf06753c435728dce58e3a969649d743027e8373453448ed10d",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/model/AppLogMessage.java": "e3cf35a7516db38ced66d3d658e3a2b070fbcb26490cee8b416e3e1d6bf9864e",
+    "cedar-worker-server/cedar-worker-server-application/src/main/java/org/metadatacenter/cedar/worker/WorkerServerApplication.java": "f16552d4c17a97ba2f980377da7604961c93a9eb9f40d101f1060f29c0ef5d8e",
+    "cedar-worker-server/cedar-worker-server-core/src/main/java/org/metadatacenter/worker/LiveAggregatorJob.java": "552bdc82760916a696d44f84bfbb7dec5d79309eefb58cd262b929fea21d0771",
+    "cedar-monitor-server/cedar-monitor-server-application/src/main/java/org/metadatacenter/cedar/monitor/MonitorServerApplication.java": "c9dd15232589d4ab416606dbf9bed4639c434182427af33804e39126c77066a8",
+    "cedar-monitor-server/cedar-monitor-server-application/src/test/java/org/metadatacenter/cedar/monitor/LogListingPagingTest.java": "15416b8a17001f9c155403b9d486032384af9b75b0d3c354c288340fd2f88125",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/dbmodel/ApplicationLogReceipt.java": "d677ae649d69bf0b71ca8ccb556b9f2deb41a2ff3e6416f49443458e5645657a",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/main/java/org/metadatacenter/server/logging/model/AppLogIdentity.java": "4fc2cebc12ff127d1a888b37b65d8fa4c29e00e32f80cb2730ff6a65b638669c",
+    "cedar-microservice-libraries/cedar-logging-operations-library/src/test/java/org/metadatacenter/server/logging/AppLogIdentityTest.java": "4a5dadbccabbcc078ed9238c38443e4fe855f7faae50fa1522a080bbcaffaaf0",
+    "cedar-worker-server/cedar-worker-server-core/src/test/java/org/metadatacenter/worker/LiveAggregatorJobTest.java": "223a94c915146b30cc9e53f4fcf0b777e83c45c1a8793b523f6696c884befe2c",
+    "cedar-monitor-server/cedar-monitor-server-application/src/test/java/org/metadatacenter/cedar/monitor/LogPersistenceCases.java": "ce687f94f9cdc590811843709e6a38f107aefdf651d8b8d19d3ead11bf7df72b"
+  },
+  "whole_stack_smoke": {
+    "command": "cedarcli test e2e --rest-workers 4",
+    "outcome": "pass",
+    "rest_checks": 1471,
+    "rest_failures": 0,
+    "rest_skipped": 0,
+    "browser": "pass",
+    "modern_workspace_and_account": "pass",
+    "report": "ops/e2e/reports/smoke-gate/5ff22881884b2235.json"
+  }
+}

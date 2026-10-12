@@ -1,0 +1,128 @@
+{
+  "date": "2026-10-11",
+  "scope": "Isolated application-log persistence and live aggregation sequence probes; no production access or changes.",
+  "revisions": {
+    "cedar-monitor-server": "7cbb6373dda1d3bb1c7eae69eafd0220eabba6c1",
+    "cedar-microservice-libraries": "ee9064cf0b85d56bed8673f9c52d9a94c1bf9fb5",
+    "cedar-worker-server": "90b048e30e2f962518e223667ed381f47716fd36"
+  },
+  "fixture": "Existing LogListingPagingTest monitor fixture, MariaDB 11.4.5, Java 17, production Hibernate mappings and UnitOfWork proxies. The SQL engine is not production MySQL 8.",
+  "source": "cedar-development/ops/backend-audit/2026-10-11-logging/LogHistoryExperiment.java",
+  "source_sha256": "1f8c7b2d05713a27afa3efe15c6b89b4f6f5c0b36232ae58f66c7e248be53226",
+  "command": "./mvnw -o -pl cedar-monitor-server-application -am test -Dtest=LogHistoryExperiment -Dsurefire.failIfNoSpecifiedTests=false",
+  "execution": "Historical reproducer: compile with the recorded source revisions. Current regression coverage is LogListingPagingTest.Persistence; see BACKEND-RUNBOOK.md.",
+  "summary": {
+    "tests": "17",
+    "failures": "12",
+    "errors": "0",
+    "skipped": "0",
+    "time": "15.091"
+  },
+  "cases": [
+    {
+      "name": "overlappingAggregatorsMustCountOnce(boolean)[1]",
+      "seconds": 0.215,
+      "outcome": "failure",
+      "message": "expected: <1> but was: <2>"
+    },
+    {
+      "name": "overlappingAggregatorsMustCountOnce(boolean)[2]",
+      "seconds": 0.046,
+      "outcome": "failure",
+      "message": "expected: <1> but was: <2>"
+    },
+    {
+      "name": "lateCompletionMustReachRollupsBeforePruning",
+      "seconds": 0.081,
+      "outcome": "failure",
+      "message": "Multiple Failures (2 failures)\n org.opentest4j.AssertionFailedError: completed duration must reach rollup ==> expected: <3000000000> but was: <0>\n org.opentest4j.AssertionFailedError: 503 must reach error count ==> expected: <1> but was: <0>"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[1]",
+      "seconds": 0.054,
+      "outcome": "pass"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[2]",
+      "seconds": 0.054,
+      "outcome": "failure",
+      "message": "Multiple Failures (2 failures)\n org.opentest4j.AssertionFailedError: expected: <3000000000> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <1000000000> but was: <0>"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[3]",
+      "seconds": 0.052,
+      "outcome": "failure",
+      "message": "Multiple Failures (2 failures)\n org.opentest4j.AssertionFailedError: expected: <3000000000> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <1000000000> but was: <0>"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[4]",
+      "seconds": 0.05,
+      "outcome": "failure",
+      "message": "Multiple Failures (3 failures)\n org.opentest4j.AssertionFailedError: expected: <503> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <3000000000> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <1000000000> but was: <0>"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[5]",
+      "seconds": 0.054,
+      "outcome": "failure",
+      "message": "Multiple Failures (3 failures)\n org.opentest4j.AssertionFailedError: expected: <503> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <3000000000> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <1000000000> but was: <0>"
+    },
+    {
+      "name": "requestArrivalOrderMustPreserveTimingAndStatus(String)[6]",
+      "seconds": 0.051,
+      "outcome": "failure",
+      "message": "Multiple Failures (3 failures)\n org.opentest4j.AssertionFailedError: expected: <503> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <3000000000> but was: <0>\n org.opentest4j.AssertionFailedError: expected: <1000000000> but was: <0>"
+    },
+    {
+      "name": "delayedLowerIdCommitMustNotBeMarkedWithoutBeingCounted(boolean)[1]",
+      "seconds": 0.068,
+      "outcome": "failure",
+      "message": "Multiple Failures (2 failures)\n org.opentest4j.AssertionFailedError: the delayed row must be picked up by the next batch ==> expected: <1> but was: <0>\n org.opentest4j.AssertionFailedError: both committed rows must be counted before removal ==> expected: <2> but was: <1>"
+    },
+    {
+      "name": "delayedLowerIdCommitMustNotBeMarkedWithoutBeingCounted(boolean)[2]",
+      "seconds": 0.056,
+      "outcome": "failure",
+      "message": "Multiple Failures (2 failures)\n org.opentest4j.AssertionFailedError: the delayed row must be picked up by the next batch ==> expected: <1> but was: <0>\n org.opentest4j.AssertionFailedError: both committed rows must be counted before removal ==> expected: <2> but was: <1>"
+    },
+    {
+      "name": "replayCommittedCypherMustNotInflateUsage",
+      "seconds": 0.038,
+      "outcome": "failure",
+      "message": "Multiple Failures (2 failures)\n org.opentest4j.AssertionFailedError: expected: <1> but was: <2>\n org.opentest4j.AssertionFailedError: expected: <1> but was: <2>"
+    },
+    {
+      "name": "pruningMustLeaveUnaggregatedRowsAndRespectCutoff(boolean)[1]",
+      "seconds": 0.047,
+      "outcome": "pass"
+    },
+    {
+      "name": "pruningMustLeaveUnaggregatedRowsAndRespectCutoff(boolean)[2]",
+      "seconds": 0.044,
+      "outcome": "pass"
+    },
+    {
+      "name": "failureBetweenFlushAndMarkMustRollBackAndRetryOnce(boolean)[1]",
+      "seconds": 0.059,
+      "outcome": "pass"
+    },
+    {
+      "name": "failureBetweenFlushAndMarkMustRollBackAndRetryOnce(boolean)[2]",
+      "seconds": 0.058,
+      "outcome": "pass"
+    },
+    {
+      "name": "replayCommittedRequestStartMustSucceedAndPreserveCompletion",
+      "seconds": 0.024,
+      "outcome": "failure",
+      "message": "Unexpected exception thrown: org.hibernate.exception.ConstraintViolationException: could not execute statement [Duplicate entry 'local' for key 'UK_localRequestId'] [/* insert for org.metadatacenter.server.logging.dbmodel.ApplicationRequestLog */insert into cedar_log.log_request (aggregatedAt,apiKeyHash,authSource,className,clientSessionId,endTime,errorPack,globalRequestId,globalRequestIdSource,handlerDuration,httpMethod,jwtTokenHash,lineNumber,localRequestId,methodName,path,preHandlerDuration,queryParameters,requestTime,startTime,status,subType,systemComponentName,type,userId) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)]"
+    }
+  ],
+  "baseline_verification": {
+    "suite": "LogListingPagingTest",
+    "tests": 19,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "command": "./mvnw -o -pl cedar-monitor-server-application -am test -Dtest=LogListingPagingTest -Dsurefire.failIfNoSpecifiedTests=false"
+  }
+}

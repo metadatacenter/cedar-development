@@ -803,6 +803,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     write each request row once. Preserve the existing claim/processing/ack protocol: acknowledge only
     after commit, make replay after a commit-before-ack crash idempotent, and isolate a poison message
     without ambiguously replaying an already committed batch.
+  - Establish a bounded replay horizon and receipt-retention policy before expiring durable log
+    receipts. Inventory and reconcile pre-upgrade rollup discrepancies before enabling raw pruning;
+    a missing receipt cannot prove whether an old message's database write already committed.
   - A retention window chosen and turned on. `LogPruneJob` deletes aggregated rows past a window in
     bounded batches, defaulting to thirty days, and stays off behind `CEDAR_LOG_PRUNE_ENABLED`
     because deletion is the irreversible step. What remains is trusting the rollups enough to
