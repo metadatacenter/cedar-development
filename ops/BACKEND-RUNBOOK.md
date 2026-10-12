@@ -2718,17 +2718,25 @@ The permanent coverage belongs to the affected services:
 
 | Suite | Sequence it protects |
 | --- | --- |
-| Artifact `ArtifactRecreationTest` | Delete/recreate the same identifier, then submit an old update or delete. |
+| Artifact `ArtifactRecreationTest` | Delete/recreate the same identifier, then submit an old update or delete. Bulk-delete documents while preserving indexes, then race two recreations and reject old revision tokens; reuse the existing Mongo fixture. |
 | Artifact `TemplateDeletionRaceTest` | Create after a zero-reference count, delete or propagate a structural inclusion after validation, and mutate while another service holds a reservation; distinguish a rejected write from a lost acknowledgement. |
 | Resource `CrossStoreSequenceTest` | Delay an earlier successful content reply until the next save has updated the graph; remove a copy destination while its content POST is in flight. |
 | Resource `Neo4jArtifactRestoreOutboxTest` | Keep the newer revision fence after job completion and outbox restart. |
 | Worker `CloneAcknowledgementTest` | False acknowledgements, exceptions before/after Redis removal, and recovery of a begun execution with duplicate delivery. |
+| Search library `IndexRebuildConcurrencyTest` | Force Redis command interleavings around rebuild replacement, cleanup, write/delete tracking and snapshot reads; exercise concurrent clients and the in-memory store, stale cached generations, cap transitions, expiry and Redis failure. Uses bundled Redis on a private port. |
 | Search library `CloneInstancesExecutorServiceTest` | Conditionally discard a worker clone that never reaches its destination graph, including an ownership transfer after its document POST. |
 | Workspace library `InstanceCloneOwnershipTest` | Transfer the instance or destination folder while a background clone waits; check ownership under graph locks before registration and provenance creation. |
 | Resource `InclusionTransitionTest` | Publish or edit an inclusion target, or create its first instance, after propagation preflight. |
 | Resource `DraftTransitionTest` | Two draft requests pass preflight together; a successful request loses its client response and is retried. Require one successor and one clone job. |
 | Resource `RecursiveDeletionTransitionTest`, `RecursiveFolderDeletionTest` | Interrupt deletion, move a surviving subtree, edit content, add an outside reference, or lose a delete acknowledgement; require fresh confirmation before continuing. |
 | Resource `IndexedSearchOpenSearchIT`, `OpenArtifactsResourceTest` | Move a subtree into and out of an open ancestor; revoke a direct grant and deliver an older index write. Search rechecks current graph access while retained direct grants remain usable. |
+
+The rebuild concurrency regressions also run in the normal search-library Maven suite; the artifact
+bulk-deletion case runs in the existing recreation suite. They need no scheduled fuzz run. Forced
+command-boundary tests assert that their callback ran, so changing Redis commands cannot silently
+turn a race regression into an unexercised passing test. Bounded thread races supplement these
+controlled schedules. Exploratory `*Experiment` classes are excluded by the default Surefire naming
+rules and require explicit `-Dtest=...` selection; they do not add their history loops to ordinary builds.
 
 The ordinary suites run in `cedarcli build java`. The OpenSearch case belongs to the existing
 `opensearch-it` profile and requires OpenSearch 2.19.1. It creates a UUID-named `cedar-search-it-*`
