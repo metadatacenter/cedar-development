@@ -2514,6 +2514,53 @@ only its history pointer, and checks graph Latest listings and indexed Latest se
 After changing this contract, run `cedarcli build java`, redeploy the affected native services and
 run `cedarcli test e2e`.
 
+### Renumbering a Draft by Hand
+
+No command changes a draft's version once the draft exists; the
+[backend roadmap](BACKEND-ROADMAP.md) tracks adding one. The version is held twice, as the
+document's `pav:version` and as the graph node's `pav_version`, and neither ordinary route reaches
+both. An ordinary update refuses the change. A verbatim write replaces the document but updates
+only the node's name, description and identifier. Until the command exists, an administrator can
+renumber a draft with two writes, graph first. The verbatim write queues the version projection,
+which reads the graph, so writing the document first would reindex search from the old version.
+
+1. **Set the node's version under the lifecycle lock.** On production, `cypher-shell` is on the
+   `PATH`; the shared profile's `$CEDAR_NEO4J_HOME` names a directory that does not exist there. As
+   `cedar`, the profile supplies the connection without the password appearing on a command line:
+
+   ```bash
+   NEO4J_USERNAME="$CEDAR_NEO4J_USER_NAME" NEO4J_PASSWORD="$CEDAR_NEO4J_USER_PASSWORD" cypher-shell -a "bolt://$CEDAR_NEO4J_HOST:$CEDAR_NEO4J_BOLT_PORT"
+   ```
+
+   Open a transaction with `:begin` and run the statement, substituting the artifact's `@id` and
+   both versions. The new version must exceed the published predecessor's, as a draft's always
+   does. Finish with `:commit` only if it returns one row carrying the new version, and with
+   `:rollback` otherwise:
+
+   ```cypher
+   MATCH (lock:CedarVersionLock {id: 'lifecycle'})
+   SET lock.revision = coalesce(lock.revision, 0) + 1
+   WITH lock
+   MATCH (a:Artifact {_id: '<artifact @id>'})
+   WHERE a.pav_version = '<old version>' AND a.bibo_status = 'bibo:draft'
+     AND NOT EXISTS { MATCH (:Artifact {pav_previousVersion: a._id}) }
+   SET a.pav_version = '<new version>'
+   RETURN a.pav_version, a.bibo_status;
+   ```
+
+2. **Write the document with `PUT ?verbatim=true`,** changing only `pav:version`. Make the write
+   conditional on the stored body's ETag, save that body first, and read the artifact back to
+   confirm nothing else changed. `RepairClient` in `ops/repairs/cedar_artifact_repair.py`
+   performs exactly this write. The key needs `WRITE_ARTIFACT_VERBATIM`, which the
+   `artifactPrivilegedAdministrator` role carries.
+
+3. **Verify both stores.** Read the document back, run `cedarcli check artifact-versioning` on the
+   deployment without `--apply`, and check the Workspace listing and the version history.
+
+To undo, write the saved body back verbatim and run the statement with the two versions swapped.
+On 2026-10-11 this procedure took template `6f7c88e4-3dc6-43e8-bedb-146bff534bef` from 1.0.1 to 2.0.0
+in production.
+
 ## Artifact Write and Diagnostic Contracts
 
 ### Production artifact repair
