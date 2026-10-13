@@ -2806,6 +2806,23 @@ turn a race regression into an unexercised passing test. Bounded thread races su
 controlled schedules. Exploratory `*Experiment` classes are excluded by the default Surefire naming
 rules and require explicit `-Dtest=...` selection; they do not add their history loops to ordinary builds.
 
+**API-key cache invalidation matrix (2026-10-12).** A lookup that overlaps a local user mutation
+may return its previously read graph snapshot to that in-flight request, but cannot repopulate the
+cache after invalidation. Lookup completion carries the cache generation; invalidation advances it
+even when the cache is empty. The generation check and insertion are serialized, with graph I/O
+outside the cache monitor. Every user mutation, including creation and exceptional completion,
+invalidates in `finally`: a thrown completion does not prove that the graph write rolled back.
+Other JVMs still use the documented short TTL; this does not add estate-wide immediate revocation.
+
+`ApiKeyInvalidationMatrixTest` runs 32 database-free cases: all eight mutation entry points crossed
+with stale positive, negative and permission-bearing lookups, plus uncertain write completion at
+each entry point. The original seven-entry-point probe failed all 28 assertions on the old code,
+with no test errors. The full user-operations suite passes 52 cases. Its existing expiry test now
+uses a controllable monotonic clock instead of sleeping, so the new coverage does not add a database
+startup or a long-running fuzz loop. The full Java build and local redeployment passed; whole-stack
+smoke passed all 1,471 REST checks and browser tiers on retry after initial navigation/picker
+timeouts (smoke digest `42d6e93f00d61631`).
+
 **Application-log sequence audit (2026-10-11).** The original seventeen deterministic probes used
 the existing monitor database fixture, production logging/aggregation DAOs, and the worker's
 `UnitOfWorkAwareProxyFactory` construction. They produced twelve assertion failures, five passes and
