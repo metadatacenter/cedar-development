@@ -169,6 +169,53 @@ java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
 Measured: ~300–530 classes a second, and 500–1,100 bytes on disk a class. A full index rebuild of
 1,215 ontologies takes about four minutes; a slice of 989 took 83 seconds.
 
+### Publication, interruption and cleanup
+
+Snapshot publication and `--prune-orphans --apply` share a SQLite writer reservation on the catalog.
+Ingestion and property enrichment build a private `.sqlite.tmp` file first, then atomically move it
+into place and register it while holding that reservation. Cleanup acquires the reservation before
+reading references or deleting files. A competing writer waits for its configured busy timeout or
+receives `SQLITE_BUSY`; retry the operation after the current writer finishes. A failed registration
+may leave an unreferenced complete file, which a later cleanup can remove. Dry-run cleanup remains
+read-only. This coordinates the Java ingest, enrichment and cleanup paths; manual file deletion
+bypasses the protocol.
+
+Each ontology's classes, names/full-text postings, properties and version markers now publish in
+one search-index transaction. An interrupted update leaves the previously committed version usable;
+a retry replaces it. An older snapshot without property extraction clears the prior release's
+property results instead of serving them under the new release. Catalog and index writes roll back
+on unchecked failures as well as SQL failures. Bulk loading retains the 200 MB cache but uses rollback
+journaling and full synchronization. The throughput measurements above predate these durability
+settings; the updated large-corpus indexing rate has not been measured.
+
+Deploy the matching store and ingest libraries together, and finish or stop old ingest/index/cleanup
+jobs before using the new protocol. Schema initialization adds incremental full-text maintenance to
+an existing completed index; the command still finishes with its full-text rebuild. These changes
+prevent new inconsistencies; they do not restore snapshot files already removed by an older cleanup
+or automatically reconcile an index left inconsistent by an older interrupted job.
+
+**Deterministic recovery coverage (2026-10-12).** `TerminologyPublicationTest`,
+`SnapshotPruneConcurrencyTest` and `IndexRollbackMatrixTest` run in the ordinary Maven build.
+The initial 16 probes produced nine assertion failures and seven passes, with no test errors. They
+exposed unchecked-failure commits, separately committed class/property releases, stale legacy
+property results, stale full-text postings and cleanup deleting a snapshot during registration.
+A subsequent page-cache-spill probe exposed rollback loss with journaling disabled during incremental
+full-text maintenance. The final 23 cases cover five SQL failure points with both regular and bulk
+settings, retries, SQL/runtime/error rollback, legacy transitions, existing-index upgrade, a forced
+ingest/cleanup interleaving, page-cache spill, and child-JVM termination during a write. They use
+small temporary SQLite stores, no external ontology service and no additional embedded-server startup.
+The full terminology reactor and upgrade check passed 557 tests; the new cases took about 3–4
+seconds. After local redeployment, whole-stack smoke passed 1,471 REST checks and every browser tier
+(digest `fe2ffebb4977e530`); all 22 local applications were healthy.
+
+Run the focused matrix from `cedar-terminology-server`, with Java 17 and the native profile loaded:
+
+```bash
+./mvnw -o -pl cedar-terminology-server-ingest -am test \
+  -Dtest=TerminologyPublicationTest,SnapshotPruneConcurrencyTest,IndexRollbackMatrixTest \
+  -Dsurefire.failIfNoSpecifiedTests=false
+```
+
 ## Serving the Store
 
 Configure the catalog and index paths in this installation's `set-env-internal.sh`:
