@@ -2330,7 +2330,16 @@ would suddenly be sharing one.
 
 ### Internal Boundaries
 
-`EditorSession` owns the authoring document and active container. Every document
+`EditorSession` owns the authoring document, active container and `EditorAccess`
+policy. Access distinguishes definition edits from parent-owned placement edits;
+host read-only and root publication block both. Commands and controls share that
+policy. Tabs, expansion, outline selection and read-only preview remain available.
+Permission changes close editing dialogs and cancel outstanding edits without
+reviving them when access returns; existing unsaved input is retained. The host
+reserves `inert` for loading, failed loads and saving. See the designer README's
+read-only access table and its access, command and browser matrices.
+
+Every document
 update passes synchronously through `ValidationCoordinator`, which owns pending
 settings edits, syntax errors, asynchronous checks, error visibility and the public
 validation report. It validates edits against their own node, retries related drafts
