@@ -145,7 +145,13 @@ the author back to Workspace to inspect the result. Lost replies and server erro
 unconfirmed save for both creates and updates; they do not claim the server accepted the write.
 Token-refresh refusal is a session failure, not an uncertain create. The modern Workspace
 smoke commits real instance creates and updates before dropping their responses and verifies
-that the form retains its input and cannot repeat the write. `metadata-state-matrix.spec.ts`
+that the form retains its input and cannot repeat the write. The host retains the instance
+description across field edits, including the description inherited on creation. Sparse save
+acknowledgements supplement the submitted snapshot rather than dropping metadata they omit.
+The modern smoke compares complete stored documents after a description edit in CED/CEFD and
+a field-value edit in CEE; only the intended change and root update provenance may differ.
+Schema fixtures include identifiers and annotations authored outside the description control.
+`metadata-state-matrix.spec.ts`
 and the browser state-coordination suite cover these transitions. First save replaces the create URL through Angular routing; it does
 not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.
 

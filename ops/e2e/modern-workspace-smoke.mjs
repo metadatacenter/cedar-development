@@ -10,6 +10,18 @@ const stamp = Date.now();
 // Fixtures are canonical local identities; modern browser addresses retain only type/UUID.
 const selector = iri => iri.split("/").slice(-2).join("/");
 const pathId = iri => iri.substring(iri.lastIndexOf("/") + 1);
+// A normal update changes its root write provenance. Everything else must be accounted
+// for by the user's explicit edit, including nested definitions and unexposed metadata.
+function assertOnlyContentChanges(before, after, changes) {
+  const comparable = artifact => {
+    const copy = structuredClone(artifact);
+    delete copy["pav:lastUpdatedOn"];
+    delete copy["oslc:modifiedBy"];
+    return copy;
+  };
+  assert.deepEqual(comparable(after), comparable({...before, ...changes}),
+    "Saving a targeted edit must preserve all unrelated artifact content");
+}
 const names = Object.fromEntries(
   [
     "folder",
@@ -581,6 +593,15 @@ try {
     }
     await backToWorkspace(page);
     assert.equal(page.url(), returnUrl);
+    const contentPath = "/" + collection + "/" + enc(artifacts[kind]);
+    const sourceContent = (await call(user1.auth, "GET", contentPath)).body;
+    // Seed supported metadata outside the description control being exercised.
+    const annotated = await mutate(user1.auth, "PUT", contentPath, {...sourceContent,
+      "schema:identifier": `journey-${kind}-${stamp}`,
+      "_annotations": {"https://example.org/journey-note": {"@value": "Keep this annotation"}},
+    });
+    assert.equal(annotated.status, 200, annotated.text);
+    const beforeDescriptionEdit = (await call(user1.auth, "GET", contentPath)).body;
     await editor(page, names[kind]);
     if (kind === "field") {
       // Settings open expanded; expand them only if a later default collapses them again.
@@ -599,8 +620,11 @@ try {
       .fill("Updated by journey");
     if (kind === "template") await saveThroughExpiredToken(page, artifacts.template);
     else await editorSave(page, "PUT", collection);
+    const afterDescriptionEdit = (await call(user1.auth, "GET", contentPath)).body;
+    assertOnlyContentChanges(beforeDescriptionEdit, afterDescriptionEdit, {"schema:description": "Updated by journey"});
     await backToWorkspace(page);
     pass(`${label}: CED/CEFD create, reopen, conditional update, each staying in Designer, exact return`);
+    pass(`${label}: a description edit preserves the rest of the stored artifact`);
     if (kind === "template") {
       pass("CED authors a Disease field constrained to the DOID disease branch through the live term picker");
       pass("Designer save recovers from an expired access token through one refresh and one retry");
@@ -969,6 +993,7 @@ try {
   const instanceId = decodeURIComponent(
     new URL(page.url()).pathname.split("/instances/edit/")[1],
   );
+  const beforeNotesEdit = (await call(user1.auth, "GET", "/template-instances/" + enc(instanceId))).body;
   await cee.getByLabel("Notes", { exact: false }).first().fill("Updated notes");
   await write(
     page,
@@ -987,6 +1012,8 @@ try {
     "Updated notes",
     `stored instance fields: ${Object.keys(storedInstance).filter((k) => !k.includes(":") && !k.startsWith("@"))}`,
   );
+  assertOnlyContentChanges(beforeNotesEdit, storedInstance, {Notes: {"@value": "Updated notes"}});
+  pass("CEE value edit preserves other values, term identity, context and provenance");
   await page
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: /^Saved$/ })
