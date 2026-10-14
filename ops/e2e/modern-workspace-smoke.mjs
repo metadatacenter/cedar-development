@@ -5,6 +5,7 @@ import { chromium } from "playwright";
 import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mjs";
 import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
+import { groupAccessJourney } from "./group-access-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1221,6 +1222,9 @@ try {
   );
   // Workspace no longer offers artifact downloads. The REST download suite covers JSON,
   // YAML and compact YAML for every artifact kind; editor download controls have browser coverage.
+  step = "group-derived-access";
+  await groupAccessJourney({page, reader, base, designer, owner: user1, member: user2,
+    templateId: artifacts.template, instancePath, metadataUrl, name: names.instance, write, pass});
   step = "incomplete-required-metadata";
   await incompleteMetadataJourney({page, base, user: user1, folderId, templateId: artifacts.template,
     name: names.instance, created, write, pass});

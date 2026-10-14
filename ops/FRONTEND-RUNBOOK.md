@@ -193,6 +193,12 @@ sharing between two users, CEE metadata entry, versioning, OpenView and conditio
 Its two-user access journeys revoke edit permission while Designer and Editor contain unsaved
 input, verify that saving is refused and the stored document is unchanged, and cancel the
 reload confirmation to verify that the local draft remains intact.
+The group-access journey creates a group and changes its membership through the Groups page,
+with access to the template and metadata instance granted only through that group. Removing
+the member while either editor is open refuses saving and preserves both the local draft and
+stored content. Restoring membership does not silently retry the save: the author explicitly
+accepts discarding the draft, reloads the stored document, and can make and save a new edit.
+The journey restores the original artifact permissions and removes its temporary group.
 The partial-selection deletion journey commits two deletes and drops the second response.
 It verifies that only the first is reported as confirmed, later items remain untouched, and
 the author can finish from a fresh selection without repeating the uncertain request.
