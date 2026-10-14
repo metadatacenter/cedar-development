@@ -157,9 +157,9 @@ Provide explicit recovery for each outcome:
   overwritten safely. Fetch the latest artifact separately from the working draft, let the
   author review and reconcile changes, save a permitted copy, or explicitly discard their
   changes. Never attach a fresh ETag to an unreconciled draft and overwrite the newer content.
-- **Server outage, timeout or lost response:** distinguish a confirmed refusal from an unknown
-  outcome. Say when the save cannot be confirmed and offer a check of its status without
-  discarding edits. Retry only when safe; a server error does not prove the write never committed.
+- **Server outage, timeout or lost response:** offer an authoritative check of the save's status
+  without discarding edits. Reconcile a confirmed commit with the submitted snapshot while
+  retaining newer input, and permit a retry only when it cannot duplicate an earlier operation.
 - **Expired session:** preserve the draft through sign-in, then recheck both permissions and the
   artifact revision before enabling another write.
 - **Permission revoked or never granted:** explain why saving to the original or destination
@@ -167,26 +167,25 @@ Provide explicit recovery for each outcome:
   where creation is allowed. Access checks must not discard the draft or bypass authorization.
 - **Deleted or inaccessible artifact:** keep the draft and offer export or a permitted copy
   without claiming the artifact was deleted when the server only establishes lack of access.
-- **Server validation rejection:** retain input, show actionable findings tied to the submitted
-  snapshot, and allow correction and resubmission without reloading. Late findings must not be
-  attached to a newer draft.
+- **Server validation rejection:** make restored drafts participate in the same validation and
+  finding-ownership rules as uninterrupted edits. Connecting Designer's server findings to its
+  affected controls remains in the [CED work](#ced).
 
 Keep **Check save status**, **Recheck access** and **Review latest** separate from **Discard my
 changes**. Replacing the working document requires an explicit decision after recovery data has
-loaded successfully. Successful acknowledgement advances only the submitted baseline; edits
-made during the save remain unsaved and visible.
+loaded successfully.
 
 Make uncertain creates and template publish/create-draft operations recoverable without
 duplication. Define server-supported request identity or another authoritative result lookup
-and reconciliation contract, including multi-step version creation. Until the outcome is
-resolved, prevent another create or version operation; inspecting Workspace manually must not
-be the only recovery route. Apply the same uncertainty handling to both hosts.
+and reconciliation contract, including multi-step version creation. Persist unresolved operation
+identity with the recovery draft so reload and sign-in cannot bypass the guard against duplicate
+creation. Inspecting Workspace manually must not be the only recovery route.
 
-Cover both hosts with coordinator and browser tests for conflicts, missing ETags, initial and
-revoked permissions, expired sessions, deletion, validation failures, failed recovery reads,
-reload/sign-in restoration and edits made during a pending save. Include a committed write
-whose response is lost, repeated recovery attempts, and create/version operations that must
-not duplicate. Verify successful recovery against the running stack, and document the resulting
+Extend coordinator, browser and live-stack coverage to non-destructive recovery reads, draft
+restoration through reload/sign-in, reconciliation of committed saves with lost replies and
+repeated recovery attempts. Include newer edits arriving during recovery, permission and
+revision changes, and unresolved creates or version operations surviving a reload without
+duplication. Verify successful recovery against the running stack, and document the resulting
 user workflow in the frontend runbook. Completion means each failure has a tested route to
 resume saving, recover a copy or explicitly discard, without silently losing work or overwriting
 another author's changes.
