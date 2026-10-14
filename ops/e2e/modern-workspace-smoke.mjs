@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mjs";
 import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
+import { sharedTemplateJourney } from "./shared-template-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -734,6 +735,10 @@ try {
   );
   await permissionAppearance(reader, "readonly");
   await permissionDone(reader);
+  step = "shared-template-population";
+  await sharedTemplateJourney({page: reader, user: user2, sourceElementId: artifacts.element,
+    templateName: names.template, created, menu, write, pass});
+  step = "sharing";
   await grant(page, "editor");
   await reader.reload();
   await ready(reader);
