@@ -33,6 +33,7 @@ cedarcli build frontends       # full frontend reactor; `build --jobs 2 --worker
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
 cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require; --rest-workers 4 on the 16-core workstation
+cedarcli test cee-demos        # force all three framework consumer gates; --cee-package <path> tests a staged CEE release candidate
 ```
 
 The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not
@@ -280,6 +281,9 @@ Git commit/push are separate from this contract.
 
 The command runs component verification, records the immutable build graph and runtime selection,
 restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
+The Angular, React and Ember consumer demos run as a separate conditional gate when CEE's
+embedding API/packaging, consumer pins or demo inputs change, or no passing evidence exists.
+`cedarcli test cee-demos` forces all three; CEE release candidates always require that gate.
 Tracked development pins remain unchanged: dependency rewrites and resolved locks belong to the
 isolated build and its retained evidence. Trains independently build captured committed sources.
 See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and failure contract.

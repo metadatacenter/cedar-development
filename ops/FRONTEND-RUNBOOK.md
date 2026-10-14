@@ -372,6 +372,29 @@ does not redirect those checks to an absent or stale sibling `cedar-test-artifac
 
 #### Bounded parallel builds and test gates
 
+The Angular, React and Ember CEE consumer demos are a separate conditional gate,
+not ordinary reactor applications. `cedarcli build frontends` (and test-enabled
+`build all`) omits their installs/builds from the main graph, then checks all three
+against the exact CEE tarball just built when their embedding inputs have changed.
+The first run also checks them. A successful fingerprint under `.cedar/cee-demos/`
+covers CEE's public declarations, custom-element registration/bootstrap, host wrappers
+and configuration, packaging scripts/manifests, every declared CEE consumer manifest
+and lock, and demo sources/tooling. Internal field-rendering changes alone do not
+invalidate it. Missing, corrupt or failed evidence never suppresses a check.
+Failures stop completion before runtime activation. Deployment, served-byte checks
+and whole-stack smoke remain required.
+
+Force all three demos with `cedarcli test cee-demos`. By default this verifies their
+checked-out pins. To test a release candidate, use
+`cedarcli test cee-demos --cee-package /absolute/path/to/staged-package-or.tgz`.
+Both modes lint, integration-test and production-build all three in disposable copies;
+candidate pins/locks are rewritten only in those copies. The explicit command always
+runs, even when a matching local check exists. Consumer-demo CI checks its pins on
+push/PR; CEE CI checks every newly staged candidate, including release-preparation
+PRs, before dev publication. Build trains and platform release verification retain
+all three demo surfaces. Before publishing a public CEE release, explicitly test
+the final staged package as described in the npmjs release runbook.
+
 On the 16-core workstation, which runs little else, build with
 `cedarcli build --jobs 2 --workers 12 frontends`. Twelve workers per repository measured
 faster than the default of eight, and sixteen gained little over twelve. The defaults suit a
