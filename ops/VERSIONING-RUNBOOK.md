@@ -166,8 +166,10 @@ java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
     --acronyms DOID,NCIT --force
 ```
 
-Measured: ~300–530 classes a second, and 500–1,100 bytes on disk a class. A full index rebuild of
-1,215 ontologies takes about four minutes; a slice of 989 took 83 seconds.
+Historical measurements recorded ~300–530 classes a second and 500–1,100 bytes on disk a class.
+An earlier full index rebuild of 1,215 ontologies took about four minutes; a slice of 989 took
+83 seconds. Those rebuild timings predate publication hardening; use the current benchmark below
+when budgeting a full rebuild.
 
 ### Publication, interruption and cleanup
 
@@ -180,19 +182,23 @@ may leave an unreferenced complete file, which a later cleanup can remove. Dry-r
 read-only. This coordinates the Java ingest, enrichment and cleanup paths; manual file deletion
 bypasses the protocol.
 
-Each ontology's classes, names/full-text postings, properties and version markers now publish in
-one search-index transaction. An interrupted update leaves the previously committed version usable;
-a retry replaces it. An older snapshot without property extraction clears the prior release's
-property results instead of serving them under the new release. Catalog and index writes roll back
-on unchecked failures as well as SQL failures. Bulk loading retains the 200 MB cache but uses rollback
-journaling and full synchronization. The throughput measurements above predate these durability
-settings; the updated large-corpus indexing rate has not been measured.
+Each ontology's classes, names/full-text postings, properties and version markers publish in
+one search-index transaction. Full-text postings are deleted in a batch before the old content rows
+are removed, then inserted in a batch after the new names exist. An interrupted update leaves the
+previously committed version usable; a retry replaces it. An older snapshot without property
+extraction clears the prior release's property results instead of serving them under the new release.
+Catalog and index writes roll back on unchecked failures as well as SQL failures. Bulk loading
+retains the 200 MB cache but uses rollback
+journaling and full synchronization. The large-corpus benchmark below measures the cost of the
+complete publication change and separately probes the durability settings.
 
 Deploy the matching store and ingest libraries together, and finish or stop old ingest/index/cleanup
-jobs before using the new protocol. Schema initialization adds incremental full-text maintenance to
-an existing completed index; the command still finishes with its full-text rebuild. These changes
-prevent new inconsistencies; they do not restore snapshot files already removed by an older cleanup
-or automatically reconcile an index left inconsistent by an older interrupted job.
+jobs before using the new protocol. Schema initialization removes the previous per-name full-text
+triggers; the matching writer maintains postings in batches instead. Do not run an older index writer
+after this migration. The command still finishes with its full-text rebuild for repair and legacy
+schema migration. These changes prevent new inconsistencies; they do not restore snapshot files
+already removed by an older cleanup or automatically reconcile an index left inconsistent by an
+older interrupted job.
 
 **Deterministic recovery coverage (2026-10-12).** `TerminologyPublicationTest`,
 `SnapshotPruneConcurrencyTest` and `IndexRollbackMatrixTest` run in the ordinary Maven build.
@@ -208,13 +214,94 @@ The full terminology reactor and upgrade check passed 557 tests; the new cases t
 seconds. After local redeployment, whole-stack smoke passed 1,471 REST checks and every browser tier
 (digest `fe2ffebb4977e530`); all 22 local applications were healthy.
 
+**Batched-publication coverage (2026-10-13).** `IndexPublicationMatrixTest` adds 12 cases crossing
+regular/bulk settings, class-only/combined publication and current/trigger-based/pre-scope FTS
+schemas. They verify replacement, retries, clearing and repopulation, shared IRIs across ontologies,
+duplicate and multilingual names, empty labels, reopening, and FTS integrity before a global rebuild.
+Two further child-JVM cases terminate after both posting batches but before version publication
+commits. The focused recovery suites now contain 37 cases, and the full terminology reactor passes
+571 tests. Journaling and synchronization settings are unchanged; performance probes remain outside
+the normal build.
+
+Local redeployment was healthy. The whole-stack check passed all 1,471 REST checks and the main
+browser workflow, but the split Workspace tier failed an instance-content preservation assertion:
+editing Notes cleared `schema:description` (`modern-workspace-smoke.mjs`, digest
+`e41dc24facd29564`). That assertion was added in concurrent frontend work; the full smoke gate is
+not green for this run. An earlier attempt (`af8ef9a9cff8a538`) encountered a Workspace 502 during
+a frontend rebuild/restart.
+
 Run the focused matrix from `cedar-terminology-server`, with Java 17 and the native profile loaded:
 
 ```bash
 ./mvnw -o -pl cedar-terminology-server-ingest -am test \
-  -Dtest=TerminologyPublicationTest,SnapshotPruneConcurrencyTest,IndexRollbackMatrixTest \
+  -Dtest=TerminologyPublicationTest,SnapshotPruneConcurrencyTest,IndexRollbackMatrixTest,IndexPublicationMatrixTest \
   -Dsurefire.failIfNoSpecifiedTests=false
 ```
+
+### Index rebuild performance
+
+Measured on 2026-10-13 using 1,266 current ontology snapshots: 15,333,667 terms, 44,627,568 stored
+names and 246,639 properties. The comparison compiled the store and indexing sources from
+`56fcca7` (before publication hardening), `e764738` (per-name triggers), and the subsequent batched
+writer against the same dependencies, including SQLite JDBC 3.53.4.0. All ran with Java 17,
+a 10 GiB heap and the 200 MB SQLite cache on
+the same 16-CPU, 64 GiB macOS workstation. Each wrote a fresh temporary index from a frozen copy
+of the catalog and read the original immutable snapshots; the served catalog and index were untouched.
+
+The harness calls the production `indexOntology` for every ontology in acronym order, then
+`rebuildFullText` and `optimize`, matching the CLI's build stages. These are indexing times;
+additional consistency checks are timed separately.
+
+| Stage | Before hardening | Per-name triggers | Batched postings |
+|---|---:|---:|---:|
+| Read snapshots and publish each ontology | 284.623 s | 754.804 s | 375.512 s |
+| Final full-text rebuild | 62.425 s | 111.005 s | 67.321 s |
+| Optimization and planner statistics | 44.235 s | 68.925 s | 37.567 s |
+| Total, including initialization | **392.621 s (6:33)** | **935.069 s (15:35)** | **481.395 s (8:01)** |
+
+The initial publication hardening took **2.38 times as long**, an additional nine minutes. Its two
+runs indexed every ontology without a skip or failure, passed SQLite `quick_check` and the FTS5
+external-content integrity check, and produced the same row counts and 9,714,892,800-byte index size.
+All 1,266 class-version markers, 1,264 property-version markers and match counts for eight representative
+full-text queries agreed.
+
+A control used DOID, NCIT and CHEBI: 464,398 terms and 1,495,211 stored names. Each configuration
+ran twice, in forward then reverse order, on fresh indexes:
+
+| Configuration | Indexing time, two runs |
+|---|---:|
+| Old code and old bulk settings | 12.370 s / 12.510 s |
+| Old code with only `journal_mode=DELETE` and `synchronous=FULL` changed | 11.822 s / 12.466 s |
+| Per-name triggers and durable settings | 28.961 s / 30.391 s |
+
+On this subset, durability settings alone cost less than the observed run-to-run variation. The
+large increase appeared with the per-name publication implementation, which maintained full-text
+postings through a trigger for every stored name and still rebuilt them all at the end. This
+points to per-name full-text maintenance as the main cost, including its
+interaction with journaling; it is not a full-corpus isolation of every implementation change.
+The batched writer keeps both FTS changes in the ontology transaction using `INSERT ... SELECT`.
+In a fresh forward/reverse subset comparison, triggers took 29.121/29.758 seconds and batching took
+15.895/16.257 seconds. On the full corpus, batching reduced total indexing time by **48.5%**, while
+retaining `journal_mode=DELETE`, `synchronous=FULL`, combined class/property publication and the final
+rebuild. These measurements do not test omitting that final stage, including any work that might
+move into optimization. The batched full run also passed SQLite and FTS5 consistency checks and
+produced the same row counts and index size; its class-version markers and the eight sampled full-text
+match counts agreed with the baseline.
+
+Replacement was measured separately on populated copies of the three-ontology subset. Two forced
+passes took **86.794/88.490 seconds with triggers versus 15.556/15.213 seconds with batches**: about
+82% less time. These timings cover ontology replacement alone, excluding the CLI's final global
+rebuild and optimization. Each pass passed FTS5 external-content integrity checking **without** a
+global rebuild, and both resulting indexes agreed on versions and sampled search counts.
+
+These are manual performance probes, outside Maven's normal tests. Full-corpus timings use one
+fresh build per implementation. The trigger/before-hardening comparison ran in that order; the
+batched writer ran subsequently against the same frozen corpus. Idle sleep was prevented and each
+run has continuous ten-second heartbeat records. Filesystem caches were not flushed and normal
+desktop services remained active; use the numbers as workstation measurements, not a production-host
+guarantee. The harness, frozen catalog, source revisions, logs and timing records are retained locally
+under
+`$CEDAR_HOME/.cedar/benchmarks/terminology-index-20261013/`.
 
 ## Serving the Store
 
