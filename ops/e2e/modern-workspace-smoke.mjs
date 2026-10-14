@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mjs";
+import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1215,6 +1216,9 @@ try {
   );
   // Workspace no longer offers artifact downloads. The REST download suite covers JSON,
   // YAML and compact YAML for every artifact kind; editor download controls have browser coverage.
+  step = "incomplete-required-metadata";
+  await incompleteMetadataJourney({page, base, user: user1, folderId, templateId: artifacts.template,
+    name: names.instance, created, write, pass});
   step = "copy-move";
   await listed(page, names.template);
   await menu(page, names.template, "Copy");
