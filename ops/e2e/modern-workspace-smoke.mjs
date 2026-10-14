@@ -684,8 +684,29 @@ try {
     .getByLabel("Description", { exact: true })
     .fill("Changed by editor");
   await save(reader, "POST", "/command/rename-resource", 200, true);
+  // The editor opened with permission; another user removes that permission while
+  // its draft is still open. This differs from initially opening a read-only page.
+  await reader.goto(designer + "/templates/edit/" + enc(artifacts.template));
+  const readerDescription = reader.getByPlaceholder("Add description...", {exact: true});
+  await readerDescription.fill("Designer draft after access loss");
+  const beforeDesignerRevocation = await call(user1.auth, "GET", "/templates/" + enc(artifacts.template));
+  await grant(page, "viewer");
+  const deniedDesignerSave = reader.waitForResponse(response => response.status() === 403 &&
+    response.request().method() === "PUT" && new URL(response.url()).pathname.startsWith("/templates/"));
+  await reader.locator("#save").click();
+  await deniedDesignerSave;
+  await reader.waitForFunction(() => document.getElementById("save").disabled);
+  assert.equal(await readerDescription.inputValue(), "Designer draft after access loss");
+  assert.deepEqual((await call(user1.auth, "GET", "/templates/" + enc(artifacts.template))).body,
+    beforeDesignerRevocation.body);
+  reader.removeAllListeners("dialog");
+  reader.once("dialog", dialog => dialog.dismiss());
+  await reader.locator("#reload").click();
+  assert.equal(await readerDescription.inputValue(), "Designer draft after access loss");
+  reader.on("dialog", dialog => dialog.accept());
+  pass("Designer loses edit permission while open: save refused, draft retained, server content unchanged");
   await grant(page, "manager");
-  await reader.reload();
+  await reader.goto(base + "/dashboard?sharing=shared-with-me");
   await ready(reader);
   await menu(reader, names.template, "Permissions…");
   await modal(reader)
@@ -1091,6 +1112,25 @@ try {
   pass(
     "CEE host settles viewer permissions before configuring its read-only editor",
   );
+  await menu(page, names.instance, "Permissions…");
+  await setPermission(page, "/template-instances/", "editor");
+  await reader.goto(metadataUrl);
+  const readerNotes = reader.locator("cedar-embeddable-editor").getByLabel("Notes", {exact: false}).first();
+  await readerNotes.fill("Metadata draft after access loss");
+  const beforeEditorRevocation = await call(user1.auth, "GET", instancePath);
+  await menu(page, names.instance, "Permissions…");
+  await setPermission(page, "/template-instances/", "viewer");
+  await write(reader, "PUT", "/template-instances/",
+    () => reader.locator("#button-save-metadata").click(), 403, true);
+  await reader.waitForFunction(() => document.getElementById("button-save-metadata").disabled);
+  assert.equal(await readerNotes.inputValue(), "Metadata draft after access loss");
+  assert.deepEqual((await call(user1.auth, "GET", instancePath)).body, beforeEditorRevocation.body);
+  await reader.getByRole("button", {name: "Reload metadata", exact: true}).click();
+  await reader.locator("dialog.confirmation-dialog").getByRole("button", {name: "Cancel", exact: true}).click();
+  assert.equal(await readerNotes.inputValue(), "Metadata draft after access loss");
+  await menu(page, names.instance, "Permissions…");
+  await removePermission(page, "/template-instances/");
+  pass("CEE loses edit permission while open: save refused, draft retained, server content unchanged");
   pass(
     "Populate → CEE create, redirect, re-edit, conditional save and Workspace listing",
   );

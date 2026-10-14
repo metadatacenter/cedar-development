@@ -174,6 +174,9 @@ In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
 sharing between two users, CEE metadata entry, versioning, OpenView and conditional writes.
+Its two-user access journeys revoke edit permission while Designer and Editor contain unsaved
+input, verify that saving is refused and the stored document is unchanged, and cancel the
+reload confirmation to verify that the local draft remains intact.
 The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
 current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
 by the REST download suite, and the main browser smoke exercises CEE download controls.
