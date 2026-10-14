@@ -13,10 +13,14 @@ const page = await context.newPage();
 const created = [];
 const errors = [];
 const responseBodies = new Map();
+let loseNextWrite = false;
+let lastLostWrite;
+let writeCount = 0;
 // Capture writes before fulfilling them, so each response body stays readable whatever the page does next.
 await page.route(url => /^\/(templates|template-elements|template-fields|command\/publish-create-draft-template)(?:\/|$)/.test(url.pathname), async intercepted => {
   const req = intercepted.request();
   if (!['POST', 'PUT'].includes(req.method())) return intercepted.continue();
+  writeCount++;
   const response = await intercepted.fetch();
   const data = await response.json();
   responseBodies.set(req.method() + ' ' + req.url(), data);
@@ -24,6 +28,12 @@ await page.route(url => /^\/(templates|template-elements|template-fields|command
     const path = new URL(req.url()).pathname;
     const collection = path.startsWith('/template-fields') ? 'template-fields' : path.startsWith('/template-elements') ? 'template-elements' : 'templates';
     created.push({ collection, id: data['@id'] });
+  }
+  if (loseNextWrite) {
+    loseNextWrite = false;
+    assert.ok(response.ok(), JSON.stringify(data));
+    lastLostWrite = data;
+    return intercepted.abort('failed');
   }
   await intercepted.fulfill({ response });
 });
@@ -120,6 +130,19 @@ try {
     assert.equal(await nameInput().inputValue(), name);
     assert.equal(await descriptionInput().inputValue(), 'Updated through CED');
     console.log(`PASS: ${kind} create and conditional update without leaving Designer, Workspace return, reopen`);
+    // Commit at the real server, then lose only the response delivered to the browser.
+    await descriptionInput().fill('Saved but acknowledgement lost');
+    loseNextWrite = true;
+    await save();
+    await page.waitForFunction(() => document.getElementById('message').textContent.includes('could not confirm whether'));
+    assert.equal(await page.locator('#save').isDisabled(), true);
+    assert.equal(await descriptionInput().inputValue(), 'Saved but acknowledgement lost');
+    const confirmed = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
+    assert.equal(confirmed.body['schema:description'], 'Saved but acknowledgement lost');
+    const countAfterLoss = writeCount;
+    await page.locator('#save').dispatchEvent('click');
+    assert.equal(writeCount, countAfterLoss);
+    console.log(`PASS: ${kind} committed update with lost response keeps input and blocks another write`);
     // Concurrent backend edit must prevent the stale host from writing over it.
     await open(`/${route}/edit/${enc(id)}?${params}`);
     const external = { ...stored.body, 'schema:description': 'Concurrent editor' };
@@ -188,7 +211,21 @@ try {
       assert.equal(metadata.body['schema:isBasedOn'], id);
       console.log('PASS: template with metadata confirms versioning in place, preserves cancellation, leaves instances on original');
     }
-
+    await open(`/${route}/create?${params}`);
+    if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
+    await nameInput().fill(name + ' uncertain create');
+    loseNextWrite = true;
+    await save();
+    await page.waitForFunction(() => document.getElementById('message').textContent.includes('could not confirm whether'));
+    assert.equal(await page.locator('#save').isDisabled(), true);
+    assert.equal(await page.locator('#reload').isVisible(), false);
+    assert.equal(await nameInput().inputValue(), name + ' uncertain create');
+    const createdOnServer = await call(user1.auth, 'GET', `/${collection}/${enc(lastLostWrite['@id'])}`);
+    assert.equal(createdOnServer.body['schema:name'], name + ' uncertain create');
+    const countAfterCreate = writeCount;
+    await page.locator('#save').dispatchEvent('click');
+    assert.equal(writeCount, countAfterCreate);
+    console.log(`PASS: ${kind} committed create with lost response cannot be repeated`);
   }
   assert.deepEqual(errors, []);
 } catch (error) {

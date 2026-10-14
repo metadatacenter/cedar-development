@@ -2526,9 +2526,15 @@ submitted snapshot and retire when it changes. Errors block Save, while server w
 remain advisory. The host lists those findings; attaching them to CED's own cards and
 navigation still requires the component API described in the frontend roadmap.
 Conflicts, permission loss and missing revision tokens preserve edits and require an
-explicit reload, with confirmation before discarding changes. An acknowledgement without
-an artifact identifier cannot trigger another create; the author is directed to inspect
-Workspace. Changes while an update assessment or version confirmation is pending cancel
+explicit reload, with confirmation before discarding changes. A lost response, server error,
+timeout or acknowledgement without an artifact identifier blocks another write and reports
+that saving could not be confirmed. An uncertain create or publish/create-draft operation
+also hides Reload, so it cannot repeat creation; the author is directed to inspect Workspace.
+A failed update assessment can be retried because it has not written an artifact. The CED
+host smoke commits real creates and updates before dropping their replies to verify this
+distinction. Draft restoration and automatic outcome reconciliation remain open in the
+[save-recovery roadmap](FRONTEND-ROADMAP.md#save-recovery).
+Changes while an update assessment or version confirmation is pending cancel
 the write. A successful save stays in Designer. After a create or a new draft, the host
 reads the stored artifact back, opens it and moves to its edit address, so the next
 update starts from the identity and version metadata the server assigned. Saving an
