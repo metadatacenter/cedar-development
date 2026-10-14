@@ -148,9 +148,19 @@ smoke commits real instance creates and updates before dropping their responses 
 that the form retains its input and cannot repeat the write. The host retains the instance
 description across field edits, including the description inherited on creation. Sparse save
 acknowledgements supplement the submitted snapshot rather than dropping metadata they omit.
+CEE's save snapshot binds submitted element occurrences to their working objects. When a save
+assigns new element identifiers, Workspace reads the stored document at the write's returned
+revision (including equivalent gzip-suffixed ETags) and acknowledges those IDs without remounting
+or replacing newer input. Reordered entries
+retain their own identities; deleted entries are not restored and new entries are not assigned
+another entry's ID. Failed readback, a changed revision or an invalid acknowledgement retains
+the draft and blocks further saves with an explicit message that the write succeeded.
 The modern smoke compares complete stored documents after a description edit in CED/CEFD and
 a field-value edit in CEE; only the intended change and root update provenance may differ.
 Schema fixtures include identifiers and annotations authored outside the description control.
+It also imports a library element, checks that later library edits leave the imported snapshot
+unchanged, and checks that edits to the imported element leave the library source unchanged.
+The resulting instance's second save must preserve its nested element identifiers.
 `metadata-state-matrix.spec.ts`
 and the browser state-coordination suite cover these transitions. First save replaces the create URL through Angular routing; it does
 not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.

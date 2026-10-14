@@ -339,7 +339,7 @@ async function constrainToDoidDiseaseBranch(p) {
   const picker = p.locator("cedar-embeddable-term-picker");
   await picker.getByText("narrow to…", { exact: true }).click();
   await picker
-    .getByRole("button", { name: /^DOID Human Disease Ontology/ })
+    .getByRole("button", { name: /^DOID(?:\s|$)/ })
     .click();
   await picker.getByRole("button", { name: "done", exact: true }).click();
   await picker.getByRole("tab", { name: /^Branches/ }).click();
@@ -630,6 +630,39 @@ try {
       pass("Designer save recovers from an expired access token through one refresh and one retry");
     }
   }
+  step = "reusable-element-snapshot";
+  await editor(page, names.template);
+  await page.getByRole("button", {name: "Import fields and elements", exact: true}).first().click();
+  await page.getByRole("searchbox").fill(names.element);
+  await page.getByRole("button", {name: "Search", exact: true}).click();
+  await page.getByRole("row", {name: "Select " + names.element, exact: true}).click();
+  await page.getByRole("button", {name: "Done", exact: true}).click();
+  const elementSourcePath = "/template-elements/" + enc(artifacts.element);
+  const elementSource = (await call(user1.auth, "GET", elementSourcePath)).body;
+  const embeddedElement = artifact => Object.values(artifact.properties).map(value => value.items ?? value)
+    .find(value => value["@id"] === artifacts.element);
+  await editorSave(page, "PUT", "templates");
+  const importedTemplate = (await call(user1.auth, "GET", "/templates/" + enc(artifacts.template))).body;
+  const importedElement = embeddedElement(importedTemplate);
+  assert.ok(importedElement, "reused element retains its source identity");
+  assert.equal(importedElement["schema:description"], elementSource["schema:description"]);
+  assert.deepEqual(importedElement["_annotations"], elementSource["_annotations"]);
+  const sourceUpdate = await mutate(user1.auth, "PUT", elementSourcePath,
+    {...elementSource, "schema:description": "Later library source edit"});
+  assert.equal(sourceUpdate.status, 200, sourceUpdate.text);
+  await backToWorkspace(page);
+  await editor(page, names.template);
+  const reopenedTemplate = await page.locator("cedar-embeddable-designer").evaluate(el => el.currentArtifact);
+  assert.deepEqual(embeddedElement(reopenedTemplate), importedElement,
+    "a later source edit must not silently replace the reused snapshot");
+  const nestedDescription = page.locator("app-container-editor").nth(1).getByPlaceholder("Add description...", {exact: true});
+  await nestedDescription.fill("Local reused element edit");
+  await editorSave(page, "PUT", "templates");
+  const locallyEdited = (await call(user1.auth, "GET", "/templates/" + enc(artifacts.template))).body;
+  assert.equal(embeddedElement(locallyEdited)["schema:description"], "Local reused element edit");
+  assert.equal((await call(user1.auth, "GET", elementSourcePath)).body["schema:description"], "Later library source edit");
+  await backToWorkspace(page);
+  pass("Reused elements retain source identity and annotations; library and embedded edits remain independent");
   step = "designer-conflict";
   await editor(page, names.template);
   const templatePath = "/templates/" + enc(artifacts.template);
@@ -644,7 +677,7 @@ try {
     200,
   );
   await page
-    .getByPlaceholder("Add description...", { exact: true })
+    .getByPlaceholder("Add description...", { exact: true }).first()
     .fill("Unsaved CED edit");
   await write(
     page,
@@ -656,7 +689,7 @@ try {
   );
   assert.equal(
     await page
-      .getByPlaceholder("Add description...", { exact: true })
+      .getByPlaceholder("Add description...", { exact: true }).first()
       .inputValue(),
     "Unsaved CED edit",
   );
@@ -711,7 +744,7 @@ try {
   // The editor opened with permission; another user removes that permission while
   // its draft is still open. This differs from initially opening a read-only page.
   await reader.goto(designer + "/templates/edit/" + enc(artifacts.template));
-  const readerDescription = reader.getByPlaceholder("Add description...", {exact: true});
+  const readerDescription = reader.getByPlaceholder("Add description...", {exact: true}).first();
   await readerDescription.fill("Designer draft after access loss");
   const beforeDesignerRevocation = await call(user1.auth, "GET", "/templates/" + enc(artifacts.template));
   await grant(page, "viewer");
@@ -959,6 +992,18 @@ try {
     window.journeyEditor = document.querySelector("cedar-embeddable-editor");
   });
   await page.locator("#instance-name").fill(names.instance);
+  // Hold the identity readback while the author continues typing. Acknowledging
+  // server-minted nested IDs must not replace those newer values or remount CEE.
+  const instanceReadback = url => /^\/template-instances\//.test(url.pathname) && !url.pathname.endsWith("/report");
+  let releaseIdentityRead;
+  const identityGate = new Promise(resolve => { releaseIdentityRead = resolve; });
+  await page.route(instanceReadback, async route => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await identityGate;
+    return route.continue();
+  });
+  const readingIdentities = page.waitForRequest(request =>
+    request.method() === "GET" && instanceReadback(new URL(request.url())));
   await write(
     page,
     "POST",
@@ -966,7 +1011,14 @@ try {
     () => page.locator("#button-save-metadata").click(),
     201,
   );
+  await readingIdentities;
+  await cee.getByLabel("Notes", {exact: false}).first().fill("Newer notes during acknowledgement");
+  releaseIdentityRead();
   await page.waitForURL(/\/instances\/edit\//);
+  await page.unroute(instanceReadback);
+  assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), "Newer notes during acknowledgement");
+  await page.locator(".metadata-toolbar [role=status]").filter({hasText: "Modified"}).waitFor();
+  pass("First save adopts nested element IDs without losing edits made during acknowledgement");
   const suggestedTerm = (
     await call(
       user1.auth,
@@ -1300,7 +1352,7 @@ try {
     204,
   );
   await page
-    .getByPlaceholder("Add description...", { exact: true })
+    .getByPlaceholder("Add description...", { exact: true }).first()
     .fill("Unsaved after deletion");
   // CED checks template update impact before saving; deletion is caught there
   // before a conditional PUT can be sent.
@@ -1318,7 +1370,7 @@ try {
     .waitFor();
   assert.equal(
     await page
-      .getByPlaceholder("Add description...", { exact: true })
+      .getByPlaceholder("Add description...", { exact: true }).first()
       .inputValue(),
     "Unsaved after deletion",
   );
