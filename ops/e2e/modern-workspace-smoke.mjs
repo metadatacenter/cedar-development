@@ -1001,6 +1001,42 @@ try {
   await page.goto(metadataUrl);
   await cee.getByLabel("Notes", { exact: false }).first().waitFor();
   const instancePath = "/template-instances/" + enc(instanceId);
+  // Let each save commit, then drop its response: neither a create nor an update
+  // may claim confirmed success or repeat the write while the outcome is unknown.
+  for (const mode of ["edit", "create"]) {
+    if (mode === "create") {
+      await page.goto(base + "/instances/create/" + enc(artifacts.template) + "?folderId=" + enc(folderId));
+      await page.locator("#instance-name").fill(names.instance + " uncertain create");
+    }
+    const value = "Committed " + mode + " with lost response";
+    await cee.getByLabel("Notes", {exact: false}).first().fill(value);
+    const matcher = url => /^\/template-instances(?:\/|$)/.test(url.pathname);
+    let writes = 0, committed;
+    const loseResponse = async intercepted => {
+      const req = intercepted.request();
+      if (!["POST", "PUT"].includes(req.method())) return intercepted.fallback();
+      writes++;
+      const response = await intercepted.fetch();
+      committed = await response.json();
+      assert.ok(response.ok(), JSON.stringify(committed));
+      if (mode === "create") created.push({collection: "template-instances", id: committed["@id"]});
+      await intercepted.abort("failed");
+    };
+    await page.route(matcher, loseResponse);
+    await page.locator("#button-save-metadata").click();
+    await page.getByRole("alert").filter({hasText: "could not confirm whether"}).waitFor();
+    assert.equal(await page.locator("#button-save-metadata").isDisabled(), true);
+    assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), value);
+    if (mode === "create") assert.equal(await page.getByRole("button", {name: "Reload metadata", exact: true}).count(), 0);
+    const stored = await call(user1.auth, "GET", "/template-instances/" + enc(committed["@id"]));
+    assert.equal(stored.body.Notes["@value"], value);
+    await page.locator("#button-save-metadata").dispatchEvent("click");
+    assert.equal(writes, 1);
+    await page.unroute(matcher, loseResponse);
+    pass(`CEE ${mode} with a lost committed response retains input and prevents another write`);
+  }
+  await page.goto(metadataUrl);
+  await cee.getByLabel("Notes", {exact: false}).first().waitFor();
   const beforeConflict = await call(user1.auth, "GET", instancePath);
   assert.equal(
     (
