@@ -1447,6 +1447,51 @@ try {
     assert.equal((await call(user1.auth,"GET","/"+item.collection+"/"+enc(item.id))).status,404);
   }
   pass("Bin drop cancels safely; clicking Delete then removes two folders, nested template/instance and a separate artifact");
+  step = "partial-selection-delete";
+  const partialIds = [];
+  for (let i = 0; i < 3; i++) partialIds.push(await bulkCreate("template-fields", bulkRoot,
+    `Partial deletion ${i} ${stamp}`, "field"));
+  await listing(page, bulkRoot);
+  for (const [index, id] of partialIds.entries()) {
+    await page.locator(`[data-resource-id="${id}"] .resource-icon`).click({modifiers: index ? ["ControlOrMeta"] : []});
+  }
+  const attemptedDeletes = [];
+  const deleteMatcher = url => url.pathname.startsWith("/template-fields/");
+  const loseSecondDelete = async intercepted => {
+    const req = intercepted.request();
+    if (req.method() !== "DELETE") return intercepted.fallback();
+    attemptedDeletes.push(pathId(new URL(req.url()).pathname));
+    assert.ok(req.headers()["if-match"]);
+    const response = await intercepted.fetch();
+    assert.ok(response.ok());
+    if (attemptedDeletes.length === 2) return intercepted.abort("failed");
+    await intercepted.fulfill({response});
+  };
+  await page.route(deleteMatcher, loseSecondDelete);
+  await page.getByRole("button", {name: "Delete (3)", exact: true}).click();
+  await modal(page).getByRole("button", {name: "Delete", exact: true}).click();
+  await modal(page).getByRole("alert").filter({hasText: "Some items may already have been deleted"}).waitFor();
+  await modal(page).getByText("Confirmed deletions so far", {exact: true}).waitFor();
+  await modal(page).getByText("1", {exact: true}).waitFor();
+  assert.equal(await modal(page).getByRole("button", {name: "Delete", exact: true}).isDisabled(), true);
+  assert.equal(attemptedDeletes.length, 2);
+  for (const id of partialIds) {
+    assert.equal((await call(user1.auth, "GET", "/template-fields/" + enc(id))).status,
+      attemptedDeletes.includes(pathId(id)) ? 404 : 200);
+  }
+  await modal(page).getByRole("button", {name: "Delete", exact: true}).dispatchEvent("click");
+  assert.equal(attemptedDeletes.length, 2);
+  await page.unroute(deleteMatcher, loseSecondDelete);
+  await modal(page).getByRole("button", {name: "Cancel", exact: true}).click();
+  await listing(page, bulkRoot);
+  const remainingId = partialIds.find(id => !attemptedDeletes.includes(pathId(id)));
+  await page.locator(`[data-resource-id="${remainingId}"] .resource-icon`).click();
+  await page.getByRole("button", {name: "Delete (1)", exact: true}).click();
+  await write(page, "DELETE", "/template-fields/",
+    () => modal(page).getByRole("button", {name: "Delete", exact: true}).click(), [200, 204], true);
+  await modal(page).waitFor({state: "hidden"});
+  for (const id of partialIds) assert.equal((await call(user1.auth, "GET", "/template-fields/" + enc(id))).status, 404);
+  pass("Partial deletion stops after a lost response, reports only confirmed progress and resumes from a fresh selection");
   assert.deepEqual(errors, []);
   pass("No uncaught browser errors");
   step = "complete";

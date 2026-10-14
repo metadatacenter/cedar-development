@@ -183,6 +183,9 @@ sharing between two users, CEE metadata entry, versioning, OpenView and conditio
 Its two-user access journeys revoke edit permission while Designer and Editor contain unsaved
 input, verify that saving is refused and the stored document is unchanged, and cancel the
 reload confirmation to verify that the local draft remains intact.
+The partial-selection deletion journey commits two deletes and drops the second response.
+It verifies that only the first is reported as confirmed, later items remain untouched, and
+the author can finish from a fresh selection without repeating the uncertain request.
 The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
 current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
 by the REST download suite, and the main browser smoke exercises CEE download controls.
