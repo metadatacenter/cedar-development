@@ -134,11 +134,68 @@ minting timeout. Extend offline regression coverage to ordinary unchanged-DOI up
 reconciliation and continued rejection of DOI replacement or deletion through ordinary updates.
 The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
+<a id="save-recovery"></a>
+
+### 3. Recover Failed Saves Without Losing Work in Designer and Editor
+
+Give the Template Designer host and Workspace's metadata editor one consistent recovery
+workflow for rejected and unconfirmed saves. Keeping edits on screen is insufficient when the
+next step requires discarding them to reload. Keep storage, authentication, permission checks
+and recovery orchestration in the hosts; expose any draft capture and restoration contracts
+needed from CED/CEFD and CEE without making those components responsible for the server.
+
+Preserve a recoverable working draft through reload and sign-in, including unfinished or
+locally invalid field input that ordinary artifact serialization may omit. Retain the opened
+baseline and revision, the submitted snapshot and any edits made while the request was pending.
+Define draft storage, restoration, account/deployment scoping and cleanup, and provide a draft
+download and a documented restoration path. Distinguish a recovery draft from a server-saveable
+artifact. A failed recovery read must leave the working document intact.
+
+Provide explicit recovery for each outcome:
+
+- **Concurrent artifact changes or missing revision:** explain that the original cannot be
+  overwritten safely. Fetch the latest artifact separately from the working draft, let the
+  author review and reconcile changes, save a permitted copy, or explicitly discard their
+  changes. Never attach a fresh ETag to an unreconciled draft and overwrite the newer content.
+- **Server outage, timeout or lost response:** distinguish a confirmed refusal from an unknown
+  outcome. Say when the save cannot be confirmed and offer a check of its status without
+  discarding edits. Retry only when safe; a server error does not prove the write never committed.
+- **Expired session:** preserve the draft through sign-in, then recheck both permissions and the
+  artifact revision before enabling another write.
+- **Permission revoked or never granted:** explain why saving to the original or destination
+  folder is unavailable. Offer an access recheck, draft download, and a copy to a destination
+  where creation is allowed. Access checks must not discard the draft or bypass authorization.
+- **Deleted or inaccessible artifact:** keep the draft and offer export or a permitted copy
+  without claiming the artifact was deleted when the server only establishes lack of access.
+- **Server validation rejection:** retain input, show actionable findings tied to the submitted
+  snapshot, and allow correction and resubmission without reloading. Late findings must not be
+  attached to a newer draft.
+
+Keep **Check save status**, **Recheck access** and **Review latest** separate from **Discard my
+changes**. Replacing the working document requires an explicit decision after recovery data has
+loaded successfully. Successful acknowledgement advances only the submitted baseline; edits
+made during the save remain unsaved and visible.
+
+Make uncertain creates and template publish/create-draft operations recoverable without
+duplication. Define server-supported request identity or another authoritative result lookup
+and reconciliation contract, including multi-step version creation. Until the outcome is
+resolved, prevent another create or version operation; inspecting Workspace manually must not
+be the only recovery route. Apply the same uncertainty handling to both hosts.
+
+Cover both hosts with coordinator and browser tests for conflicts, missing ETags, initial and
+revoked permissions, expired sessions, deletion, validation failures, failed recovery reads,
+reload/sign-in restoration and edits made during a pending save. Include a committed write
+whose response is lost, repeated recovery attempts, and create/version operations that must
+not duplicate. Verify successful recovery against the running stack, and document the resulting
+user workflow in the frontend runbook. Completion means each failure has a tested route to
+resume saving, recover a copy or explicitly discard, without silently losing work or overwriting
+another author's changes.
+
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 3. Whole-Component Runtime Theme Overrides
+### 4. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -147,7 +204,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 4. Authoring Feedback for Unsupported Markup
+### 5. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -160,7 +217,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 5. Clear the Advisories Waiting on Upstream
+### 6. Clear the Advisories Waiting on Upstream
 
 Two advisories remain in the frontend locks, and no release of either package fixes them. Both
 sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
@@ -203,7 +260,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 6. Display Host-Supplied Validation Findings in CED
+### 7. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -214,7 +271,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 7. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -228,7 +285,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 8. Keyboard and Screen-Reader Access
+### 9. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
