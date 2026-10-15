@@ -199,6 +199,13 @@ the member while either editor is open refuses saving and preserves both the loc
 stored content. Restoring membership does not silently retry the save: the author explicitly
 accepts discarding the draft, reloads the stored document, and can make and save a new edit.
 The journey restores the original artifact permissions and removes its temporary group.
+The terminology-failure journey injects HTTP 503 responses and dropped connections into
+the test page's terminology searches, leaving the shared service running. Designer shows
+the failure while preserving its chosen constraints and artifact draft; changing the query
+after access returns produces real search results. Editor preserves the selected term and
+other input, can save unrelated edits during the outage without changing that term, and can
+search and select again after recovery. These checks cover search outages after the editor
+is open; they do not establish recovery for every supporting service or initial-load failure.
 The partial-selection deletion journey commits two deletes and drops the second response.
 It verifies that only the first is reported as confirmed, later items remain untouched, and
 the author can finish from a fresh selection without repeating the uncertain request.

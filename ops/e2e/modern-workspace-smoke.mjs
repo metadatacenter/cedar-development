@@ -6,6 +6,7 @@ import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mj
 import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
 import { groupAccessJourney } from "./group-access-journey.mjs";
+import { designerTerminologyFailureJourney, editorTerminologyFailureJourney } from "./terminology-failure-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -358,6 +359,7 @@ async function constrainToDoidDiseaseBranch(p) {
     .filter({ hasText: "DOID" })
     .filter({ hasText: /Branch\s*disease/ })
     .waitFor();
+  await designerTerminologyFailureJourney({page: p, pass});
   await picker.getByRole("button", { name: "Done", exact: true }).click();
   await picker.waitFor({ state: "hidden" });
 }
@@ -1073,6 +1075,8 @@ try {
   );
   assertOnlyContentChanges(beforeNotesEdit, storedInstance, {Notes: {"@value": "Updated notes"}});
   pass("CEE value edit preserves other values, term identity, context and provenance");
+  await editorTerminologyFailureJourney({page, user: user1,
+    instancePath: "/template-instances/" + enc(instanceId), write, pass});
   await page
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: /^Saved$/ })
