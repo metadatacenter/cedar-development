@@ -206,6 +206,15 @@ after access returns produces real search results. Editor preserves the selected
 other input, can save unrelated edits during the outage without changing that term, and can
 search and select again after recovery. These checks cover search outages after the editor
 is open; they do not establish recovery for every supporting service or initial-load failure.
+The content-deletion journey uses temporary templates and metadata to check cancellation of
+populated-element deletion in Designer, removal of fields/elements and their parent references,
+and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
+root update provenance, preserving surviving definitions, values, order and element-instance
+identities. Reopening proves both that unsaved deletions can be discarded and that saved
+deletions persist, including empty optional lists. The Designer baseline is first saved by the
+current writer so legacy-schema normalization is separate from the deletion assertion.
+Neither surface currently offers deletion Undo; discarding unsaved edits by reopening the
+saved artifact is the recovery tested here, and does not preserve other unsaved work.
 The partial-selection deletion journey commits two deletes and drops the second response.
 It verifies that only the first is reported as confirmed, later items remain untouched, and
 the author can finish from a fresh selection without repeating the uncertain request.
