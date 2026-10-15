@@ -29,7 +29,7 @@ cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
-cedarcli build frontends       # full frontend reactor; `build --jobs 3 --workers 8 frontends` on the 16-core workstation; completion contract below
+cedarcli build frontends       # full frontend reactor; `build --jobs 3 --workers 12 frontends` on the 16-core workstation; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
 cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require; --rest-workers 4 on the 16-core workstation
@@ -281,6 +281,8 @@ Git commit/push are separate from this contract.
 
 The command runs component verification, records the immutable build graph and runtime selection,
 restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
+A repository whose inputs match an earlier passing result reuses it instead of running its checks
+again. `cedarcli build frontends --no-reuse` runs them all.
 The Angular, React and Ember consumer demos run as a separate conditional gate when CEE's
 embedding API/packaging, consumer pins or demo inputs change, or no passing evidence exists.
 `cedarcli test cee-demos` forces all three; CEE release candidates always require that gate.

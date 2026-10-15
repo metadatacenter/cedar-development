@@ -351,8 +351,9 @@ and test success can both be checked. These requirements also apply to direct `o
    packages to Nexus and advance development pins in `package.json` and lockfiles as needed.
    Registry publication and development-pin changes are allowed parts of the reactor, not
    blockers or separate work the user must request again.
-3. Run the applicable component, integration and visual regression checks. Review intentional
-   visual changes before updating baselines; do not accept failed screenshots automatically.
+3. Run the applicable component, integration and visual regression checks, or reuse a result
+   that passed for exactly the same inputs. Review intentional visual changes before updating
+   baselines; do not accept failed screenshots automatically.
 4. Redeploy all local frontends, verify the bundles actually served match the selected build,
    and run the whole-stack smoke tests. Preserve that selection across restarts and dependency
    reinstalls so old pins cannot silently restore an earlier component.
@@ -372,7 +373,20 @@ changes. Commit/push remains subject to the user’s instruction.
 
 The command runs the component verification gates in the isolated build copies, records the
 successful package selection, restarts all native frontends, verifies their installed reactor
-packages, and runs the whole-stack smoke tiers. A failure at any stage returns nonzero. A
+packages, and runs the whole-stack smoke tiers.
+
+A repository whose inputs match an earlier passing result is not verified again. Each passing
+task leaves a record in `.reactor/results/`, named by a fingerprint of everything it read: the
+content of its source tree, its exact commands, the package each CEDAR dependency resolved to in
+the build, the integration bundles its checks loaded, the Node.js and npm versions, the platform,
+and the reactor's own tooling, which is cedar-cli's source and the frontend inputs in
+`cedar-development`. A task with the same fingerprint takes the recorded package and passes
+without running its commands. The build report lists it as `reuse <fingerprint>`, and its
+evidence record names the result it took. A changed producer yields a different package, so
+every repository built on it runs again. The fingerprint leaves out the worker budget, scratch
+paths, the time and the shell's environment. A recorded package that has left the store, or no
+longer has its digest, is not a result. `cedarcli build frontends --no-reuse` runs every
+repository's checks again, and so does the next build after `.reactor/results/` is deleted. A failure at any stage returns nonzero. A
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
 
@@ -438,11 +452,21 @@ all three demo surfaces. Before publishing a public CEE release, explicitly test
 the final staged package as described in the npmjs release runbook.
 
 On the 16-core workstation, which runs little else, build with
-`cedarcli build --jobs 3 --workers 8 frontends`. The machine is CPU-bound for most of a
-reactor build, so more parallelism mostly adds contention. A third job lets the small
-applications run beside the long CEE and CED suites, and eight workers keep those suites from
-oversubscribing the cores when they overlap. Measured on 2026-10-14 with a warm npm cache, one
-run each:
+`cedarcli build --jobs 3 --workers 12 frontends`. With reuse, most builds run only the
+repositories that changed, and a repository running on its own gains most from more workers.
+Measured on 2026-10-14 with a warm npm cache and a filled result store, one run each:
+
+| What changed                    | Repositories run | `--jobs` / `--workers` | Wall time |
+| ------------------------------- | ---------------- | ---------------------- | --------- |
+| Nothing                         | none             | 3 / 8                  | 8 s       |
+| CED alone                       | CED              | 3 / 12                 | 159 s     |
+| CED alone                       | CED              | 3 / 8                  | 232 s     |
+
+A full rebuild follows any change to cedar-cli or to the frontend inputs in
+`cedar-development`, because both are part of every fingerprint. It is CPU-bound for most of
+its run, so more parallelism there mostly adds contention. A third job lets the small
+applications run beside the long CEE and CED suites, and fewer workers keep those suites from
+oversubscribing the cores when they overlap:
 
 | Scheduling                               | `--jobs` / `--workers` | Wall time | CPU busy |
 | ---------------------------------------- | ---------------------- | --------- | -------- |
@@ -452,7 +476,10 @@ run each:
 | Consumers wait for every check           | 2 / 12                 | 376 s     | 78%      |
 | Consumers wait for every check           | 3 / 8                  | 435 s     | 63%      |
 
-Reports: `.cedar/build-reports/20261015T012311Z-c285cb6b.json`, `20261015T011659Z-fedcff7b.json`,
+Twelve workers therefore cost a full rebuild 16 s and save a single-repository build more than a
+minute. Reports: `.cedar/build-reports/20261015T035218Z-12bec28f.json`,
+`20261015T035723Z-0ac7e652.json`, `20261015T035247Z-0015beba.json`,
+`20261015T012311Z-c285cb6b.json`, `20261015T011659Z-fedcff7b.json`,
 `20261015T010102Z-576ae15f.json`, `20261015T010854Z-104313dc.json` and
 `20261015T012939Z-82d73030.json`. The defaults suit a smaller or shared machine.
 
