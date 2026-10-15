@@ -1156,6 +1156,15 @@ submission. Blank unnamed draft attribute rows still undergo the normal draft cl
 The [retirement evidence and template-impact procedure](#ordinary-write-normalization-and-template-impact)
 record the measured population and the remaining distinction between normalization and contract changes.
 
+Schema-child provenance follows an unambiguous definition identity when its property key changes,
+including repeated elements and their nested children. When the same library definition is used
+more than once, distinct property IRIs identify its placements. An unchanged definition keeps
+its stored creation and modification records; an actual content change keeps creation and updates
+modification. Key swaps do not exchange authorship, and an added duplicate does not borrow an
+existing placement's creation record. Ambiguous identities retain the existing property-based
+comparison rather than selecting an arbitrary sibling. Incoming provenance cannot override a
+matched stored counterpart; verbatim writes retain their separate exact-content contract.
+
 **A term whose attribute is gone is removed**, in addition to blank unnamed draft rows. Three questions decide each term, and two of them need the template,
 which is why the prune runs where the template is already loaded — fetched to validate against. A name
 the template declares is structure and stays, filled in or not: an unfilled child is absent from the

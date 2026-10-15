@@ -2735,10 +2735,18 @@ Malformed repository child lists and update assessments cannot authorize an oper
 For an existing artifact, the coordinator retains both the loaded document and the
 component's initial JSON projection. Saving applies changes relative to that projection
 to the loaded document, so normalization by the component does not rewrite untouched older
-schema branches. Explicit deletions and changes still reach storage; changed arrays use
+schema branches. When a child key changes, a unique definition identity carries its stored
+branch to the new key; property IRIs distinguish reused definitions that share an identity.
+Key swaps follow the same correspondence, while a newly added copy does not inherit hidden
+content from another placement. Explicit deletions and changes still reach storage; changed arrays use
 the component's complete authored value. The stored and projected snapshots advance together
 only after a confirmed save, while newer edits remain dirty. The write still uses the ETag
 from the loaded representation; this preservation step does not reconcile concurrent edits.
+
+`npm run smoke:journey -- older-key-rename` verifies a real key rename on a legacy-shaped
+field, comparing its full stored definition, annotations, identifiers, provenance and sibling
+content after save and reopen. The server also follows unambiguous child identities when
+preserving provenance, so changing a placement key does not turn an existing field into a new creation.
 
 Structured server findings retain their nested location and message, belong to the
 submitted snapshot and retire when it changes. Errors block Save, while server warnings
