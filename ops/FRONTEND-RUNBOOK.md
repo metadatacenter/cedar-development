@@ -269,6 +269,14 @@ artifacts is not established by these focused checks.
 The partial-selection deletion journey commits two deletes and drops the second response.
 It verifies that only the first is reported as confirmed, later items remain untouched, and
 the author can finish from a fresh selection without repeating the uncertain request.
+The partial-move journey refuses one grouped move at the HTTP boundary while two others
+commit at the real server. Workspace reports the two successes and the refusal, retains only
+the remaining item in its selection, and can move that item after the refusal clears without
+repeating successful moves. All stored artifact content is compared before and after. Run
+`npm run smoke:journey -- partial-move`; uncertain move outcomes remain a separate recovery case.
+The main smoke registers copies by the collection in their canonical identity, since copy
+responses are artifact documents without `resourceType`; this ensures non-template copies
+are removed from the correct collection during cleanup.
 The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
 current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
 by the REST download suite, and the main browser smoke exercises CEE download controls.

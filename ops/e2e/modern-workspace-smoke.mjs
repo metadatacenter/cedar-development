@@ -13,6 +13,7 @@ import { initialLoadJourney } from "./initial-load-journey.mjs";
 import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
 import { duplicationJourney } from "./duplication-journey.mjs";
 import { templateEvolutionJourney } from "./template-evolution-journey.mjs";
+import { partialMoveJourney } from "./partial-move-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -102,14 +103,10 @@ async function login(username, password) {
     } catch {}
     bodies.set(req.method() + " " + req.url(), body);
     if (req.method() === "POST" && response.ok() && body?.["@id"]) {
-      const collection = path.startsWith("/command/")
-        ? {
-            folder: "folders",
-            element: "template-elements",
-            field: "template-fields",
-            instance: "template-instances",
-          }[body.resourceType] || "templates"
-        : path.split("/")[1];
+      // Copy commands return artifact documents without resourceType; their
+      // canonical identity, not the command path, determines the collection.
+      const collection = new URL(body["@id"]).pathname.split("/").at(-2);
+      assert.ok(["folders", "templates", "template-elements", "template-fields", "template-instances"].includes(collection));
       if (!created.some((r) => r.id === body["@id"]))
         created.push({ collection, id: body["@id"] });
     }
@@ -1251,6 +1248,8 @@ try {
   await incompleteMetadataJourney({page, base, user: user1, folderId, templateId: artifacts.template,
     name: names.instance, created, write, pass});
   step = "copy-move";
+  await partialMoveJourney({page, base, user: user1, folderId,
+    name: names.instance, created, pass});
   await duplicationJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
   await listed(page, names.template);
