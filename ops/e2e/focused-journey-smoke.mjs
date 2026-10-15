@@ -1,7 +1,7 @@
 import {reusableSourceFailureJourney} from "./reusable-source-failure-journey.mjs";
 import {recoveryElementEditsJourney} from "./recovery-element-edits-journey.mjs";
 import {accessRecheckJourney} from "./access-recheck-journey.mjs";
-import {saveStatusJourney} from "./save-status-journey.mjs";
+import {saveStatusJourney, confirmedSaveRecoveryJourney} from "./save-status-journey.mjs";
 import assert from "node:assert/strict";
 import {chromium} from "playwright";
 import {actors, call, mutate, enc} from "./rest/lib.mjs";
@@ -17,7 +17,7 @@ import {designerPendingSaveJourney} from "./designer-pending-save-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
-const journeys = {"reusable-source-failure": reusableSourceFailureJourney, "recovery-element-edits": recoveryElementEditsJourney, "access-recheck": accessRecheckJourney, "save-status": saveStatusJourney, "initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
+const journeys = {"confirmed-save-recovery": confirmedSaveRecoveryJourney, "reusable-source-failure": reusableSourceFailureJourney, "recovery-element-edits": recoveryElementEditsJourney, "access-recheck": accessRecheckJourney, "save-status": saveStatusJourney, "initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
   duplication: duplicationJourney, "template-evolution": templateEvolutionJourney, "partial-move": partialMoveJourney,
   "current-template-constraint": currentTemplateConstraintJourney, "uncertain-move": uncertainMoveJourney,
   "older-key-rename": olderKeyRenameJourney, "designer-pending-save": designerPendingSaveJourney};

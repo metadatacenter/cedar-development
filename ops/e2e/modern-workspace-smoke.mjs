@@ -1,6 +1,6 @@
 import {reusableSourceFailureJourney} from "./reusable-source-failure-journey.mjs";
 import {recoveryElementEditsJourney} from "./recovery-element-edits-journey.mjs";
-import {saveStatusJourney} from "./save-status-journey.mjs";
+import {saveStatusJourney, confirmedSaveRecoveryJourney} from "./save-status-journey.mjs";
 // Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -1270,6 +1270,7 @@ try {
   await saveStatusJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
   step = "recovery-element-edits";
+  await confirmedSaveRecoveryJourney({page, base, designer, user: user1, folderId, name: names.instance, created, write, pass});
   await recoveryElementEditsJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
   step = "content-deletion";

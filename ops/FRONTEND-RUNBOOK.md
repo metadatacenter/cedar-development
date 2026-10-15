@@ -177,6 +177,11 @@ or replacing newer input. Reordered entries
 retain their own identities; deleted entries are not restored and new entries are not assigned
 another entry's ID. Failed readback, a changed revision or an invalid acknowledgement retains
 the draft and blocks further saves with an explicit message that the write succeeded.
+For an existing update, Check save status can retry verification after failed identity readback
+or a successful reply missing its ETag. It requires the saved content to match the captured
+submission before adopting the current revision and acknowledging IDs; an old opened revision
+cannot unblock a write already known to have succeeded. Newer input remains in the same form.
+Confirmed creates still require reload when their identity acknowledgement cannot complete.
 The modern smoke compares complete stored documents after a description edit in CED/CEFD and
 a field-value edit in CEE; only the intended change and root update provenance may differ.
 Schema fixtures include identifiers and annotations authored outside the description control.
@@ -262,6 +267,10 @@ the first request after an unchanged status check, proving the stale retry recei
 keeps newer input. Run `npm run smoke:journey -- save-status`; all ten checks also run in the
 modern Workspace smoke. These checks cover open-page recovery of existing updates, not
 restoration after reload or an authoritative result lookup for a create.
+Run `npm run smoke:journey -- confirmed-save-recovery` for successful-update replies followed by
+failed identity readback or a missing ETag. Both cases fail the first status check, retain input
+typed during a later check, preserve assigned element IDs and save and reopen successfully;
+they also run in the modern smoke.
 The recovery-element-edits journey changes repeated metadata entries while a status read is
 held after a real committed save loses its reply. One case removes an earlier occurrence and
 copies the submitted one; another removes the submitted occurrence and adds a replacement.

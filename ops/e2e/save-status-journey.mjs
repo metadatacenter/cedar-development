@@ -12,13 +12,18 @@ function add(parent, key, child, repeated = false) {
 }
 // Lose a real committed reply, or prevent the write from reaching the server.
 // Recovery reads must distinguish these without replacing the current component.
-export async function saveStatusJourney({page, base, designer, user, folderId, name, created, write, pass}) {
+export async function confirmedSaveRecoveryJourney(options) {
+  return saveStatusJourney({...options, confirmedOnly: true});
+}
+export async function saveStatusJourney({page, base, designer, user, folderId, name, created, write, pass, confirmedOnly = false}) {
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);
     created.push({collection, id: result.body["@id"]}); return result.body["@id"];
   }
-  for (const kind of ["template", "element", "field", "metadata"]) for (const committed of [false, true]) {
+  for (const kind of (confirmedOnly ? ["metadata"] : ["template", "element", "field", "metadata"]))
+    for (const failure of (confirmedOnly ? ["identity readback", "missing revision"] : ["uncommitted", "lost reply"])) {
+    const committed = failure !== "uncommitted";
     const metadata = kind === "metadata";
     const collection = metadata ? "template-instances" : {template: "templates", element: "template-elements", field: "template-fields"}[kind];
     let body, templateId;
@@ -57,15 +62,25 @@ export async function saveStatusJourney({page, base, designer, user, folderId, n
       decodeURIComponent(url.pathname.split("/").at(-1)).split("/").at(-1) === id.split("/").at(-1);
     let writes = 0, submitted;
     const lose = async route => {
+      if (failure === "identity readback" && writes && route.request().method() === "GET")
+        return route.fulfill({status: 503, json: {message: "Identity read temporarily unavailable"}});
       if (route.request().method() !== "PUT") return route.fallback();
       writes++; submitted = route.request().postDataJSON();
-      if (committed) {const result = await route.fetch(); assert.equal(result.status(), 200, await result.text());}
+      if (committed) {
+        const result = await route.fetch(); assert.equal(result.status(), 200, await result.text());
+        if (confirmedOnly) {
+          const headers = result.headers();
+          if (failure === "missing revision") delete headers.etag;
+          return route.fulfill({response: result, headers});
+        }
+      }
       await route.abort("failed");
     };
     await page.route(match, lose);
     await save.click();
     const check = page.getByRole("button", {name: "Check save status", exact: true});
     await check.waitFor(); await page.unroute(match, lose);
+    if (confirmedOnly) await page.getByText(/Use Check save status before saving again/).waitFor();
     assert.equal(writes, 1);
     const afterAttempt = await read();
     if (!committed) assert.deepEqual(afterAttempt.body, before.body);
@@ -111,7 +126,9 @@ export async function saveStatusJourney({page, base, designer, user, folderId, n
       if (kind === "field") await page.getByRole("tab", {name: "Presentation", exact: true}).click();
     }
     await input.waitFor(); assert.equal(await input.inputValue(), "Edited during status check");
-    pass(`${kind}: an interrupted ${committed ? "committed" : "uncommitted"} save recovers through an authoritative status check, retains newer edits and safely saves again`);
+    pass(confirmedOnly
+      ? `Editor: a confirmed update with ${failure} failure rechecks the saved snapshot, preserves newer input and minted identities, and safely saves and reopens`
+      : `${kind}: an interrupted ${committed ? "committed" : "uncommitted"} save recovers through an authoritative status check, retains newer edits and safely saves again`);
     if (!committed && ["template", "metadata"].includes(kind)) {
       const beforeLate = await read();
       await input.fill("Late original save");
