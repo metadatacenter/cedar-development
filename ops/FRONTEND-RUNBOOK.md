@@ -241,6 +241,14 @@ editing direction changes the other artifact. Copies regenerate name-derived sch
 creation timestamps, and omit the original's external identifier; those are explicit assertions,
 not losses hidden by a normalization save. Untouched typed metadata answers remain intact.
 Run `npm run smoke:journey -- duplication` for the focused check.
+The template-evolution journey keeps unsaved metadata open in a second tab while Designer
+removes a field already used by that record. Cancelling the version dialog retains both drafts
+without changing storage; confirming publishes the original schema and creates a revised draft.
+The open record can then save and reopen its answer against the original template, while a new
+record created from the revised draft has only the remaining field. Run
+`npm run smoke:journey -- template-evolution`. This verifies structural changes through the
+supported Designer versioning path, not arbitrary in-place template changes by external clients
+or conversion between field types.
 The content-deletion journey uses temporary templates and metadata to check cancellation of
 populated-element deletion in Designer, removal of fields/elements and their parent references,
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from

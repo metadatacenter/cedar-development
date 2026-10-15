@@ -12,6 +12,7 @@ import { olderArtifactJourney } from "./older-artifact-journey.mjs";
 import { initialLoadJourney } from "./initial-load-journey.mjs";
 import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
 import { duplicationJourney } from "./duplication-journey.mjs";
+import { templateEvolutionJourney } from "./template-evolution-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1272,6 +1273,8 @@ try {
   await listed(page, names.copy, destination);
   pass("Copy and conditional move through folder picker");
   step = "versioning";
+  await templateEvolutionJourney({page, base, designer, user: user1, folderId,
+    name: names.instance, created, write, pass});
   await listed(page, names.template);
   await menu(page, names.template, "Publish");
   await enterVersion(page, "1.0.0");
