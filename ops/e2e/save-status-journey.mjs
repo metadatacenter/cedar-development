@@ -21,8 +21,9 @@ export async function saveStatusJourney({page, base, designer, user, folderId, n
     assert.equal(result.status, 201, result.text);
     created.push({collection, id: result.body["@id"]}); return result.body["@id"];
   }
-  for (const kind of (confirmedOnly ? ["metadata"] : ["template", "element", "field", "metadata"]))
-    for (const failure of (confirmedOnly ? ["identity readback", "missing revision"] : ["uncommitted", "lost reply"])) {
+  const failures = kind => !confirmedOnly ? ["uncommitted", "lost reply"]
+    : kind === "metadata" ? ["identity readback", "missing revision"] : ["missing revision"];
+  for (const kind of ["template", "element", "field", "metadata"]) for (const failure of failures(kind)) {
     const committed = failure !== "uncommitted";
     const metadata = kind === "metadata";
     const collection = metadata ? "template-instances" : {template: "templates", element: "template-elements", field: "template-fields"}[kind];
@@ -127,7 +128,7 @@ export async function saveStatusJourney({page, base, designer, user, folderId, n
     }
     await input.waitFor(); assert.equal(await input.inputValue(), "Edited during status check");
     pass(confirmedOnly
-      ? `Editor: a confirmed update with ${failure} failure rechecks the saved snapshot, preserves newer input and minted identities, and safely saves and reopens`
+      ? `${metadata ? "Editor" : kind + " Designer"}: a confirmed update with ${failure} failure rechecks the saved snapshot, preserves newer input${metadata ? " and minted identities" : ""}, and safely saves and reopens`
       : `${kind}: an interrupted ${committed ? "committed" : "uncommitted"} save recovers through an authoritative status check, retains newer edits and safely saves again`);
     if (!committed && ["template", "metadata"].includes(kind)) {
       const beforeLate = await read();

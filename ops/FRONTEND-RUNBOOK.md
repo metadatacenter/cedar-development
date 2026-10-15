@@ -267,10 +267,11 @@ the first request after an unchanged status check, proving the stale retry recei
 keeps newer input. Run `npm run smoke:journey -- save-status`; all ten checks also run in the
 modern Workspace smoke. These checks cover open-page recovery of existing updates, not
 restoration after reload or an authoritative result lookup for a create.
-Run `npm run smoke:journey -- confirmed-save-recovery` for successful-update replies followed by
-failed identity readback or a missing ETag. Both cases fail the first status check, retain input
-typed during a later check, preserve assigned element IDs and save and reopen successfully;
-they also run in the modern smoke.
+Run `npm run smoke:journey -- confirmed-save-recovery` for successful-update replies with a
+missing ETag in Designer's template, element and field editors and in Editor, plus Editor's
+failed identity readback. All five cases fail the first status check, retain input typed during
+a later check and save and reopen successfully; the metadata cases also preserve assigned
+element IDs. They also run in the modern smoke.
 The recovery-element-edits journey changes repeated metadata entries while a status read is
 held after a real committed save loses its reply. One case removes an earlier occurrence and
 copies the submitted one; another removes the submitted occurrence and adds a replacement.
@@ -2811,7 +2812,7 @@ the affected control; `revealValidationFinding(location)` reports whether a path
 Unknown paths remain visible as text. Warnings neither mark controls invalid nor block Save.
 An accepted document edit or replacement retires the supplied snapshot; invalid pending
 settings remain intact. Hosts must discard late reports about an older submitted snapshot.
-Conflicts and missing revision tokens preserve edits and require an explicit reload, with
+Conflicts and missing revision tokens on opening preserve edits and require an explicit reload, with
 confirmation before discarding changes. A refused existing-artifact save (401/403), including
 an update assessment refused before writing, offers **Recheck access**. Both hosts read the
 artifact and permissions separately from the working draft; only restored update permission
@@ -2831,6 +2832,12 @@ annotations, order and unknown content still count. Server normalization that ca
 reconciled exactly leaves Save blocked. Failed reads and denied access preserve the draft and
 allow another check; they do not claim the artifact was deleted. A late first commit after an
 unchanged read makes the retry stale, so the server refuses it rather than overwriting it.
+A successful existing-identity update whose reply omits its ETag also offers Check save status.
+The retained opened revision and exact submitted body allow a matching newer stored snapshot
+to restore saving without replacing CED or CEFD, losing newer input or repeating the write.
+Because the update is known to have succeeded, an old opened revision cannot release this
+guard. A missing revision, changed content or denied permission keeps Save blocked and the
+check retryable. Creates and newly minted draft identities use their separate reload workflow.
 A failed update assessment can be retried because it has not written an artifact. The CED
 host smoke commits real creates and updates before dropping their replies to verify this
 distinction. Durable draft restoration, reconciliation of differing content and outcome lookup
