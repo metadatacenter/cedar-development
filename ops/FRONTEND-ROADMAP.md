@@ -164,8 +164,9 @@ Provide explicit recovery for each outcome:
 - **Expired session:** preserve the draft through sign-in, then recheck both permissions and the
   artifact revision before enabling another write.
 - **Permission revoked or never granted:** explain why saving to the original or destination
-  folder is unavailable. Offer an access recheck, draft download, and a copy to a destination
-  where creation is allowed. Access checks must not discard the draft or bypass authorization.
+  folder is unavailable. Extend access rechecks to initial read-only openings and denied create
+  destinations, and provide draft download and a copy to a destination where creation is allowed.
+  Access checks must not discard the draft or bypass authorization.
 - **Deleted or inaccessible artifact:** keep the draft and offer export or a permitted copy
   without claiming the artifact was deleted when the server only establishes lack of access.
 - **Server validation rejection:** make restored drafts participate in the same validation and

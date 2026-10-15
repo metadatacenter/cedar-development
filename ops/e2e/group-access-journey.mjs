@@ -54,7 +54,7 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       const path = designing ? templatePath : instancePath;
       const input = designing
         ? reader.getByPlaceholder("Add description...", {exact: true}).first()
-        : reader.locator("cedar-embeddable-editor").getByLabel("Notes", {exact: false}).first();
+        : reader.locator("cedar-embeddable-editor").getByRole("textbox", {name: /^Notes(?:\s|$)/}).first();
       const save = reader.locator(designing ? "#save" : "#button-save-metadata");
       const reload = designing ? reader.locator("#reload")
         : reader.getByRole("button", {name: "Reload metadata", exact: true});
@@ -96,17 +96,21 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
         await reader.locator("dialog.confirmation-dialog").getByRole("button", {name: "Cancel", exact: true}).click();
       }
       assert.equal(await input.inputValue(), draft, "cancelling reload must preserve the refused draft");
+      const recheck = reader.getByRole("button", {name: "Recheck access", exact: true});
+      await recheck.click();
+      await reader.getByText(/Access could not be checked/).waitFor();
+      assert.equal(await input.inputValue(), draft);
+      assert.equal(await save.isDisabled(), true);
       await addMember();
       assert.equal((await call(member.auth, "GET", path)).status, 200);
       assert.equal(await save.isDisabled(), true, "membership restoration must not silently retry a refused save");
-      await reload.click();
-      if (!designing) await reader.locator("dialog.confirmation-dialog").getByRole("button", {name: "Yes", exact: true}).click();
-      await reload.waitFor({state: "hidden"});
-      await input.waitFor();
-      const storedValue = designing ? before.body["schema:description"] : before.body.Notes["@value"];
-      assert.equal(await input.inputValue(), storedValue, "explicit reload must return to the stored document");
-      const recovered = host + " saved after group membership restoration";
-      await input.fill(recovered);
+      const component = await reader.locator(designing ? "cedar-embeddable-designer" : "cedar-embeddable-editor").elementHandle();
+      await recheck.click();
+      await recheck.waitFor({state: "hidden"});
+      assert.equal(await input.inputValue(), draft, "access recovery must retain the refused draft");
+      assert.equal(await component.evaluate(el => el.isConnected), true);
+      assert.equal(await save.isEnabled(), true);
+      const recovered = draft;
       await write(reader, "PUT", designing ? "/templates/" : "/template-instances/",
         () => save.click(), 200, true);
       await reader.locator(designing ? "#state" : ".metadata-toolbar [role=status]")
@@ -115,7 +119,7 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       assert.equal(stored.status, 200);
       assert.equal(designing ? stored.body["schema:description"] : stored.body.Notes["@value"], recovered);
       assert.equal(stored.body["@id"], before.body["@id"]);
-      pass(`${host} group membership loss refuses save without losing the draft; restored membership allows explicit reload and a new save`);
+      pass(`${host} group membership loss refuses save without losing the draft; an explicit access recheck restores saving of that same draft without reload`);
     }
   } catch (error) {
     failures.push(error);

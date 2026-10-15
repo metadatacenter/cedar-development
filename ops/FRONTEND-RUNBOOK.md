@@ -162,6 +162,9 @@ that snapshot and keeps newer edits. New element IDs are accepted only at templa
 element positions, then bound through CEE's captured save snapshot. Existing element IDs and
 term IRIs must match. A failed read, lost permission, missing revision or unexplained content
 change keeps the draft and the write guard. Creates still require separate outcome recovery.
+An existing write refused with 401/403 offers **Recheck access**. Restored permission enables
+saving only if the opened content and revision still match; neither a successful permission
+check nor a similar-looking submission permits adopting a different revision.
 Token-refresh refusal is a session failure, not an uncertain create. The modern Workspace
 smoke commits real instance creates and updates before dropping their responses and verifies
 that the form retains its input and cannot repeat the write without a successful status check. The host retains the instance
@@ -215,9 +218,11 @@ reload confirmation to verify that the local draft remains intact.
 The group-access journey creates a group and changes its membership through the Groups page,
 with access to the template and metadata instance granted only through that group. Removing
 the member while either editor is open refuses saving and preserves both the local draft and
-stored content. Restoring membership does not silently retry the save: the author explicitly
-accepts discarding the draft, reloads the stored document, and can make and save a new edit.
+stored content. Restoring membership does not silently retry the save: **Recheck access**
+verifies restored permission and the unchanged stored artifact, then enables saving the same
+refused draft without reload. Checking while access is still denied also preserves input.
 The journey restores the original artifact permissions and removes its temporary group.
+Run `npm run smoke:journey -- access-recheck` for this focused two-user check.
 The terminology-failure journey injects HTTP 503 responses and dropped connections into
 the test page's terminology searches, leaving the shared service running. Designer shows
 the failure while preserving its chosen constraints and artifact draft; changing the query
@@ -2783,8 +2788,14 @@ the affected control; `revealValidationFinding(location)` reports whether a path
 Unknown paths remain visible as text. Warnings neither mark controls invalid nor block Save.
 An accepted document edit or replacement retires the supplied snapshot; invalid pending
 settings remain intact. Hosts must discard late reports about an older submitted snapshot.
-Conflicts, permission loss and missing revision tokens preserve edits and require an
-explicit reload, with confirmation before discarding changes. A lost response, server error,
+Conflicts and missing revision tokens preserve edits and require an explicit reload, with
+confirmation before discarding changes. A refused existing-artifact save (401/403), including
+an update assessment refused before writing, offers **Recheck access**. Both hosts read the
+artifact and permissions separately from the working draft; only restored update permission
+and unchanged opened content/revision enable saving again. A different revision remains blocked
+even if its values resemble the attempted submission. Failed checks keep the draft and can
+be repeated. This covers in-page restoration after an existing write is refused; initial
+read-only access, denied create destinations and a full sign-in have separate workflows. A lost response, server error,
 timeout or acknowledgement without an artifact identifier blocks another write and reports
 that saving could not be confirmed. An uncertain create or publish/create-draft operation
 also hides Reload, so it cannot repeat creation; the author is directed to inspect Workspace.
