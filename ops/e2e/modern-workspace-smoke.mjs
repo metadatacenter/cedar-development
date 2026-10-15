@@ -268,7 +268,7 @@ async function setPermission(p, collection, role) {
     exact: true,
   });
   await modal(p)
-    .getByRole("heading", { name: "Access on this resource", exact: true })
+    .getByRole("heading", { name: "Owner and direct role assignments", exact: true })
     .waitFor();
   if (await rolePicker.count()) {
     await write(
@@ -308,7 +308,7 @@ async function removePermission(p, collection) {
     () =>
       modal(p)
         .getByRole("button", {
-          name: "Remove access for Test User 2",
+          name: "Remove direct role for Test User 2",
           exact: true,
         })
         .click(),
@@ -724,7 +724,7 @@ try {
   );
   await menu(reader, names.template, "Permissions…");
   await modal(reader)
-    .getByRole("heading", { name: "Access on this resource", exact: true })
+    .getByRole("heading", { name: "Owner and direct role assignments", exact: true })
     .waitFor();
   assert.equal(
     await modal(reader)
@@ -783,7 +783,7 @@ try {
   await permissionDone(reader);
   await listed(page, names.template);
   await menu(page, names.template, "Permissions…");
-  await modal(page).getByRole("heading", {name: "Access on this resource", exact: true}).waitFor();
+  await modal(page).getByRole("heading", {name: "Owner and direct role assignments", exact: true}).waitFor();
   await permissionAppearance(page, "editable");
   // Special groups remain Viewer-only and cannot be made owners.
   await modal(page)
@@ -832,7 +832,7 @@ try {
     () =>
       modal(page)
         .getByRole("button", {
-          name: "Remove access for Everyone",
+          name: "Remove direct role for Everyone",
           exact: true,
         })
         .click(),

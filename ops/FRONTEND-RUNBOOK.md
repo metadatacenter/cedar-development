@@ -97,6 +97,11 @@ in Chromium and WebKit and checks that no artifact writes occur.
 The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
 It shows the owner and direct user/group grants to any reader, with searchable principals
 and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
+The caller's own access is shown separately from those direct assignments, using the resource
+report's role, ownership and capabilities. Missing information stays unknown. Role help is
+visible to readers as well as managers; removing a direct role is explained without promising
+to revoke access supplied by groups or containing folders. Group sharing requires no membership
+in the group. The ownership confirmation warns that the former owner may lose access entirely.
 Everyone is Viewer-only. Ownership transfer is a separate, confirmed user-only action,
 gated by `transferOwnership`. Each write uses the permissions ETag; a stale write displays
 the failed change and requires an explicit reload. Capabilities refresh after each successful
