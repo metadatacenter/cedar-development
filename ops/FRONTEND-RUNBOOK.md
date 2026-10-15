@@ -332,6 +332,16 @@ removing the already-moved items from selection. Opening the destination finds a
 their entire artifact content unchanged, and no move is replayed. Run
 `npm run smoke:journey -- uncertain-move`; the full modern smoke includes it too. This covers
 recovery through a successful listing refresh, not an outage that prevents checking placement.
+Workspace also preserves unresolved move selections through repeated listing failures and shows
+the refresh error alongside individual move failures. An explicit retry first checks every
+selected resource's current placement, capabilities and revision. A resource already directly
+inside the requested destination is confirmed without another move request; selected descendants
+stay with their selected ancestor. Unavailable or malformed placement reports prevent all writes.
+Hermetic Chromium and WebKit journeys cover lost replies both before and after commit, repeated
+listing failures, placement-check failure, and recovery without replaying confirmed moves.
+Run `npm --prefix browser test -- bulk-move-recovery.spec.mjs` against a built Workspace.
+These outage combinations have unit and hermetic browser coverage; live-stack verification is
+still pending. The isolated test build does not redeploy the shared Designer or Editor.
 The main smoke registers copies by the collection in their canonical identity, since copy
 responses are artifact documents without `resourceType`; this ensures non-template copies
 are removed from the correct collection during cleanup.
