@@ -2330,8 +2330,12 @@ few seconds is within noise. Reports: `.cedar/build-reports/20260925T142927Z-e31
 
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
-execution permission before running it. Isolated frontend copies and their npm caches live there;
-`TMPDIR`, `TMP`, and `TEMP` point to its scratch directory. Maven builds also receive
+execution permission before running it. Isolated frontend copies and their npm debug logs live
+there, and `TMPDIR`, `TMP`, and `TEMP` point to its scratch directory. npm's download cache is the
+exception: every isolated frontend build shares `$CEDAR_HOME/.cedar/frontend-npm-cache`, so each
+package is downloaded once rather than by every build. npm checks each package against its lockfile
+hash as it leaves the cache. Deleting the directory is always safe and costs only the next build's
+downloads. Maven builds also receive
 `java.io.tmpdir` through child-scoped `JAVA_TOOL_OPTIONS`, so Surefire/Failsafe JVMs and embedded
 Redis use the same executable storage. This works when system `/tmp` is mounted `noexec` and
 does not change the environment of running services. Normal completion, failures and handled
