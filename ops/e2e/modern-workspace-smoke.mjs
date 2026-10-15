@@ -1,3 +1,4 @@
+import {recoveryElementEditsJourney} from "./recovery-element-edits-journey.mjs";
 import {saveStatusJourney} from "./save-status-journey.mjs";
 // Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
 import assert from "node:assert/strict";
@@ -142,9 +143,17 @@ async function listing(p, id = folderId) {
 async function listed(p, name, id = folderId) {
   for (let i = 0; i < 15; i++) {
     await listing(p, id);
-    // A non-waiting count can observe the old grid DOM just after the view-switch click.
-    // Wait for the actual row before reloading for eventual search-index consistency.
-    if (await row(p, name).waitFor({state: "visible", timeout: 1000}).then(() => true, () => false)) return;
+    // Journeys create enough fixtures to span several listing pages. Exhaust the
+    // current listing before retrying for eventual search-index consistency.
+    for (;;) {
+      if (await row(p, name).waitFor({state: "visible", timeout: 1000}).then(() => true, () => false)) return;
+      const next = p.getByRole("button", {name: "Next", exact: true});
+      if (await next.isDisabled()) break;
+      const previousUrl = p.url();
+      await next.click();
+      await p.waitForURL(url => url.href !== previousUrl);
+      await p.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+    }
   }
   throw new Error("Not listed: " + name);
 }
@@ -1257,6 +1266,9 @@ try {
     name: names.instance, created, write, pass});
   step = "save-status";
   await saveStatusJourney({page, base, designer, user: user1, folderId,
+    name: names.instance, created, write, pass});
+  step = "recovery-element-edits";
+  await recoveryElementEditsJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
   step = "content-deletion";
   await contentDeletionJourney({page, base, designer, user: user1, folderId,

@@ -255,6 +255,13 @@ the first request after an unchanged status check, proving the stale retry recei
 keeps newer input. Run `npm run smoke:journey -- save-status`; all ten checks also run in the
 modern Workspace smoke. These checks cover open-page recovery of existing updates, not
 restoration after reload or an authoritative result lookup for a create.
+The recovery-element-edits journey changes repeated metadata entries while a status read is
+held after a real committed save loses its reply. One case removes an earlier occurrence and
+copies the submitted one; another removes the submitted occurrence and adds a replacement.
+Acknowledgement binds minted IDs to surviving submitted objects, does not resurrect deleted
+entries or assign their IDs to replacements, and retains the current values. The next save
+mints a distinct replacement ID; whole-document comparison and reopening verify the result.
+Run `npm run smoke:journey -- recovery-element-edits`; both cases run in the modern smoke.
 The current-template-constraint journey changes a text regex through another REST client while
 Editor holds the earlier template. Its save must receive a real server 400 with `/Code/@value`,
 retain all local answers and preserve stored content and its ETag. Clicking the finding focuses
