@@ -157,9 +157,10 @@ Provide explicit recovery for each outcome:
   overwritten safely. Fetch the latest artifact separately from the working draft, let the
   author review and reconcile changes, save a permitted copy, or explicitly discard their
   changes. Never attach a fresh ETag to an unreconciled draft and overwrite the newer content.
-- **Server outage, timeout or lost response:** offer an authoritative check of the save's status
-  without discarding edits. Reconcile a confirmed commit with the submitted snapshot while
-  retaining newer input, and permit a retry only when it cannot duplicate an earlier operation.
+- **Server outage, timeout or lost response:** resolve updates when the authoritative document
+  differs from both the opened and submitted snapshots, including server-normalized schema
+  content and intervening writes. Carry unresolved outcome evidence through reload and sign-in;
+  permit a retry only when it cannot duplicate an earlier operation.
 - **Expired session:** preserve the draft through sign-in, then recheck both permissions and the
   artifact revision before enabling another write.
 - **Permission revoked or never granted:** explain why saving to the original or destination
@@ -180,9 +181,8 @@ and reconciliation contract, including multi-step version creation. Persist unre
 identity with the recovery draft so reload and sign-in cannot bypass the guard against duplicate
 creation. Inspecting Workspace manually must not be the only recovery route.
 
-Extend coordinator, browser and live-stack coverage to non-destructive recovery reads, draft
-restoration through reload/sign-in, reconciliation of committed saves with lost replies and
-repeated recovery attempts. Include newer edits arriving during recovery, permission and
+Extend coordinator, browser and live-stack coverage to draft restoration through reload/sign-in,
+reconciliation of differing authoritative content and repeated recovery attempts after restoration. Include newer edits arriving during recovery, permission and
 revision changes, and unresolved creates or version operations surviving a reload without
 duplication. Verify successful recovery against the running stack, and document the resulting
 user workflow in the frontend runbook. Completion means each failure has a tested route to

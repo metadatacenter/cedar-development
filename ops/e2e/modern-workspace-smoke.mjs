@@ -1,3 +1,4 @@
+import {saveStatusJourney} from "./save-status-journey.mjs";
 // Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -1253,6 +1254,9 @@ try {
     name: names.instance, created, write, pass});
   step = "designer-pending-save";
   await designerPendingSaveJourney({page, base, designer, user: user1, folderId,
+    name: names.instance, created, write, pass});
+  step = "save-status";
+  await saveStatusJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
   step = "content-deletion";
   await contentDeletionJourney({page, base, designer, user: user1, folderId,

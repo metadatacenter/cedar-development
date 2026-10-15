@@ -155,9 +155,16 @@ retain edits and require an explicit reload, with confirmation before discarding
 changes. An incomplete create acknowledgement blocks another create and directs
 the author back to Workspace to inspect the result. Lost replies and server errors report an
 unconfirmed save for both creates and updates; they do not claim the server accepted the write.
+For an unconfirmed update to an existing instance, **Check save status** reads the artifact
+and its permission report without replacing CEE. The same opened revision and content permit
+another conditional write; a different revision matching the submitted content acknowledges
+that snapshot and keeps newer edits. New element IDs are accepted only at template-declared
+element positions, then bound through CEE's captured save snapshot. Existing element IDs and
+term IRIs must match. A failed read, lost permission, missing revision or unexplained content
+change keeps the draft and the write guard. Creates still require separate outcome recovery.
 Token-refresh refusal is a session failure, not an uncertain create. The modern Workspace
 smoke commits real instance creates and updates before dropping their responses and verifies
-that the form retains its input and cannot repeat the write. The host retains the instance
+that the form retains its input and cannot repeat the write without a successful status check. The host retains the instance
 description across field edits, including the description inherited on creation. Sparse save
 acknowledgements supplement the submitted snapshot rather than dropping metadata they omit.
 CEE's save snapshot binds submitted element occurrences to their working objects. When a save
@@ -234,6 +241,15 @@ Editor follows a finding into the second occurrence of a repeated element, focus
 and preserves every other answer and nested identity when the correction is saved and reopened.
 Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
 handling of a rejection, not the validator that generates it.
+The save-status journey interrupts existing template, element, standalone-field and metadata
+updates both before a write and after an actual commit. It first fails the status read, then
+holds a successful read while more input arrives, checks the appropriate baseline/revision,
+and saves and reopens again. Editor adds a repeated element before the lost reply; recovery
+and the following save retain its minted identity. Additional Designer and Editor cases commit
+the first request after an unchanged status check, proving the stale retry receives 412 and
+keeps newer input. Run `npm run smoke:journey -- save-status`; all ten checks also run in the
+modern Workspace smoke. These checks cover open-page recovery of existing updates, not
+restoration after reload or an authoritative result lookup for a create.
 The current-template-constraint journey changes a text regex through another REST client while
 Editor holds the earlier template. Its save must receive a real server 400 with `/Code/@value`,
 retain all local answers and preserve stored content and its ETag. Clicking the finding focuses
@@ -2772,9 +2788,19 @@ explicit reload, with confirmation before discarding changes. A lost response, s
 timeout or acknowledgement without an artifact identifier blocks another write and reports
 that saving could not be confirmed. An uncertain create or publish/create-draft operation
 also hides Reload, so it cannot repeat creation; the author is directed to inspect Workspace.
+An unconfirmed existing-identity update offers **Check save status** separately from Reload.
+The host reads the artifact and its permission report without calling `loadArtifact`. Matching
+the opened content and revision permits a conditional retry; matching the submitted content
+at a new revision advances the saved baseline and ETag while keeping newer edits. The
+comparison ignores only root update provenance: child identities and provenance, values,
+annotations, order and unknown content still count. Server normalization that cannot be
+reconciled exactly leaves Save blocked. Failed reads and denied access preserve the draft and
+allow another check; they do not claim the artifact was deleted. A late first commit after an
+unchanged read makes the retry stale, so the server refuses it rather than overwriting it.
 A failed update assessment can be retried because it has not written an artifact. The CED
 host smoke commits real creates and updates before dropping their replies to verify this
-distinction. Draft restoration and automatic outcome reconciliation remain open in the
+distinction. Durable draft restoration, reconciliation of differing content and outcome lookup
+for creates or version operations remain open in the
 [save-recovery roadmap](FRONTEND-ROADMAP.md#save-recovery).
 Changes while an update assessment or version confirmation is pending cancel
 the write. A successful save stays in Designer. After a create or a new draft, the host
