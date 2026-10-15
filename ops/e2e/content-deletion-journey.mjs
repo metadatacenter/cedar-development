@@ -58,13 +58,6 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   const templatePath = "/templates/" + enc(templateId);
   await page.goto(designer + "/templates/edit/" + enc(templateId));
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
-  // The REST seed fixtures predate the current schema writer. Establish a
-  // Designer-authored baseline so legacy normalization is not attributed to deletion.
-  await page.getByPlaceholder("Add description...", {exact: true}).first().fill("Content deletion baseline");
-  await write(page, "PUT", "/templates/", () => page.locator("#save").click(), 200, true);
-  await page.locator("#state").filter({hasText: /^Saved$/}).waitFor();
-  await page.reload();
-  await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   const ced = page.locator("cedar-embeddable-designer");
   const original = await ced.evaluate(el => el.currentArtifact);
   const storedOriginal = await read(templatePath);

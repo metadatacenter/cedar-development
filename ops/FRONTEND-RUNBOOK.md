@@ -211,10 +211,18 @@ populated-element deletion in Designer, removal of fields/elements and their par
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
 root update provenance, preserving surviving definitions, values, order and element-instance
 identities. Reopening proves both that unsaved deletions can be discarded and that saved
-deletions persist, including empty optional lists. The Designer baseline is first saved by the
-current writer so legacy-schema normalization is separate from the deletion assertion.
+deletions persist, including empty optional lists. The stored Designer fixtures are compared
+directly, without an initial normalizing save.
 Neither surface currently offers deletion Undo; discarding unsaved edits by reopening the
 saved artifact is the recovery tested here, and does not preserve other unsaved work.
+The older-artifact journey opens legacy-shaped templates, elements and standalone fields,
+edits each description twice, and verifies that unrelated schema shapes, constraints,
+annotations and identities survive saving and reopening. Editor also renames and reopens
+older metadata without losing typed answers or existing context declarations; its writer
+adds the standard `pav:derivedFrom` context declaration if absent. An unsupported historical
+field type is injected only into a GET response to verify that Designer refuses to open it,
+keeps Save disabled and sends no artifact writes. Repairing arbitrary invalid or unsupported
+artifacts is not established by these focused checks.
 The partial-selection deletion journey commits two deletes and drops the second response.
 It verifies that only the first is reported as confirmed, later items remain untouched, and
 the author can finish from a fresh selection without repeating the uncertain request.
@@ -2600,6 +2608,14 @@ capabilities; edit checks the loaded artifact and its report. Invalid or unnamed
 drafts block Save even before CED discloses their errors. Failed startup and loads offer
 Reload; script loading and asynchronous element registration both have bounded waits.
 Malformed repository child lists and update assessments cannot authorize an operation.
+
+For an existing artifact, the coordinator retains both the loaded document and the
+component's initial JSON projection. Saving applies changes relative to that projection
+to the loaded document, so normalization by the component does not rewrite untouched older
+schema branches. Explicit deletions and changes still reach storage; changed arrays use
+the component's complete authored value. The stored and projected snapshots advance together
+only after a confirmed save, while newer edits remain dirty. The write still uses the ETag
+from the loaded representation; this preservation step does not reconcile concurrent edits.
 
 Structured server findings retain their nested location and message, belong to the
 submitted snapshot and retire when it changes. Errors block Save, while server warnings
