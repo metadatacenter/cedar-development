@@ -1,4 +1,9 @@
-"""Shared frontend build and verification recipes, beside the dependency inventory."""
+"""Shared frontend build and verification recipes, beside the dependency inventory.
+
+A surface runs `setup`, then its optional `package` phase, then `verify`. The package phase builds
+and stages what the surface publishes, so a reactor can hand that package to consumers while
+`verify` still runs. Whoever runs a surface's commands runs all three, in that order.
+"""
 import json
 from pathlib import Path, PurePosixPath
 
@@ -24,8 +29,8 @@ def surfaces(config):
         exemption = row.get('verificationExemption')
         if not row.get('verify') and not (isinstance(exemption, str) and exemption.strip()):
             raise ValueError(f'frontend {key} has neither verification nor an exemption')
-        for field in ('setup', 'verify'):
-            commands = row.get(field)
+        for field in ('setup', 'package', 'verify'):
+            commands = row.get(field, [] if field == 'package' else None)
             if not isinstance(commands, list) or any(
                 not isinstance(command, list) or not command or
                 any(not isinstance(arg, str) or not arg for arg in command)
@@ -69,4 +74,4 @@ def commands(config, repository, directory='.'):
     row = next((r for r in surfaces(config) if (r['repository'], r['directory']) == (repository, directory)), None)
     if row is None:
         raise ValueError(f'frontend verification coverage missing: {repository}/{directory}')
-    return row['setup'] + row['verify']
+    return row['setup'] + row.get('package', []) + row['verify']

@@ -390,7 +390,7 @@ Before a failed isolated frontend build is cleaned up, the CLI retains its comma
 npm's debug logs, and available `test-results`, `playwright-report`, `surefire-reports`,
 `failsafe-reports`, and `coverage` files under
 `$CEDAR_HOME/.cedar/build-reports/failures/`. The failure prints the exact directory.
-npm writes its debug logs into the build's own cache rather than the copied repository, and a
+npm writes its debug logs into a directory the build owns, outside the copied repository, and a
 bundle keeps them under `npm-logs/`. Each bundle is capped at 250 MiB of copied files;
 `manifest.json` lists retained files and files omitted for size. Dependencies, Git metadata
 and symlinks are excluded.
@@ -438,9 +438,23 @@ all three demo surfaces. Before publishing a public CEE release, explicitly test
 the final staged package as described in the npmjs release runbook.
 
 On the 16-core workstation, which runs little else, build with
-`cedarcli build --jobs 2 --workers 12 frontends`. Twelve workers per repository measured
-faster than the default of eight, and sixteen gained little over twelve. The defaults suit a
-smaller or shared machine.
+`cedarcli build --jobs 3 --workers 8 frontends`. The machine is CPU-bound for most of a
+reactor build, so more parallelism mostly adds contention. A third job lets the small
+applications run beside the long CEE and CED suites, and eight workers keep those suites from
+oversubscribing the cores when they overlap. Measured on 2026-10-14 with a warm npm cache, one
+run each:
+
+| Scheduling                               | `--jobs` / `--workers` | Wall time | CPU busy |
+| ---------------------------------------- | ---------------------- | --------- | -------- |
+| Consumers start from a packaged producer | 3 / 8                  | 345 s     | 86%      |
+| Consumers start from a packaged producer | 3 / 12                 | 361 s     | 86%      |
+| Consumers start from a packaged producer | 2 / 12                 | 380 s     |          |
+| Consumers wait for every check           | 2 / 12                 | 376 s     | 78%      |
+| Consumers wait for every check           | 3 / 8                  | 435 s     | 63%      |
+
+Reports: `.cedar/build-reports/20261015T012311Z-c285cb6b.json`, `20261015T011659Z-fedcff7b.json`,
+`20261015T010102Z-576ae15f.json`, `20261015T010854Z-104313dc.json` and
+`20261015T012939Z-82d73030.json`. The defaults suit a smaller or shared machine.
 
 `cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
 repositories at once, with two workers per repository. Two repositories is the default;
@@ -449,14 +463,29 @@ the worker default is half the detected CPU count, at least one and capped at ei
 build options before the target; `--jobs 1 --workers 1` provides a serial comparison.
 The scheduler reads dependencies from nested package manifests (including npm aliases)
 and the inventory's integration bundle inputs. A consumer waits for its current-source
-producers to pass all checks and publish their immutable local artifacts. Other build
-commands remain exclusive barriers, and deployment and the smoke tiers run after all
-frontend checks pass. A failed producer blocks its consumers, including in continue mode.
+producers' immutable local artifacts. Other build commands remain exclusive barriers, and
+deployment and the smoke tiers run after all frontend checks pass. A failed producer blocks
+its consumers, including in continue mode.
+
+A surface in `frontend-train.json` may declare a `package` phase between `setup` and
+`verify`: the commands that build and stage what it publishes. The model library and CEE
+declare one. When that phase passes, the reactor stores the artifact and starts the
+consumers waiting for it, while the producer's own checks continue in the same job slot.
+Such an artifact is offered only to the consumers in this build. When the producer's checks
+pass, its package is packed again and must match the stored artifact byte for byte. Only
+then is it advertised in `.reactor/refs/`, and a consumer built on it is advertised only
+after that. If the producer's checks fail, its waiting consumers are blocked, any already
+running finish, the build fails, and nothing built on that artifact is advertised. Trains
+and every other runner of a surface's commands run setup, the package phase and verify in
+that order. Each task in the build report carries a `timeline`: the seconds into the build
+at which it started, packaged and passed or failed.
 
 The CEE gate overlaps independent build, domain, unit, lint and type-check stages within
 `CEDAR_TEST_WORKERS`. The Angular build and coordinator tests remain ordered because they
 share a cache. The domain harness has its own Vite cache and `harness/coverage/`
 reports, so it cannot clear another tier's output. Visual checks follow those stages; packaging follows the visual gate.
+The reactor builds, bundles and stages CEE's package first, as its package phase, and then
+runs `test:ci:prebuilt` against those built bytes.
 `test:ci`, `test:ci:prebuilt` and `test:ci:nonvisual:prebuilt` retain their original checks.
 Direct npm gate invocations use the same CPU-based worker default. Each stage prints its elapsed time.
 
@@ -464,12 +493,15 @@ The model's `test:ci` gate overlaps lint, types, coverage, YAML parity, JSON par
 and the packaged-consumer smoke. Jest receives most of the worker budget rather
 than being forced into `--runInBand`; pretest fixture generation still completes
 once before any of the checks start (parity reads the same generated module). Each parity invocation owns its temporary output tree,
-and only packaging writes `dist/`. Every check must pass before consumers start.
+and only packaging writes `dist/`. In the reactor, `npm run build` first produces the package
+its consumers receive. The gate's packaging stage rebuilds `dist/`, and that rebuild must
+match the package already given out byte for byte.
 
 The designer's `test:ci` overlaps unit, lint, types, import-boundary and packaging
 checks. Its Angular unit tests and distribution build remain ordered because they
-share a cache; browser checks wait for the distribution and use the full budget.
-The reactor still runs the separate container visual gate afterward. CEE gives
+share a cache. The browser checks and the container visual baselines both wait for the
+distribution and then run together: the baselines take two workers when the budget is at
+least six, one otherwise, and the browser checks the rest. CEE gives
 its domain/unit tiers two workers each when the budget permits, and fixture
 opening waits for finite animations instead of an unconditional 300 ms delay.
 No screenshot tolerance, baseline, browser project or integration input is removed.

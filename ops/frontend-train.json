@@ -894,6 +894,13 @@
           "ci"
         ]
       ],
+      "package": [
+        [
+          "npm",
+          "run",
+          "build"
+        ]
+      ],
       "verify": [
         [
           "npm",
@@ -928,11 +935,30 @@
           "ci"
         ]
       ],
+      "package": [
+        [
+          "npm",
+          "run",
+          "build:production"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "visual",
+          "run",
+          "bundle"
+        ],
+        [
+          "npm",
+          "run",
+          "package:npm:prebuilt"
+        ]
+      ],
       "verify": [
         [
           "npm",
           "run",
-          "test:ci"
+          "test:ci:prebuilt"
         ]
       ]
     },
@@ -967,11 +993,6 @@
           "npm",
           "run",
           "test:ci"
-        ],
-        [
-          "npm",
-          "run",
-          "test:visual"
         ]
       ],
       "integrationInputs": [

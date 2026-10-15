@@ -47,6 +47,20 @@ class FrontendInventoryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unsafe'):
             frontend_inventory.validate(self.config)
 
+    def test_a_package_phase_runs_between_setup_and_verification(self):
+        commands = frontend_inventory.commands(self.config, 'cedar-embeddable-editor')
+        package = commands.index(['npm', 'run', 'package:npm:prebuilt'])
+        self.assertLess(commands.index(['npm', '--prefix', 'visual', 'ci']), commands.index(['npm', 'run', 'build:production']))
+        self.assertLess(commands.index(['npm', 'run', 'build:production']), package)
+        self.assertEqual([['npm', 'run', 'test:ci:prebuilt']], commands[package + 1:])
+
+    def test_package_commands_are_validated_like_the_others(self):
+        row = next(r for r in self.config['surfaces'] if r['repository'] == 'cedar-embeddable-editor')
+        for value in ([[]], [['npm', '']], 'npm run build'):
+            row['package'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'invalid package commands'):
+                frontend_inventory.validate(self.config)
+
     def test_all_three_framework_demos_have_lint_and_tests(self):
         for directory in ('cedar-cee-demo-angular-src','cedar-cee-demo-ember-src','cedar-cee-demo-react'):
             commands = frontend_inventory.commands(self.config,'cedar-component-demo',directory)
