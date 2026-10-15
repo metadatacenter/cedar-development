@@ -2704,6 +2704,16 @@ Group metadata and group membership likewise have separate validators; permissio
 commands use their own representation contracts. New-resource POSTs have no prior ETag and need
 reentrancy guards to prevent duplicate creation.
 
+`GET /groups/{id}/membership/me` reports only the authenticated caller's own `member` and
+`administrator` boolean relationships. It requires the same login and `GROUP_READ` permission as
+reading group metadata; an existing group returns 200 even for a non-member, and a missing group
+returns 404. Both flags describe graph relationships, independently of system administrator
+overrides. The query reads only the caller's relationships, never the group roster. The response
+has `Cache-Control: private, no-store`, contains no user identifiers or member counts, and supplies
+no ETag for writes. Existing group and roster representations, validators and authorization are
+unchanged. Deploy the group service before the new Workspace for immediate membership wording;
+Workspace falls back to neutral wording against servers without this additive endpoint.
+
 Template-instance validation is unconditional. `skip_validation=true` remains accepted only for
 wire compatibility and does not bypass validation or storage checks. If a privileged bypass is ever
 needed again, introduce a separately authorized internal operation rather than reviving the public

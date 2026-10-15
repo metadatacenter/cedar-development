@@ -188,6 +188,45 @@ try {
       () => page.getByRole("button", { name: "Save", exact: true }).click(),
       200,
     );
+    const viewer = await browser.newContext({ ignoreHTTPSErrors: true });
+    const vp = await viewer.newPage();
+    await vp.goto(base + "/groups");
+    await vp.locator("#username").waitFor();
+    await vp
+      .locator("#username")
+      .fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
+    await vp
+      .locator("#password")
+      .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
+    await vp.locator("#kc-login").click();
+    const selectAsViewer = async (member) => {
+      const ownStatus = await call(user2.auth, "GET", path + "/membership/me", undefined, { base: GROUP_SERVER });
+      assert.equal(ownStatus.status, 200);
+      assert.deepEqual(ownStatus.body, { member, administrator: false });
+      assert.equal(ownStatus.headers.get("cache-control"), "private, no-store");
+      assert.equal(ownStatus.headers.get("etag"), null);
+      const roster = await call(user2.auth, "GET", path + "/users", undefined, { base: GROUP_SERVER });
+      assert.equal(roster.status, 403);
+      await vp.getByRole("combobox", { name: "Find a group" }).fill(fixture);
+      await vp.getByRole("option", { name: fixture + " - Smoke description", exact: true }).click();
+      await vp.getByText(member
+        ? "You are a member of this group, but not a Group Administrator."
+        : "You are not a member of this group. You can view its name and description.",
+        { exact: true }).waitFor();
+      await vp.getByText("Only administrators of this group can view its member list.", { exact: true }).waitFor();
+      assert.equal(await vp.getByRole("button", { name: "Save", exact: true }).count(), 0);
+      assert.equal(await vp.locator(".groups-member-count").count(), 0);
+      assert.equal(await vp.evaluate(() => typeof window.angular), "undefined");
+      await vp.screenshot({
+        path: `/tmp/cedar-modern-groups-${member ? "member" : "non-member"}.png`,
+        fullPage: true,
+      });
+      await vp.getByRole("tab", { name: "Delete group", exact: true }).click();
+      await vp.getByText("Only administrators of this group can delete it.", { exact: true }).waitFor();
+      assert.equal(await vp.locator(".groups-delete-button").count(), 0);
+      await vp.getByRole("tab", { name: "Manage groups", exact: true }).click();
+    };
+    await selectAsViewer(false);
     await page
       .getByRole("combobox", { name: "Add a member", exact: true })
       .fill(
@@ -217,33 +256,7 @@ try {
       exact: true,
     });
     await other.waitFor();
-    const viewer = await browser.newContext({ ignoreHTTPSErrors: true });
-    const vp = await viewer.newPage();
-    await vp.goto(base + "/groups");
-    await vp.locator("#username").waitFor();
-    await vp
-      .locator("#username")
-      .fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
-    await vp
-      .locator("#password")
-      .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
-    await vp.locator("#kc-login").click();
-    await vp.getByRole("combobox", { name: "Find a group" }).fill(fixture);
-    await vp
-      .getByRole("option", {
-        name: fixture + " - Smoke description",
-        exact: true,
-      })
-      .click();
-    await vp
-      .getByText("Only a Group Administrator can see who is in this group.")
-      .waitFor();
-    assert.equal(
-      await vp.getByRole("button", { name: "Save", exact: true }).count(),
-      0,
-    );
-    assert.equal(await vp.evaluate(() => typeof window.angular), "undefined");
-    await viewer.close();
+    await selectAsViewer(true);
     await mutation(
       "PUT",
       path + "/users",
@@ -278,6 +291,8 @@ try {
       200,
     );
     await other.waitFor({ state: "detached" });
+    await selectAsViewer(false);
+    await viewer.close();
     const external = await mutateGroup(user1.auth, "PUT", path, {
       "schema:name": fixture,
       "schema:description": "Concurrent update",
@@ -334,7 +349,7 @@ try {
       .filter({ hasText: "Group deleted." })
       .waitFor();
     console.log(
-      "PASS: Groups is Angular-only; CRUD, membership, administrator changes, restricted viewer, last administrator, and stale-write conflict",
+      "PASS: Groups is Angular-only; CRUD, private caller status, non-member/member/removal views, administrator changes, last administrator, and stale-write conflict",
     );
   }
   if (area === "privacy") {

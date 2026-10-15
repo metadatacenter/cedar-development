@@ -113,7 +113,14 @@ the last administrator. Privacy retains the existing policy wording in the Angul
 shell. In `ops/e2e`, run `npm run smoke:account:all` for all four pages, or
 `npm run smoke:account -- profile` (also `settings`, `groups`, `privacy`) for one page.
 The journeys remove their temporary keys/groups and restore the original date preference.
-Groups includes a second user's restricted view and a real stale-write conflict.
+Groups includes a second user's non-member, member and removed-member views and a real stale-write conflict.
+The selected group distinguishes “You are not a member” from membership without administrator
+access. An authorized roster supplies the caller's own status when available; otherwise Workspace
+reads `GET /groups/{id}/membership/me`. Missing endpoints on older servers, failed requests and
+malformed responses leave status unknown and show neutral viewing guidance. They never imply
+non-membership. Status refreshes on selection/reload and from confirmed membership writes,
+including self-removal or self-demotion. Roster visibility and administrative controls retain their
+existing restrictions. The Everyone group keeps its built-in membership explanation.
 
 Start it with `cedarcli native start frontend workspace`. With the native profile sourced,
 run `npm run build` in `cedar-workspace` after changing `src/`. `npm run build:deployment` configures and assembles the native server payload.
