@@ -10,6 +10,7 @@ import { designerTerminologyFailureJourney, editorTerminologyFailureJourney } fr
 import { contentDeletionJourney } from "./content-deletion-journey.mjs";
 import { olderArtifactJourney } from "./older-artifact-journey.mjs";
 import { initialLoadJourney } from "./initial-load-journey.mjs";
+import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1235,6 +1236,9 @@ try {
   step = "initial-load";
   await initialLoadJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, pass});
+  step = "validation-rejection";
+  await validationRejectionJourney({page, base, designer, user: user1, folderId,
+    name: names.instance, created, write, pass});
   step = "older-artifacts";
   await olderArtifactJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});

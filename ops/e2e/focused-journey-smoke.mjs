@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import {chromium} from "playwright";
 import {actors, call, mutate, enc} from "./rest/lib.mjs";
 import {initialLoadJourney} from "./initial-load-journey.mjs";
+import {validationRejectionJourney} from "./validation-rejection-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
-const journeys = {"initial-load": initialLoadJourney};
+const journeys = {"initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney};
 const selected = process.argv.slice(2);
 assert.ok(selected.length && selected.every(key => journeys[key]), "Choose: " + Object.keys(journeys).join(", "));
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";

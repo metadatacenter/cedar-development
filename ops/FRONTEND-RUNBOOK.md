@@ -225,6 +225,15 @@ editable partial document; its existing retry control opens the intact stored ar
 the fault is removed. Whole-document comparisons and request observation verify that no write
 occurs. Run these focused cases with `npm run smoke:journey -- initial-load`; they also run in
 the modern Workspace smoke. Faults are page-scoped and fixtures are removed after the run.
+The validation-rejection journey supplies server-only findings at the HTTP response boundary,
+then uses real components and conditional server writes for correction and resubmission.
+Designer retains the rejected description and displays the finding's path in its disclosure;
+editing clears that obsolete finding and the corrected description saves and reopens.
+Editor follows a finding into the second occurrence of a repeated element, focuses its field,
+and preserves every other answer and nested identity when the correction is saved and reopened.
+Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
+handling of a rejection, not the validator that generates it; Designer still has no navigation
+from server findings to affected controls, as tracked in the frontend roadmap.
 The content-deletion journey uses temporary templates and metadata to check cancellation of
 populated-element deletion in Designer, removal of fields/elements and their parent references,
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
