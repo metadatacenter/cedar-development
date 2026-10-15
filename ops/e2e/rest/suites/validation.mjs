@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { suite, check, checkStatus, call, updateArtifact, cleanup, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, updateArtifact, artifactBody, cleanup, enc, RUN } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
@@ -11,8 +11,68 @@ const yaml = name => readFileSync(resolve(FIXTURES, name), 'utf8');
 
 export const name = 'validation';
 
+async function numericRangeJourney(auth, folderId) {
+  suite('validate: numeric bounds from the current stored template');
+  const template = artifactBody('template', `Numeric range ${RUN}`);
+  const field = artifactBody('field', 'Measurements');
+  field._ui.inputType = 'numeric';
+  field._valueConstraints = {requiredValue:false,numberType:'xsd:decimal'};
+  field.required = ['@value','@type'];
+  const term = 'https://schema.metadatacenter.org/properties/numeric-range-journey';
+  template.properties.Measurements = {type:'array',minItems:0,items:field};
+  template.properties['@context'].properties.Measurements = {enum:[term]};
+  template.properties['@context'].required.push('Measurements');
+  template.required.push('Measurements');
+  template._ui.order.push('Measurements');
+  template._ui.propertyLabels.Measurements = 'Measurements';
+  const created = await call(auth,'POST',`/templates?folder_id=${enc(folderId)}`,template);
+  if (!checkStatus(created,201,'create a template with initially unbounded repeated numeric answers')) return;
+  const templatePath = '/templates/' + enc(created.body['@id']);
+  cleanup('template',templatePath,template['schema:name']);
+  const instance = artifactBody('instance',`Numeric answers ${RUN}`,{'schema:isBasedOn':created.body['@id']});
+  instance['@context'].Measurements = term;
+  instance.Measurements = ['100','200'].map(value=>({'@value':value,'@type':'xsd:decimal'}));
+  const saved = await call(auth,'POST',`/template-instances?folder_id=${enc(folderId)}`,instance);
+  if (!checkStatus(saved,201,'save numeric answers before bounds are tightened')) return;
+  const path = '/template-instances/' + enc(saved.body['@id']);
+  cleanup('instance',path,instance['schema:name']);
+  const before = await call(auth,'GET',path);
+  const beforeYaml = await call(auth,'GET',path,undefined,{accept:'application/yaml'});
+  const revision = before.headers.get('etag');
+  check(!!revision,'the numeric record has a revision for conditional updates');
+  const latestTemplate = await call(auth,'GET',templatePath);
+  Object.assign(latestTemplate.body.properties.Measurements.items._valueConstraints,{minValue:150,maxValue:175});
+  if (!checkStatus(await updateArtifact(auth,templatePath,latestTemplate.body),200,'tighten both numeric bounds while the client holds the old record')) return;
+  const validation = await call(auth,'POST','/command/validate?resource_type=instance',before.body);
+  check(validation.status === 200 && validation.body?.validates === 'false' &&
+      validation.body.errors.some(e=>e.location === '/Measurements/0/@value') &&
+      validation.body.errors.some(e=>e.location === '/Measurements/1/@value'),
+    'validation names both repeated occurrences outside the new bounds',validation.text);
+  for (const format of ['json','yaml']) {
+    const response = await call(auth,'PUT',path,format === 'json' ? before.body : beforeYaml.text,
+      {contentType:format === 'json' ? 'application/json' : 'application/yaml',headers:{'If-Match':revision}});
+    check(response.status === 400 && response.text.includes('Below the minimum 150.') &&
+        response.text.includes('Above the maximum 175.'),`${format} updates reject answers outside the current numeric bounds`,response.text);
+    const unchanged = await call(auth,'GET',path);
+    check(JSON.stringify(unchanged.body) === JSON.stringify(before.body) && unchanged.headers.get('etag') === revision,
+      `${format} refusal preserves the entire numeric record and its ETag`);
+  }
+  checkStatus(await call(auth,'POST',`/template-instances?folder_id=${enc(folderId)}`,instance),400,
+    'new records cannot bypass the tightened numeric bounds');
+  const correction = structuredClone(before.body);
+  correction.Measurements[0]['@value'] = '150';
+  correction.Measurements[1]['@value'] = '175';
+  const accepted = await call(auth,'PUT',path,correction,{headers:{'If-Match':revision}});
+  checkStatus(accepted,200,'both exact boundaries save using the original instance ETag');
+  const reopened = await call(auth,'GET',path);
+  check(reopened.body?.Measurements?.map(r=>r['@value']).join(',') === '150,175' && reopened.headers.get('etag') !== revision,
+    'corrected numeric answers reopen at both inclusive boundaries with a new ETag');
+}
+
 export async function run({ user1, folderId }) {
   const auth = user1.auth;
+  await numericRangeJourney(auth, folderId);
+  suite('validation');
 
   // Validating an instance is not a purely syntactic check: the server resolves the template the
   // instance is based on and refuses with 400 when it cannot be found. So the instance fixture needs

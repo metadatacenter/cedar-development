@@ -2748,6 +2748,23 @@ The live `current-template-constraint` journey covers a REST template edit while
 real rejection, navigation to the answer, correction and reopening. This does not migrate existing
 stored values or establish enforcement of every other `_valueConstraints` property.
 
+Numeric fields likewise enforce the current template's inclusive `_valueConstraints.minValue`
+and `maxValue` on nonempty string-valued answers. Comparisons use exact decimal arithmetic,
+including negative values and exponent notation, without rounding an answer to a binary double.
+Repeated fields and nested/repeated elements retain their precise JSON Pointer locations in
+refusals. Null and empty answers remain saveable; malformed literal/container shapes still fail
+structural validation. A bounded field containing nonnumeric text or an invalid stored range
+returns a finding instead of silently skipping the bounds. Other field types are unaffected.
+
+`NumericRangeValidationTest` covers boundaries, precision, incomplete answers and nested paths.
+`CurrentTemplateConstraintTest` verifies current-template JSON/YAML writes, rejected creates,
+skip-validation and privileged verbatim requests, unchanged stored content/ETags after refusal,
+and correction with the original instance ETag. The REST `validation` suite exercises the
+deployed resource-to-artifact path with repeated numeric answers and both exact boundaries.
+Existing stored answers are not migrated: a later write must satisfy the current bounds.
+This does not establish numeric datatype or decimal-place enforcement, or browser recovery
+from numeric findings; those remain separate contracts.
+
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
 dependency is one the server cannot serve requests without, and its failure makes the server

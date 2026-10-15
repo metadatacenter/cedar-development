@@ -36,7 +36,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   library's read-and-render checks without the checks changing its stored content.
 
   **Complete value-constraint enforcement across clients.** Audit the remaining text-length,
-  numeric-range, choice and terminology constraints against the server and Editor contracts,
+  numeric datatype/precision, choice and terminology constraints against the server and Editor contracts,
   including changes made by external clients while metadata is open. Keep deliberately saveable
   incomplete metadata distinct from constraint violations. Measure affected stored data before
   tightening further acceptance rules and return actionable field locations for new refusals.
