@@ -17,6 +17,7 @@ import { partialMoveJourney } from "./partial-move-journey.mjs";
 import { currentTemplateConstraintJourney } from "./current-template-constraint-journey.mjs";
 import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
+import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1249,6 +1250,9 @@ try {
     name: names.instance, created, write, pass});
   step = "older-key-rename";
   await olderKeyRenameJourney({page, base, designer, user: user1, folderId,
+    name: names.instance, created, write, pass});
+  step = "designer-pending-save";
+  await designerPendingSaveJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
   step = "content-deletion";
   await contentDeletionJourney({page, base, designer, user: user1, folderId,

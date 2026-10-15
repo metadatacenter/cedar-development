@@ -2748,6 +2748,15 @@ field, comparing its full stored definition, annotations, identifiers, provenanc
 content after save and reopen. The server also follows unambiguous child identities when
 preserving provenance, so changing a placement key does not turn an existing field into a new creation.
 
+Designer freezes editing and disables Save while a write is pending. Unlike Editor's
+continued-typing workflow, its controls cannot receive focus or keyboard input until the
+request settles. `npm run smoke:journey -- designer-pending-save` delays real successful
+PUT replies for templates, elements and standalone fields, verifies that freeze, then checks
+that acknowledgement retains the open component and enables editing. A second conditional
+save and reopening prove adoption of the new revision and preservation of the complete stored
+document apart from the authored description and root update provenance. These checks concern
+existing identities; first-create and version-creation recovery have separate contracts.
+
 Structured server findings retain their nested location and message, belong to the
 submitted snapshot and retire when it changes. Errors block Save, while server warnings
 remain advisory. The host lists those findings; attaching them to CED's own cards and

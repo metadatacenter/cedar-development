@@ -9,13 +9,14 @@ import {partialMoveJourney} from "./partial-move-journey.mjs";
 import {currentTemplateConstraintJourney} from "./current-template-constraint-journey.mjs";
 import {uncertainMoveJourney} from "./uncertain-move-journey.mjs";
 import {olderKeyRenameJourney} from "./older-key-rename-journey.mjs";
+import {designerPendingSaveJourney} from "./designer-pending-save-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
 const journeys = {"initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
   duplication: duplicationJourney, "template-evolution": templateEvolutionJourney, "partial-move": partialMoveJourney,
   "current-template-constraint": currentTemplateConstraintJourney, "uncertain-move": uncertainMoveJourney,
-  "older-key-rename": olderKeyRenameJourney};
+  "older-key-rename": olderKeyRenameJourney, "designer-pending-save": designerPendingSaveJourney};
 const selected = process.argv.slice(2);
 assert.ok(selected.length && selected.every(key => journeys[key]), "Choose: " + Object.keys(journeys).join(", "));
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
