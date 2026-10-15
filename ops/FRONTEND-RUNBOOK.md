@@ -182,6 +182,13 @@ a field-value edit in CEE; only the intended change and root update provenance m
 Schema fixtures include identifiers and annotations authored outside the description control.
 It also imports a library element, checks that later library edits leave the imported snapshot
 unchanged, and checks that edits to the imported element leave the library source unchanged.
+The reusable-source-failure journey selects a field and an element while the parent has an
+unsaved description. Search outages and refused, missing or unreachable element loads retain
+the selection and parent draft; a mixed batch cannot partially import its successfully loaded
+field. Retrying after recovery imports each definition once, saves the retained description and
+reopens both children without changing the library sources. The failures are injected at the
+browser request boundary; recovery and writes use the real services. Run
+`npm run smoke:journey -- reusable-source-failure`; the checks also run in the modern smoke.
 The resulting instance's second save must preserve its nested element identifiers.
 `metadata-state-matrix.spec.ts`
 and the browser state-coordination suite cover these transitions. First save replaces the create URL through Angular routing; it does

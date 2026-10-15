@@ -1,3 +1,4 @@
+import {reusableSourceFailureJourney} from "./reusable-source-failure-journey.mjs";
 import {recoveryElementEditsJourney} from "./recovery-element-edits-journey.mjs";
 import {saveStatusJourney} from "./save-status-journey.mjs";
 // Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
@@ -652,6 +653,7 @@ try {
       pass("Designer save recovers from an expired access token through one refresh and one retry");
     }
   }
+  await reusableSourceFailureJourney({page, designer, user: user1, folderId, name: names.instance, created, write, pass});
   step = "reusable-element-snapshot";
   await editor(page, names.template);
   await page.getByRole("button", {name: "Import fields and elements", exact: true}).first().click();
