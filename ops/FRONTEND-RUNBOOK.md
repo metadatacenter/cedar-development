@@ -321,6 +321,17 @@ artifacts is not established by these focused checks.
 The partial-selection deletion journey commits two deletes and drops the second response.
 It verifies that only the first is reported as confirmed, later items remain untouched, and
 the author can finish from a fresh selection without repeating the uncertain request.
+Hermetic bulk-delete recovery journeys extend this to a confirmed recursive-folder deletion,
+an uncertain individual delete, and an unattempted remaining record. Repeated HTTP 503 or
+disconnected inventory/listing reads retain confirmed counts and leave deletion disabled.
+Restored inventory reads recheck permissions and revisions; a revoked permission blocks the
+whole remaining selection, and recovery requires explicit confirmation using fresh ETags.
+If the uncertain item returns 403 or 404, neither response proves deletion: its count stays
+unconfirmed and the old selection stays blocked. Close the dialog, refresh Workspace after
+service recovery, and review a new selection of remaining items before confirming deletion.
+`npm --prefix browser test -- bulk-delete-recovery.spec.mjs` exercises these paths in Chromium
+and WebKit against a built Workspace. This is unit and hermetic browser coverage of the
+existing workflow; the combined outage cases still need live-stack verification.
 The partial-move journey refuses one grouped move at the HTTP boundary while two others
 commit at the real server. Workspace reports the two successes and the refusal, retains only
 the remaining item in its selection, and can move that item after the refusal clears without
