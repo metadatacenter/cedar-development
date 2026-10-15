@@ -227,13 +227,13 @@ occurs. Run these focused cases with `npm run smoke:journey -- initial-load`; th
 the modern Workspace smoke. Faults are page-scoped and fixtures are removed after the run.
 The validation-rejection journey supplies server-only findings at the HTTP response boundary,
 then uses real components and conditional server writes for correction and resubmission.
-Designer retains the rejected description and displays the finding's path in its disclosure;
-editing clears that obsolete finding and the corrected description saves and reopens.
+Designer retains the rejected description and links the finding to its control. A nested regex
+finding opens the correct field through a repeated element and focuses its pattern setting;
+editing clears the obsolete report, and correction saves without changing sibling content.
 Editor follows a finding into the second occurrence of a repeated element, focuses its field,
 and preserves every other answer and nested identity when the correction is saved and reopened.
 Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
-handling of a rejection, not the validator that generates it; Designer still has no navigation
-from server findings to affected controls, as tracked in the frontend roadmap.
+handling of a rejection, not the validator that generates it.
 The current-template-constraint journey changes a text regex through another REST client while
 Editor holds the earlier template. Its save must receive a real server 400 with `/Code/@value`,
 retain all local answers and preserve stored content and its ETag. Clicking the finding focuses
@@ -2759,8 +2759,14 @@ existing identities; first-create and version-creation recovery have separate co
 
 Structured server findings retain their nested location and message, belong to the
 submitted snapshot and retire when it changes. Errors block Save, while server warnings
-remain advisory. The host lists those findings; attaching them to CED's own cards and
-navigation still requires the component API described in the frontend roadmap.
+remain advisory. The host forwards them through CED/CEFD's `validationFindings` input as
+`{location, message, severity}` rows. CED gives them `source: 'host'`, maps recognized JSON
+Pointers through nested and repeated definitions to settings, and joins them to its existing
+summary and inline errors. Both the component summary and host disclosure can navigate to
+the affected control; `revealValidationFinding(location)` reports whether a path is mapped.
+Unknown paths remain visible as text. Warnings neither mark controls invalid nor block Save.
+An accepted document edit or replacement retires the supplied snapshot; invalid pending
+settings remain intact. Hosts must discard late reports about an older submitted snapshot.
 Conflicts, permission loss and missing revision tokens preserve edits and require an
 explicit reload, with confirmation before discarding changes. A lost response, server error,
 timeout or acknowledgement without an artifact identifier blocks another write and reports

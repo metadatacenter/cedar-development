@@ -168,8 +168,7 @@ Provide explicit recovery for each outcome:
 - **Deleted or inaccessible artifact:** keep the draft and offer export or a permitted copy
   without claiming the artifact was deleted when the server only establishes lack of access.
 - **Server validation rejection:** make restored drafts participate in the same validation and
-  finding-ownership rules as uninterrupted edits. Connecting Designer's server findings to its
-  affected controls remains in the [CED work](#ced).
+  finding-ownership rules as uninterrupted edits.
 
 Keep **Check save status**, **Recheck access** and **Review latest** separate from **Discard my
 changes**. Replacing the working document requires an explicit decision after recovery data has
@@ -259,18 +258,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 7. Display Host-Supplied Validation Findings in CED
-
-Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
-settings, show the messages beside the affected controls and in CED's validation summary, and
-give host findings a source of their own so they remain distinguishable from CED's model and
-draft findings.
-
-Specify when host findings become stale after an edit or artifact replacement. Preserve unsaved
-input and cover correction, clearing and replacement of reports. The host calls the schema
-server and decides whether an artifact may be saved.
-
-### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 7. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -284,7 +272,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 9. Keyboard and Screen-Reader Access
+### 8. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and

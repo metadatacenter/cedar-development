@@ -51,6 +51,13 @@ export async function validationRejectionJourney({page, base, designer, user, fo
     await page.locator("#server-issues").waitFor();
     await page.locator("#server-issues summary").click();
     assert.match(await page.locator("#server-issues-list").innerText(), /\/schema:description: Review the artifact description/);
+    await page.locator("#server-issues-list").getByRole("button", {name: /Review the artifact description/}).click();
+    await description.evaluate(el => new Promise((resolve, reject) => {
+      const until = Date.now() + 5000;
+      const check = () => el.getRootNode().activeElement === el ? resolve() :
+        Date.now() > until ? reject(new Error("description finding did not focus its control")) : setTimeout(check, 20);
+      check();
+    }));
     assert.equal(await description.inputValue(), "Rejected description");
     assert.equal(await page.locator("#save").isDisabled(), true);
     assert.deepEqual(await read("templates", templateId), templateBefore);
@@ -63,7 +70,34 @@ export async function validationRejectionJourney({page, base, designer, user, fo
   await page.reload();
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   assert.equal(await description.inputValue(), "Corrected description");
-  pass("Designer retains rejected input and displays its server location, then clears the obsolete finding and saves/reopens the correction");
+  pass("Designer retains rejected input, links the server finding to its description control, and saves/reopens the correction");
+
+  await description.fill("Nested finding correction");
+  const refusePattern = route => route.request().method() === "PUT"
+    ? route.fulfill(rejection("/properties/Visits/items/properties/Detail/_valueConstraints/regex", "Review the nested pattern")) : route.fallback();
+  await page.route(templateMatch, refusePattern);
+  try {
+    await write(page, "PUT", "/templates/", () => page.locator("#save").click(), 400, true);
+    await page.locator("#server-issues").waitFor();
+    await page.locator("#server-issues summary").click();
+    await page.locator("#server-issues-list").getByRole("button", {name: /Review the nested pattern/}).click();
+    const regex = page.locator('input[name="regex"]:visible');
+    await regex.waitFor();
+    await regex.evaluate(el => new Promise((resolve, reject) => {
+      const until = Date.now() + 5000;
+      const check = () => el.getRootNode().activeElement === el ? resolve() :
+        Date.now() > until ? reject(new Error("nested finding did not focus regex")) : setTimeout(check, 20);
+      check();
+    }));
+    await regex.fill(".*");
+    await page.locator("#server-issues").waitFor({state: "hidden"});
+  } finally { await page.unroute(templateMatch, refusePattern); }
+  await write(page, "PUT", "/templates/", () => page.locator("#save").click(), 200, true);
+  await page.locator("#state").filter({hasText: /^Saved$/}).waitFor();
+  const correctedTemplate = await read("templates", templateId);
+  assert.equal(correctedTemplate.properties.Visits.items.properties.Detail._valueConstraints.regex, ".*");
+  assert.deepEqual(correctedTemplate.properties.Keep, templateBefore.properties.Keep);
+  pass("Designer follows a server finding through a repeated element to the exact regex control and saves the correction without changing its sibling");
 
   const instance = artifactBody("instance", name + " validation metadata", {
     "schema:isBasedOn": templateId, Keep: {"@value": "Untouched"},
