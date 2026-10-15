@@ -3,10 +3,12 @@ import {chromium} from "playwright";
 import {actors, call, mutate, enc} from "./rest/lib.mjs";
 import {initialLoadJourney} from "./initial-load-journey.mjs";
 import {validationRejectionJourney} from "./validation-rejection-journey.mjs";
+import {duplicationJourney} from "./duplication-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
-const journeys = {"initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney};
+const journeys = {"initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
+  duplication: duplicationJourney};
 const selected = process.argv.slice(2);
 assert.ok(selected.length && selected.every(key => journeys[key]), "Choose: " + Object.keys(journeys).join(", "));
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";

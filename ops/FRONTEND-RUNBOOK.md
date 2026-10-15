@@ -234,6 +234,13 @@ and preserves every other answer and nested identity when the correction is save
 Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
 handling of a rejection, not the validator that generates it; Designer still has no navigation
 from server findings to affected controls, as tracked in the frontend roadmap.
+The duplication journey copies templates, elements, standalone fields and metadata through
+Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
+It compares content, checks derivation and fresh draft-series identity, and verifies that neither
+editing direction changes the other artifact. Copies regenerate name-derived schema text and
+creation timestamps, and omit the original's external identifier; those are explicit assertions,
+not losses hidden by a normalization save. Untouched typed metadata answers remain intact.
+Run `npm run smoke:journey -- duplication` for the focused check.
 The content-deletion journey uses temporary templates and metadata to check cancellation of
 populated-element deletion in Designer, removal of fields/elements and their parent references,
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
