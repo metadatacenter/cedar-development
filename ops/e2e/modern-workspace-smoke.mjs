@@ -9,6 +9,7 @@ import { groupAccessJourney } from "./group-access-journey.mjs";
 import { designerTerminologyFailureJourney, editorTerminologyFailureJourney } from "./terminology-failure-journey.mjs";
 import { contentDeletionJourney } from "./content-deletion-journey.mjs";
 import { olderArtifactJourney } from "./older-artifact-journey.mjs";
+import { initialLoadJourney } from "./initial-load-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1231,6 +1232,9 @@ try {
   step = "group-derived-access";
   await groupAccessJourney({page, reader, base, designer, owner: user1, member: user2,
     templateId: artifacts.template, instancePath, metadataUrl, name: names.instance, write, pass});
+  step = "initial-load";
+  await initialLoadJourney({page, base, designer, user: user1, folderId,
+    name: names.instance, created, pass});
   step = "older-artifacts";
   await olderArtifactJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});

@@ -217,7 +217,14 @@ the failure while preserving its chosen constraints and artifact draft; changing
 after access returns produces real search results. Editor preserves the selected term and
 other input, can save unrelated edits during the outage without changing that term, and can
 search and select again after recovery. These checks cover search outages after the editor
-is open; they do not establish recovery for every supporting service or initial-load failure.
+is open; they do not establish recovery for every supporting service.
+The initial-load journey injects both HTTP 503 and connection failures into Designer's artifact,
+permission-report and component-manifest reads, and Editor's metadata, permission-report,
+template, configuration and component-script reads. Neither surface enables Save or shows an
+editable partial document; its existing retry control opens the intact stored artifact once
+the fault is removed. Whole-document comparisons and request observation verify that no write
+occurs. Run these focused cases with `npm run smoke:journey -- initial-load`; they also run in
+the modern Workspace smoke. Faults are page-scoped and fixtures are removed after the run.
 The content-deletion journey uses temporary templates and metadata to check cancellation of
 populated-element deletion in Designer, removal of fields/elements and their parent references,
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
