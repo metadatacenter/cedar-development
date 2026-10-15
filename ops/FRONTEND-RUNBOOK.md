@@ -234,6 +234,13 @@ and preserves every other answer and nested identity when the correction is save
 Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
 handling of a rejection, not the validator that generates it; Designer still has no navigation
 from server findings to affected controls, as tracked in the frontend roadmap.
+The current-template-constraint journey changes a text regex through another REST client while
+Editor holds the earlier template. Its save must receive a real server 400 with `/Code/@value`,
+retain all local answers and preserve stored content and its ETag. Clicking the finding focuses
+Code; correction saves with the existing instance revision and reopens with other content intact.
+The reopened Editor enforces the new regex locally before another write can be submitted.
+Run `npm run smoke:journey -- current-template-constraint`; it also runs in the modern Workspace
+smoke. Unlike the injected report checks above, this exercises deployed server validation.
 The duplication journey copies templates, elements, standalone fields and metadata through
 Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
 It compares content, checks derivation and fresh draft-series identity, and verifies that neither

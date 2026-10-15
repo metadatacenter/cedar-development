@@ -2719,6 +2719,26 @@ wire compatibility and does not bypass validation or storage checks. If a privil
 needed again, introduce a separately authorized internal operation rather than reviving the public
 query switch.
 
+Instance writes enforce the current template's `_valueConstraints.regex` on nonempty textual
+`@value` answers, including repeated fields and nested/repeated elements. The constraint lives
+outside JSON Schema's `pattern` keyword and is checked explicitly by the shared validation
+library. Matching uses JavaScript RegExp semantics with the same `^(?:pattern)$` wrapper and no
+flags as Editor; Rhino is a managed Java dependency, with request-local expressions and no
+execution of template-supplied JavaScript. Each match has a one-million-instruction work budget;
+excessive backtracking returns a field finding asking the author to simplify the regex. Null and
+empty answers retain the existing incomplete metadata policy; malformed literal shapes still fail
+structural validation. Invalid regex syntax
+is refused on schema writes and reported safely if encountered in an older stored schema.
+
+A stale Editor cannot bypass a newly added regex: the artifact service reads the current template
+snapshot during validation and checks that template revision when storing the instance. A refusal
+returns HTTP 400 with the affected JSON Pointer (for example `/Visits/1/Code/@value`), leaving the
+stored content and instance ETag unchanged. The user can correct the retained answer and retry
+with the same instance ETag. Neither `skip_validation` nor verbatim writes bypass this rule.
+The live `current-template-constraint` journey covers a REST template edit while Editor is open,
+real rejection, navigation to the answer, correction and reopening. This does not migrate existing
+stored values or establish enforcement of every other `_valueConstraints` property.
+
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
 dependency is one the server cannot serve requests without, and its failure makes the server
