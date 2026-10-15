@@ -15,6 +15,7 @@ import { duplicationJourney } from "./duplication-journey.mjs";
 import { templateEvolutionJourney } from "./template-evolution-journey.mjs";
 import { partialMoveJourney } from "./partial-move-journey.mjs";
 import { currentTemplateConstraintJourney } from "./current-template-constraint-journey.mjs";
+import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -1251,6 +1252,9 @@ try {
   step = "incomplete-required-metadata";
   await incompleteMetadataJourney({page, base, user: user1, folderId, templateId: artifacts.template,
     name: names.instance, created, write, pass});
+  step = "uncertain-move";
+  await uncertainMoveJourney({page, base, user: user1, folderId,
+    name: names.instance, created, pass});
   step = "copy-move";
   await partialMoveJourney({page, base, user: user1, folderId,
     name: names.instance, created, pass});

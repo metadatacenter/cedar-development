@@ -280,7 +280,13 @@ The partial-move journey refuses one grouped move at the HTTP boundary while two
 commit at the real server. Workspace reports the two successes and the refusal, retains only
 the remaining item in its selection, and can move that item after the refusal clears without
 repeating successful moves. All stored artifact content is compared before and after. Run
-`npm run smoke:journey -- partial-move`; uncertain move outcomes remain a separate recovery case.
+`npm run smoke:journey -- partial-move`.
+The uncertain-move journey lets all three moves commit, then drops one response. Workspace
+reports only the two confirmed successes alongside the error and refreshes the source listing,
+removing the already-moved items from selection. Opening the destination finds all three with
+their entire artifact content unchanged, and no move is replayed. Run
+`npm run smoke:journey -- uncertain-move`; the full modern smoke includes it too. This covers
+recovery through a successful listing refresh, not an outage that prevents checking placement.
 The main smoke registers copies by the collection in their canonical identity, since copy
 responses are artifact documents without `resourceType`; this ensures non-template copies
 are removed from the correct collection during cleanup.

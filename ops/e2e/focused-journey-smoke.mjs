@@ -7,12 +7,13 @@ import {duplicationJourney} from "./duplication-journey.mjs";
 import {templateEvolutionJourney} from "./template-evolution-journey.mjs";
 import {partialMoveJourney} from "./partial-move-journey.mjs";
 import {currentTemplateConstraintJourney} from "./current-template-constraint-journey.mjs";
+import {uncertainMoveJourney} from "./uncertain-move-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
 const journeys = {"initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
   duplication: duplicationJourney, "template-evolution": templateEvolutionJourney, "partial-move": partialMoveJourney,
-  "current-template-constraint": currentTemplateConstraintJourney};
+  "current-template-constraint": currentTemplateConstraintJourney, "uncertain-move": uncertainMoveJourney};
 const selected = process.argv.slice(2);
 assert.ok(selected.length && selected.every(key => journeys[key]), "Choose: " + Object.keys(journeys).join(", "));
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
