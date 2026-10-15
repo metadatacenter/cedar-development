@@ -279,3 +279,22 @@ Verify keyboard focus order across settings, palette actions and nested elements
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
+
+### 9. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+
+Evaluate a fallback for a document CED considers saveable but the server rejects for a
+structural problem the author cannot repair through Designer controls. Treat this as a possible
+generation or validation defect: CED must produce valid artifacts, and server validation must
+remain strict. An injected server finding tests the fallback; it does not establish that ordinary
+editing produces invalid documents. Keep already-invalid imported artifacts a separate case.
+
+Consider preserving the working state through the shared [save-recovery workflow](#save-recovery)
+and offering a user-reviewed diagnostic download or bug report. Include the submitted document,
+server validation response, component/build versions and reproduction steps where available.
+Exclude credentials and let the user review artifact content before sharing it. Explain that the
+failure needs investigation without asking the author to repair internal JSON Schema structures
+or implying that a recovery draft has been saved as a valid artifact.
+
+Use a real reproducible case to decide whether this facility is needed and how much to build.
+Any confirmed defect should lead to a generation or validation fix and a regression test; verify
+that the fallback preserves work while the rejected write remains blocked.
