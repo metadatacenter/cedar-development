@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
 import {actors,artifactBody,call,mutate,enc,RESOURCE} from './rest/lib.mjs';
 import {journeyFolder} from './journey-fixtures.mjs';
 
@@ -32,7 +31,7 @@ export async function recoveryFixture(args,kind,suffix,{pattern=false}={}) {
   }
   const save=p=>p.locator(metadata?'#button-save-metadata':'#save');
   const matcher=url=>url.origin===new URL(RESOURCE).origin&&url.pathname.startsWith('/'+collection+'/')&&decodeURIComponent(url.pathname.split('/').at(-1)).split('/').at(-1)===id.split('/').at(-1);
-  await page.goto(url);await ready(page);
+  await page.goto(url);await ready(page);await assertNoRecoveryFiles(page);
   return {id,path,url,input,ready,save,matcher,metadata,collection,folderId,templateId};
 }
 export async function settled(input,value) {
@@ -64,40 +63,15 @@ export async function startupRecoveryJourney(args) {
     await page.locator(f.metadata?'.metadata-toolbar [role=status]':'#state').filter({hasText:'Unable to load'}).waitFor();assert.ok(intercepted>0,'startup failure must be injected');
     await page.getByRole('button',{name:f.metadata?'Retry':'Reload designer',exact:true}).waitFor();
     await page.getByRole('button',{name:'Restore draft',exact:true}).waitFor();
-    await page.getByRole('button',{name:/^Download recovery (file|draft)$/}).waitFor();
-    const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:/^Download recovery (file|draft)$/}).click()]);
-    assert.ok((await readFile(await download.path(),'utf8')).includes(value));
+    assert.ok(await page.evaluate(value=>Object.values(sessionStorage).some(raw=>raw.includes(value)),value));
+    await assertNoRecoveryFiles(page);
     await page.unroute(match,fail);
     await page.getByRole('button',{name:f.metadata?'Retry':'Reload designer',exact:true}).click();
-    await page.getByRole('button',{name:'Restore draft',exact:true}).click();await f.ready(page);await settled(f.input(page),value);
+    await page.getByRole('button',{name:'Restore draft',exact:true}).click();await f.ready(page);await settled(f.input(page),value);await assertNoRecoveryFiles(page);
     assert.deepEqual((await call(user.auth,'GET',f.path)).body,before.body);
     await args.write(page,dependency==='destination'?'POST':'PUT','/'+f.collection+(dependency==='destination'?'':'/'),()=>f.save(page).click(),dependency==='destination'?201:200,dependency!=='destination');
     await page.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
-    pass(`${kind}: ${dependency} startup failure keeps a downloadable draft through Retry, restoration and explicit save`);
-  }
-}
-export async function recoveryImportJourney(args) {
-  const {page,user,pass}=args;
-  for(const kind of ['template','element','field','metadata']) {
-    const f=await recoveryFixture(args,kind,'file import',{pattern:true});
-    const value=f.metadata?'unfinished lower-case':'Retained recovery file';await f.input(page).fill(value);
-    const before=await call(user.auth,'GET',f.path);
-    const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:/^Download recovery (file|draft)$/}).click()]);
-    const buffer=await readFile(await download.path());assert.ok(buffer.toString().includes(value));
-    const fresh=await page.context().newPage();fresh.on('dialog',dialog=>dialog.accept());let writes=0;
-    fresh.on('request',r=>{if(r.method()==='PUT'&&f.matcher(new URL(r.url())))writes++;});
-    try {
-      await fresh.goto(f.url);await f.ready(fresh);assert.equal(await fresh.getByRole('button',{name:'Restore draft',exact:true}).isVisible(),false);
-      await fresh.locator('input[type=file]').setInputFiles({name:'recovery.json',mimeType:'application/json',buffer});
-      await fresh.getByRole('button',{name:'Restore draft',exact:true}).click();await f.ready(fresh);await settled(f.input(fresh),value);
-      assert.equal(writes,0);assert.deepEqual((await call(user.auth,'GET',f.path)).body,before.body);
-      if(f.metadata)assert.equal(await f.save(fresh).isDisabled(),true,'invalid unfinished input stays unsaved');
-      await f.input(fresh).fill(f.metadata?'CORRECTED':'Corrected imported draft');
-      await args.write(fresh,'PUT','/'+f.collection+'/',()=>f.save(fresh).click(),200,true);
-      const stored=await call(user.auth,'GET',f.path);assert.equal(f.metadata?stored.body.Notes['@value']:stored.body['schema:description'],f.metadata?'CORRECTED':'Corrected imported draft');
-      assert.equal(writes,1);await fresh.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
-      pass(`${kind}: downloaded recovery imports into a fresh tab without writing, preserves ${f.metadata?'invalid input':'author work'} and saves only after an explicit correction`);
-    } finally {await fresh.close();}
+    pass(`${kind}: ${dependency} startup failure retains the draft through Retry, restoration and explicit save`);
   }
 }
 export async function tabIsolationJourney(args) {
@@ -125,13 +99,16 @@ export async function tabIsolationJourney(args) {
         await other.getByRole('button',{name:'Recheck access',exact:true}).waitFor();
         assert.equal(await other.getByRole('button',{name:'Restore draft',exact:true}).isVisible(),false);
         assert.ok(!(await other.locator('body').innerText()).includes('First tab draft'));
-        const raw=retained.find(([key,value])=>key.includes(f.id.split('/').at(-1))&&value.includes('First tab draft'))?.[1];assert.ok(raw);
-        await other.locator('input[type=file]').setInputFiles({name:'other-account.json',mimeType:'application/json',buffer:Buffer.from(raw)});
-        await other.getByText(/This recovery (file|draft).*(cannot|could not) be restored here/).waitFor();
-        assert.equal(await other.getByRole('button',{name:'Restore draft',exact:true}).isVisible(),false);
+        await assertNoRecoveryFiles(other);
         assert.equal(await f.input(page).inputValue(),'First tab draft');assert.equal(await f.input(fresh).inputValue(),'Second tab draft');
         pass(`${kind}: independent tabs retain different drafts, and another account cannot discover or restore the first account's retained work`);
       } finally {await fresh.close();}
     }
   } finally {await otherContext.close();}
+}
+
+export async function assertNoRecoveryFiles(page) {
+  assert.equal(await page.getByRole('button',{name:/^Download recovery (file|draft)$/}).count(),0);
+  assert.equal(await page.getByText(/^Import recovery (file|draft)$/).count(),0);
+  assert.equal(await page.locator('#notices input[type=file], .metadata-content > p input[type=file]').count(),0);
 }

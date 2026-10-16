@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { artifactBody } from "./rest/lib.mjs";
 import {
   metadataFixture,
@@ -102,20 +101,6 @@ export async function configurationDraftJourney(args) {
               .isVisible(),
             false,
           );
-        else {
-          const [download] = await Promise.all([
-            page.waitForEvent("download"),
-            page
-              .getByRole("button", {
-                name: "Download recovery draft",
-                exact: true,
-              })
-              .click(),
-          ]);
-          assert.ok(
-            (await readFile(await download.path(), "utf8")).includes("1.234"),
-          );
-        }
       } finally {
         await page.unroute(matcher, fail);
       }

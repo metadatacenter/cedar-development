@@ -2872,31 +2872,31 @@ signed-in account, artifact kind and identity, or the destination folder for a n
 The component APIs `captureDraft()` and `restoreDraft()` preserve unfinished control input,
 validation gates and accepted content separately from a server-saveable artifact. Reload offers
 **Restore draft** after fresh artifact, template and permission reads. It never silently replaces
-the latest document or grants the recovery file's former permissions. The recovery download and
-import controls move the same scoped envelope; they do not upload an artifact. Server errors and
+the latest document or grants the retained draft's former permissions. Neither host displays
+recovery-file download or import controls. Server errors and
 warnings retain their submitted-content key in that envelope: restoring the same rejected content
 retains its findings and save gate, while changing the content retires the report.
-Closing the tab ends automatic retention, so a downloaded file is the durable copy for that case.
+Closing the tab ends automatic retention.
 
 A clean read-only opening, or an initial 401/403 refusal, offers **Recheck access** and
 **Sign in again**. Recheck reloads content and permissions together; it cannot replace local
 work or attach a fresh revision to an older draft. Create routes recheck their destination
 folder. Retry after a failed opening preserves retained work. Once deployment and account are
-known, existing-record and explicit-destination drafts can be offered and downloaded even if
+known, existing-record and explicit-destination drafts can be offered even if
 profile loading fails. Restore stays disabled until the component/configuration prerequisites
 are available. A create route using an unresolved default home folder waits for profile recovery
 before selecting its draft scope. If Designer configuration fails before authentication identifies
 the account, the host retains browser storage but cannot expose a scoped draft yet; Reload after
-configuration recovery offers it. Editor configuration failures occur after scope selection and
-permit download while restoration waits for its prerequisites. Unavailable and malformed JSON
+configuration recovery offers it. Editor configuration failures occur after scope selection;
+restoration waits for its prerequisites. Unavailable and malformed JSON
 configuration responses follow the same recovery path.
 
 
 The hosts journal before dispatching a write. Pending submissions and unresolved create/version
-outcomes survive reload, and an uncertain creation cannot be discarded or imported over to enable
+outcomes survive reload, and an uncertain creation cannot be discarded to enable
 a duplicate POST. Existing-update status checks restore saving only after comparing authoritative
 content and revisions. **Sign in again**, offered with access recovery, persists the draft before
-redirecting; a storage failure keeps the author on the page and offers download. A restored form
+redirecting; a storage failure keeps the author on the page. A restored form
 whose access is later granted becomes editable after the fresh access check. Explicit ordinary
 discard and a clean acknowledged save remove the retained draft. Storage failures are visible.
 
@@ -2922,12 +2922,10 @@ Additional focused checks, also included in the regular modern smoke:
   reduced to viewer; restoration and rechecks do not write, and saving resumes only after a new
   edit grant and explicit save.
 - `startup-recovery`: inject profile, component, artifact and destination-folder outages while
-  drafts exist; download during failure, Retry, restore and save without losing input.
-- `recovery-import`: download and import a recovery file in a fresh tab for templates, elements,
-  fields and metadata; invalid metadata input remains invalid until corrected, and import never
-  writes an artifact.
+  drafts exist; retain work during failure, Retry, restore and save without losing input,
+  with no recovery-file controls in the opening, failed or restored form.
 - `tab-isolation`: separate tabs keep independent drafts; another account with the prior account's
-  retained storage neither discovers the draft nor imports its recovery envelope.
+  retained storage cannot discover or restore the draft.
 - `numeric-constraint`: tighten both numeric bounds through another REST client; the real server
   rejects stale Editor answers, findings locate the controls, and exact boundaries save and reopen
   while preserving all unrelated content.

@@ -6,7 +6,6 @@ import { scalarRoundtripJourney } from "./scalar-roundtrip-journey.mjs";
 import { restoredValidationJourney } from "./restored-validation-journey.mjs";
 import {
   startupRecoveryJourney,
-  recoveryImportJourney,
   tabIsolationJourney,
 } from "./recovery-boundary-journey.mjs";
 import {
@@ -47,7 +46,6 @@ import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs"
 const journeys = {
   "scalar-roundtrip": scalarRoundtripJourney,
   "startup-recovery": startupRecoveryJourney,
-  "recovery-import": recoveryImportJourney,
   "tab-isolation": tabIsolationJourney,
   "opening-permissions": openingPermissionJourney,
   "signin-permissions": signInPermissionJourney,
