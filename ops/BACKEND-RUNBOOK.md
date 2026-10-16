@@ -3340,7 +3340,11 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>.json`.
+`rest-smoke-<digest>.json`, and the split tier's as `split-smoke-<digest>.json`. The split tier
+runs its scripts through `split-tier.mjs`, which stops at the first failure and reports how long
+each script took, every step of the modern Workspace smoke with its duration, the script and step
+that failed, and the machine's load average and swap at start and end. The gate record keeps the
+failing script and step and the five slowest steps, so a failed run names where it failed.
 
 Every run writes `reports/rest-smoke.json` by default; `--report=PATH` chooses another file. The JSON
 records the selected suites, pass/fail/skip totals, duration, inventory verdict and each individual

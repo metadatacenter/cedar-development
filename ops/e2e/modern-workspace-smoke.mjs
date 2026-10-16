@@ -31,6 +31,7 @@ import { currentTemplateConstraintJourney } from "./current-template-constraint-
 import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
 import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
+import { enter, record } from "./split-steps.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
@@ -481,7 +482,7 @@ try {
   ])
     await page.getByRole("button", { name, exact: true }).click();
   pass("Login, Angular-only workspace and collapsible panels");
-  step = "folder-create-rename";
+  step = enter("folder-create-rename");
   folderId = (await createFolder(page, names.folder))["@id"];
   await listing(page);
   const destination = (await createFolder(page, names.destination))["@id"];
@@ -493,7 +494,7 @@ try {
   await save(page, "POST", "/command/rename-resource", 200, true);
   names.destination += " renamed";
   pass("Create folder and conditional rename");
-  step = "artifact-menu-visibility";
+  step = enter("artifact-menu-visibility");
   for (const height of [1000, 480]) {
     await page.setViewportSize({ width: 1500, height });
     await row(page, names.destination)
@@ -524,7 +525,7 @@ try {
   }
   await page.setViewportSize({ width: 1500, height: 1000 });
   pass("Applicable folder menu actions fit tall screens and remain reachable on short screens");
-  step = "session-retry";
+  step = enter("session-retry");
   await ready(page);
   // Inject one expired-access-token response, then let the real refresh and
   // retried request reach Keycloak and the resource server.
@@ -563,7 +564,7 @@ try {
   assert.ok(await row(page, names.destination).count());
   await page.unroute(contentsUrl, expireOnce);
   pass("Expired access response refreshes the real session and retries once");
-  step = "workspace-conflict";
+  step = enter("workspace-conflict");
   await listed(page, names.destination);
   await menu(page, names.destination, "Rename");
   await modal(page)
@@ -603,7 +604,7 @@ try {
     ["element", "Element", "template-elements"],
     ["field", "Field", "template-fields"],
   ]) {
-    step = "create-" + kind;
+    step = enter("create-" + kind);
     await listing(page);
     const returnUrl = page.url();
     await page.getByRole("button", { name: "New", exact: true }).click();
@@ -683,7 +684,7 @@ try {
     }
   }
   await reusableSourceFailureJourney({page, designer, user: user1, folderId, name: names.instance, created, write, pass});
-  step = "reusable-element-snapshot";
+  step = enter("reusable-element-snapshot");
   await editor(page, names.template);
   await page.getByRole("button", {name: "Import fields and elements", exact: true}).first().click();
   await page.getByRole("searchbox").fill(names.element);
@@ -723,7 +724,7 @@ try {
   assert.equal((await call(user1.auth, "GET", elementSourcePath)).body["schema:description"], "Later library source edit");
   await backToWorkspace(page);
   pass("Reused elements retain source identity and annotations; library and embedded edits remain independent");
-  step = "designer-conflict";
+  step = enter("designer-conflict");
   await editor(page, names.template);
   const templatePath = "/templates/" + enc(artifacts.template);
   const stored = await call(user1.auth, "GET", templatePath);
@@ -754,7 +755,7 @@ try {
     "Unsaved CED edit",
   );
   pass("CED stale save retains edits");
-  step = "sharing";
+  step = enter("sharing");
   await grant(page, "viewer");
   const reader = await login(
     process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com",
@@ -793,10 +794,10 @@ try {
   );
   await permissionAppearance(reader, "readonly");
   await permissionDone(reader);
-  step = "shared-template-population";
+  step = enter("shared-template-population");
   await sharedTemplateJourney({page: reader, user: user2, sourceElementId: artifacts.element,
     templateName: names.template, created, menu, write, pass});
-  step = "sharing";
+  step = enter("sharing");
   await grant(page, "editor");
   await reader.reload();
   await ready(reader);
@@ -939,7 +940,7 @@ try {
   pass(
     "Permissions: viewer access, immediate role saves, Everyone restrictions, stale revisions, and two-user revocation",
   );
-  step = "ownership";
+  step = enter("ownership");
   // Ownership moves through Workspace's own control in both directions, each confirmed in the page.
   const transferOwnership = async (p, toName, toUser) => {
     const confirmation = p.locator("dialog.confirmation-dialog");
@@ -1029,7 +1030,7 @@ try {
       200,
     );
   pass("Ownership transfers to another user and back through Workspace");
-  step = "metadata";
+  step = enter("metadata");
   await listed(page, names.template);
   await menu(page, names.template, "Populate");
   const cee = page.locator("cedar-embeddable-editor");
@@ -1287,54 +1288,54 @@ try {
   );
   // Workspace no longer offers artifact downloads. The REST download suite covers JSON,
   // YAML and compact YAML for every artifact kind; editor download controls have browser coverage.
-  step = "group-derived-access";
+  step = enter("group-derived-access");
   await groupAccessJourney({page, reader, base, designer, owner: user1, member: user2,
     templateId: artifacts.template, instancePath, metadataUrl, name: names.instance, write, pass});
-  step = "initial-load";
+  step = enter("initial-load");
   await initialLoadJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, pass});
-  step = "validation-rejection";
+  step = enter("validation-rejection");
   await validationRejectionJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "current-template-constraint";
+  step = enter("current-template-constraint");
   await currentTemplateConstraintJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
   for (const [label, journey] of Object.entries({"scalar-roundtrip":scalarRoundtripJourney,"restored-validation":restoredValidationJourney,"repeated-schema":repeatedSchemaJourney,"configuration-draft":configurationDraftJourney,"account-switch":accountSwitchJourney,"combined-delete":combinedDeleteJourney,"startup-recovery":startupRecoveryJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney})) {
-    step = label;
+    step = enter(label);
     await journey({page,base,designer,user:user1,folderId,name:names.instance,created,write,pass});
   }
-  step = "older-artifacts";
+  step = enter("older-artifacts");
   await olderArtifactJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "older-key-rename";
+  step = enter("older-key-rename");
   await olderKeyRenameJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "designer-pending-save";
+  step = enter("designer-pending-save");
   await designerPendingSaveJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "save-status";
+  step = enter("save-status");
   await saveStatusJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "recovery-element-edits";
+  step = enter("recovery-element-edits");
   await confirmedSaveRecoveryJourney({page, base, designer, user: user1, folderId, name: names.instance, created, write, pass});
   await recoveryElementEditsJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "durable-draft-recovery";
+  step = enter("durable-draft-recovery");
   await draftRecoveryJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "metadata-reconciliation";
+  step = enter("metadata-reconciliation");
   await metadataReconciliationJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "content-deletion";
+  step = enter("content-deletion");
   await contentDeletionJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
-  step = "incomplete-required-metadata";
+  step = enter("incomplete-required-metadata");
   await incompleteMetadataJourney({page, base, user: user1, folderId, templateId: artifacts.template,
     name: names.instance, created, write, pass});
-  step = "uncertain-move";
+  step = enter("uncertain-move");
   await uncertainMoveJourney({page, base, user: user1, folderId,
     name: names.instance, created, pass});
-  step = "copy-move";
+  step = enter("copy-move");
   await partialMoveJourney({page, base, user: user1, folderId,
     name: names.instance, created, pass});
   await duplicationJourney({page, base, designer, user: user1, folderId,
@@ -1358,7 +1359,7 @@ try {
   await save(page, "POST", "/command/move-resource-to-folder", 201, true);
   await listed(page, names.copy, destination);
   pass("Copy and conditional move through folder picker");
-  step = "versioning";
+  step = enter("versioning");
   await templateEvolutionJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});
   await listed(page, names.template);
@@ -1393,7 +1394,7 @@ try {
     .waitFor();
   await page.getByRole("tab", { name: "Details", exact: true }).click();
   pass("Details and Version panels show the published/draft chain");
-  step = "openview";
+  step = enter("openview");
   await listed(page, names.copy, destination);
   await menu(page, names.copy, "Enable Openview");
   await save(page, "POST", "/command/make-artifact-open", 200, true);
@@ -1440,7 +1441,7 @@ try {
     await page.waitForTimeout(500);
   }
   pass("OpenView open/render/close");
-  step = "folder-openview";
+  step = enter("folder-openview");
   await listed(page, names.destination);
   await menu(page, names.destination, "Enable Openview");
   await save(page, "POST", "/command/make-folder-open", 200, true);
@@ -1464,7 +1465,7 @@ try {
     ),
   );
   pass("Folder OpenView grant and revocation apply to its child artifact");
-  step = "deleted-designer-save";
+  step = enter("deleted-designer-save");
   await listed(page, names.copy, destination);
   await row(page, names.copy)
     .getByRole("link", { name: names.copy, exact: true })
@@ -1506,7 +1507,7 @@ try {
   pass(
     "Delete versus CED save retains edits and cannot resurrect the artifact",
   );
-  step = "search";
+  step = enter("search");
   await listing(page);
   await page
     .getByRole("textbox", { name: "Search workspace", exact: true })
@@ -1535,7 +1536,7 @@ try {
     await ready(page);
   }
   pass("Top search finds authored element");
-  step = "delete";
+  step = enter("delete");
   for (const [kind, collection] of [
     ["instance", "template-instances"],
     ["field", "template-fields"],
@@ -1593,7 +1594,7 @@ try {
     }
   }
   pass("Conditional deletion through Workspace");
-  step = "selected-folder-and-artifact-delete";
+  step = enter("selected-folder-and-artifact-delete");
   const bulkCreated = [];
   async function bulkCreate(collection, parent, name, type, extra = {}) {
     const response = await call(user1.auth, "POST", "/" + collection +
@@ -1635,7 +1636,7 @@ try {
     assert.equal((await call(user1.auth,"GET","/"+item.collection+"/"+enc(item.id))).status,404);
   }
   pass("Bin drop cancels safely; clicking Delete then removes two folders, nested template/instance and a separate artifact");
-  step = "partial-selection-delete";
+  step = enter("partial-selection-delete");
   const partialIds = [];
   for (let i = 0; i < 3; i++) partialIds.push(await bulkCreate("template-fields", bulkRoot,
     `Partial deletion ${i} ${stamp}`, "field"));
@@ -1682,8 +1683,9 @@ try {
   pass("Partial deletion stops after a lost response, reports only confirmed progress and resumes from a fresh selection");
   assert.deepEqual(errors, []);
   pass("No uncaught browser errors");
-  step = "complete";
+  step = enter("complete");
 } catch (error) {
+  record({ event: "fail", step, message: String(error?.message ?? error).slice(0, 2000) });
   await mkdir("/tmp/cedar-modern-workspace-smoke", { recursive: true });
   await page
     ?.screenshot({
@@ -1716,6 +1718,9 @@ try {
   throw error;
 } finally {
   await browser.close();
+  // A timeline entry of its own, so cleanup's time is not charged to the last step. The step
+  // variable keeps the failing step for result.json.
+  record({ event: "step", step: "cleanup" });
   const cleanupErrors = [];
   for (const item of [...created].reverse()) {
     const path = "/" + item.collection + "/" + enc(item.id);
@@ -1730,6 +1735,7 @@ try {
     "/tmp/cedar-modern-workspace-smoke/result.json",
     JSON.stringify({ step, checks, errors, cleanupErrors }, null, 2),
   );
+  record({ event: "end", step, checks: checks.length, errors, cleanupErrors });
   assert.deepEqual(cleanupErrors, [], "Fixture cleanup failed");
 }
 console.log(
