@@ -313,6 +313,22 @@ See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and fa
 - Keep design changes visible in progress updates and the final change summary. Check tests
   against the requested and existing user experience; do not rewrite expectations or visual
   baselines merely to legitimize an unapproved redesign.
+- Default to no visible change when improving reliability or completing user journeys. Implement
+  safeguards through the existing interface wherever possible. Authorization to handle a failure
+  or work autonomously through a journey list is not approval to introduce new UI.
+- Show exceptional actions only when the relevant condition actually occurs. Recovery, retry and
+  diagnostic controls must not become permanent controls on normal pages merely because a failure
+  is possible. Automatic retention does not itself justify a visible recovery panel.
+- New buttons, banners, dialogs or navigation require the user's agreement to concrete before/after
+  behavior before implementation, unless that UI change has already been explicitly requested or
+  approved. Inspect existing interaction patterns before proposing a new one.
+- Review the normal experience as well as failure paths before calling a UI change complete:
+  inspect the rendered fresh, unchanged and ordinary editing screens. Verify that exceptional
+  controls are absent when their triggering condition is absent, and include that negative case
+  in relevant journey tests.
+- Treat functional verification and design review as separate checks. Passing tests establish
+  behavior, not whether that behavior belongs in the interface. Review the actual screen against
+  the agreed design; tests and screenshots that merely encode a new implementation are not approval.
 
 ## Conventions
 
