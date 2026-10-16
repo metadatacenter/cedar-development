@@ -19,6 +19,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import threading
@@ -547,6 +548,7 @@ class ResumeMatrix(unittest.TestCase):
         global WORLD
         WORLD = World()
         directory = Path(tempfile.mkdtemp(prefix="resume-matrix-"))
+        self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         return self.tool(directory, self.origin, **options)
 
     def uninterrupted(self, prior: str, **options: Any) -> Any:

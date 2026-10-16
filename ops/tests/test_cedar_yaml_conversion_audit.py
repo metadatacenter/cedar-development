@@ -16,6 +16,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -172,6 +173,7 @@ class YamlConversionAuditEndToEnd(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join(timeout=10)
+        shutil.rmtree(cls.directory, ignore_errors=True)
 
     def total(self) -> int:
         return sum(len(documents) for documents in self.corpus.values())
@@ -268,6 +270,7 @@ class DeploymentThatDoesNotServeYaml(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         directory = Path(tempfile.mkdtemp(prefix="yaml-conversion-audit-json-"))
+        self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         try:
             with mock.patch.dict(os.environ, {"CEDAR_API_KEY": "test-key",
                                               "CEDAR_HOME": str(CEDAR_HOME)}):
