@@ -298,6 +298,61 @@ class BuildTrainTest(unittest.TestCase):
                     build_train._github_ci_preflight(
                         source, workspace, policy=FakeCIPolicy([]))
 
+    def test_the_train_answers_every_ci_state_by_the_rule_the_other_gates_use(self):
+        """The eight cases cedar-cli's CI-gate matrix puts to its three gates, put to this one.
+
+        Run against the cedar-cli checked out beside this repository, which is what a train
+        captures, rather than a stand-in policy.
+        """
+        policy_path = (Path(__file__).resolve().parents[3] / "cedar-cli" / "org" / "metadatacenter"
+                       / "github_ci.py")
+        if not policy_path.is_file():
+            self.skipTest(f"cedar-cli is not checked out beside cedar-development: {policy_path}")
+        spec = importlib.util.spec_from_file_location("captured_github_ci_for_test", policy_path)
+        policy = importlib.util.module_from_spec(spec)
+        # Its dataclasses resolve their module through sys.modules, as _captured_ci_policy allows.
+        sys.modules[spec.name] = policy
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(policy)
+        revision = "a" * 40
+        cases = [
+            ("a push on develop that succeeded", [("push", "develop", "success")], True),
+            ("a dispatch on develop that succeeded", [("workflow_dispatch", "develop", "success")], True),
+            ("only a pull request that succeeded", [("pull_request", "feature", "success")], False),
+            ("a pull request that succeeded after develop failed",
+             [("pull_request", "feature", "success"), ("push", "develop", "failure")], False),
+            ("a pull request that failed after develop succeeded",
+             [("pull_request", "feature", "failure"), ("push", "develop", "success")], True),
+            ("a cancelled run after one that succeeded",
+             [("push", "develop", "cancelled"), ("push", "develop", "success")], True),
+            ("a cancelled run after one that failed",
+             [("push", "develop", "cancelled"), ("push", "develop", "failure")], False),
+            ("a cancelled dispatch after a push that succeeded",
+             [("workflow_dispatch", "develop", "cancelled"), ("push", "develop", "success")], True),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            workflows = workspace / "repository" / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "ci.yml").write_text("name: CI\n", encoding="utf-8")
+            source = {"repositories": {"repository": revision}}
+            for name, case, passes in cases:
+                runs = tuple({"name": "CI", "status": "completed", "conclusion": conclusion,
+                              "id": 7 - index, "event": event, "head_branch": branch,
+                              "head_sha": revision, "path": ".github/workflows/ci.yml",
+                              "html_url": f"https://github.example/runs/{7 - index}"}
+                             for index, (event, branch, conclusion) in enumerate(case))
+                with self.subTest(name), \
+                        patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
+                        patch.object(policy, "probe_exact_commit",
+                                     return_value=SimpleNamespace(runs=runs)), \
+                        patch("builtins.print"):
+                    if passes:
+                        build_train._github_ci_preflight(source, workspace, policy=policy)
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            build_train._github_ci_preflight(source, workspace, policy=policy)
+
     def test_exact_source_without_a_workflow_is_advisory(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
