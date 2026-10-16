@@ -6,7 +6,7 @@ import { call, mutate, enc } from "./rest/lib.mjs";
 export async function sharedTemplateJourney({page, user, sourceElementId, templateName, created, menu, write, pass}) {
   const privateSource = await call(user.auth, "GET", "/template-elements/" + enc(sourceElementId));
   assert.ok([403, 404].includes(privateSource.status), "the library source must remain private in this journey");
-  const existing = new Set(created.map(item => item.id));
+  let savedId;
   try {
     await menu(page, templateName, "Populate");
     const cee = page.locator("cedar-embeddable-editor");
@@ -22,6 +22,7 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
     await influenza.click();
     const saved = await write(page, "POST", "/template-instances",
       () => page.locator("#button-save-metadata").click(), 201);
+    savedId = saved["@id"];
     await page.waitForURL(/\/instances\/edit\//);
     await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
     const instancePath = "/template-instances/" + enc(saved["@id"]);
@@ -40,13 +41,14 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
     await page.locator("cedar-workspace-page .destinations").waitFor();
     pass("A viewer populates and reopens a shared template with a private library source and a live terminology constraint");
   } finally {
-    // These instances belong to the recipient. The main journey's owner cannot
-    // clean them up, and must not need access to the recipient's new records.
-    for (const item of [...created].reverse()) {
-      if (existing.has(item.id) || item.collection !== "template-instances") continue;
-      const removed = await mutate(user.auth, "DELETE", "/template-instances/" + enc(item.id));
+    // The instance belongs to the recipient. The main journey's owner cannot clean it up, and must
+    // not need access to the recipient's records. Only the instance this journey saved is removed:
+    // deleting whatever else was created meanwhile would reach records other work still uses.
+    if (savedId) {
+      const removed = await mutate(user.auth, "DELETE", "/template-instances/" + enc(savedId));
       assert.ok([200, 204, 404].includes(removed.status), `recipient fixture cleanup: ${removed.status}`);
-      created.splice(created.indexOf(item), 1);
+      const entry = created.findIndex(item => item.id === savedId);
+      if (entry >= 0) created.splice(entry, 1);
     }
   }
 }

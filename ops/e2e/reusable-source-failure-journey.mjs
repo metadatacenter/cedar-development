@@ -29,12 +29,14 @@ export async function reusableSourceFailureJourney({page, designer, user, folder
   const search = dialog.getByRole("button", {name: "Search", exact: true});
   await dialog.getByRole("searchbox").fill(query);
   // Search indexing is eventual; repeat the user's search until both fixtures appear.
-  for (let attempt = 0; attempt < 15; attempt++) {
+  let listed = false;
+  for (let attempt = 0; attempt < 15 && !listed; attempt++) {
     await search.click();
-    if (await dialog.getByRole("row", {name: "Select " + element["schema:name"], exact: true})
+    listed = await dialog.getByRole("row", {name: "Select " + element["schema:name"], exact: true})
       .waitFor({timeout: 1000}).then(() => true, () => false) &&
-      await dialog.getByRole("row", {name: "Select " + field["schema:name"], exact: true}).count()) break;
+      await dialog.getByRole("row", {name: "Select " + field["schema:name"], exact: true}).count() > 0;
   }
+  assert.ok(listed, "the import search never listed both reusable sources");
   for (const source of [field, element])
     await dialog.getByRole("row", {name: "Select " + source["schema:name"], exact: true}).click();
   const selected = dialog.locator("table").first();

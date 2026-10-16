@@ -167,6 +167,22 @@ async function listed(p, name, id = folderId) {
   }
   throw new Error("Not listed: " + name);
 }
+/**
+ * Whether the Shared with Me listing on this page shows the name on any of its pages. It pages by
+ * fifty rows sorted by name, so a grant that another run makes to the same user can push a row past
+ * the first page; reading only that page would miss a present row and prove nothing about an absent one.
+ */
+async function sharedWithMeLists(p, name) {
+  for (;;) {
+    if (await row(p, name).waitFor({state: "visible", timeout: 1000}).then(() => true, () => false)) return true;
+    const next = p.getByRole("button", {name: "Next", exact: true});
+    if (!(await next.count()) || await next.isDisabled()) return false;
+    const previousUrl = p.url();
+    await next.click();
+    await p.waitForURL(url => url.href !== previousUrl);
+    await p.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+  }
+}
 async function menu(p, name, label) {
   await row(p, name)
     .getByRole("button", { name: "Actions for " + name, exact: true })
@@ -671,8 +687,15 @@ try {
   await editor(page, names.template);
   await page.getByRole("button", {name: "Import fields and elements", exact: true}).first().click();
   await page.getByRole("searchbox").fill(names.element);
-  await page.getByRole("button", {name: "Search", exact: true}).click();
-  await page.getByRole("row", {name: "Select " + names.element, exact: true}).click();
+  // The element was created moments earlier and reaches the search index through a queue, so one
+  // query can predate it. Search again until it is listed.
+  const importRow = page.getByRole("row", {name: "Select " + names.element, exact: true});
+  for (let i = 0; ; i++) {
+    await page.getByRole("button", {name: "Search", exact: true}).click();
+    if (await importRow.waitFor({timeout: 1000}).then(() => true, () => false)) break;
+    assert.ok(i < 20, "the reusable element never appeared in the Designer's import search");
+  }
+  await importRow.click();
   await page.getByRole("button", {name: "Done", exact: true}).click();
   const elementSourcePath = "/template-elements/" + enc(artifacts.element);
   const elementSource = (await call(user1.auth, "GET", elementSourcePath)).body;
@@ -741,7 +764,7 @@ try {
     .getByRole("link", { name: "Shared with Me", exact: true })
     .click();
   await ready(reader);
-  await row(reader, names.template).waitFor();
+  assert.ok(await sharedWithMeLists(reader, names.template), "Shared with Me does not list the template");
   await showInformation(reader, names.template);
   await reader
     .getByRole("heading", { name: names.template, exact: true })
@@ -806,6 +829,7 @@ try {
   await grant(page, "manager");
   await reader.goto(base + "/dashboard?sharing=shared-with-me");
   await ready(reader);
+  assert.ok(await sharedWithMeLists(reader, names.template), "Shared with Me does not list the template");
   await menu(reader, names.template, "Permissions…");
   await modal(reader)
     .getByRole("combobox", { name: "User or group", exact: true })
@@ -910,7 +934,8 @@ try {
   await removePermission(page, "/templates/");
   await reader.reload();
   await ready(reader);
-  assert.equal(await row(reader, names.template).count(), 0);
+  assert.equal(await sharedWithMeLists(reader, names.template), false,
+    "Shared with Me still lists the template after its grant was removed");
   pass(
     "Permissions: viewer access, immediate role saves, Everyone restrictions, stale revisions, and two-user revocation",
   );
@@ -1497,7 +1522,18 @@ try {
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await searched;
   await ready(page);
-  await row(page, names.element).waitFor();
+  // Indexing is eventual. As in the ownership search, refresh the listing until the element appears.
+  for (let i = 0; !(await row(page, names.element).count()); i++) {
+    assert.ok(i < 20, "the authored element never appeared in the top search");
+    await page.waitForTimeout(1000);
+    const again = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/search" && url.searchParams.get("q") === names.element && response.status() === 200;
+    });
+    await page.getByRole("button", { name: "Refresh workspace", exact: true }).click();
+    await again;
+    await ready(page);
+  }
   pass("Top search finds authored element");
   step = "delete";
   for (const [kind, collection] of [
