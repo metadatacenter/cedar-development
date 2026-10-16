@@ -125,9 +125,10 @@ path that resolves it.
 
 Associate an existing draft with its source artifact directly rather than by matching DataCite
 records on the OpenView URL. Move orchestration, configuration and error mapping out of
-`DataCiteResource`. Add offline tests for create versus update, retry after timeout and repeated
-publish. Extend the opt-in `datacite`-tagged test, or add a sandbox smoke beside it, to cover the
-full mint and attach contract and the credential check.
+`DataCiteResource`. Add offline tests for retry after timeout and repeated publish. The opt-in
+`datacite`-tagged test cannot pass as written, because its positive cases name source artifacts
+that no resource server holds. Rework it, or replace it with a sandbox smoke, to cover the full
+mint and attach contract and the credential check.
 
 Establish how historical document/graph DOI disagreements arose; do not assume they prove a
 minting timeout. Extend offline regression coverage to ordinary unchanged-DOI updates after
