@@ -1,7 +1,9 @@
+import {journeyFolder} from "./journey-fixtures.mjs";
 import assert from 'node:assert/strict';
 import {artifactBody, call, mutate, enc, RESOURCE} from './rest/lib.mjs';
 
 export async function draftRecoveryJourney({page,base,designer,user,folderId,name,created,write,pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "recovery");
   async function create(collection,body) {
     const made=await call(user.auth,'POST','/'+collection+'?folder_id='+enc(folderId),body);
     assert.equal(made.status,201,made.text);created.push({collection,id:made.body['@id']});return made.body['@id'];

@@ -1,9 +1,11 @@
+import {journeyFolder} from "./journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 
 // Commit a move at the real server, then lose only its response. Confirmed
 // progress must remain accurate and a fresh listing must prevent a blind retry.
 export async function uncertainMoveJourney({page, base, user, folderId, name, created, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "uncertain moves");
   const target = await call(user.auth, "POST", "/folders", {
     folderId, name: name + " uncertain move target", description: "Temporary journey destination",
   });

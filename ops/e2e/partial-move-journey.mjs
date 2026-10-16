@@ -1,3 +1,4 @@
+import {journeyFolder} from "./journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 
@@ -5,6 +6,7 @@ import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 // moves to finish. Recovery must select only the remaining artifact and
 // preserve every stored document. This checks host handling, not authorization enforcement.
 export async function partialMoveJourney({page, base, user, folderId, name, created, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "partial moves");
   const folder = await call(user.auth, "POST", "/folders", {folderId, name: name + " move target", description: "Temporary move destination"});
   assert.equal(folder.status, 201, folder.text);
   const targetId = folder.body["@id"];

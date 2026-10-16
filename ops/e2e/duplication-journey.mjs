@@ -1,9 +1,11 @@
+import {journeyFolder} from "./journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc} from "./rest/lib.mjs";
 
 // A copy is an independent artifact with derivation provenance, not another
 // version of its source. Exercise the menu and both editing directions.
 export async function duplicationJourney({page, base, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "copies");
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);

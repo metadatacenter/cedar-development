@@ -75,6 +75,13 @@ async function open(path) {
   }
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
   await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
+  // Each opening starts a separate scenario from the saved artifact. Reload now
+  // retains refused work, so discard that earlier scenario's journal explicitly.
+  const discard = page.locator('#discard-draft');
+  if (await discard.isVisible()) {
+    await discard.click();
+    await discard.waitFor({state: 'hidden'});
+  }
   if (path.startsWith('/fields/edit/')) await showFieldDescription();
 }
 try {
