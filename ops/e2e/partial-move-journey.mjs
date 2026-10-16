@@ -5,14 +5,14 @@ import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 // Refuse one move at the HTTP boundary while allowing the other real server
 // moves to finish. Recovery must select only the remaining artifact and
 // preserve every stored document. This checks host handling, not authorization enforcement.
-export async function partialMoveJourney({page, base, user, folderId, name, created, pass}) {
-  folderId = await journeyFolder({user, folderId, name, created}, "partial moves");
+async function groupedMoveJourney({page, base, user, folderId, name, created, pass}, mixed = false) {
+  folderId = await journeyFolder({user, folderId, name, created}, mixed ? "mixed move failures" : "partial moves");
   const folder = await call(user.auth, "POST", "/folders", {folderId, name: name + " move target", description: "Temporary move destination"});
   assert.equal(folder.status, 201, folder.text);
   const targetId = folder.body["@id"];
   created.push({collection: "folders", id: targetId});
   const ids = [], original = new Map();
-  for (let index = 0; index < 3; index++) {
+  for (let index = 0; index < (mixed ? 4 : 3); index++) {
     const result = await call(user.auth, "POST", "/template-fields?folder_id=" + enc(folderId),
       artifactBody("field", name + " moving " + index));
     assert.equal(result.status, 201, result.text);
@@ -27,14 +27,14 @@ export async function partialMoveJourney({page, base, user, folderId, name, crea
     const list = page.getByRole("button", {name: "List view", exact: true});
     if (await list.count()) await list.click();
     await page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
-    if (await row(ids[2]).waitFor({timeout: 1000}).then(() => true, () => false)) break;
+    if (await row(ids.at(-1)).waitFor({timeout: 1000}).then(() => true, () => false)) break;
     assert.ok(attempt < 15, "move fixtures not listed");
   }
   for (const [index, id] of ids.entries()) {
     await row(id).locator(".resource-icon").click({modifiers: index ? ["ControlOrMeta"] : []});
     await page.waitForFunction(expected => document.querySelectorAll("tr.selected").length === expected, index + 1);
   }
-  assert.equal(await page.locator("tr.selected").count(), 3);
+  assert.equal(await page.locator("tr.selected").count(), ids.length);
   async function drag(id) {
     await row(id).scrollIntoViewIfNeeded();
     const source = await row(id).locator(".resource-icon").boundingBox();
@@ -62,8 +62,12 @@ export async function partialMoveJourney({page, base, user, folderId, name, crea
         return await route.fulfill({status: 403, contentType: "application/json",
           body: JSON.stringify({message: "Move refused by server"})});
       }
+      if (mixed && id === ids[3] && refusing) {
+        attempts.push({id, status: 0}); return await route.abort("failed");
+      }
       const response = await route.fetch();
       attempts.push({id, status: response.status()});
+      if (mixed && id === ids[2] && refusing) return await route.abort("connectionclosed");
       await route.fulfill({response});
     } catch (error) { routeError = error; await route.abort("failed").catch(() => {}); }
   };
@@ -71,28 +75,28 @@ export async function partialMoveJourney({page, base, user, folderId, name, crea
   try {
     await drag(ids[0]);
     await page.getByRole("alert").filter({hasText: /Move refused by server/}).waitFor();
-    await page.getByText("Moved 2 items.", {exact: true}).waitFor();
+    await page.getByText(mixed ? "Moved 1 item." : "Moved 2 items.", {exact: true}).waitFor();
     assert.equal(routeError, undefined);
-    assert.equal(attempts.length, 3);
+    assert.equal(attempts.length, ids.length);
     assert.deepEqual(attempts.filter(item => item.status === 403).map(item => item.id), [ids[1]]);
     assert.equal(attempts.filter(item => item.status === 201).length, 2);
     await row(ids[1]).waitFor();
     assert.equal(await row(ids[1]).getAttribute("aria-selected"), "true");
-    assert.equal(await page.locator("tr.selected").count(), 1);
+    assert.equal(await page.locator("tr.selected").count(), mixed ? 2 : 1);
     for (const id of ids) {
       const report = await call(user.auth, "GET", "/template-fields/" + enc(id) + "/report");
       assert.equal(report.status, 200);
-      assert.equal(report.body.pathInfo.some(parent => parent["@id"] === targetId), id !== ids[1]);
+      assert.equal(report.body.pathInfo.some(parent => parent["@id"] === targetId), id !== ids[1] && id !== ids[3]);
       const stored = await call(user.auth, "GET", "/template-fields/" + enc(id));
       assert.equal(stored.status, 200);
       assert.deepEqual(stored.body, original.get(id));
     }
-    pass("A refused grouped move reports two real successes, leaves the refused artifact selected and preserves all content");
+    pass(mixed ? "A grouped move survives a permission refusal, a network failure and a lost committed response; fresh listing retains only unmoved selections and all content" : "A refused grouped move reports two real successes, leaves the refused artifact selected and preserves all content");
     refusing = false;
     await drag(ids[1]);
-    await page.getByText("Moved 1 item.", {exact: true}).waitFor();
-    assert.deepEqual(attempts.at(-1), {id: ids[1], status: 201});
-    assert.equal(attempts.length, 4, "recovery must not repeat successful moves");
+    await page.getByText(mixed ? "Moved 2 items." : "Moved 1 item.", {exact: true}).waitFor();
+    assert.deepEqual(attempts.slice(ids.length).map(item=>item.id).sort(), (mixed ? [ids[1],ids[3]] : [ids[1]]).sort());
+    assert.equal(attempts.length, mixed ? 6 : 4, "recovery must not repeat successful or uncertain committed moves");
     const report = await call(user.auth, "GET", "/template-fields/" + enc(ids[1]) + "/report");
     assert.equal(report.status, 200);
     assert.ok(report.body.pathInfo.some(parent => parent["@id"] === targetId));
@@ -100,3 +104,6 @@ export async function partialMoveJourney({page, base, user, folderId, name, crea
     pass("Retrying the remaining selection after refusal clears preserves its content without repeating completed moves");
   } finally { await page.unroute(matcher, conflict); }
 }
+
+export const partialMoveJourney = args => groupedMoveJourney(args);
+export const mixedMoveJourney = args => groupedMoveJourney(args, true);
