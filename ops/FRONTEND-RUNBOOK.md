@@ -301,6 +301,17 @@ record created from the revised draft has only the remaining field. Run
 `npm run smoke:journey -- template-evolution`. This verifies structural changes through the
 supported Designer versioning path, not arbitrary in-place template changes by external clients
 or conversion between field types.
+The draft-sharing journeys check that a new draft is shared as the version it was drafted from.
+Workspace's Create Draft and Designer's Create new draft each draft three templates. The second
+test user holds no grant on the first, can view the second and can edit the third. As that user,
+the journey checks server reads and writes, how Designer opens each draft and what Shared with Me
+lists. The editor saves a change, the viewer sees the draft read only, and the user without a
+grant can neither read nor open it. Each draft keeps its owner and carries exactly its original's
+grants, the original's grants stay unchanged, and the folder grants nothing, so no access comes
+from it. Run
+`npm run smoke:journey -- draft-sharing-workspace draft-sharing-designer`; both also run in the
+modern Workspace smoke. They sign in as the second user, so they belong with the other two-user
+journeys rather than alongside single-user ones.
 The content-deletion journey uses temporary templates and metadata to check cancellation of
 populated-element deletion in Designer, removal of fields/elements and their parent references,
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from

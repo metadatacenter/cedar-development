@@ -40,6 +40,10 @@ import { currentTemplateConstraintJourney } from "./current-template-constraint-
 import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
 import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
+import {
+  workspaceDraftSharingJourney,
+  designerDraftSharingJourney,
+} from "./draft-sharing-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
@@ -68,6 +72,8 @@ const journeys = {
   "uncertain-move": uncertainMoveJourney,
   "older-key-rename": olderKeyRenameJourney,
   "designer-pending-save": designerPendingSaveJourney,
+  "draft-sharing-workspace": workspaceDraftSharingJourney,
+  "draft-sharing-designer": designerDraftSharingJourney,
 };
 const selected = process.argv.slice(2);
 journeys["restored-validation"] = restoredValidationJourney;

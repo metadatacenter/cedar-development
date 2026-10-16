@@ -31,6 +31,7 @@ import { currentTemplateConstraintJourney } from "./current-template-constraint-
 import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
 import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
+import { workspaceDraftSharingJourney, designerDraftSharingJourney } from "./draft-sharing-journey.mjs";
 import { enter, record } from "./split-steps.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
@@ -1300,7 +1301,7 @@ try {
   step = enter("current-template-constraint");
   await currentTemplateConstraintJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
-  for (const [label, journey] of Object.entries({"scalar-roundtrip":scalarRoundtripJourney,"restored-validation":restoredValidationJourney,"repeated-schema":repeatedSchemaJourney,"configuration-draft":configurationDraftJourney,"account-switch":accountSwitchJourney,"combined-delete":combinedDeleteJourney,"startup-recovery":startupRecoveryJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney})) {
+  for (const [label, journey] of Object.entries({"scalar-roundtrip":scalarRoundtripJourney,"restored-validation":restoredValidationJourney,"repeated-schema":repeatedSchemaJourney,"configuration-draft":configurationDraftJourney,"account-switch":accountSwitchJourney,"combined-delete":combinedDeleteJourney,"startup-recovery":startupRecoveryJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney,"draft-sharing-workspace":workspaceDraftSharingJourney,"draft-sharing-designer":designerDraftSharingJourney})) {
     step = enter(label);
     await journey({page,base,designer,user:user1,folderId,name:names.instance,created,write,pass});
   }
