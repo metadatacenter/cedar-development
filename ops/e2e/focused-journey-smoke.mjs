@@ -1,3 +1,4 @@
+import {contentDeletionJourney} from "./content-deletion-journey.mjs";
 import {draftRecoveryJourney, metadataReconciliationJourney} from './draft-recovery-journey.mjs';
 import {reusableSourceFailureJourney} from "./reusable-source-failure-journey.mjs";
 import {recoveryElementEditsJourney} from "./recovery-element-edits-journey.mjs";
@@ -18,7 +19,7 @@ import {designerPendingSaveJourney} from "./designer-pending-save-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
-const journeys = {"draft-recovery": draftRecoveryJourney, "metadata-reconciliation": metadataReconciliationJourney, "confirmed-save-recovery": confirmedSaveRecoveryJourney, "reusable-source-failure": reusableSourceFailureJourney, "recovery-element-edits": recoveryElementEditsJourney, "access-recheck": accessRecheckJourney, "save-status": saveStatusJourney, "initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
+const journeys = {"content-deletion": contentDeletionJourney, "draft-recovery": draftRecoveryJourney, "metadata-reconciliation": metadataReconciliationJourney, "confirmed-save-recovery": confirmedSaveRecoveryJourney, "reusable-source-failure": reusableSourceFailureJourney, "recovery-element-edits": recoveryElementEditsJourney, "access-recheck": accessRecheckJourney, "save-status": saveStatusJourney, "initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
   duplication: duplicationJourney, "template-evolution": templateEvolutionJourney, "partial-move": partialMoveJourney,
   "current-template-constraint": currentTemplateConstraintJourney, "uncertain-move": uncertainMoveJourney,
   "older-key-rename": olderKeyRenameJourney, "designer-pending-save": designerPendingSaveJourney};

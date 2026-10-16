@@ -60,13 +60,15 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
         : reader.getByRole("button", {name: "Reload metadata", exact: true});
       await reader.goto(designing ? designer + "/templates/edit/" + enc(templateId) : metadataUrl);
       await input.waitFor();
-      // The preceding direct-permission journey may leave a refused draft in this tab.
-      const retained = reader.getByRole("button", {name: "Restore draft", exact: true});
-      if (await retained.isVisible()) {
-        await retained.click();
-        await reader.getByRole("button", {name: "Recheck access", exact: true}).click();
-        await reader.waitForFunction(id => !document.getElementById(id)?.disabled,
-          designing ? "save" : "button-save-metadata");
+      // This independent scenario starts from current content. The preceding permission
+      // journey retained a refused draft, whose template this journey has since changed.
+      const discard = designing ? reader.locator("#discard-draft")
+        : reader.getByRole("button", {name: "Discard recovery draft", exact: true});
+      if (await discard.isVisible()) {
+        await discard.click();
+        if (!designing) await reader.locator("dialog.confirmation-dialog")
+          .getByRole("button", {name: "Yes", exact: true}).click();
+        await discard.waitFor({state: "hidden"});
       }
       const draft = host + " draft before group membership loss";
       await input.fill(draft);

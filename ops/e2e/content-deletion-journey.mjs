@@ -54,6 +54,14 @@ export async function contentDeletionJourney({page, base, designer, user, folder
     assert.equal(result.status, 200, result.text);
     return result.body;
   }
+  async function discardRetainedDeletion(designing) {
+    const discard = designing ? page.locator("#discard-draft")
+      : page.getByRole("button", {name: "Discard recovery draft", exact: true});
+    await discard.click();
+    if (!designing) await page.locator("dialog.confirmation-dialog")
+      .getByRole("button", {name: "Yes", exact: true}).click();
+    await discard.waitFor({state: "hidden"});
+  }
   const templateId = await create("templates", definition(name + " designer deletion"));
   const templatePath = "/templates/" + enc(templateId);
   await page.goto(designer + "/templates/edit/" + enc(templateId));
@@ -76,11 +84,12 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   await deleteChildren();
   assert.deepEqual(await ced.evaluate(el => el.currentArtifact), withoutChildren(original, ["Notes", "Visits"]));
   assert.deepEqual(await read(templatePath), storedOriginal, "unsaved deletion must not change storage");
-  await page.reload(); // The main journey accepts the browser's discard confirmation.
+  await page.reload(); // Reload retains work; this scenario explicitly discards its deletion draft.
+  await discardRetainedDeletion(true);
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   assert.deepEqual(await ced.evaluate(el => el.currentArtifact), original,
     "discarding unsaved deletions restores the saved definitions, order and identities");
-  pass("Designer cancels populated-element deletion and restores unsaved field/element deletions by reopening the saved artifact");
+  pass("Designer cancels populated-element deletion and restores unsaved field/element deletions by reopening and explicitly discarding the recovery draft");
   await deleteChildren();
   await write(page, "PUT", "/templates/", () => page.locator("#save").click(), 200, true);
   await page.locator("#state").filter({hasText: /^Saved$/}).waitFor();
@@ -128,8 +137,9 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   assert.deepEqual(await read(instancePath), stored);
   await page.reload();
   await cee.getByLabel("Keep", {exact: true}).waitFor();
+  await discardRetainedDeletion(false);
   assert.deepEqual(await cee.evaluate(el => el.currentMetadata), initial);
-  pass("Editor restores unsaved repeated-field and element deletions by reopening, including original values, order and element identities");
+  pass("Editor restores unsaved repeated-field and element deletions by explicitly discarding the recovery draft after reopening, including original values, order and element identities");
   await deleteMiddle();
   await write(page, "PUT", "/template-instances/", () => page.locator("#button-save-metadata").click(), 200, true);
   await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();

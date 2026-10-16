@@ -305,11 +305,12 @@ The content-deletion journey uses temporary templates and metadata to check canc
 populated-element deletion in Designer, removal of fields/elements and their parent references,
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
 root update provenance, preserving surviving definitions, values, order and element-instance
-identities. Reopening proves both that unsaved deletions can be discarded and that saved
-deletions persist, including empty optional lists. The stored Designer fixtures are compared
+identities. Reopening and explicitly discarding the retained recovery draft restores unsaved
+deletions; reopening after a successful save preserves deletions, including empty optional lists. The stored Designer fixtures are compared
 directly, without an initial normalizing save.
-Neither surface currently offers deletion Undo; discarding unsaved edits by reopening the
-saved artifact is the recovery tested here, and does not preserve other unsaved work.
+Neither surface currently offers deletion Undo; explicitly discarding the recovery draft after
+reopening the saved artifact is the recovery tested here, and does not preserve other unsaved work.
+Run this check alone with `npm run smoke:journey -- content-deletion`.
 The older-artifact journey opens legacy-shaped templates, elements and standalone fields,
 edits each description twice, and verifies that unrelated schema shapes, constraints,
 annotations and identities survive saving and reopening. Editor also renames and reopens
@@ -2870,8 +2871,8 @@ signed-in account, artifact kind and identity, or the destination folder for a n
 The component APIs `captureDraft()` and `restoreDraft()` preserve unfinished control input,
 validation gates and accepted content separately from a server-saveable artifact. Reload offers
 **Restore draft** after fresh artifact, template and permission reads. It never silently replaces
-the latest document or grants the recovery file's former permissions. **Download recovery draft**
-and **Import recovery draft** move the same scoped envelope; they do not upload an artifact.
+the latest document or grants the recovery file's former permissions. The recovery download and
+import controls move the same scoped envelope; they do not upload an artifact.
 Closing the tab ends automatic retention, so a downloaded file is the durable copy for that case.
 
 The hosts journal before dispatching a write. Pending submissions and unresolved create/version
