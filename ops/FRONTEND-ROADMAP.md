@@ -153,9 +153,8 @@ Complete the recovery routes that still cannot resume saving or create a permitt
 - **Permitted copies:** recover retained work to another folder when the original artifact is
   inaccessible or deleted, checking destination permissions without silently recreating the
   original or mistaking a permission refusal for deletion.
-- **Recovery validation:** extend live coverage to server findings after restoration, additional
-  invalid control shapes and newer edits during recovery; include schema normalization and
-  unresolved version operations.
+- **Recovery validation:** extend live coverage to additional invalid control shapes and newer edits
+  during recovery; include schema normalization and unresolved version operations.
 
 Keep status checks, access checks, review and explicit discard distinct. A failed recovery
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the

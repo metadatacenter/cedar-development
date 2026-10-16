@@ -2805,9 +2805,11 @@ to the loaded document, so normalization by the component does not rewrite untou
 schema branches. When a child key changes, a unique definition identity carries its stored
 branch to the new key; property IRIs distinguish reused definitions that share an identity.
 Key swaps follow the same correspondence, while a newly added copy does not inherit hidden
-content from another placement. Explicit deletions and changes still reach storage; changed arrays use
-the component's complete authored value. The stored and projected snapshots advance together
-only after a confirmed save, while newer edits remain dirty. The write still uses the ETag
+content from another placement. Changing a field between single and repeated cardinality moves
+its stored definition into or out of the array wrapper without replacing it with the normalized
+projection; simultaneous definition edits still apply. Explicit deletions and changes still reach
+storage; changed JSON arrays use the component's complete authored value. The stored and projected
+snapshots advance together only after a confirmed save, while newer edits remain dirty. The write still uses the ETag
 from the loaded representation; this preservation step does not reconcile concurrent edits.
 
 `npm run smoke:journey -- older-key-rename` verifies a real key rename on a legacy-shaped
@@ -2841,9 +2843,8 @@ an update assessment refused before writing, offers **Recheck access**. Both hos
 artifact and permissions separately from the working draft; only restored update permission
 and unchanged opened content/revision enable saving again. A different revision remains blocked
 even if its values resemble the attempted submission. Failed checks keep the draft and can
-be repeated. This covers an existing write refusal and restored drafts. Initial read-only openings without
-a retained draft and denied create destinations still need dedicated recovery controls. A lost response, server error,
-timeout or acknowledgement without an artifact identifier blocks another write and reports
+be repeated. Clean read-only openings and denied create destinations also offer an access recheck,
+as described below. A lost response, server error, timeout or acknowledgement without an artifact identifier blocks another write and reports
 that saving could not be confirmed. An uncertain create or publish/create-draft operation
 also hides Reload, so it cannot repeat creation; the author is directed to inspect Workspace.
 An unconfirmed existing-identity update offers **Check save status** separately from Reload.
@@ -2872,7 +2873,9 @@ The component APIs `captureDraft()` and `restoreDraft()` preserve unfinished con
 validation gates and accepted content separately from a server-saveable artifact. Reload offers
 **Restore draft** after fresh artifact, template and permission reads. It never silently replaces
 the latest document or grants the recovery file's former permissions. The recovery download and
-import controls move the same scoped envelope; they do not upload an artifact.
+import controls move the same scoped envelope; they do not upload an artifact. Server errors and
+warnings retain their submitted-content key in that envelope: restoring the same rejected content
+retains its findings and save gate, while changing the content retires the report.
 Closing the tab ends automatic retention, so a downloaded file is the durable copy for that case.
 
 A clean read-only opening, or an initial 401/403 refusal, offers **Recheck access** and
@@ -2882,7 +2885,11 @@ folder. Retry after a failed opening preserves retained work. Once deployment an
 known, existing-record and explicit-destination drafts can be offered and downloaded even if
 profile loading fails. Restore stays disabled until the component/configuration prerequisites
 are available. A create route using an unresolved default home folder waits for profile recovery
-before selecting its draft scope.
+before selecting its draft scope. If Designer configuration fails before authentication identifies
+the account, the host retains browser storage but cannot expose a scoped draft yet; Reload after
+configuration recovery offers it. Editor configuration failures occur after scope selection and
+permit download while restoration waits for its prerequisites. Unavailable and malformed JSON
+configuration responses follow the same recovery path.
 
 
 The hosts journal before dispatching a write. Pending submissions and unresolved create/version
@@ -2926,10 +2933,28 @@ Additional focused checks, also included in the regular modern smoke:
   while preserving all unrelated content.
 - `mixed-move`: combine a permission refusal, a pre-commit disconnect and a lost committed reply;
   fresh listing keeps only unmoved items selected and retry never repeats completed moves.
+- `restored-validation`: inject a server-only finding for templates, elements, fields and metadata;
+  reload and restore, verify the save gate and finding navigation, then correct, conditionally save
+  and compare the complete stored document on reopening.
+- `repeated-schema`: wrap older field definitions in arrays, change their occurrence bounds and
+  unwrap them again in templates and elements; compare all content except update provenance on
+  the edited field and root, including legacy constraints, annotations, identities and siblings.
+- `configuration-draft`: fail configuration with 503 and malformed JSON while Designer has an
+  inverted occurrence range or Editor has an invalid numeric precision; retain the exact input,
+  recover configuration, restore, correct and explicitly save.
+- `scalar-roundtrip`: preserve exact decimal text, integers beyond JavaScript's safe integer range,
+  signed zero, leap dates and fractional/offset timestamps through unrelated edits; numeric edits
+  also retain their lexical value after saving and reopening.
+- `account-switch`: perform real logout and alternate two accounts in the same tab; each keeps its
+  own draft, reduced permissions are freshly enforced on return, and saving resumes only after a
+  new access grant and explicit save.
+- `combined-delete`: combine a confirmed recursive deletion and an uncertain artifact deletion
+  with 503/disconnected listing and inventory reads; retain confirmed counts, prevent automatic
+  retries, and delete only remaining resources using refreshed revisions after recovery.
 
-Run any subset with `npm run smoke:journey -- <names>`. The account-storage check tests scope
-isolation explicitly; real same-tab logout/account switching and cached permissions remain
-separate follow-up coverage.
+Run any subset with `npm run smoke:journey -- <names>`. Failure injection tests the hosts' handling
+of the specified HTTP outcome; fixture creation, successful writes, readback and permission
+changes use the running services. Every journey removes its isolated fixtures.
 
 
 Changes while an update assessment or version confirmation is pending cancel

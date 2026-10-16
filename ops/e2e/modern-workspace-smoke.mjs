@@ -1,3 +1,9 @@
+import {scalarRoundtripJourney} from "./scalar-roundtrip-journey.mjs";
+import {restoredValidationJourney} from "./restored-validation-journey.mjs";
+import {repeatedSchemaJourney} from "./repeated-schema-journey.mjs";
+import {configurationDraftJourney} from "./configuration-draft-journey.mjs";
+import {accountSwitchJourney} from "./account-switch-journey.mjs";
+import {combinedDeleteJourney} from "./combined-delete-journey.mjs";
 import {startupRecoveryJourney,recoveryImportJourney,tabIsolationJourney} from "./recovery-boundary-journey.mjs";
 import {openingPermissionJourney,signInPermissionJourney} from "./opening-permission-journey.mjs";
 import {numericConstraintJourney} from "./numeric-constraint-journey.mjs";
@@ -1268,7 +1274,7 @@ try {
   step = "current-template-constraint";
   await currentTemplateConstraintJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
-  for (const [label, journey] of Object.entries({"startup-recovery":startupRecoveryJourney,"recovery-import":recoveryImportJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney})) {
+  for (const [label, journey] of Object.entries({"scalar-roundtrip":scalarRoundtripJourney,"restored-validation":restoredValidationJourney,"repeated-schema":repeatedSchemaJourney,"configuration-draft":configurationDraftJourney,"account-switch":accountSwitchJourney,"combined-delete":combinedDeleteJourney,"startup-recovery":startupRecoveryJourney,"recovery-import":recoveryImportJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney})) {
     step = label;
     await journey({page,base,designer,user:user1,folderId,name:names.instance,created,write,pass});
   }
