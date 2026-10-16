@@ -90,6 +90,12 @@ async function ready(p) {
       "false",
   );
 }
+function recordCreated(method, response, body) {
+  if (method !== "POST" || !response.ok() || !body?.["@id"]) return;
+  const collection = new URL(body["@id"]).pathname.split("/").at(-2);
+  assert.ok(["folders", "templates", "template-elements", "template-fields", "template-instances"].includes(collection));
+  if (!created.some(item => item.id === body["@id"])) created.push({collection, id: body["@id"]});
+}
 async function login(username, password) {
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
@@ -113,14 +119,7 @@ async function login(username, password) {
       body = await response.json();
     } catch {}
     bodies.set(req.method() + " " + req.url(), body);
-    if (req.method() === "POST" && response.ok() && body?.["@id"]) {
-      // Copy commands return artifact documents without resourceType; their
-      // canonical identity, not the command path, determines the collection.
-      const collection = new URL(body["@id"]).pathname.split("/").at(-2);
-      assert.ok(["folders", "templates", "template-elements", "template-fields", "template-instances"].includes(collection));
-      if (!created.some((r) => r.id === body["@id"]))
-        created.push({ collection, id: body["@id"] });
-    }
+    recordCreated(req.method(), response, body);
     await route.fulfill({ response });
   });
   const p = await context.newPage();
@@ -204,7 +203,11 @@ async function write(
       await response.request().headerValue("if-match"),
       "Missing If-Match",
     );
-  return bodies.get(method + " " + response.url());
+  // Journeys may create their own browser contexts, outside login()'s capture route.
+  // Read this exact response and register successful creates before returning it.
+  const body = await response.json().catch(() => undefined);
+  recordCreated(method, response, body);
+  return body;
 }
 // OpenView changes, publications and drafts confirm with "Ok" rather than "Save".
 const confirmLabel = (path) =>
