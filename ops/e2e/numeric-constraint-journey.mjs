@@ -35,13 +35,16 @@ export async function numericConstraintJourney({page,base,user,folderId,name,cre
   const unchanged=await call(user.auth,'GET',path);assert.deepEqual(unchanged.body,before.body);assert.equal(unchanged.headers.get('etag'),before.headers.get('etag'));
   assert.equal(await low.inputValue(),'125');assert.equal(await high.inputValue(),'190');assert.equal(await save.isDisabled(),true);
   const issues=page.getByLabel('Metadata errors',{exact:true});await issues.locator('summary').click();
-  for(const [key,input,value] of [['Low',low,'150'],['High',high,'175']]) {
-    if(await issues.isVisible()) {
-      const finding=issues.getByRole('button',{name:new RegExp(key+'.*(minimum|maximum)')});
-      if(await finding.count()) {await finding.click();await input.evaluate(el=>{if(el.getRootNode().activeElement!==el)throw new Error('Finding did not focus '+el.id);});}
-    }
-    await input.fill(value);
-  }
+  const finding=key=>issues.getByRole('button',{name:new RegExp(key+'.*(minimum|maximum)')});
+  for(const key of ['Low','High'])await finding(key).waitFor();
+  await finding('Low').click();
+  await low.evaluate(el=>{if(el.getRootNode().activeElement!==el)throw new Error('Finding did not focus '+el.id);});
+  await low.fill('150');
+  // The findings are the server's verdict on the draft it rejected, so the first edit withdraws them
+  // all, the one for High included. Waiting for that, rather than racing it, is what keeps the next
+  // step deterministic.
+  await issues.waitFor({state:'hidden'});
+  await high.fill('175');
   await write(page,'PUT','/template-instances/',()=>save.click(),200,true);
   await page.locator('.metadata-save-status').filter({hasText:/^Saved$/}).waitFor();
   const after=(await call(user.auth,'GET',path)).body,expected=structuredClone(before.body);
@@ -50,5 +53,5 @@ export async function numericConstraintJourney({page,base,user,folderId,name,cre
   assert.deepEqual(after,expected);await page.reload();
   await low.waitFor();assert.equal(await low.inputValue(),'150');assert.equal(await high.inputValue(),'175');
   assert.equal(await cee.getByLabel('Keep',{exact:true}).inputValue(),'Preserved');
-  pass('New numeric bounds reject stale Editor answers at the real server, locate both answers and accept exact boundaries without changing other content');
+  pass('New numeric bounds reject stale Editor answers at the real server, list both findings, locate an answer from its finding, withdraw the findings once the answers change, and accept exact boundaries without changing other content');
 }
