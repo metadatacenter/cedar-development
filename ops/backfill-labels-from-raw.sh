@@ -80,7 +80,7 @@ trap restart_terminology EXIT
 
 if [ "$STOP" = 1 ]; then
   echo "=== $(stamp)  STOP terminology (RAM-safe window) ==="
-  bash "$SVC" stop terminology 2>&1 | tail -2; sleep 5
+  bash "$SVC" stop terminology 2>&1 | tail -2; sleep "${STOP_SETTLE_SECONDS:-5}"
   STOPPED=1
 fi
 

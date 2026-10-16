@@ -103,8 +103,13 @@ def listener_violations(path, text):
 class BackendTestPortPolicyTest(unittest.TestCase):
 
     def test_backend_tests_do_not_bind_fixed_ports(self):
+        present = [repository for repository in BACKEND_REPOSITORIES if repository.is_dir()]
+        if not present:
+            # A checkout of cedar-development alone, as in its own CI, has no backend repository
+            # beside it. Passing there would report a scan that never happened.
+            self.skipTest(f"no backend repository beside cedar-development under {CEDAR_HOME}")
         violations = []
-        for repository in BACKEND_REPOSITORIES:
+        for repository in present:
             source_roots = list(repository.glob("**/src/test"))
             if repository.name == "cedar-microservice-libraries":
                 source_roots.append(

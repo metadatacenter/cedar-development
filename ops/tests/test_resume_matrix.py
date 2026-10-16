@@ -26,6 +26,7 @@ import time
 import unittest
 import urllib.parse
 import uuid
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
@@ -130,6 +131,9 @@ class Deployment(BaseHTTPRequestHandler):
         if parsed.path == "/search-deep":
             self.search(urllib.parse.parse_qs(parsed.query))
             return
+        if parsed.path.endswith("/details"):
+            self.details(parsed.path[:-len("/details")])
+            return
         found = self.target(parsed.path)
         if found is None:
             self.send(404, {"message": "not found"})
@@ -181,6 +185,24 @@ class Deployment(BaseHTTPRequestHandler):
             if entry[0] == reverse[parts[0]] and wanted in {artifact_id, rest.resource_path_id(artifact_id)}:
                 return artifact_id, entry
         return None
+
+    def details(self, path: str) -> None:
+        """The graph's copy of the modification provenance, which the repair reads back after a write.
+
+        The resource server keeps it in step with the stored document, so the stand-in derives it
+        from the stored document rather than keeping a second copy that could drift.
+        """
+        found = self.target(path)
+        if found is None:
+            self.send(404, {"message": "not found"})
+            return
+        _, (_, body) = found
+        updated = body.get("pav:lastUpdatedOn")
+        stamp = None
+        if updated is not None:
+            stamp = int(datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp())
+        self.send(200, {"oslc:modifiedBy": body.get("oslc:modifiedBy"), "pav:lastUpdatedOn": updated,
+                        "lastUpdatedOnTS": stamp})
 
     def search(self, query: dict[str, list[str]]) -> None:
         kind = query["resource_types"][0]
@@ -510,7 +532,9 @@ class ResumeMatrix(unittest.TestCase):
         global WORLD
         WORLD = World()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Deployment)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        # serve_forever polls for shutdown every half second by default, which every test pays.
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.origin = f"http://127.0.0.1:{self.server.server_address[1]}"
 

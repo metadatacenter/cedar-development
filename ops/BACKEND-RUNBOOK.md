@@ -5518,7 +5518,9 @@ dynamic fields absent from the template's `properties`, even when those fields h
 permits null. Neither supplies an entered term, date, number or other missing required value.
 Completion's invariant permits only declared empty shapes, required context additions and fresh
 element identities. Run the repair suites with
-`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`.
+`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`. The
+`Release tooling CI` workflow runs every suite under `ops`, `ops/tests` and `ops/repairs` on each
+push and pull request.
 
 ### Choose the Repair
 
