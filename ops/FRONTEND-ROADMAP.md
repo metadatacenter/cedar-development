@@ -138,57 +138,31 @@ The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#r
 
 ### 3. Recover Failed Saves Without Losing Work in Designer and Editor
 
-Give the Template Designer host and Workspace's metadata editor one consistent recovery
-workflow for rejected and unconfirmed saves. Keeping edits on screen is insufficient when the
-next step requires discarding them to reload. Keep storage, authentication, permission checks
-and recovery orchestration in the hosts; expose any draft capture and restoration contracts
-needed from CED/CEFD and CEE without making those components responsible for the server.
+Complete the recovery routes that still cannot resume saving or create a permitted copy:
 
-Preserve a recoverable working draft through reload and sign-in, including unfinished or
-locally invalid field input that ordinary artifact serialization may omit. Retain the opened
-baseline and revision, the submitted snapshot and any edits made while the request was pending.
-Define draft storage, restoration, account/deployment scoping and cleanup, and provide a draft
-download and a documented restoration path. Distinguish a recovery draft from a server-saveable
-artifact. A failed recovery read must leave the working document intact.
+- **Designer conflicts:** fetch the latest schema separately from the working draft and
+  provide review and reconciliation for templates, elements and fields, including unknown
+  content, server normalization and intervening writes; never attach its ETag to an
+  unreconciled draft.
+- **Changed metadata templates:** reconcile retained metadata against a changed template
+  through an explicit migration workflow, preserving unfinished input and unsupported values.
+- **Uncertain creates and version operations:** define server-supported operation identity
+  and authoritative outcome lookup, including multi-step publish/create-draft operations;
+  retain that identity with the recovery file so reload and sign-in cannot bypass duplicate
+  prevention, and replace manual Workspace inspection with an actionable result.
+- **Denied initial access and create destinations:** offer access rechecks and full sign-in
+  recovery when the original opening or destination-folder check is refused, including cases
+  where profile or component loading fails before the retained draft can be offered.
+- **Permitted copies:** recover retained work to another folder when the original artifact is
+  inaccessible or deleted, checking destination permissions without silently recreating the
+  original or mistaking a permission refusal for deletion.
+- **Recovery validation:** extend live coverage to invalid control drafts, changed permissions
+  across a full sign-in, server findings after restoration, imported recovery files, and newer
+  edits during recovery; include schema normalization and unresolved version operations.
 
-Provide explicit recovery for each outcome:
-
-- **Concurrent artifact changes or missing revision:** explain that the original cannot be
-  overwritten safely. Fetch the latest artifact separately from the working draft, let the
-  author review and reconcile changes, save a permitted copy, or explicitly discard their
-  changes. Never attach a fresh ETag to an unreconciled draft and overwrite the newer content.
-- **Server outage, timeout or lost response:** resolve updates when the authoritative document
-  differs from both the opened and submitted snapshots, including server-normalized schema
-  content and intervening writes. Carry unresolved outcome evidence through reload and sign-in;
-  permit a retry only when it cannot duplicate an earlier operation.
-- **Expired session:** preserve the draft through sign-in, then recheck both permissions and the
-  artifact revision before enabling another write.
-- **Permission revoked or never granted:** explain why saving to the original or destination
-  folder is unavailable. Extend access rechecks to initial read-only openings and denied create
-  destinations, and provide draft download and a copy to a destination where creation is allowed.
-  Access checks must not discard the draft or bypass authorization.
-- **Deleted or inaccessible artifact:** keep the draft and offer export or a permitted copy
-  without claiming the artifact was deleted when the server only establishes lack of access.
-- **Server validation rejection:** make restored drafts participate in the same validation and
-  finding-ownership rules as uninterrupted edits.
-
-Keep **Check save status**, **Recheck access** and **Review latest** separate from **Discard my
-changes**. Replacing the working document requires an explicit decision after recovery data has
-loaded successfully.
-
-Make uncertain creates and template publish/create-draft operations recoverable without
-duplication. Define server-supported request identity or another authoritative result lookup
-and reconciliation contract, including multi-step version creation. Persist unresolved operation
-identity with the recovery draft so reload and sign-in cannot bypass the guard against duplicate
-creation. Inspecting Workspace manually must not be the only recovery route.
-
-Extend coordinator, browser and live-stack coverage to draft restoration through reload/sign-in,
-reconciliation of differing authoritative content and repeated recovery attempts after restoration. Include newer edits arriving during recovery, permission and
-revision changes, and unresolved creates or version operations surviving a reload without
-duplication. Verify successful recovery against the running stack, and document the resulting
-user workflow in the frontend runbook. Completion means each failure has a tested route to
-resume saving, recover a copy or explicitly discard, without silently losing work or overwriting
-another author's changes.
+Keep status checks, access checks, review and explicit discard distinct. A failed recovery
+read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
+current recovery-file contract and operator verification commands.
 
 <a id="cee"></a>
 

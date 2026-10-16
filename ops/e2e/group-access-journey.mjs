@@ -59,6 +59,15 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       const reload = designing ? reader.locator("#reload")
         : reader.getByRole("button", {name: "Reload metadata", exact: true});
       await reader.goto(designing ? designer + "/templates/edit/" + enc(templateId) : metadataUrl);
+      await input.waitFor();
+      // The preceding direct-permission journey may leave a refused draft in this tab.
+      const retained = reader.getByRole("button", {name: "Restore draft", exact: true});
+      if (await retained.isVisible()) {
+        await retained.click();
+        await reader.getByRole("button", {name: "Recheck access", exact: true}).click();
+        await reader.waitForFunction(id => !document.getElementById(id)?.disabled,
+          designing ? "save" : "button-save-metadata");
+      }
       const draft = host + " draft before group membership loss";
       await input.fill(draft);
       assert.equal(await save.isEnabled(), true);

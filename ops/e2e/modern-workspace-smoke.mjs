@@ -1,3 +1,4 @@
+import {draftRecoveryJourney, metadataReconciliationJourney} from "./draft-recovery-journey.mjs";
 import {reusableSourceFailureJourney} from "./reusable-source-failure-journey.mjs";
 import {recoveryElementEditsJourney} from "./recovery-element-edits-journey.mjs";
 import {saveStatusJourney, confirmedSaveRecoveryJourney} from "./save-status-journey.mjs";
@@ -1167,6 +1168,10 @@ try {
   }
   await page.goto(metadataUrl);
   await cee.getByLabel("Notes", {exact: false}).first().waitFor();
+  // Returning to the interrupted update now offers its durable recovery journal.
+  await page.getByRole("button", {name: "Restore draft", exact: true}).click();
+  await page.getByRole("button", {name: "Check save status", exact: true}).click();
+  await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
   const beforeConflict = await call(user1.auth, "GET", instancePath);
   assert.equal(
     (
@@ -1272,6 +1277,12 @@ try {
   step = "recovery-element-edits";
   await confirmedSaveRecoveryJourney({page, base, designer, user: user1, folderId, name: names.instance, created, write, pass});
   await recoveryElementEditsJourney({page, base, user: user1, folderId,
+    name: names.instance, created, write, pass});
+  step = "durable-draft-recovery";
+  await draftRecoveryJourney({page, base, designer, user: user1, folderId,
+    name: names.instance, created, write, pass});
+  step = "metadata-reconciliation";
+  await metadataReconciliationJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
   step = "content-deletion";
   await contentDeletionJourney({page, base, designer, user: user1, folderId,
