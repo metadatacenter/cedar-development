@@ -66,9 +66,13 @@ Point it at `https://resource.metadatacenter.orgx` for the local stack.
 
 ### A Rebuilt Jar Does Not Take Effect Until the Server Restarts
 
-The MCP client holds a child process for each server. Replacing its jar or editing
-`CEDAR_BASE_URL` does not change that process. Restart the client, or stop the server and let the
-client respawn it, after either change. Verify the destination before writing: the default is
+The MCP client holds a child process for each server. Editing `CEDAR_BASE_URL` does not change that
+process. A rebuild does not upgrade it either, but it can break it. Each build copies the shaded jar
+onto `target/<server>.jar` in place, so a running server reads any class it has not yet loaded from
+the new bytes through the index it read at startup. `cedar-cee-mcp` loads its web server on the
+first form it opens, and after a rebuild that first `show_template` or `fill_instance` never answers
+and logs nothing. Restart the client, or stop the server and let the client respawn it, after either
+change. Verify the destination before writing: the default is
 production. `ping` reports the MCP server's name/version without contacting CEDAR and therefore
 cannot verify the destination deployment.
 
@@ -100,8 +104,8 @@ terminology and bridge services the fields themselves call.
 Two lines in `pom.xml` pin it:
 
 ```xml
-<cee.version>2.0.3</cee.version>
-<cee.sha256>b1e86f4a2b94331376a1d9d96af5a20e61dab401b393e116f0c6827b2a7e44a2</cee.sha256>
+<cee.version>2.0.23</cee.version>
+<cee.sha256>97bfdc29582a5fab312ed578123ae3a8a10440c7bcb562f0e1ba263da181cfd3</cee.sha256>
 ```
 
 The hash is the bundle's own, from the package's `bundle-manifest.json`, and the build refuses a
