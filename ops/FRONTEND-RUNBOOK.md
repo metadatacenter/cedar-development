@@ -332,7 +332,7 @@ unconfirmed and the old selection stays blocked. Close the dialog, refresh Works
 service recovery, and review a new selection of remaining items before confirming deletion.
 `npm --prefix browser test -- bulk-delete-recovery.spec.mjs` exercises these paths in Chromium
 and WebKit against a built Workspace. This is unit and hermetic browser coverage of the
-existing workflow; the combined outage cases still need live-stack verification.
+existing workflow; combined deletion outage cases still need live-stack verification.
 The partial-move journey refuses one grouped move at the HTTP boundary while two others
 commit at the real server. Workspace reports the two successes and the refusal, retains only
 the remaining item in its selection, and can move that item after the refusal clears without
@@ -2875,6 +2875,16 @@ the latest document or grants the recovery file's former permissions. The recove
 import controls move the same scoped envelope; they do not upload an artifact.
 Closing the tab ends automatic retention, so a downloaded file is the durable copy for that case.
 
+A clean read-only opening, or an initial 401/403 refusal, offers **Recheck access** and
+**Sign in again**. Recheck reloads content and permissions together; it cannot replace local
+work or attach a fresh revision to an older draft. Create routes recheck their destination
+folder. Retry after a failed opening preserves retained work. Once deployment and account are
+known, existing-record and explicit-destination drafts can be offered and downloaded even if
+profile loading fails. Restore stays disabled until the component/configuration prerequisites
+are available. A create route using an unresolved default home folder waits for profile recovery
+before selecting its draft scope.
+
+
 The hosts journal before dispatching a write. Pending submissions and unresolved create/version
 outcomes survive reload, and an uncertain creation cannot be discarded or imported over to enable
 a duplicate POST. Existing-update status checks restore saving only after comparing authoritative
@@ -2896,6 +2906,31 @@ APIs and real stored artifacts: reload after an outage or lost committed reply, 
 restoration, authoritative status checks, subsequent conditional saves and readback, plus a real
 metadata conflict followed by explicit reconciliation. The regular Workspace stack smoke includes
 these journeys too. Fixtures are removed when the run ends.
+
+Additional focused checks, also included in the regular modern smoke:
+
+- `opening-permissions`: real viewer-to-editor grants for clean existing records and denied
+  create destinations in both hosts, including fresh content and a subsequent conditional save.
+- `signin-permissions`: retain a refused draft through full sign-in while real permissions are
+  reduced to viewer; restoration and rechecks do not write, and saving resumes only after a new
+  edit grant and explicit save.
+- `startup-recovery`: inject profile, component, artifact and destination-folder outages while
+  drafts exist; download during failure, Retry, restore and save without losing input.
+- `recovery-import`: download and import a recovery file in a fresh tab for templates, elements,
+  fields and metadata; invalid metadata input remains invalid until corrected, and import never
+  writes an artifact.
+- `tab-isolation`: separate tabs keep independent drafts; another account with the prior account's
+  retained storage neither discovers the draft nor imports its recovery envelope.
+- `numeric-constraint`: tighten both numeric bounds through another REST client; the real server
+  rejects stale Editor answers, findings locate the controls, and exact boundaries save and reopen
+  while preserving all unrelated content.
+- `mixed-move`: combine a permission refusal, a pre-commit disconnect and a lost committed reply;
+  fresh listing keeps only unmoved items selected and retry never repeats completed moves.
+
+Run any subset with `npm run smoke:journey -- <names>`. The account-storage check tests scope
+isolation explicitly; real same-tab logout/account switching and cached permissions remain
+separate follow-up coverage.
+
 
 Changes while an update assessment or version confirmation is pending cancel
 the write. A successful save stays in Designer. After a create or a new draft, the host

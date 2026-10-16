@@ -1,3 +1,6 @@
+import {startupRecoveryJourney,recoveryImportJourney,tabIsolationJourney} from "./recovery-boundary-journey.mjs";
+import {openingPermissionJourney,signInPermissionJourney} from "./opening-permission-journey.mjs";
+import {numericConstraintJourney} from "./numeric-constraint-journey.mjs";
 import {contentDeletionJourney} from "./content-deletion-journey.mjs";
 import {draftRecoveryJourney, metadataReconciliationJourney} from './draft-recovery-journey.mjs';
 import {reusableSourceFailureJourney} from "./reusable-source-failure-journey.mjs";
@@ -11,7 +14,7 @@ import {initialLoadJourney} from "./initial-load-journey.mjs";
 import {validationRejectionJourney} from "./validation-rejection-journey.mjs";
 import {duplicationJourney} from "./duplication-journey.mjs";
 import {templateEvolutionJourney} from "./template-evolution-journey.mjs";
-import {partialMoveJourney} from "./partial-move-journey.mjs";
+import {partialMoveJourney,mixedMoveJourney} from "./partial-move-journey.mjs";
 import {currentTemplateConstraintJourney} from "./current-template-constraint-journey.mjs";
 import {uncertainMoveJourney} from "./uncertain-move-journey.mjs";
 import {olderKeyRenameJourney} from "./older-key-rename-journey.mjs";
@@ -19,7 +22,7 @@ import {designerPendingSaveJourney} from "./designer-pending-save-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
-const journeys = {"content-deletion": contentDeletionJourney, "draft-recovery": draftRecoveryJourney, "metadata-reconciliation": metadataReconciliationJourney, "confirmed-save-recovery": confirmedSaveRecoveryJourney, "reusable-source-failure": reusableSourceFailureJourney, "recovery-element-edits": recoveryElementEditsJourney, "access-recheck": accessRecheckJourney, "save-status": saveStatusJourney, "initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
+const journeys = {"startup-recovery":startupRecoveryJourney,"recovery-import":recoveryImportJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney,"content-deletion": contentDeletionJourney, "draft-recovery": draftRecoveryJourney, "metadata-reconciliation": metadataReconciliationJourney, "confirmed-save-recovery": confirmedSaveRecoveryJourney, "reusable-source-failure": reusableSourceFailureJourney, "recovery-element-edits": recoveryElementEditsJourney, "access-recheck": accessRecheckJourney, "save-status": saveStatusJourney, "initial-load": initialLoadJourney, "validation-rejection": validationRejectionJourney,
   duplication: duplicationJourney, "template-evolution": templateEvolutionJourney, "partial-move": partialMoveJourney,
   "current-template-constraint": currentTemplateConstraintJourney, "uncertain-move": uncertainMoveJourney,
   "older-key-rename": olderKeyRenameJourney, "designer-pending-save": designerPendingSaveJourney};

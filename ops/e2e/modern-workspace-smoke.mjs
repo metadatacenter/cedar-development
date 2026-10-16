@@ -1,3 +1,6 @@
+import {startupRecoveryJourney,recoveryImportJourney,tabIsolationJourney} from "./recovery-boundary-journey.mjs";
+import {openingPermissionJourney,signInPermissionJourney} from "./opening-permission-journey.mjs";
+import {numericConstraintJourney} from "./numeric-constraint-journey.mjs";
 import {draftRecoveryJourney, metadataReconciliationJourney} from "./draft-recovery-journey.mjs";
 import {reusableSourceFailureJourney} from "./reusable-source-failure-journey.mjs";
 import {recoveryElementEditsJourney} from "./recovery-element-edits-journey.mjs";
@@ -17,7 +20,7 @@ import { initialLoadJourney } from "./initial-load-journey.mjs";
 import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
 import { duplicationJourney } from "./duplication-journey.mjs";
 import { templateEvolutionJourney } from "./template-evolution-journey.mjs";
-import { partialMoveJourney } from "./partial-move-journey.mjs";
+import { partialMoveJourney, mixedMoveJourney } from "./partial-move-journey.mjs";
 import { currentTemplateConstraintJourney } from "./current-template-constraint-journey.mjs";
 import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
@@ -1262,6 +1265,10 @@ try {
   step = "current-template-constraint";
   await currentTemplateConstraintJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
+  for (const [label, journey] of Object.entries({"startup-recovery":startupRecoveryJourney,"recovery-import":recoveryImportJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney})) {
+    step = label;
+    await journey({page,base,designer,user:user1,folderId,name:names.instance,created,write,pass});
+  }
   step = "older-artifacts";
   await olderArtifactJourney({page, base, designer, user: user1, folderId,
     name: names.instance, created, write, pass});

@@ -150,15 +150,12 @@ Complete the recovery routes that still cannot resume saving or create a permitt
   and authoritative outcome lookup, including multi-step publish/create-draft operations;
   retain that identity with the recovery file so reload and sign-in cannot bypass duplicate
   prevention, and replace manual Workspace inspection with an actionable result.
-- **Denied initial access and create destinations:** offer access rechecks and full sign-in
-  recovery when the original opening or destination-folder check is refused, including cases
-  where profile or component loading fails before the retained draft can be offered.
 - **Permitted copies:** recover retained work to another folder when the original artifact is
   inaccessible or deleted, checking destination permissions without silently recreating the
   original or mistaking a permission refusal for deletion.
-- **Recovery validation:** extend live coverage to invalid control drafts, changed permissions
-  across a full sign-in, server findings after restoration, imported recovery files, and newer
-  edits during recovery; include schema normalization and unresolved version operations.
+- **Recovery validation:** extend live coverage to server findings after restoration, additional
+  invalid control shapes and newer edits during recovery; include schema normalization and
+  unresolved version operations.
 
 Keep status checks, access checks, review and explicit discard distinct. A failed recovery
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
