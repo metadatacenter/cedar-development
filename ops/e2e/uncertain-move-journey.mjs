@@ -1,9 +1,11 @@
-import {journeyFolder} from "./journey-fixtures.mjs";
+import {journeyFolder, listedIn, listingIdle, openListing} from "./journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 
 // Commit a move at the real server, then lose only its response. Confirmed
 // progress must remain accurate and a fresh listing must prevent a blind retry.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function uncertainMoveJourney({page, base, user, folderId, name, created, pass}) {
   folderId = await journeyFolder({user, folderId, name, created}, "uncertain moves");
   const target = await call(user.auth, "POST", "/folders", {
@@ -23,17 +25,7 @@ export async function uncertainMoveJourney({page, base, user, folderId, name, cr
     before.set(id, (await call(user.auth, "GET", "/template-fields/" + enc(id))).body);
   }
   const row = id => page.locator(`[data-resource-id="${id}"]`);
-  async function openFolder(id) {
-    await page.goto(base + "/dashboard?folderId=" + enc(id));
-    await page.getByRole("button", {name: "New", exact: true}).waitFor();
-    await page.getByRole("button", {name: "List view", exact: true}).click();
-    await page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
-  }
-  for (let attempt = 0; ; attempt++) {
-    await openFolder(folderId);
-    if (await row(ids[2]).waitFor({timeout: 1000}).then(() => true, () => false)) break;
-    assert.ok(attempt < 15, "move fixtures not listed");
-  }
+  await listedIn(page, base, folderId, row(ids[2]), "the move fixtures");
   for (const [index, id] of ids.entries()) {
     await row(id).locator(".resource-icon").click({modifiers: index ? ["ControlOrMeta"] : []});
     await page.waitForFunction(expected => document.querySelectorAll("tr.selected").length === expected, index + 1);
@@ -71,6 +63,7 @@ export async function uncertainMoveJourney({page, base, user, folderId, name, cr
     assert.equal(routeError, undefined);
     assert.deepEqual([...attempts].sort(), [...ids].sort(), "each item is submitted once, including the response that was lost");
     for (const id of ids) await row(id).waitFor({state: "detached"});
+    await listingIdle(page);
     assert.equal(await page.locator("tr.selected").count(), 0, "the refreshed source must not offer the moved item for retry");
     for (const id of ids) {
       const report = await call(user.auth, "GET", "/template-fields/" + enc(id) + "/report");
@@ -80,7 +73,7 @@ export async function uncertainMoveJourney({page, base, user, folderId, name, cr
       assert.equal(stored.status, 200, stored.text);
       assert.deepEqual(stored.body, before.get(id));
     }
-    await openFolder(targetId);
+    await openListing(page, base, targetId);
     for (const id of ids) await row(id).waitFor();
     assert.equal(attempts.length, 3, "opening the destination must not replay a move");
     pass("A lost grouped-move response reports only confirmed progress, refreshes away already-moved selections and reopens all intact artifacts in the destination without replaying writes");

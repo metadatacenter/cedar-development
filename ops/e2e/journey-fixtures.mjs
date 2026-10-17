@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {call} from "./rest/lib.mjs";
+import {call, enc} from "./rest/lib.mjs";
 
 // Listing and drag/drop scenarios must not depend on how many fixtures earlier journeys kept.
 export async function journeyFolder({user, folderId, name, created}, suffix) {
@@ -11,6 +11,68 @@ export async function journeyFolder({user, folderId, name, created}, suffix) {
   created.push({collection: "folders", id});
   return id;
 }
+
+// A journey asserts what a page shows, and above all what it does not show, only once the page has
+// settled: the answer it was waiting for has arrived and been rendered. A helper that waits for such
+// a state fails with a message that says what it waited for.
+
+/** Whether a response answers Workspace's listing of a folder. The graph serves it, so it reflects a write at once. */
+export const listingOf = folderId => response => {
+  const url = new URL(response.url());
+  return response.request().method() === "GET" && url.pathname.endsWith("/contents") &&
+    decodeURIComponent(url.pathname).includes(folderId.split("/").at(-1));
+};
+
+/** Waits until Workspace's listing table reports that it is no longer loading or moving anything. */
+export const listingIdle = page =>
+  page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+
+/**
+ * Opens a folder in Workspace's list view. The listing is settled once the request this navigation
+ * made has been answered, the list view is the one shown, and the table no longer reports itself
+ * busy. Switching views fetches nothing, so only the pressed view control says the switch is done.
+ */
+export async function openListing(page, base, folderId) {
+  await Promise.all([
+    page.waitForResponse(listingOf(folderId)),
+    page.goto(base + "/dashboard?folderId=" + enc(folderId)),
+  ]);
+  await page.getByRole("button", {name: "New", exact: true}).waitFor();
+  const list = page.getByRole("button", {name: "List view", exact: true});
+  if (await list.count()) {
+    await list.click();
+    await page.getByRole("button", {name: "List view", exact: true, pressed: true}).waitFor();
+  }
+  await listingIdle(page);
+}
+
+/**
+ * Opens a folder's listing until it shows a row, and returns the row. Each attempt reads a settled
+ * listing. After the last one the wait fails, naming the row it expected.
+ */
+export async function listedIn(page, base, folderId, row, what, attempts = 16) {
+  for (let attempt = 1; ; attempt++) {
+    await openListing(page, base, folderId);
+    if (await row.count()) return row;
+    assert.ok(attempt < attempts, `${what} is not listed in ${attempt} settled listings`);
+  }
+}
+
+/** Waits until a control holds the focus of its own document or shadow root. */
+export async function focused(locator, failure) {
+  const control = await locator.elementHandle();
+  await locator.page().waitForFunction(element => element.getRootNode().activeElement === element, control)
+    .catch(error => { throw new Error(`${failure}: ${error.message}`); });
+}
+
+/**
+ * Resolves once the page has rendered two more frames. Workspace runs Angular without zone.js, which
+ * renders a change no later than the next animation frame. A gesture the page refuses changes nothing
+ * that could be waited for. After this point the page shows whatever the gesture started, so an
+ * assertion that it started nothing means something.
+ */
+export const rendered = page =>
+  page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
 const COLLECTIONS = new Set(["folders", "templates", "template-elements", "template-fields", "template-instances"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

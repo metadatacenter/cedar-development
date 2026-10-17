@@ -56,6 +56,31 @@ export async function metadataFixture(args, suffix, fields, values) {
     read,
   };
 }
+// The metadata editor's save status. It reads Loading… until the page has loaded the record, and
+// the page disregards edits made before then, so a journey waits for a loaded status before it types.
+export const editorStatus = (page, text) =>
+  page.locator(".metadata-toolbar [role=status]").filter({ hasText: text });
+
+// A controlled-term lookup ends with the terms it found, with "No results found", or with a failed
+// search. The spinner shown meanwhile is an option too, so the wait is for one of these outcomes.
+const LOOKUP_ENDED = /^(No results found|Search failed: the service could not be reached)$/;
+
+/**
+ * Types a query into a controlled-term field until its suggestions offer a term, and returns that
+ * term's option. A lookup that ends without the term is retyped, three lookups at most.
+ */
+export async function offeredTerm(page, input, query, term, failure) {
+  const option = page.getByRole("option", { name: term }).first();
+  const ended = option.or(page.getByRole("option", { name: LOOKUP_ENDED })).first();
+  for (let attempt = 1; ; attempt++) {
+    await input.fill("");
+    await input.pressSequentially(query, { delay: 40 });
+    await ended.waitFor();
+    if (await option.count()) return option;
+    assert.ok(attempt < 3, `${failure}: ${attempt} lookups for "${query}" ended without offering it`);
+  }
+}
+
 export function numericField(name, type = "xsd:decimal") {
   const field = artifactBody("field", name);
   field._ui.inputType = "numeric";

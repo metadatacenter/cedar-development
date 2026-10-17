@@ -4,6 +4,7 @@ import {
   metadataFixture,
   numericField,
   comparable,
+  editorStatus,
 } from "./metadata-journey-fixtures.mjs";
 import {
   schemaFixture,
@@ -11,6 +12,7 @@ import {
 } from "./repeated-schema-journey.mjs";
 import { settled } from "./recovery-boundary-journey.mjs";
 
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function configurationDraftJourney(args) {
   const { page, write, pass } = args;
   for (const kind of ["template", "metadata"])
@@ -37,9 +39,18 @@ export async function configurationDraftJourney(args) {
       const amount = page
         .locator("cedar-embeddable-editor")
         .getByLabel("Amount", { exact: true });
+      const status = (text) =>
+        metadata
+          ? editorStatus(page, text)
+          : page.locator("#state").filter({ hasText: text });
+      await status(/^Unmodified$/).waitFor();
       let settings;
-      if (metadata) await amount.fill("1.234");
-      else {
+      // The metadata editor retains its draft in the step that marks the page Modified, so the
+      // snapshot below waits for that status.
+      if (metadata) {
+        await amount.fill("1.234");
+        await status(/^Modified$/).waitFor();
+      } else {
         settings = await fieldConfiguration(page);
         await settings
           .getByRole("checkbox", { name: "Allow multiple", exact: true })
@@ -48,6 +59,7 @@ export async function configurationDraftJourney(args) {
         await settings.getByLabel("Maximum", { exact: true }).fill("5");
         await settings.getByLabel("Minimum", { exact: true }).fill("8");
         await settings.getByRole("alert").waitFor();
+        await status(/^Modified$/).waitFor();
       }
       const save = page.locator(metadata ? "#button-save-metadata" : "#save");
       assert.equal(await save.isDisabled(), true);
@@ -150,6 +162,7 @@ export async function configurationDraftJourney(args) {
         assert.deepEqual(after.properties.Keep, before.properties.Keep);
       }
       await page.reload();
+      await status(/^Unmodified$/).waitFor();
       if (metadata) await settled(amount, "1.3");
       else {
         settings = await fieldConfiguration(page);

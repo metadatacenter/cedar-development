@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
+import {journeyFolder} from "./journey-fixtures.mjs";
 
 const content = document => {
   const result = structuredClone(document);
@@ -10,7 +11,10 @@ const content = document => {
 
 // Delay an actual successful PUT reply, not the write itself. Designer's
 // existing workflow freezes editing until it acknowledges that snapshot.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function designerPendingSaveJourney({page, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "designer pending save");
   for (const [kind, collection] of [["template", "templates"], ["element", "template-elements"], ["field", "template-fields"]]) {
     const source = artifactBody(kind, name + " pending " + kind);
     source._annotations = {"https://example.org/pending/note": {"@value": "Keep annotation"}};
@@ -55,11 +59,12 @@ export async function designerPendingSaveJourney({page, designer, user, folderId
       } catch (error) { reject(error); await route.abort(); }
     };
     await page.route(matcher, hold);
-    const timeout = setTimeout(() => reject(new Error("No successful save reached the response gate")), 30000);
     try {
+      // A template's save checks its impact before it sends the PUT, so wait for the PUT itself.
+      const sent = page.waitForRequest(request => request.method() === "PUT" && matcher(new URL(request.url())));
       await page.locator("#save").click();
+      await sent.catch(error => { throw new Error("No save reached the response gate: " + error.message); });
       await committed;
-      clearTimeout(timeout);
       await page.locator("#state").filter({hasText: /^Saving/}).waitFor();
       assert.equal(await page.locator("#save").isDisabled(), true);
       assert.deepEqual(content((await read()).body), content({...before, "schema:description": "Submitted description"}));
@@ -68,6 +73,8 @@ export async function designerPendingSaveJourney({page, designer, user, folderId
       assert.equal(await description.evaluate(element => element.getRootNode().activeElement === element), false,
         "an inert designer must not accept focus into an editing control");
       await page.keyboard.type("Input while saving");
+      // The reply is still held, so the page is still saving while the input is read.
+      await page.locator("#state").filter({hasText: /^Saving/}).waitFor();
       assert.equal(await description.inputValue(), "Submitted description");
       release();
       await page.locator("#state").filter({hasText: /^Saved$/}).waitFor();
@@ -76,7 +83,6 @@ export async function designerPendingSaveJourney({page, designer, user, folderId
       assert.equal(await component.evaluate(element => element.inert), false);
       assert.equal(await page.locator("#save").isEnabled(), true);
     } finally {
-      clearTimeout(timeout);
       release();
       await page.unroute(matcher, hold);
     }

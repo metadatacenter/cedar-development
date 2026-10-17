@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
+import {artifactBody, call, enc, poll, RESOURCE} from "./rest/lib.mjs";
+import {journeyFolder} from "./journey-fixtures.mjs";
 
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function reusableSourceFailureJourney({page, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "reusable source failure");
   async function create(kind, collection, label) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), artifactBody(kind, label));
     assert.equal(result.status, 201, result.text);
@@ -28,15 +31,18 @@ export async function reusableSourceFailureJourney({page, designer, user, folder
   const dialog = page.locator("app-child-picker dialog[open]");
   const search = dialog.getByRole("button", {name: "Search", exact: true});
   await dialog.getByRole("searchbox").fill(query);
-  // Search indexing is eventual; repeat the user's search until both fixtures appear.
-  let listed = false;
-  for (let attempt = 0; attempt < 15 && !listed; attempt++) {
-    await search.click();
-    listed = await dialog.getByRole("row", {name: "Select " + element["schema:name"], exact: true})
-      .waitFor({timeout: 1000}).then(() => true, () => false) &&
-      await dialog.getByRole("row", {name: "Select " + field["schema:name"], exact: true}).count() > 0;
-  }
-  assert.ok(listed, "the import search never listed both reusable sources");
+  // Search indexing is eventual, so repeat the user's search until both fixtures appear. Each
+  // attempt counts rows only once the dialog has rendered that search's answer.
+  const searchAnswer = response => response.request().method() === "GET" &&
+    new URL(response.url()).origin === new URL(RESOURCE).origin && new URL(response.url()).pathname === "/search";
+  const listing = await poll(async () => {
+    await Promise.all([page.waitForResponse(searchAnswer), search.click()]);
+    await dialog.locator('.table-scroll[aria-busy="false"]').waitFor();
+    const rows = await Promise.all([element, field].map(source =>
+      dialog.getByRole("row", {name: "Select " + source["schema:name"], exact: true}).count()));
+    return {done: rows.every(Boolean)};
+  }, {tries: 15, delayMs: 1000});
+  assert.ok(!listing.timedOut, `the import search never listed both reusable sources in ${listing.attempts} searches`);
   for (const source of [field, element])
     await dialog.getByRole("row", {name: "Select " + source["schema:name"], exact: true}).click();
   const selected = dialog.locator("table").first();

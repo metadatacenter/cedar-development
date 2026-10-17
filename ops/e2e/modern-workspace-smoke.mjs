@@ -15,8 +15,9 @@ import {saveStatusJourney, confirmedSaveRecoveryJourney} from "./save-status-jou
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
-import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mjs";
-import { createdFixture, createAttempt, fixtureAt } from "./journey-fixtures.mjs";
+import { actors, call, mutate, enc, OPENVIEW, artifactBody, poll } from "./rest/lib.mjs";
+import { createdFixture, createAttempt, fixtureAt, listingIdle, listingOf, rendered } from "./journey-fixtures.mjs";
+import { editorStatus, offeredTerm } from "./metadata-journey-fixtures.mjs";
 import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
 import { groupAccessJourney } from "./group-access-journey.mjs";
@@ -95,6 +96,8 @@ async function ready(p) {
   // This journey selects rows and date cells. Workspace defaults to the grid, so select
   // the table explicitly after every full navigation; do not depend on an old default.
   await p.getByRole("button", { name: "List view", exact: true }).click();
+  // Switching views fetches nothing, so only the pressed view control says the switch is done.
+  await p.getByRole("button", { name: "List view", exact: true, pressed: true }).waitFor();
   await p.waitForFunction(
     () =>
       document.querySelector(".table-scroll")?.getAttribute("aria-busy") ===
@@ -161,10 +164,15 @@ async function login(username, password) {
   await ready(p);
   return p;
 }
+// A listing is read only once the request a navigation made has been answered and rendered.
+const anyListing = response => response.request().method() === "GET" && new URL(response.url()).pathname.endsWith("/contents");
 async function listing(p, id = folderId) {
-  await p.goto(base + "/dashboard" + (id ? "?folderId=" + enc(selector(id)) : ""), {
-    waitUntil: "domcontentloaded",
-  });
+  await Promise.all([
+    p.waitForResponse(id ? listingOf(id) : anyListing),
+    p.goto(base + "/dashboard" + (id ? "?folderId=" + enc(selector(id)) : ""), {
+      waitUntil: "domcontentloaded",
+    }),
+  ]);
   await ready(p);
 }
 async function listed(p, name, id = folderId) {
@@ -173,31 +181,38 @@ async function listed(p, name, id = folderId) {
     // Journeys create enough fixtures to span several listing pages. Exhaust the
     // current listing before retrying for eventual search-index consistency.
     for (;;) {
-      if (await row(p, name).waitFor({state: "visible", timeout: 1000}).then(() => true, () => false)) return;
+      if (await row(p, name).count()) return;
       const next = p.getByRole("button", {name: "Next", exact: true});
       if (await next.isDisabled()) break;
-      const previousUrl = p.url();
-      await next.click();
-      await p.waitForURL(url => url.href !== previousUrl);
-      await p.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+      await Promise.all([p.waitForResponse(id ? listingOf(id) : anyListing), next.click()]);
+      await listingIdle(p);
     }
   }
-  throw new Error("Not listed: " + name);
+  throw new Error("Not listed in 15 settled listings: " + name);
+}
+const sharedListing = response => {
+  const url = new URL(response.url());
+  return response.request().method() === "GET" && url.pathname === "/search" &&
+    url.searchParams.get("sharing") === "shared-with-me";
+};
+/** Runs a gesture that opens Shared with Me, and returns once its listing has settled. */
+async function openSharedWithMe(p, gesture) {
+  await Promise.all([p.waitForResponse(sharedListing), gesture()]);
+  await ready(p);
 }
 /**
  * Whether the Shared with Me listing on this page shows the name on any of its pages. It pages by
  * fifty rows sorted by name, so a grant that another run makes to the same user can push a row past
  * the first page; reading only that page would miss a present row and prove nothing about an absent one.
+ * The caller opens the listing with openSharedWithMe, so every page is read once it has settled.
  */
 async function sharedWithMeLists(p, name) {
   for (;;) {
-    if (await row(p, name).waitFor({state: "visible", timeout: 1000}).then(() => true, () => false)) return true;
+    if (await row(p, name).count()) return true;
     const next = p.getByRole("button", {name: "Next", exact: true});
     if (!(await next.count()) || await next.isDisabled()) return false;
-    const previousUrl = p.url();
-    await next.click();
-    await p.waitForURL(url => url.href !== previousUrl);
-    await p.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+    await Promise.all([p.waitForResponse(sharedListing), next.click()]);
+    await listingIdle(p);
   }
 }
 async function menu(p, name, label) {
@@ -604,14 +619,15 @@ try {
     412,
     true,
   );
-  assert.equal(
-    await modal(page).getByLabel("Description", { exact: true }).inputValue(),
-    "Unsaved local edit",
-  );
+  // The dialog keeps the edit and says why once it has handled the refusal.
   await modal(page)
     .getByRole("alert")
     .filter({ hasText: "changed since" })
     .waitFor();
+  assert.equal(
+    await modal(page).getByLabel("Description", { exact: true }).inputValue(),
+    "Unsaved local edit",
+  );
   await modal(page)
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
@@ -705,15 +721,21 @@ try {
   step = enter("reusable-element-snapshot");
   await editor(page, names.template);
   await page.getByRole("button", {name: "Import fields and elements", exact: true}).first().click();
-  await page.getByRole("searchbox").fill(names.element);
+  const importDialog = page.locator("app-child-picker dialog[open]");
+  await importDialog.getByRole("searchbox").fill(names.element);
   // The element was created moments earlier and reaches the search index through a queue, so one
-  // query can predate it. Search again until it is listed.
-  const importRow = page.getByRole("row", {name: "Select " + names.element, exact: true});
-  for (let i = 0; ; i++) {
-    await page.getByRole("button", {name: "Search", exact: true}).click();
-    if (await importRow.waitFor({timeout: 1000}).then(() => true, () => false)) break;
-    assert.ok(i < 20, "the reusable element never appeared in the Designer's import search");
-  }
+  // query can predate it. Search again until it is listed, counting rows only once the dialog has
+  // rendered each search's answer.
+  const importRow = importDialog.getByRole("row", {name: "Select " + names.element, exact: true});
+  const imported = await poll(async () => {
+    await Promise.all([
+      page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === "/search"),
+      importDialog.getByRole("button", {name: "Search", exact: true}).click(),
+    ]);
+    await importDialog.locator('.table-scroll[aria-busy="false"]').waitFor();
+    return {done: (await importRow.count()) > 0};
+  }, {tries: 21, delayMs: 1000});
+  assert.ok(!imported.timedOut, `the reusable element never appeared in ${imported.attempts} of the Designer's import searches`);
   await importRow.click();
   await page.getByRole("button", {name: "Done", exact: true}).click();
   const elementSourcePath = "/template-elements/" + enc(artifacts.element);
@@ -766,6 +788,8 @@ try {
     412,
     true,
   );
+  // Save is disabled while it is in flight too, so wait until Designer has handled the refusal.
+  await page.locator("#state").filter({ hasText: /^Reload required$/ }).waitFor();
   assert.equal(
     await page
       .getByPlaceholder("Add description...", { exact: true }).first()
@@ -779,12 +803,17 @@ try {
     process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com",
     process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2",
   );
-  await reader
+  await openSharedWithMe(reader, () => reader
     .getByRole("link", { name: "Shared with Me", exact: true })
-    .click();
-  await ready(reader);
+    .click());
   assert.ok(await sharedWithMeLists(reader, names.template), "Shared with Me does not list the template");
-  await showInformation(reader, names.template);
+  // The panel shows the row at once and what the reader may do once the template's report is read.
+  await Promise.all([
+    reader.waitForResponse(response => response.request().method() === "GET" &&
+      new URL(response.url()).pathname.endsWith("/report") &&
+      decodeURIComponent(new URL(response.url()).pathname).includes(pathId(artifacts.template))),
+    showInformation(reader, names.template),
+  ]);
   await reader
     .getByRole("heading", { name: names.template, exact: true })
     .waitFor();
@@ -828,6 +857,7 @@ try {
   // its draft is still open. This differs from initially opening a read-only page.
   await reader.goto(designer + "/templates/edit/" + enc(artifacts.template));
   const readerDescription = reader.getByPlaceholder("Add description...", {exact: true}).first();
+  await reader.locator("#state").filter({ hasText: /^Unmodified$/ }).waitFor();
   await readerDescription.fill("Designer draft after access loss");
   const beforeDesignerRevocation = await call(user1.auth, "GET", "/templates/" + enc(artifacts.template));
   await grant(page, "viewer");
@@ -839,15 +869,17 @@ try {
   assert.equal(await readerDescription.inputValue(), "Designer draft after access loss");
   assert.deepEqual((await call(user1.auth, "GET", "/templates/" + enc(artifacts.template))).body,
     beforeDesignerRevocation.body);
+  // Reload asks before discarding the draft, and the answer is settled once the question is closed.
   reader.removeAllListeners("dialog");
+  const askedToReload = reader.waitForEvent("dialog");
   reader.once("dialog", dialog => dialog.dismiss());
   await reader.locator("#reload").click();
+  assert.equal((await askedToReload).type(), "confirm");
   assert.equal(await readerDescription.inputValue(), "Designer draft after access loss");
   reader.on("dialog", dialog => dialog.accept());
   pass("Designer loses edit permission while open: save refused, draft retained, server content unchanged");
   await grant(page, "manager");
-  await reader.goto(base + "/dashboard?sharing=shared-with-me");
-  await ready(reader);
+  await openSharedWithMe(reader, () => reader.goto(base + "/dashboard?sharing=shared-with-me"));
   assert.ok(await sharedWithMeLists(reader, names.template), "Shared with Me does not list the template");
   await menu(reader, names.template, "Permissions…");
   await modal(reader)
@@ -951,8 +983,7 @@ try {
         ?.value === "editor",
   );
   await removePermission(page, "/templates/");
-  await reader.reload();
-  await ready(reader);
+  await openSharedWithMe(reader, () => reader.reload());
   assert.equal(await sharedWithMeLists(reader, names.template), false,
     "Shared with Me still lists the template after its grant was removed");
   pass(
@@ -992,7 +1023,7 @@ try {
   await reader
     .getByRole("textbox", { name: "Search workspace", exact: true })
     .fill(names.template);
-  for (let i = 0; ; i++) {
+  const transferred = await poll(async (attempt) => {
     const searched = reader.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
@@ -1004,16 +1035,16 @@ try {
     // Submitting the same search again changes no route, so later attempts refresh the listing.
     await reader
       .getByRole("button", {
-        name: i === 0 ? "Search" : "Refresh workspace",
+        name: attempt === 1 ? "Search" : "Refresh workspace",
         exact: true,
       })
       .click();
     await searched;
     await ready(reader);
-    if (await row(reader, names.template).count()) break;
-    assert.ok(i < 20, "the transferred template never appeared in the new owner's search");
-    await reader.waitForTimeout(1000);
-  }
+    return { done: (await row(reader, names.template).count()) > 0 };
+  }, { tries: 21, delayMs: 1000 });
+  assert.ok(!transferred.timedOut,
+    `the transferred template never appeared in ${transferred.attempts} of the new owner's searches`);
   await menu(reader, names.template, "Permissions…");
   await modal(reader)
     .getByRole("combobox", { name: "User or group", exact: true })
@@ -1052,16 +1083,12 @@ try {
   await listed(page, names.template);
   await menu(page, names.template, "Populate");
   const cee = page.locator("cedar-embeddable-editor");
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await cee.getByLabel("Notes", { exact: false }).first().fill("First notes");
   // The constrained field offers live DOID terms from the terminology server as the user types.
   const disease = cee.getByLabel("Disease", { exact: false }).first();
-  const influenza = page.getByRole("option", { name: /influenza/i }).first();
-  for (let attempt = 0; ; attempt++) {
-    await disease.fill("");
-    await disease.pressSequentially("influenza", { delay: 40 });
-    if (await influenza.waitFor({ timeout: 15000 }).then(() => true, () => false)) break;
-    assert.ok(attempt < 2, "no DOID suggestion offered for influenza");
-  }
+  const influenza = await offeredTerm(page, disease, "influenza", /influenza/i,
+    "no DOID suggestion offered for influenza");
   await influenza.click();
   assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
   assert.deepEqual(
@@ -1101,8 +1128,9 @@ try {
   releaseIdentityRead();
   await page.waitForURL(/\/instances\/edit\//);
   await page.unroute(instanceReadback);
-  assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), "Newer notes during acknowledgement");
+  // The save has been acknowledged once the status leaves Saving, here for Modified.
   await page.locator(".metadata-toolbar [role=status]").filter({hasText: "Modified"}).waitFor();
+  assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), "Newer notes during acknowledgement");
   pass("First save adopts nested element IDs without losing edits made during acknowledgement");
   const suggestedTerm = (
     await call(
@@ -1186,6 +1214,7 @@ try {
     "CEE host loads no AngularJS, saves without remounting, guards navigation and recognizes exact reverts",
   );
   await page.goto(metadataUrl);
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await cee.getByLabel("Notes", { exact: false }).first().waitFor();
   const instancePath = "/template-instances/" + enc(instanceId);
   // Let the update commit, then drop its response: it may not claim confirmed success or repeat
@@ -1213,6 +1242,9 @@ try {
       const stored = await call(user1.auth, "GET", "/template-instances/" + enc(committed["@id"]));
       assert.equal(stored.body.Notes["@value"], value);
       await page.locator("#button-save-metadata").dispatchEvent("click");
+      // A save the page started would show Saving… once rendered, and a refused one changes nothing.
+      await rendered(page);
+      assert.doesNotMatch(await page.locator(".metadata-toolbar [role=status]").innerText(), /^Saving/);
       assert.equal(writes, 1);
     } finally {
       await page.unroute(matcher, loseResponse);
@@ -1283,6 +1315,7 @@ try {
   await setPermission(page, "/template-instances/", "editor");
   await reader.goto(metadataUrl);
   const readerNotes = reader.locator("cedar-embeddable-editor").getByLabel("Notes", {exact: false}).first();
+  await editorStatus(reader, /^Unmodified$/).waitFor();
   await readerNotes.fill("Metadata draft after access loss");
   const beforeEditorRevocation = await call(user1.auth, "GET", instancePath);
   await menu(page, names.instance, "Permissions…");
@@ -1293,7 +1326,9 @@ try {
   assert.equal(await readerNotes.inputValue(), "Metadata draft after access loss");
   assert.deepEqual((await call(user1.auth, "GET", instancePath)).body, beforeEditorRevocation.body);
   await reader.getByRole("button", {name: "Reload metadata", exact: true}).click();
-  await reader.locator("dialog.confirmation-dialog").getByRole("button", {name: "Cancel", exact: true}).click();
+  const reloadQuestion = reader.locator("dialog.confirmation-dialog");
+  await reloadQuestion.getByRole("button", {name: "Cancel", exact: true}).click();
+  await reloadQuestion.waitFor({state: "hidden"});
   assert.equal(await readerNotes.inputValue(), "Metadata draft after access loss");
   await menu(page, names.instance, "Permissions…");
   await removePermission(page, "/template-instances/");
@@ -1413,18 +1448,15 @@ try {
   await listed(page, names.copy, destination);
   await menu(page, names.copy, "Enable Openview");
   await save(page, "POST", "/command/make-artifact-open", 200, true);
-  for (let i = 0; i < 20; i++) {
-    const r = await call(
-      null,
-      "GET",
-      "/templates/" + enc(copy["@id"]),
-      undefined,
-      { base: OPENVIEW },
-    );
-    if (r.status === 200) break;
-    if (i === 19) throw new Error("OpenView did not become public");
-    await page.waitForTimeout(500);
-  }
+  // OpenView follows a change of openness after the command has answered, so read it until it agrees.
+  const openViewStatus = async (open, what) => {
+    const outcome = await poll(async () => {
+      const r = await call(null, "GET", "/templates/" + enc(copy["@id"]), undefined, { base: OPENVIEW });
+      return { done: open ? r.status === 200 : [401, 403, 404].includes(r.status), status: r.status };
+    }, { tries: 20, delayMs: 500 });
+    assert.ok(!outcome.timedOut, `${what}: OpenView still answers ${outcome.status} after ${outcome.attempts} reads`);
+  };
+  await openViewStatus(true, "OpenView did not become public");
   const publicContext = await browser.newContext({ ignoreHTTPSErrors: true });
   const publicPage = await publicContext.newPage();
   publicPage.on("pageerror", (error) => errors.push(error.message));
@@ -1442,43 +1474,16 @@ try {
   }, names.copy);
   await menu(page, names.copy, "Disable Openview");
   await save(page, "POST", "/command/make-artifact-not-open", 200, true);
-  for (let i = 0; i < 20; i++) {
-    const r = await call(
-      null,
-      "GET",
-      "/templates/" + enc(copy["@id"]),
-      undefined,
-      { base: OPENVIEW },
-    );
-    if ([401, 403, 404].includes(r.status)) break;
-    if (i === 19)
-      throw new Error("Closed artifact remains public: " + r.status);
-    await page.waitForTimeout(500);
-  }
+  await openViewStatus(false, "Closed artifact remains public");
   pass("OpenView open/render/close");
   step = enter("folder-openview");
   await listed(page, names.destination);
   await menu(page, names.destination, "Enable Openview");
   await save(page, "POST", "/command/make-folder-open", 200, true);
-  assert.equal(
-    (
-      await call(null, "GET", "/templates/" + enc(copy["@id"]), undefined, {
-        base: OPENVIEW,
-      })
-    ).status,
-    200,
-  );
+  await openViewStatus(true, "An open folder did not make its child artifact public");
   await menu(page, names.destination, "Disable Openview");
   await save(page, "POST", "/command/make-folder-not-open", 200, true);
-  assert.ok(
-    [401, 403, 404].includes(
-      (
-        await call(null, "GET", "/templates/" + enc(copy["@id"]), undefined, {
-          base: OPENVIEW,
-        })
-      ).status,
-    ),
-  );
+  await openViewStatus(false, "A closed folder left its child artifact public");
   pass("Folder OpenView grant and revocation apply to its child artifact");
   step = enter("deleted-designer-save");
   await listed(page, names.copy, destination);
@@ -1539,17 +1544,19 @@ try {
   await searched;
   await ready(page);
   // Indexing is eventual. As in the ownership search, refresh the listing until the element appears.
-  for (let i = 0; !(await row(page, names.element).count()); i++) {
-    assert.ok(i < 20, "the authored element never appeared in the top search");
-    await page.waitForTimeout(1000);
-    const again = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return url.pathname === "/search" && url.searchParams.get("q") === names.element && response.status() === 200;
-    });
-    await page.getByRole("button", { name: "Refresh workspace", exact: true }).click();
-    await again;
-    await ready(page);
-  }
+  const found = await poll(async (attempt) => {
+    if (attempt > 1) {
+      const again = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname === "/search" && url.searchParams.get("q") === names.element && response.status() === 200;
+      });
+      await page.getByRole("button", { name: "Refresh workspace", exact: true }).click();
+      await again;
+      await ready(page);
+    }
+    return { done: (await row(page, names.element).count()) > 0 };
+  }, { tries: 21, delayMs: 1000 });
+  assert.ok(!found.timedOut, `the authored element never appeared in ${found.attempts} top searches`);
   pass("Top search finds authored element");
   step = enter("delete");
   for (const [kind, collection] of [
@@ -1563,6 +1570,7 @@ try {
       deletedEditor = await page.context().newPage();
       deletedEditor.on("pageerror", (error) => errors.push(error.message));
       await deletedEditor.goto(metadataUrl);
+      await editorStatus(deletedEditor, /^Unmodified$/).waitFor();
       await deletedEditor
         .locator("cedar-embeddable-editor")
         .getByLabel("Notes", { exact: false })
@@ -1684,6 +1692,9 @@ try {
       attemptedDeletes.includes(pathId(id)) ? 404 : 200);
   }
   await modal(page).getByRole("button", {name: "Delete", exact: true}).dispatchEvent("click");
+  // A deletion the dialog started would show its progress once rendered, and a refused one changes nothing.
+  await rendered(page);
+  assert.equal(await modal(page).getByRole("status").count(), 0, "the refused Delete started a deletion");
   assert.equal(attemptedDeletes.length, 2);
   await page.unroute(deleteMatcher, loseSecondDelete);
   await modal(page).getByRole("button", {name: "Cancel", exact: true}).click();

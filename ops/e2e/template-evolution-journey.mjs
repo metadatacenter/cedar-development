@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import {artifactBody, call, enc} from "./rest/lib.mjs";
+import {journeyFolder} from "./journey-fixtures.mjs";
+import {editorStatus} from "./metadata-journey-fixtures.mjs";
 
 // An author removes a field while an existing metadata record is being edited
 // in another tab. The supported Designer workflow must version the template,
 // leaving that record and its unsaved answer on the original definition.
+//
+// The journey acts as the runner's first test user only. Its second tab is in the same browser
+// context, and it never signs in as another account.
 export async function templateEvolutionJourney({page, base, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "template evolution");
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);
@@ -41,7 +47,9 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     await editor.goto(base + "/instances/edit/" + enc(instanceId));
     const cee = editor.locator("cedar-embeddable-editor");
     const notes = cee.getByLabel("Notes", {exact: true});
+    await editorStatus(editor, /^Unmodified$/).waitFor();
     await notes.fill("Unsaved answer on the original schema");
+    await editorStatus(editor, /^Modified$/).waitFor();
     await page.goto(designer + "/templates/edit/" + enc(templateId));
     await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
     const field = page.locator("app-field-card").filter({has: page.getByRole("textbox", {name: "Field display name", exact: true})}).first();
@@ -53,6 +61,9 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     assert.match(await page.locator("#version-message").innerText(), /1/);
     assert.match(await page.locator("#version-explanation").innerText(), /metadata.*(?:original|version)/i);
     await dialog.getByRole("button", {name: "Keep editing", exact: true}).click();
+    // Keep editing closes the dialog and leaves the edit unsaved, with nothing on its way to the server.
+    await dialog.waitFor({state: "hidden"});
+    await page.locator("#state").filter({hasText: /^Modified$/}).waitFor();
     assert.deepEqual(await read("templates", templateId), beforeTemplate);
     assert.deepEqual(await read("template-instances", instanceId), beforeInstance);
     assert.equal(await notes.inputValue(), "Unsaved answer on the original schema");
@@ -88,14 +99,18 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     assert.equal(saved.Notes["@value"], "Unsaved answer on the original schema");
     assert.deepEqual(saved.Keep, beforeInstance.Keep);
     await editor.reload();
+    await editorStatus(editor, /^Unmodified$/).waitFor();
     await notes.waitFor();
     assert.equal(await notes.inputValue(), "Unsaved answer on the original schema");
     assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Keep this answer");
     pass("Removing a used field creates a new template version while the open metadata record saves and reopens against its original schema");
     await editor.goto(base + "/instances/create/" + enc(draftId) + "?folderId=" + enc(folderId));
     const keep = cee.getByLabel("Keep", {exact: true});
-    await keep.fill("Answer on the new schema");
+    // Once the new version has loaded and its Keep field is shown, a Notes field would be shown too.
+    await editorStatus(editor, /^Unmodified$/).waitFor();
+    await keep.waitFor();
     assert.equal(await notes.count(), 0);
+    await keep.fill("Answer on the new schema");
     await editor.locator("#instance-name").fill(name + " new version record");
     const made = await write(editor, "PUT", "/template-instances/", () => editor.locator("#button-save-metadata").click(), 201);
     assert.ok(made?.["@id"]);
@@ -107,6 +122,7 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     assert.equal(newRecord.Keep["@value"], "Answer on the new schema");
     assert.deepEqual(await read("template-instances", instanceId), saved);
     await editor.reload();
+    await editorStatus(editor, /^Unmodified$/).waitFor();
     await keep.waitFor();
     assert.equal(await keep.inputValue(), "Answer on the new schema");
     assert.equal(await notes.count(), 0);

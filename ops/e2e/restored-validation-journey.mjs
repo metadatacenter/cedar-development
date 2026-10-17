@@ -5,6 +5,8 @@ import { comparable } from "./metadata-journey-fixtures.mjs";
 
 // The report is injected at the HTTP boundary; restoration, controls and the
 // corrected conditional write all use the running application and real store.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function restoredValidationJourney(args) {
   const { page, user, write, pass } = args;
   for (const kind of ["template", "element", "field", "metadata"]) {

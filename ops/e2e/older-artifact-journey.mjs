@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { artifactBody, call, enc, RESOURCE } from "./rest/lib.mjs";
+import { journeyFolder } from "./journey-fixtures.mjs";
+import { editorStatus } from "./metadata-journey-fixtures.mjs";
 
 function addField(container, key) {
   container.properties[key] = artifactBody("field", key);
@@ -19,7 +21,10 @@ function comparable(artifact) {
 // These REST seed fixtures retain older schema shapes: an array-capable @type,
 // explicit false constraints, and no generated @language/annotation schemas.
 // Do not normalize them through a component save before taking the baseline.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function olderArtifactJourney({page, base, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "older artifacts");
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);
@@ -74,6 +79,7 @@ export async function olderArtifactJourney({page, base, designer, user, folderId
   const instancePath = "/template-instances/" + enc(instanceId);
   const before = await read(instancePath);
   await page.goto(base + "/instances/edit/" + enc(instanceId));
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await page.locator("cedar-embeddable-editor").getByLabel("Notes", {exact: true}).waitFor();
   await page.locator("#instance-name").fill(name + " renamed older metadata");
   await write(page, "PUT", "/template-instances/", () => page.locator("#button-save-metadata").click(), 200, true);
@@ -85,6 +91,7 @@ export async function olderArtifactJourney({page, base, designer, user, folderId
   assert.deepEqual(comparable(await read(instancePath)), comparable(expected));
   await page.reload();
   const notes = page.locator("cedar-embeddable-editor").getByLabel("Notes", {exact: true});
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await notes.waitFor();
   assert.equal(await notes.inputValue(), "Old answer");
   assert.equal(await page.locator("cedar-embeddable-editor").getByLabel("Keep", {exact: true}).inputValue(), "Untouched answer");

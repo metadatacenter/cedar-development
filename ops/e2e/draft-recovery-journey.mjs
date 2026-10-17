@@ -1,7 +1,11 @@
 import {journeyFolder} from "./journey-fixtures.mjs";
+import {editorStatus} from "./metadata-journey-fixtures.mjs";
 import assert from 'node:assert/strict';
 import {artifactBody, call, mutate, enc, RESOURCE} from './rest/lib.mjs';
 
+// Both journeys act as the runner's first test user. The sign-in case returns through the SSO
+// cookie, or through the login form as the same user if that has expired. Neither signs in as
+// another account.
 export async function draftRecoveryJourney({page,base,designer,user,folderId,name,created,write,pass}) {
   folderId = await journeyFolder({user, folderId, name, created}, "recovery");
   async function create(collection,body) {
@@ -25,10 +29,9 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
     const url=(metadata?base+'/instances/edit/':designer+'/'+kind+'s/edit/')+enc(id);
     await page.goto(url);
     const component=page.locator(metadata?'cedar-embeddable-editor':kind==='field'?'cedar-embeddable-field-designer':'cedar-embeddable-designer');
-    if(!metadata) {
-      await page.locator('#state').filter({hasText:/^Unmodified$/}).waitFor();
-      if(kind==='field')await page.getByRole('tab',{name:'Presentation',exact:true}).click();
-    }
+    const status=text=>metadata?editorStatus(page,text):page.locator('#state').filter({hasText:text});
+    await status(/^Unmodified$/).waitFor();
+    if(kind==='field')await page.getByRole('tab',{name:'Presentation',exact:true}).click();
     const input=metadata?component.getByLabel('Notes',{exact:true}):page.getByPlaceholder(kind==='field'?'Field description':'Add description...',{exact:true}).first();
     await input.fill('Retained '+failure);
     const matcher=url=>url.origin===new URL(RESOURCE).origin && url.pathname.startsWith('/'+collection+'/') &&
@@ -42,11 +45,13 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
       if(failure==='lost reply') {const response=await route.fetch();assert.equal(response.status(),200,await response.text());}
       return route.abort('failed');
     };
-    await page.route(matcher,intercept);
-    const save=page.locator(metadata?'#button-save-metadata':'#save');await save.click();
+    const save=page.locator(metadata?'#button-save-metadata':'#save');
     const recovery=page.getByRole('button',{name:failure==='sign-in'?'Recheck access':'Check save status',exact:true});
-    await recovery.waitFor();assert.equal(await save.isDisabled(),true);
-    await page.unroute(matcher,intercept);
+    await page.route(matcher,intercept);
+    try {
+      await save.click();
+      await recovery.waitFor();assert.equal(await save.isDisabled(),true);
+    } finally {await page.unroute(matcher,intercept);}
     if(failure==='sign-in') {
       await page.getByRole('button',{name:'Sign in again',exact:true}).click();
       // A valid SSO cookie returns directly; a fully expired session asks for credentials.
@@ -72,8 +77,8 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
     assert.equal(metadata?stored.body.Notes['@value']:stored.body['schema:description'],'Next after '+failure);
     await page.locator(metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
     await page.reload();
-    if(!metadata)await page.locator('#state').filter({hasText:/^Unmodified$/}).waitFor();
-    else await page.getByLabel('Instance name',{exact:true}).waitFor();
+    // A loaded page has already decided whether to offer a draft.
+    await status(/^Unmodified$/).waitFor();
     assert.equal(await page.getByRole('button',{name:'Restore draft',exact:true}).isVisible(),false);
     if(!metadata)assert.equal(await page.locator('#draft-offer').isVisible(),false);
     page.off('request',countWrites);
@@ -82,6 +87,7 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
 }
 
 export async function metadataReconciliationJourney({page,base,user,folderId,name,created,write,pass}) {
+  folderId=await journeyFolder({user,folderId,name,created},'metadata reconciliation');
   const template=artifactBody('template',name+' conflict');
   template.properties.Notes=artifactBody('field','Notes');template.properties['@context'].properties.Notes={enum:['https://example.org/draft/Notes']};
   template._ui.order.push('Notes');template._ui.propertyLabels.Notes='Notes';template.required.push('Notes');
@@ -91,13 +97,18 @@ export async function metadataReconciliationJourney({page,base,user,folderId,nam
   body['@context'].Notes='https://example.org/draft/Notes';body['@context']['pav:derivedFrom']={'@type':'@id'};
   const id=await create('template-instances',body),path='/template-instances/'+enc(id);
   await page.goto(base+'/instances/edit/'+enc(id));
-  const notes=page.locator('cedar-embeddable-editor').getByLabel('Notes',{exact:true});await notes.fill('My choice');
+  const notes=page.locator('cedar-embeddable-editor').getByLabel('Notes',{exact:true});
+  await editorStatus(page,/^Unmodified$/).waitFor();await notes.fill('My choice');
   const before=await call(user.auth,'GET',path);
   const changed=await mutate(user.auth,'PUT',path,{...before.body,Notes:{'@value':'Other author'}});assert.equal(changed.status,200,changed.text);
   await write(page,'PUT','/template-instances/',()=>page.locator('#button-save-metadata').click(),412,true);
   await page.getByRole('button',{name:'Review latest saved version',exact:true}).click();
   const apply=page.getByRole('button',{name:'Apply reviewed changes',exact:true});await apply.waitFor();assert.equal(await apply.isDisabled(),true);
-  await page.getByLabel('Keep my value',{exact:true}).check();await apply.click();assert.equal(await notes.inputValue(),'My choice');
+  await page.getByLabel('Keep my value',{exact:true}).check();await apply.click();
+  // Applying the review closes it and replaces the form with one that holds the chosen values.
+  await apply.waitFor({state:'detached'});
+  await editorStatus(page,/^Modified$/).waitFor();
+  assert.equal(await notes.inputValue(),'My choice');
   await write(page,'PUT','/template-instances/',()=>page.locator('#button-save-metadata').click(),200,true);
   assert.equal((await call(user.auth,'GET',path)).body.Notes['@value'],'My choice');
   pass('Metadata conflict: real 412, explicit comparison and choice, conditional save and authoritative readback');

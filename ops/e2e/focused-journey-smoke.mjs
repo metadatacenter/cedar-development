@@ -40,6 +40,7 @@ import {
 import { currentTemplateConstraintJourney } from "./current-template-constraint-journey.mjs";
 import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
+import { olderArtifactJourney } from "./older-artifact-journey.mjs";
 import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
 import {
   workspaceDraftSharingJourney,
@@ -81,6 +82,7 @@ const journeys = {
   "current-template-constraint": currentTemplateConstraintJourney,
   "uncertain-move": uncertainMoveJourney,
   "older-key-rename": olderKeyRenameJourney,
+  "older-artifacts": olderArtifactJourney,
   "designer-pending-save": designerPendingSaveJourney,
   "draft-sharing-workspace": workspaceDraftSharingJourney,
   "draft-sharing-designer": designerDraftSharingJourney,

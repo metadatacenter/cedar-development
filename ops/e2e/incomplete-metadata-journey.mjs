@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { call, enc } from "./rest/lib.mjs";
+import { journeyFolder } from "./journey-fixtures.mjs";
+import { editorStatus, offeredTerm } from "./metadata-journey-fixtures.mjs";
 
 // Missing required values are warnings under the existing Editor contract.
 // Prove that saving work in progress does not falsely mark it complete, and that
 // the author can reopen and finish it without losing the answers already given.
+//
+// The journey acts as the runner's first test user only and never signs in as another account. It
+// copies the full smoke's template, so it runs only inside that smoke.
 export async function incompleteMetadataJourney({page, base, user, folderId, templateId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "incomplete metadata");
   const source = await call(user.auth, "GET", "/templates/" + enc(templateId));
   assert.equal(source.status, 200);
   const template = structuredClone(source.body);
@@ -19,17 +25,13 @@ export async function incompleteMetadataJourney({page, base, user, folderId, tem
   await page.goto(base + "/instances/create/" + enc(made.body["@id"]) + "?folderId=" + enc(folderId));
   const cee = page.locator("cedar-embeddable-editor");
   const notes = cee.getByLabel("Notes", {exact: false}).first();
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await notes.waitFor();
   assert.equal(await notes.inputValue(), "");
   await page.locator("#instance-name").fill(name + " incomplete metadata");
   const disease = cee.getByLabel("Disease", {exact: false}).first();
-  const influenza = page.getByRole("option", {name: /influenza/i}).first();
-  for (let attempt = 0; ; attempt++) {
-    await disease.fill("");
-    await disease.pressSequentially("influenza", {delay: 40});
-    if (await influenza.waitFor({timeout: 15000}).then(() => true, () => false)) break;
-    assert.ok(attempt < 2, "no Disease suggestion for the incomplete metadata journey");
-  }
+  const influenza = await offeredTerm(page, disease, "influenza", /influenza/i,
+    "no Disease suggestion for the incomplete metadata journey");
   await influenza.click();
   const warnings = page.locator("details.validation-summary--warning");
   await warnings.waitFor();
@@ -48,6 +50,7 @@ export async function incompleteMetadataJourney({page, base, user, folderId, tem
   await page.getByRole("button", {name: "Back to Workspace", exact: true}).click();
   await page.locator("cedar-workspace-page .destinations").waitFor();
   await page.goto(editUrl);
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await notes.waitFor();
   await warnings.waitFor();
   assert.equal(await notes.inputValue(), "");

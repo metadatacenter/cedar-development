@@ -1,9 +1,12 @@
-import {journeyFolder} from "./journey-fixtures.mjs";
+import {journeyFolder, listedIn} from "./journey-fixtures.mjs";
+import {editorStatus} from "./metadata-journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc} from "./rest/lib.mjs";
 
 // A copy is an independent artifact with derivation provenance, not another
 // version of its source. Exercise the menu and both editing directions.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function duplicationJourney({page, base, designer, user, folderId, name, created, write, pass}) {
   folderId = await journeyFolder({user, folderId, name, created}, "copies");
   async function create(collection, body) {
@@ -45,24 +48,19 @@ export async function duplicationJourney({page, base, designer, user, folderId, 
     return copy;
   }
   async function listed(artifactName) {
-    for (let attempt = 0; attempt < 15; attempt++) {
-      await page.goto(base + "/dashboard?folderId=" + enc(folderId));
-      await page.getByRole("button", {name: "New", exact: true}).waitFor();
-      const list = page.getByRole("button", {name: "List view", exact: true});
-      if (await list.count()) await list.click();
-      const row = page.locator("tbody tr").filter({has: page.getByRole("link", {name: artifactName, exact: true})});
-      if (await row.waitFor({timeout: 1000}).then(() => true, () => false)) return row;
-    }
-    throw new Error("Copy source not listed: " + artifactName);
+    const row = page.locator("tbody tr").filter({has: page.getByRole("link", {name: artifactName, exact: true})});
+    return listedIn(page, base, folderId, row, "Copy source " + artifactName, 15);
   }
   async function edit(kind, collection, id, value) {
     if (kind === "instance") {
       await page.goto(base + "/instances/edit/" + enc(id));
       const notes = page.locator("cedar-embeddable-editor").getByLabel("Notes", {exact: true});
+      await editorStatus(page, /^Unmodified$/).waitFor();
       await notes.fill(value);
       await write(page, "PUT", "/template-instances/", () => page.locator("#button-save-metadata").click(), 200, true);
       await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
       await page.reload();
+      await editorStatus(page, /^Unmodified$/).waitFor();
       await notes.waitFor();
       assert.equal(await notes.inputValue(), value);
     } else {

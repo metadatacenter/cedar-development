@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
-import {actors,artifactBody,call,mutate,enc,RESOURCE} from './rest/lib.mjs';
+import {actors,artifactBody,call,mutate,enc,poll,RESOURCE} from './rest/lib.mjs';
 import {journeyFolder} from './journey-fixtures.mjs';
+
+// startup-recovery acts as the runner's first test user only. tab-isolation also signs the second
+// test user in to a browser context of its own, so it belongs in the identity lane.
+
+// These are the statuses either host shows once it has loaded what it opened, edited or not.
+const LOADED=/^(Unmodified|Modified|Saved|Read only|Reload required)$/;
 
 export async function recoveryFixture(args,kind,suffix,{pattern=false}={}) {
   const {page,base,designer,user,name,created}=args;
@@ -25,6 +31,7 @@ export async function recoveryFixture(args,kind,suffix,{pattern=false}={}) {
   const url=(metadata?base+'/instances/edit/':designer+'/'+kind+'s/edit/')+enc(id);
   const input=p=>metadata?p.locator('cedar-embeddable-editor').getByLabel('Notes',{exact:true}):p.getByPlaceholder(kind==='field'?'Field description':'Add description...',{exact:true}).first();
   async function ready(p) {
+    await p.locator(metadata?'.metadata-toolbar [role=status]':'#state').filter({hasText:LOADED}).waitFor();
     if(metadata)await p.getByLabel('Instance name',{exact:true}).waitFor();
     else {await p.locator('#editor > *').waitFor();if(kind==='field')await p.getByRole('tab',{name:'Presentation',exact:true}).click();}
     await input(p).waitFor();
@@ -34,14 +41,11 @@ export async function recoveryFixture(args,kind,suffix,{pattern=false}={}) {
   await page.goto(url);await ready(page);await assertNoRecoveryFiles(page);
   return {id,path,url,input,ready,save,matcher,metadata,collection,folderId,templateId};
 }
+// A restored draft can remount the form, so the input is found afresh on every read. The poll lasts
+// about as long as the runners' default wait, and fails naming the value it waited for.
 export async function settled(input,value) {
-  const until=Date.now()+10000;
-  while(true) {
-    const current=await input.inputValue();
-    if(current===value)return;
-    assert.ok(Date.now()<until,`Expected retained input ${value}, got ${current}`);
-    await new Promise(resolve=>setTimeout(resolve,50));
-  }
+  const outcome=await poll(async()=>{const current=await input.inputValue();return {done:current===value,current};},{tries:100,delayMs:250});
+  assert.ok(!outcome.timedOut,`Expected retained input ${value}, got ${outcome.current}`);
 }
 export async function startupRecoveryJourney(args) {
   const {page,user,pass}=args;
@@ -59,13 +63,15 @@ export async function startupRecoveryJourney(args) {
     const fail=route=>{if(route.request().method()!=='GET')return route.fallback();intercepted++;return route.fulfill({status:503,json:{message:'Temporary startup outage'}});};
     const match=dependency==='component'?url=>scripts.some(script=>new URL(script).origin===url.origin&&new URL(script).pathname===url.pathname):dependency==='destination'?url=>url.origin===new URL(RESOURCE).origin&&url.pathname.startsWith('/folders/')&&decodeURIComponent(url.pathname.split('/').at(-1)).split('/').at(-1)===f.folderId.split('/').at(-1):matcher;
     if(dependency==='component')assert.ok(scripts.length,'find served component script');
-    await page.route(match,fail);await page.reload();
-    await page.locator(f.metadata?'.metadata-toolbar [role=status]':'#state').filter({hasText:'Unable to load'}).waitFor();assert.ok(intercepted>0,'startup failure must be injected');
-    await page.getByRole('button',{name:f.metadata?'Retry':'Reload designer',exact:true}).waitFor();
-    await page.getByRole('button',{name:'Restore draft',exact:true}).waitFor();
-    assert.ok(await page.evaluate(value=>Object.values(sessionStorage).some(raw=>raw.includes(value)),value));
-    await assertNoRecoveryFiles(page);
-    await page.unroute(match,fail);
+    await page.route(match,fail);
+    try {
+      await page.reload();
+      await page.locator(f.metadata?'.metadata-toolbar [role=status]':'#state').filter({hasText:'Unable to load'}).waitFor();assert.ok(intercepted>0,'startup failure must be injected');
+      await page.getByRole('button',{name:f.metadata?'Retry':'Reload designer',exact:true}).waitFor();
+      await page.getByRole('button',{name:'Restore draft',exact:true}).waitFor();
+      assert.ok(await page.evaluate(value=>Object.values(sessionStorage).some(raw=>raw.includes(value)),value));
+      await assertNoRecoveryFiles(page);
+    } finally {await page.unroute(match,fail);}
     await page.getByRole('button',{name:f.metadata?'Retry':'Reload designer',exact:true}).click();
     await page.getByRole('button',{name:'Restore draft',exact:true}).click();await f.ready(page);await settled(f.input(page),value);await assertNoRecoveryFiles(page);
     assert.deepEqual((await call(user.auth,'GET',f.path)).body,before.body);
@@ -84,6 +90,8 @@ export async function tabIsolationJourney(args) {
     await other.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await other.locator('#kc-login').click();await other.getByRole('button',{name:'New',exact:true}).waitFor();
     for(const kind of ['template','metadata']) {
       const f=await recoveryFixture(args,kind,'tab isolation');await f.input(page).fill('First tab draft');
+      // Take the snapshot once the tab has retained the draft, or it would prove nothing about that draft.
+      await page.waitForFunction(value=>Object.values(sessionStorage).some(raw=>raw.includes(value)),'First tab draft');
       const retained=await page.evaluate(()=>Object.entries(sessionStorage));
       const fresh=await page.context().newPage();fresh.on('dialog',d=>d.accept());
       try {

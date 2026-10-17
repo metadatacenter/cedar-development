@@ -4,8 +4,10 @@ import {
   metadataFixture,
   numericField,
   comparable,
+  editorStatus,
 } from "./metadata-journey-fixtures.mjs";
 
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function scalarRoundtripJourney(args) {
   const { page, write, pass } = args;
   const fields = {
@@ -46,7 +48,12 @@ export async function scalarRoundtripJourney(args) {
   const cee = page.locator("cedar-embeddable-editor"),
     notes = cee.getByLabel("Notes", { exact: true }),
     save = page.locator("#button-save-metadata");
-  await notes.waitFor();
+  // Every value is read and edited only once the page has loaded the record.
+  const opened = async () => {
+    await editorStatus(page, /^Unmodified$/).waitFor();
+    await notes.waitFor();
+  };
+  await opened();
   for (const key of ["Decimal", "Integer", "NegativeZero"])
     assert.equal(
       await cee.getByLabel(key, { exact: true }).inputValue(),
@@ -69,7 +76,7 @@ export async function scalarRoundtripJourney(args) {
   expected.Notes["@value"] = "Unrelated edit";
   assert.deepEqual(comparable((await f.read()).body), comparable(expected));
   await page.reload();
-  await notes.waitFor();
+  await opened();
   for (const [key, value] of [
     ["Decimal", "1.23000000000000001"],
     ["Integer", "9007199254740995"],
@@ -92,7 +99,7 @@ export async function scalarRoundtripJourney(args) {
     .waitFor();
   assert.deepEqual(comparable((await f.read()).body), comparable(expected));
   await page.reload();
-  await notes.waitFor();
+  await opened();
   for (const key of ["Decimal", "Integer", "NegativeZero"])
     assert.equal(
       await cee.getByLabel(key, { exact: true }).inputValue(),

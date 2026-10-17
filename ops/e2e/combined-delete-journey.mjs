@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { artifactBody, call, mutate, enc, RESOURCE } from "./rest/lib.mjs";
-import { journeyFolder } from "./journey-fixtures.mjs";
+import { journeyFolder, listedIn, listingIdle } from "./journey-fixtures.mjs";
 
+// The journey acts as the runner's first test user only and never signs in as another account. Its
+// fault route covers the whole resource origin of its page, so it needs a page of its own.
 export async function combinedDeleteJourney(args) {
   const { page, base, user, name, created, pass } = args;
   for (const outcome of ["uncommitted", "committed"])
@@ -47,31 +49,7 @@ export async function combinedDeleteJourney(args) {
       const selected = [folder, uncertain, remaining],
         row = (item) => page.locator(`[data-resource-id="${item.id}"]`),
         path = (item) => "/" + item.collection + "/" + enc(item.id);
-      for (let attempt = 0; ; attempt++) {
-        await page.goto(base + "/dashboard?folderId=" + enc(folderId));
-        await page.getByRole("button", { name: "New", exact: true }).waitFor();
-        const list = page.getByRole("button", {
-          name: "List view",
-          exact: true,
-        });
-        if (await list.count()) await list.click();
-        await page.waitForFunction(
-          () =>
-            document
-              .querySelector(".table-scroll")
-              ?.getAttribute("aria-busy") === "false",
-        );
-        if (
-          await row(remaining)
-            .waitFor({ timeout: 1000 })
-            .then(
-              () => true,
-              () => false,
-            )
-        )
-          break;
-        assert.ok(attempt < 15, "deletion fixtures not listed");
-      }
+      await listedIn(page, base, folderId, row(remaining), "the deletion fixtures");
       for (const [index, item] of selected.entries())
         await row(item)
           .locator(".resource-icon")
@@ -161,12 +139,7 @@ export async function combinedDeleteJourney(args) {
           .getByRole("alert")
           .filter({ hasText: "Some items may already have been deleted" })
           .waitFor();
-        await page.waitForFunction(
-          () =>
-            document
-              .querySelector(".table-scroll")
-              ?.getAttribute("aria-busy") === "false",
-        );
+        await listingIdle(page);
         assert.equal(routeError, undefined);
         assert.ok(listingFailures > 0);
         assert.equal(await confirm.isDisabled(), true);
@@ -191,26 +164,39 @@ export async function combinedDeleteJourney(args) {
           200,
         );
         inventoryDown = true;
-        for (let retry = 0; retry < 2; retry++) {
-          const failures = inventoryFailures;
-          await refresh.click();
-          await dialog
-            .getByText(/The complete selection could not be checked/)
-            .waitFor();
-          const until = Date.now() + 10000;
-          while (inventoryFailures === failures) {
-            assert.ok(
-              Date.now() < until,
-              "inventory retry did not reach the server",
-            );
-            await new Promise((resolve) => setTimeout(resolve, 25));
-          }
-          await page.waitForFunction(() =>
+        // A retry has reached the fault once the answer to one of its reads, or the dropped
+        // connection, has come back. The dialog disables Refresh inventory while it checks, so the
+        // check has ended once the control is enabled again.
+        const inventoryRead = (request) => {
+          const pathname = new URL(request.url()).pathname;
+          return (
+            request.method() === "GET" &&
+            (pathname.endsWith("/report") || pathname.endsWith("/deletion")) &&
+            items.some((item) =>
+              decodeURIComponent(pathname).split("/").includes(item.id.split("/").at(-1)),
+            )
+          );
+        };
+        const refreshEnabled = () =>
+          page.waitForFunction(() =>
             [...document.querySelectorAll("button")].some(
               (b) =>
                 b.textContent.trim() === "Refresh inventory" && !b.disabled,
             ),
           );
+        for (let retry = 0; retry < 2; retry++) {
+          const failures = inventoryFailures;
+          const [read] = await Promise.all([
+            page.waitForRequest(inventoryRead).catch((error) => {
+              throw new Error("inventory retry did not reach the server: " + error.message);
+            }),
+            refresh.click(),
+          ]);
+          await read.response();
+          await refreshEnabled();
+          await dialog
+            .getByText(/The complete selection could not be checked/)
+            .waitFor();
           assert.ok(inventoryFailures > failures);
           assert.equal(await confirm.isDisabled(), true);
           assert.equal(await progress.innerText(), confirmed);
@@ -261,21 +247,21 @@ export async function combinedDeleteJourney(args) {
             exact: true,
           });
           const failedListings = listingFailures;
-          await reload.click();
-          const listingDeadline = Date.now() + 10000;
-          while (listingFailures === failedListings) {
-            assert.ok(
-              Date.now() < listingDeadline,
-              "failed listing retry did not reach the server",
-            );
-            await new Promise((resolve) => setTimeout(resolve, 25));
-          }
-          await page.waitForFunction(
-            () =>
-              document
-                .querySelector(".table-scroll")
-                ?.getAttribute("aria-busy") === "false",
-          );
+          const [listingRead] = await Promise.all([
+            page
+              .waitForRequest(
+                (request) =>
+                  request.method() === "GET" &&
+                  new URL(request.url()).pathname.includes("/contents"),
+              )
+              .catch((error) => {
+                throw new Error("failed listing retry did not reach the server: " + error.message);
+              }),
+            reload.click(),
+          ]);
+          await listingRead.response();
+          await listingIdle(page);
+          assert.ok(listingFailures > failedListings, "failed listing retry did not reach the server");
           assert.equal(writes.length, 2);
           listingDown = false;
           await Promise.all([
@@ -309,15 +295,17 @@ export async function combinedDeleteJourney(args) {
           ]);
         }
         listingDown = false;
-        await page
-          .getByRole("button", { name: "Refresh workspace", exact: true })
-          .click();
-        await page.waitForFunction(
-          () =>
-            document
-              .querySelector(".table-scroll")
-              ?.getAttribute("aria-busy") === "false",
-        );
+        await Promise.all([
+          page.waitForResponse(
+            (response) =>
+              response.request().method() === "GET" &&
+              new URL(response.url()).pathname.includes("/contents"),
+          ),
+          page
+            .getByRole("button", { name: "Refresh workspace", exact: true })
+            .click(),
+        ]);
+        await listingIdle(page);
         for (const item of items)
           assert.equal((await call(user.auth, "GET", path(item))).status, 404);
         assert.equal(routeError, undefined);

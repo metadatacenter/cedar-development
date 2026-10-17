@@ -320,7 +320,12 @@ try {
     await page
       .getByRole("button", { name: "Reload group", exact: true })
       .click();
-    await page.getByRole("button", { name: "Save", exact: true }).waitFor();
+    // Save stays disabled until the page holds the server's current revision again.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("button")].some(
+        (button) => button.textContent.trim() === "Save" && !button.disabled,
+      ),
+    );
     assert.equal(
       await page.getByLabel("Description", { exact: true }).inputValue(),
       "Local edit retained",

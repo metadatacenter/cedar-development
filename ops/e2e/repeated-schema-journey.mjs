@@ -73,6 +73,7 @@ function comparableSchema(body) {
   delete field["oslc:modifiedBy"];
   return copy;
 }
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function repeatedSchemaJourney(args) {
   const { page, write, pass } = args;
   for (const kind of ["template", "element"]) {

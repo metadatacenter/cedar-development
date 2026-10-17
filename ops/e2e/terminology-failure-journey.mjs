@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { call, TERMINOLOGY } from "./rest/lib.mjs";
+import { editorStatus } from "./metadata-journey-fixtures.mjs";
 
 // Only this page loses terminology search. Recovery uses the real service, and
 // artifact writes continue to reach the real resource server throughout.
+//
+// Both journeys sign nobody in. Each continues on the page the full smoke hands it, as its first
+// test user, and depends on what that smoke has put on the page.
 function searchRoute(path) {
   return url => url.origin === new URL(TERMINOLOGY).origin && url.pathname.endsWith(path);
 }
@@ -62,6 +66,7 @@ export async function editorTerminologyFailureJourney({page, user, instancePath,
     const label = await disease.inputValue();
     const draft = `Notes retained during terminology ${mode}`;
     await notes.fill(draft);
+    await editorStatus(page, /^Modified$/).waitFor();
     const metadata = await cee.evaluate(el => el.currentMetadata);
     const hits = [];
     const fail = outage(mode, hits);
@@ -90,8 +95,12 @@ export async function editorTerminologyFailureJourney({page, user, instancePath,
       disease.fill("influen"),
     ]);
     assert.equal(response.status(), 200);
-    await page.getByRole("option", {name: label, exact: true}).click();
+    // The live answer replaces the failure notice in the open suggestions. Choosing a term closes them.
+    const recovered = page.getByRole("option", {name: label, exact: true});
+    await recovered.waitFor();
     assert.equal(await page.locator(".lookup-failed").count(), 0);
+    await recovered.click();
+    await recovered.waitFor({state: "hidden"});
     assert.equal(await notes.inputValue(), draft);
     assert.deepEqual((await cee.evaluate(el => el.currentMetadata)).Disease, metadata.Disease);
     pass(`Editor terminology ${mode} explains failure, preserves and saves existing input, and recovers through a live search`);

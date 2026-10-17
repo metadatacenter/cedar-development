@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { call, mutate, enc } from "./rest/lib.mjs";
+import { editorStatus, offeredTerm } from "./metadata-journey-fixtures.mjs";
 
 // A shared template embeds its reused element snapshot. A recipient should be
 // able to populate that template even without access to the private library source.
+//
+// The journey signs nobody in. It acts as the recipient on the page it is given, which the full
+// smoke has signed in as its second test user and left on the recipient's Shared with Me listing.
 export async function sharedTemplateJourney({page, user, sourceElementId, templateName, created, menu, write, pass}) {
   const privateSource = await call(user.auth, "GET", "/template-elements/" + enc(sourceElementId));
   assert.ok([403, 404].includes(privateSource.status), "the library source must remain private in this journey");
@@ -10,15 +14,11 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
   try {
     await menu(page, templateName, "Populate");
     const cee = page.locator("cedar-embeddable-editor");
+    await editorStatus(page, /^Unmodified$/).waitFor();
     await cee.getByLabel("Notes", {exact: false}).first().fill("Metadata from a shared template");
     const disease = cee.getByLabel("Disease", {exact: false}).first();
-    const influenza = page.getByRole("option", {name: /influenza/i}).first();
-    for (let attempt = 0; ; attempt++) {
-      await disease.fill("");
-      await disease.pressSequentially("influenza", {delay: 40});
-      if (await influenza.waitFor({timeout: 15000}).then(() => true, () => false)) break;
-      assert.ok(attempt < 2, "the recipient could not use the template's terminology constraint");
-    }
+    const influenza = await offeredTerm(page, disease, "influenza", /influenza/i,
+      "the recipient could not use the template's terminology constraint");
     await influenza.click();
     const saved = await write(page, "PUT", "/template-instances/",
       () => page.locator("#button-save-metadata").click(), 201);
@@ -34,6 +34,7 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
     await page.getByRole("button", {name: "Back to Workspace", exact: true}).click();
     await page.locator("cedar-workspace-page .destinations").waitFor();
     await page.goto(editUrl);
+    await editorStatus(page, /^Unmodified$/).waitFor();
     await cee.getByLabel("Notes", {exact: false}).first().waitFor();
     assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), "Metadata from a shared template");
     assert.match(await disease.inputValue(), /influenza/i);

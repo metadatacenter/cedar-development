@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { artifactBody, call, enc } from "./rest/lib.mjs";
+import { journeyFolder } from "./journey-fixtures.mjs";
+import { editorStatus } from "./metadata-journey-fixtures.mjs";
 
 const propertyIri = key => "https://example.org/deletion-journey/" + key;
 function addChild(parent, key, child, repeat = false) {
@@ -42,7 +44,10 @@ function content(artifact) {
 
 // These surfaces have no deletion Undo action. Exercise their actual recovery
 // contract: cancel where offered, or deliberately discard unsaved deletions.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function contentDeletionJourney({page, base, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "content deletion");
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);
@@ -73,13 +78,19 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   const dialog = page.getByRole("dialog", {name: "Delete element?", exact: true});
   await deleteElement.click();
   await dialog.getByRole("button", {name: "Cancel", exact: true}).click();
+  await dialog.waitFor({state: "hidden"});
   assert.deepEqual(await ced.evaluate(el => el.currentArtifact), original);
+  // The field's deletion is the first edit, so the state reads Modified once it has happened. The
+  // element's has happened once its card, and the card's delete control with it, has gone.
   async function deleteChildren() {
     const field = page.locator("app-field-card").first();
     assert.equal(await field.getByRole("textbox", {name: "Field display name", exact: true}).inputValue(), "Notes");
     await field.getByRole("button", {name: "Delete field", exact: true}).click();
+    await page.locator("#state").filter({hasText: /^Modified$/}).waitFor();
     await deleteElement.click();
     await dialog.getByRole("button", {name: "Delete", exact: true}).click();
+    await dialog.waitFor({state: "hidden"});
+    await deleteElement.waitFor({state: "detached"});
   }
   await deleteChildren();
   assert.deepEqual(await ced.evaluate(el => el.currentArtifact), withoutChildren(original, ["Notes", "Visits"]));
@@ -119,17 +130,27 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   assert.ok(stored.Visits.every(visit => typeof visit["@id"] === "string" && visit["@id"]));
   await page.goto(base + "/instances/edit/" + enc(instanceId));
   const cee = page.locator("cedar-embeddable-editor");
-  await cee.getByLabel("Keep", {exact: true}).waitFor();
+  // The editor has rendered the stored record once the page reports it loaded.
+  async function opened() {
+    await editorStatus(page, /^Unmodified$/).waitFor();
+    await cee.getByLabel("Keep", {exact: true}).waitFor();
+  }
+  await opened();
   const initial = await cee.evaluate(el => el.currentMetadata);
   // There are two pagers: the repeated field and the repeated element. Detail
   // is scalar, so it cannot accidentally satisfy a pager action.
   const pagers = cee.locator("app-cedar-multi-pager");
+  await pagers.nth(1).waitFor();
   assert.equal(await pagers.count(), 2);
+  // A pager marks the occurrence it shows, and numbers one option per occurrence.
   async function deleteMiddle() {
     for (const pager of [pagers.nth(0), pagers.nth(1)]) {
       await pager.getByRole("option", {name: "2", exact: true}).click();
+      await pager.getByRole("option", {name: "2", exact: true, selected: true}).waitFor();
       await pager.getByRole("button", {name: "Delete current", exact: true}).click();
+      await pager.getByRole("option", {name: "3", exact: true}).waitFor({state: "detached"});
     }
+    await editorStatus(page, /^Modified$/).waitFor();
   }
   const reduced = {...initial, Notes: [initial.Notes[0], initial.Notes[2]], Visits: [initial.Visits[0], initial.Visits[2]]};
   await deleteMiddle();
@@ -138,6 +159,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   await page.reload();
   await cee.getByLabel("Keep", {exact: true}).waitFor();
   await discardRetainedDeletion(false);
+  await opened();
   assert.deepEqual(await cee.evaluate(el => el.currentMetadata), initial);
   pass("Editor restores unsaved repeated-field and element deletions by explicitly discarding the recovery draft after reopening, including original values, order and element identities");
   await deleteMiddle();
@@ -146,7 +168,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   const reducedStored = {...stored, Notes: [stored.Notes[0], stored.Notes[2]], Visits: [stored.Visits[0], stored.Visits[2]]};
   assert.deepEqual(content(await read(instancePath)), content(reducedStored));
   await page.reload();
-  await cee.getByLabel("Keep", {exact: true}).waitFor();
+  await opened();
   const reopened = await cee.evaluate(el => el.currentMetadata);
   assert.deepEqual(reopened.Notes, reduced.Notes);
   assert.deepEqual(reopened.Visits, reduced.Visits);
@@ -156,6 +178,8 @@ export async function contentDeletionJourney({page, base, designer, user, folder
     const remove = pager.getByRole("button", {name: "Delete current", exact: true});
     await remove.click();
     await remove.click();
+    // An emptied pager says so in place of its occurrence numbers.
+    await pager.getByRole("option", {name: "No values yet", exact: true}).waitFor();
     assert.equal(await remove.isDisabled(), true);
   }
   const emptied = await cee.evaluate(el => el.currentMetadata);
@@ -166,7 +190,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
   assert.deepEqual(content(await read(instancePath)), content({...stored, Notes: [], Visits: []}));
   await page.reload();
-  await cee.getByLabel("Keep", {exact: true}).waitFor();
+  await opened();
   const emptyReopened = await cee.evaluate(el => el.currentMetadata);
   assert.deepEqual(emptyReopened.Notes, []);
   assert.deepEqual(emptyReopened.Visits, []);

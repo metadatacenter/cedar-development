@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
+import {journeyFolder} from "./journey-fixtures.mjs";
 
 // Break only the test page's reads. The service and stored fixtures stay intact.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function initialLoadJourney({page, base, designer, user, folderId, name, created, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "initial load");
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);
@@ -77,7 +81,11 @@ export async function initialLoadJourney({page, base, designer, user, folderId, 
         await page.locator(isDesigner ? "#reload" : "p.alert button").click();
         await page.locator(isDesigner ? "#state" : ".metadata-toolbar [role=status]").filter({hasText: /^Unmodified$/}).waitFor();
         assert.equal(await page.locator(isDesigner ? "#save" : "#button-save-metadata").isEnabled(), true);
-        if (!isDesigner) assert.equal(await page.getByLabel("Notes", {exact: true}).inputValue(), "Stored answer");
+        if (!isDesigner) {
+          const notes = page.getByLabel("Notes", {exact: true});
+          await notes.waitFor();
+          assert.equal(await notes.inputValue(), "Stored answer");
+        }
       }
       pass(`${surface} safely refuses opening when ${dependency} loading fails or disconnects, then retries without changing stored content`);
     }

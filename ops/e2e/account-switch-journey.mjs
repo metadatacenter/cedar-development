@@ -3,6 +3,9 @@ import { actors, call, mutate, enc } from "./rest/lib.mjs";
 import { recoveryFixture, settled } from "./recovery-boundary-journey.mjs";
 import { comparable } from "./metadata-journey-fixtures.mjs";
 
+// The journey logs out and signs in as each test user in turn, in a browser context of its own, so
+// it belongs in the identity lane. A logout ends that context's single sign-on session, which is
+// why no other journey may share the context.
 export async function accountSwitchJourney(args) {
   const { base, user, pass } = args,
     { user2 } = await actors();
@@ -52,6 +55,13 @@ export async function accountSwitchJourney(args) {
         kind,
         "actual account switch",
       );
+      // Each host retains a draft in the step that marks its page Modified, so the journey waits for
+      // that status before it leaves the page.
+      const modified = () =>
+        page
+          .locator(f.metadata ? ".metadata-toolbar [role=status]" : "#state")
+          .filter({ hasText: /^Modified$/ })
+          .waitFor();
       if (f.templateId)
         await grant("/templates/" + enc(f.templateId), "viewer");
       await grant(f.path, "editor");
@@ -62,6 +72,7 @@ export async function accountSwitchJourney(args) {
       };
       page.on("request", count);
       await f.input(page).fill("Owner retained work");
+      await modified();
       await login(2);
       await page.goto(f.url);
       await f.ready(page);
@@ -73,6 +84,7 @@ export async function accountSwitchJourney(args) {
       );
       assert.notEqual(await f.input(page).inputValue(), "Owner retained work");
       await f.input(page).fill("Collaborator retained work");
+      await modified();
       await login(1);
       await page.goto(f.url);
       await page

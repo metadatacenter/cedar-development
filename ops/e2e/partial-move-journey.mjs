@@ -1,10 +1,12 @@
-import {journeyFolder} from "./journey-fixtures.mjs";
+import {journeyFolder, listedIn, listingIdle} from "./journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 
 // Refuse one move at the HTTP boundary while allowing the other real server
 // moves to finish. Recovery must select only the remaining artifact and
 // preserve every stored document. This checks host handling, not authorization enforcement.
+//
+// Both journeys act as the runner's first test user only and never sign in as another account.
 async function groupedMoveJourney({page, base, user, folderId, name, created, pass}, mixed = false) {
   folderId = await journeyFolder({user, folderId, name, created}, mixed ? "mixed move failures" : "partial moves");
   const folder = await call(user.auth, "POST", "/folders", {folderId, name: name + " move target", description: "Temporary move destination"});
@@ -21,15 +23,7 @@ async function groupedMoveJourney({page, base, user, folderId, name, created, pa
     original.set(id, (await call(user.auth, "GET", "/template-fields/" + enc(id))).body);
   }
   const row = id => page.locator(`[data-resource-id="${id}"]`);
-  for (let attempt = 0; ; attempt++) {
-    await page.goto(base + "/dashboard?folderId=" + enc(folderId));
-    await page.getByRole("button", {name: "New", exact: true}).waitFor();
-    const list = page.getByRole("button", {name: "List view", exact: true});
-    if (await list.count()) await list.click();
-    await page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
-    if (await row(ids.at(-1)).waitFor({timeout: 1000}).then(() => true, () => false)) break;
-    assert.ok(attempt < 15, "move fixtures not listed");
-  }
+  await listedIn(page, base, folderId, row(ids.at(-1)), "the move fixtures");
   for (const [index, id] of ids.entries()) {
     await row(id).locator(".resource-icon").click({modifiers: index ? ["ControlOrMeta"] : []});
     await page.waitForFunction(expected => document.querySelectorAll("tr.selected").length === expected, index + 1);
@@ -80,6 +74,9 @@ async function groupedMoveJourney({page, base, user, folderId, name, created, pa
     assert.equal(attempts.length, ids.length);
     assert.deepEqual(attempts.filter(item => item.status === 403).map(item => item.id), [ids[1]]);
     assert.equal(attempts.filter(item => item.status === 201).length, 2);
+    // The source listing has refreshed once the moved rows have left it and it is idle again.
+    for (const id of [ids[0], ids[2]]) await row(id).waitFor({state: "detached"});
+    await listingIdle(page);
     await row(ids[1]).waitFor();
     assert.equal(await row(ids[1]).getAttribute("aria-selected"), "true");
     assert.equal(await page.locator("tr.selected").count(), mixed ? 2 : 1);

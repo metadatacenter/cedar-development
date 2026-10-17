@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
+import {focused, journeyFolder} from "./journey-fixtures.mjs";
+import {editorStatus} from "./metadata-journey-fixtures.mjs";
 
 // Supply a server-only finding at the HTTP boundary, then use real components
 // and real conditional writes to prove correction and resubmission. This does
 // not claim to exercise the server validator that produces the finding.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function validationRejectionJourney({page, base, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "validation rejection");
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);
@@ -52,12 +57,7 @@ export async function validationRejectionJourney({page, base, designer, user, fo
     await page.locator("#server-issues summary").click();
     assert.match(await page.locator("#server-issues-list").innerText(), /\/schema:description: Review the artifact description/);
     await page.locator("#server-issues-list").getByRole("button", {name: /Review the artifact description/}).click();
-    await description.evaluate(el => new Promise((resolve, reject) => {
-      const until = Date.now() + 5000;
-      const check = () => el.getRootNode().activeElement === el ? resolve() :
-        Date.now() > until ? reject(new Error("description finding did not focus its control")) : setTimeout(check, 20);
-      check();
-    }));
+    await focused(description, "description finding did not focus its control");
     assert.equal(await description.inputValue(), "Rejected description");
     assert.equal(await page.locator("#save").isDisabled(), true);
     assert.deepEqual(await read("templates", templateId), templateBefore);
@@ -83,12 +83,7 @@ export async function validationRejectionJourney({page, base, designer, user, fo
     await page.locator("#server-issues-list").getByRole("button", {name: /Review the nested pattern/}).click();
     const regex = page.locator('input[name="regex"]:visible');
     await regex.waitFor();
-    await regex.evaluate(el => new Promise((resolve, reject) => {
-      const until = Date.now() + 5000;
-      const check = () => el.getRootNode().activeElement === el ? resolve() :
-        Date.now() > until ? reject(new Error("nested finding did not focus regex")) : setTimeout(check, 20);
-      check();
-    }));
+    await focused(regex, "nested finding did not focus regex");
     await regex.fill(".*");
     await page.locator("#server-issues").waitFor({state: "hidden"});
   } finally { await page.unroute(templateMatch, refusePattern); }
@@ -112,11 +107,16 @@ export async function validationRejectionJourney({page, base, designer, user, fo
   await page.goto(base + "/instances/edit/" + enc(instanceId));
   const cee = page.locator("cedar-embeddable-editor");
   const detail = cee.getByLabel("Detail", {exact: true});
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await detail.waitFor();
   const pager = cee.locator("app-cedar-multi-pager");
+  // A pager shows one occurrence at a time, and its selected page number says which.
+  const occurrence = number => pager.getByRole("option", {name: number, exact: true, selected: true}).waitFor();
   await pager.getByRole("option", {name: "2", exact: true}).click();
+  await occurrence("2");
   await detail.fill("Rejected visit");
   await pager.getByRole("option", {name: "1", exact: true}).click();
+  await occurrence("1");
   const instanceMatch = matcher("template-instances", instanceId);
   const refuseDetail = route => route.request().method() === "PUT"
     ? route.fulfill(rejection("/Visits/1/Detail/@value", "Review this visit detail")) : route.fallback();
@@ -130,12 +130,7 @@ export async function validationRejectionJourney({page, base, designer, user, fo
     assert.deepEqual(await read("template-instances", instanceId), before);
     await issues.locator("summary").click();
     await issues.getByRole("button", {name: /Visits 2.*Detail.*Review this visit detail/}).click();
-    await detail.evaluate(el => new Promise((resolve, reject) => {
-      const until = Date.now() + 5000;
-      const check = () => el.getRootNode().activeElement === el ? resolve() :
-        Date.now() > until ? reject(new Error("finding did not focus the affected control")) : setTimeout(check, 20);
-      check();
-    }));
+    await focused(detail, "finding did not focus the affected control");
     assert.equal(await detail.inputValue(), "Rejected visit", "finding must reveal the second occurrence, not the first");
     assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Untouched");
   } finally { await page.unroute(instanceMatch, refuseDetail); }
@@ -149,9 +144,11 @@ export async function validationRejectionJourney({page, base, designer, user, fo
   for (const value of [expected, after]) { delete value["pav:lastUpdatedOn"]; delete value["oslc:modifiedBy"]; }
   assert.deepEqual(after, expected);
   await page.reload();
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await detail.waitFor();
   assert.equal(await detail.inputValue(), "First visit");
   await pager.getByRole("option", {name: "2", exact: true}).click();
+  await occurrence("2");
   assert.equal(await detail.inputValue(), "Corrected visit");
   pass("Editor reveals the rejected repeated-element control, retains all answers and identities, and saves/reopens the correction");
 }

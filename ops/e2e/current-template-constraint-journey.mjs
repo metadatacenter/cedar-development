@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import {artifactBody, call, mutate, enc} from "./rest/lib.mjs";
+import {focused, journeyFolder} from "./journey-fixtures.mjs";
+import {editorStatus} from "./metadata-journey-fixtures.mjs";
 
 // No response injection: another REST client tightens the template while Editor
 // holds its earlier projection. The real server must reject and locate the value.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function currentTemplateConstraintJourney({page, base, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "current template constraint");
   async function create(collection, body) {
     const result = await call(user.auth, "POST", "/" + collection + "?folder_id=" + enc(folderId), body);
     assert.equal(result.status, 201, result.text);
@@ -34,7 +39,10 @@ export async function currentTemplateConstraintJourney({page, base, user, folder
   await page.goto(base + "/instances/edit/" + enc(instanceId));
   const cee = page.locator("cedar-embeddable-editor");
   const code = cee.getByLabel("Code", {exact: true});
+  // Tighten the template only once the editor holds the earlier one.
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await code.fill("lowercase");
+  await editorStatus(page, /^Modified$/).waitFor();
   const updatedTemplate = (await read("templates", templateId)).body;
   updatedTemplate.properties.Code._valueConstraints.regex = "^[A-Z]+$";
   const tightened = await mutate(user.auth, "PUT", "/templates/" + enc(templateId), updatedTemplate);
@@ -47,19 +55,15 @@ export async function currentTemplateConstraintJourney({page, base, user, folder
   const refused = await read("template-instances", instanceId);
   assert.deepEqual(refused.body, before.body);
   assert.equal(refused.headers.get("etag"), before.headers.get("etag"));
-  assert.equal(await code.inputValue(), "lowercase");
-  assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Preserved answer");
+  // The editor lists the server's findings once it has handled the refusal.
   const issues = page.getByLabel("Metadata errors", {exact: true});
   await issues.waitFor();
+  assert.equal(await code.inputValue(), "lowercase");
+  assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Preserved answer");
   assert.equal(await save.isDisabled(), true);
   await issues.locator("summary").click();
   await issues.getByRole("button", {name: /Code.*Does not match/}).click();
-  await code.evaluate(el => new Promise((resolve, reject) => {
-    const until = Date.now() + 5000;
-    const check = () => el.getRootNode().activeElement === el ? resolve() :
-      Date.now() > until ? reject(new Error("regex finding did not focus Code")) : setTimeout(check, 20);
-    check();
-  }));
+  await focused(code, "regex finding did not focus Code");
   await code.fill("CORRECTED");
   await issues.waitFor({state: "detached"});
   await write(page, "PUT", "/template-instances/", () => save.click(), 200, true);
@@ -70,6 +74,7 @@ export async function currentTemplateConstraintJourney({page, base, user, folder
   for (const value of [after, expected]) { delete value["pav:lastUpdatedOn"]; delete value["oslc:modifiedBy"]; }
   assert.deepEqual(after, expected);
   await page.reload();
+  await editorStatus(page, /^Unmodified$/).waitFor();
   await code.waitFor();
   assert.equal(await code.inputValue(), "CORRECTED");
   assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Preserved answer");

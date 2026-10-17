@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {artifactBody, call, enc} from "./rest/lib.mjs";
+import {journeyFolder} from "./journey-fixtures.mjs";
 
 function renameChild(document, from, to) {
   const result = structuredClone(document);
@@ -19,7 +20,9 @@ function content(document) {
   return result;
 }
 
+// The journey acts as the runner's first test user only and never signs in as another account.
 export async function olderKeyRenameJourney({page, designer, user, folderId, name, created, write, pass}) {
+  folderId = await journeyFolder({user, folderId, name, created}, "older key rename");
   const template = artifactBody("template", name + " older child rename");
   for (const key of ["Notes", "Keep"]) {
     template.properties[key] = artifactBody("field", key);

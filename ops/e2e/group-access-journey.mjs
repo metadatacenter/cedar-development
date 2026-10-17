@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { call, mutate, mutateGroup, enc } from "./rest/lib.mjs";
+import { editorStatus } from "./metadata-journey-fixtures.mjs";
 
 // Membership changes happen in the administrator's browser while the member
 // keeps an unsaved artifact open. There must be no direct grant masking the loss.
+//
+// The journey signs nobody in. It works in the reader page it is given, which the caller has signed
+// in as the member, and opens the administrator's page in the owner's own browser context.
 export async function groupAccessJourney({page, reader, base, designer, owner, member,
   templateId, instancePath, metadataUrl, name, write, pass}) {
   const admin = await page.context().newPage();
@@ -56,10 +60,13 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
         ? reader.getByPlaceholder("Add description...", {exact: true}).first()
         : reader.locator("cedar-embeddable-editor").getByRole("textbox", {name: /^Notes(?:\s|$)/}).first();
       const save = reader.locator(designing ? "#save" : "#button-save-metadata");
+      const status = text => designing ? reader.locator("#state").filter({hasText: text}) : editorStatus(reader, text);
       const reload = designing ? reader.locator("#reload")
         : reader.getByRole("button", {name: "Reload metadata", exact: true});
       await reader.goto(designing ? designer + "/templates/edit/" + enc(templateId) : metadataUrl);
       await input.waitFor();
+      // Once the page has loaded, it has decided whether to offer a retained draft.
+      await status(/^Unmodified$/).waitFor();
       // This independent scenario starts from current content. The preceding permission
       // journey retained a refused draft, whose template this journey has since changed.
       const discard = designing ? reader.locator("#discard-draft")
@@ -72,6 +79,7 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       }
       const draft = host + " draft before group membership loss";
       await input.fill(draft);
+      await status(/^Modified$/).waitFor();
       assert.equal(await save.isEnabled(), true);
       const before = await call(owner.auth, "GET", path);
       assert.equal(before.status, 200);
@@ -97,14 +105,19 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
         designing ? "save" : "button-save-metadata");
       assert.equal(await input.inputValue(), draft);
       assert.deepEqual((await call(owner.auth, "GET", path)).body, before.body);
+      // Reload asks before discarding the draft, and the answer is settled once the question has closed.
       if (designing) {
         reader.removeAllListeners("dialog");
+        const asked = reader.waitForEvent("dialog");
         reader.once("dialog", dialog => dialog.dismiss());
         await reload.click();
+        assert.equal((await asked).type(), "confirm");
         reader.on("dialog", dialog => dialog.accept());
       } else {
         await reload.click();
-        await reader.locator("dialog.confirmation-dialog").getByRole("button", {name: "Cancel", exact: true}).click();
+        const confirmation = reader.locator("dialog.confirmation-dialog");
+        await confirmation.getByRole("button", {name: "Cancel", exact: true}).click();
+        await confirmation.waitFor({state: "hidden"});
       }
       assert.equal(await input.inputValue(), draft, "cancelling reload must preserve the refused draft");
       const recheck = reader.getByRole("button", {name: "Recheck access", exact: true});
@@ -112,12 +125,20 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       await reader.getByText(/Access could not be checked/).waitFor();
       assert.equal(await input.inputValue(), draft);
       assert.equal(await save.isDisabled(), true);
+      // Nothing on the member's page reports a membership change, so count its writes until the
+      // explicit recheck has settled. Only the save after that may send the draft again.
+      let resent = 0;
+      const collection = designing ? "/templates/" : "/template-instances/";
+      const countWrites = request => { if (request.method() === "PUT" && new URL(request.url()).pathname.startsWith(collection)) resent++; };
+      reader.on("request", countWrites);
       await addMember();
       assert.equal((await call(member.auth, "GET", path)).status, 200);
       assert.equal(await save.isDisabled(), true, "membership restoration must not silently retry a refused save");
       const component = await reader.locator(designing ? "cedar-embeddable-designer" : "cedar-embeddable-editor").elementHandle();
       await recheck.click();
       await recheck.waitFor({state: "hidden"});
+      reader.off("request", countWrites);
+      assert.equal(resent, 0, "membership restoration must not silently retry a refused save");
       assert.equal(await input.inputValue(), draft, "access recovery must retain the refused draft");
       assert.equal(await component.evaluate(el => el.isConnected), true);
       assert.equal(await save.isEnabled(), true);

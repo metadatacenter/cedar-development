@@ -78,7 +78,7 @@ async function open(path) {
     await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || 'test1');
     await page.locator('#kc-login').click();
   }
-  await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
+  await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'));
   await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
   // Each opening starts a separate scenario from the saved artifact. Reload now
   // retains refused work, so discard that earlier scenario's journal explicitly.
@@ -155,7 +155,11 @@ try {
     const confirmed = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
     assert.equal(confirmed.body['schema:description'], 'Saved but acknowledgement lost');
     const countAfterLoss = writeCount;
+    // Designer's host runs a save's first step, which shows Saving…, before it awaits anything, and
+    // the dispatched click runs it at once. A refused click therefore leaves the page as it was.
     await page.locator('#save').dispatchEvent('click');
+    assert.notEqual(await page.locator('#state').textContent(), 'Saving…');
+    assert.match(await page.locator('#message').textContent(), /could not confirm whether/);
     assert.equal(writeCount, countAfterLoss);
     console.log(`PASS: ${kind} committed update with lost response keeps input and blocks another write`);
     // Concurrent backend edit must prevent the stale host from writing over it.
@@ -185,6 +189,7 @@ try {
       await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
       await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+      await page.locator('#version-dialog').waitFor({ state: 'hidden' });
       assert.equal(await page.getByPlaceholder('Template name', { exact: true }).inputValue(), name + ' revised');
       await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
