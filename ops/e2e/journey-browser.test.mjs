@@ -43,7 +43,11 @@ test("failure retains a trace, screenshot, page text, completed scenarios and br
     const diagnostics = journeyBrowser(browser, { directory });
     const context = await browser.newContext();
     const page = await context.newPage();
-    await page.setContent("<h1>Unfinished draft</h1>");
+    await page.setContent("<h1>Unfinished draft</h1><div id=editor></div>");
+    await page.evaluate(() => {
+      document.querySelector("#editor").attachShadow({ mode: "open" }).innerHTML =
+        '<label>Notes<input value="Uncommitted answer"></label>';
+    });
     page.emit("pageerror", new Error("Broken render"));
     const evidence = await diagnostics.finish({ failure: "Expected stored value", scenarios: [{ id: "edit" }] });
     assert.ok(evidence.files.some(path => path.endsWith(".zip") && existsSync(path)));
@@ -51,6 +55,7 @@ test("failure retains a trace, screenshot, page text, completed scenarios and br
     const report = JSON.parse(readFileSync(join(directory, "failure.json")));
     assert.deepEqual(report.scenarios, [{ id: "edit" }]);
     assert.deepEqual(report.browserErrors, ["Broken render"]);
+    assert.match(readFileSync(join(directory, "context-1-page-1.aria.yml"), "utf8"), /Uncommitted answer/);
     assert.equal(browser.contexts().length, 0);
   } finally { await browser.close(); rmSync(directory, { recursive: true, force: true }); }
 });

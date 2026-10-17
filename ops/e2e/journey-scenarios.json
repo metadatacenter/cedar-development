@@ -794,5 +794,57 @@
       "id": "partial-selection",
       "promise": "Partial deletion stops after a lost response, reports only confirmed progress and resumes from a fresh selection"
     }
+  ],
+  "large-metadata": [
+    {
+      "id": "distant-fields",
+      "promise": "Editing widely separated fields in a forty-field record saves and reopens every changed and untouched answer exactly"
+    }
+  ],
+  "mixed-metadata": [
+    {
+      "id": "mixed-types",
+      "promise": "A single editing session preserves multiline Unicode, numeric typing, email, a reference IRI and radio choice through save and reopen without changing its untouched sibling"
+    }
+  ],
+  "keyboard-metadata": [
+    {
+      "id": "keyboard-form",
+      "promise": "Keyboard-only forward and backward form navigation, correction and Save preserve the exact record after reopening"
+    }
+  ],
+  "keyboard-repeated-metadata": [
+    {
+      "id": "keyboard-occurrence",
+      "promise": "Keyboard navigation between repeated answers edits the selected occurrence only and preserves its neighbors through save and reopen"
+    }
+  ],
+  "metadata-navigation": [
+    {
+      "id": "cancel-then-save",
+      "promise": "Cancelling Back retains unsaved input and leaves storage unchanged, then Save and Back reopen the same saved answer without recovery controls"
+    },
+    {
+      "id": "discard-navigation",
+      "promise": "Explicitly discarding an ordinary edit on Back preserves the saved record and does not offer that discarded work as a recovery draft"
+    }
+  ],
+  "metadata-record-switch": [
+    {
+      "id": "record-boundaries",
+      "promise": "Editing two records with identical field labels in the same tab keeps their values, identities and save states separate on return"
+    }
+  ],
+  "designer-return-context": [
+    {
+      "id": "designer-list-return",
+      "promise": "Saving in the real Designer and returning restores the Workspace folder, list view, selected template and Version tab while preserving its existing metadata"
+    }
+  ],
+  "metadata-return-context": [
+    {
+      "id": "metadata-grid-return",
+      "promise": "Opening a grid card in the real metadata editor, saving and returning restores the same folder, grid view, selected record and Details tab"
+    }
   ]
 }

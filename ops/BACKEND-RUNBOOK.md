@@ -3315,14 +3315,20 @@ duplicate, unexpected or reordered scenario fails even when every executed asser
 focused, parallel and legacy sequential runners enforce the same inventory. A new journey needs a
 registry entry and scenarios; a new case inside an existing journey needs its own stable ID.
 
-Each focused worker starts a Playwright trace for every context it creates. A failure retains those
-traces, screenshots and page text for open pages, browser errors, recent failed requests, completed
+Each focused worker and the dependent core chain start a Playwright trace for every context they create. A failure retains those
+traces, screenshots, page text and accessible control snapshots (including shadow-root input values),
+browser errors, recent failed requests, completed
 scenarios and cleanup failures in the report's per-journey evidence directory under `reports/evidence-*`.
 These directories survive system temporary-file cleanup. Passing journeys
 remove their evidence. A process forcibly killed before tracing can finish may have no complete
 trace; the tier's timeout record, fixture ledger and sweep report still identify it. Evidence contains
 test artifact content and can contain session credentials: keep it local and out of Git. Open a
 retained trace with `npx playwright show-trace <context-N.zip>` from `ops/e2e`.
+
+Live terminology selection and recovery searches have a separate 90-second response ceiling: successful
+BioPortal-backed responses have taken 40–80 seconds. Ordinary UI operations retain their 25-second
+limit, and the chain's overall deadline and recorded runtime still expose external-service slowness.
+Do not interpret passing under that ceiling as an acceptable interactive latency.
 
 For focused diagnosis and independence checks, after loading the normal native profile:
 

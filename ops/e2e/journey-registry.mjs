@@ -34,6 +34,8 @@ import { copyOpenViewJourney } from "./copy-openview-journey.mjs";
 import { templateEvolutionJourney } from "./template-evolution-journey.mjs";
 import { publicationJourney } from "./publication-journey.mjs";
 import { selectionDeleteJourney, partialSelectionDeleteJourney } from "./selection-delete-journey.mjs";
+import { largeMetadataJourney, mixedMetadataJourney, keyboardMetadataJourney, keyboardRepeatedMetadataJourney,
+  metadataNavigationJourney, metadataRecordSwitchJourney, designerReturnContextJourney, metadataReturnContextJourney } from "./ordinary-editing-journey.mjs";
 
 // JOURNEYS lists every self-contained journey under the key the runners know it by. Each journey
 // makes its fixtures in a folder of its own under the folder it is given and reads nothing another
@@ -96,6 +98,14 @@ export const JOURNEYS = [
   { key: "publication", run: publicationJourney },
   { key: "selection-delete", run: selectionDeleteJourney },
   { key: "partial-selection-delete", run: partialSelectionDeleteJourney },
+  { key: "large-metadata", run: largeMetadataJourney },
+  { key: "mixed-metadata", run: mixedMetadataJourney },
+  { key: "keyboard-metadata", run: keyboardMetadataJourney },
+  { key: "keyboard-repeated-metadata", run: keyboardRepeatedMetadataJourney },
+  { key: "metadata-navigation", run: metadataNavigationJourney },
+  { key: "metadata-record-switch", run: metadataRecordSwitchJourney },
+  { key: "designer-return-context", run: designerReturnContextJourney },
+  { key: "metadata-return-context", run: metadataReturnContextJourney },
 ].map(entry => Object.freeze({ signsInAsAnotherUser: false, ...entry }));
 
 // BOUND names the journeys that have no key, because they work on fixtures another runner hands them.

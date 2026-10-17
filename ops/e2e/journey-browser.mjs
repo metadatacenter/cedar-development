@@ -44,6 +44,8 @@ export function journeyBrowser(browser, { directory, capture = async () => {} } 
               const prefix = join(directory, `context-${index}-page-${pageIndex + 1}`);
               try { await page.screenshot({ path: prefix + ".png", timeout: 3000 }); files.push(prefix + ".png"); } catch {}
               try { writeFileSync(prefix + ".txt", await page.locator("body").innerText({ timeout: 1000 })); files.push(prefix + ".txt"); } catch {}
+              // The editors use shadow roots: body.innerText omits their controls and typed values.
+              try { writeFileSync(prefix + ".aria.yml", await page.locator("body").ariaSnapshot({ timeout: 1000 })); files.push(prefix + ".aria.yml"); } catch {}
             }
           }
         }

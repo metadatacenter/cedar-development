@@ -676,7 +676,10 @@ export async function runTier({
       runDirectory,
       evidenceDirectory,
     };
-    for (const unit of units) if (unit.outcome !== "pass") unit.failureCategory ??= failureCategory(unit.message, unit.outcome);
+    for (const unit of units) if (unit.outcome !== "pass") {
+      unit.message ??= failures.find(failure => failure.unit === unit.name)?.message ?? null;
+      unit.failureCategory ??= failureCategory(unit.message, unit.outcome);
+    }
     if (history) report.history = finishHistory(history, { verdict, units: [...units, ...journeyResults.filter(journey => !units.some(unit => unit.name === journey.name))], reportPath, inventoryMode });
     writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
 

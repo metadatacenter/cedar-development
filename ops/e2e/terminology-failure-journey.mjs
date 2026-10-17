@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { call, TERMINOLOGY } from "./rest/lib.mjs";
 import { editorStatus } from "./metadata-journey-fixtures.mjs";
 
+// Real BioPortal-backed searches have taken 40–80 seconds while still answering successfully.
+// Bound this external dependency separately from ordinary 25-second UI operations. The chain's
+// measured runtime and overall deadline still expose slow or unavailable service responses.
+export const LIVE_SEARCH_TIMEOUT = 90_000;
+
 // Only this page loses terminology search. Recovery uses the real service, and
 // artifact writes continue to reach the real resource server throughout.
 //
@@ -42,7 +47,7 @@ export async function designerTerminologyFailureJourney({page, pass}) {
       await page.unroute(matcher, fail);
     }
     const [response] = await Promise.all([
-      page.waitForResponse(r => matcher(new URL(r.url())) && r.request().method() === "POST"),
+      page.waitForResponse(r => matcher(new URL(r.url())) && r.request().method() === "POST", { timeout: LIVE_SEARCH_TIMEOUT }),
       query.fill("disease"),
     ]);
     assert.equal(response.status(), 200);
@@ -91,7 +96,7 @@ export async function editorTerminologyFailureJourney({page, user, instancePath,
       await page.unroute(matcher, fail);
     }
     const [response] = await Promise.all([
-      page.waitForResponse(r => matcher(new URL(r.url())) && r.request().method() === "POST"),
+      page.waitForResponse(r => matcher(new URL(r.url())) && r.request().method() === "POST", { timeout: LIVE_SEARCH_TIMEOUT }),
       disease.fill("influen"),
     ]);
     assert.equal(response.status(), 200);

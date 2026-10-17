@@ -75,7 +75,7 @@ process.send({type: "ready", root, folderId: "folder:" + root});
 // account holds. restore-pass then notes that it put the key back and exits, and restore-hang hangs.
 const SCRIPT = `
 import {appendFileSync} from "node:fs";
-import {enter, noteFixture, noteRestore, noteRestored} from ${JSON.stringify(steps)};
+import {enter, noteFixture, noteRestore, noteRestored, record} from ${JSON.stringify(steps)};
 const [mode, ms] = process.argv.slice(2), name = process.env.CEDAR_SPLIT_SCRIPT;
 appendFileSync(process.env.STANDIN_LOG, JSON.stringify({lane: name, event: "script", mode, at: Date.now()}) + "\\n");
 enter(mode === "chain" ? "login" : "run");
@@ -87,8 +87,9 @@ if (mode.startsWith("restore-")) {
   if (mode === "restore-pass") noteRestored(entry);
 }
 if (mode === "chain") setTimeout(() => enter("create-template"), 50);
+if (mode === "timeout-error") record({event: "fail", step: "run", message: "Timeout 25000ms waiting for live search"});
 if (mode.endsWith("hang")) setInterval(() => {}, 1000);
-else setTimeout(() => process.exit(mode === "fail" ? 1 : 0), Number(ms));
+else setTimeout(() => process.exit(mode === "fail" || mode === "timeout-error" ? 1 : 0), Number(ms));
 `;
 
 before(() => {
@@ -261,6 +262,19 @@ test("a failing unit stops its lane, and the units it would have taken go to the
   assert.equal(report.failures.length, 1);
   assert.deepEqual(report.notRun, []);
   assert.equal(report.units.filter(unit => unit.outcome === "pass").length, 5, "four journeys and the chain");
+});
+
+test("a script failure retains its reported cause on the unit used for reliability history", async () => {
+  const run = workspace();
+  const {exitCode, report} = await runTier({
+    layout: standInPlan({journeys: [], scripts: [["live-search", "timeout-error", 10]]}),
+    reportPath: run.report, cwd: scratch, workerScript: "worker.mjs", lockFile: run.lock,
+    out: quiet, err: quiet, coreLeadLimitMs: 2000, sampleMs: 50,
+  });
+  assert.equal(exitCode, 1);
+  const unit = report.units.find(unit => unit.name === "live-search");
+  assert.equal(unit.message, "Timeout 25000ms waiting for live search");
+  assert.equal(unit.failureCategory, "timeout");
 });
 
 test("a run refuses at once while another holds the lock, and replaces a lock whose holder is gone", async () => {

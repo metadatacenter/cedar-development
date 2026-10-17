@@ -23,7 +23,7 @@ import {
   sharedWithMeLists,
 } from "./workspace-journey-fixtures.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
-import { designerTerminologyFailureJourney, editorTerminologyFailureJourney } from "./terminology-failure-journey.mjs";
+import { designerTerminologyFailureJourney, editorTerminologyFailureJourney, LIVE_SEARCH_TIMEOUT } from "./terminology-failure-journey.mjs";
 import { journeyBrowser } from "./journey-browser.mjs";
 import { scenarioTracker } from "./journey-contract.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
@@ -42,6 +42,8 @@ const created = [];
 const bodies = new Map();
 const errors = [];
 const checks = [];
+let chainDiagnostics = journeyBrowser(browser, { directory: evidencePath("chain") });
+let chainFailure = null;
 let page,
   folderId,
   step = "login";
@@ -132,15 +134,15 @@ async function constrainToDoidDiseaseBranch(p) {
   await picker.getByRole("button", { name: "Ontologies", exact: true }).click();
   await picker
     .getByRole("checkbox", { name: /^DOID(?:\s|$)/ })
-    .check();
+    .check({ timeout: LIVE_SEARCH_TIMEOUT });
   await picker.getByRole("button", { name: "Apply", exact: true }).click();
   await picker.getByRole("tab", { name: /^Branches/ }).click();
   await picker
     .getByRole("button", { name: "disease 1 ontology", exact: true })
-    .click();
+    .click({ timeout: LIVE_SEARCH_TIMEOUT });
   await picker
     .getByRole("option", { name: /^DOID · Human Disease Ontology/ })
-    .dblclick();
+    .dblclick({ timeout: LIVE_SEARCH_TIMEOUT });
   await picker
     .getByRole("region", { name: "Field constraints" })
     .getByRole("row")
@@ -573,6 +575,9 @@ try {
   // nothing another journey or the chain above has made. focused-journey-smoke.mjs runs any of them
   // on its own, under the same key.
   let baseline = await page.context().storageState();
+  assert.deepEqual(chainDiagnostics.errors, [], "uncaught browser errors in the core chain");
+  await chainDiagnostics.finish();
+  chainDiagnostics = null;
   for (const { key, run } of chainOnly ? [] : JOURNEYS) {
     step = enter(key);
     const began = Date.now(), fixtureStart = created.length;
@@ -606,6 +611,7 @@ try {
   pass("No uncaught browser errors");
   step = enter("complete");
 } catch (error) {
+  chainFailure = error;
   record({ event: "fail", step, message: String(error?.message ?? error).slice(0, 2000) });
   await page
     ?.screenshot({
@@ -637,6 +643,8 @@ try {
   }
   throw error;
 } finally {
+  if (chainDiagnostics) await chainDiagnostics.finish({ failure: chainFailure?.stack,
+    scenarios: checks.map(promise => ({ promise })) });
   await browser.close();
   // A timeline entry of its own, so cleanup's time is not charged to the last step. The step
   // variable keeps the failing step for result.json.
