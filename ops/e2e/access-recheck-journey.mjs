@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import {actors,artifactBody,call,enc} from './rest/lib.mjs';
 import {groupAccessJourney} from './group-access-journey.mjs';
 import {journeyFolder} from './journey-fixtures.mjs';
-// Standalone provisioning for the group-access journey also embedded in the full smoke.
+// Provisioning for the group-access journey: a template and a record based on it. The full smoke and
+// the focused runner both run it as access-recheck.
 //
 // It signs the second test user in to a browser context of its own, so it belongs in the identity
 // lane. The group it creates has a name unique to the run, and group names are unique server-wide.

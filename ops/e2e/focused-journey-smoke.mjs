@@ -55,6 +55,23 @@ import {
   partialVersionDefinitionJourney,
   partialVersionDraftJourney,
 } from "./partial-version-journey.mjs";
+import { folderUiJourney } from "./folder-ui-journey.mjs";
+import {
+  designerAuthoringJourney,
+  designerConflictJourney,
+} from "./designer-authoring-journey.mjs";
+import {
+  templateSharingJourney,
+  ownershipTransferJourney,
+} from "./template-sharing-journey.mjs";
+import { ceePermissionsJourney } from "./cee-permissions-journey.mjs";
+import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
+import { copyOpenViewJourney } from "./copy-openview-journey.mjs";
+import { publicationJourney } from "./publication-journey.mjs";
+import {
+  selectionDeleteJourney,
+  partialSelectionDeleteJourney,
+} from "./selection-delete-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
@@ -91,6 +108,17 @@ const journeys = {
   "uncertain-version": uncertainVersionJourney,
   "partial-version-definition": partialVersionDefinitionJourney,
   "partial-version-draft": partialVersionDraftJourney,
+  "folder-ui": folderUiJourney,
+  "designer-authoring": designerAuthoringJourney,
+  "designer-conflict": designerConflictJourney,
+  "template-sharing": templateSharingJourney,
+  "ownership-transfer": ownershipTransferJourney,
+  "cee-permissions": ceePermissionsJourney,
+  "incomplete-metadata": incompleteMetadataJourney,
+  "copy-openview": copyOpenViewJourney,
+  publication: publicationJourney,
+  "selection-delete": selectionDeleteJourney,
+  "partial-selection-delete": partialSelectionDeleteJourney,
 };
 const selected = process.argv.slice(2);
 journeys["restored-validation"] = restoredValidationJourney;
@@ -126,9 +154,13 @@ async function write(
     ),
     gesture(),
   ]);
-  assert.equal(response.status(), status, await response.text());
+  // Any status in a list passes, as in the full smoke's write().
+  if (Array.isArray(status))
+    assert.ok(status.includes(response.status()), `${response.status()}, expected ${status}: ${await response.text()}`);
+  else assert.equal(response.status(), status, await response.text());
   if (conditional) assert.ok(await response.request().headerValue("if-match"));
-  const body = await response.json();
+  // A deletion answers 204 with no body.
+  const body = await response.json().catch(() => undefined);
   // A POST names what it created in its reply, a create-by-PUT in its address. Either way the
   // collection comes from the identity, so a command's reply is not recorded under "command".
   const fixture = createdFixture(method, response.url(), response.status(), body);

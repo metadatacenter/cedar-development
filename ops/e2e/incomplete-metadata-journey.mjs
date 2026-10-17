@@ -1,21 +1,19 @@
 import assert from "node:assert/strict";
 import { call, enc } from "./rest/lib.mjs";
 import { journeyFolder } from "./journey-fixtures.mjs";
-import { editorStatus, offeredTerm } from "./metadata-journey-fixtures.mjs";
+import { diseaseTemplate, editorStatus, offeredTerm } from "./metadata-journey-fixtures.mjs";
 
 // Missing required values are warnings under the existing Editor contract.
 // Prove that saving work in progress does not falsely mark it complete, and that
 // the author can reopen and finish it without losing the answers already given.
 //
-// The journey acts as the runner's first test user only and never signs in as another account. It
-// copies the full smoke's template, so it runs only inside that smoke.
-export async function incompleteMetadataJourney({page, base, user, folderId, templateId, name, created, write, pass}) {
+// The template has the fields the full smoke authors in Designer, a free-text Notes and a Disease
+// constrained to the DOID "disease" branch, with Notes required.
+//
+// The journey acts as the runner's first test user only and never signs in as another account.
+export async function incompleteMetadataJourney({page, base, user, folderId, name, created, write, pass}) {
   folderId = await journeyFolder({user, folderId, name, created}, "incomplete metadata");
-  const source = await call(user.auth, "GET", "/templates/" + enc(templateId));
-  assert.equal(source.status, 200);
-  const template = structuredClone(source.body);
-  template["@id"] = null;
-  template["schema:name"] = name + " required template";
+  const template = diseaseTemplate(name + " required template");
   template.properties.Notes._valueConstraints = {
     ...template.properties.Notes._valueConstraints, requiredValue: true,
   };

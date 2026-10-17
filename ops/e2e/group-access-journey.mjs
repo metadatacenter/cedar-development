@@ -67,8 +67,8 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       await input.waitFor();
       // Once the page has loaded, it has decided whether to offer a retained draft.
       await status(/^Unmodified$/).waitFor();
-      // This independent scenario starts from current content. The preceding permission
-      // journey retained a refused draft, whose template this journey has since changed.
+      // This scenario starts from current content. A reader page that earlier work left holding a
+      // refused draft offers that draft here, and it is discarded.
       const discard = designing ? reader.locator("#discard-draft")
         : reader.getByRole("button", {name: "Discard recovery draft", exact: true});
       if (await discard.isVisible()) {
