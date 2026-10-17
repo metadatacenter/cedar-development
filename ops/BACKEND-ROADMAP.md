@@ -145,9 +145,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   agree afterwards, and the command refuses a published artifact, a draft with a successor and a
   version not above its predecessor's.
 
+- **5. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+  consequence:** some path values accepted today answer 400. No data migration.
+
+  `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
+  concatenates it into the configured endpoint with a query string, and sends the result with the
+  deployment's DataCite basic credentials (`DataCiteResource.java:151`). Nothing validates the value
+  between the two steps, so traversal and query delimiters surviving a double decode influence an
+  authenticated upstream request. The draft-DOI path concatenates the same way after stripping
+  quote characters (`:651`). Authorization on the route is `LoggedIn` alone.
+
+  **Decide what the public contract accepts** — a DOI name (`10.x/suffix`), a `doi.org` URL, or
+  both — and whether `LoggedIn` is the right gate for a route that spends repository credentials.
+
+  Parse the accepted form into a DOI value, validate registrant and suffix, reject traversal, query
+  and fragment syntax, and build every upstream URI with a builder that encodes each path component
+  rather than by string concatenation. Done when no DataCite URI in the bridge is assembled by
+  concatenation, and tests cover traversal, an injected query delimiter and both accepted input
+  forms.
+
 ## Security
 
-- **5. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
+- **6. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
   22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
   ended at 22.0.5. On 2026-09-30 Dependabot reported 93 open advisories against the Keycloak
   artifacts `cedar-parent` manages, 25 of them high. No community 22 release fixes any of them, and
@@ -238,7 +257,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     identity provider, and CVE-2026-2575 lets an unauthenticated caller exhaust the server's memory
     through the SAML redirect binding regardless.
   - Cap the request size on the token endpoint, and rate limit it and the login endpoints on the
-    terms item 8 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
+    terms item 9 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
     oversized `scope` parameter, and the limit slows the parallel guessing CVE-2024-4629 describes.
 
   Four changes belong in the realm and server configuration:
@@ -274,7 +293,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   CVE-2023-6841. They keep the upgrade itself urgent. Red Hat's subscription build carries fixes on
   the 22 line through 22.0.13, and it is the only way to patch Keycloak without leaving that line.
 
-- **6. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+- **7. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-five repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
@@ -314,18 +333,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
   next morning rather than mid-release.
 
-- **7. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **8. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured
   2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
   server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
 
-  Requiring a credential is not the remedy, for the reason item 8 gives: third-party deployments of
+  Requiring a credential is not the remedy, for the reason item 9 gives: third-party deployments of
   the embeddable editor call these routes from a browser with nothing to send, so a gate would break
   every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
   the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
-  limit in item 8, which covers `/ext-auth/*` and should cover these two on the same terms.
+  limit in item 9, which covers `/ext-auth/*` and should cover these two on the same terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
   rather than a status, which matches the decision; it should keep doing so.
@@ -363,7 +382,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **8. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+- **9. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
   anonymous caller can spend the deployment's third-party quota, and only the development host
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. `POST
@@ -442,7 +461,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   environment states the mode and rates its authenticated quotas run at, both are recorded where the
   deployment is documented rather than only in the config, and a probe shows each taking effect.
 
-- **9. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+- **10. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
   messaging, monitor and worker restart into the change. No schema migration.
 
@@ -462,7 +481,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
   certificate, and the timezone is set by the profile that owns the data it was chosen for.
 
-- **10. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+- **11. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
   consequence:** a browser application fails cross-origin unless its exact origins are configured
   first, so every environment needs its list before the default changes.
 
@@ -474,7 +493,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
-  hosted by third parties, and item 7 keeps `POST /bioportal/integrated-search` and
+  hosted by third parties, and item 8 keeps `POST /bioportal/integrated-search` and
   `/bioportal/integrated-retrieve` anonymous for exactly that reason, so those two are called from
   origins CEDAR does not know. A deny-by-default list closes them unless the policy names them.
 
@@ -484,7 +503,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fallback, each environment's origins are recorded where it is documented, and tests cover blank,
   exact, multiple and wildcard configurations.
 
-- **11. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+- **12. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
   **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
   data and invalidates keys people and integrations hold, so it needs a rotation plan,
   rollback and operator communication. A backup taken before it still contains usable keys and has
@@ -510,25 +529,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   its environment variable, and confirm no backup or log carries a key. Done when no user node holds
   a key that can be read, authentication verifies without reversing one, and the rotation is
   recorded against the deployments it covered.
-
-- **12. Validate and encode the DOI the DataCite metadata route resolves.** **Production
-  consequence:** some path values accepted today answer 400. No data migration.
-
-  `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
-  concatenates it into the configured endpoint with a query string, and sends the result with the
-  deployment's DataCite basic credentials (`DataCiteResource.java:151`). Nothing validates the value
-  between the two steps, so traversal and query delimiters surviving a double decode influence an
-  authenticated upstream request. The draft-DOI path concatenates the same way after stripping
-  quote characters (`:651`). Authorization on the route is `LoggedIn` alone.
-
-  **Decide what the public contract accepts** — a DOI name (`10.x/suffix`), a `doi.org` URL, or
-  both — and whether `LoggedIn` is the right gate for a route that spends repository credentials.
-
-  Parse the accepted form into a DOI value, validate registrant and suffix, reject traversal, query
-  and fragment syntax, and build every upstream URI with a builder that encodes each path component
-  rather than by string concatenation. Done when no DataCite URI in the bridge is assembled by
-  concatenation, and tests cover traversal, an injected query delimiter and both accepted input
-  forms.
 
 ## Maintenance
 
@@ -585,7 +585,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 - **14. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock. This item owns the
-  remaining server upgrades except Keycloak's, which item 5 owns. Order them by risk, lowest first.
+  remaining server upgrades except Keycloak's, which item 6 owns. Order them by risk, lowest first.
   Rehearse each upgrade on a copy of production data and gate on the end-to-end smoke.
 
   Containerizing the production data stores needs each image pin moved up to the version already
@@ -880,7 +880,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   version.
 
   **Check the profile against Keycloak rather than trusting it.** Its values are copies of
-  Keycloak's, and they go stale when the server moves, as item 5 plans. Compare the listener's
+  Keycloak's, and they go stale when the server moves, as item 6 plans. Compare the listener's
   dependency tree with a standalone project that has no parent and imports only `keycloak-parent`,
   and fail on any difference. Run the comparison in the listener's CI or as a `cedarcli check`. At
   a Keycloak upgrade the import follows `keycloak.version` without help, and the check names each
@@ -1026,8 +1026,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
   their own. The Mongo driver is the exception: 5.11.1 stays inside major 5, so nothing about it
   needs proving against the pinned server, and it is grouped here only to move with that server's
-  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 5's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 5 and 20 own.
+  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  client stack, which items 6 and 20 own.
 
   Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
   than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
