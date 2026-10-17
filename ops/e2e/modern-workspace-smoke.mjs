@@ -422,11 +422,11 @@ async function constrainToDoidDiseaseBranch(p) {
     .getByRole("button", { name: /Edit controlled-term constraints/ })
     .click();
   const picker = p.locator("cedar-embeddable-term-picker");
-  await picker.getByText("narrow to…", { exact: true }).click();
+  await picker.getByRole("button", { name: "Ontologies", exact: true }).click();
   await picker
-    .getByRole("button", { name: /^DOID(?:\s|$)/ })
-    .click();
-  await picker.getByRole("button", { name: "done", exact: true }).click();
+    .getByRole("checkbox", { name: /^DOID(?:\s|$)/ })
+    .check();
+  await picker.getByRole("button", { name: "Apply", exact: true }).click();
   await picker.getByRole("tab", { name: /^Branches/ }).click();
   await picker
     .getByRole("button", { name: "disease 1 ontology", exact: true })
