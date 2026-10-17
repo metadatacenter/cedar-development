@@ -260,9 +260,14 @@ the expected source directory, start and stop both fail without signalling it. B
 the Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy); frontend health
 requires a successful response from the served root.
 
-Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
-against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. `MISSING` means a process answers while no jar for
+Two columns exist so a green table cannot hide a stale one. Each microservice runs a copy of its jar,
+which the controller takes from `target/` as the process starts and keeps in
+`$CEDAR_HOME/log/run/jars/`. Maven rewrites the jar in `target/` in place, and a JVM whose jar changes
+beneath it fails on every class it has not loaded yet, so a service that ran the build itself broke
+whenever its repository was built. A build cannot reach the copy. **BINARY** compares when a process
+started against when the jar in `target/` was written. `STALE` means a newer build exists than the one
+the service runs, so its health says nothing about your latest code, and a restart runs the new build.
+`MISSING` means a process answers while no jar for
 the configured `CEDAR_VERSION` exists, which is what a version change leaves running until the new
 version is built. Both are warned about under the table, and `cedarcli test e2e` refuses to record a
 run while either exists, or while a container rather than the controller serves a service, since

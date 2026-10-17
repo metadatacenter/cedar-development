@@ -240,7 +240,11 @@ is_service_process() {
       case "$command" in *gulp*|*"ng serve"*|*node*|*npm*) return 0 ;; esac
       ;;
     *)
+      # A service runs a copy of its jar (running_jar_of). One started before it did runs the jar in
+      # target/, and is still a CEDAR process that start and stop must recognize.
       prefix="$CEDAR_HOME/cedar-${name}-server/cedar-${name}-server-application/target/cedar-${name}-server-application-"
+      case "$command" in *"$prefix"*.jar*) return 0 ;; esac
+      prefix="$RUN/jars/cedar-${name}-server-application-"
       case "$command" in *"$prefix"*.jar*) return 0 ;; esac
       ;;
   esac
@@ -420,6 +424,35 @@ launchd_job_pid() {
 
 jar_of() { echo "$CEDAR_HOME/cedar-$1-server/cedar-$1-server-application/target/cedar-$1-server-application-${CEDAR_VERSION}.jar"; }
 
+# The jar a microservice's process runs: a copy of the build, never the build itself. Maven rewrites
+# the jar in target/ in place, under any process reading it, and a JVM whose jar changes beneath it
+# fails to load every class it had not loaded yet, so a build in a service's repository used to break
+# the running service. A build cannot reach the copy. BINARY still compares the process with the
+# build in target/, so STALE says that a newer build exists, not that the process is damaged.
+running_jar_of() { echo "$RUN/jars/cedar-$1-server-application-${CEDAR_VERSION}.jar"; }
+
+# Copies a microservice's build to the path its process runs, and echoes that path. The copy is made
+# under a temporary name and renamed into place, so a process still running an earlier copy keeps the
+# file it opened. On APFS the copy is a clone, which takes no space until the build is rewritten. The
+# service's copies of other versions are removed; a process still running one keeps its open file.
+stage_running_jar() {
+  local name=$1 built running staging
+  built=$(jar_of "$name")
+  running=$(running_jar_of "$name")
+  staging="$running.$$"
+  mkdir -p "$RUN/jars" || return 1
+  if ! cp -c "$built" "$staging" 2>/dev/null && ! cp "$built" "$staging"; then
+    rm -f "$staging"
+    return 1
+  fi
+  mv -f "$staging" "$running" || { rm -f "$staging"; return 1; }
+  local other
+  for other in "$RUN/jars/cedar-$name-server-application-"*.jar; do
+    [ "$other" = "$running" ] || rm -f "$other"
+  done
+  echo "$running"
+}
+
 # Two frontends take the Embeddable Editor from npm, the Workbench monolith and the Workspace half
 # extracted from it, and in each a gulp task copies the bundle out of node_modules into the tree
 # gulp serves. The bytes therefore travel two hops that git never observes, because the served copy
@@ -541,7 +574,10 @@ run_one_foreground() {
       "$ng" cache clean || return 1
       exec "$ng" serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
     *)
-      local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
+      # The copy is taken after this process started, so a build it missed was written after the
+      # process started, and the service shows as STALE.
+      local jar
+      jar=$(stage_running_jar "$name") || { echo "$name: could not copy $(jar_of "$name") to $(running_jar_of "$name")" >&2; return 1; }
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
       # Terminology local-store cutover: when CEDAR_TERMINOLOGY_STORE_CATALOG is set (in the profile),
       # serve the allowlisted ontologies from the local SQLite store, BioPortal for the rest. Scoped to
