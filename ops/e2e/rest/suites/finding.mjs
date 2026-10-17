@@ -113,9 +113,8 @@ export async function run({ user1, user2, folderId }) {
   // stop finding the artifact, not keep it in their search results.
   if (checkStatus(await mutate(user1.auth, 'PUT', `${direct.at}/permissions`, permissions(u1)), 200,
       'the grant is withdrawn')) {
-    check((await call(user2.auth, 'GET', direct.at)).status >= 400,
-        'and the second user loses access to the artifact immediately',
-        'the artifact stayed readable after the grant was withdrawn');
+    checkStatus(await call(user2.auth, 'GET', direct.at), 403,
+        'and the second user loses access to the artifact immediately');
     check(!(await inSharingView(user2.auth, 'shared-with-me', direct.id)),
         'and it leaves what is shared with them',
         'it was still listed as shared with them after the grant was withdrawn');
@@ -250,8 +249,8 @@ export async function run({ user1, user2, folderId }) {
           `it never became findable after ${seen.attempts} attempts — nothing to revoke`)) {
         checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`, permissions(u1)), 200,
             'the everybody grant is withdrawn');
-        check((await call(user2.auth, 'GET', shared.at)).status >= 400,
-            'and the second user loses access at once', 'the artifact stayed readable after revocation');
+        checkStatus(await call(user2.auth, 'GET', shared.at), 403,
+            'and the second user loses access at once');
         const gone = await dropsByTerm(user2.auth, shared.tag, shared.id);
         check(gone.done, 'and a term search no longer finds it for them',
             `a revoked user still found it by term after ${gone.attempts} attempts — the fail-dangerous case`);

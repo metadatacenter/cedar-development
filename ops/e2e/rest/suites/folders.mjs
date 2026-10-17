@@ -125,14 +125,20 @@ export async function run({ user1, homeFolderId }) {
   // refusal changes nothing — and the rename attempt is deliberately one that must fail: an earlier
   // version of this suite renamed test1's home folder for real (the rename was not guarded then) and
   // it had to be put back by hand. This asserts the guard now holds.
+  //
+  // Both refusals are 400. The owner holds write access to their home folder, so neither refusal
+  // concerns permission. Each refuses the folder because it is a home folder. The delete handler
+  // states that refusal as 400 folderCanNotBeDeleted with the reason userHomeFolder, the recursive
+  // deletion endpoint refuses the same folder with 400, and the rename guard answers 400
+  // folderCanNotBeChanged.
   const home = `/folders/${enc(homeFolderId)}`;
   const deleteHome = await mutate(auth, 'DELETE', home);
-  check(deleteHome.status >= 400, 'the home folder cannot be deleted',
-      `expected 4xx, got ${deleteHome.status}`);
+  checkStatus(deleteHome, 400, 'the home folder cannot be deleted');
   const renameHome = await mutate(auth, 'PUT', home,
       { 'schema:name': `Home renamed by the REST suites ${RUN}`, 'schema:description': 'attempt' });
-  check(renameHome.status >= 400, 'the home folder cannot be renamed',
-      `expected 4xx, got ${renameHome.status} — if 200, the home folder was just renamed for real`);
+  check(renameHome.status === 400, 'the home folder cannot be renamed',
+      `expected 400, got ${renameHome.status} — if 200, the home folder was just renamed for real: `
+      + (renameHome.text ?? '').slice(0, 300));
   const stillHome = await call(auth, 'GET', home);
   check(stillHome.body?.isUserHome === true, 'and it is still the user\'s home afterwards',
       `isUserHome was ${stillHome.body?.isUserHome}`);

@@ -18,8 +18,7 @@ export async function run({ user1, user2, homeFolderId }) {
     cleanup('folder', at, folderName);
 
     const before = await call(user2.auth, 'GET', at);
-    check(before.status >= 400, `${role}: the second user cannot reach it before sharing`,
-        `expected 4xx, got ${before.status}`);
+    checkStatus(before, 403, `${role}: the second user cannot reach it before sharing`);
 
     const requestedPermissions = {
       owner: { '@id': user1.profile['@id'] },
@@ -44,8 +43,7 @@ export async function run({ user1, user2, homeFolderId }) {
     const write = await mutate(user2.auth, 'PUT', at,
         { 'schema:name': `${folderName} renamed by the grantee`, 'schema:description': 'attempt' });
     if (role === 'viewer') {
-      check(write.status >= 400, 'viewer: the grantee cannot rename it',
-          `expected 4xx, got ${write.status}`);
+      checkStatus(write, 403, 'viewer: the grantee cannot rename it');
     } else {
       check(write.status === 200, `${role}: the grantee can rename it`,
           `expected 200, got ${write.status}`);

@@ -106,10 +106,11 @@ export async function run({ user1, user2 }) {
   checkStatus(await group(user2.auth, 'GET', `${everybodyAt}/users`), 403,
       'a member of the everybody group cannot read its roster, so the user directory stays closed');
 
-  // Renaming it is refused for the same structural reason as deletion: the update path rejects any
-  // special group before it ever reaches an administrator check, so no one — administrator or not —
-  // can rename it. The rename is still undone at once should it ever succeed, since the everybody
-  // group is part of the installation and a test that left it renamed would have damaged the instance.
+  // Renaming it is refused for the same structural reason as deletion, and with the same 400: the
+  // update path rejects any special group before it ever reaches an administrator check, so no one —
+  // administrator or not — can rename it. The rename is still undone at once should it ever succeed,
+  // since the everybody group is part of the installation and a test that left it renamed would have
+  // damaged the instance.
   const originalName = everybody['schema:name'];
   const touch = await mutateGroup(user1.auth, 'PUT', everybodyAt,
       { 'schema:name': `${originalName} touched by the REST suites`, 'schema:description': everybody['schema:description'] });
@@ -117,8 +118,9 @@ export async function run({ user1, user2 }) {
     await mutateGroup(user1.auth, 'PUT', everybodyAt,
         { 'schema:name': originalName, 'schema:description': everybody['schema:description'] });
   }
-  check(touch.status >= 400, 'and it cannot be renamed either',
-      `expected 4xx, got ${touch.status} — if 200, the everybody group was just renamed and restored`);
+  check(touch.status === 400, 'and it cannot be renamed either',
+      `expected 400, got ${touch.status} — if 200, the everybody group was just renamed and restored: `
+      + (touch.text ?? '').slice(0, 300));
 
   suite('groups: membership, and who may change it');
 

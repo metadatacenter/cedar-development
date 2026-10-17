@@ -206,13 +206,12 @@ export async function run({ user1, admin, folderId }) {
           `${endpoint.name} with ${bad.what} is refused with 400`,
           `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
     }
-    // A non-numeric limit is rejected by Jersey's parameter conversion before the request reaches the
-    // application, so it surfaces as the framework's own 404 rather than the validator's 400. The
-    // point of the fix is that it is no longer a 500 server fault; it is a client error either way.
+    // A non-numeric limit fails Jersey's parameter conversion before the request reaches the
+    // application. Jersey reports that as 404. The shared exception mapper reclassifies a failed query
+    // parameter as 400, which matches the validator's answer to a numeric limit out of range.
     const nonNumeric = await call(auth, 'GET', `${endpoint.path}${sep}limit=abc`);
-    check(nonNumeric.status >= 400 && nonNumeric.status < 500,
-        `${endpoint.name} with a non-numeric limit is a client error, not a server fault`,
-        `expected 4xx, got ${nonNumeric.status}`);
+    checkStatus(nonNumeric, 400,
+        `${endpoint.name} with a non-numeric limit is a client error, not a server fault`);
   }
 
   suite('pagination: every other listing refuses an invalid limit or offset with 400');
@@ -250,9 +249,8 @@ export async function run({ user1, admin, folderId }) {
           `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
     }
     const nonNumeric = await get('limit=abc');
-    check(nonNumeric.status >= 400 && nonNumeric.status < 500,
-        `${listing.name} with a non-numeric limit is a client error, not a server fault`,
-        `expected 4xx, got ${nonNumeric.status}`);
+    checkStatus(nonNumeric, 400,
+        `${listing.name} with a non-numeric limit is a client error, not a server fault`);
   }
 
   suite('pagination: a listing that pages by number as well refuses both at once');

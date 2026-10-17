@@ -41,15 +41,13 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
       if (fromDraft.status === 201 && fromDraft.body?.['@id']) {
         cleanup('template', `/templates/${enc(fromDraft.body['@id'])}`, `${name0} invalid draft`);
       }
-      check(fromDraft.status >= 400, 'a draft cannot itself be drafted',
-          `expected 4xx, got ${fromDraft.status}: ${(fromDraft.text ?? '').slice(0, 120)}`);
+      checkStatus(fromDraft, 400, 'a draft cannot itself be drafted');
     }
 
     // Once a published version has a successor, it cannot produce another branch.
     const draftAgain = await call(auth, 'POST', '/command/create-draft-artifact',
         { '@id': id, folderId, newVersion: '9.9.9', propagateSharing: false });
-    check(draftAgain.status >= 400, 'drafting again from a published version with a successor is refused',
-        `expected 4xx, got ${draftAgain.status}`);
+    checkStatus(draftAgain, 400, 'drafting again from a published version with a successor is refused');
   }
 
   suite('versioning: a published artifact cannot be published again');
@@ -65,9 +63,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.0' }),
         [200, 201], 'the probe template is published once');
     const again = await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.1' });
-    check(again.status >= 400,
-        're-publishing an already-published artifact is refused',
-        `expected 4xx, got ${again.status}: ${(again.text ?? '').slice(0, 120)}`);
+    checkStatus(again, 400, 're-publishing an already-published artifact is refused');
   }
 
   suite('versioning: versions advance and published content is immutable');
@@ -138,10 +134,12 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
       newOwnerId: user2.profile['@id'],
     }, { etagPath: `${tat}/permissions` });
     if (checkStatus(ownership, 200, 'the owner transfers the artifact to the second user')) {
+      // The former owner still owns the folder the template sits in, so they can still read it, and
+      // the command refuses them under the versioning rule that only an owner publishes. It answers
+      // that rule with 400 versioningOnlyByOwner, not with the 403 of a failed permission check.
       const formerOwner = await call(auth, 'POST', '/command/publish-artifact',
           { '@id': tid, newVersion: '1.0.0' });
-      check(formerOwner.status >= 400, 'the former owner can no longer publish it',
-          `expected 4xx, got ${formerOwner.status}`);
+      checkStatus(formerOwner, 400, 'the former owner can no longer publish it');
       checkStatus(await call(user2.auth, 'POST', '/command/publish-artifact',
           { '@id': tid, newVersion: '1.0.0' }), [200, 201],
           'the new owner can publish it');
