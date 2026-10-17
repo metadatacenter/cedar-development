@@ -3093,7 +3093,9 @@ credentials or limits the deployment's requests. It answers an external registry
 authority search or lookup with `upstreamServerError` and the registry's status, and carries the
 authority's answer in `objects.authorityAnswer`, where `found` is false and a lookup echoes
 `requestedId`. A registry status that is neither 200 nor a refusal answers 502. Terminology property
-failures and request-quota refusals use the common native envelope.
+failures and request-quota refusals use the common native envelope. A property route whose ontology
+store fails answers 500 with a message and an `errorId`, and the database exception is logged under
+that `errorId` rather than returned.
 
 Dependency classification is declared per integration. LINCS retains its established gateway
 mapping for upstream 400/401/500 (and treats deployment-owned credential rejection 403 likewise);

@@ -622,7 +622,9 @@ The local-only API is unauthenticated, like version-aware class search:
   a pre-extraction version is distinguishable from one that contains zero properties.
 
 A missing release or property is 404; a release whose properties were not extracted, an unbuilt
-corpus property index, or an unconfigured local store is 503. None of these paths calls BioPortal.
+corpus property index, or an unconfigured local store is 503. A snapshot that cannot be read is 500,
+with a message and an `errorId` under which the database exception is logged. None of these paths
+calls BioPortal.
 
 ## Running the Picker
 
