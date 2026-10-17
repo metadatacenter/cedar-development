@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { call, mutate, mutateGroup, enc } from "./rest/lib.mjs";
 import { editorStatus } from "./metadata-journey-fixtures.mjs";
+import { noteFixture } from "./split-steps.mjs";
 
 // Membership changes happen in the administrator's browser while the member
 // keeps an unsaved artifact open. There must be no direct grant masking the loss.
@@ -38,6 +39,9 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
     const made = await groupWrite("POST", "/groups",
       () => admin.getByRole("button", {name: "Create group", exact: true}).click(), 201);
     groupPath = "/groups/" + enc(made["@id"]);
+    // The browser created the group, so the REST helper never noted it. Noted here, it is deleted by
+    // the sweep after a kill, and the member's membership ends with it.
+    noteFixture({collection: "groups", id: made["@id"], base: "group"});
     await addMember();
     for (const path of [templatePath, instancePath]) {
       const acl = await call(owner.auth, "GET", path + "/permissions");

@@ -3335,6 +3335,19 @@ the run, and the sweep removes whatever the ledger holds that neither tree did, 
 killed script made. The failure names the unit, the lane and the elapsed time, the lane takes no
 further units, and the other lanes run the units that remain.
 
+Deleting fixtures cannot undo a change to a test user's own account. The profile smoke adds an API
+key to the first user's account, so before it adds the key, it notes a restore entry in the same
+ledger. The entry identifies the key by the description the smoke gives it, which no other run uses.
+The smoke removes the key in its own cleanup and then marks the entry as restored. After a kill, the
+sweep applies each unmarked entry through the restoration the smoke itself uses, which reads the
+account and deletes only the keys with that description. It never applies a marked entry, so it
+never writes over what the smoke put back, and a restoration that finds the key already gone
+changes nothing. The sweep's line in the runner's output and its entry in the report list what it
+restored, what it found already as it was and what it could not restore. No other script in the
+tier changes an account. The Settings page writes nothing. Each group the tier creates is a fixture
+in the ledger, and each permission and OpenView setting it changes is on a fixture, so the sweep's
+deletions remove them.
+
 A lane that fails takes no further units either, and every other lane runs to its end, so one run
 names every lane that fails while each unit still runs once. The tier fails when any lane does, or
 when a unit is left that no lane could run. A first SIGINT, SIGTERM or SIGHUP stops every lane. A
@@ -6013,7 +6026,9 @@ It builds one element reused by a published template and a draft one, edits the 
 real editor, and holds the window to three things: the published row cannot be ticked and reads as
 greyed rather than merely inert, a click on it never reaches the tree that gets posted, and the draft
 beside it still propagates. It then reads both templates back, so a pass means the change landed in
-exactly one of them. Fixtures are created and deleted by the run.
+exactly one of them. Fixtures are created and deleted by the run. A failure leaves a screenshot in a
+new `cedar-e2e-evidence-*` directory in the system's temporary directory, and the smoke prints its
+path.
 
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
 It proves that both preview route shells and independent AngularJS bootstraps are being served, the

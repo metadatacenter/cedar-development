@@ -1,4 +1,5 @@
-// Removes what a process of the split tier created when the runner had to kill it, through REST.
+// Removes what a process of the split tier created when the runner had to kill it, and puts back
+// what it changed of a test user's own account, through REST.
 //
 // A killed process never reaches its own cleanup, so whatever it made stays behind unless the runner
 // removes it. Three things say what that is:
@@ -14,7 +15,14 @@
 // holds something the ledger never saw goes as a tree. An item the first user may not delete is tried
 // as the second, who may own it. A failure is read again at the end, since a tree removed later may
 // have taken it. The result says what was removed, what was already gone and what was not.
+//
+// A change to an account belongs to no fixture. The ledger holds a restore entry for each one, noted
+// before the change, and a mark for each the script's own cleanup put back (user-state.mjs). The sweep
+// applies every restore entry left unmarked, through the restoration the script itself uses, and
+// never one the script marked, so it cannot write over what the script put back. The result says
+// what was restored, what was already as it was and what could not be restored.
 import { actors, call, enc, mutate, mutateGroup } from "./rest/lib.mjs";
+import { restore } from "./user-state.mjs";
 
 // Instances before the templates they are based on, templates before the elements and fields they
 // embed, folders after their contents. Groups stand apart from all of it.
@@ -74,13 +82,16 @@ const byKindThenDepth = (a, b) =>
   ORDER.indexOf(a.collection) - ORDER.indexOf(b.collection) || (b.depth ?? 0) - (a.depth ?? 0);
 
 /**
- * Removes the fixtures a killed process left. `root` is the lane's root folder, `{id, name}`, when
- * the process was a lane's journey runner. `fixtures` are the ledger's entries for that process.
+ * Removes the fixtures a killed process left and puts back what it changed of an account. `root` is
+ * the lane's root folder, `{id, name}`, when the process was a lane's journey runner. `fixtures` are
+ * the ledger's fixture entries for that process, and `restores` its restore entries and the marks of
+ * those it put back itself.
  */
-export async function sweep({ root = null, fixtures = [], rest = LIVE_REST } = {}) {
+export async function sweep({ root = null, fixtures = [], restores = [], rest = LIVE_REST } = {}) {
   const began = Date.now();
   const { user1, user2 } = await rest.users();
-  const result = { root: null, removed: [], alreadyGone: [], failed: [], secondUser: [] };
+  const result = { root: null, removed: [], alreadyGone: [], failed: [], secondUser: [],
+    restored: [], alreadyRestored: [], notRestored: [] };
   const settled = new Set();
 
   async function removeOne(item, first = user1, second = user2) {
@@ -113,6 +124,30 @@ export async function sweep({ root = null, fixtures = [], rest = LIVE_REST } = {
     const before = result.removed.length;
     for (const item of items) await removeOne(item, owner, other);
     return { how: "item by item", items: items.length, removed: result.removed.length - before };
+  }
+
+  // What the process changed of an account and did not put back itself, in the order it changed it.
+  // No restoration depends on a fixture, so they come first, where an error among the fixtures cannot
+  // stop them.
+  const putBack = new Set(restores.map(entry => entry.restored).filter(key => typeof key === "string"));
+  const pending = [];
+  for (const entry of restores)
+    if (typeof entry.restore === "string" && !putBack.has(entry.key) && !pending.some(other => other.key === entry.key))
+      pending.push(entry);
+  for (const entry of pending) {
+    const as = entry.as === "user2" ? "user2" : "user1";
+    const user = as === "user2" ? user2 : user1;
+    const described = { restore: entry.restore, key: entry.key, label: entry.label ?? entry.key, as };
+    let outcome;
+    try {
+      outcome = user ? await restore(entry, { call: rest.call, auth: user.auth })
+        : { ok: false, status: null, text: `no credential for ${as}` };
+    } catch (error) {
+      outcome = { ok: false, status: null, text: String(error?.message ?? error) };
+    }
+    if (!outcome.ok) result.notRestored.push({ ...described, status: outcome.status ?? null, text: (outcome.text ?? "").slice(0, 300) });
+    else if (outcome.changed) result.restored.push({ ...described, changed: outcome.changed });
+    else result.alreadyRestored.push(described);
   }
 
   if (root?.id) result.root = { id: root.id, name: root.name ?? null, ...(await removeTree(user1, user2, root.id)) };
@@ -179,5 +214,9 @@ export function summarize(result) {
   }
   parts.push(`${result.removed.length} removed, ${result.alreadyGone.length} already gone, ${result.failed.length} not removed`);
   if (result.secondUser.length) parts.push(`${result.secondUser.length} of the second user's`);
+  const [restored, already, not] = [result.restored ?? [], result.alreadyRestored ?? [], result.notRestored ?? []];
+  if (restored.length) parts.push("restored " + restored.map(entry => entry.label).join(", "));
+  if (already.length) parts.push("already as it was: " + already.map(entry => entry.label).join(", "));
+  if (not.length) parts.push("not restored: " + not.map(entry => `${entry.label} (${entry.status ?? entry.text})`).join(", "));
   return parts.join("; ");
 }

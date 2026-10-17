@@ -4,8 +4,9 @@
 //
 // Each process leads a process group of its own, so an interrupt from the terminal reaches the
 // runner alone, and the runner decides what each process is sent. A unit that overruns its deadline
-// is killed with its browsers, and then swept: what it created is removed through REST. A lane that
-// fails or overruns takes no further units, and the remaining units go to the other lanes.
+// is killed with its browsers, and then swept: what it created is removed through REST, and what it
+// changed of a test user's own account is put back. A lane that fails or overruns takes no further
+// units, and the remaining units go to the other lanes.
 //
 // A first SIGINT, SIGTERM or SIGHUP stops every lane. A journey runner closes its browser, ends the
 // journey in flight and removes its fixtures and root. Any other process dies at once, and what it
@@ -238,17 +239,25 @@ export async function runTier({
       });
     }
 
-    /** Sweeps what a killed process created, unless a second signal asked for no cleanup. */
+    /**
+     * Sweeps what a killed process created and puts back what it changed of an account, unless a
+     * second signal asked for no cleanup.
+     */
     async function sweepAfter(record, { process: name, unit = null, root = null, step = null }) {
       if (forced) return null;
-      const fixtures = ledger().filter(entry => entry.script === name && (!step || entry.step === step));
+      const own = ledger().filter(entry => entry.script === name);
+      const entries = own.filter(entry => !step || entry.step === step);
+      const fixtures = entries.filter(entry => typeof entry.collection === "string");
+      // A mark that the process put a change back counts in whichever step it was noted.
+      const restores = [...entries.filter(entry => typeof entry.restore === "string"),
+        ...own.filter(entry => typeof entry.restored === "string")];
       const rootFolder = root?.id ? root
         : root?.name ? { name: root.name, id: ledger().find(entry => entry.script === name && entry.collection === "folders" && entry.step === "login")?.id ?? null }
         : null;
       log(`--- split tier: ${record.name}: sweeping what ${unit ?? name} created`);
       let result;
       try {
-        result = await sweep({ root: rootFolder?.id ? rootFolder : null, fixtures });
+        result = await sweep({ root: rootFolder?.id ? rootFolder : null, fixtures, restores });
       } catch (error) {
         result = { error: String(error?.message ?? error) };
       }

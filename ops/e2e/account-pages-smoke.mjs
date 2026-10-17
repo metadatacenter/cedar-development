@@ -4,12 +4,12 @@ import { chromium } from "playwright";
 import {
   actors,
   call,
-  USER_SERVER,
   GROUP_SERVER,
   mutateGroup,
   enc,
 } from "./rest/lib.mjs";
-import { evidencePath, noteFixture } from "./split-steps.mjs";
+import { evidencePath, noteFixture, noteRestore, noteRestored } from "./split-steps.mjs";
+import { apiKeyRestore, restore } from "./user-state.mjs";
 const area = process.argv[2] || "profile";
 assert.ok(
   ["profile", "settings", "groups", "privacy"].includes(area),
@@ -22,6 +22,8 @@ const userId = JSON.parse(
 ).sub;
 const userPath = "/users/" + enc(userId);
 let groupId;
+// The API key the profile area adds belongs to the account rather than to any fixture.
+let keyRestore;
 const fixture = "Workspace account smoke " + Date.now();
 const browser = await chromium.launch({ headless: !process.env.HEADED });
 const context = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -82,6 +84,9 @@ try {
     await open("/profile");
     await page.getByRole("heading", { name: /API Keys/ }).waitFor();
     await page.getByLabel("New key description (optional)").fill(fixture);
+    // Should the split tier kill this process, its sweep removes the key through this entry.
+    keyRestore = apiKeyRestore({ as: "user1", userPath, description: fixture });
+    noteRestore(keyRestore);
     await mutation(
       "POST",
       "/api-keys",
@@ -416,20 +421,9 @@ try {
       "Temporary group cleanup failed",
     );
   }
-  const current = await call(user1.auth, "GET", userPath, undefined, {
-    base: USER_SERVER,
-  });
-  assert.equal(current.status, 200);
-  for (const key of current.body.apiKeys || []) {
-    if (key.description === fixture) {
-      const result = await call(
-        user1.auth,
-        "DELETE",
-        userPath + "/api-keys/" + enc(key.id),
-        undefined,
-        { base: USER_SERVER },
-      );
-      assert.equal(result.status, 200, "Temporary key cleanup failed");
-    }
+  if (keyRestore) {
+    const restored = await restore(keyRestore, { call, auth: user1.auth });
+    assert.ok(restored.ok, `Temporary key cleanup failed: ${restored.status}`);
+    noteRestored(keyRestore);
   }
 }

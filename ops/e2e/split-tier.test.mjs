@@ -8,6 +8,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import {plan} from "./split-lanes.mjs";
 import {acquire, holderOf, lockPath, release, running} from "./split-lock.mjs";
 import {LOCK_REFUSED, SCHEMA_VERSION, TIMED_OUT, runTier} from "./split-runner.mjs";
+import {USER_SERVER} from "./rest/lib.mjs";
 
 // The runner is driven here with stand-ins for the journey runner and the scripts, in a scratch
 // directory, so that the queue, the deadlines, the sweep and the lock are exercised without a stack.
@@ -16,6 +17,7 @@ import {LOCK_REFUSED, SCHEMA_VERSION, TIMED_OUT, runTier} from "./split-runner.m
 // so the test can see that the kill reaches it.
 const here = dirname(fileURLToPath(import.meta.url));
 const steps = pathToFileURL(join(here, "split-steps.mjs")).href;
+const userState = pathToFileURL(join(here, "user-state.mjs")).href;
 let scratch;
 
 const WORKER = `
@@ -67,16 +69,25 @@ process.on("message", async message => {
 process.send({type: "ready", root, folderId: "folder:" + root});
 `;
 
-// A stand-in script: `script.mjs <mode> <ms>`, where the mode is pass, fail, hang or chain.
+// A stand-in script: `script.mjs <mode> <ms>`, where the mode is pass, fail, hang, chain,
+// restore-pass or restore-hang. A restore- script stands for the profile smoke: it notes a restore
+// entry for an API key named after itself on the first user's account, which the test's stand-in
+// account holds. restore-pass then notes that it put the key back and exits, and restore-hang hangs.
 const SCRIPT = `
 import {appendFileSync} from "node:fs";
-import {enter, noteFixture} from ${JSON.stringify(steps)};
+import {enter, noteFixture, noteRestore, noteRestored} from ${JSON.stringify(steps)};
 const [mode, ms] = process.argv.slice(2), name = process.env.CEDAR_SPLIT_SCRIPT;
 appendFileSync(process.env.STANDIN_LOG, JSON.stringify({lane: name, event: "script", mode, at: Date.now()}) + "\\n");
 enter(mode === "chain" ? "login" : "run");
 noteFixture({collection: "folders", id: "folder:" + name});
+if (mode.startsWith("restore-")) {
+  const {apiKeyRestore} = await import(${JSON.stringify(userState)});
+  const entry = apiKeyRestore({as: "user1", userPath: "/users/u1", description: name});
+  noteRestore(entry);
+  if (mode === "restore-pass") noteRestored(entry);
+}
 if (mode === "chain") setTimeout(() => enter("create-template"), 50);
-if (mode === "hang") setInterval(() => {}, 1000);
+if (mode.endsWith("hang")) setInterval(() => {}, 1000);
 else setTimeout(() => process.exit(mode === "fail" ? 1 : 0), Number(ms));
 `;
 
@@ -369,18 +380,37 @@ layout.chain.args = ["script.mjs", "chain", "10"];`,
  * A stand-in for the resource server: items with an owner and a parent folder. The owner of a tree
  * may delete it recursively unless it holds something another user owns. A non-owner is refused, and
  * a folder that still holds something cannot be deleted.
+ *
+ * `accounts` stand in for the user server, by account path: each has an owner and its API keys, or a
+ * status it answers every request with. Only an account's owner may read it or delete its keys.
  */
-function restStandIn(items) {
+function restStandIn(items, {accounts = {}} = {}) {
   const store = new Map(items.map(item => [item.id, {...item}]));
   const userOf = {u1: "user1", u2: "user2"};
   const under = id => [...store.values()].filter(item => item.parent === id);
   const treeOf = id => under(id).flatMap(item => item.collection === "folders" ? [item, ...treeOf(item.id)] : [item]);
   const kinds = {folders: "folder", templates: "template", "template-instances": "instance", "template-fields": "field"};
   const calls = [];
+  const accountStore = new Map(Object.entries(accounts).map(([path, account]) =>
+    [path, {...account, apiKeys: [...(account.apiKeys ?? [])]}]));
+  const account = (auth, method, path, opts) => {
+    assert.equal(opts?.base, USER_SERVER, `${method} ${path} goes to the user server`);
+    const [, userPath, keyId] = /^(\/users\/[^/]+)(?:\/api-keys\/([^/]+))?$/.exec(path);
+    const stored = accountStore.get(userPath);
+    if (!stored) return {status: 404};
+    if (stored.status) return {status: stored.status, text: "unavailable"};
+    if (stored.owner !== userOf[auth]) return {status: 403};
+    if (method === "GET" && !keyId) return {status: 200, body: {apiKeys: stored.apiKeys}};
+    const index = stored.apiKeys.findIndex(key => key.id === decodeURIComponent(keyId ?? ""));
+    if (method !== "DELETE" || index < 0) return {status: 404};
+    stored.apiKeys.splice(index, 1);
+    return {status: 200, body: {apiKeys: stored.apiKeys}};
+  };
   const rest = {
     users: async () => ({user1: {auth: "u1", profile: {homeFolderId: "home1"}}, user2: {auth: "u2", profile: {homeFolderId: "home2"}}}),
-    call: async (auth, method, path) => {
+    call: async (auth, method, path, body, opts) => {
       calls.push(`${userOf[auth]} ${method} ${path}`);
+      if (path.startsWith("/users/")) return account(auth, method, path, opts);
       const [, collection, encoded, tail] = /^\/([^/]+)\/([^/?]+)(\/[^?]*)?/.exec(path);
       const id = decodeURIComponent(encoded);
       if (tail === "/contents")
@@ -408,7 +438,7 @@ function restStandIn(items) {
       return {status: 204};
     },
   };
-  return {rest, store, calls};
+  return {rest, store, accounts: accountStore, calls};
 }
 
 test("a sweep removes the root, the second user's fixtures named after it, and what the ledger recorded", async () => {
@@ -437,4 +467,71 @@ test("a sweep removes the root, the second user's fixtures named after it, and w
   assert.deepEqual(result.failed, []);
   assert.ok(result.alreadyGone.some(entry => entry.id === "g" && entry.base === "group"), "a group goes to the group server");
   assert.ok(calls.indexOf("user1 GET /folders/root/deletion") < calls.indexOf("user2 GET /folders/theirs/deletion"));
+});
+
+test("a killed script's API key is removed by its sweep, and a script that removed its own is not swept", async () => {
+  const run = workspace();
+  const {sweep} = await import("./split-sweep.mjs");
+  const {rest, accounts, calls} = restStandIn([], {accounts: {"/users/u1": {owner: "user1", apiKeys: [
+    {id: "k-killed", description: "account-killed"}, {id: "k-other", description: "another session's key"}]}}});
+  const swept = [];
+  const layout = standInPlan({journeys: [["a-pass-10"]], lanes: 1,
+    scripts: [["account-finished", "restore-pass", 10], ["account-killed", "restore-hang", 0]],
+    durations: {"modern-workspace": 0.05, "account-finished": 0.01, "account-killed": 0.1},
+    deadline: {factor: 1, marginSeconds: 0, floorSeconds: 1, capSeconds: 10}});
+  const lines = [];
+  const {exitCode, report} = await runTier({layout, reportPath: run.report, cwd: scratch, lockFile: run.lock,
+    sweep: args => {
+      swept.push(args);
+      return sweep({...args, rest});
+    },
+    out: {write: line => lines.push(line)}, err: quiet, sampleMs: 50});
+  assert.equal(exitCode, TIMED_OUT);
+  assert.deepEqual(report.units.map(unit => [unit.name, unit.outcome]),
+    [["modern-workspace", "pass"], ["account-finished", "pass"], ["account-killed", "timeout"]]);
+  // The finished script is never swept. The killed one is, with its restore entry and its fixture.
+  assert.deepEqual(swept.map(args => [args.fixtures.map(entry => entry.id), args.restores.map(entry => entry.key)]),
+    [[["folder:account-killed"], ["api-key /users/u1 account-killed"]]]);
+  assert.deepEqual(calls.filter(call => call.includes("/users/")),
+    ["user1 GET /users/u1", "user1 DELETE /users/u1/api-keys/k-killed"]);
+  assert.deepEqual(accounts.get("/users/u1").apiKeys.map(key => key.id), ["k-other"], "another session's key stays");
+  assert.equal(report.sweeps.length, 1);
+  const [entry] = report.sweeps;
+  assert.equal(entry.unit, "account-killed");
+  assert.equal(entry.recorded, 1, "the restore entry is not counted as a fixture");
+  assert.deepEqual(entry.restored, [{restore: "api-key", key: "api-key /users/u1 account-killed",
+    label: 'API key "account-killed" on user1\'s account', as: "user1", changed: 1}]);
+  assert.deepEqual([entry.alreadyRestored, entry.notRestored], [[], []]);
+  assert.match(lines.join(""), /sweep of account-killed: .*restored API key "account-killed" on user1's account/);
+});
+
+test("a sweep applies only the restore entries a process left unmarked, and reports each outcome", async () => {
+  const {sweep, summarize} = await import("./split-sweep.mjs");
+  const {apiKeyRestore} = await import("./user-state.mjs");
+  const {rest, accounts, calls} = restStandIn([], {accounts: {
+    "/users/u1": {owner: "user1", apiKeys: [{id: "k-left", description: "killed"}, {id: "k-other", description: "kept"}]},
+    "/users/u2": {owner: "user2", apiKeys: []},
+    "/users/u3": {owner: "user1", status: 503},
+  }});
+  // One process ran these in turn, as the sequential tier's full smoke runs its journeys. The first
+  // put its key back itself; the process was killed during the second, after it had added its key;
+  // the third never added one; and the fourth's account cannot be read.
+  const finished = apiKeyRestore({as: "user1", userPath: "/users/u1", description: "finished"});
+  const killed = apiKeyRestore({as: "user1", userPath: "/users/u1", description: "killed"});
+  const neverMade = apiKeyRestore({as: "user2", userPath: "/users/u2", description: "never made"});
+  const unreadable = apiKeyRestore({as: "user1", userPath: "/users/u3", description: "unreadable"});
+  const result = await sweep({rest, restores: [finished, {restored: finished.key}, killed, neverMade, unreadable]});
+  // Nothing is read or written for the entry the process marked as put back.
+  assert.deepEqual(calls, ["user1 GET /users/u1", "user1 DELETE /users/u1/api-keys/k-left", "user2 GET /users/u2",
+    "user1 GET /users/u3"]);
+  assert.deepEqual(accounts.get("/users/u1").apiKeys.map(key => key.id), ["k-other"]);
+  assert.deepEqual(result.restored.map(entry => [entry.key, entry.changed]), [[killed.key, 1]]);
+  assert.deepEqual(result.alreadyRestored.map(entry => [entry.key, entry.as]), [[neverMade.key, "user2"]]);
+  assert.deepEqual(result.notRestored.map(entry => [entry.key, entry.status]), [[unreadable.key, 503]]);
+  assert.deepEqual([result.removed, result.failed], [[], []]);
+  const line = summarize(result);
+  assert.match(line, /restored API key "killed" on user1's account/);
+  assert.match(line, /already as it was: API key "never made" on user2's account/);
+  assert.match(line, /not restored: API key "unreadable" on user1's account \(503\)/);
+  assert.doesNotMatch(line, /finished/);
 });
