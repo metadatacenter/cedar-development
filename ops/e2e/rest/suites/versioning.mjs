@@ -135,11 +135,13 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     }, { etagPath: `${tat}/permissions` });
     if (checkStatus(ownership, 200, 'the owner transfers the artifact to the second user')) {
       // The former owner still owns the folder the template sits in, so they can still read it, and
-      // the command refuses them under the versioning rule that only an owner publishes. It answers
-      // that rule with 400 versioningOnlyByOwner, not with the 403 of a failed permission check.
+      // the command refuses them under the rule that only an owner publishes. An operation only the
+      // owner may perform answers 403 to anyone else, whatever role they hold, with the rule's own key.
       const formerOwner = await call(auth, 'POST', '/command/publish-artifact',
           { '@id': tid, newVersion: '1.0.0' });
-      checkStatus(formerOwner, 400, 'the former owner can no longer publish it');
+      check(formerOwner.status === 403 && formerOwner.body?.errorKey === 'versioningOnlyByOwner',
+          'the former owner can no longer publish it',
+          `expected 403 versioningOnlyByOwner, got ${formerOwner.status}: ${(formerOwner.text ?? '').slice(0, 300)}`);
       checkStatus(await call(user2.auth, 'POST', '/command/publish-artifact',
           { '@id': tid, newVersion: '1.0.0' }), [200, 201],
           'the new owner can publish it');
