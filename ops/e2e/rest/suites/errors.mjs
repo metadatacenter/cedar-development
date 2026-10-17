@@ -101,8 +101,8 @@ const UNREACHABLE = [
     + 'the inclusion graph'],
   ['bridge', 'GET /datacite/get-doi-metadata/{id} 404 and 502, POST /datacite/create-doi 4xx and 502 from DataCite',
     'needs DataCite to answer'],
-  ['bridge', 'GET /ext-auth/{authority}/search-by-name and GET /ext-auth/{authority}/{id} 4xx, 502, 503 and 504 '
-    + 'from a registry',
+  ['bridge', 'GET /ext-auth/{authority}/search-by-name and GET /ext-auth/{authority}/{id} 4xx and 502 '
+    + 'from a registry, and 503 when it does not answer',
     'asks the registry, three of them on credentials the deployment holds. Each authority route is probed only '
       + 'under a segment no authority is registered under, which is refused before any registry is asked.'],
   ['every server', 'GET /healthcheck 500, monitor GET /health-check/{server} 500',

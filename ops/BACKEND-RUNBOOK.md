@@ -3090,9 +3090,10 @@ in flight answers 409 with that job in `objects.job`. The bridge answers a DataC
 `upstreamServerError` and DataCite's own errors in `objects.dataCiteErrors`, keeping DataCite's status
 for a refusal of the request itself and answering 502 when DataCite fails, refuses the repository
 credentials or limits the deployment's requests. It answers an external registry's refusal of an
-authority search or lookup with `upstreamServerError` and the registry's status, and carries the
-authority's answer in `objects.authorityAnswer`, where `found` is false and a lookup echoes
-`requestedId`. A registry status that is neither 200 nor a refusal answers 502. Terminology property
+authority search or lookup by the same rule, with `upstreamServerError` and the authority's answer in
+`objects.authorityAnswer`, where `found` is false and a lookup echoes `requestedId`. On both, a status
+that is neither a success nor a refusal answers 502. The authority routes take no credentials, and
+none of their answers is a 401. Terminology property
 failures and request-quota refusals use the common native envelope. A property route whose ontology
 store fails answers 500 with a message and an `errorId`, and the database exception is logged under
 that `errorId` rather than returned.
