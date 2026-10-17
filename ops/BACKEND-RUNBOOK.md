@@ -850,30 +850,51 @@ artifact server, then holds the shared lifecycle lock while checking for a works
 fence still prevents a delayed create from registering the missing document. Retrying a missing
 artifact (404) finishes the job. A changed or recreated document (412) is retained and the job parked.
 
+A create by `PUT`, a copy with `copyId` and a draft with `draftId` or `draft_id` each write at an
+identity their caller chose, and each records that identity with its intent. When such a create
+loses its answer, the resource server reads the identity back, and a document found there is
+recorded with its revision and removed unless the graph registers it. The write can also be stored
+after that read found nothing, because the artifact server sets no deadline on a request it has
+accepted. The document is then unregistered, and while it remains every create at the identity is
+refused with 412 `nodeAlreadyPresent`. The relay therefore reads the identity every thirty seconds
+for thirty minutes from the record's creation. That outlasts the 25 minutes the artifact server's
+MongoDB timeouts allow an instance create before its insert reaches the database. A document the
+graph has not registered is removed with `If-Match` on the revision just read. Before the deletion,
+one locked transaction records that revision and fences every record that holds the identity, so
+neither the create nor a retry at its identity can register the document being removed. A document
+another record holds at that revision is left to that record. Once the thirty minutes have passed
+with nothing unregistered at the identity, the record is removed.
+
 An unknown content response, missing validator, existing workspace node, permanent client refusal,
-or sixty failed attempts parks the record and logs a warning. Transient failures, including 408 and
-429, remain eligible for retry. A response lost before its generated identifier is recorded leaves
-an intent with an unknown artifact identity; it needs inspection, never a guessed delete. A late
+or sixty failed attempts parks the record and logs a warning. A record that holds its identity is
+not parked for an unknown response or for a workspace node at the identity. The relay reads the
+identity again instead. One whose identity still cannot be read once the thirty minutes have passed
+is parked after its sixtieth failed read. Transient failures, including 408 and 429, remain eligible
+for retry. A response lost before its generated identifier is recorded, which only a create by
+`POST` can suffer, leaves an intent with an unknown artifact identity; it needs inspection, never a
+guessed delete. A late
 response can supply that evidence while no cleanup has occurred. Parked records are retained rather
 than silently cleared. Inspect them with read-only Cypher:
 
 ```cypher
 MATCH (j:CedarArtifactCreateCleanup)
-RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt,
+RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt, j.recheckUntil,
        j.attempts, j.lastStatus, j.cleanupStarted, j.parked, j.parkedReason
 ORDER BY j.createdAt
 ```
 
 Deploy the resource server and worker with the matching workspace/search libraries: producers,
-registration transactions and relays share this protocol. Both relays use the same graph lock, so
+registration transactions and relays share this protocol. A relay built before identities were
+recorded parks a record that holds one instead of reading it. Both relays use the same graph lock, so
 multiple processes cannot race registration against cleanup. A slow artifact-server call holds that
 lock until its configured timeout, as projection recovery does. Tests cover persisted restart,
-rollback, lost acknowledgements, delayed registration, later revisions, ownership transfer, and real
-resource HTTP failures across ordinary creation, copies and drafts. The cleanup change adds seventeen
-regression cases; two more cover an unavailable recommender notification in an unrelated artifact or
-the same version chain. `ResourceStateRoundTripIT` also exercises publish/draft/delete transitions
-against a real OpenSearch index with Redis unavailable, requiring details, folder listings and search
-to offer the same actions immediately after each transition.
+rollback, lost acknowledgements, delayed registration, later revisions, ownership transfer, a write
+stored after its lost answer was read back, and real resource HTTP failures across ordinary
+creation, copies and drafts. The cleanup change adds seventeen regression cases; two more cover an
+unavailable recommender notification in an unrelated artifact or the same version chain.
+`ResourceStateRoundTripIT` also exercises publish/draft/delete transitions against a real OpenSearch
+index with Redis unavailable, requiring details, folder listings and search to offer the same
+actions immediately after each transition.
 
 ## The Redis Queues, and Where Failed Permission Events Go
 
@@ -2498,8 +2519,11 @@ it. `POST /command/create-draft-artifact` accepts `draftId`, `POST /command/copy
 accepts `copyId`, and `POST /command/publish-create-draft-template/{id}` accepts the `draft_id` query
 parameter. Each is a full IRI in the source's collection. A malformed identifier, or one in another
 collection, returns 400. One that either store already holds returns 412 with `nodeAlreadyPresent`
-and writes nothing. Without one, the server mints the identifier. Registration and cleanup are
-the same either way.
+and writes nothing. Without one, the server mints the identifier. Registration is the same either
+way, and so is cleanup, with one addition for a chosen identity. A create whose answer was lost can
+still be stored after the server read the identity back and found nothing. The identity then answers
+412 until the [create cleanup](#after-an-artifact-create-fails) removes that unregistered document,
+within about thirty-five seconds of its being stored, and a retry after that succeeds.
 
 `publish-create-draft-template` publishes the source, creates its draft and applies the submitted
 definition as one operation, which either does all three or changes nothing. Before publishing, it
