@@ -3055,19 +3055,21 @@ challenges, `Allow`, and `Retry-After`; representation headers are regenerated f
 Malformed query-parameter conversion is 400; a missing route remains 404. Explicit response
 entities bypass exception normalization, as Jersey requires.
 
-Success representations keep their own shapes. So do two answers that are not error bodies: a health
-report, which a failing check answers with 500, and an external authority's answer, which the bridge
-relays with the registry's status. Recursive-folder plans and outcomes also keep their published
-operation contract, and the Workspace localizes an outcome by its `FOLDER_DELETE_*` code. A recursive
-deletion's refusals use the common envelope. A refused confirmation carries its outcome in
-`objects.outcome`, as a validation refusal carries its report in `objects.validationReport`. Three
+Success representations keep their own shapes. So does one answer that is not an error body: a health
+report, which a failing check answers with 500. Recursive-folder plans and outcomes also keep their
+published operation contract, and the Workspace localizes an outcome by its `FOLDER_DELETE_*` code.
+A recursive deletion's refusals use the common envelope. A refused confirmation carries its outcome in
+`objects.outcome`, as a validation refusal carries its report in `objects.validationReport`. Four
 other refusals carry a payload the same way. An inclusion-subgraph update the artifact server partly
 refused answers 502 with its update report in `objects.report`. A regeneration requested while one is
 in flight answers 409 with that job in `objects.job`. The bridge answers a DataCite refusal with
 `upstreamServerError` and DataCite's own errors in `objects.dataCiteErrors`, keeping DataCite's status
 for a refusal of the request itself and answering 502 when DataCite fails, refuses the repository
-credentials or limits the deployment's requests. Terminology property failures and request-quota
-refusals use the common native envelope.
+credentials or limits the deployment's requests. It answers an external registry's refusal of an
+authority search or lookup with `upstreamServerError` and the registry's status, and carries the
+authority's answer in `objects.authorityAnswer`, where `found` is false and a lookup echoes
+`requestedId`. A registry status that is neither 200 nor a refusal answers 502. Terminology property
+failures and request-quota refusals use the common native envelope.
 
 Dependency classification is declared per integration. LINCS retains its established gateway
 mapping for upstream 400/401/500 (and treats deployment-owned credential rejection 403 likewise);

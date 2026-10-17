@@ -92,7 +92,7 @@ const ANSWERED = [
 /**
  * Error answers the services document but no request here can provoke, because provoking one changes
  * state or asks an external service. Their bodies are checked by the servers' own suites, against
- * stand-ins for the artifact server, the regeneration job and DataCite.
+ * stand-ins for the artifact server, the regeneration job, DataCite and the external registries.
  */
 const UNREACHABLE = [
   ['resource', 'POST /command/inclusions-subgraph-update 502',
@@ -101,7 +101,8 @@ const UNREACHABLE = [
     + 'the inclusion graph'],
   ['bridge', 'GET /datacite/get-doi-metadata/{id} 404 and 502, POST /datacite/create-doi 4xx and 502 from DataCite',
     'needs DataCite to answer'],
-  ['bridge', 'GET /ext-auth/{authority}/... with a registered authority',
+  ['bridge', 'GET /ext-auth/{authority}/search-by-name and GET /ext-auth/{authority}/{id} 4xx, 502, 503 and 504 '
+    + 'from a registry',
     'asks the registry, three of them on credentials the deployment holds. Each authority route is probed only '
       + 'under a segment no authority is registered under, which is refused before any registry is asked.'],
   ['every server', 'GET /healthcheck 500, monitor GET /health-check/{server} 500',

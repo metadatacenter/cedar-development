@@ -18,6 +18,11 @@ test('a CedarError whose status is the answer\'s passes', () => {
   assert.equal(cedarErrorProblem(answer(502, cedarError(502, 'BAD_GATEWAY', {
     errorKey: 'upstreamServerError', objects: { report: { outcomes: [] } },
   }))), null);
+  assert.equal(cedarErrorProblem(answer(404, cedarError(404, 'NOT_FOUND', {
+    errorKey: 'upstreamServerError', message: 'ORCID holds no entry for "0000-0001-2345-6789" (HTTP 404).',
+    parameters: { upstreamStatusCode: 404, upstreamService: 'ORCID' },
+    objects: { authorityAnswer: { found: false, requestedId: '0000-0001-2345-6789', name: null, rawResponse: null, errors: [] } },
+  }))), null);
 });
 
 test('each body a refusal once answered with is not a CedarError', () => {
@@ -26,6 +31,13 @@ test('each body a refusal once answered with is not a CedarError', () => {
     'an inclusion update report': { tree: {}, outcomes: [{ status: 'FAILED' }], complete: false },
     'a running regeneration job': { id: 'job', status: 'RUNNING', submittedAt: 1 },
     'DataCite\'s own refusal': { errors: [{ status: '404', title: 'The resource you are looking for doesn\'t exist.' }] },
+    'an external authority\'s refused lookup': {
+      found: false, requestedId: '0000-0001-2345-6789', name: null, rawResponse: { error: 'not found' }, errors: ['not found'],
+    },
+    'an external authority\'s refused search': {
+      request: { limit: 100, offset: 0 }, totalCount: 0, currentOffset: 0, paging: {}, found: false, results: {},
+      page: 0, pageSize: 100, errors: ['bad query'],
+    },
   };
   for (const [name, body] of Object.entries(bodies)) assert.ok(cedarErrorProblem(answer(409, body)), name);
 });
