@@ -412,8 +412,10 @@ are removed from the correct collection during cleanup.
 The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
 current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
 by the REST download suite, and the main browser smoke exercises CEE download controls.
-Each Workspace run removes its fixtures; the result and failure screenshots, including open
-second-user pages, are written under `/tmp/cedar-modern-workspace-smoke/`.
+Each Workspace run removes its fixtures. Its result and failure screenshots, including open
+second-user pages, go to a directory of the run's own: under the split tier, the evidence directory
+its report names, and otherwise a new `cedar-e2e-evidence-*` directory in the system's temporary
+directory, which the smoke prints.
 `npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
 runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
 and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).

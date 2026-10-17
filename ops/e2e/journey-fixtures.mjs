@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {call, enc} from "./rest/lib.mjs";
+import {noteFixture} from "./split-steps.mjs";
 
 // Listing and drag/drop scenarios must not depend on how many fixtures earlier journeys kept.
 export async function journeyFolder({user, folderId, name, created}, suffix) {
@@ -123,9 +124,15 @@ export function createAttempt(request) {
   return request.method() === "PUT" && !request.headers()["if-match"] && !!fixtureAt(request.url());
 }
 
-/** Adds a fixture to a runner's cleanup list once, however many writes name it. */
+/**
+ * Adds a fixture to a runner's cleanup list once, however many writes name it, and notes it in the
+ * split tier's fixture ledger when a runner keeps one.
+ */
 export function recordFixture(created, fixture) {
-  if (fixture && !created.some(item => item.id === fixture.id)) created.push(fixture);
+  if (fixture && !created.some(item => item.id === fixture.id)) {
+    created.push(fixture);
+    noteFixture(fixture);
+  }
 }
 
 /**

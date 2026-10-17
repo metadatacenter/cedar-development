@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { actors, call, mutate, enc, artifactBody } from './rest/lib.mjs';
 import { createdFixture, createAttempt, fixtureAt } from './journey-fixtures.mjs';
+import { evidencePath, noteFixture } from './split-steps.mjs';
 const designerBase = process.env.CEDAR_DESIGNER_BASE || 'https://designer.metadatacenter.orgx';
 const workspaceBase = process.env.CEDAR_BASE || 'https://workspace.metadatacenter.orgx';
 const { user1 } = await actors();
@@ -28,13 +29,19 @@ await page.route(url => /^\/(templates|template-elements|template-fields|command
     response = await intercepted.fetch();
   } catch (error) {
     // A create whose reply never arrived may still have committed; cleanup removes it or finds it absent.
-    if (createAttempt(req)) created.push(fixtureAt(req.url()));
+    if (createAttempt(req)) {
+      created.push(fixtureAt(req.url()));
+      noteFixture(fixtureAt(req.url()));
+    }
     throw error;
   }
   const data = await response.json();
   responseBodies.set(req.method() + ' ' + req.url(), data);
   const fixture = createdFixture(req.method(), req.url(), response.status(), data);
-  if (fixture) created.push(fixture);
+  if (fixture) {
+    created.push(fixture);
+    noteFixture(fixture);
+  }
   if (loseNextWrite) {
     loseNextWrite = false;
     assert.ok(response.ok(), JSON.stringify(data));
@@ -114,8 +121,8 @@ try {
     const response = await savedResponse;
     const body = responseBodies.get('PUT ' + response.url());
     if (response.status() !== 201) {
-      await writeFile('/tmp/ced-host-rejected-artifact.json', response.request().postData());
-      await writeFile('/tmp/ced-host-rejection.json', JSON.stringify(body, null, 2));
+      await writeFile(evidencePath('rejected-artifact.json'), response.request().postData());
+      await writeFile(evidencePath('rejection.json'), JSON.stringify(body, null, 2));
     }
     assert.equal(response.status(), 201, JSON.stringify(body).slice(0, 1200));
     assert.equal(response.request().headers()['if-match'], undefined, 'A create carries no If-Match');
@@ -237,7 +244,7 @@ try {
 } catch (error) {
   console.error('Host message:', (await page.locator('#message').textContent({ timeout: 1000 }).catch(() => 'unavailable')).slice(0, 1200));
   console.error('Page errors:', errors);
-  await page.screenshot({ path: '/tmp/ced-host-smoke-failure.png', fullPage: true });
+  await page.screenshot({ path: evidencePath('failure.png'), fullPage: true });
   throw error;
 } finally {
   await browser.close();

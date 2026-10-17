@@ -10,6 +10,7 @@ import { env } from 'node:process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { noteFixture } from '../split-steps.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -225,7 +226,10 @@ export async function call(auth, method, path, body, opts = {}) {
   let json;
   try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
   // A create under a supplied identity is a PUT answered 201, and it can leak as a POST can.
-  if ((method === 'POST' || method === 'PUT') && res.status === 201) noteCreated(json, opts.base);
+  if ((method === 'POST' || method === 'PUT') && res.status === 201) {
+    noteCreated(json, opts.base);
+    noteSplitFixture(json, opts.base);
+  }
   return { status: res.status, body: json, text, headers: res.headers };
 }
 
@@ -432,6 +436,26 @@ function noteCreated(json, base) {
   const kind = kindOfId(id);
   if (!kind || state().created.some(c => c.id === id)) return;
   state().created.push({ kind, id, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: state().currentSuite });
+}
+
+/**
+ * Notes a created folder, artifact or group in the split tier's fixture ledger, which is written only
+ * when the split tier's runner names one. The runner reads it to remove what a process it had to kill
+ * created.
+ */
+function noteSplitFixture(json, base) {
+  const id = json?.['@id'];
+  if (typeof id !== 'string') return;
+  const group = base === GROUP_SERVER;
+  if (base && base !== RESOURCE && !group) return;
+  let collection;
+  try {
+    collection = /^\/(folders|templates|template-elements|template-fields|template-instances|groups)\/[^/]+$/
+      .exec(new URL(id).pathname)?.[1];
+  } catch {
+    return;
+  }
+  if (collection && (collection === 'groups') === group) noteFixture({ collection, id, ...(group ? { base: 'group' } : {}) });
 }
 
 /**

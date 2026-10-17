@@ -12,7 +12,7 @@
 // `--chain-only` runs the chain and skips the journeys. The split tier's core lane runs it that way
 // while other lanes run the journeys through focused-journey-smoke.mjs.
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { actors, artifactBody, call, mutate, enc, poll } from "./rest/lib.mjs";
 import { captureCreates, recordCreate, rendered } from "./journey-fixtures.mjs";
@@ -25,7 +25,7 @@ import {
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
 import { designerTerminologyFailureJourney, editorTerminologyFailureJourney } from "./terminology-failure-journey.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
-import { enter, record } from "./split-steps.mjs";
+import { enter, evidencePath, record } from "./split-steps.mjs";
 const chainOnly = process.argv.slice(2).includes("--chain-only");
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
@@ -577,10 +577,9 @@ try {
   step = enter("complete");
 } catch (error) {
   record({ event: "fail", step, message: String(error?.message ?? error).slice(0, 2000) });
-  await mkdir("/tmp/cedar-modern-workspace-smoke", { recursive: true });
   await page
     ?.screenshot({
-      path: "/tmp/cedar-modern-workspace-smoke/failure.png",
+      path: evidencePath("failure.png"),
       fullPage: true,
     })
     .catch(() => {});
@@ -601,7 +600,7 @@ try {
     if (candidate === page || candidate.isClosed()) continue;
     const index = ++otherPage;
     await candidate.screenshot({
-      path: `/tmp/cedar-modern-workspace-smoke/failure-other-${index}.png`,
+      path: evidencePath(`failure-other-${index}.png`),
       fullPage: true,
     }).catch(() => {});
     console.error(`Other browser page ${index}:`, await candidate.locator("body").innerText().catch(() => ""));
@@ -622,9 +621,8 @@ try {
     if (![200, 204, 404].includes(result.status))
       cleanupErrors.push(`${path}: ${result.status}`);
   }
-  await mkdir("/tmp/cedar-modern-workspace-smoke", { recursive: true });
   await writeFile(
-    "/tmp/cedar-modern-workspace-smoke/result.json",
+    evidencePath("result.json"),
     JSON.stringify({ step, checks, errors, cleanupErrors }, null, 2),
   );
   record({ event: "end", step, checks: checks.length, errors, cleanupErrors });

@@ -46,3 +46,13 @@ test("a file that signs the second user in has a flagged journey, and a flagged 
       `${file} signs the second user in, but none of its journeys is flagged`);
   assert.equal(typeof JOURNEYS[0].signsInAsAnotherUser, "boolean");
 });
+
+test("whatever a journey makes in the second user's home is named after the root it was given", () => {
+  // When the split tier kills a lane's journey runner, its sweep finds the second user's fixtures by
+  // that name, since only the first user's root holds the rest.
+  const creates = files.flatMap(file => [...readFileSync(join(here, file), "utf8")
+    .matchAll(/call\(\s*user2\.auth,\s*["']POST["'][\s\S]*?\}\)/g)].map(match => ({file, text: match[0]})));
+  assert.ok(creates.length, "partial-version-draft creates a folder in the second user's home");
+  for (const {file, text} of creates)
+    assert.match(text, /\bname:\s*name\s*\+\s*["']/, `${file}: ${text.slice(0, 200)}`);
+});

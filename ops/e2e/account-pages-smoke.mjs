@@ -9,6 +9,7 @@ import {
   mutateGroup,
   enc,
 } from "./rest/lib.mjs";
+import { evidencePath, noteFixture } from "./split-steps.mjs";
 const area = process.argv[2] || "profile";
 assert.ok(
   ["profile", "settings", "groups", "privacy"].includes(area),
@@ -164,6 +165,7 @@ try {
       201,
     );
     groupId = (await created.json())["@id"];
+    noteFixture({ collection: "groups", id: groupId, base: "group" });
     const path = "/groups/" + enc(groupId);
     await page.getByRole("button", { name: "Save", exact: true }).waitFor();
     const me = page.getByRole("listitem", {
@@ -218,7 +220,7 @@ try {
       assert.equal(await vp.locator(".groups-member-count").count(), 0);
       assert.equal(await vp.evaluate(() => typeof window.angular), "undefined");
       await vp.screenshot({
-        path: `/tmp/cedar-modern-groups-${member ? "member" : "non-member"}.png`,
+        path: evidencePath(`groups-${member ? "member" : "non-member"}.png`),
         fullPage: true,
       });
       await vp.getByRole("tab", { name: "Delete group", exact: true }).click();
@@ -337,7 +339,7 @@ try {
       200,
     );
     await page.screenshot({
-      path: "/tmp/cedar-modern-groups.png",
+      path: evidencePath("groups.png"),
       fullPage: true,
     });
     await page.getByRole("tab", { name: "Delete group", exact: true }).click();
@@ -376,7 +378,7 @@ try {
       "Privacy overflows on mobile",
     );
     await page.screenshot({
-      path: "/tmp/cedar-modern-privacy-mobile.png",
+      path: evidencePath("privacy-mobile.png"),
       fullPage: true,
     });
     // The account pages are standalone: each is reached by its own route, with no shared navigation.
