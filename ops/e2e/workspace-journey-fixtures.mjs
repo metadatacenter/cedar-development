@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { enc } from "./rest/lib.mjs";
+import { enc, poll } from "./rest/lib.mjs";
 import { listingIdle, listingOf } from "./journey-fixtures.mjs";
 
 // These helpers drive Workspace's own controls for the full smoke and its journeys: the listing and
@@ -230,6 +230,41 @@ const sharedListing = response => {
 export async function openSharedWithMe(p, gesture) {
   await Promise.all([p.waitForResponse(sharedListing), gesture()]);
   await ready(p);
+}
+
+const searchAnswer = query => response => {
+  const url = new URL(response.url());
+  return response.request().method() === "GET" && url.pathname === "/search" &&
+    url.searchParams.get("q") === query && response.status() === 200;
+};
+
+/**
+ * Searches for a name with Workspace's top search until a result row shows it, and returns poll()'s
+ * outcome. Indexing is eventual, so a search that does not list the name is repeated. Every artifact
+ * whose name shares a word with the query is a result, and the results page by fifty rows sorted by
+ * name, so the fixtures of a run in another lane can fill the first page. Each search is therefore
+ * read to its last page.
+ */
+export async function searchUntilListed(p, name, { tries = 21, delayMs = 1000 } = {}) {
+  const answered = searchAnswer(name);
+  await p.getByRole("textbox", { name: "Search workspace", exact: true }).fill(name);
+  let paged = false;
+  return poll(async attempt => {
+    // Searching again from a later page returns to the first one. Searching again on the first page
+    // changes no route, so a later attempt there refreshes the listing instead.
+    const control = attempt === 1 || paged ? "Search" : "Refresh workspace";
+    await Promise.all([p.waitForResponse(answered), p.getByRole("button", { name: control, exact: true }).click()]);
+    await ready(p);
+    paged = false;
+    for (;;) {
+      if (await row(p, name).count()) return { done: true };
+      const next = p.getByRole("button", { name: "Next", exact: true });
+      if (await next.isDisabled()) return { done: false };
+      await Promise.all([p.waitForResponse(answered), next.click()]);
+      await listingIdle(p);
+      paged = true;
+    }
+  }, { tries, delayMs });
 }
 
 /**

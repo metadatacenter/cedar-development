@@ -122,3 +122,51 @@ export function createdFixture(method, url, status, body) {
 export function createAttempt(request) {
   return request.method() === "PUT" && !request.headers()["if-match"] && !!fixtureAt(request.url());
 }
+
+/** Adds a fixture to a runner's cleanup list once, however many writes name it. */
+export function recordFixture(created, fixture) {
+  if (fixture && !created.some(item => item.id === fixture.id)) created.push(fixture);
+}
+
+/**
+ * Adds what a browser write created to a runner's cleanup list. A successful POST whose reply names
+ * an identity must name one in a collection cleanup removes, or the fixture would leak unnoticed.
+ */
+export function recordCreate(created, method, url, status, body) {
+  const fixture = createdFixture(method, url, status, body);
+  if (method === "POST" && status >= 200 && status < 300 && body?.["@id"])
+    assert.ok(fixture, `${method} ${url} named ${body["@id"]}, outside the collections cleanup removes`);
+  recordFixture(created, fixture);
+}
+
+/**
+ * Passes every POST and PUT that a context's pages send to a folder, an artifact or a command through
+ * the runner, which records each create in its cleanup list even when the page never reads the reply.
+ * A create whose reply never arrived may still have committed, and its address names the identity,
+ * so cleanup can remove it or find it absent. Each reply's body is kept in `bodies` under its method
+ * and address, for failure messages. Routes a page installs itself run first.
+ */
+export async function captureCreates(context, created, bodies = new Map()) {
+  await context.route("**/*", async route => {
+    const request = route.request(), path = new URL(request.url()).pathname;
+    if (!["POST", "PUT"].includes(request.method()) ||
+        !/^\/(folders|templates|template-elements|template-fields|template-instances|command\/)/.test(path) ||
+        path.endsWith("/download"))
+      return route.continue();
+    let response;
+    try {
+      response = await route.fetch();
+    } catch (error) {
+      if (createAttempt(request)) recordFixture(created, fixtureAt(request.url()));
+      throw error;
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch {}
+    bodies.set(request.method() + " " + request.url(), body);
+    recordCreate(created, request.method(), request.url(), response.status(), body);
+    await route.fulfill({ response });
+  });
+  return bodies;
+}

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { call, enc, mutate, poll } from "./rest/lib.mjs";
+import { call, enc, mutate } from "./rest/lib.mjs";
 import { journeyFolder } from "./journey-fixtures.mjs";
 import { diseaseRecord, diseaseTemplate, editorStatus } from "./metadata-journey-fixtures.mjs";
 import {
-  assertOnlyContentChanges, backToWorkspace, editor, editorSave, listed, listing, menu, modal, pathId, ready, row,
+  assertOnlyContentChanges, backToWorkspace, editor, editorSave, listed, listing, menu, modal, pathId,
+  searchUntilListed,
 } from "./workspace-journey-fixtures.mjs";
 
 // The first journey authors an element and a field in Designer from Workspace's New menu, and
@@ -70,27 +71,7 @@ export async function designerAuthoringJourney(args) {
   }
 
   await listing(page, base, folderId);
-  await page.getByRole("textbox", { name: "Search workspace", exact: true }).fill(names.element);
-  const searched = page.waitForResponse(response => {
-    const url = new URL(response.url());
-    return url.pathname === "/search" && url.searchParams.get("q") === names.element && response.status() === 200;
-  });
-  await page.getByRole("button", { name: "Search", exact: true }).click();
-  await searched;
-  await ready(page);
-  // Indexing is eventual. As in the ownership search, refresh the listing until the element appears.
-  const found = await poll(async attempt => {
-    if (attempt > 1) {
-      const again = page.waitForResponse(response => {
-        const url = new URL(response.url());
-        return url.pathname === "/search" && url.searchParams.get("q") === names.element && response.status() === 200;
-      });
-      await page.getByRole("button", { name: "Refresh workspace", exact: true }).click();
-      await again;
-      await ready(page);
-    }
-    return { done: (await row(page, names.element).count()) > 0 };
-  }, { tries: 21, delayMs: 1000 });
+  const found = await searchUntilListed(page, names.element);
   assert.ok(!found.timedOut, `the authored element never appeared in ${found.attempts} top searches`);
   pass("Top search finds authored element");
 

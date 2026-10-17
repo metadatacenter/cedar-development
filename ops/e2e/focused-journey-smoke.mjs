@@ -1,143 +1,40 @@
-import { combinedDeleteJourney } from "./combined-delete-journey.mjs";
-import { accountSwitchJourney } from "./account-switch-journey.mjs";
-import { configurationDraftJourney } from "./configuration-draft-journey.mjs";
-import { repeatedSchemaJourney } from "./repeated-schema-journey.mjs";
-import { scalarRoundtripJourney } from "./scalar-roundtrip-journey.mjs";
-import { restoredValidationJourney } from "./restored-validation-journey.mjs";
-import {
-  startupRecoveryJourney,
-  tabIsolationJourney,
-} from "./recovery-boundary-journey.mjs";
-import {
-  openingPermissionJourney,
-  signInPermissionJourney,
-} from "./opening-permission-journey.mjs";
-import { numericConstraintJourney } from "./numeric-constraint-journey.mjs";
-import { contentDeletionJourney } from "./content-deletion-journey.mjs";
-import {
-  draftRecoveryJourney,
-  metadataReconciliationJourney,
-} from "./draft-recovery-journey.mjs";
-import { reusableSourceFailureJourney } from "./reusable-source-failure-journey.mjs";
-import { recoveryElementEditsJourney } from "./recovery-element-edits-journey.mjs";
-import { accessRecheckJourney } from "./access-recheck-journey.mjs";
-import {
-  saveStatusJourney,
-  confirmedSaveRecoveryJourney,
-} from "./save-status-journey.mjs";
+// Runs self-contained journeys against the live stack, one after another on one page, without the
+// inline chain of the full Workspace smoke and the fixtures it provisions.
+//
+//   node focused-journey-smoke.mjs [--root=NAME] <key>...
+//
+// The keys are those of journey-registry.mjs, and each runs once. The journeys work under a root
+// folder in the first test user's home, named "Focused journey <stamp>" unless --root names it. The
+// split tier runs one of these processes per lane and gives each lane a root of its own. Under the
+// split tier's runner the process records each journey as a step through split-steps.mjs.
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { actors, call, mutate, enc } from "./rest/lib.mjs";
-import { createdFixture } from "./journey-fixtures.mjs";
-import { initialLoadJourney } from "./initial-load-journey.mjs";
-import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
-import { duplicationJourney } from "./duplication-journey.mjs";
-import { templateEvolutionJourney } from "./template-evolution-journey.mjs";
-import {
-  partialMoveJourney,
-  mixedMoveJourney,
-} from "./partial-move-journey.mjs";
-import { currentTemplateConstraintJourney } from "./current-template-constraint-journey.mjs";
-import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
-import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
-import { olderArtifactJourney } from "./older-artifact-journey.mjs";
-import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
-import {
-  workspaceDraftSharingJourney,
-  designerDraftSharingJourney,
-} from "./draft-sharing-journey.mjs";
-import {
-  uncertainCreateJourney,
-  uncertainWorkspaceCreateJourney,
-  uncertainVersionJourney,
-} from "./uncertain-create-journey.mjs";
-import {
-  partialVersionDefinitionJourney,
-  partialVersionDraftJourney,
-} from "./partial-version-journey.mjs";
-import { folderUiJourney } from "./folder-ui-journey.mjs";
-import {
-  designerAuthoringJourney,
-  designerConflictJourney,
-} from "./designer-authoring-journey.mjs";
-import {
-  templateSharingJourney,
-  ownershipTransferJourney,
-} from "./template-sharing-journey.mjs";
-import { ceePermissionsJourney } from "./cee-permissions-journey.mjs";
-import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
-import { copyOpenViewJourney } from "./copy-openview-journey.mjs";
-import { publicationJourney } from "./publication-journey.mjs";
-import {
-  selectionDeleteJourney,
-  partialSelectionDeleteJourney,
-} from "./selection-delete-journey.mjs";
+import { captureCreates, recordCreate } from "./journey-fixtures.mjs";
+import { JOURNEYS, journey } from "./journey-registry.mjs";
+import { enter, record } from "./split-steps.mjs";
 
-// Run self-contained journeys against the live stack without provisioning the
-// unrelated sharing/versioning fixtures in the full Workspace smoke.
-const journeys = {
-  "scalar-roundtrip": scalarRoundtripJourney,
-  "startup-recovery": startupRecoveryJourney,
-  "tab-isolation": tabIsolationJourney,
-  "opening-permissions": openingPermissionJourney,
-  "signin-permissions": signInPermissionJourney,
-  "numeric-constraint": numericConstraintJourney,
-  "mixed-move": mixedMoveJourney,
-  "content-deletion": contentDeletionJourney,
-  "draft-recovery": draftRecoveryJourney,
-  "metadata-reconciliation": metadataReconciliationJourney,
-  "confirmed-save-recovery": confirmedSaveRecoveryJourney,
-  "reusable-source-failure": reusableSourceFailureJourney,
-  "recovery-element-edits": recoveryElementEditsJourney,
-  "access-recheck": accessRecheckJourney,
-  "save-status": saveStatusJourney,
-  "initial-load": initialLoadJourney,
-  "validation-rejection": validationRejectionJourney,
-  duplication: duplicationJourney,
-  "template-evolution": templateEvolutionJourney,
-  "partial-move": partialMoveJourney,
-  "current-template-constraint": currentTemplateConstraintJourney,
-  "uncertain-move": uncertainMoveJourney,
-  "older-key-rename": olderKeyRenameJourney,
-  "older-artifacts": olderArtifactJourney,
-  "designer-pending-save": designerPendingSaveJourney,
-  "draft-sharing-workspace": workspaceDraftSharingJourney,
-  "draft-sharing-designer": designerDraftSharingJourney,
-  "uncertain-create": uncertainCreateJourney,
-  "uncertain-workspace-create": uncertainWorkspaceCreateJourney,
-  "uncertain-version": uncertainVersionJourney,
-  "partial-version-definition": partialVersionDefinitionJourney,
-  "partial-version-draft": partialVersionDraftJourney,
-  "folder-ui": folderUiJourney,
-  "designer-authoring": designerAuthoringJourney,
-  "designer-conflict": designerConflictJourney,
-  "template-sharing": templateSharingJourney,
-  "ownership-transfer": ownershipTransferJourney,
-  "cee-permissions": ceePermissionsJourney,
-  "incomplete-metadata": incompleteMetadataJourney,
-  "copy-openview": copyOpenViewJourney,
-  publication: publicationJourney,
-  "selection-delete": selectionDeleteJourney,
-  "partial-selection-delete": partialSelectionDeleteJourney,
-};
-const selected = process.argv.slice(2);
-journeys["restored-validation"] = restoredValidationJourney;
-journeys["repeated-schema"] = repeatedSchemaJourney;
-journeys["configuration-draft"] = configurationDraftJourney;
-journeys["account-switch"] = accountSwitchJourney;
-journeys["combined-delete"] = combinedDeleteJourney;
+const args = process.argv.slice(2);
+const rootArgument = args.find((argument) => argument.startsWith("--root="));
+const selected = args.filter((argument) => !argument.startsWith("--"));
 assert.ok(
-  selected.length && selected.every((key) => journeys[key]),
-  "Choose: " + Object.keys(journeys).join(", "),
+  selected.length && selected.every((key) => journey(key)),
+  "Choose: " + JOURNEYS.map((entry) => entry.key).join(", "),
 );
+assert.equal(new Set(selected).size, selected.length, "Each journey runs once");
+const name = rootArgument ? rootArgument.slice("--root=".length) : "Focused journey " + Date.now();
+assert.ok(name, "--root names the root folder");
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
 const { user1 } = await actors();
 const browser = await chromium.launch({ headless: !process.env.HEADED });
 const created = [],
-  errors = [];
-let page;
+  errors = [],
+  bodies = new Map();
+let page,
+  step = "login",
+  checks = 0;
 async function write(
   p,
   method,
@@ -155,25 +52,27 @@ async function write(
     gesture(),
   ]);
   // Any status in a list passes, as in the full smoke's write().
-  if (Array.isArray(status))
-    assert.ok(status.includes(response.status()), `${response.status()}, expected ${status}: ${await response.text()}`);
-  else assert.equal(response.status(), status, await response.text());
-  if (conditional) assert.ok(await response.request().headerValue("if-match"));
-  // A deletion answers 204 with no body.
   const body = await response.json().catch(() => undefined);
+  const reply = () => JSON.stringify(bodies.get(method + " " + response.url()) ?? body)?.slice(0, 1200);
+  assert.ok(
+    (Array.isArray(status) ? status : [status]).includes(response.status()),
+    `${method} ${path} returned ${response.status()}, expected ${status}: ${reply()}`,
+  );
+  if (conditional) assert.ok(await response.request().headerValue("if-match"), "Missing If-Match");
   // A POST names what it created in its reply, a create-by-PUT in its address. Either way the
   // collection comes from the identity, so a command's reply is not recorded under "command".
-  const fixture = createdFixture(method, response.url(), response.status(), body);
-  if (fixture && !created.some((item) => item.id === fixture.id))
-    created.push(fixture);
+  // Journeys may open contexts of their own, outside the capture route, so the reply is recorded here.
+  recordCreate(created, method, response.url(), response.status(), body);
   return body;
 }
 try {
+  step = enter("login");
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
     viewport: { width: 1500, height: 1000 },
   });
   context.setDefaultTimeout(25000);
+  await captureCreates(context, created, bodies);
   page = await context.newPage();
   page.on("dialog", (dialog) => dialog.accept());
   page.on("pageerror", (error) => errors.push(error.message));
@@ -186,7 +85,6 @@ try {
     .fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
   await page.locator("#kc-login").click();
   await page.getByRole("button", { name: "New", exact: true }).waitFor();
-  const name = "Focused journey " + Date.now();
   const folder = await call(user1.auth, "POST", "/folders", {
     folderId: user1.profile.homeFolderId,
     name,
@@ -194,8 +92,9 @@ try {
   });
   assert.equal(folder.status, 201, folder.text);
   created.push({ collection: "folders", id: folder.body["@id"] });
-  for (const key of selected)
-    await journeys[key]({
+  for (const key of selected) {
+    step = enter(key);
+    await journey(key).run({
       page,
       base,
       designer,
@@ -204,10 +103,18 @@ try {
       name,
       created,
       write,
-      pass: (message) => console.log("PASS: " + message),
+      pass: (message) => {
+        checks++;
+        console.log("PASS: " + message);
+      },
     });
-  assert.deepEqual(errors, [], "uncaught browser errors");
+    // An error on the runner's page belongs to the journey that was running when it was thrown.
+    assert.deepEqual(errors, [], "uncaught browser errors");
+  }
+  step = enter("complete");
 } catch (error) {
+  record({ event: "fail", step, message: String(error?.message ?? error).slice(0, 2000) });
+  console.error("FAILED JOURNEY:", step);
   console.error(
     await page
       ?.locator("body")
@@ -217,6 +124,8 @@ try {
   throw error;
 } finally {
   await browser.close();
+  // A timeline entry of its own, so cleanup's time is not charged to the last journey.
+  record({ event: "step", step: "cleanup" });
   const failures = [];
   // An identity recorded from a create attempt may never have committed, so 404 is a clean end state.
   for (const item of created.reverse()) {
@@ -228,6 +137,7 @@ try {
     if (![200, 204, 404].includes(removed.status))
       failures.push(`${item.collection}/${item.id}: ${removed.status}`);
   }
+  record({ event: "end", step, checks, errors, cleanupErrors: failures });
   assert.deepEqual(failures, [], "fixture cleanup");
   console.log("Focused journey fixtures removed");
 }

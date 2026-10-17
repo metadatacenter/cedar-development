@@ -3271,6 +3271,51 @@ CED authoring with a Disease field constrained to the DOID disease branch throug
 picker, recovery from an expired token in both applications, stale-save protection, populating
 with a live DOID suggestion, publication and drafts, downloads, OpenView and conditional deletion.
 
+The tier runs these scripts through `split-tier.mjs` in lanes that run at the same time. A lane is
+a sequence of Node processes. Each process keeps its own fixtures, browser errors and current step,
+so a failure in one lane cannot be charged to another. The core lane runs the inline chain of the
+Workspace journey alone, with `modern-workspace-smoke.mjs --chain-only`. The chain's six steps work
+on one template, and each reads what an earlier step made. The identity lane runs every journey that
+signs the second test user in, one after another, and then the account groups page, the lifecycle
+routes and the recursive folder deletion smoke, which administer a group, log out and grant to the
+second user. Sign-ins contend in Keycloak and in the graph writes each one triggers, and a logout
+ends the single sign-on session of its browser context. The general lanes share out the remaining
+journeys and scripts. A lane runs its journeys in one `focused-journey-smoke.mjs` process, one at a
+time on one page, under a root folder of its own named `Focused journey <stamp> <lane>`, and then
+its scripts. Every process signs in through the login form in a browser context of its own.
+
+`journey-registry.mjs` lists every journey under its key and records whether it signs the second
+user in, which decides its lane. The full smoke and the focused runner both read it.
+`npm run test:journey-harness` runs before the tier and fails when a journey file exports a journey
+the registry does not list. The general lanes are balanced from the newest split reports. Each
+journey and script, longest first, goes to the general lane with the least work so far, and one
+that no report has measured counts as the median of its kind. `node split-tier.mjs --plan` prints
+the lanes without running anything. The core lane starts first, and the others start once it has
+made its fixtures, so that its Designer search finds the element it created before the other
+lanes' fixtures reach the search index.
+
+`--lanes=N`, from two to four, sets the number of general lanes beside the core and identity
+lanes. The default is two, because the 16-core workstation runs with its swap nearly full and every lane
+drives a browser of its own. `--lanes=1` runs the tier as it ran before lanes existed: all of
+`modern-workspace-smoke.mjs`, its chain and then every journey, followed by the other scripts, one
+after another, stopping at the first failure.
+`cedarcli test e2e --split-lanes N` passes the setting through the gate.
+
+A lane stops at its first failure, and every other lane runs to its end, so one run names every
+lane that fails. The tier fails when any lane does. A first SIGINT or SIGTERM stops every lane.
+Each process closes its browser and removes its fixtures, the verdict is `INTERRUPTED`, and the
+exit status is 130. A second signal kills the processes and their browsers at once, without that
+cleanup, and leaves each lane's root folder in the first user's home.
+
+Lanes see one another's fixtures wherever a listing spans folders. Workspace's top search returns
+every artifact whose name shares a word with the query, fifty to a page and sorted by name, so a
+journey reads every page of a search, as it does of Shared with Me.
+
+On 2026-10-17, on the 16-core workstation with 32.5 of its 33.8 GB of swap in use, a sequential run
+took 557 seconds and a run in the default lanes took 185, with the same 186 checks. In the lane run
+the general lanes took 182 and 178 seconds, the identity lane 103 and the core lane 42, and the load
+average peaked at 13.5.
+
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly (timings below), and reaches what no unit suite can: the artifact
 write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
@@ -3307,7 +3352,9 @@ budget, each retaining its own reverse creation order. The shared parent is dele
 last. A first interrupt stops new suites, drains active work and then cleans up;
 a second interrupt forces exit. Preflight, final leftover checks and worker health
 checks still surround the entire run. Do not run separate smoke processes or other
-fixture-mutating tests simultaneously against the same stack.
+fixture-mutating tests simultaneously against the same stack. The split tier's lanes are the one
+exception. They run inside one tier, after the REST tier has finished, and each works under a root
+folder of its own.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
 and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
@@ -3367,11 +3414,12 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>.json`, and the split tier's as `split-smoke-<digest>.json`. The split tier
-runs its scripts through `split-tier.mjs`, which stops at the first failure and reports how long
-each script took, every step of the modern Workspace smoke with its duration, the script and step
-that failed, and the machine's load average and swap at start and end. The gate record keeps the
-failing script and step and the five slowest steps, so a failed run names where it failed.
+`rest-smoke-<digest>.json`, and the split tier's as `split-smoke-<digest>.json`. The split tier's
+report says how long each lane and each process took and how it exited, how long each step of the
+chain and each journey took, and the machine's load average and swap at start, at peak and at end. Its schema 2 names every lane with its journeys and scripts, its time, its
+exit code and the step it failed in, and lists every failure, while the fields schema 1 had still
+name the first failing script and step. The gate record keeps the lanes, every failure and the five
+slowest steps, so a failed run names each place it failed, and it reads a report of either schema.
 
 Every run writes `reports/rest-smoke.json` by default; `--report=PATH` chooses another file. The JSON
 records the selected suites, pass/fail/skip totals, duration, inventory verdict and each individual

@@ -227,6 +227,9 @@ In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
 sharing between two users, CEE metadata entry, versioning, OpenView and conditional writes.
+It runs its journeys in parallel lanes, which the
+[backend runbook](BACKEND-RUNBOOK.md#what-the-suites-actually-cover) describes, and
+`-- --lanes=1` runs them one after another.
 Its two-user access journeys revoke edit permission while Designer and Editor contain unsaved
 input, verify that saving is refused and the stored document is unchanged, and cancel the
 reload confirmation to verify that the local draft remains intact.

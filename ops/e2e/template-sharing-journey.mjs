@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { actors, call, enc, mutate, poll } from "./rest/lib.mjs";
+import { actors, call, enc, mutate } from "./rest/lib.mjs";
 import { journeyFolder } from "./journey-fixtures.mjs";
 import { diseaseTemplate } from "./metadata-journey-fixtures.mjs";
 import {
-  listed, menu, modal, openSharedWithMe, pathId, permissionAppearance, permissionDone, ready, removePermission, row,
-  save, setPermission, sharedWithMeLists, showInformation, signInSecondUser,
+  listed, menu, modal, openSharedWithMe, pathId, permissionAppearance, permissionDone, removePermission,
+  save, searchUntilListed, setPermission, sharedWithMeLists, showInformation, signInSecondUser,
 } from "./workspace-journey-fixtures.mjs";
 
 // These journeys share a template with a second person through Workspace's Permissions dialog, and
@@ -185,19 +185,8 @@ export async function ownershipTransferJourney(args) {
     await listed(page, base, folderId, templateName);
     await menu(page, templateName, "Permissions…");
     await transferOwnership(page, "Test User 2", user2);
-    // The index follows the transfer, so retry the new owner's search.
-    await reader.getByRole("textbox", { name: "Search workspace", exact: true }).fill(templateName);
-    const transferred = await poll(async attempt => {
-      const searched = reader.waitForResponse(response => {
-        const url = new URL(response.url());
-        return url.pathname === "/search" && url.searchParams.get("q") === templateName && response.status() === 200;
-      });
-      // Submitting the same search again changes no route, so later attempts refresh the listing.
-      await reader.getByRole("button", { name: attempt === 1 ? "Search" : "Refresh workspace", exact: true }).click();
-      await searched;
-      await ready(reader);
-      return { done: (await row(reader, templateName).count()) > 0 };
-    }, { tries: 21, delayMs: 1000 });
+    // The index follows the transfer, so the new owner searches again until the template is found.
+    const transferred = await searchUntilListed(reader, templateName);
     assert.ok(!transferred.timedOut,
       `the transferred template never appeared in ${transferred.attempts} of the new owner's searches`);
     await menu(reader, templateName, "Permissions…");
