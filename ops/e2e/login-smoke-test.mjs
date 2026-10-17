@@ -130,6 +130,68 @@ async function assertWorkingFolderCleared(user, folderId, ownIds) {
   }
 }
 
+// ── settling helpers ───────────────────────────────────────────────────────
+//
+// These helpers wait for states of the AngularJS application rather than for lengths of time.
+// AngularJS counts every $http request from the moment it is made until its response has been
+// handled, and `$browser.notifyWhenNoOutstandingRequests` reports when that count is zero.
+// Playwright evaluates the checks between tasks, outside any digest, so by then the handlers of a
+// finished response have also updated the page.
+
+// True when the AngularJS application on the page has no $http request outstanding, apart from
+// requests to the terminology server. Those are BioPortal-backed lookups that fill the term
+// picker's caches and can take many seconds. Nothing these waits guard reads them, and the steps
+// that use terminology results wait for the results themselves. The outstanding count includes a
+// request from the moment it is made, while the list of sent requests, which says where each one
+// went, includes it only once it is sent. Within a digest the two moments coincide.
+const httpIdle = () => {
+  const injector = window.angular?.element(document).injector();
+  if (!injector) return false;
+  let idle = false;
+  injector.get('$browser').notifyWhenNoOutstandingRequests(() => { idle = true; }, '$http');
+  if (idle) return true;
+  const sent = injector.get('$http').pendingRequests;
+  return sent.length > 0
+    && sent.every(config => new URL(config.url, location.href).hostname.startsWith('terminology.'));
+};
+
+async function angularIdle(page, timeout = 20_000) {
+  await page.waitForFunction(httpIdle, null, { timeout });
+}
+
+// Run `probe` until it returns something other than undefined, or until `budgetMs` has passed.
+// Each probe makes a fresh read, either a REST round trip or a listing load. The budget bounds the
+// wait for a read that is only eventually consistent, such as a listing served from the search
+// index. Attempts start at least `minIntervalMs` apart, so a REST read that answers in milliseconds
+// cannot turn a slow index into a burst of identical requests; a listing load takes longer than
+// that already and waits no more.
+async function poll(budgetMs, probe, minIntervalMs = 250) {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const started = Date.now();
+    const result = await probe();
+    if (result !== undefined) return result;
+    if (Date.now() >= deadline) return undefined;
+    const remaining = minIntervalMs - (Date.now() - started);
+    if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+  }
+}
+
+// Wait until the AngularJS model behind an input holds `value`. An input with ng-model-options
+// debounce shows a typed value at once but commits it to the model only when the debounce runs
+// out, and the model is what a save, a watcher or a search reads.
+async function waitForModelValue(loc, value, timeout = 10_000) {
+  const handle = await loc.elementHandle();
+  try {
+    await loc.page().waitForFunction(({ el, expected }) => {
+      const ngModel = window.angular?.element(el).controller('ngModel');
+      return el.value === expected && ngModel?.$modelValue === expected;
+    }, { el: handle, expected: value }, { timeout });
+  } finally {
+    await handle.dispose();
+  }
+}
+
 // ── dashboard helpers ──────────────────────────────────────────────────────
 const enc = iri => encodeURIComponent(iri);
 
@@ -145,21 +207,57 @@ async function openRowMenu(page, title) {
   const r = row(page, title);
   await r.scrollIntoViewIfNeeded();
   await r.locator(S.ROW_MENU_BUTTON).click();
-  await page.waitForTimeout(800); // let the Angular dropdown bind its handlers
+  await rowMenuSettled(page, r);
+}
+
+// The click on the menu button also selects its row, and the selection sets the menu's items
+// twice: at once from the listing's copy of the resource, then again from a resource report it
+// requests in a deferred task (`$timeout`, no delay). Until the report has been applied, an item
+// the resource allows can still be disabled, and a click on it follows the anchor's empty href
+// instead of running the action. Each change of an item's state is also an ngAnimate class
+// transition, and until the transition starts, the item's class still reads as the old state.
+async function rowMenuSettled(page, r) {
+  // Yield one task, so the selection's deferred task has issued the report request before the
+  // idle check can find nothing outstanding.
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+  await angularIdle(page);
+  const handle = await r.elementHandle();
+  try {
+    await page.waitForFunction(rowElement => {
+      const menu = rowElement.querySelector('ul.dropdown-menu');
+      return !!menu && menu.getClientRects().length > 0 && !menu.querySelector('.ng-animate');
+    }, handle, { timeout: 10_000 });
+  } finally {
+    await handle.dispose();
+  }
 }
 
 // Click the delete confirmation, once it can actually do something.
 //
-// The dialog binds its click handler as it animates in. Playwright clicks as soon
-// as the button is visible, stable and enabled, none of which implies a handler is
-// attached yet, so the click can be swallowed and the delete never issued — the
-// same race openRowMenu settles for the dropdown above, and the cause of the
-// "sent no DELETE request" retries.
+// SweetAlert runs the confirm callback only once the dialog carries the class `visible`, which
+// it adds 500 ms after opening. A click before that closes the dialog without running the
+// callback, so the delete is never issued. Playwright clicks as soon as the button is visible,
+// stable and enabled, all of which hold earlier, and this was the cause of the "sent no DELETE
+// request" retries.
 async function confirmDelete(page) {
-  const yes = page.getByRole('button', { name: S.DELETE_CONFIRM_NAME });
+  const yes = page.locator('.sweet-alert.visible').getByRole('button', { name: S.DELETE_CONFIRM_NAME });
   await yes.waitFor({ state: 'visible', timeout: 10_000 });
-  await page.waitForTimeout(600);
   await yes.click({ timeout: 10_000 });
+}
+
+// Wait until the Workspace listing has loaded: the controller has a count for it, it is the kind
+// of listing asked for, and AngularJS has no request outstanding. Only one view may be on the
+// page, because during a route change the outgoing view stays until its leave animation ends, and
+// its rows would be counted with the incoming view's.
+async function listingLoaded(page, queryType = null) {
+  await page.waitForFunction(expected => {
+    const views = document.querySelectorAll('#workspace-view-container');
+    if (views.length !== 1) return false;
+    const dc = window.angular.element(views[0]).scope()?.dc;
+    if (!dc || dc.loading !== false || !(dc.totalCount >= 0)) return false;
+    return !expected || dc.nodeListQueryType === expected;
+  }, queryType, { timeout: 20_000 });
+  await angularIdle(page);
 }
 
 // Navigate to a listing (the dashboard root, or a folder when folderId given)
@@ -173,7 +271,7 @@ async function gotoListing(page, folderId) {
   // other navigation here is followed by one too.
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'New' }).waitFor();
-  await page.waitForTimeout(500);
+  await listingLoaded(page);
 }
 
 // Each application builds its in-app navigation from the origins its served configuration names,
@@ -253,22 +351,20 @@ async function verifyWorkspaceConditionalMutations(page, folderId, mutableFolder
 }
 
 async function waitForListingRow(page, folderId, title) {
-  for (let attempt = 1; attempt <= 12; attempt++) {
+  const listed = await poll(25_000, async () => {
     await gotoListing(page, folderId);
-    if (await row(page, title).count()) return;
-    if (attempt < 12) await page.waitForTimeout(1250);
-  }
-  throw new Error(`Workspace never listed "${title}" in ${folderId}`);
+    return (await row(page, title).count()) ? true : undefined;
+  });
+  if (!listed) throw new Error(`Workspace never listed "${title}" in ${folderId}`);
 }
 
 async function waitForAnonymousArtifact(templateId, expectedStatus, label) {
   let last;
-  for (let attempt = 1; attempt <= 12; attempt++) {
+  const reached = await poll(12_000, async () => {
     last = await restCall(null, 'GET', `/templates/${enc(templateId)}`, undefined, { base: OPENVIEW });
-    if (last.status === expectedStatus) return;
-    if (attempt < 12) await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-  throw new Error(`${label}: OpenView answered ${last?.status}; expected ${expectedStatus}`);
+    return last.status === expectedStatus ? true : undefined;
+  });
+  if (!reached) throw new Error(`${label}: OpenView answered ${last?.status}; expected ${expectedStatus}`);
 }
 
 // Drive an OpenView visibility change through the row menu. Search indexing can briefly leave the
@@ -277,18 +373,16 @@ async function waitForAnonymousArtifact(templateId, expectedStatus, label) {
 async function setOpenViewThroughWorkspace(page, folderId, title, kind, makeOpen) {
   const command = `make-${kind}-${makeOpen ? 'open' : 'not-open'}`;
   const selector = makeOpen ? S.MENU_ENABLE_OPENVIEW : S.MENU_DISABLE_OPENVIEW;
-  let item;
-  for (let attempt = 1; attempt <= 12; attempt++) {
+  const item = await poll(36_000, async () => {
     await waitForListingRow(page, folderId, title);
     await openRowMenu(page, title);
-    item = page.locator(selector).filter({ visible: true }).first();
-    await item.waitFor({ timeout: 8000 });
-    const classes = (await item.getAttribute('class')) ?? '';
-    if (!classes.split(/\s+/).includes('link-disabled')) break;
+    const candidate = page.locator(selector).filter({ visible: true }).first();
+    await candidate.waitFor({ timeout: 8000 });
+    const classes = (await candidate.getAttribute('class')) ?? '';
+    if (!classes.split(/\s+/).includes('link-disabled')) return candidate;
     await page.keyboard.press('Escape');
-    item = null;
-    if (attempt < 12) await page.waitForTimeout(1250);
-  }
+    return undefined;
+  });
   if (!item) throw new Error(`${title}: Workspace never enabled ${command}`);
 
   const pending = page.waitForResponse(response => response.request().method() === 'POST'
@@ -306,19 +400,16 @@ async function setOpenViewThroughWorkspace(page, folderId, title, kind, makeOpen
 }
 
 async function waitForMovedResource(user, resourceId, sourceFolderId, destinationFolderId, label) {
-  let source;
-  let destination;
-  for (let attempt = 1; attempt <= 12; attempt++) {
-    [source, destination] = await Promise.all([
+  const moved = await poll(15_000, async () => {
+    const [source, destination] = await Promise.all([
       restCall(user.auth, 'GET', `/folders/${enc(sourceFolderId)}/contents?limit=500`),
       restCall(user.auth, 'GET', `/folders/${enc(destinationFolderId)}/contents?limit=500`),
     ]);
     const sourceIds = new Set((source.body?.resources ?? []).map(resource => resource['@id']));
     const destinationIds = new Set((destination.body?.resources ?? []).map(resource => resource['@id']));
-    if (!sourceIds.has(resourceId) && destinationIds.has(resourceId)) return;
-    if (attempt < 12) await new Promise(resolve => setTimeout(resolve, 1250));
-  }
-  throw new Error(`${label}: source/destination listings never reflected the move`);
+    return !sourceIds.has(resourceId) && destinationIds.has(resourceId) ? true : undefined;
+  });
+  if (!moved) throw new Error(`${label}: source/destination listings never reflected the move`);
 }
 
 // Use the actual Workspace modal: open the row menu, choose the exact folder in the modal, and
@@ -485,11 +576,11 @@ async function deleteRow(page, name, folderId) {
 
     // The server has deleted it. The listing is served from the search index,
     // which can lag by tens of seconds just after a restart.
-    for (let poll = 1; poll <= 8; poll++) {
+    const unlisted = await poll(12_000, async () => {
       await gotoListing(page, folderId);
-      if (!(await row(page, name).count())) return;
-      await page.waitForTimeout(1500);
-    }
+      return (await row(page, name).count()) ? undefined : true;
+    });
+    if (unlisted) return;
     console.warn(`  "${name}" deleted (HTTP ${response.status()}) but still listed 12s later — the search index is lagging`);
     return;
   }
@@ -498,23 +589,26 @@ async function deleteRow(page, name, folderId) {
 
 // ── controlled-term helpers ────────────────────────────────────────────────
 
-// Field-editor inputs bind ng-model-options debounce ~1s. Observe a stable value for
-// longer than that before typing and after each fill; a late load can overwrite the input.
+// A load still in flight when the typing happens can repopulate the input once its response
+// lands, so the typing waits until the page has nothing outstanding.
 async function settleText(loc) {
-  const deadline = Date.now() + 10_000;
-  let previous = await loc.inputValue();
-  let stableSince = Date.now();
-  while (Date.now() < deadline) {
-    await loc.page().waitForTimeout(200);
-    const current = await loc.inputValue();
-    if (current !== previous) {
-      previous = current;
-      stableSince = Date.now();
-    } else if (Date.now() - stableSince >= 1200) {
-      return current;
-    }
-  }
-  throw new Error(`input never settled: ${JSON.stringify(previous)}`);
+  await loc.waitFor({ state: 'visible' });
+  await angularIdle(loc.page());
+}
+
+// What the model behind the input holds once the typed value has had its chance to commit.
+// Field-editor inputs bind ng-model-options debounce 1000, so the model takes the value a second
+// after the typing. The page must also have nothing outstanding that could overwrite it. When the
+// value never arrives, the model's actual value is returned for the caller to report.
+async function committedText(loc, value) {
+  try {
+    await waitForModelValue(loc, value, 5_000);
+    await angularIdle(loc.page());
+  } catch { /* fall through and report what the model holds */ }
+  return loc.evaluate(el => {
+    const ngModel = window.angular?.element(el).controller('ngModel');
+    return ngModel ? ngModel.$modelValue : el.value;
+  });
 }
 
 async function setText(loc, value) {
@@ -523,7 +617,7 @@ async function setText(loc, value) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     await loc.click();
     await loc.fill(value);
-    seen = await settleText(loc);
+    seen = await committedText(loc, value);
     if (seen === value) return;
   }
   throw new Error(`input was overwritten after typing ${JSON.stringify(value)}: ${JSON.stringify(seen)}`);
@@ -662,7 +756,10 @@ async function withExpiredAccessToken(page, mutationPredicate, action, label) {
     } catch (error) {
       throw new Error(`${label}: ${error.message}; mutation responses ${mutationStatuses.join(' → ') || 'none'}; Keycloak refreshes ${refreshStatuses.join(', ') || 'none'}`);
     }
-    await page.waitForTimeout(300);
+    // The counts are final once the application has no request outstanding. A further retry,
+    // which must fail the checks, would be outstanding until answered, and its response is
+    // recorded before the application can report itself idle.
+    await angularIdle(page);
     const denied = mutationStatuses.filter(status => status === 401).length;
     const succeeded = mutationStatuses.filter(status => status >= 200 && status < 300).length;
     const refreshed = refreshStatuses.filter(status => status >= 200 && status < 300).length;
@@ -747,10 +844,11 @@ async function verifyDeleteVsStaleSave(page, user1, folderId) {
     await stalePage.goto(
         `${BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
         { waitUntil: 'domcontentloaded' });
-    await stalePage.getByRole('textbox', { name: 'Name' }).fill(DELETE_CONFLICT_TEMPLATE_NAME);
-    await stalePage.waitForTimeout(1100);
+    const nameBox = stalePage.getByRole('textbox', { name: 'Name' });
+    await nameBox.fill(DELETE_CONFLICT_TEMPLATE_NAME);
+    await waitForModelValue(nameBox, DELETE_CONFLICT_TEMPLATE_NAME);
+    // addTextField returns once both of its debounced inputs have committed to the model.
     await addTextField(stalePage, 'Delete conflict field', 'Makes this a saveable Designer fixture');
-    await stalePage.waitForTimeout(1100);
 
     const pendingCreate = stalePage.waitForResponse(response => response.request().method() === 'POST'
         && /\/templates(?:\?|$)/.test(response.url()) && response.status() === 201,
@@ -785,9 +883,10 @@ async function verifyDeleteVsStaleSave(page, user1, folderId) {
     await setText(stalePage.getByRole('textbox', { name: 'Description' }).first(),
         'Delete conflict: this stale save must not recreate the template');
     const saveButton = stalePage.getByRole('button', { name: 'Save Template' });
-    for (let poll = 0; poll < 20 && !await saveButton.isEnabled(); poll++) {
-      await stalePage.waitForTimeout(250);
-    }
+    const saveHandle = await saveButton.elementHandle();
+    await stalePage.waitForFunction(button => !button.disabled, saveHandle, { timeout: 5_000 })
+      .catch(() => {})
+      .finally(() => saveHandle.dispose());
     if (!await saveButton.isEnabled()) {
       throw new Error('Designer did not enable Save after the deleted fixture was edited');
     }
@@ -804,7 +903,9 @@ async function verifyDeleteVsStaleSave(page, user1, folderId) {
     { timeout: 20_000 });
     await saveButton.click();
     const refused = await pendingRefusal;
-    await stalePage.waitForTimeout(500);
+    // A PUT the Designer sends after the refusal is outstanding until it is answered, so once the
+    // application reports no request outstanding, every such PUT has been observed.
+    await angularIdle(stalePage);
     stalePage.off('request', observePut);
 
     let refusalSummary;
@@ -1024,7 +1125,7 @@ async function gotoSharedWithMe(page, homeFolderId) {
   await page.locator('a[ng-click="dc.goToSharedWithMe()"]:visible').click();
   await page.waitForURL(/sharing=shared-with-me/, { timeout: 15_000 });
   await page.getByRole('button', { name: 'New' }).waitFor({ timeout: 15_000 });
-  await page.waitForTimeout(500);
+  await listingLoaded(page, 'view-shared-with-me');
 }
 
 // Writes reach folder and "Shared with Me" listings through the search index, which the resource
@@ -1033,29 +1134,27 @@ async function gotoSharedWithMe(page, homeFolderId) {
 // entry itself, and leave the menu open for the caller that reads the rest of it.
 async function waitForRowCapability(page, navigate, templateName, selector, enabled, complaint) {
   let seen = null;
-  for (let attempt = 1; attempt <= 10; attempt++) {
+  const item = await poll(30_000, async () => {
     await navigate();
-    if (await row(page, templateName).count() === 0) {
-      await page.waitForTimeout(1000);
-      continue;
-    }
+    if (await row(page, templateName).count() === 0) return undefined;
     await openRowMenu(page, templateName);
-    const item = page.locator(selector).first();
-    seen = (await item.getAttribute('class')) ?? '';
-    if (seen.split(/\s+/).includes('link-disabled') !== enabled) return item;
-    await page.waitForTimeout(1000);
-  }
-  throw new Error(`${complaint} after 10 attempts (the menu entry read class ${JSON.stringify(seen)}; `
+    const candidate = page.locator(selector).first();
+    seen = (await candidate.getAttribute('class')) ?? '';
+    return seen.split(/\s+/).includes('link-disabled') !== enabled ? candidate : undefined;
+  });
+  if (item) return item;
+  throw new Error(`${complaint} for 30 s (the menu entry read class ${JSON.stringify(seen)}; `
     + 'a write reaches this listing only once the search index has it)');
 }
 
 async function waitForSharedRow(page, homeFolderId, templateName, present) {
-  for (let attempt = 1; attempt <= 8; attempt++) {
+  const settled = await poll(24_000, async () => {
     await gotoSharedWithMe(page, homeFolderId);
-    if ((await row(page, templateName).count() > 0) === present) return;
-    await page.waitForTimeout(1000);
+    return (await row(page, templateName).count() > 0) === present ? true : undefined;
+  });
+  if (!settled) {
+    throw new Error(`shared template "${templateName}" ${present ? 'never appeared' : 'remained visible after revocation'}`);
   }
-  throw new Error(`shared template "${templateName}" ${present ? 'never appeared' : 'remained visible after revocation'}`);
 }
 
 // Drive the visible sharing dialog as the owner and a separate authenticated browser as the
@@ -1179,46 +1278,72 @@ async function verifyDesignerSessionRecovery(page, editUrl, templateId, user1) {
 async function constrainToDoidDiseaseBranch(page) {
   const rowText = 'Human Disease Ontology (DOID)';
   await page.locator(S.FIELD_VALUES_TAB).filter({ visible: true }).first().click();
-  await page.waitForTimeout(400);
-  await page.getByRole('button', { name: 'Add', exact: true }).click(); // open the picker
-  await page.waitForTimeout(800);
+  const openPicker = page.getByRole('button', { name: 'Add', exact: true });
+  await openPicker.waitFor({ state: 'visible' });                     // the Values tab is showing
+  await openPicker.click();                                           // open the picker
+  // The picker is a Bootstrap modal, which takes the class `in` when it is shown. The gear's own
+  // click waits for the modal's slide-in to come to rest.
+  await page.locator('#controlled-term-modal.in').waitFor({ state: 'visible' });
   await page.locator(S.PICKER_ADVANCED_GEAR).first().click();                       // advanced options
   // The mode radio is a hidden/styled input whose AngularJS ng-change only fires on a
   // real DOM click; check({force}) and coordinate clicks don't trigger it, leaving the
   // picker in term mode. Dispatch a DOM click straight at the element (verified to switch
   // tsc.searchScope to 'ontologies').
-  await page.locator(S.SEARCH_SCOPE_ONTOLOGIES).dispatchEvent('click');        // "search for an ontology"
-  await page.waitForTimeout(500);
-  await page.getByRole('textbox', { name: 'Search field' }).fill('Human Disease Ontology');
-  // The ontology list loads on demand (a ~600KB BioPortal-backed call, filtered client-side), so
-  // a search that runs while the load is still in flight shows "No results". Re-searching covers
-  // that window, which is widest right after a stack restart.
+  const ontologyScope = page.locator(S.SEARCH_SCOPE_ONTOLOGIES);
+  await ontologyScope.dispatchEvent('click');                         // "search for an ontology"
+  await waitForModelValue(ontologyScope, 'ontologies');               // tsc.searchScope switched
+  // The picker filters the ontology list whenever the search model changes. The list loads on
+  // demand (a ~600KB BioPortal-backed call), and a filter that runs before it has arrived finds
+  // nothing, and nothing filters again until the query changes. So the query is typed only once
+  // the list has loaded, which this wait reports as the list's length.
   //
-  // It covers nothing else, though. If the load has already failed, the cache is empty and stays
-  // empty for this page, so every re-search reads the same empty cache. This loop is deliberately
-  // short for that reason: failing out of it hands the decision to the caller, which reloads the
-  // page and gets the service to load the list afresh. A long loop here only delays that.
+  // If the load failed, the cache is empty and stays empty for this page, so no search on it can
+  // succeed. The wait reports that as -1, once the application has nothing outstanding and the
+  // list is still empty. Failing at once hands the decision to the caller, which reloads the page
+  // and gets the service to load the list afresh.
+  const ontologies = await page.waitForFunction(() => {
+    const injector = window.angular?.element(document).injector();
+    if (!injector) return false;
+    const count = injector.get('controlledTermDataService').getAllOntologies().length;
+    if (count > 0) return count;
+    let idle = false;
+    injector.get('$browser').notifyWhenNoOutstandingRequests(() => { idle = true; }, '$http');
+    return idle ? -1 : false;
+  }, null, { timeout: 60_000 }).then(handle => handle.jsonValue());
+  if (ontologies < 0) throw new Error('DOID did not appear in the ontology picker — the ontology list is empty');
+  const query = 'Human Disease Ontology';
+  const searchBox = page.getByRole('textbox', { name: 'Search field' });
+  await searchBox.fill(query);
+  // The box debounces its model by 700 ms, so the filter runs only once the query has committed.
+  await waitForModelValue(searchBox, query);
   const doidRow = page.getByText(rowText, { exact: false }).first();
   let found = false;
   for (let i = 0; i < 6 && !found; i++) {
     await page.locator(S.PICKER_SEARCH).last().click();                   // run the search
     try { await doidRow.waitFor({ timeout: 5000 }); found = true; }
-    catch { await page.waitForTimeout(2000); }
+    catch { /* The next search starts at once. This one has already waited five seconds. */ }
   }
-  if (!found) throw new Error('DOID did not appear in the ontology picker — the ontology list is empty');
+  if (!found) throw new Error(`DOID did not appear in the ontology picker, which holds ${ontologies} ontologies`);
   await doidRow.click({ timeout: 8000 });
-  await page.waitForTimeout(2500);                                      // DOID class tree loads
   const node = page.locator(S.CLASS_TREE_NODE)
     .filter({ hasText: /^\s*disease\s*$/i }).first();                   // the DOID:4 root branch
-  await node.waitFor({ timeout: 20_000 });
+  await node.waitFor({ timeout: 20_000 });                              // DOID class tree loads
   await node.click();
-  await page.waitForTimeout(1500);
-  await page.locator(S.STAGE_BRANCH).first().click(); // stage Branch
-  await page.waitForTimeout(400);
+  // The staging toggles render only once the selected class's details and the ontology's
+  // details have both loaded.
+  const stageBranch = page.locator(S.STAGE_BRANCH).first();
+  await stageBranch.waitFor({ state: 'visible', timeout: 20_000 });
+  await stageBranch.click(); // stage Branch
+  // The toggle marks the staged action as active, and the Add button commits whichever action is
+  // staged at the moment it is clicked.
+  await page.locator(`${S.STAGE_BRANCH}.active:not(.ng-animate)`).first().waitFor({ state: 'visible' });
   await page.locator(S.ADD_VALUE_CONSTRAINT).first().click({ force: true }); // commit
   await page.locator(S.STAGE_BRANCH)
     .waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});     // picker closed
-  await page.waitForTimeout(800);
+  // The next gesture clicks the designer behind the picker, which the modal and its static
+  // backdrop cover until the fade-out has finished.
+  await page.locator('#controlled-term-modal').waitFor({ state: 'hidden' });
+  await page.locator('.modal-backdrop').waitFor({ state: 'detached' });
 }
 
 // Reach the Metadata Editor for a template via the row ⋮ → Populate (the deep link
@@ -1235,6 +1360,31 @@ async function openPopulate(page, folderId, templateName) {
       if (attempt === 4) throw new Error('Populate did not navigate after 4 attempts');
     }
   }
+}
+
+// The Metadata Editor has loaded once its controller has handed the embedded editor its artifact,
+// which is when it clears `vm.loading`, and AngularJS has no request outstanding.
+async function metadataEditorLoaded(page) {
+  await page.waitForFunction(() => {
+    const fields = document.querySelectorAll('#instance-name');
+    if (fields.length !== 1) return false;
+    return window.angular.element(fields[0]).scope()?.vm?.loading === false;
+  }, null, { timeout: 30_000 });
+  await angularIdle(page);
+}
+
+// The save button reads the instance from the embedded editor's `currentMetadata`, which takes a
+// typed value asynchronously, and the name from the host's model. Wait until both carry what was
+// typed and the button is enabled.
+async function instanceReadyToSave(page, value, name) {
+  await page.waitForFunction(({ expectedValue, expectedName }) => {
+    const metadata = document.querySelector('cedar-embeddable-editor')?.currentMetadata;
+    const field = document.querySelector('#instance-name');
+    const button = document.querySelector('#button-save-metadata');
+    return !!metadata && JSON.stringify(metadata).includes(expectedValue)
+      && window.angular.element(field).scope()?.vm?.instanceName === expectedName
+      && !!button && !button.disabled;
+  }, { expectedValue: value, expectedName: name }, { timeout: 15_000 });
 }
 
 // In the populate form, type a disease into the controlled Disease field and verify
@@ -1254,8 +1404,9 @@ async function verifyDiseaseSuggestion(page, query) {
       await opt.first().click();
       return;
     } catch {
+      // The next attempt starts at once by clearing the box and typing again. This one has
+      // already given its lookup fifteen seconds.
       if (attempt === 3) throw new Error(`no DOID suggestion offered for "${query}"`);
-      await page.waitForTimeout(1000);
     }
   }
 }
@@ -1397,16 +1548,25 @@ async function editorState(page) {
 
 // The host is dirty when the CEE metadata differs from the saved baseline or the instance name
 // does, and the back arrow navigates only when it is clean. A typed value reaches the CEE model
-// asynchronously, so a flag read once can say clean while the change is still landing. Require the
-// field and the flag to agree, and to still agree a moment later.
+// asynchronously, so a flag read once can say clean while the change is still landing. The state
+// is settled when the editor's metadata carries the value, the dirty tracker judges that metadata
+// clean against its baseline, and the host's flag agrees. A change event still to come reports
+// this same metadata, so it sets the flag to the same verdict.
 async function settleCleanEditor(page, expectedValue) {
-  for (let attempt = 1; attempt <= 10; attempt++) {
-    if (await notesValue(page) === expectedValue && !(await editorIsDirty(page))) {
-      await page.waitForTimeout(500);
-      if (await notesValue(page) === expectedValue && !(await editorIsDirty(page))) return;
-    }
-    await page.waitForTimeout(500);
+  try {
+    await page.waitForFunction(expected => {
+      const injector = window.angular?.element(document).injector();
+      const cee = document.querySelector('cedar-embeddable-editor');
+      const metadata = cee?.currentMetadata;
+      if (!injector || !metadata || !JSON.stringify(metadata).includes(expected)) return false;
+      const tracker = injector.get('CeeDirtyTrackerService');
+      return tracker.hasBaseline() && !tracker.isDirty(metadata)
+        && injector.get('UIUtilService').isDirty() === false;
+    }, expectedValue, { timeout: 10_000 });
+  } catch (timeout) {
+    throw new Error(`the editor never settled clean on the saved value: ${await editorState(page)}`);
   }
+  if (await notesValue(page) === expectedValue && !(await editorIsDirty(page))) return;
   throw new Error(`the editor never settled clean on the saved value: ${await editorState(page)}`);
 }
 
@@ -1586,37 +1746,37 @@ async function verifySerializationConfig(page, expectedValue, templateObject) {
 
   // Both formats, on a throwaway element built from the template under test. It is
   // hidden while it renders and removed once read.
-  const formats = await page.evaluate(async (template) => {
-    const build = async (config) => {
-      const el = document.createElement('cedar-embeddable-editor');
-      el.style.display = 'none';
-      if (config) el.config = config;
-      document.body.appendChild(el);
-      el.templateObject = template;
-      // The form is built asynchronously, and the two getters do not become ready
-      // together: JSON is offered as soon as the instance exists, YAML once the
-      // template has also been parsed, which the YAML writer needs. Waiting on
-      // `currentMetadata` alone therefore reads YAML a beat early and sees the empty
-      // string — a race that looks exactly like a missing format. Waiting for both is
-      // what the live-editor half of this step already does. On timeout we fall
-      // through, so a format that never arrives still fails the assertions below.
-      const deadline = Date.now() + 15_000;
-      while (Date.now() < deadline) {
-        const json = el.currentMetadata;
-        const yaml = el.currentMetadataYaml;
-        const jsonReady = json !== null && typeof json === 'object' && Object.keys(json).length > 0;
-        if (jsonReady && typeof yaml === 'string' && yaml.length > 0) break;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      return el;
-    };
-
-    // Configured, because an element assigned only a template never builds: both
-    // getters then answer empty — `{}` and `''` — which is CEE's behaviour rather
-    // than this step's subject. A `{}` passes any "is it JSON" test vacuously, so a
-    // config-less element proves nothing about format either way. The config here is
-    // the smallest one that is not about serialization at all.
-    const built = await build({ defaultLanguage: 'en' });
+  //
+  // Configured, because an element assigned only a template never builds: both
+  // getters then answer empty — `{}` and `''` — which is CEE's behaviour rather
+  // than this step's subject. A `{}` passes any "is it JSON" test vacuously, so a
+  // config-less element proves nothing about format either way. The config here is
+  // the smallest one that is not about serialization at all.
+  await page.evaluate((template) => {
+    const el = document.createElement('cedar-embeddable-editor');
+    el.style.display = 'none';
+    el.config = { defaultLanguage: 'en' };
+    document.body.appendChild(el);
+    el.templateObject = template;
+    window.__smokeBuiltEditor = el;
+  }, templateObject);
+  // The form is built asynchronously, and the two getters do not become ready
+  // together: JSON is offered as soon as the instance exists, YAML once the
+  // template has also been parsed, which the YAML writer needs. Waiting on
+  // `currentMetadata` alone therefore reads YAML a beat early and sees the empty
+  // string — a race that looks exactly like a missing format. Waiting for both is
+  // what the live-editor half of this step already does. On timeout we fall
+  // through, so a format that never arrives still fails the assertions below.
+  await page.waitForFunction(() => {
+    const el = window.__smokeBuiltEditor;
+    const json = el.currentMetadata;
+    const yaml = el.currentMetadataYaml;
+    const jsonReady = json !== null && typeof json === 'object' && Object.keys(json).length > 0;
+    return jsonReady && typeof yaml === 'string' && yaml.length > 0;
+  }, null, { timeout: 15_000 }).catch(() => {});
+  const formats = await page.evaluate(() => {
+    const built = window.__smokeBuiltEditor;
+    delete window.__smokeBuiltEditor;
     const json = built.currentMetadata;
     const yaml = built.currentMetadataYaml;
     built.remove();
@@ -1625,7 +1785,7 @@ async function verifySerializationConfig(page, expectedValue, templateObject) {
       builtOffersPopulatedJson: json !== null && typeof json === 'object' && Object.keys(json).length > 0,
       builtOffersYamlString: typeof yaml === 'string' && yaml.length > 0,
     };
-  }, templateObject);
+  });
 
   Object.assign(r, formats);
   const failed = Object.entries(r).filter(([, ok]) => !ok).map(([k]) => k);
@@ -1675,11 +1835,11 @@ async function createDraftFromWorkspace(page, folderId, templateName, version) {
 }
 
 async function waitForTemplate(user1, id, predicate, description) {
-  for (let attempt = 1; attempt <= 10; attempt++) {
+  const reached = await poll(10_000, async () => {
     const response = await restCall(user1.auth, 'GET', `/templates/${enc(id)}`);
-    if (response.status === 200 && predicate(response.body)) return response;
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
+    return response.status === 200 && predicate(response.body) ? response : undefined;
+  });
+  if (reached) return reached;
   throw new Error(`template never reached ${description}`);
 }
 
@@ -1701,19 +1861,15 @@ async function verifyPublishDraftLifecycle(browser, page, folderId, user1) {
       body => body['bibo:status'] === 'bibo:published' && body['pav:version'] === '1.0.0',
       'published 1.0.0 state');
 
-    let immutableControls = false;
-    for (let attempt = 1; attempt <= 10; attempt++) {
+    const immutableControls = await poll(25_000, async () => {
       await gotoListing(page, folderId);
       await openRowMenu(page, VERSION_TEMPLATE_NAME);
       const versionRow = row(page, VERSION_TEMPLATE_NAME);
       const publishClass = (await versionRow.locator('a.publish:visible').getAttribute('class')) ?? '';
       const draftClass = (await versionRow.locator('a.createDraft:visible').getAttribute('class')) ?? '';
-      if (publishClass.split(/\s+/).includes('link-disabled') && !draftClass.split(/\s+/).includes('link-disabled')) {
-        immutableControls = true;
-        break;
-      }
-      await page.waitForTimeout(750);
-    }
+      return publishClass.split(/\s+/).includes('link-disabled')
+        && !draftClass.split(/\s+/).includes('link-disabled') ? true : undefined;
+    });
     if (!immutableControls) throw new Error('published template never converged to republish-disabled/create-version-enabled Workspace controls');
     const versionRow = row(page, VERSION_TEMPLATE_NAME);
     await versionRow.locator('a.open:visible').click();
@@ -1822,9 +1978,12 @@ async function enableOpenView(page, folderId, templateName) {
 // check pass. Require a registered custom element, rendered shadow content, and the template name.
 //
 // The OpenView server's view of the grant can lag the make-open command by a moment,
-// and the app fetches once per load and latches an error, so reload while the editor
-// is absent rather than polling in place.
+// and the app fetches once per load and latches an error, so the page is loaded only once
+// the server answers an anonymous read of the template. Should the page still come up
+// without the editor, it is reloaded rather than polled in place.
 async function verifyPresentedInOpenView(browser, templateId, expectedTemplateName = TEMPLATE_NAME) {
+  // A grant that never reaches the server is reported by the page check, with its screenshot.
+  await waitForAnonymousArtifact(templateId, 200, 'OpenView grant').catch(() => {});
   const anon = await browser.newContext({
     ignoreHTTPSErrors: true,
     viewport: { width: 1280, height: 900 },
@@ -1852,7 +2011,7 @@ async function verifyPresentedInOpenView(browser, templateId, expectedTemplateNa
         rendered = true;
         break;
       }
-      catch { await p.waitForTimeout(2500); } // grant not propagated yet — reload and retry
+      catch { /* The page latched an error. The next attempt reloads it. */ }
     }
     if (rendered) return await readCeeVersion(p);
     await mkdir(FAIL_DIR, { recursive: true });
@@ -2024,8 +2183,9 @@ try {
       const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
       await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
           { waitUntil: 'domcontentloaded' });
-      await page.getByRole('textbox', { name: 'Name' }).fill(TEMPLATE_NAME);
-      await page.waitForTimeout(1100); // flush the debounced name edit
+      const nameBox = page.getByRole('textbox', { name: 'Name' });
+      await nameBox.fill(TEMPLATE_NAME);
+      await waitForModelValue(nameBox, TEMPLATE_NAME); // the template model holds the name
 
       step = 'constrain-disease-field';
       await addTextField(page, 'Disease', 'The disease studied, from the Human Disease Ontology');
@@ -2045,7 +2205,9 @@ try {
   console.log('✓ Disease field constrained to the DOID "disease" branch (live BioPortal)');
 
   step = 'save-template';
-  await page.waitForTimeout(1100);
+  // Every field edit has committed to the model (setText returns only then), so the save sends
+  // them all once the designer has nothing outstanding.
+  await angularIdle(page);
   await page.getByRole('button', { name: 'Save Template' }).click();
   await page.getByText(/has been (created|updated)/i).first().waitFor({ timeout: 20_000 });
   await page.waitForURL(/\/templates\/edit\//, { timeout: 20_000 });
@@ -2070,12 +2232,10 @@ try {
   await verifyDesignerSessionRecovery(page, templateEditUrl, templateId, user1);
 
   // Confirm it is listed inside the folder.
-  let templateListed = false;
-  for (let poll = 1; poll <= 6 && !templateListed; poll++) {
+  const templateListed = await poll(15_000, async () => {
     await gotoListing(page, folderId);
-    if (await row(page, TEMPLATE_NAME).count()) templateListed = true;
-    else await page.waitForTimeout(1500);
-  }
+    return (await row(page, TEMPLATE_NAME).count()) ? true : undefined;
+  });
   if (!templateListed) throw new Error(`template "${TEMPLATE_NAME}" never appeared in the folder`);
   console.log(`✓ template created in folder: ${TEMPLATE_NAME}`);
 
@@ -2088,7 +2248,7 @@ try {
   step = 'populate-suggestions';
   resetCeeConfigCounts();
   await openPopulate(page, folderId, TEMPLATE_NAME);
-  await page.waitForTimeout(1200);
+  await metadataEditorLoaded(page);
   await verifyDiseaseSuggestion(page, 'asthma');
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
   const deployedCeeVersion = await readCeeVersion(page);
@@ -2115,7 +2275,7 @@ try {
   //        exercises the V2/embeddable-editor save path end to end — the one that once threw a stack
   //        trace on a new instance's null @id and saved nothing.
   step = 'save-instance';
-  await page.waitForTimeout(500);
+  await instanceReadyToSave(page, 'initial notes', INSTANCE_NAME);
   // The save redirects to the edit route, which is the load that reads updateResource —
   // the one where a second configuration used to be the flag's only carrier.
   resetCeeConfigCounts();
