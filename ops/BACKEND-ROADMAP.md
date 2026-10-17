@@ -689,25 +689,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **17. Decide which of four narrowly used servers to retire, and support the one that stays.** Treat
-  each as an explicit product and operations decision: confirm its real callers and production state,
-  preserve or move any capability that remains required, then either retain it with a stated role or
-  remove it completely. Schema and value recommender are open questions, impex is retained, and
-  submission is expected to go once its inventory is done.
+- **17. Decide which of three narrowly used servers to retire.** Treat each as an explicit product
+  and operations decision: confirm its real callers and production state, preserve or move any
+  capability that remains required, then either retain it with a stated role or remove it completely.
+  Schema and value recommender are open questions, and submission is expected to go once its inventory
+  is done.
 
   **Schema server.** Its entire HTTP surface is an index page, but it still inherits the full
   microservice bootstrap: a Neo4j user service, Keycloak token verification, and the persistent Redis
   application-log queue. Either retire it or record the role it is reserved for and give it a
   deliberately minimal bootstrap that does not initialize dependencies its index page never uses.
-
-  **Impex server.** It stays, so the work is the evidence a retained service needs rather than an
-  inventory of whether anyone still calls it. Its public surface is two routes, `POST
-  /command/import-cadsr-forms` and `GET /command/import-cadsr-forms-status`, and two gaps in what
-  supports them are concrete. Import status is process-local: `CadsrImportStatusManager` is a
-  singleton holding a `ConcurrentHashMap` keyed by upload identifier, so a redeploy during an import
-  leaves a caller asking about work the server no longer remembers. Cover an authenticated import
-  through caDSR parsing and artifact creation in an integration test. Name the owner, state the
-  supported contract for both routes, and decide whether in-flight import state has to survive a restart.
 
   **Value Recommender server.** It serves recommendation and rule-generation/status commands and
   consumes the persistent value-recommender queue. Establish whether the Workbench or any external
