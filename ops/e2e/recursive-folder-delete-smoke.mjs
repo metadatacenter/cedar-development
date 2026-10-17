@@ -8,6 +8,19 @@ async function expectStatus(response, status) {
   assert.equal(response.status, status, response.text);
   return response;
 }
+// A refusal answers the shared error body. A refused confirmation reports its outcome in objects.outcome.
+async function expectRefusal(response, status, errorKey) {
+  await expectStatus(response, status);
+  assert.equal(response.body?.statusCode, status, response.text);
+  assert.equal(response.body?.errorKey ?? null, errorKey, response.text);
+  return response.body;
+}
+async function expectRefusedOutcome(response, status, errorKey) {
+  const outcome = (await expectRefusal(response, 409, errorKey)).objects?.outcome;
+  assert.equal(outcome?.status, status, response.text);
+  assert.equal(Object.values(outcome.deleted).reduce((sum, n) => sum + n, 0), 0, 'a refused confirmation deletes nothing');
+  return outcome;
+}
 async function folder(user, parent, suffix) {
   const response = await expectStatus(await call(user.auth, 'POST', '/folders', {
     folderId: parent, name: `Recursive delete ${suffix} ${RUN}`, description: 'Recursive deletion smoke fixture',
@@ -47,12 +60,10 @@ try {
   assert.equal(denied.templatesWithOutsideInstances, 1);
   assert.equal(denied.instancesOutside, 1);
   await grant(user1, `/folders/${enc(root)}`, 'viewer');
-  const viewer = await expectStatus(await call(user2.auth, 'GET', endpoint), 403);
-  assert.equal(viewer.body.code, 'FOLDER_DELETE_NOT_OWNER');
-  const refused = await expectStatus(await call(user2.auth, 'POST', endpoint, {token: denied.token}), 403);
-  assert.equal(refused.body.code, 'FOLDER_DELETE_NOT_OWNER');
+  await expectRefusal(await call(user2.auth, 'GET', endpoint), 403, 'folderCanNotBeDeleted');
+  await expectRefusal(await call(user2.auth, 'POST', endpoint, {token: denied.token}), 403, 'folderCanNotBeDeleted');
   assert.equal(JSON.stringify(denied).includes(outside), false, 'outside instance identity is private');
-  await expectStatus(await call(user1.auth, 'POST', endpoint, {token: denied.token}), 409);
+  await expectRefusedOutcome(await call(user1.auth, 'POST', endpoint, {token: denied.token}), 'blocked', 'folderCanNotBeDeleted');
   await expectStatus(await call(user1.auth, 'GET', `/template-instances/${enc(instance)}`), 200);
   console.log('PASS: only the root owner may delete recursively; outside instances block deletion without leaking identities');
 
@@ -61,7 +72,7 @@ try {
   assert.equal(eligible.allowed, true);
   assert.deepEqual(eligible.counts, {folder: 3, template: 1, element: 1, field: 1, instance: 1});
   await folder(user1, root, 'added after confirmation');
-  await expectStatus(await call(user1.auth, 'POST', endpoint, {token: eligible.token}), 409);
+  await expectRefusedOutcome(await call(user1.auth, 'POST', endpoint, {token: eligible.token}), 'changed', null);
   await expectStatus(await call(user1.auth, 'GET', `/template-instances/${enc(instance)}`), 200);
   console.log('PASS: a changed tree invalidates confirmation before deleting any item');
 

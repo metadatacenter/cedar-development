@@ -3050,9 +3050,10 @@ Malformed query-parameter conversion is 400; a missing route remains 404. Explic
 entities bypass exception normalization, as Jersey requires.
 
 Success representations and intentional external payloads keep their own shapes. Recursive-folder
-plans, outcomes and `{code,message}` refusals also keep their published operation contract: the
-Workspace uses the `FOLDER_DELETE_*` codes for localization. Do not rewrite those as ordinary errors
-without migrating their consumers. Terminology property failures and request-quota refusals use
+plans and outcomes also keep their published operation contract, and the Workspace localizes an
+outcome by its `FOLDER_DELETE_*` code. A recursive deletion's refusals use the common envelope. A
+refused confirmation carries its outcome in `objects.outcome`, as a validation refusal carries its
+report in `objects.validationReport`. Terminology property failures and request-quota refusals use
 the common native envelope.
 
 Dependency classification is declared per integration. LINCS retains its established gateway
@@ -6442,9 +6443,19 @@ failure can leave completion uncertain; the client refreshes the listing and nev
 replays the deletion. Existing per-artifact deletion jobs complete content/graph/search cleanup after
 failures. Neither the confirmation token nor a folder operation bypasses those artifact safeguards.
 
-Operational responses include stable `FOLDER_DELETE_*` codes. Workspace translates those codes
-and network/error fallbacks into its bundled English and Hungarian messages; raw server messages
-are not displayed in this dialog. An owner refusal uses HTTP 403 and `FOLDER_DELETE_NOT_OWNER`.
+An outcome carries a stable `FOLDER_DELETE_*` code. A refusal uses the common error envelope and
+keeps the reason's message. Its status and error key identify it:
+
+- 400 `invalidInput`: the confirmation carries no token in the form an inventory issues.
+- 400 `folderCanNotBeDeleted`, with the reason `userHomeFolder` or `systemFolder`: the folder is a
+  home or system folder.
+- 403 `folderCanNotBeDeleted`: the caller is not the folder's owner.
+- 409 with no key, from the inventory: the inventory could not be completed.
+- 409 from a confirmation: the folder changed or a blocker stops the deletion. The outcome is in
+  `objects.outcome`, and a blocked deletion also carries `folderCanNotBeDeleted`.
+
+Workspace translates outcome codes, refusals and network failures into its bundled English and
+Hungarian messages. Raw server messages are not displayed in this dialog.
 
 Verification: `cedarcli test e2e` includes the recursive-delete probe in its modern Workspace tier.
 For the focused real-stack check, run `npm run smoke:folder-delete` from `ops/e2e` with the native
