@@ -37,6 +37,9 @@ import { selectionDeleteJourney, partialSelectionDeleteJourney } from "./selecti
 import { largeMetadataJourney, mixedMetadataJourney, keyboardMetadataJourney, keyboardRepeatedMetadataJourney,
   metadataNavigationJourney, metadataRecordSwitchJourney, designerReturnContextJourney, metadataReturnContextJourney } from "./ordinary-editing-journey.mjs";
 
+import { nestedMetadataJourney, clonedElementJourney, boundedRepeatedJourney, duplicateNestedLabelsJourney,
+  clearOptionalMetadataJourney, attributeEditingJourney } from "./structured-editing-journey.mjs";
+
 // JOURNEYS lists every self-contained journey under the key the runners know it by. Each journey
 // makes its fixtures in a folder of its own under the folder it is given and reads nothing another
 // journey made, so any set of them can run in any process. modern-workspace-smoke.mjs runs all of
@@ -106,6 +109,12 @@ export const JOURNEYS = [
   { key: "metadata-record-switch", run: metadataRecordSwitchJourney },
   { key: "designer-return-context", run: designerReturnContextJourney },
   { key: "metadata-return-context", run: metadataReturnContextJourney },
+  { key: "nested-metadata", run: nestedMetadataJourney },
+  { key: "cloned-element", run: clonedElementJourney },
+  { key: "bounded-repeated", run: boundedRepeatedJourney },
+  { key: "duplicate-nested-labels", run: duplicateNestedLabelsJourney },
+  { key: "clear-optional-metadata", run: clearOptionalMetadataJourney },
+  { key: "attribute-editing", run: attributeEditingJourney },
 ].map(entry => Object.freeze({ signsInAsAnotherUser: false, ...entry }));
 
 // BOUND names the journeys that have no key, because they work on fixtures another runner hands them.

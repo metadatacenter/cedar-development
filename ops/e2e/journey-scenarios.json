@@ -846,5 +846,41 @@
       "id": "metadata-grid-return",
       "promise": "Opening a grid card in the real metadata editor, saving and returning restores the same folder, grid view, selected record and Details tab"
     }
+  ],
+  "nested-metadata": [
+    {
+      "id": "nested-occurrence-identity",
+      "promise": "Editing a repeated field inside two repeated element levels preserves every other answer and every stored element identity across navigation, save and reopen"
+    }
+  ],
+  "cloned-element": [
+    {
+      "id": "independent-element-copy",
+      "promise": "Copying a populated repeated element creates independent identities throughout its nested subtree, allows independent edits and reopens without changing either neighboring occurrence"
+    }
+  ],
+  "bounded-repeated": [
+    {
+      "id": "capacity-delete-insert",
+      "promise": "A repeated field enforces its maximum, restores capacity after deletion, and inserts a replacement between preserved neighbors through two save/reopen cycles"
+    }
+  ],
+  "duplicate-nested-labels": [
+    {
+      "id": "nested-label-binding",
+      "promise": "Identically labelled fields in sibling elements keep distinct control identities and save each answer under its own parent without changing element identities"
+    }
+  ],
+  "clear-optional-metadata": [
+    {
+      "id": "empty-versus-zero",
+      "promise": "Clearing optional text and numbers removes their stored answers, while a subsequent numeric zero survives save and reopen as a real answer"
+    }
+  ],
+  "attribute-editing": [
+    {
+      "id": "attribute-copy-rename",
+      "promise": "Adding, copying and renaming attribute-value answers survives real server validation and reopen, preserves the source and removes obsolete values and context terms"
+    }
   ]
 }
