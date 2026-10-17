@@ -34,7 +34,8 @@ export async function incompleteMetadataJourney({page, base, user, folderId, tem
   const warnings = page.locator("details.validation-summary--warning");
   await warnings.waitFor();
   assert.equal(await page.locator("#button-save-metadata").isEnabled(), true);
-  const firstSave = await write(page, "POST", "/template-instances",
+  // The first save creates the record by PUT, at an identity the editor minted.
+  const firstSave = await write(page, "PUT", "/template-instances/",
     () => page.locator("#button-save-metadata").click(), 201);
   await page.waitForURL(/\/instances\/edit\//);
   await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();

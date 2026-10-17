@@ -20,7 +20,7 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
       assert.ok(attempt < 2, "the recipient could not use the template's terminology constraint");
     }
     await influenza.click();
-    const saved = await write(page, "POST", "/template-instances",
+    const saved = await write(page, "PUT", "/template-instances/",
       () => page.locator("#button-save-metadata").click(), 201);
     savedId = saved["@id"];
     await page.waitForURL(/\/instances\/edit\//);

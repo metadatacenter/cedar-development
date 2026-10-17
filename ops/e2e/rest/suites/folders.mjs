@@ -1,6 +1,7 @@
 // Folders and the filesystem commands: the operations a user performs constantly and which had
 // no REST coverage beyond the create the other suites depend on.
-import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { isDeepStrictEqual } from 'node:util';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, mintId, RUN } from '../lib.mjs';
 
 export const name = 'folders';
 
@@ -225,6 +226,126 @@ export async function run({ user1, homeFolderId }) {
       400, 'move-resource-to-folder answers 400 to a body with no identifier');
   checkStatus(await call(auth, 'POST', '/command/copy-artifact-to-folder', { targetFolderId: destId }),
       400, 'copy-artifact-to-folder answers 400 to a body with no identifier');
+
+  suite('folders: create under a supplied identity');
+
+  // Workspace's New folder dialog mints the folder's identity and creates it with an unconditional
+  // PUT. A lost reply is settled by reading that identity, and a repeat must be told apart from a
+  // malformed request by its status alone.
+  const suppliedName = `Folders Supplied Identity ${RUN}`;
+  const suppliedId = mintId('folders');
+  const suppliedAt = `/folders/${enc(suppliedId)}`;
+  // Registered before the request: what to delete does not depend on the reply.
+  cleanup('folder', suppliedAt, suppliedName);
+  const suppliedBody = { '@id': suppliedId, folderId: parentId, name: suppliedName,
+    description: `Created by the REST suites (${RUN})` };
+  const suppliedFolder = await call(auth, 'PUT', suppliedAt, suppliedBody);
+  if (checkStatus(suppliedFolder, 201, 'an unconditional PUT creates a folder under the supplied identity')) {
+    check(suppliedFolder.body?.['@id'] === suppliedId, 'and the reply names that identity',
+        `the reply named ${suppliedFolder.body?.['@id']}`);
+    const read = await call(auth, 'GET', suppliedAt);
+    checkStatus(read, 200, 'the supplied folder identity reads back');
+    checkStatus(await call(auth, 'PUT', suppliedAt, suppliedBody), 428,
+        'an unconditional repeat answers 428 rather than a body-shape refusal');
+    const after = await call(auth, 'GET', suppliedAt);
+    check(after.status === 200 && after.headers.get('etag') === read.headers.get('etag')
+          && after.body?.['schema:name'] === suppliedName,
+        'and the refused repeat changes nothing',
+        `${after.status}, ETag ${read.headers.get('etag')} then ${after.headers.get('etag')}`);
+    const contents = await call(auth, 'GET', `${parentAt}/contents?limit=50`);
+    const occurrences = (contents.body?.resources ?? []).filter(r => r['@id'] === suppliedId).length;
+    check(occurrences === 1, 'the requested parent holds the folder exactly once',
+        `the parent listed it ${occurrences} times`);
+  }
+
+  suite('folders: copy under a supplied identity');
+
+  // Workspace's Copy dialog mints the copy's identity and sends it as copyId. The copy is then
+  // looked up by that identity and its derivation, never by its name, and a repeat cannot copy twice.
+  const copySourceName = `Folders Copy Source ${RUN}`;
+  const copySource = await call(auth, 'POST', `/templates?folder_id=${enc(parentId)}`,
+      artifactBody('template', copySourceName));
+  if (copySource.status === 201) cleanup('template', `/templates/${enc(copySource.body['@id'])}`, copySourceName);
+  const copyTargetName = `Folders Copy Target ${RUN}`;
+  const copyTarget = await mk(parentId, copyTargetName);
+  if (copyTarget.status === 201) cleanup('folder', `/folders/${enc(copyTarget.body['@id'])}`, copyTargetName);
+  if (checkStatus(copySource, 201, 'a template is created to copy under a supplied identity')
+      && checkStatus(copyTarget, 201, 'and a folder to copy it into')) {
+    const sourceId = copySource.body['@id'];
+    const targetId = copyTarget.body['@id'];
+    const targetHolds = async () => {
+      const contents = await call(auth, 'GET', `/folders/${enc(targetId)}/contents?limit=50`);
+      return (contents.body?.resources ?? []).map(r => r['@id']);
+    };
+    const copyName = `${copySourceName} copy`;
+    const copyId = mintId('templates');
+    cleanup('template', `/templates/${enc(copyId)}`, copyName);
+    const copyRequest = { '@id': sourceId, targetFolderId: targetId, nameTemplate: copyName, copyId };
+    const copied = await call(auth, 'POST', '/command/copy-artifact-to-folder', copyRequest);
+    if (checkStatus(copied, 201, 'the copy is created under the supplied copyId')) {
+      check(copied.body?.['@id'] === copyId, 'and the reply names that identity',
+          `the reply named ${copied.body?.['@id']}`);
+      const stored = await call(auth, 'GET', `/templates/${enc(copyId)}`);
+      check(stored.status === 200 && stored.body?.['pav:derivedFrom'] === sourceId,
+          'the copy reads back at that identity, derived from its source',
+          `${stored.status}, derived from ${stored.body?.['pav:derivedFrom']}`);
+
+      const repeated = await call(auth, 'POST', '/command/copy-artifact-to-folder', copyRequest);
+      if (checkStatus(repeated, 412, 'a repeated copy to the same identity is refused')) {
+        check((repeated.text ?? '').includes('nodeAlreadyPresent'),
+            'and the refusal says the copy identity is already present',
+            `body was ${(repeated.text ?? '').slice(0, 200)}`);
+      }
+      const held = await targetHolds();
+      check(held.length === 1 && held[0] === copyId, 'the target holds exactly the one copy',
+          `the target held ${JSON.stringify(held)}`);
+    }
+
+    // An identity another artifact holds: the copy is refused and that artifact is untouched.
+    const occupantName = `Folders Occupied Identity ${RUN}`;
+    const occupant = await call(auth, 'POST', `/templates?folder_id=${enc(parentId)}`,
+        artifactBody('template', occupantName));
+    if (checkStatus(occupant, 201, 'a template is created to occupy an identity')) {
+      const occupantId = occupant.body['@id'];
+      const occupantAt = `/templates/${enc(occupantId)}`;
+      cleanup('template', occupantAt, occupantName);
+      const before = await call(auth, 'GET', occupantAt);
+      const refused = await call(auth, 'POST', '/command/copy-artifact-to-folder',
+          { ...copyRequest, nameTemplate: `${copyName} onto an occupied identity`, copyId: occupantId });
+      if (checkStatus(refused, 412, 'a copy to an identity another artifact holds is refused')) {
+        check((refused.text ?? '').includes('nodeAlreadyPresent'),
+            'and the refusal says the occupied identity is already present',
+            `body was ${(refused.text ?? '').slice(0, 200)}`);
+      }
+      const afterRefusal = await call(auth, 'GET', occupantAt);
+      check(afterRefusal.headers.get('etag') === before.headers.get('etag')
+            && isDeepStrictEqual(afterRefusal.body, before.body),
+          'and the artifact holding that identity is unchanged', 'its content or ETag changed');
+      const held = await targetHolds();
+      check(held.length === 1 && held[0] === copyId, 'and no copy was written to the target',
+          `the target held ${JSON.stringify(held)}`);
+    }
+
+    // An identity in a collection other than the source's cannot hold the copy.
+    const misplacedId = mintId('template-fields');
+    cleanup('field', `/template-fields/${enc(misplacedId)}`, `${copyName} in the wrong collection`);
+    checkStatus(await call(auth, 'POST', '/command/copy-artifact-to-folder',
+        { ...copyRequest, nameTemplate: `${copyName} in the wrong collection`, copyId: misplacedId }), 400,
+        'a copyId in a collection other than the source\'s is refused');
+    const misplaced = await call(auth, 'GET', `/template-fields/${enc(misplacedId)}`);
+    const heldAfterMisplaced = await targetHolds();
+    check(misplaced.status === 404 && heldAfterMisplaced.length === 1,
+        'and nothing is stored under it or in the target',
+        `the identity answered ${misplaced.status}; the target held ${JSON.stringify(heldAfterMisplaced)}`);
+
+    // Nor can a value that is not an identifier at all.
+    checkStatus(await call(auth, 'POST', '/command/copy-artifact-to-folder',
+        { ...copyRequest, nameTemplate: `${copyName} under a malformed identity`, copyId: 'not-an-identifier' }), 400,
+        'a copyId that is not an identifier is refused');
+    const heldAfterMalformed = await targetHolds();
+    check(heldAfterMalformed.length === 1, 'and no copy is written for it',
+        `the target held ${JSON.stringify(heldAfterMalformed)}`);
+  }
 
   return { parentId, destId };
 }

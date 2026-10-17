@@ -147,10 +147,6 @@ Complete the recovery routes that still cannot resume saving or create a permitt
   unreconciled draft.
 - **Changed metadata templates:** reconcile retained metadata against a changed template
   through an explicit migration workflow, preserving unfinished input and unsupported values.
-- **Uncertain creates and version operations:** define server-supported operation identity
-  and authoritative outcome lookup, including multi-step publish/create-draft operations;
-  retain that identity with the recovery file so reload and sign-in cannot bypass duplicate
-  prevention, and replace manual Workspace inspection with an actionable result.
 - **Permitted copies:** recover retained work to another folder when the original artifact is
   inaccessible or deleted, checking destination permissions without silently recreating the
   original or mistaking a permission refusal for deletion.

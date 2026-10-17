@@ -28,6 +28,7 @@ import {
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { actors, call, mutate, enc } from "./rest/lib.mjs";
+import { createdFixture } from "./journey-fixtures.mjs";
 import { initialLoadJourney } from "./initial-load-journey.mjs";
 import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
 import { duplicationJourney } from "./duplication-journey.mjs";
@@ -44,6 +45,15 @@ import {
   workspaceDraftSharingJourney,
   designerDraftSharingJourney,
 } from "./draft-sharing-journey.mjs";
+import {
+  uncertainCreateJourney,
+  uncertainWorkspaceCreateJourney,
+  uncertainVersionJourney,
+} from "./uncertain-create-journey.mjs";
+import {
+  partialVersionDefinitionJourney,
+  partialVersionDraftJourney,
+} from "./partial-version-journey.mjs";
 
 // Run self-contained journeys against the live stack without provisioning the
 // unrelated sharing/versioning fixtures in the full Workspace smoke.
@@ -74,6 +84,11 @@ const journeys = {
   "designer-pending-save": designerPendingSaveJourney,
   "draft-sharing-workspace": workspaceDraftSharingJourney,
   "draft-sharing-designer": designerDraftSharingJourney,
+  "uncertain-create": uncertainCreateJourney,
+  "uncertain-workspace-create": uncertainWorkspaceCreateJourney,
+  "uncertain-version": uncertainVersionJourney,
+  "partial-version-definition": partialVersionDefinitionJourney,
+  "partial-version-draft": partialVersionDraftJourney,
 };
 const selected = process.argv.slice(2);
 journeys["restored-validation"] = restoredValidationJourney;
@@ -112,15 +127,11 @@ async function write(
   assert.equal(response.status(), status, await response.text());
   if (conditional) assert.ok(await response.request().headerValue("if-match"));
   const body = await response.json();
-  if (
-    method === "POST" &&
-    body?.["@id"] &&
-    !created.some((item) => item.id === body["@id"])
-  )
-    created.push({
-      collection: new URL(response.url()).pathname.split("/")[1],
-      id: body["@id"],
-    });
+  // A POST names what it created in its reply, a create-by-PUT in its address. Either way the
+  // collection comes from the identity, so a command's reply is not recorded under "command".
+  const fixture = createdFixture(method, response.url(), response.status(), body);
+  if (fixture && !created.some((item) => item.id === fixture.id))
+    created.push(fixture);
   return body;
 }
 try {
@@ -173,6 +184,7 @@ try {
 } finally {
   await browser.close();
   const failures = [];
+  // An identity recorded from a create attempt may never have committed, so 404 is a clean end state.
   for (const item of created.reverse()) {
     const removed = await mutate(
       user1.auth,

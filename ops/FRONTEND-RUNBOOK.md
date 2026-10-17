@@ -152,22 +152,25 @@ Server findings belong to the submitted draft and retire when it changes; late
 rejections cannot attach old findings to a newer draft. Unmapped findings retain
 both path and message. Failed loads offer Retry. Conflicts and missing revisions
 retain edits and require an explicit reload, with confirmation before discarding
-changes. An incomplete create acknowledgement blocks another create and directs
-the author back to Workspace to inspect the result. Lost replies and server errors report an
-unconfirmed save for both creates and updates; they do not claim the server accepted the write.
-For an unconfirmed update to an existing instance, **Check save status** reads the artifact
+changes. An incomplete create acknowledgement blocks another create until its outcome is
+settled. Lost replies and server errors report an unconfirmed save for both creates and updates;
+they do not claim the server accepted the write. A create is a PUT to an instance identity the
+editor minted and journaled before sending, so **Check save status** settles an unconfirmed
+create by reading that identity, as [settling a create or version write](#create-outcome-recovery)
+explains. For an unconfirmed update to an existing instance, Check save status reads the artifact
 and its permission report without replacing CEE. The same opened revision and content permit
 another conditional write; a different revision matching the submitted content acknowledges
 that snapshot and keeps newer edits. New element IDs are accepted only at template-declared
 element positions, then bound through CEE's captured save snapshot. Existing element IDs and
 term IRIs must match. A failed read, lost permission, missing revision or unexplained content
-change keeps the draft and the write guard. Creates still require separate outcome recovery.
+change keeps the draft and the write guard.
 An existing write refused with 401/403 offers **Recheck access**. Restored permission enables
 saving only if the opened content and revision still match; neither a successful permission
 check nor a similar-looking submission permits adopting a different revision.
 Token-refresh refusal is a session failure, not an uncertain create. The modern Workspace
-smoke commits real instance creates and updates before dropping their responses and verifies
-that the form retains its input and cannot repeat the write without a successful status check. The host retains the instance
+smoke commits a real instance update before dropping its response and verifies that the form
+retains its input and cannot repeat the write without a successful status check. The
+`uncertain-create` journey does the same for creates. The host retains the instance
 description across field edits, including the description inherited on creation. Sparse save
 acknowledgements supplement the submitted snapshot rather than dropping metadata they omit.
 CEE's save snapshot binds submitted element occurrences to their working objects. When a save
@@ -312,6 +315,41 @@ from it. Run
 `npm run smoke:journey -- draft-sharing-workspace draft-sharing-designer`; both also run in the
 modern Workspace smoke. They sign in as the second user, so they belong with the other two-user
 journeys rather than alongside single-user ones.
+The uncertain-create journeys lose real replies to creates and new versions at the browser's
+request boundary and check that each outcome is settled by the identity its client minted, never
+by repeating the write. `uncertain-create` creates a template, an element and a standalone field
+in Designer and an instance in the metadata editor, each in three series. In the first, the reply
+is lost after the server stored the artifact, and a reload and the restored draft's Check save
+status open it at its edit address. In the second, the write never reaches the server and an
+injected 401 refuses the first check for the session. Sign in again returns through the SSO cookie
+or the login form, the restored draft's check finds nothing, and Save sends the same identity
+again. In the third, a check in the open tab finds nothing, and the original request then commits
+late, modelled by a REST PUT of the body the browser sent. The next Save is refused as occupied,
+and the check adopts what was stored. Designer keeps the newer edit on screen but requires a
+reload, which discards it, before the next save. The metadata editor keeps it as an unsaved change
+that saves conditionally. `uncertain-workspace-create` loses the replies to New folder, Copy,
+Create Draft and Publish, committed or not, and settles each through the dialog's Retry. One Copy
+is reopened after a reload and takes up the retained identity and values. `uncertain-version`
+loses the reply to Designer's Create new draft, committed or not, and settles it after a reload.
+Every case ends with exactly one result: one artifact, folder, copy, successor or publication.
+Where Designer or the metadata editor created the artifact, a conditional edit follows, and the
+reopened page offers neither Restore draft nor Check save status. Run
+`npm run smoke:journey -- uncertain-create uncertain-workspace-create uncertain-version`. All three
+also run in the modern Workspace smoke, and none signs in as another user.
+The partial-version journeys check that Designer's Create new draft stores nothing when the server
+refuses it, and that a corrected retry creates exactly one successor. In
+`partial-version-definition`, a page-scoped rewrite removes the `oslc:modifiedBy` declaration from
+the submitted definition, and the server's validator refuses it with 400 before publication.
+Designer lists the findings, and editing the definition retires them. In `partial-version-draft`,
+the author owns the template, but the second test user owns its folder and has made the author a
+viewer of it, so the server refuses the draft with 403. The refusal survives a reload, a restored
+draft and an access recheck, which reads only the template's own permissions. Once the second user
+restores the editor grant, the retry succeeds. In both journeys the source stays the draft that was
+opened, at the same ETag and with one version, until the corrected retry. `partial-version-draft`
+uses the second user by REST token and never signs that user in to a browser. It writes in that
+user's home folder, so it belongs with the two-user journeys. Run
+`npm run smoke:journey -- partial-version-definition partial-version-draft`. Both also run in the
+modern Workspace smoke.
 The content-deletion journey uses temporary templates and metadata to check cancellation of
 populated-element deletion in Designer, removal of fields/elements and their parent references,
 and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
@@ -2857,7 +2895,8 @@ even if its values resemble the attempted submission. Failed checks keep the dra
 be repeated. Clean read-only openings and denied create destinations also offer an access recheck,
 as described below. A lost response, server error, timeout or acknowledgement without an artifact identifier blocks another write and reports
 that saving could not be confirmed. An uncertain create or publish/create-draft operation
-also hides Reload, so it cannot repeat creation; the author is directed to inspect Workspace.
+also hides Reload, so it cannot repeat the write. Its outcome is settled by the identity the
+write carried, as [settling a create or version write](#create-outcome-recovery) explains.
 An unconfirmed existing-identity update offers **Check save status** separately from Reload.
 The host reads the artifact and its permission report without calling `loadArtifact`. Matching
 the opened content and revision permits a conditional retry; matching the submitted content
@@ -2872,11 +2911,10 @@ The retained opened revision and exact submitted body allow a matching newer sto
 to restore saving without replacing CED or CEFD, losing newer input or repeating the write.
 Because the update is known to have succeeded, an old opened revision cannot release this
 guard. A missing revision, changed content or denied permission keeps Save blocked and the
-check retryable. Creates and newly minted draft identities use their separate reload workflow.
+check retryable.
 A failed update assessment can be retried because it has not written an artifact. The CED
-host smoke commits real creates and updates before dropping their replies to verify this
-distinction. Designer schema reconciliation, changed-template migration and authoritative outcome
-lookup for creates or version operations remain open in the
+host smoke commits real updates before dropping their replies to verify this distinction.
+Designer schema reconciliation and changed-template migration remain open in the
 [save-recovery roadmap](FRONTEND-ROADMAP.md#save-recovery).
 Both hosts retain unfinished work in the tab's `sessionStorage`, scoped to the deployment,
 signed-in account, artifact kind and identity, or the destination folder for a new artifact.
@@ -2905,11 +2943,57 @@ configuration responses follow the same recovery path.
 
 The hosts journal before dispatching a write. Pending submissions and unresolved create/version
 outcomes survive reload, and an uncertain creation cannot be discarded to enable
-a duplicate POST. Existing-update status checks restore saving only after comparing authoritative
+a second create. Existing-update status checks restore saving only after comparing authoritative
 content and revisions. **Sign in again**, offered with access recovery, persists the draft before
 redirecting; a storage failure keeps the author on the page. A restored form
 whose access is later granted becomes editable after the fresh access check. Explicit ordinary
 discard and a clean acknowledged save remove the retained draft. Storage failures are visible.
+
+<a id="create-outcome-recovery"></a>
+
+A create or version write carries an identity its client chose, so a lost reply can be settled
+by reading that identity rather than by inspecting Workspace. Before the first attempt, the host
+mints `https://repo.<domain>/<collection>/<random UUID>` on the deployment base it already uses
+for short addresses, and records the identity in the tab's journal. Every attempt reuses it
+until the outcome is settled. A create is `PUT /<collection>/<identity>?folder_id=<folder>`
+without `If-Match`. Designer's **Create new draft** sends the draft's identity as the `draft_id`
+query parameter, and its journal also keeps the submitted definition, the source identity and the
+opened ETag. A create attempt answered 412 or 428 means only that the identity is occupied. The
+outcome stays unresolved until a check settles it, and is reported as neither success nor failure.
+
+After an uncertain create or version write, the alert names **Check save status**, and that
+control appears in this state as well as for existing-identity updates. The check reads the
+identity and settles the outcome as one of three:
+
+- Committed: the identity exists. A new draft must also name the source as `pav:previousVersion`
+  and hold the submitted definition. The host opens the artifact at its edit address and keeps
+  later edits as unsaved changes.
+- Not committed: the identity answers 404. For a new draft, the source must also still be the
+  draft that was opened. The alert says the work was not saved, and Save is enabled again with
+  the same identity.
+- Unresolved: any other answer. Save stays blocked and the check can be repeated. A check refused
+  for the session offers **Sign in again**.
+
+Discard stays refused until the outcome is settled. A journal written before hosts recorded an
+identity carries none, so its uncertain create stays blocked without Check save status.
+
+Workspace's resource dialogs settle their writes the same way. New folder creates by
+`PUT /folders/<identity>`. Copy sends the copy's identity as `copyId`, and Create Draft sends the
+draft's as `draftId`. Publish creates no artifact, so its outcome is read from the source. In a
+dialog's uncertain state, **Retry** checks the outcome instead of resending the request. A folder
+is committed when it exists in the requested parent, a copy when it exists with `pav:derivedFrom`
+naming the source, a draft when it exists with `pav:previousVersion` naming the source, and a
+publication when the source is published at the requested version. A committed outcome completes
+the dialog as a success would. When the identity answers 404, or the source of a publication is
+still the draft that was opened, the dialog enables submit again with the same identity and
+values. Any other answer leaves the dialog uncertain, and Retry can be repeated. The tab's
+`sessionStorage` keeps the identity and values per deployment, account, action, item and
+destination, so reopening the same action on the same item and destination after a reload reuses
+them.
+
+A lookup cannot tell an identity that was never created from one that was created and then
+deleted. If the artifact is deleted while its author's tab still holds the unresolved outcome,
+the check reports it as not saved, and a retried create recreates it under the same identity.
 
 Workspace's **Review latest saved version** reads the artifact, access report and template without
 changing the form. It combines independent metadata edits and requires a choice for each conflict;
@@ -2960,6 +3044,20 @@ Additional focused checks, also included in the regular modern smoke:
 - `combined-delete`: combine a confirmed recursive deletion and an uncertain artifact deletion
   with 503/disconnected listing and inventory reads; retain confirmed counts, prevent automatic
   retries, and delete only remaining resources using refreshed revisions after recovery.
+- `uncertain-create`: lose the reply to Designer and metadata creates that committed, did not
+  commit, or committed late, across reload, sign-in and the open tab. Check save status adopts the
+  artifact or re-enables Save under the same identity, and each create series leaves exactly one
+  artifact.
+- `uncertain-workspace-create`: lose the reply to New folder, Copy, Create Draft and Publish.
+  Retry settles each by the identity it created, or Publish by the state of its source, and no
+  action takes effect twice. One Copy is reopened after a reload and settled there.
+- `uncertain-version`: lose the reply to Designer's Create new draft. After a reload, Check save
+  status adopts the committed draft or re-enables Save with the same draft identity.
+- `partial-version-definition`: a definition the real validator refuses is rejected before
+  publication. The source stays the opened draft, and the corrected retry creates one successor.
+- `partial-version-draft`: a parent folder the author may no longer create in refuses Create new
+  draft before publication, through reload and access rechecks, until the grant returns. It uses
+  the second test account by REST token only.
 
 Run any subset with `npm run smoke:journey -- <names>`. Failure injection tests the hosts' handling
 of the specified HTTP outcome; fixture creation, successful writes, readback and permission
@@ -2982,9 +3080,15 @@ the local CED bundle with `CEDAR_CED_BUNDLE` until a CEFD-containing Nexus snaps
 is pinned. The host fails clearly if the pinned bundle lacks CEFD, and
 [`cedarcli check components`](#component-staleness) reports the same condition before a build.
 
-Version creation requires the original ETag in `If-Match`; the resource
-server conditionally publishes that exact source snapshot before creating the draft.
-Missing validators return 428 and concurrent changes return 412 with no draft created.
+Version creation requires the original ETag in `If-Match`, and the host sends the draft's
+minted identity as `draft_id`. The resource server conditionally publishes that exact source
+snapshot, creates the draft and applies the submitted definition as one operation, which
+either does all three or changes nothing. A missing validator returns 428. A concurrent change
+or an occupied draft identity returns 412, a parent folder the author may not create in returns
+403, and a definition the validator refuses returns 400 with the validator's report. Each of
+these is refused before publication, so the opened ETag stays valid and a corrected retry
+creates exactly one draft. A step that still fails after publication, through an outage or a
+race, is undone, and the command answers with that step's status, or 503 when none came.
 
 Run `npm test` in the host repository for the host contract suite, including
 `test/host-state-matrix.test.mjs`. `npm run test:browser` covers create/edit across

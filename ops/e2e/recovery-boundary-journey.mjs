@@ -69,7 +69,8 @@ export async function startupRecoveryJourney(args) {
     await page.getByRole('button',{name:f.metadata?'Retry':'Reload designer',exact:true}).click();
     await page.getByRole('button',{name:'Restore draft',exact:true}).click();await f.ready(page);await settled(f.input(page),value);await assertNoRecoveryFiles(page);
     assert.deepEqual((await call(user.auth,'GET',f.path)).body,before.body);
-    await args.write(page,dependency==='destination'?'POST':'PUT','/'+f.collection+(dependency==='destination'?'':'/'),()=>f.save(page).click(),dependency==='destination'?201:200,dependency!=='destination');
+    // A retained create is a PUT answered 201 without If-Match; a retained update carries the opened revision.
+    await args.write(page,'PUT','/'+f.collection+'/',()=>f.save(page).click(),dependency==='destination'?201:200,dependency!=='destination');
     await page.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
     pass(`${kind}: ${dependency} startup failure retains the draft through Retry, restoration and explicit save`);
   }

@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { actors, call, mutate, enc, OPENVIEW, artifactBody } from "./rest/lib.mjs";
+import { createdFixture, createAttempt, fixtureAt } from "./journey-fixtures.mjs";
 import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
 import { groupAccessJourney } from "./group-access-journey.mjs";
@@ -32,6 +33,8 @@ import { uncertainMoveJourney } from "./uncertain-move-journey.mjs";
 import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
 import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
 import { workspaceDraftSharingJourney, designerDraftSharingJourney } from "./draft-sharing-journey.mjs";
+import { uncertainCreateJourney, uncertainWorkspaceCreateJourney, uncertainVersionJourney } from "./uncertain-create-journey.mjs";
+import { partialVersionDefinitionJourney, partialVersionDraftJourney } from "./partial-version-journey.mjs";
 import { enter, record } from "./split-steps.mjs";
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
@@ -98,11 +101,15 @@ async function ready(p) {
       "false",
   );
 }
-function recordCreated(method, response, body) {
-  if (method !== "POST" || !response.ok() || !body?.["@id"]) return;
-  const collection = new URL(body["@id"]).pathname.split("/").at(-2);
-  assert.ok(["folders", "templates", "template-elements", "template-fields", "template-instances"].includes(collection));
-  if (!created.some(item => item.id === body["@id"])) created.push({collection, id: body["@id"]});
+function recordFixture(fixture) {
+  if (fixture && !created.some(item => item.id === fixture.id)) created.push(fixture);
+}
+function recordCreated(method, url, status, body) {
+  const fixture = createdFixture(method, url, status, body);
+  // A successful POST that names an identity names one cleanup can remove.
+  if (method === "POST" && status >= 200 && status < 300 && body?.["@id"])
+    assert.ok(fixture, `${method} ${url} named ${body["@id"]}, outside the collections cleanup removes`);
+  recordFixture(fixture);
 }
 async function login(username, password) {
   const context = await browser.newContext({
@@ -121,13 +128,21 @@ async function login(username, password) {
       path.endsWith("/download")
     )
       return route.continue();
-    const response = await route.fetch();
+    let response;
+    try {
+      response = await route.fetch();
+    } catch (error) {
+      // A create whose reply never arrived may still have committed. Its address names the
+      // identity, so cleanup can remove it or find it absent.
+      if (createAttempt(req)) recordFixture(fixtureAt(req.url()));
+      throw error;
+    }
     let body;
     try {
       body = await response.json();
     } catch {}
     bodies.set(req.method() + " " + req.url(), body);
-    recordCreated(req.method(), response, body);
+    recordCreated(req.method(), req.url(), response.status(), body);
     await route.fulfill({ response });
   });
   const p = await context.newPage();
@@ -230,7 +245,7 @@ async function write(
   // Journeys may create their own browser contexts, outside login()'s capture route.
   // Read this exact response and register successful creates before returning it.
   const body = await response.json().catch(() => undefined);
-  recordCreated(method, response, body);
+  recordCreated(method, response.url(), response.status(), body);
   return body;
 }
 // OpenView changes, publications and drafts confirm with "Ok" rather than "Save".
@@ -255,7 +270,8 @@ async function createFolder(p, name) {
   await p.getByRole("button", { name: "New", exact: true }).click();
   await p.getByRole("button", { name: "Folder", exact: true }).click();
   await modal(p).getByLabel("Name", { exact: true }).fill(name);
-  return save(p, "POST", "/folders", 201);
+  // The dialog creates the folder under an identity it mints, so the write is a PUT to that identity.
+  return save(p, "PUT", "/folders/", 201);
 }
 async function editor(p, name) {
   await listed(p, name);
@@ -265,14 +281,15 @@ async function editor(p, name) {
     .filter({ hasText: /^Unmodified$/ })
     .waitFor();
 }
+// A create is a PUT answered 201 at an identity the editor minted, and carries no If-Match.
 async function editorSave(p, method, collection, status = 200) {
   const data = await write(
     p,
     method,
-    "/" + collection,
+    "/" + collection + "/",
     () => p.locator("#save").click(),
     status,
-    method === "PUT",
+    method === "PUT" && status !== 201,
   );
   // A successful save stays in Designer.
   await p.locator("#state").filter({ hasText: /^Saved$/ }).waitFor();
@@ -633,7 +650,7 @@ try {
         .fill("Notes");
       await constrainToDoidDiseaseBranch(page);
     }
-    artifacts[kind] = (await editorSave(page, "POST", collection, 201))["@id"];
+    artifacts[kind] = (await editorSave(page, "PUT", collection, 201))["@id"];
     // The new artifact stays open at its edit address, which keeps Workspace's address.
     assert.equal(new URL(page.url()).pathname, `/${kind}s/edit/${pathId(artifacts[kind])}`);
     assert.equal(new URL(page.url()).searchParams.get("returnTo"), returnUrl);
@@ -1074,8 +1091,8 @@ try {
     request.method() === "GET" && instanceReadback(new URL(request.url())));
   await write(
     page,
-    "POST",
-    "/template-instances",
+    "PUT",
+    "/template-instances/",
     () => page.locator("#button-save-metadata").click(),
     201,
   );
@@ -1171,14 +1188,10 @@ try {
   await page.goto(metadataUrl);
   await cee.getByLabel("Notes", { exact: false }).first().waitFor();
   const instancePath = "/template-instances/" + enc(instanceId);
-  // Let each save commit, then drop its response: neither a create nor an update
-  // may claim confirmed success or repeat the write while the outcome is unknown.
-  for (const mode of ["edit", "create"]) {
-    if (mode === "create") {
-      await page.goto(base + "/instances/create/" + enc(artifacts.template) + "?folderId=" + enc(folderId));
-      await page.locator("#instance-name").fill(names.instance + " uncertain create");
-    }
-    const value = "Committed " + mode + " with lost response";
+  // Let the update commit, then drop its response: it may not claim confirmed success or repeat
+  // the write while the outcome is unknown. Creation with a lost reply is uncertain-create's journey.
+  {
+    const value = "Committed edit with lost response";
     await cee.getByLabel("Notes", {exact: false}).first().fill(value);
     const matcher = url => /^\/template-instances(?:\/|$)/.test(url.pathname);
     let writes = 0, committed;
@@ -1189,21 +1202,22 @@ try {
       const response = await intercepted.fetch();
       committed = await response.json();
       assert.ok(response.ok(), JSON.stringify(committed));
-      if (mode === "create") created.push({collection: "template-instances", id: committed["@id"]});
       await intercepted.abort("failed");
     };
     await page.route(matcher, loseResponse);
-    await page.locator("#button-save-metadata").click();
-    await page.getByRole("alert").filter({hasText: "could not confirm whether"}).waitFor();
-    assert.equal(await page.locator("#button-save-metadata").isDisabled(), true);
-    assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), value);
-    if (mode === "create") assert.equal(await page.getByRole("button", {name: "Reload metadata", exact: true}).count(), 0);
-    const stored = await call(user1.auth, "GET", "/template-instances/" + enc(committed["@id"]));
-    assert.equal(stored.body.Notes["@value"], value);
-    await page.locator("#button-save-metadata").dispatchEvent("click");
-    assert.equal(writes, 1);
-    await page.unroute(matcher, loseResponse);
-    pass(`CEE ${mode} with a lost committed response retains input and prevents another write`);
+    try {
+      await page.locator("#button-save-metadata").click();
+      await page.getByRole("alert").filter({hasText: "could not confirm whether"}).waitFor();
+      assert.equal(await page.locator("#button-save-metadata").isDisabled(), true);
+      assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), value);
+      const stored = await call(user1.auth, "GET", "/template-instances/" + enc(committed["@id"]));
+      assert.equal(stored.body.Notes["@value"], value);
+      await page.locator("#button-save-metadata").dispatchEvent("click");
+      assert.equal(writes, 1);
+    } finally {
+      await page.unroute(matcher, loseResponse);
+    }
+    pass("CEE edit with a lost committed response retains input and prevents another write");
   }
   await page.goto(metadataUrl);
   await cee.getByLabel("Notes", {exact: false}).first().waitFor();
@@ -1301,7 +1315,7 @@ try {
   step = enter("current-template-constraint");
   await currentTemplateConstraintJourney({page, base, user: user1, folderId,
     name: names.instance, created, write, pass});
-  for (const [label, journey] of Object.entries({"scalar-roundtrip":scalarRoundtripJourney,"restored-validation":restoredValidationJourney,"repeated-schema":repeatedSchemaJourney,"configuration-draft":configurationDraftJourney,"account-switch":accountSwitchJourney,"combined-delete":combinedDeleteJourney,"startup-recovery":startupRecoveryJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney,"draft-sharing-workspace":workspaceDraftSharingJourney,"draft-sharing-designer":designerDraftSharingJourney})) {
+  for (const [label, journey] of Object.entries({"scalar-roundtrip":scalarRoundtripJourney,"restored-validation":restoredValidationJourney,"repeated-schema":repeatedSchemaJourney,"configuration-draft":configurationDraftJourney,"account-switch":accountSwitchJourney,"combined-delete":combinedDeleteJourney,"startup-recovery":startupRecoveryJourney,"tab-isolation":tabIsolationJourney,"opening-permissions":openingPermissionJourney,"signin-permissions":signInPermissionJourney,"numeric-constraint":numericConstraintJourney,"mixed-move":mixedMoveJourney,"draft-sharing-workspace":workspaceDraftSharingJourney,"draft-sharing-designer":designerDraftSharingJourney,"uncertain-create":uncertainCreateJourney,"uncertain-workspace-create":uncertainWorkspaceCreateJourney,"uncertain-version":uncertainVersionJourney,"partial-version-definition":partialVersionDefinitionJourney,"partial-version-draft":partialVersionDraftJourney})) {
     step = enter(label);
     await journey({page,base,designer,user:user1,folderId,name:names.instance,created,write,pass});
   }
@@ -1723,6 +1737,7 @@ try {
   // variable keeps the failing step for result.json.
   record({ event: "step", step: "cleanup" });
   const cleanupErrors = [];
+  // An identity recorded from a create attempt may never have committed, so 404 is a clean end state.
   for (const item of [...created].reverse()) {
     const path = "/" + item.collection + "/" + enc(item.id);
     const current = await call(user1.auth, "GET", path);

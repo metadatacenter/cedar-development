@@ -2488,6 +2488,24 @@ version; a successor draft gets a new identifier and must have a greater version
 the destination folder is required. Copying starts a separate series. Manager access alone does not
 confer publication or drafting authority, and instances are not versioned.
 
+A client may choose the new artifact's identifier, so that a lost reply can be settled by reading
+it. `POST /command/create-draft-artifact` accepts `draftId`, `POST /command/copy-artifact-to-folder`
+accepts `copyId`, and `POST /command/publish-create-draft-template/{id}` accepts the `draft_id` query
+parameter. Each is a full IRI in the source's collection. A malformed identifier, or one in another
+collection, returns 400. One that either store already holds returns 412 with `nodeAlreadyPresent`
+and writes nothing. Without one, the server mints the identifier. Registration and cleanup are
+the same either way.
+
+`publish-create-draft-template` publishes the source, creates its draft and applies the submitted
+definition as one operation, which either does all three or changes nothing. Before publishing, it
+refuses what a later step would refuse: 403 when the owner may not create in the source's folder,
+412 for an occupied `draft_id`, and 400 with the validator's report for a definition the artifact
+server's PUT would refuse. The definition is judged exactly as that PUT judges the body it stores,
+transforms included, without storing anything. A step that still fails after publication, through
+an outage or a race, is undone. Any successor the command created is removed from both stores,
+guarded by its ETag, and the source's pre-publication document and graph state are restored
+conditionally. The command then answers with the failing step's status, or 503 when no answer came.
+
 The graph and search carry three series-wide flags. `isLatestVersion` selects the draft when one
 exists, otherwise the newest surviving published version; `isLatestDraftVersion` selects the sole
 draft; `isLatestPublishedVersion` selects the newest surviving published version. A status with no
@@ -2642,6 +2660,14 @@ check remains atomic when two requests pass the HTTP read check at the same time
 without the internal field read as revision zero and acquire revision one on their first conditional
 update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
 
+The same route creates an artifact under an identifier the caller chose.
+`PUT /{collection}/{id}?folder_id={folder}` without `If-Match`, with the body's `@id` equal to the
+identifier in the URL, returns 201 and the new ETag. A body naming a different identifier returns
+400. Once the identifier is taken, an unconditional repeat returns 428 or 412 and writes nothing, so
+a repeated create can never make a second artifact.
+`PUT /folders/{id}` creates a folder the same way from a body of `@id`, `folderId`, `name` and
+`description`. An unconditional repeat returns 428 before the body's shape is checked.
+
 Each artifact collection has a companion `<collection>_revision_history` collection, keyed by the
 artifact identifier. It records revision high-water marks before mutation and survives both ordinary
 and bulk deletion. Recreating an identifier therefore cannot reuse a validator from its previous
@@ -2710,8 +2736,9 @@ rows can be deleted concurrently: each deletion reads and sends its own resource
 shared folder validator. Completion removes only the matching row and adjusts the count only if
 that row is still present, so navigation or another deletion cannot remove a different selection.
 Group metadata and group membership likewise have separate validators; permission and ownership
-commands use their own representation contracts. New-resource POSTs have no prior ETag and need
-reentrancy guards to prevent duplicate creation.
+commands use their own representation contracts. A new resource has no prior ETag, so its create
+needs a reentrancy guard to prevent duplicate creation. The split Workspace and Designer also create
+under an identifier they mint, so a repeated create cannot make a second resource.
 
 `GET /groups/{id}/membership/me` reports only the authenticated caller's own `member` and
 `administrator` boolean relationships. It requires the same login and `GROUP_READ` permission as
@@ -3253,7 +3280,7 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `deletion`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 1,208 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 1,595 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting

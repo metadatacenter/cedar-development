@@ -4,6 +4,7 @@
 // authentication, a request helper, assertions that collect rather than abort, and a teardown
 // registry that verifies each deletion instead of trusting a status code.
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import { drainPool } from './scheduler.mjs';
 import { env } from 'node:process';
 import { readFileSync } from 'node:fs';
@@ -53,6 +54,14 @@ env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 export const RUN = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 export const enc = iri => encodeURIComponent(iri);
+
+/**
+ * A new identity in a collection, on the base the deployment mints identities on. A client that
+ * creates under an identity of its own can look the outcome up by it when a reply is lost. Register
+ * it with cleanup() before the request that may create it, since the reply is not needed to know
+ * what to delete.
+ */
+export const mintId = collection => `https://repo.${HOST}/${collection}/${randomUUID()}`;
 
 // ── results ─────────────────────────────────────────────────────────────────
 
@@ -215,7 +224,8 @@ export async function call(auth, method, path, body, opts = {}) {
   const text = await res.text();
   let json;
   try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
-  if (method === 'POST' && res.status === 201) noteCreated(json, opts.base);
+  // A create under a supplied identity is a PUT answered 201, and it can leak as a POST can.
+  if ((method === 'POST' || method === 'PUT') && res.status === 201) noteCreated(json, opts.base);
   return { status: res.status, body: json, text, headers: res.headers };
 }
 
@@ -399,11 +409,11 @@ const COLLECTION_PATH = {
   folder: '/folders',
 };
 
-// Every folder and artifact a POST minted, in creation order, each attributed to the suite that was
-// running when it appeared, alongside the identifiers teardown was told about. Comparing the two is
-// what catches a suite that creates without registering: teardown reports only the deletions it was
-// asked for, so such a suite leaves a subtree behind inside a run that passes. One run left
-// thirty-two artifacts in the first user's home exactly that way.
+// Every folder and artifact a POST or a create-by-PUT made, in creation order, each attributed to
+// the suite that was running when it appeared, alongside the identifiers teardown was told about.
+// Comparing the two is what catches a suite that creates without registering: teardown reports only
+// the deletions it was asked for, so such a suite leaves a subtree behind inside a run that passes.
+// One run left thirty-two artifacts in the first user's home exactly that way.
 
 
 /**

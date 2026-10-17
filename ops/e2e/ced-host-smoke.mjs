@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { actors, call, mutate, enc, artifactBody } from './rest/lib.mjs';
+import { createdFixture, createAttempt, fixtureAt } from './journey-fixtures.mjs';
 const designerBase = process.env.CEDAR_DESIGNER_BASE || 'https://designer.metadatacenter.orgx';
 const workspaceBase = process.env.CEDAR_BASE || 'https://workspace.metadatacenter.orgx';
 const { user1 } = await actors();
@@ -14,25 +15,29 @@ const created = [];
 const errors = [];
 const responseBodies = new Map();
 let loseNextWrite = false;
-let lastLostWrite;
 let writeCount = 0;
 // Capture writes before fulfilling them, so each response body stays readable whatever the page does next.
+// A create is a PUT to the identity Designer minted, so its address identifies the fixture; a
+// version command names the draft it created in its reply.
 await page.route(url => /^\/(templates|template-elements|template-fields|command\/publish-create-draft-template)(?:\/|$)/.test(url.pathname), async intercepted => {
   const req = intercepted.request();
   if (!['POST', 'PUT'].includes(req.method())) return intercepted.continue();
   writeCount++;
-  const response = await intercepted.fetch();
+  let response;
+  try {
+    response = await intercepted.fetch();
+  } catch (error) {
+    // A create whose reply never arrived may still have committed; cleanup removes it or finds it absent.
+    if (createAttempt(req)) created.push(fixtureAt(req.url()));
+    throw error;
+  }
   const data = await response.json();
   responseBodies.set(req.method() + ' ' + req.url(), data);
-  if (req.method() === 'POST' && response.ok() && data['@id']) {
-    const path = new URL(req.url()).pathname;
-    const collection = path.startsWith('/template-fields') ? 'template-fields' : path.startsWith('/template-elements') ? 'template-elements' : 'templates';
-    created.push({ collection, id: data['@id'] });
-  }
+  const fixture = createdFixture(req.method(), req.url(), response.status(), data);
+  if (fixture) created.push(fixture);
   if (loseNextWrite) {
     loseNextWrite = false;
     assert.ok(response.ok(), JSON.stringify(data));
-    lastLostWrite = data;
     return intercepted.abort('failed');
   }
   await intercepted.fulfill({ response });
@@ -103,16 +108,19 @@ try {
     }
     await nameInput().fill(name);
     await page.waitForFunction(() => !document.getElementById('save').disabled);
-    const savedResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().includes(`/${collection}?`));
+    // The first save creates the artifact by PUT, at an identity Designer minted, without If-Match.
+    const savedResponse = page.waitForResponse(response => response.request().method() === 'PUT' && new URL(response.url()).pathname.startsWith(`/${collection}/`));
     await save();
     const response = await savedResponse;
-    const body = responseBodies.get('POST ' + response.url());
+    const body = responseBodies.get('PUT ' + response.url());
     if (response.status() !== 201) {
       await writeFile('/tmp/ced-host-rejected-artifact.json', response.request().postData());
       await writeFile('/tmp/ced-host-rejection.json', JSON.stringify(body, null, 2));
     }
     assert.equal(response.status(), 201, JSON.stringify(body).slice(0, 1200));
+    assert.equal(response.request().headers()['if-match'], undefined, 'A create carries no If-Match');
     const id = body['@id'];
+    assert.equal(fixtureAt(response.url())?.id, id, 'The reply names the identity the create addressed');
     // A successful save stays in Designer, at the new artifact's edit address with the same query.
     await page.waitForURL(url => editAddress(url, route, id, params));
     await saved();
@@ -218,21 +226,7 @@ try {
       assert.equal(metadata.body['schema:isBasedOn'], id);
       console.log('PASS: template with metadata confirms versioning in place, preserves cancellation, leaves instances on original');
     }
-    await open(`/${route}/create?${params}`);
-    if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
-    await nameInput().fill(name + ' uncertain create');
-    loseNextWrite = true;
-    await save();
-    await page.waitForFunction(() => document.getElementById('message').textContent.includes('could not confirm whether'));
-    assert.equal(await page.locator('#save').isDisabled(), true);
-    assert.equal(await page.locator('#reload').isVisible(), false);
-    assert.equal(await nameInput().inputValue(), name + ' uncertain create');
-    const createdOnServer = await call(user1.auth, 'GET', `/${collection}/${enc(lastLostWrite['@id'])}`);
-    assert.equal(createdOnServer.body['schema:name'], name + ' uncertain create');
-    const countAfterCreate = writeCount;
-    await page.locator('#save').dispatchEvent('click');
-    assert.equal(writeCount, countAfterCreate);
-    console.log(`PASS: ${kind} committed create with lost response cannot be repeated`);
+    // A create whose reply is lost is uncertain-create's journey, which settles it by its identity.
   }
   assert.deepEqual(errors, []);
 } catch (error) {
@@ -242,8 +236,9 @@ try {
   throw error;
 } finally {
   await browser.close();
+  // An identity recorded from a create attempt may never have committed, so 404 is a clean end state.
   for (const item of created.reverse()) {
     const result = await mutate(user1.auth, 'DELETE', `/${item.collection}/${enc(item.id)}`);
-    assert.ok([200, 204].includes(result.status), `Cleanup failed: ${result.text}`);
+    assert.ok([200, 204, 404].includes(result.status), `Cleanup failed: ${result.text}`);
   }
 }

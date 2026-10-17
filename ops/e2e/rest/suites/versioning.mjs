@@ -1,6 +1,6 @@
 // Publish and create-draft: two-service writes that no test exercised before these suites.
 import { isDeepStrictEqual } from 'node:util';
-import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, poll, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, mintId, poll, RUN } from '../lib.mjs';
 
 export const name = 'versioning';
 
@@ -295,6 +295,258 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
           'the source template is now published', 'the source was not published');
       check(res.body?.['bibo:status'] === 'bibo:draft', 'and the returned artifact is a new draft',
           `the returned status was ${res.body?.['bibo:status']}`);
+    }
+  }
+
+  suite('versioning: drafts under a supplied identity');
+
+  // Workspace's Create Draft and the Designer's Create new draft mint the draft's identity and send
+  // it, so a lost reply is settled by reading that identity: the draft committed when it names the
+  // source as its previous version. An identity already taken is refused before anything is written.
+  const versionsOf = async id => (await call(auth, 'GET', `/templates/${enc(id)}/versions`)).body?.totalCount;
+  const occupantName = `Occupied Draft Identity ${RUN}`;
+  const occupant = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      artifactBody('template', occupantName));
+  if (checkStatus(occupant, 201, 'a template is created to occupy a draft identity')) {
+    const occupantId = occupant.body['@id'];
+    const occupantAt = `/templates/${enc(occupantId)}`;
+    cleanup('template', occupantAt, occupantName);
+    const occupantBefore = await call(auth, 'GET', occupantAt);
+    const occupantUnchanged = async () => {
+      const now = await call(auth, 'GET', occupantAt);
+      return now.headers.get('etag') === occupantBefore.headers.get('etag')
+          && isDeepStrictEqual(now.body, occupantBefore.body);
+    };
+
+    const draftSourceName = `Supplied Draft Source ${RUN}`;
+    const draftSource = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+        artifactBody('template', draftSourceName));
+    if (checkStatus(draftSource, 201, 'create-draft-artifact: a template is created to draft')) {
+      const sourceId = draftSource.body['@id'];
+      cleanup('template', `/templates/${enc(sourceId)}`, draftSourceName);
+      if (checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': sourceId, newVersion: '1.0.0' }),
+          [200, 201], 'create-draft-artifact: and published')) {
+        const request = { '@id': sourceId, folderId, newVersion: '1.0.1', propagateSharing: false };
+        const taken = await call(auth, 'POST', '/command/create-draft-artifact', { ...request, draftId: occupantId });
+        if (checkStatus(taken, 412, 'create-draft-artifact: a draftId another artifact holds is refused')) {
+          check((taken.text ?? '').includes('nodeAlreadyPresent'),
+              'create-draft-artifact: and the refusal says the identity is already present',
+              `body was ${(taken.text ?? '').slice(0, 200)}`);
+        }
+        const versionsAfterTaken = await versionsOf(sourceId);
+        check(await occupantUnchanged() && versionsAfterTaken === 1,
+            'create-draft-artifact: and nothing is written',
+            `the source has ${versionsAfterTaken} versions, or the occupant changed`);
+
+        const draftId = mintId('templates');
+        // Registered before the request: what to delete does not depend on the reply.
+        cleanup('template', `/templates/${enc(draftId)}`, `${draftSourceName} draft`);
+        const draft = await call(auth, 'POST', '/command/create-draft-artifact', { ...request, draftId });
+        if (checkStatus(draft, 201, 'create-draft-artifact: the draft is created under the supplied draftId')) {
+          check(draft.body?.['@id'] === draftId, 'create-draft-artifact: and the reply names that identity',
+              `the reply named ${draft.body?.['@id']}`);
+          const stored = await call(auth, 'GET', `/templates/${enc(draftId)}`);
+          check(stored.status === 200 && stored.body?.['pav:previousVersion'] === sourceId
+                && stored.body?.['bibo:status'] === 'bibo:draft' && stored.body?.['pav:version'] === '1.0.1',
+              'create-draft-artifact: the draft reads back as the successor of its source',
+              `${stored.status}: ${JSON.stringify({ previous: stored.body?.['pav:previousVersion'],
+                status: stored.body?.['bibo:status'], version: stored.body?.['pav:version'] })}`);
+          const versionsAfterDraft = await versionsOf(sourceId);
+          check(versionsAfterDraft === 2, 'create-draft-artifact: the source has exactly two versions',
+              `it has ${versionsAfterDraft}`);
+          // The identity is now taken, and the server says so before it considers that the source
+          // already has a successor. A client therefore reads the repeat as "check again", never as
+          // a failure.
+          const repeated = await call(auth, 'POST', '/command/create-draft-artifact', { ...request, draftId });
+          if (checkStatus(repeated, 412, 'create-draft-artifact: a repeated request is refused')) {
+            check((repeated.text ?? '').includes('nodeAlreadyPresent'),
+                'create-draft-artifact: and the refusal of the repeat says the identity is already present',
+                `body was ${(repeated.text ?? '').slice(0, 200)}`);
+          }
+          const afterRepeat = await call(auth, 'GET', `/templates/${enc(draftId)}`);
+          const versionsAfterRepeat = await versionsOf(sourceId);
+          check(afterRepeat.headers.get('etag') === stored.headers.get('etag') && versionsAfterRepeat === 2,
+              'create-draft-artifact: and the repeat writes nothing',
+              `ETag ${stored.headers.get('etag')} then ${afterRepeat.headers.get('etag')}; ${versionsAfterRepeat} versions`);
+        }
+      }
+    }
+
+    const pcdSourceName = `Supplied Publish-Create-Draft ${RUN}`;
+    const pcdSource = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+        artifactBody('template', pcdSourceName));
+    if (checkStatus(pcdSource, 201, 'publish-create-draft-template: a template is created to publish and draft')) {
+      const sourceId = pcdSource.body['@id'];
+      const sourceAt = `/templates/${enc(sourceId)}`;
+      cleanup('template', sourceAt, pcdSourceName);
+      const opened = await call(auth, 'GET', sourceAt);
+      const etag = opened.headers.get('etag');
+      const command = draft => `/command/publish-create-draft-template/${enc(sourceId)}?draft_id=${enc(draft)}`;
+      const send = draft => call(auth, 'POST', command(draft), opened.body, { headers: { 'If-Match': etag } });
+
+      const taken = await send(occupantId);
+      if (checkStatus(taken, 412,
+          'publish-create-draft-template: a draft_id another artifact holds is refused before publishing')) {
+        check((taken.text ?? '').includes('nodeAlreadyPresent'),
+            'publish-create-draft-template: and the refusal says the identity is already present',
+            `body was ${(taken.text ?? '').slice(0, 200)}`);
+      }
+      const unpublished = await call(auth, 'GET', sourceAt);
+      const versionsAfterTaken = await versionsOf(sourceId);
+      check(unpublished.body?.['bibo:status'] === 'bibo:draft' && unpublished.headers.get('etag') === etag
+            && await occupantUnchanged() && versionsAfterTaken === 1,
+          'publish-create-draft-template: and nothing is written',
+          `status ${unpublished.body?.['bibo:status']}, ETag ${etag} then ${unpublished.headers.get('etag')}, `
+          + `${versionsAfterTaken} versions`);
+      checkStatus(await send('not-an-identifier'), 400,
+          'publish-create-draft-template: a draft_id that is not a template identifier is refused');
+      const afterMalformed = await call(auth, 'GET', sourceAt);
+      check(afterMalformed.body?.['bibo:status'] === 'bibo:draft' && afterMalformed.headers.get('etag') === etag,
+          'publish-create-draft-template: and the source is not published',
+          `status ${afterMalformed.body?.['bibo:status']}, ETag ${etag} then ${afterMalformed.headers.get('etag')}`);
+
+      const draftId = mintId('templates');
+      cleanup('template', `/templates/${enc(draftId)}`, `${pcdSourceName} draft`);
+      const created = await send(draftId);
+      if (checkStatus(created, 200, 'publish-create-draft-template: the draft is created under the supplied draft_id')) {
+        check(created.body?.['@id'] === draftId, 'publish-create-draft-template: and the reply names that identity',
+            `the reply named ${created.body?.['@id']}`);
+        const stored = await call(auth, 'GET', `/templates/${enc(draftId)}`);
+        const published = await call(auth, 'GET', sourceAt);
+        check(stored.status === 200 && stored.body?.['pav:previousVersion'] === sourceId
+              && published.body?.['bibo:status'] === 'bibo:published',
+            'publish-create-draft-template: the source is published and the draft succeeds it',
+            `draft ${stored.status} after ${stored.body?.['pav:previousVersion']}; source ${published.body?.['bibo:status']}`);
+        const versionsAfterDraft = await versionsOf(sourceId);
+        check(versionsAfterDraft === 2, 'publish-create-draft-template: the source has exactly two versions',
+            `it has ${versionsAfterDraft}`);
+        checkStatus(await send(draftId), 412, 'publish-create-draft-template: a repeat with the opened ETag is refused');
+        const versionsAfterRepeat = await versionsOf(sourceId);
+        check(versionsAfterRepeat === 2, 'publish-create-draft-template: and makes no third version',
+            `the source has ${versionsAfterRepeat} versions`);
+      }
+    }
+  }
+
+  suite('versioning: publish-create-draft-template stores nothing when a later step would refuse');
+
+  // The command publishes the source, creates its successor and applies the submitted definition.
+  // What a later step would refuse is refused before publishing, so nothing changes, the opened ETag
+  // stays valid, and a corrected retry under the same identity makes exactly one successor.
+  const invalidName = `Refused Definition ${RUN}`;
+  const invalidSource = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      artifactBody('template', invalidName));
+  if (checkStatus(invalidSource, 201, 'an invalid definition: a template is created to receive it')) {
+    const sourceId = invalidSource.body['@id'];
+    const sourceAt = `/templates/${enc(sourceId)}`;
+    cleanup('template', sourceAt, invalidName);
+    const opened = await call(auth, 'GET', sourceAt);
+    const etag = opened.headers.get('etag');
+    const broken = structuredClone(opened.body);
+    delete broken.properties['oslc:modifiedBy'];
+    // The validator must refuse the definition, or the refusal below would prove nothing.
+    const verdict = await call(auth, 'POST', '/command/validate?resource_type=template', broken);
+    check(verdict.status === 200 && verdict.body?.validates === 'false',
+        'an invalid definition: without its oslc:modifiedBy declaration the definition does not validate',
+        `${verdict.status}, validates=${verdict.body?.validates}`);
+    const draftId = mintId('templates');
+    cleanup('template', `/templates/${enc(draftId)}`, `${invalidName} draft`);
+    const command = `/command/publish-create-draft-template/${enc(sourceId)}?draft_id=${enc(draftId)}`;
+    const refused = await call(auth, 'POST', command, broken, { headers: { 'If-Match': etag } });
+    if (checkStatus(refused, 400, 'an invalid definition: the command refuses it')) {
+      const errors = refused.body?.objects?.validationReport?.errors;
+      check(Array.isArray(errors) && errors.length > 0, 'an invalid definition: and the refusal carries the validation report',
+          `body was ${(refused.text ?? '').slice(0, 200)}`);
+    }
+    const after = await call(auth, 'GET', sourceAt);
+    check(after.body?.['bibo:status'] === 'bibo:draft' && after.body?.['pav:version'] === opened.body?.['pav:version']
+          && after.headers.get('etag') === etag,
+        'an invalid definition: the source is still the draft that was opened, at the same ETag',
+        `status ${after.body?.['bibo:status']}, version ${after.body?.['pav:version']}, `
+        + `ETag ${etag} then ${after.headers.get('etag')}`);
+    const versionsAfterRefusal = await versionsOf(sourceId);
+    const successor = await call(auth, 'GET', `/templates/${enc(draftId)}`);
+    check(versionsAfterRefusal === 1 && successor.status === 404, 'an invalid definition: and no successor exists',
+        `${versionsAfterRefusal} versions; the draft identity answered ${successor.status}`);
+
+    const corrected = await call(auth, 'POST', command, opened.body, { headers: { 'If-Match': etag } });
+    if (checkStatus(corrected, 200, 'an invalid definition: the corrected definition with the same If-Match is accepted')) {
+      const stored = await call(auth, 'GET', `/templates/${enc(draftId)}`);
+      const versionsAfterRetry = await versionsOf(sourceId);
+      check(corrected.body?.['@id'] === draftId && stored.body?.['pav:previousVersion'] === sourceId
+            && versionsAfterRetry === 2,
+          'an invalid definition: and exactly one successor follows the source',
+          `reply ${corrected.body?.['@id']}, previous ${stored.body?.['pav:previousVersion']}, ${versionsAfterRetry} versions`);
+      checkStatus(await call(auth, 'POST', command, opened.body, { headers: { 'If-Match': etag } }), 412,
+          'an invalid definition: a repeat of the corrected request is refused');
+      const versionsAfterRepeat = await versionsOf(sourceId);
+      check(versionsAfterRepeat === 2, 'an invalid definition: and the source still has exactly two versions',
+          `it has ${versionsAfterRepeat}`);
+    }
+  }
+
+  // The draft is created in the source's folder, so an owner who may no longer create there is
+  // refused before the source is published. The second user owns the folder and controls the grant.
+  const parentName = `Viewer Parent ${RUN}`;
+  const parent = await call(user2.auth, 'POST', '/folders', { folderId: user2.profile.homeFolderId,
+    name: parentName, description: `Created by the REST suites (${RUN})` });
+  if (checkStatus(parent, 201, 'a parent the owner may not create in: the second user creates a folder')) {
+    const parentId = parent.body['@id'];
+    const parentAt = `/folders/${enc(parentId)}`;
+    cleanup('folder', parentAt, parentName, user2.auth);
+    const grant = role => mutate(user2.auth, 'PUT', `${parentAt}/permissions`, {
+      owner: { '@id': user2.profile['@id'] },
+      userPermissions: [{ user: { '@id': user1.profile['@id'] }, role }],
+      groupPermissions: [],
+    });
+    if (checkStatus(await grant('editor'), 200,
+        'a parent the owner may not create in: the first user is made an editor of it')) {
+      const ownedName = `Template in a Viewer Parent ${RUN}`;
+      const owned = await call(auth, 'POST', `/templates?folder_id=${enc(parentId)}`,
+          artifactBody('template', ownedName));
+      if (checkStatus(owned, 201, 'a parent the owner may not create in: the first user creates a template there')) {
+        const ownedId = owned.body['@id'];
+        const ownedAt = `/templates/${enc(ownedId)}`;
+        cleanup('template', ownedAt, ownedName);
+        const draftId = mintId('templates');
+        cleanup('template', `/templates/${enc(draftId)}`, `${ownedName} draft`);
+        const command = `/command/publish-create-draft-template/${enc(ownedId)}?draft_id=${enc(draftId)}`;
+        let opened;
+        if (checkStatus(await grant('viewer'), 200,
+            'a parent the owner may not create in: the first user is downgraded to viewer')) {
+          opened = await call(auth, 'GET', ownedAt);
+          const etag = opened.headers.get('etag');
+          checkStatus(await call(auth, 'POST', command, opened.body, { headers: { 'If-Match': etag } }), 403,
+              'a parent the owner may not create in: the command is refused');
+          const after = await call(auth, 'GET', ownedAt);
+          check(after.body?.['bibo:status'] === 'bibo:draft' && after.headers.get('etag') === etag,
+              'a parent the owner may not create in: the source is still the draft that was opened, at the same ETag',
+              `status ${after.body?.['bibo:status']}, ETag ${etag} then ${after.headers.get('etag')}`);
+          const versions = await versionsOf(ownedId);
+          const successor = await call(auth, 'GET', `/templates/${enc(draftId)}`);
+          check(versions === 1 && successor.status === 404, 'a parent the owner may not create in: and no successor exists',
+              `${versions} versions; the draft identity answered ${successor.status}`);
+        }
+        // Teardown removes the template as the first user, which needs the editor grant back. With the
+        // grant back, the refused request is retried unchanged, under the same draft_id and If-Match.
+        if (checkStatus(await grant('editor'), 200, "a parent the owner may not create in: the first user's grant is restored")
+            && opened) {
+          const send = () => call(auth, 'POST', command, opened.body, { headers: { 'If-Match': opened.headers.get('etag') } });
+          const retried = await send();
+          if (checkStatus(retried, 200, 'a parent the owner may not create in: once the grant is back, the same request is accepted')) {
+            const stored = await call(auth, 'GET', `/templates/${enc(draftId)}`);
+            const versionsAfterRetry = await versionsOf(ownedId);
+            check(retried.body?.['@id'] === draftId && stored.body?.['pav:previousVersion'] === ownedId
+                  && versionsAfterRetry === 2,
+                'a parent the owner may not create in: and exactly one successor follows the source',
+                `reply ${retried.body?.['@id']}, previous ${stored.body?.['pav:previousVersion']}, ${versionsAfterRetry} versions`);
+            checkStatus(await send(), 412, 'a parent the owner may not create in: a repeat of the accepted request is refused');
+            const versionsAfterRepeat = await versionsOf(ownedId);
+            check(versionsAfterRepeat === 2, 'a parent the owner may not create in: and the source still has exactly two versions',
+                `it has ${versionsAfterRepeat}`);
+          }
+        }
+      }
     }
   }
 

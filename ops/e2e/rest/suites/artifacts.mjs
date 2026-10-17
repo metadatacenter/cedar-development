@@ -5,7 +5,7 @@
 // and they only assert the rejections that fire before the proxy.
 import { isDeepStrictEqual } from 'node:util';
 import {
-  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, KINDS, enc, RUN, HOST, ARTIFACT_SERVER,
+  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, KINDS, enc, mintId, RUN, HOST, ARTIFACT_SERVER,
 } from '../lib.mjs';
 
 export const name = 'artifacts';
@@ -254,6 +254,76 @@ export async function run({ user1, user2, admin, folderId }) {
 
     checkStatus(await call(user2.auth, 'POST', '/command/annotations/doi', { '@id': did, doi: '10.5555/outsider' }),
         403, 'and a user with no write access to the artifact cannot set a DOI');
+  }
+
+  suite('artifacts: create under a supplied identity');
+
+  // Workspace and Designer create by PUT, at an identity they mint and record before sending. When a
+  // reply is lost, a read of that identity settles the outcome, and a repeat of the same request
+  // cannot make a second artifact. The section works in a folder of its own so that its count of
+  // what the folder holds is exact.
+  const suppliedName = `Supplied Identities ${RUN}`;
+  const supplied = await call(auth, 'POST', '/folders',
+      { folderId, name: suppliedName, description: `Created by the REST suites (${RUN})` });
+  if (checkStatus(supplied, 201, 'a folder is created for creates under a supplied identity')) {
+    const suppliedId = supplied.body['@id'];
+    const inFolder = `?folder_id=${enc(suppliedId)}`;
+    cleanup('folder', `/folders/${enc(suppliedId)}`, suppliedName);
+    const listed = async id => {
+      const contents = await call(auth, 'GET', `/folders/${enc(suppliedId)}/contents?limit=50`);
+      const resources = contents.body?.resources ?? [];
+      return { total: resources.length, occurrences: resources.filter(r => r['@id'] === id).length };
+    };
+    let templateId;
+    for (const { kind, path } of KINDS) {
+      const collection = path.slice(1);
+      const label = `supplied ${kind} ${RUN}`;
+      const extra = kind === 'instance' ? { 'schema:isBasedOn': templateId } : {};
+      const id = mintId(collection);
+      const at = `${path}/${enc(id)}`;
+      // Registered before the request: what to delete does not depend on the reply.
+      cleanup(kind, at, label);
+      const body = { ...artifactBody(kind, label, extra), '@id': id };
+      const put = await call(auth, 'PUT', `${at}${inFolder}`, body);
+      if (!checkStatus(put, 201, `${kind}: an unconditional PUT creates it under the supplied identity`)) continue;
+      if (kind === 'template') templateId = id;
+      check(put.body?.['@id'] === id && !!put.headers.get('etag'),
+          `${kind}: the reply names that identity and carries an ETag`,
+          `@id ${put.body?.['@id']}, ETag ${put.headers.get('etag')}`);
+      const get = await call(auth, 'GET', at);
+      checkStatus(get, 200, `${kind}: the supplied identity reads back`);
+      check(get.body?.['schema:name'] === label && get.body?.['pav:createdBy'] === user1.profile['@id'],
+          `${kind}: and holds what the caller stored`,
+          `name "${get.body?.['schema:name']}", created by ${get.body?.['pav:createdBy']}`);
+
+      // A repeat is what a client sends when it cannot tell whether its first attempt committed.
+      checkStatus(await call(auth, 'PUT', `${at}${inFolder}`, body), [412, 428],
+          `${kind}: an unconditional repeat is refused`);
+      const after = await call(auth, 'GET', at);
+      check(after.status === 200 && after.headers.get('etag') === get.headers.get('etag'),
+          `${kind}: and the refused repeat changes nothing`,
+          `${after.status}, ETag ${get.headers.get('etag')} then ${after.headers.get('etag')}`);
+      const { occurrences } = await listed(id);
+      check(occurrences === 1, `${kind}: the folder holds the artifact exactly once`,
+          `the folder listed it ${occurrences} times`);
+
+      checkStatus(await call(auth, 'GET', `${path}/${enc(mintId(collection))}`), 404,
+          `${kind}: an identity nobody created answers 404`);
+
+      const addressed = mintId(collection);
+      const named = mintId(collection);
+      cleanup(kind, `${path}/${enc(addressed)}`, `${label} (address)`);
+      cleanup(kind, `${path}/${enc(named)}`, `${label} (body)`);
+      checkStatus(await call(auth, 'PUT', `${path}/${enc(addressed)}${inFolder}`,
+          { ...artifactBody(kind, `${label} mismatch`, extra), '@id': named }), 400,
+          `${kind}: a body naming a different identity from its address is refused`);
+      const stored = await Promise.all([addressed, named].map(other => call(auth, 'GET', `${path}/${enc(other)}`)));
+      check(stored.every(r => r.status === 404), `${kind}: and nothing is stored under either identity`,
+          `the reads answered ${stored.map(r => r.status).join(' and ')}`);
+    }
+    const { total } = await listed(undefined);
+    check(total === KINDS.length, 'the folder holds exactly the artifacts created in it',
+        `it holds ${total} resources, expected ${KINDS.length}`);
   }
 
   return made;

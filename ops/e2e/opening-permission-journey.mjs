@@ -35,7 +35,7 @@ export async function openingPermissionJourney(args) {
       await f.input(reader).fill('After destination access grant');
       if(f.metadata)await reader.getByLabel('Instance name',{exact:true}).fill('Recovered destination '+args.name);
       else await reader.getByPlaceholder('Template name',{exact:true}).fill('Recovered destination '+args.name);
-      const made=await args.write(reader,'POST','/'+f.collection,()=>f.save(reader).click(),201);
+      const made=await args.write(reader,'PUT','/'+f.collection+'/',()=>f.save(reader).click(),201);
       assert.ok(made['@id']);await reader.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
       pass(`${kind}: a denied create destination becomes usable after an explicit permission recheck and creates exactly once`);
     }

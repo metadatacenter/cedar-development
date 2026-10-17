@@ -97,7 +97,7 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     await keep.fill("Answer on the new schema");
     assert.equal(await notes.count(), 0);
     await editor.locator("#instance-name").fill(name + " new version record");
-    const made = await write(editor, "POST", "/template-instances", () => editor.locator("#button-save-metadata").click(), 201);
+    const made = await write(editor, "PUT", "/template-instances/", () => editor.locator("#button-save-metadata").click(), 201);
     assert.ok(made?.["@id"]);
     if (!created.some(item => item.id === made["@id"])) created.push({collection: "template-instances", id: made["@id"]});
     await editor.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
