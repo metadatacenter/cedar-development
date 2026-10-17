@@ -2848,7 +2848,8 @@ error text when one is unreachable. Insight endpoints are operationally sensitiv
 Inclusion-subgraph regeneration is a tracked single-flight worker job. An authorized
 `POST /command/regenerate-inclusion-subgraph` returns `202 Accepted`, a job document, and a
 `Location` header for `GET /command/regenerate-inclusion-subgraph/{jobId}`. While that job is queued
-or running, another POST returns `409 Conflict` with the active job and the same status location.
+or running, another POST returns `409 Conflict` in the common `CedarError` envelope, with the active
+job in `objects.job` and the same status location.
 Status records expose queued, running, succeeded and failed states, including timestamps and an
 error for failures. A succeeded record also lists `unreadableArtifacts`: the templates and elements
 the artifact server answered with anything but 200 for, whose arcs the run left as they were rather
@@ -3049,12 +3050,19 @@ challenges, `Allow`, and `Retry-After`; representation headers are regenerated f
 Malformed query-parameter conversion is 400; a missing route remains 404. Explicit response
 entities bypass exception normalization, as Jersey requires.
 
-Success representations and intentional external payloads keep their own shapes. Recursive-folder
-plans and outcomes also keep their published operation contract, and the Workspace localizes an
-outcome by its `FOLDER_DELETE_*` code. A recursive deletion's refusals use the common envelope. A
-refused confirmation carries its outcome in `objects.outcome`, as a validation refusal carries its
-report in `objects.validationReport`. Terminology property failures and request-quota refusals use
-the common native envelope.
+Success representations keep their own shapes. So do two answers that are not error bodies: a health
+report, which a failing check answers with 500, and an external authority's answer, which the bridge
+relays with the registry's status. Recursive-folder plans and outcomes also keep their published
+operation contract, and the Workspace localizes an outcome by its `FOLDER_DELETE_*` code. A recursive
+deletion's refusals use the common envelope. A refused confirmation carries its outcome in
+`objects.outcome`, as a validation refusal carries its report in `objects.validationReport`. Three
+other refusals carry a payload the same way. An inclusion-subgraph update the artifact server partly
+refused answers 502 with its update report in `objects.report`. A regeneration requested while one is
+in flight answers 409 with that job in `objects.job`. The bridge answers a DataCite refusal with
+`upstreamServerError` and DataCite's own errors in `objects.dataCiteErrors`, keeping DataCite's status
+for a refusal of the request itself and answering 502 when DataCite fails, refuses the repository
+credentials or limits the deployment's requests. Terminology property failures and request-quota
+refusals use the common native envelope.
 
 Dependency classification is declared per integration. LINCS retains its established gateway
 mapping for upstream 400/401/500 (and treats deployment-owned credential rejection 403 likewise);
@@ -3462,10 +3470,11 @@ write path (which proxies, so the per-service suites cannot follow it), publish 
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
-the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `deletion`, `download`,
-`finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
-`pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 1,596 exact suite/section/check identities; a passing run
+the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
+`contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
+`inclusion`, `negotiation`, `openness`, `pagination`, `search`, `sharing`, `validation` and
+`versioning`. The committed
+`rest/expected-checks.json` inventory holds 1,671 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
@@ -3478,7 +3487,7 @@ measured setting. Use `--rest-workers 1` for the serial diagnostic path. For an 
 `npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
 REST invocation does not replace the release smoke gate.
 
-Thirteen audited suites may overlap. Each has its own working folder, asynchronous
+Fourteen audited suites may overlap. Each has its own working folder, asynchronous
 check context, creation tracking and cleanup registry. The `folders`, `groups`,
 `categories`, `authentication`, `pagination` and `contract` suites run exclusively
 after that parallel batch: their home guards, protected group operations, category
