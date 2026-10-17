@@ -3076,8 +3076,15 @@ Use `status(int)` when relaying a numeric status. The enum remains a convenient 
 not a filter for upstream answers. An unnamed error uses `HTTP_<code>` as its symbolic status.
 Jersey exception normalization retains protocol headers, including multiple authentication
 challenges, `Allow`, and `Retry-After`; representation headers are regenerated for the new body.
-Malformed query-parameter conversion is 400; a missing route remains 404. Explicit response
-entities bypass exception normalization, as Jersey requires.
+Malformed query-parameter conversion is 400, and a missing route remains 404. A bodyless
+exception's message stays out of the body, because Jersey's own exceptions carry generic text or the
+text of a failed conversion. Two refusals are answered with a message instead. A parameter Jersey
+cannot convert, in the query, the path, a header or a form, is described from the route's
+declaration, as in `The query parameter limit must be an integer from -2147483648 to 2147483647`.
+`LinkedDataUtil` refuses an identifier a request supplied that it cannot resolve with
+`UnresolvableIdentifierException`, which is answered with `invalidInput` and the refusal's message,
+such as `Invalid template identifier`. Explicit response entities bypass exception normalization, as
+Jersey requires.
 
 Success representations keep their own shapes. So does one answer that is not an error body: a health
 report, which a failing check answers with 500. Recursive-folder plans and outcomes also keep their
