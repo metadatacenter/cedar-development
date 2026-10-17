@@ -34,7 +34,7 @@ export async function copyOpenViewJourney(args) {
   await modal(page).locator("cedar-folder-list").getByRole("button", { name: names.destination, exact: true }).click();
   await save(page, write, "POST", "/command/move-resource-to-folder", 201, true);
   await listed(page, base, destination, names.copy);
-  pass("Copy and conditional move through folder picker");
+  pass("copy-move", "Copy and conditional move through folder picker");
 
   await listed(page, base, destination, names.copy);
   await menu(page, names.copy, "Enable Openview");
@@ -69,7 +69,7 @@ export async function copyOpenViewJourney(args) {
   await menu(page, names.copy, "Disable Openview");
   await save(page, write, "POST", "/command/make-artifact-not-open", 200, true);
   await openViewStatus(false, "Closed artifact remains public");
-  pass("OpenView open/render/close");
+  pass("artifact-openview", "OpenView open/render/close");
 
   await listed(page, base, folderId, names.destination);
   await menu(page, names.destination, "Enable Openview");
@@ -78,7 +78,7 @@ export async function copyOpenViewJourney(args) {
   await menu(page, names.destination, "Disable Openview");
   await save(page, write, "POST", "/command/make-folder-not-open", 200, true);
   await openViewStatus(false, "A closed folder left its child artifact public");
-  pass("Folder OpenView grant and revocation apply to its child artifact");
+  pass("folder-openview", "Folder OpenView grant and revocation apply to its child artifact");
 
   await listed(page, base, destination, names.copy);
   await row(page, names.copy).getByRole("link", { name: names.copy, exact: true }).click();
@@ -96,5 +96,5 @@ export async function copyOpenViewJourney(args) {
   await page.locator("#message").filter({ hasText: /404|not found/i }).waitFor();
   assert.equal(await page.getByPlaceholder("Add description...", { exact: true }).first().inputValue(), "Unsaved after deletion");
   assert.equal((await call(user.auth, "GET", "/templates/" + enc(copy["@id"]))).status, 404);
-  pass("Delete versus CED save retains edits and cannot resurrect the artifact");
+  pass("deleted-designer", "Delete versus CED save retains edits and cannot resurrect the artifact");
 }

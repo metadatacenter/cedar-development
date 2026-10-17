@@ -76,6 +76,6 @@ export async function uncertainMoveJourney({page, base, user, folderId, name, cr
     await openListing(page, base, targetId);
     for (const id of ids) await row(id).waitFor();
     assert.equal(attempts.length, 3, "opening the destination must not replay a move");
-    pass("A lost grouped-move response reports only confirmed progress, refreshes away already-moved selections and reopens all intact artifacts in the destination without replaying writes");
+    pass("settle-without-replay", "A lost grouped-move response reports only confirmed progress, refreshes away already-moved selections and reopens all intact artifacts in the destination without replaying writes");
   } finally { await page.unroute(matcher, loseResponse); }
 }

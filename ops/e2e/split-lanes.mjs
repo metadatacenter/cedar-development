@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { shuffled } from "./journey-contract.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
 
 // The split tier's plan says what runs, where it may run and how long it may take. split-tier.mjs
@@ -155,7 +156,8 @@ function median(values) {
 const round = seconds => Math.round(seconds * 10) / 10;
 
 /** Longest first, and in registry order among units of the same length. */
-export const longestFirst = (a, b) => b.seconds - a.seconds || a.order - b.order;
+export const longestFirst = (a, b) => a.shuffleRank !== undefined && b.shuffleRank !== undefined
+  ? a.shuffleRank - b.shuffleRank : b.seconds - a.seconds || a.order - b.order;
 
 /**
  * The queue the lanes share. `next(lane)` hands the lane the longest unit it may run, or undefined
@@ -232,7 +234,7 @@ export function simulate({ lanes, units, chainSeconds = 0, leadSeconds = 0 }) {
  * its kind for balancing, and its deadline is the cap.
  */
 export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Date.now(),
-  journeys = JOURNEYS, scripts = SCRIPTS, deadline = DEADLINE } = {}) {
+  journeys = JOURNEYS, scripts = SCRIPTS, deadline = DEADLINE, seed = null } = {}) {
   if (!Number.isInteger(lanes) || lanes < 1 || lanes > MAX_LANES)
     throw new RangeError(`lanes must be an integer from 1 to ${MAX_LANES}`);
   const measured = names => names.map(name => durations.get(name)).filter(value => typeof value === "number");
@@ -278,10 +280,12 @@ export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Dat
     ...(units.some(entry => entry.identity) ? [{ name: "identity", core: false, identity: true }] : []),
     ...Array.from({ length: lanes }, (_, index) => ({ name: `general-${index + 1}`, core: false, identity: false })),
   ].map(lane => ({ ...lane, root: rootName(stamp, lane.name) }));
+  if (seed !== null) shuffled(units, seed).forEach((unit, rank) => { unit.shuffleRank = rank; });
   const queued = [...units].sort(longestFirst);
   const projection = simulate({ lanes: laneList, units: queued, chainSeconds: chain.seconds });
   return {
     sequential: false,
+    seed,
     generalLanes: lanes,
     deadline,
     estimates: { ...estimates, [chain.name]: { seconds: round(chain.seconds), measured: chain.measured } },

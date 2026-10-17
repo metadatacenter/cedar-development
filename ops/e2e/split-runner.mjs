@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { createQueue } from "./split-lanes.mjs";
 import { acquire, describeHolder, holderOf, release } from "./split-lock.mjs";
+import { finishHistory, failureCategory } from "./journey-history.mjs";
 import { summarize } from "./split-sweep.mjs";
 
 export const SCHEMA_VERSION = 3;
@@ -104,6 +105,8 @@ export async function runTier({
   workerLimitSeconds = 120,
   sampleMs = 10000,
   sameSignalMs = 1000,
+  history = null,
+  environment = {},
 }) {
   const log = line => out.write(line + "\n");
   const startedAt = new Date();
@@ -137,7 +140,7 @@ export async function runTier({
     // Fixtures and evidence go to a directory of this run's own, so no other run can write over them.
     const runDirectory = mkdtempSync(join(tmpdir(), "cedar-split-tier-"));
     const ledgerPath = join(runDirectory, "fixtures.jsonl");
-    const evidenceDirectory = join(runDirectory, "evidence");
+    const evidenceDirectory = mkdtempSync(join(dirname(reportPath), "evidence-"));
     const events = () => readLines(stepsPath);
     const ledger = () => readLines(ledgerPath);
     const sequential = layout.sequential;
@@ -194,6 +197,7 @@ export async function runTier({
     function launch(name, args, { ipc = false } = {}) {
       const env = {
         ...process.env,
+        ...environment,
         CEDAR_SPLIT_STEPS: stepsPath,
         CEDAR_SPLIT_SCRIPT: name,
         CEDAR_SPLIT_FIXTURES: ledgerPath,
@@ -426,7 +430,8 @@ export async function runTier({
           if (answer.message) {
             const result = answer.message;
             noteUnit(record, unit, began, result.ok ? "pass" : interrupted ? "interrupted" : "fail", {
-              checks: result.checks, cleanupSeconds: result.cleanupSeconds,
+              checks: result.checks, cleanupSeconds: result.cleanupSeconds, scenarios: result.scenarios, evidence: result.evidence,
+              failureCategory: result.failureCategory,
               ...(result.ok ? {} : { message: (result.message ?? "").slice(0, 2000) }),
             });
             record.workerChecks += result.checks ?? 0;
@@ -626,10 +631,17 @@ export async function runTier({
       delete record.failureTimeout;
       delete record.workerChecks;
     }
-    const verdict = interrupted ? "INTERRUPTED" : failures.length || notRun.length ? "FAIL" : "PASS";
+    const inventoryMode = environment.CEDAR_JOURNEY_RECORD_INVENTORY ? "candidate" : "verified";
+    const journeyResults = all.filter(event => event.event === "done" && event.scenarios).map(event => ({
+      name: event.step, kind: "journey", outcome: event.outcome ?? "pass", seconds: event.seconds,
+      scenarios: event.scenarios, evidence: event.evidence, message: event.message,
+    }));
+    const verdict = interrupted ? "INTERRUPTED" : failures.length || notRun.length ? "FAIL" : inventoryMode === "candidate" ? "CANDIDATE" : "PASS";
     const report = {
       schemaVersion: SCHEMA_VERSION,
+      seed: layout.seed ?? null,
       verdict,
+      inventoryMode,
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
       durationSeconds,
@@ -658,11 +670,14 @@ export async function runTier({
         projectedSeconds: layout.projection.finishSeconds,
       },
       units,
+      journeyResults,
       timeouts,
       sweeps,
       runDirectory,
       evidenceDirectory,
     };
+    for (const unit of units) if (unit.outcome !== "pass") unit.failureCategory ??= failureCategory(unit.message, unit.outcome);
+    if (history) report.history = finishHistory(history, { verdict, units: [...units, ...journeyResults.filter(journey => !units.some(unit => unit.name === journey.name))], reportPath, inventoryMode });
     writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
 
     const slowest = [...timeline].filter(entry => entry.seconds !== null).sort((a, b) => b.seconds - a.seconds).slice(0, 5);
@@ -680,7 +695,7 @@ export async function runTier({
     log(`    load ${atStart.load[0]} at start, ${peak.load} at peak, ${report.machine.end.load[0]} at end` +
       (peak.swapUsedMB !== null ? `; swap used ${atStart.swap?.usedMB} MB at start, ${peak.swapUsedMB} MB at peak` : ""));
     log(`    evidence: ${evidenceDirectory}`);
-    const exitCode = interrupted ? 130 : first ? first.exitCode || 1 : notRun.length ? 1 : 0;
+    const exitCode = interrupted ? 130 : first ? first.exitCode || 1 : notRun.length || inventoryMode === "candidate" ? 1 : 0;
     return { exitCode, report };
   } finally {
     for (const [signal, handler] of handlers) process.off(signal, handler);

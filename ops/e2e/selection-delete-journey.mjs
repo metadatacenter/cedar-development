@@ -57,7 +57,7 @@ export async function selectionDeleteJourney(args) {
   for (const item of bulkCreated.filter(item=>item.id!==bulkRoot)) {
     assert.equal((await call(user.auth,"GET","/"+item.collection+"/"+enc(item.id))).status,404);
   }
-  pass("Bin drop cancels safely; clicking Delete then removes two folders, nested template/instance and a separate artifact");
+  pass("mixed-selection", "Bin drop cancels safely; clicking Delete then removes two folders, nested template/instance and a separate artifact");
 }
 
 export async function partialSelectionDeleteJourney(args) {
@@ -113,5 +113,5 @@ export async function partialSelectionDeleteJourney(args) {
     () => modal(page).getByRole("button", {name: "Delete", exact: true}).click(), [200, 204], true);
   await modal(page).waitFor({state: "hidden"});
   for (const id of partialIds) assert.equal((await call(user.auth, "GET", "/template-fields/" + enc(id))).status, 404);
-  pass("Partial deletion stops after a lost response, reports only confirmed progress and resumes from a fresh selection");
+  pass("partial-selection", "Partial deletion stops after a lost response, reports only confirmed progress and resumes from a fresh selection");
 }

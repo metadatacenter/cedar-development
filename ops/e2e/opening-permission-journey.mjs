@@ -41,7 +41,7 @@ export async function openingPermissionJourney(args) {
       await settled(f.input(reader),'Latest saved');
       await f.input(reader).fill('After initial access grant');await args.write(reader,'PUT','/'+f.collection+'/',()=>f.save(reader).click(),200,true);
       await reader.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
-      pass(`${kind}: a clean read-only opening rechecks real permissions, loads newer content and saves against its current revision`);
+      pass(`existing-${kind}`, `${kind}: a clean read-only opening rechecks real permissions, loads newer content and saves against its current revision`);
       // A create destination can remain readable while creating there is forbidden.
       const folderPath='/folders/'+enc(f.folderId);await grant(folderPath,'viewer');
       const createUrl=(f.metadata?base+'/instances/create/'+enc(f.templateId):designer+'/templates/create')+'?folderId='+enc(f.folderId);
@@ -53,7 +53,7 @@ export async function openingPermissionJourney(args) {
       else await reader.getByPlaceholder('Template name',{exact:true}).fill('Recovered destination '+args.name);
       const made=await args.write(reader,'PUT','/'+f.collection+'/',()=>f.save(reader).click(),201);
       assert.ok(made['@id']);await reader.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
-      pass(`${kind}: a denied create destination becomes usable after an explicit permission recheck and creates exactly once`);
+      pass(`destination-${kind}`, `${kind}: a denied create destination becomes usable after an explicit permission recheck and creates exactly once`);
     }
   } catch(error) {console.error(await reader.locator('body').innerText().catch(()=>''));throw error;} finally {await context.close();}
 }
@@ -86,7 +86,7 @@ export async function signInPermissionJourney(args) {
       await grant(f.path,'editor');await recheck.click();await recheck.waitFor({state:'hidden'});await f.ready(reader);assert.equal(await f.input(reader).inputValue(),'Retained across sign-in');assert.equal(writes,refusedWrites);
       await args.write(reader,'PUT','/'+f.collection+'/',()=>f.save(reader).click(),200,true);assert.equal(writes,refusedWrites+1);
       await reader.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();reader.off('request',count);
-      pass(`${kind}: full sign-in restores the draft under reduced permissions, blocks writes, and resumes only after a fresh access grant and explicit save`);
+      pass(`signin-${kind}`, `${kind}: full sign-in restores the draft under reduced permissions, blocks writes, and resumes only after a fresh access grant and explicit save`);
     }
   } catch(error) {console.error(await reader.locator('body').innerText().catch(()=>''));throw error;} finally {await context.close();}
 }

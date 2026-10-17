@@ -82,7 +82,7 @@ export async function restoredValidationJourney(args) {
     await page.reload();
     await f.ready(page);
     await settled(f.input(page), "Corrected restored draft");
-    pass(
+    pass(`validation-${kind}`,
       `${kind}: server findings survive draft restoration, block an unchanged retry, locate the rejected control and clear on correction before an exact save/reopen`,
     );
   }

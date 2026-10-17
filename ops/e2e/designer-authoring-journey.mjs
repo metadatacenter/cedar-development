@@ -66,14 +66,14 @@ export async function designerAuthoringJourney(args) {
     const afterDescriptionEdit = (await call(user.auth, "GET", contentPath)).body;
     assertOnlyContentChanges(beforeDescriptionEdit, afterDescriptionEdit, {"schema:description": "Updated by journey"});
     await backToWorkspace(page);
-    pass(`${label}: CED/CEFD create, reopen, conditional update, each staying in Designer, exact return`);
-    pass(`${label}: a description edit preserves the rest of the stored artifact`);
+    pass(`author-${kind}`, `${label}: CED/CEFD create, reopen, conditional update, each staying in Designer, exact return`);
+    pass(`preserve-${kind}`, `${label}: a description edit preserves the rest of the stored artifact`);
   }
 
   await listing(page, base, folderId);
   const found = await searchUntilListed(page, names.element);
   assert.ok(!found.timedOut, `the authored element never appeared in ${found.attempts} top searches`);
-  pass("Top search finds authored element");
+  pass("search-element", "Top search finds authored element");
 
   // The record deleted first answers both fields of the template the full smoke authors.
   names.instance = name + " authored metadata";
@@ -108,14 +108,14 @@ export async function designerAuthoringJourney(args) {
         await deletedEditor.getByRole("alert").filter({ hasText: "was deleted" }).waitFor();
         assert.equal(await notes.inputValue(), "Edits after metadata deletion");
         assert.equal((await call(user.auth, "GET", record.path)).status, 404);
-        pass("CEE save after deletion retains edits and cannot recreate metadata");
+        pass("deleted-metadata", "CEE save after deletion retains edits and cannot recreate metadata");
       }
     } finally {
       await deletedEditor?.close();
     }
   }
   assert.deepEqual(errors, [], "uncaught browser errors in the deleted record's tab");
-  pass("Conditional deletion through Workspace");
+  pass("delete-artifacts", "Conditional deletion through Workspace");
 }
 
 // Designer refuses a save that a concurrent change has made stale, and keeps the edit. The template
@@ -139,5 +139,5 @@ export async function designerConflictJourney(args) {
   // Save is disabled while it is in flight too, so wait until Designer has handled the refusal.
   await page.locator("#state").filter({ hasText: /^Reload required$/ }).waitFor();
   assert.equal(await page.getByPlaceholder("Add description...", { exact: true }).first().inputValue(), "Unsaved CED edit");
-  pass("CED stale save retains edits");
+  pass("stale-designer", "CED stale save retains edits");
 }

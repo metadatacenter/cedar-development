@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // The split tier's runner names a file in CEDAR_SPLIT_STEPS, and a script it runs appends one JSON
 // line per event there: the step it enters, the step it fails in, and how it ends. Run on its own,
@@ -77,7 +77,9 @@ export function evidenceDirectory() {
   const run = process.env.CEDAR_SPLIT_EVIDENCE;
   if (!run) {
     if (!ownEvidence) {
-      ownEvidence = mkdtempSync(join(tmpdir(), "cedar-e2e-evidence-"));
+      const reports = join(dirname(fileURLToPath(import.meta.url)), "reports");
+      mkdirSync(reports, { recursive: true });
+      ownEvidence = mkdtempSync(join(reports, "evidence-"));
       console.log("Evidence: " + ownEvidence);
     }
     return ownEvidence;

@@ -133,7 +133,7 @@ export async function saveStatusJourney({page, base, designer, user, folderId, n
     await status(/^Unmodified$/).waitFor();
     if (kind === "field") await page.getByRole("tab", {name: "Presentation", exact: true}).click();
     await input.waitFor(); assert.equal(await input.inputValue(), "Edited during status check");
-    pass(confirmedOnly
+    pass(`status-${kind}-${failure}`, confirmedOnly
       ? `${metadata ? "Editor" : kind + " Designer"}: a confirmed update with ${failure} failure rechecks the saved snapshot, preserves newer input${metadata ? " and minted identities" : ""}, and safely saves and reopens`
       : `${kind}: an interrupted ${committed ? "committed" : "uncommitted"} save recovers through an authoritative status check, retains newer edits and safely saves again`);
     if (!committed && ["template", "metadata"].includes(kind)) {
@@ -156,7 +156,7 @@ export async function saveStatusJourney({page, base, designer, user, folderId, n
       if (metadata) expected.Notes = {"@value": "Late original save"};
       else expected["schema:description"] = "Late original save";
       assert.deepEqual(content((await read()).body), content(expected));
-      pass(`${kind}: a late first commit after an unchanged status check refuses the stale retry and preserves newer local input`);
+      pass(`late-commit-${kind}`, `${kind}: a late first commit after an unchanged status check refuses the stale retry and preserves newer local input`);
     }
   }
 }

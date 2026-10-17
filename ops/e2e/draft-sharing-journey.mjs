@@ -189,7 +189,7 @@ export async function workspaceDraftSharingJourney(args) {
   } finally {
     await context.close();
   }
-  pass("Workspace Create Draft: the editor edits the draft, the viewer reads it, a person without a grant cannot open it, and the original's grants are unchanged");
+  pass("workspace-grants", "Workspace Create Draft: the editor edits the draft, the viewer reads it, a person without a grant cannot open it, and the original's grants are unchanged");
 }
 
 // Designer path: a draft template with metadata, saved with a change its metadata prevents, so the
@@ -245,5 +245,5 @@ export async function designerDraftSharingJourney(args) {
   } finally {
     await context.close();
   }
-  pass("Designer Create new draft: the editor edits the draft, the viewer reads it, a person without a grant cannot open it, and the original's grants are unchanged");
+  pass("designer-grants", "Designer Create new draft: the editor edits the draft, the viewer reads it, a person without a grant cannot open it, and the original's grants are unchanged");
 }

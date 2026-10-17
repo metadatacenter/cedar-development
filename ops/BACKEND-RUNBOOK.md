@@ -3291,9 +3291,11 @@ the median of its kind. Which lane runs which unit is decided while the tier run
 would otherwise finish early take a share of everyone else's work. A lane runs its journeys in one
 `focused-journey-smoke.mjs --worker` process that stays up until the queue has nothing left for it.
 The runner sends that process one journey key at a time over the IPC channel it opened when it
-forked the process. The process runs the journey on its one page, under a root folder of its own
-named `Focused journey <stamp> <lane>`, removes the journey's fixtures and reports the result and
-its timing. A lane runs each script as a process of its own. Every process signs in through the
+forked the process. Each journey opens a fresh browser context from a clean authenticated baseline,
+under a root folder named `Focused journey <stamp> <lane>`. Every context the journey creates is
+closed afterward, including secondary-user contexts it forgot to close; cookies, application storage,
+routes, listeners and pages cannot carry into the next journey. The browser process stays up. The
+worker removes the journey's fixtures and reports the result and its timing. A lane runs each script as a process of its own. Every process signs in through the
 login form in a browser context of its own. The core lane starts first, and the others start once it
 has made its fixtures, so that its Designer search finds the element it created before the other
 lanes' fixtures reach the search index. `node split-tier.mjs --plan` prints the queue, its rules,
@@ -3304,6 +3306,70 @@ user in, which makes it an identity unit. The full smoke and the focused runner 
 `npm run test:journey-harness` runs before the tier. It fails when a journey file exports a journey
 the registry does not list, and it drives `split-runner.mjs`, which carries out the plan, through
 the queue, the deadlines, the lock, a kill and a signal with stand-in units.
+
+#### Journey contracts, diagnostics and reliability
+
+Each journey reports explicit scenario IDs and the user promise it verified. The committed
+`ops/e2e/journey-scenarios.json` inventory lists the required scenarios in execution order. A missing,
+duplicate, unexpected or reordered scenario fails even when every executed assertion passes. The
+focused, parallel and legacy sequential runners enforce the same inventory. A new journey needs a
+registry entry and scenarios; a new case inside an existing journey needs its own stable ID.
+
+Each focused worker starts a Playwright trace for every context it creates. A failure retains those
+traces, screenshots and page text for open pages, browser errors, recent failed requests, completed
+scenarios and cleanup failures in the report's per-journey evidence directory under `reports/evidence-*`.
+These directories survive system temporary-file cleanup. Passing journeys
+remove their evidence. A process forcibly killed before tracing can finish may have no complete
+trace; the tier's timeout record, fixture ledger and sweep report still identify it. Evidence contains
+test artifact content and can contain session credentials: keep it local and out of Git. Open a
+retained trace with `npx playwright show-trace <context-N.zip>` from `ops/e2e`.
+
+For focused diagnosis and independence checks, after loading the normal native profile:
+
+```bash
+npm run smoke:journey -- scalar-roundtrip template-evolution
+npm run smoke:journey -- --all --seed=editing-order-1
+npm run smoke:journey:verify -- --seed=editing-order-2 --independent scalar-roundtrip template-evolution
+npm run smoke:workspace:modern:full -- --seed=editing-order-3
+npm run report:journeys
+npm run report:journeys -- --json
+```
+
+`--all` selects the complete registry. `--seed` gives a reproducible shuffled order; on the parallel
+tier it changes queue order while preserving the identity-lane exclusion. Actual lane assignment
+still depends on completion times, so the report records both queue order and the executed order.
+The verification command first runs the selected journeys in shuffled order, then `--independent`
+runs each in a separate process. Omit names to verify the entire registry. The direct focused runner
+uses the same machine-wide lock as the tier. `--lanes=1` preserves legacy order and does not accept a
+shuffle seed; its individual journeys also use fresh contexts and failure capture.
+
+Every completed focused or split run keeps an immutable record under `ops/e2e/reports/journey-history/`,
+including source identity, runtime-selection digest, scenario outcomes, evidence, durations and
+failure categories. Reports distinguish first attempts from explicit reruns: pass `--retry-of=<run-id>`
+with the same selection and sources to link a retry to the failed attempt. A changed source or runtime
+selection is a new observation. The summary reports first-attempt pass rates, recoveries on retry,
+successful-run median/p95/max durations, sample counts and failure categories. These categories describe
+observed symptoms, not a proven root cause. `--source=<commit-or-test-digest>` filters the summary;
+without it the summary spans the retained source versions. Candidate-inventory runs are excluded.
+No retry happens automatically, and a passing retry never changes the original failed report.
+
+To deliberately change coverage, record a candidate separately from the committed inventory:
+
+```bash
+node focused-journey-smoke.mjs --record-inventory=reports/scenario-candidate <journey-keys>
+node journey-inventory.mjs --report=<candidate-report>
+node journey-inventory.mjs --report=<candidate-report> --apply
+npm run smoke:journey -- <journey-keys>
+```
+
+The direct candidate command allows a new registry entry whose scenarios are not committed yet;
+the normal npm preflight requires the complete inventory. The first command prints its report path.
+The preview lists added and removed IDs. Review that list
+and the associated promises before applying it. The updater accepts only a clean candidate report
+with no unexecuted journeys, and the resulting inventory must cover the whole registry. Existing
+entries outside the selected set are preserved. A candidate run reports `CANDIDATE`, not `PASS`, and
+cannot satisfy the full smoke gate; rerun with ordinary inventory enforcement before acceptance.
+The full tier also accepts `--record-inventory=<directory>` for a complete inventory migration.
 
 `--lanes=N`, from two to four, sets the number of general lanes beside the core and identity
 lanes. The default is two, because the 16-core workstation runs with its swap nearly full and every lane
@@ -6027,7 +6093,7 @@ real editor, and holds the window to three things: the published row cannot be t
 greyed rather than merely inert, a click on it never reaches the tree that gets posted, and the draft
 beside it still propagates. It then reads both templates back, so a pass means the change landed in
 exactly one of them. Fixtures are created and deleted by the run. A failure leaves a screenshot in a
-new `cedar-e2e-evidence-*` directory in the system's temporary directory, and the smoke prints its
+new `ops/e2e/reports/evidence-*` directory, and the smoke prints its
 path.
 
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.

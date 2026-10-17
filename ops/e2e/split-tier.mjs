@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { DEADLINE, DEFAULT_LANES, MAX_LANES, durationsFrom, latestReports, plan } from "./split-lanes.mjs";
 import { lockPath } from "./split-lock.mjs";
 import { runTier } from "./split-runner.mjs";
+import { beginHistory } from "./journey-history.mjs";
 import { sweep } from "./split-sweep.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,7 @@ const deadline = { ...DEADLINE, capSeconds };
 const reportPath = option("report") ?? join(here, "reports", "split-smoke.json");
 const layout = plan({
   lanes,
+  seed: option("seed") ?? null,
   deadline,
   durations: durationsFrom(latestReports([join(here, "reports"), join(here, "reports", "smoke-gate")])),
 });
@@ -72,7 +74,7 @@ if (argv.includes("--plan")) {
   console.log("  takes an identity unit, so no two run at once.");
   console.log("  general lanes take general units. They start once the core lane has made its fixtures.");
   console.log("  A lane that fails or times out takes no further units. Each unit runs once.");
-  console.log("Queue, longest first. A free lane takes the first unit it may run:");
+  console.log(layout.seed === null ? "Queue, longest first. A free lane takes the first unit it may run:" : `Queue shuffled with seed ${layout.seed}:`);
   for (const unit of layout.units)
     console.log(`  ${unit.identity ? "identity" : "general "} ${unit.kind === "journey" ? "journey" : "script "} ${describe(unit)}`);
   console.log(`Projected finish: ${layout.projection.finishSeconds} s, if every unit takes its estimate:`);
@@ -85,7 +87,13 @@ if (argv.includes("--plan")) {
   process.exit(0);
 }
 
+if (lanes === 1 && option("seed") !== undefined) throw new Error("Use --seed with parallel lanes or focused journeys; --lanes=1 preserves legacy order");
+const history = beginHistory({ cwd: here, kind: "split", selection: layout.sequential ? layout.lanes[0].processes.map(unit => unit.name) :
+  [layout.chain.name, ...layout.units.map(unit => unit.name)], seed: option("seed") ?? null, retryOf: option("retry-of") });
 const { exitCode } = await runTier({
+  history,
+  environment: option("record-inventory") || process.env.CEDAR_JOURNEY_RECORD_INVENTORY
+    ? { CEDAR_JOURNEY_RECORD_INVENTORY: option("record-inventory") ?? process.env.CEDAR_JOURNEY_RECORD_INVENTORY } : {},
   layout,
   reportPath,
   cwd: here,

@@ -61,6 +61,6 @@ export async function recoveryElementEditsJourney({page,base,user,folderId,name,
     assert.deepEqual(content(stored),content(expected));
     await page.reload();await editorStatus(page,/^Unmodified$/).waitFor();await detail.waitFor();assert.equal(await detail.inputValue(),survivor.Detail['@value']);
     await pager.getByRole('option',{name:'2',exact:true}).click();await occurrence('2');assert.equal(await detail.inputValue(),'Replacement');
-    pass(`Editor can ${action} during lost-save recovery; acknowledgement preserves the surviving identity and the replacement receives a distinct identity`);
+    pass(`elements-${action}`, `Editor can ${action} during lost-save recovery; acknowledgement preserves the surviving identity and the replacement receives a distinct identity`);
   }
 }

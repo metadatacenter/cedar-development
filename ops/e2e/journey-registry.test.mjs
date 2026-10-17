@@ -56,3 +56,15 @@ test("whatever a journey makes in the second user's home is named after the root
   for (const {file, text} of creates)
     assert.match(text, /\bname:\s*name\s*\+\s*["']/, `${file}: ${text.slice(0, 200)}`);
 });
+
+// The manifest is reviewed separately from execution, so removing a loop case does not update it.
+test("every selectable journey has a complete, unique scenario inventory", async () => {
+  const { inventory, scenarioKey } = await import("./journey-contract.mjs");
+  const expected = inventory();
+  assert.deepEqual(Object.keys(expected).sort(), JOURNEYS.map(entry => entry.key).sort());
+  for (const [key, cases] of Object.entries(expected)) {
+    assert.ok(cases.length, key);
+    assert.equal(new Set(cases.map(item => item.id)).size, cases.length, key);
+    assert.ok(cases.every(item => item.id === scenarioKey(item.id) && item.promise.length > 10), key);
+  }
+});

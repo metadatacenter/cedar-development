@@ -171,7 +171,7 @@ export async function configurationDraftJourney(args) {
           "2",
         );
       }
-      pass(
+      pass(`restore-${kind}-${fault}`,
         `${kind}: ${fault} configuration failure retains unfinished invalid input through retry, restoration, correction and explicit save/reopen`,
       );
     }

@@ -105,7 +105,7 @@ export async function scalarRoundtripJourney(args) {
       await cee.getByLabel(key, { exact: true }).inputValue(),
       expected[key]["@value"],
     );
-  pass(
+  pass("exact-scalars",
     "Exact numeric text, large integers, signed zero, leap dates and offset/fractional timestamps survive unrelated edits and numeric corrections without changing other content",
   );
 }

@@ -59,5 +59,5 @@ export async function numericConstraintJourney({page,base,user,folderId,name,cre
   assert.deepEqual(after,expected);await page.reload();
   await editorStatus(page,/^Unmodified$/).waitFor();await low.waitFor();assert.equal(await low.inputValue(),'150');assert.equal(await high.inputValue(),'175');
   assert.equal(await cee.getByLabel('Keep',{exact:true}).inputValue(),'Preserved');
-  pass('New numeric bounds reject stale Editor answers at the real server, list both findings, locate an answer from its finding, withdraw the findings once the answers change, and accept exact boundaries without changing other content');
+  pass("tightened-bounds", 'New numeric bounds reject stale Editor answers at the real server, list both findings, locate an answer from its finding, withdraw the findings once the answers change, and accept exact boundaries without changing other content');
 }

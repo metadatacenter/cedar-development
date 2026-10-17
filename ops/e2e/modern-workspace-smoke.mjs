@@ -24,6 +24,8 @@ import {
 } from "./workspace-journey-fixtures.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
 import { designerTerminologyFailureJourney, editorTerminologyFailureJourney } from "./terminology-failure-journey.mjs";
+import { journeyBrowser } from "./journey-browser.mjs";
+import { scenarioTracker } from "./journey-contract.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
 import { enter, evidencePath, record } from "./split-steps.mjs";
 const chainOnly = process.argv.slice(2).includes("--chain-only");
@@ -43,8 +45,9 @@ const checks = [];
 let page,
   folderId,
   step = "login";
-async function login(username, password) {
+async function login(username, password, storageState) {
   const context = await browser.newContext({
+    storageState,
     ignoreHTTPSErrors: true,
     viewport: { width: 1500, height: 1000 },
   });
@@ -200,7 +203,8 @@ async function saveThroughExpiredToken(p, templateId) {
   const stored = await call(user1.auth, "GET", "/templates/" + enc(templateId));
   assert.equal(stored.body["schema:description"], "Updated by journey");
 }
-function pass(message) {
+function pass(idOrMessage, promise) {
+  const message = promise ?? idOrMessage;
   checks.push(message);
   console.log("PASS: " + message);
 }
@@ -568,9 +572,35 @@ try {
   // Each journey makes its own fixtures, in a folder of its own under the run's folder, and reads
   // nothing another journey or the chain above has made. focused-journey-smoke.mjs runs any of them
   // on its own, under the same key.
+  let baseline = await page.context().storageState();
   for (const { key, run } of chainOnly ? [] : JOURNEYS) {
     step = enter(key);
-    await run({page, base, designer, user: user1, folderId, name: names.instance, created, write, pass});
+    const began = Date.now(), fixtureStart = created.length;
+    const tracker = scenarioTracker(key, { recordDirectory: process.env.CEDAR_JOURNEY_RECORD_INVENTORY,
+      emit: scenario => { pass(scenario.promise); record({ event: "scenario", step: key, ...scenario }); } });
+    const diagnostics = journeyBrowser(browser, { directory: evidencePath(key),
+      capture: context => captureCreates(context, created, bodies) });
+    let failure = null;
+    const cleanupErrors = [];
+    try {
+      page = await login(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com",
+        process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1", baseline);
+      baseline = await page.context().storageState();
+      await run({page, base, designer, user: user1, folderId, name: names.instance, created, write, pass: tracker.pass});
+      assert.deepEqual(diagnostics.errors, [], "uncaught browser errors");
+    } catch (error) { failure = error; }
+    try {
+      for (const item of created.splice(fixtureStart).reverse()) {
+        const removed = await mutate(user1.auth, "DELETE", "/" + item.collection + "/" + enc(item.id));
+        if (![200, 204, 404].includes(removed.status)) cleanupErrors.push(`${item.collection}/${item.id}: ${removed.status}`);
+      }
+      assert.deepEqual(cleanupErrors, [], "Fixture cleanup failed");
+      if (!failure) tracker.finish();
+    } catch (error) { failure ??= error; }
+    const evidence = await diagnostics.finish({ failure: failure?.stack, scenarios: tracker.completed, cleanupErrors });
+    record({ event: "done", step: key, checks: tracker.completed.length, scenarios: tracker.completed,
+      outcome: failure ? "fail" : "pass", message: failure?.message, seconds: (Date.now() - began) / 1000, evidence });
+    if (failure) throw failure;
   }
   assert.deepEqual(errors, []);
   pass("No uncaught browser errors");

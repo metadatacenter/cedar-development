@@ -310,7 +310,7 @@ export async function combinedDeleteJourney(args) {
           assert.equal((await call(user.auth, "GET", path(item))).status, 404);
         assert.equal(routeError, undefined);
         assert.equal(writes.filter((w) => w.id === folder.id).length, 1);
-        pass(
+        pass(`recover-${fault}-${outcome}`,
           `Recursive bulk deletion survives ${fault} listing/inventory outages after an uncertain ${outcome} delete; confirmed progress remains and recovery deletes only remaining resources with fresh revisions`,
         );
       } finally {

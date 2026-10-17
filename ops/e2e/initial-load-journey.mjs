@@ -86,8 +86,8 @@ export async function initialLoadJourney({page, base, designer, user, folderId, 
           await notes.waitFor();
           assert.equal(await notes.inputValue(), "Stored answer");
         }
+        pass(`opening-${surface}-${dependency}-${failure}`, `${surface} safely refuses opening when ${dependency} loading fails with ${failure}, then retries without changing stored content`);
       }
-      pass(`${surface} safely refuses opening when ${dependency} loading fails or disconnects, then retries without changing stored content`);
     }
     assert.deepEqual(writes, []);
     for (const before of stored) {

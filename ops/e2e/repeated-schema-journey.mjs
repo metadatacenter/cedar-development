@@ -178,7 +178,7 @@ export async function repeatedSchemaJourney(args) {
         .isChecked(),
       false,
     );
-    pass(
+    pass(`repeat-${kind}`,
       `${kind}: older field definitions survive repeat wrapping, bound changes and unwrapping without changing annotations, constraints, identities or siblings`,
     );
   }

@@ -97,6 +97,6 @@ export async function designerPendingSaveJourney({page, designer, user, folderId
     await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
     if (kind === "field") await page.getByRole("tab", {name: "Presentation", exact: true}).click();
     assert.equal(await description.inputValue(), "Next description after save");
-    pass(`Designer freezes editing during a pending ${kind} save, resumes without replacing the component, and saves the next edit with the new revision`);
+    pass(`pending-${kind}`, `Designer freezes editing during a pending ${kind} save, resumes without replacing the component, and saves the next edit with the new revision`);
   }
 }

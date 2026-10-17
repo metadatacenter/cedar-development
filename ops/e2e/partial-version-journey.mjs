@@ -97,7 +97,7 @@ export async function partialVersionDefinitionJourney(args) {
   assert.equal(await page.locator("#save").isDisabled(), true, "Save waits for the findings to be addressed");
   await designerShows(page, "#server-issues");
   await nothingStored(user, templateId, opened, [draftId]);
-  pass("Designer Create new draft: a definition the server's validator refuses is refused before publication, and nothing is stored");
+  pass("definition-rejected", "Designer Create new draft: a definition the server's validator refuses is refused before publication, and nothing is stored");
 
   const description = "Corrected after the refusal";
   await page.getByPlaceholder("Add description...", {exact: true}).first().fill(description);
@@ -117,7 +117,7 @@ export async function partialVersionDefinitionJourney(args) {
   await designerShows(page);
   await assertNoRecoveryFiles(page);
   assert.equal(await versionsOf(user, templateId), 2);
-  pass("Designer Create new draft: the corrected definition creates exactly one successor, which reopens with nothing to recover");
+  pass("definition-corrected", "Designer Create new draft: the corrected definition creates exactly one successor, which reopens with nothing to recover");
 }
 
 /**
@@ -168,7 +168,7 @@ export async function partialVersionDraftJourney(args) {
     assert.equal(await hasNotes(page), false, "the edit stays in the designer");
     await designerShows(page, "#recheck-access", "#sign-in-again", "#reload");
     await nothingStored(user, templateId, opened, draftIds);
-    pass("Designer Create new draft: a parent folder the author may not create in is refused before publication, and nothing is stored");
+    pass("destination-refused", "Designer Create new draft: a parent folder the author may not create in is refused before publication, and nothing is stored");
 
     await page.reload();
     await page.locator("#draft-offer").waitFor();
@@ -193,7 +193,7 @@ export async function partialVersionDraftJourney(args) {
     await page.locator("#recheck-access").waitFor();
     await designerShows(page, "#recheck-access", "#sign-in-again", "#reload");
     await nothingStored(user, templateId, opened, draftIds);
-    pass("Designer Create new draft: the refusal survives a reload, a restored draft and an access recheck without a successor");
+    pass("refusal-retained", "Designer Create new draft: the refusal survives a reload, a restored draft and an access recheck without a successor");
 
     granted = await grant("editor");
     assert.equal(granted.status, 200, granted.text.slice(0, 600));
@@ -216,7 +216,7 @@ export async function partialVersionDraftJourney(args) {
     await designerShows(page);
     await assertNoRecoveryFiles(page);
     assert.equal(await versionsOf(user, templateId), 2);
-    pass("Designer Create new draft: once the folder grant returns, the retry creates exactly one successor");
+    pass("destination-restored", "Designer Create new draft: once the folder grant returns, the retry creates exactly one successor");
   } catch (error) {
     failure = error;
     throw error;

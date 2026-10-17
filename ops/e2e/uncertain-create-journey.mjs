@@ -357,7 +357,7 @@ async function designerCreate(args, root, kind, outcome) {
     assert.equal(attempts.length, outcome === "committed" ? 1 : 2, "restoring and checking never send the create");
     assert.ok(attempts.every(id => id === sent.id), "every attempt uses the minted identity");
   } finally { page.off("request", count); }
-  pass(`Designer ${kind}: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} create whose reply was lost is settled by its identity and stored exactly once`);
+  pass(`designer-${kind}-${outcome}`, `Designer ${kind}: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} create whose reply was lost is settled by its identity and stored exactly once`);
 }
 
 /**
@@ -483,7 +483,7 @@ async function editorCreate(args, root, templateId, outcome) {
     assert.equal(attempts.length, outcome === "committed" ? 1 : 2, "restoring and checking never send the create");
     assert.ok(attempts.every(id => id === sent.id), "every attempt uses the minted identity");
   } finally { page.off("request", count); }
-  pass(`Metadata editor: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} create whose reply was lost is settled by its identity and stored exactly once`);
+  pass(`editor-${outcome}`, `Metadata editor: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} create whose reply was lost is settled by its identity and stored exactly once`);
 }
 
 const OUTCOMES = ["committed", "uncommitted", "late"];
@@ -731,7 +731,7 @@ async function dialogCase(args, root, action, outcome, acrossReload = false) {
     await spec.committed(ids);
     assert.equal(sent.length, outcome === "committed" ? 1 : 2, "Retry never sends the action");
   } finally { page.off("request", count); }
-  pass(`Workspace ${spec.label}: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} action whose reply was lost${acrossReload ? ", reopened after a reload," : ""} is settled through Retry with exactly one result`);
+  pass(`workspace-${spec.label}-${outcome}-${acrossReload ? "reload" : "open"}`, `Workspace ${spec.label}: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} action whose reply was lost${acrossReload ? ", reopened after a reload," : ""} is settled through Retry with exactly one result`);
 }
 
 export async function uncertainWorkspaceCreateJourney(args) {
@@ -852,6 +852,6 @@ export async function uncertainVersionJourney(args) {
       assert.equal(await versionsOf(user, templateId), 2);
       assert.deepEqual(sent, Array(outcome === "committed" ? 1 : 2).fill(attempt.draftId), "checking never sends the version");
     } finally { page.off("request", count); }
-    pass(`Designer Create new draft: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} version whose reply was lost is settled by its draft identity with exactly one successor`);
+    pass(`version-${outcome}`, `Designer Create new draft: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} version whose reply was lost is settled by its draft identity with exactly one successor`);
   }
 }

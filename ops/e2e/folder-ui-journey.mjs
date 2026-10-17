@@ -23,7 +23,7 @@ export async function folderUiJourney(args) {
   await modal(page).getByLabel("Name", { exact: true }).fill(names.destination + " renamed");
   await save(page, write, "POST", "/command/rename-resource", 200, true);
   names.destination += " renamed";
-  pass("Create folder and conditional rename");
+  pass("folder-rename", "Create folder and conditional rename");
 
   for (const height of [1000, 480]) {
     await page.setViewportSize({ width: 1500, height });
@@ -54,7 +54,7 @@ export async function folderUiJourney(args) {
     await page.keyboard.press("Escape");
   }
   await page.setViewportSize({ width: 1500, height: 1000 });
-  pass("Applicable folder menu actions fit tall screens and remain reachable on short screens");
+  pass("menu-reachability", "Applicable folder menu actions fit tall screens and remain reachable on short screens");
 
   await ready(page);
   // Inject one expired-access-token response, then let the real refresh and
@@ -87,7 +87,7 @@ export async function folderUiJourney(args) {
   } finally {
     await page.unroute(contentsUrl, expireOnce);
   }
-  pass("Expired access response refreshes the real session and retries once");
+  pass("token-refresh", "Expired access response refreshes the real session and retries once");
 
   await listed(page, base, folderId, names.destination);
   await menu(page, names.destination, "Rename");
@@ -101,5 +101,5 @@ export async function folderUiJourney(args) {
   await modal(page).getByRole("alert").filter({ hasText: "changed since" }).waitFor();
   assert.equal(await modal(page).getByLabel("Description", { exact: true }).inputValue(), "Unsaved local edit");
   await modal(page).getByRole("button", { name: "Cancel", exact: true }).click();
-  pass("Stale Workspace write retains edits");
+  pass("stale-folder", "Stale Workspace write retains edits");
 }

@@ -80,7 +80,7 @@ export async function reusableSourceFailureJourney({page, designer, user, folder
     } finally {
       await page.unroute(matcher, fail);
     }
-    pass(`Designer reusable-source ${operation} ${mode} explains failure and retains selected items and the unsaved parent without partial import`);
+    pass(`source-${operation}-${mode}`, `Designer reusable-source ${operation} ${mode} explains failure and retains selected items and the unsaved parent without partial import`);
   }
   await dialog.getByRole("button", {name: "Done", exact: true}).click();
   await dialog.waitFor({state: "hidden"});
@@ -102,5 +102,5 @@ export async function reusableSourceFailureJourney({page, designer, user, folder
   await page.reload();
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   assert.deepEqual(children(await ced.evaluate(el => el.currentArtifact)), children(stored));
-  pass("Designer retries the same selection after reusable-source recovery, imports each definition once, and saves and reopens the retained draft without modifying its sources");
+  pass("source-retry", "Designer retries the same selection after reusable-source recovery, imports each definition once, and saves and reopens the retained draft without modifying its sources");
 }

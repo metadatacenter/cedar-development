@@ -1,0 +1,798 @@
+{
+  "folder-ui": [
+    {
+      "id": "folder-rename",
+      "promise": "Create folder and conditional rename"
+    },
+    {
+      "id": "menu-reachability",
+      "promise": "Applicable folder menu actions fit tall screens and remain reachable on short screens"
+    },
+    {
+      "id": "token-refresh",
+      "promise": "Expired access response refreshes the real session and retries once"
+    },
+    {
+      "id": "stale-folder",
+      "promise": "Stale Workspace write retains edits"
+    }
+  ],
+  "designer-authoring": [
+    {
+      "id": "author-element",
+      "promise": "Element: CED/CEFD create, reopen, conditional update, each staying in Designer, exact return"
+    },
+    {
+      "id": "preserve-element",
+      "promise": "Element: a description edit preserves the rest of the stored artifact"
+    },
+    {
+      "id": "author-field",
+      "promise": "Field: CED/CEFD create, reopen, conditional update, each staying in Designer, exact return"
+    },
+    {
+      "id": "preserve-field",
+      "promise": "Field: a description edit preserves the rest of the stored artifact"
+    },
+    {
+      "id": "search-element",
+      "promise": "Top search finds authored element"
+    },
+    {
+      "id": "deleted-metadata",
+      "promise": "CEE save after deletion retains edits and cannot recreate metadata"
+    },
+    {
+      "id": "delete-artifacts",
+      "promise": "Conditional deletion through Workspace"
+    }
+  ],
+  "reusable-source-failure": [
+    {
+      "id": "source-search-503",
+      "promise": "Designer reusable-source search 503 explains failure and retains selected items and the unsaved parent without partial import"
+    },
+    {
+      "id": "source-search-disconnect",
+      "promise": "Designer reusable-source search disconnect explains failure and retains selected items and the unsaved parent without partial import"
+    },
+    {
+      "id": "source-load-503",
+      "promise": "Designer reusable-source load 503 explains failure and retains selected items and the unsaved parent without partial import"
+    },
+    {
+      "id": "source-load-403",
+      "promise": "Designer reusable-source load 403 explains failure and retains selected items and the unsaved parent without partial import"
+    },
+    {
+      "id": "source-load-404",
+      "promise": "Designer reusable-source load 404 explains failure and retains selected items and the unsaved parent without partial import"
+    },
+    {
+      "id": "source-load-disconnect",
+      "promise": "Designer reusable-source load disconnect explains failure and retains selected items and the unsaved parent without partial import"
+    },
+    {
+      "id": "source-retry",
+      "promise": "Designer retries the same selection after reusable-source recovery, imports each definition once, and saves and reopens the retained draft without modifying its sources"
+    }
+  ],
+  "designer-conflict": [
+    {
+      "id": "stale-designer",
+      "promise": "CED stale save retains edits"
+    }
+  ],
+  "template-sharing": [
+    {
+      "id": "revoked-designer",
+      "promise": "Designer loses edit permission while open: save refused, draft retained, server content unchanged"
+    },
+    {
+      "id": "role-transitions",
+      "promise": "Permissions: viewer access, immediate role saves, Everyone restrictions, stale revisions, and two-user revocation"
+    }
+  ],
+  "ownership-transfer": [
+    {
+      "id": "ownership-roundtrip",
+      "promise": "Ownership transfers to another user and back through Workspace"
+    }
+  ],
+  "cee-permissions": [
+    {
+      "id": "viewer-opening",
+      "promise": "CEE host settles viewer permissions before configuring its read-only editor"
+    },
+    {
+      "id": "revoked-editor",
+      "promise": "CEE loses edit permission while open: save refused, draft retained, server content unchanged"
+    }
+  ],
+  "access-recheck": [
+    {
+      "id": "membership-designer",
+      "promise": "Designer group membership loss refuses save without losing the draft; an explicit access recheck restores saving of that same draft without reload"
+    },
+    {
+      "id": "membership-editor",
+      "promise": "Editor group membership loss refuses save without losing the draft; an explicit access recheck restores saving of that same draft without reload"
+    }
+  ],
+  "initial-load": [
+    {
+      "id": "opening-designer-artifact-503",
+      "promise": "Designer safely refuses opening when artifact loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-designer-artifact-connection",
+      "promise": "Designer safely refuses opening when artifact loading fails with connection, then retries without changing stored content"
+    },
+    {
+      "id": "opening-designer-permissions-503",
+      "promise": "Designer safely refuses opening when permissions loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-designer-permissions-connection",
+      "promise": "Designer safely refuses opening when permissions loading fails with connection, then retries without changing stored content"
+    },
+    {
+      "id": "opening-designer-manifest-503",
+      "promise": "Designer safely refuses opening when manifest loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-designer-manifest-connection",
+      "promise": "Designer safely refuses opening when manifest loading fails with connection, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-metadata-503",
+      "promise": "Editor safely refuses opening when metadata loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-metadata-connection",
+      "promise": "Editor safely refuses opening when metadata loading fails with connection, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-permissions-503",
+      "promise": "Editor safely refuses opening when permissions loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-permissions-connection",
+      "promise": "Editor safely refuses opening when permissions loading fails with connection, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-template-503",
+      "promise": "Editor safely refuses opening when template loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-template-connection",
+      "promise": "Editor safely refuses opening when template loading fails with connection, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-configuration-503",
+      "promise": "Editor safely refuses opening when configuration loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-configuration-connection",
+      "promise": "Editor safely refuses opening when configuration loading fails with connection, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-component-503",
+      "promise": "Editor safely refuses opening when component loading fails with 503, then retries without changing stored content"
+    },
+    {
+      "id": "opening-editor-component-connection",
+      "promise": "Editor safely refuses opening when component loading fails with connection, then retries without changing stored content"
+    }
+  ],
+  "validation-rejection": [
+    {
+      "id": "designer-description",
+      "promise": "Designer retains rejected input, links the server finding to its description control, and saves/reopens the correction"
+    },
+    {
+      "id": "designer-nested",
+      "promise": "Designer follows a server finding through a repeated element to the exact regex control and saves the correction without changing its sibling"
+    },
+    {
+      "id": "editor-nested",
+      "promise": "Editor reveals the rejected repeated-element control, retains all answers and identities, and saves/reopens the correction"
+    }
+  ],
+  "current-template-constraint": [
+    {
+      "id": "tightened-regex",
+      "promise": "A newly tightened template regex rejects the stale Editor's save at the real server, focuses the answer, and permits correction without losing other content"
+    }
+  ],
+  "scalar-roundtrip": [
+    {
+      "id": "exact-scalars",
+      "promise": "Exact numeric text, large integers, signed zero, leap dates and offset/fractional timestamps survive unrelated edits and numeric corrections without changing other content"
+    }
+  ],
+  "restored-validation": [
+    {
+      "id": "validation-template",
+      "promise": "template: server findings survive draft restoration, block an unchanged retry, locate the rejected control and clear on correction before an exact save/reopen"
+    },
+    {
+      "id": "validation-element",
+      "promise": "element: server findings survive draft restoration, block an unchanged retry, locate the rejected control and clear on correction before an exact save/reopen"
+    },
+    {
+      "id": "validation-field",
+      "promise": "field: server findings survive draft restoration, block an unchanged retry, locate the rejected control and clear on correction before an exact save/reopen"
+    },
+    {
+      "id": "validation-metadata",
+      "promise": "metadata: server findings survive draft restoration, block an unchanged retry, locate the rejected control and clear on correction before an exact save/reopen"
+    }
+  ],
+  "repeated-schema": [
+    {
+      "id": "repeat-template",
+      "promise": "template: older field definitions survive repeat wrapping, bound changes and unwrapping without changing annotations, constraints, identities or siblings"
+    },
+    {
+      "id": "repeat-element",
+      "promise": "element: older field definitions survive repeat wrapping, bound changes and unwrapping without changing annotations, constraints, identities or siblings"
+    }
+  ],
+  "configuration-draft": [
+    {
+      "id": "restore-template-503",
+      "promise": "template: 503 configuration failure retains unfinished invalid input through retry, restoration, correction and explicit save/reopen"
+    },
+    {
+      "id": "restore-template-invalid-json",
+      "promise": "template: invalid-json configuration failure retains unfinished invalid input through retry, restoration, correction and explicit save/reopen"
+    },
+    {
+      "id": "restore-metadata-503",
+      "promise": "metadata: 503 configuration failure retains unfinished invalid input through retry, restoration, correction and explicit save/reopen"
+    },
+    {
+      "id": "restore-metadata-invalid-json",
+      "promise": "metadata: invalid-json configuration failure retains unfinished invalid input through retry, restoration, correction and explicit save/reopen"
+    }
+  ],
+  "account-switch": [
+    {
+      "id": "accounts-template",
+      "promise": "template: real same-tab logout keeps each account's draft separate, refreshes reduced permissions on return and saves only after a new access grant"
+    },
+    {
+      "id": "accounts-metadata",
+      "promise": "metadata: real same-tab logout keeps each account's draft separate, refreshes reduced permissions on return and saves only after a new access grant"
+    }
+  ],
+  "combined-delete": [
+    {
+      "id": "recover-503-uncommitted",
+      "promise": "Recursive bulk deletion survives 503 listing/inventory outages after an uncertain uncommitted delete; confirmed progress remains and recovery deletes only remaining resources with fresh revisions"
+    },
+    {
+      "id": "recover-disconnect-uncommitted",
+      "promise": "Recursive bulk deletion survives disconnect listing/inventory outages after an uncertain uncommitted delete; confirmed progress remains and recovery deletes only remaining resources with fresh revisions"
+    },
+    {
+      "id": "recover-503-committed",
+      "promise": "Recursive bulk deletion survives 503 listing/inventory outages after an uncertain committed delete; confirmed progress remains and recovery deletes only remaining resources with fresh revisions"
+    },
+    {
+      "id": "recover-disconnect-committed",
+      "promise": "Recursive bulk deletion survives disconnect listing/inventory outages after an uncertain committed delete; confirmed progress remains and recovery deletes only remaining resources with fresh revisions"
+    }
+  ],
+  "startup-recovery": [
+    {
+      "id": "startup-template-profile",
+      "promise": "template: profile startup failure retains the draft through Retry, restoration and explicit save"
+    },
+    {
+      "id": "startup-template-component",
+      "promise": "template: component startup failure retains the draft through Retry, restoration and explicit save"
+    },
+    {
+      "id": "startup-template-artifact",
+      "promise": "template: artifact startup failure retains the draft through Retry, restoration and explicit save"
+    },
+    {
+      "id": "startup-template-destination",
+      "promise": "template: destination startup failure retains the draft through Retry, restoration and explicit save"
+    },
+    {
+      "id": "startup-metadata-profile",
+      "promise": "metadata: profile startup failure retains the draft through Retry, restoration and explicit save"
+    },
+    {
+      "id": "startup-metadata-component",
+      "promise": "metadata: component startup failure retains the draft through Retry, restoration and explicit save"
+    },
+    {
+      "id": "startup-metadata-artifact",
+      "promise": "metadata: artifact startup failure retains the draft through Retry, restoration and explicit save"
+    },
+    {
+      "id": "startup-metadata-destination",
+      "promise": "metadata: destination startup failure retains the draft through Retry, restoration and explicit save"
+    }
+  ],
+  "tab-isolation": [
+    {
+      "id": "tab-account-isolation-template",
+      "promise": "template: independent tabs retain different drafts, and another account cannot discover or restore the first account's retained work"
+    },
+    {
+      "id": "tab-account-isolation-metadata",
+      "promise": "metadata: independent tabs retain different drafts, and another account cannot discover or restore the first account's retained work"
+    }
+  ],
+  "opening-permissions": [
+    {
+      "id": "existing-template",
+      "promise": "template: a clean read-only opening rechecks real permissions, loads newer content and saves against its current revision"
+    },
+    {
+      "id": "destination-template",
+      "promise": "template: a denied create destination becomes usable after an explicit permission recheck and creates exactly once"
+    },
+    {
+      "id": "existing-metadata",
+      "promise": "metadata: a clean read-only opening rechecks real permissions, loads newer content and saves against its current revision"
+    },
+    {
+      "id": "destination-metadata",
+      "promise": "metadata: a denied create destination becomes usable after an explicit permission recheck and creates exactly once"
+    }
+  ],
+  "signin-permissions": [
+    {
+      "id": "signin-template",
+      "promise": "template: full sign-in restores the draft under reduced permissions, blocks writes, and resumes only after a fresh access grant and explicit save"
+    },
+    {
+      "id": "signin-metadata",
+      "promise": "metadata: full sign-in restores the draft under reduced permissions, blocks writes, and resumes only after a fresh access grant and explicit save"
+    }
+  ],
+  "numeric-constraint": [
+    {
+      "id": "tightened-bounds",
+      "promise": "New numeric bounds reject stale Editor answers at the real server, list both findings, locate an answer from its finding, withdraw the findings once the answers change, and accept exact boundaries without changing other content"
+    }
+  ],
+  "mixed-move": [
+    {
+      "id": "partial-outcome",
+      "promise": "A grouped move survives a permission refusal, a network failure and a lost committed response; fresh listing retains only unmoved selections and all content"
+    },
+    {
+      "id": "retry-remaining",
+      "promise": "Retrying the remaining selection after refusal clears preserves its content without repeating completed moves"
+    }
+  ],
+  "draft-sharing-workspace": [
+    {
+      "id": "workspace-grants",
+      "promise": "Workspace Create Draft: the editor edits the draft, the viewer reads it, a person without a grant cannot open it, and the original's grants are unchanged"
+    }
+  ],
+  "draft-sharing-designer": [
+    {
+      "id": "designer-grants",
+      "promise": "Designer Create new draft: the editor edits the draft, the viewer reads it, a person without a grant cannot open it, and the original's grants are unchanged"
+    }
+  ],
+  "uncertain-create": [
+    {
+      "id": "designer-template-committed",
+      "promise": "Designer template: a committed create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-element-committed",
+      "promise": "Designer element: a committed create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-field-committed",
+      "promise": "Designer field: a committed create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "editor-committed",
+      "promise": "Metadata editor: a committed create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-template-uncommitted",
+      "promise": "Designer template: an uncommitted create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-element-uncommitted",
+      "promise": "Designer element: an uncommitted create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-field-uncommitted",
+      "promise": "Designer field: an uncommitted create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "editor-uncommitted",
+      "promise": "Metadata editor: an uncommitted create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-template-late",
+      "promise": "Designer template: a late create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-element-late",
+      "promise": "Designer element: a late create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "designer-field-late",
+      "promise": "Designer field: a late create whose reply was lost is settled by its identity and stored exactly once"
+    },
+    {
+      "id": "editor-late",
+      "promise": "Metadata editor: a late create whose reply was lost is settled by its identity and stored exactly once"
+    }
+  ],
+  "uncertain-workspace-create": [
+    {
+      "id": "workspace-new-folder-committed-open",
+      "promise": "Workspace New folder: a committed action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-new-folder-uncommitted-open",
+      "promise": "Workspace New folder: an uncommitted action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-copy-committed-open",
+      "promise": "Workspace Copy: a committed action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-copy-uncommitted-open",
+      "promise": "Workspace Copy: an uncommitted action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-create-draft-committed-open",
+      "promise": "Workspace Create Draft: a committed action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-create-draft-uncommitted-open",
+      "promise": "Workspace Create Draft: an uncommitted action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-publish-committed-open",
+      "promise": "Workspace Publish: a committed action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-publish-uncommitted-open",
+      "promise": "Workspace Publish: an uncommitted action whose reply was lost is settled through Retry with exactly one result"
+    },
+    {
+      "id": "workspace-copy-uncommitted-reload",
+      "promise": "Workspace Copy: an uncommitted action whose reply was lost, reopened after a reload, is settled through Retry with exactly one result"
+    }
+  ],
+  "uncertain-version": [
+    {
+      "id": "version-committed",
+      "promise": "Designer Create new draft: a committed version whose reply was lost is settled by its draft identity with exactly one successor"
+    },
+    {
+      "id": "version-uncommitted",
+      "promise": "Designer Create new draft: an uncommitted version whose reply was lost is settled by its draft identity with exactly one successor"
+    }
+  ],
+  "partial-version-definition": [
+    {
+      "id": "definition-rejected",
+      "promise": "Designer Create new draft: a definition the server's validator refuses is refused before publication, and nothing is stored"
+    },
+    {
+      "id": "definition-corrected",
+      "promise": "Designer Create new draft: the corrected definition creates exactly one successor, which reopens with nothing to recover"
+    }
+  ],
+  "partial-version-draft": [
+    {
+      "id": "destination-refused",
+      "promise": "Designer Create new draft: a parent folder the author may not create in is refused before publication, and nothing is stored"
+    },
+    {
+      "id": "refusal-retained",
+      "promise": "Designer Create new draft: the refusal survives a reload, a restored draft and an access recheck without a successor"
+    },
+    {
+      "id": "destination-restored",
+      "promise": "Designer Create new draft: once the folder grant returns, the retry creates exactly one successor"
+    }
+  ],
+  "older-artifacts": [
+    {
+      "id": "preserve-template",
+      "promise": "Older template survives two description saves and reopening without changing other schema details, constraints or identities"
+    },
+    {
+      "id": "preserve-element",
+      "promise": "Older element survives two description saves and reopening without changing other schema details, constraints or identities"
+    },
+    {
+      "id": "preserve-field",
+      "promise": "Older field survives two description saves and reopening without changing other schema details, constraints or identities"
+    },
+    {
+      "id": "metadata-rename",
+      "promise": "Editor renames and reopens older metadata without losing typed values, identity or existing context declarations"
+    },
+    {
+      "id": "unsupported-shape",
+      "promise": "Designer refuses an unsupported historical input shape without enabling save or changing stored content, and reopens a readable response"
+    }
+  ],
+  "older-key-rename": [
+    {
+      "id": "rename-preserves-content",
+      "promise": "Renaming an older template's child key preserves its definition, annotations, identity, property IRI and sibling content through save and reopen"
+    }
+  ],
+  "designer-pending-save": [
+    {
+      "id": "pending-template",
+      "promise": "Designer freezes editing during a pending template save, resumes without replacing the component, and saves the next edit with the new revision"
+    },
+    {
+      "id": "pending-element",
+      "promise": "Designer freezes editing during a pending element save, resumes without replacing the component, and saves the next edit with the new revision"
+    },
+    {
+      "id": "pending-field",
+      "promise": "Designer freezes editing during a pending field save, resumes without replacing the component, and saves the next edit with the new revision"
+    }
+  ],
+  "save-status": [
+    {
+      "id": "status-template-uncommitted",
+      "promise": "template: an interrupted uncommitted save recovers through an authoritative status check, retains newer edits and safely saves again"
+    },
+    {
+      "id": "late-commit-template",
+      "promise": "template: a late first commit after an unchanged status check refuses the stale retry and preserves newer local input"
+    },
+    {
+      "id": "status-template-lost-reply",
+      "promise": "template: an interrupted committed save recovers through an authoritative status check, retains newer edits and safely saves again"
+    },
+    {
+      "id": "status-element-uncommitted",
+      "promise": "element: an interrupted uncommitted save recovers through an authoritative status check, retains newer edits and safely saves again"
+    },
+    {
+      "id": "status-element-lost-reply",
+      "promise": "element: an interrupted committed save recovers through an authoritative status check, retains newer edits and safely saves again"
+    },
+    {
+      "id": "status-field-uncommitted",
+      "promise": "field: an interrupted uncommitted save recovers through an authoritative status check, retains newer edits and safely saves again"
+    },
+    {
+      "id": "status-field-lost-reply",
+      "promise": "field: an interrupted committed save recovers through an authoritative status check, retains newer edits and safely saves again"
+    },
+    {
+      "id": "status-metadata-uncommitted",
+      "promise": "metadata: an interrupted uncommitted save recovers through an authoritative status check, retains newer edits and safely saves again"
+    },
+    {
+      "id": "late-commit-metadata",
+      "promise": "metadata: a late first commit after an unchanged status check refuses the stale retry and preserves newer local input"
+    },
+    {
+      "id": "status-metadata-lost-reply",
+      "promise": "metadata: an interrupted committed save recovers through an authoritative status check, retains newer edits and safely saves again"
+    }
+  ],
+  "confirmed-save-recovery": [
+    {
+      "id": "status-template-missing-revision",
+      "promise": "template Designer: a confirmed update with missing revision failure rechecks the saved snapshot, preserves newer input, and safely saves and reopens"
+    },
+    {
+      "id": "status-element-missing-revision",
+      "promise": "element Designer: a confirmed update with missing revision failure rechecks the saved snapshot, preserves newer input, and safely saves and reopens"
+    },
+    {
+      "id": "status-field-missing-revision",
+      "promise": "field Designer: a confirmed update with missing revision failure rechecks the saved snapshot, preserves newer input, and safely saves and reopens"
+    },
+    {
+      "id": "status-metadata-identity-readback",
+      "promise": "Editor: a confirmed update with identity readback failure rechecks the saved snapshot, preserves newer input and minted identities, and safely saves and reopens"
+    },
+    {
+      "id": "status-metadata-missing-revision",
+      "promise": "Editor: a confirmed update with missing revision failure rechecks the saved snapshot, preserves newer input and minted identities, and safely saves and reopens"
+    }
+  ],
+  "recovery-element-edits": [
+    {
+      "id": "elements-remove-earlier-and-copy-submitted",
+      "promise": "Editor can remove earlier and copy submitted during lost-save recovery; acknowledgement preserves the surviving identity and the replacement receives a distinct identity"
+    },
+    {
+      "id": "elements-remove-submitted-and-add-replacement",
+      "promise": "Editor can remove submitted and add replacement during lost-save recovery; acknowledgement preserves the surviving identity and the replacement receives a distinct identity"
+    }
+  ],
+  "draft-recovery": [
+    {
+      "id": "restore-template-outage",
+      "promise": "template: outage survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-template-lost-reply",
+      "promise": "template: lost reply survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-template-sign-in",
+      "promise": "template: sign-in survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-element-outage",
+      "promise": "element: outage survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-element-lost-reply",
+      "promise": "element: lost reply survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-element-sign-in",
+      "promise": "element: sign-in survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-field-outage",
+      "promise": "field: outage survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-field-lost-reply",
+      "promise": "field: lost reply survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-field-sign-in",
+      "promise": "field: sign-in survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-metadata-outage",
+      "promise": "metadata: outage survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-metadata-lost-reply",
+      "promise": "metadata: lost reply survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-metadata-sign-in",
+      "promise": "metadata: sign-in survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    }
+  ],
+  "metadata-reconciliation": [
+    {
+      "id": "metadata-reconcile",
+      "promise": "Metadata conflict: real 412, explicit comparison and choice, conditional save and authoritative readback"
+    }
+  ],
+  "content-deletion": [
+    {
+      "id": "designer-cancel",
+      "promise": "Designer cancels populated-element deletion and restores unsaved field/element deletions by reopening and explicitly discarding the recovery draft"
+    },
+    {
+      "id": "designer-save",
+      "promise": "Designer saves and reopens field/element deletion without changing the surviving field or leaving stale parent references"
+    },
+    {
+      "id": "editor-discard",
+      "promise": "Editor restores unsaved repeated-field and element deletions by explicitly discarding the recovery draft after reopening, including original values, order and element identities"
+    },
+    {
+      "id": "editor-middle-occurrence",
+      "promise": "Editor saves and reopens middle-occurrence deletion while preserving surviving values, order, element identities and unrelated content"
+    },
+    {
+      "id": "editor-empty-lists",
+      "promise": "Editor deletes the remaining optional occurrences, disables further deletion and reopens the saved empty lists"
+    }
+  ],
+  "incomplete-metadata": [
+    {
+      "id": "complete-same-instance",
+      "promise": "Incomplete required metadata saves with warnings, reopens with its answers intact and completes on the same instance"
+    }
+  ],
+  "uncertain-move": [
+    {
+      "id": "settle-without-replay",
+      "promise": "A lost grouped-move response reports only confirmed progress, refreshes away already-moved selections and reopens all intact artifacts in the destination without replaying writes"
+    }
+  ],
+  "partial-move": [
+    {
+      "id": "partial-outcome",
+      "promise": "A refused grouped move reports two real successes, leaves the refused artifact selected and preserves all content"
+    },
+    {
+      "id": "retry-remaining",
+      "promise": "Retrying the remaining selection after refusal clears preserves its content without repeating completed moves"
+    }
+  ],
+  "duplication": [
+    {
+      "id": "copy-template",
+      "promise": "Workspace copies template with independent identity and preserved content; both original and copy edit and reopen without changing each other"
+    },
+    {
+      "id": "copy-element",
+      "promise": "Workspace copies element with independent identity and preserved content; both original and copy edit and reopen without changing each other"
+    },
+    {
+      "id": "copy-field",
+      "promise": "Workspace copies field with independent identity and preserved content; both original and copy edit and reopen without changing each other"
+    },
+    {
+      "id": "copy-instance",
+      "promise": "Workspace copies instance with independent identity and preserved content; both original and copy edit and reopen without changing each other"
+    }
+  ],
+  "copy-openview": [
+    {
+      "id": "copy-move",
+      "promise": "Copy and conditional move through folder picker"
+    },
+    {
+      "id": "artifact-openview",
+      "promise": "OpenView open/render/close"
+    },
+    {
+      "id": "folder-openview",
+      "promise": "Folder OpenView grant and revocation apply to its child artifact"
+    },
+    {
+      "id": "deleted-designer",
+      "promise": "Delete versus CED save retains edits and cannot resurrect the artifact"
+    }
+  ],
+  "template-evolution": [
+    {
+      "id": "cancel-version",
+      "promise": "Cancelling template version creation preserves the structural edit and the other tab's unsaved metadata without changing storage"
+    },
+    {
+      "id": "original-metadata",
+      "promise": "Removing a used field creates a new template version while the open metadata record saves and reopens against its original schema"
+    },
+    {
+      "id": "revised-metadata",
+      "promise": "New metadata uses the revised template while the old record retains its original field and answer"
+    }
+  ],
+  "publication": [
+    {
+      "id": "metadata-template-identity",
+      "promise": "Publish/new draft preserves metadata template identity"
+    },
+    {
+      "id": "version-panels",
+      "promise": "Details and Version panels show the published/draft chain"
+    }
+  ],
+  "selection-delete": [
+    {
+      "id": "mixed-selection",
+      "promise": "Bin drop cancels safely; clicking Delete then removes two folders, nested template/instance and a separate artifact"
+    }
+  ],
+  "partial-selection-delete": [
+    {
+      "id": "partial-selection",
+      "promise": "Partial deletion stops after a lost response, reports only confirmed progress and resumes from a fresh selection"
+    }
+  ]
+}

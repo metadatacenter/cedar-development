@@ -155,7 +155,7 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       assert.equal(stored.status, 200);
       assert.equal(designing ? stored.body["schema:description"] : stored.body.Notes["@value"], recovered);
       assert.equal(stored.body["@id"], before.body["@id"]);
-      pass(`${host} group membership loss refuses save without losing the draft; an explicit access recheck restores saving of that same draft without reload`);
+      pass(`membership-${host}`, `${host} group membership loss refuses save without losing the draft; an explicit access recheck restores saving of that same draft without reload`);
     }
   } catch (error) {
     failures.push(error);

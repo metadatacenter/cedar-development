@@ -153,7 +153,7 @@ export async function accountSwitchJourney(args) {
       await f.ready(page);
       await settled(f.input(page), "Collaborator retained work");
       page.off("request", count);
-      pass(
+      pass(`accounts-${kind}`,
         `${kind}: real same-tab logout keeps each account's draft separate, refreshes reduced permissions on return and saves only after a new access grant`,
       );
       await login(1);

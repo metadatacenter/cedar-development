@@ -78,7 +78,7 @@ export async function startupRecoveryJourney(args) {
     // A retained create is a PUT answered 201 without If-Match; a retained update carries the opened revision.
     await args.write(page,'PUT','/'+f.collection+'/',()=>f.save(page).click(),dependency==='destination'?201:200,dependency!=='destination');
     await page.locator(f.metadata?'.metadata-save-status':'#state').filter({hasText:/^Saved$/}).waitFor();
-    pass(`${kind}: ${dependency} startup failure retains the draft through Retry, restoration and explicit save`);
+    pass(`startup-${kind}-${dependency}`, `${kind}: ${dependency} startup failure retains the draft through Retry, restoration and explicit save`);
   }
 }
 export async function tabIsolationJourney(args) {
@@ -110,7 +110,7 @@ export async function tabIsolationJourney(args) {
         assert.ok(!(await other.locator('body').innerText()).includes('First tab draft'));
         await assertNoRecoveryFiles(other);
         assert.equal(await f.input(page).inputValue(),'First tab draft');assert.equal(await f.input(fresh).inputValue(),'Second tab draft');
-        pass(`${kind}: independent tabs retain different drafts, and another account cannot discover or restore the first account's retained work`);
+        pass(`tab-account-isolation-${kind}`, `${kind}: independent tabs retain different drafts, and another account cannot discover or restore the first account's retained work`);
       } finally {await fresh.close();}
     }
   } finally {await otherContext.close();}

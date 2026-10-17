@@ -68,7 +68,7 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     assert.deepEqual(await read("template-instances", instanceId), beforeInstance);
     assert.equal(await notes.inputValue(), "Unsaved answer on the original schema");
     assert.equal(await page.locator("cedar-embeddable-designer").evaluate(el => "Notes" in el.currentArtifact.properties), false);
-    pass("Cancelling template version creation preserves the structural edit and the other tab's unsaved metadata without changing storage");
+    pass("cancel-version", "Cancelling template version creation preserves the structural edit and the other tab's unsaved metadata without changing storage");
     await page.locator("#save").click();
     await dialog.waitFor();
     const [response] = await Promise.all([
@@ -103,7 +103,7 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     await notes.waitFor();
     assert.equal(await notes.inputValue(), "Unsaved answer on the original schema");
     assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Keep this answer");
-    pass("Removing a used field creates a new template version while the open metadata record saves and reopens against its original schema");
+    pass("original-metadata", "Removing a used field creates a new template version while the open metadata record saves and reopens against its original schema");
     await editor.goto(base + "/instances/create/" + enc(draftId) + "?folderId=" + enc(folderId));
     const keep = cee.getByLabel("Keep", {exact: true});
     // Once the new version has loaded and its Keep field is shown, a Notes field would be shown too.
@@ -127,6 +127,6 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     assert.equal(await keep.inputValue(), "Answer on the new schema");
     assert.equal(await notes.count(), 0);
     assert.deepEqual(errors, []);
-    pass("New metadata uses the revised template while the old record retains its original field and answer");
+    pass("revised-metadata", "New metadata uses the revised template while the old record retains its original field and answer");
   } finally { await editor.close(); }
 }

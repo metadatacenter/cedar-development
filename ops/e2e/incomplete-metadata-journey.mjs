@@ -64,5 +64,5 @@ export async function incompleteMetadataJourney({page, base, user, folderId, nam
   assert.equal(completed["@id"], incomplete["@id"]);
   await page.getByRole("button", {name: "Back to Workspace", exact: true}).click();
   await page.locator("cedar-workspace-page .destinations").waitFor();
-  pass("Incomplete required metadata saves with warnings, reopens with its answers intact and completes on the same instance");
+  pass("complete-same-instance", "Incomplete required metadata saves with warnings, reopens with its answers intact and completes on the same instance");
 }

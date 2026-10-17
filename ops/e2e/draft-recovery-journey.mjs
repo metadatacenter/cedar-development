@@ -82,7 +82,7 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
     assert.equal(await page.getByRole('button',{name:'Restore draft',exact:true}).isVisible(),false);
     if(!metadata)assert.equal(await page.locator('#draft-offer').isVisible(),false);
     page.off('request',countWrites);
-    pass(`${kind}: ${failure} survives reload/sign-in, restores real component input, checks outcome and saves conditionally`);
+    pass(`restore-${kind}-${failure}`, `${kind}: ${failure} survives reload/sign-in, restores real component input, checks outcome and saves conditionally`);
   }
 }
 
@@ -111,5 +111,5 @@ export async function metadataReconciliationJourney({page,base,user,folderId,nam
   assert.equal(await notes.inputValue(),'My choice');
   await write(page,'PUT','/template-instances/',()=>page.locator('#button-save-metadata').click(),200,true);
   assert.equal((await call(user.auth,'GET',path)).body.Notes['@value'],'My choice');
-  pass('Metadata conflict: real 412, explicit comparison and choice, conditional save and authoritative readback');
+  pass("metadata-reconcile", 'Metadata conflict: real 412, explicit comparison and choice, conditional save and authoritative readback');
 }

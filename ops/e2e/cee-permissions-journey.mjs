@@ -31,7 +31,7 @@ export async function ceePermissionsJourney(args) {
     assert.equal(await reader.locator("#instance-name").getAttribute("readonly"), "");
     await menu(page, instanceName, "Permissions…");
     await removePermission(page, write, "/template-instances/");
-    pass("CEE host settles viewer permissions before configuring its read-only editor");
+    pass("viewer-opening", "CEE host settles viewer permissions before configuring its read-only editor");
 
     await menu(page, instanceName, "Permissions…");
     await setPermission(page, write, "/template-instances/", "editor");
@@ -58,5 +58,5 @@ export async function ceePermissionsJourney(args) {
   } finally {
     await context.close();
   }
-  pass("CEE loses edit permission while open: save refused, draft retained, server content unchanged");
+  pass("revoked-editor", "CEE loses edit permission while open: save refused, draft retained, server content unchanged");
 }

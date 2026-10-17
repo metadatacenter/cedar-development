@@ -50,7 +50,7 @@ export async function designerTerminologyFailureJourney({page, pass}) {
     assert.equal(await picker.locator(".notice").count(), 0);
     assert.equal(await constraints.innerText(), draft);
     assert.deepEqual(await page.locator("cedar-embeddable-designer").evaluate(el => el.currentArtifact), artifact);
-    pass(`Designer terminology ${mode} explains failure, retains the constraint draft and recovers through a live search`);
+    pass(`designer-${mode}`, `Designer terminology ${mode} explains failure, retains the constraint draft and recovers through a live search`);
   }
 }
 
@@ -103,7 +103,7 @@ export async function editorTerminologyFailureJourney({page, user, instancePath,
     await recovered.waitFor({state: "hidden"});
     assert.equal(await notes.inputValue(), draft);
     assert.deepEqual((await cee.evaluate(el => el.currentMetadata)).Disease, metadata.Disease);
-    pass(`Editor terminology ${mode} explains failure, preserves and saves existing input, and recovers through a live search`);
+    pass(`editor-${mode}`, `Editor terminology ${mode} explains failure, preserves and saves existing input, and recovers through a live search`);
   }
   // The following navigation journey checks an exact revert to its original
   // Notes value. Restore that saved baseline after exercising outage writes.

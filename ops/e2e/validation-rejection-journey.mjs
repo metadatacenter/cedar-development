@@ -70,7 +70,7 @@ export async function validationRejectionJourney({page, base, designer, user, fo
   await page.reload();
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   assert.equal(await description.inputValue(), "Corrected description");
-  pass("Designer retains rejected input, links the server finding to its description control, and saves/reopens the correction");
+  pass("designer-description", "Designer retains rejected input, links the server finding to its description control, and saves/reopens the correction");
 
   await description.fill("Nested finding correction");
   const refusePattern = route => route.request().method() === "PUT"
@@ -92,7 +92,7 @@ export async function validationRejectionJourney({page, base, designer, user, fo
   const correctedTemplate = await read("templates", templateId);
   assert.equal(correctedTemplate.properties.Visits.items.properties.Detail._valueConstraints.regex, ".*");
   assert.deepEqual(correctedTemplate.properties.Keep, templateBefore.properties.Keep);
-  pass("Designer follows a server finding through a repeated element to the exact regex control and saves the correction without changing its sibling");
+  pass("designer-nested", "Designer follows a server finding through a repeated element to the exact regex control and saves the correction without changing its sibling");
 
   const instance = artifactBody("instance", name + " validation metadata", {
     "schema:isBasedOn": templateId, Keep: {"@value": "Untouched"},
@@ -150,5 +150,5 @@ export async function validationRejectionJourney({page, base, designer, user, fo
   await pager.getByRole("option", {name: "2", exact: true}).click();
   await occurrence("2");
   assert.equal(await detail.inputValue(), "Corrected visit");
-  pass("Editor reveals the rejected repeated-element control, retains all answers and identities, and saves/reopens the correction");
+  pass("editor-nested", "Editor reveals the rejected repeated-element control, retains all answers and identities, and saves/reopens the correction");
 }

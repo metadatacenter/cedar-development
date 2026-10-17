@@ -82,5 +82,5 @@ export async function currentTemplateConstraintJourney({page, base, user, folder
   await page.waitForFunction(() => document.querySelector("#button-save-metadata")?.disabled === true);
   assert.equal((await read("template-instances", instanceId)).body.Code["@value"], "CORRECTED");
   await code.fill("CORRECTED");
-  pass("A newly tightened template regex rejects the stale Editor's save at the real server, focuses the answer, and permits correction without losing other content");
+  pass("tightened-regex", "A newly tightened template regex rejects the stale Editor's save at the real server, focuses the answer, and permits correction without losing other content");
 }

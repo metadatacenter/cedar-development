@@ -145,6 +145,6 @@ export async function duplicationJourney({page, base, designer, user, folderId, 
       : {...copied, "schema:description": "Edited only in the copy"}));
     await edit(kind, collection, sourceId, "Edited only in the original");
     assert.deepEqual(await read(collection, copyId), editedCopy);
-    pass(`Workspace copies ${kind} with independent identity and preserved content; both original and copy edit and reopen without changing each other`);
+    pass(`copy-${kind}`, `Workspace copies ${kind} with independent identity and preserved content; both original and copy edit and reopen without changing each other`);
   }
 }

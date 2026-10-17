@@ -92,7 +92,7 @@ export async function templateSharingJourney(args) {
     assert.equal((await askedToReload).type(), "confirm");
     assert.equal(await readerDescription.inputValue(), "Designer draft after access loss");
     reader.on("dialog", dialog => dialog.accept());
-    pass("Designer loses edit permission while open: save refused, draft retained, server content unchanged");
+    pass("revoked-designer", "Designer loses edit permission while open: save refused, draft retained, server content unchanged");
 
     await grant(page, "manager");
     await openSharedWithMe(reader, () => reader.goto(base + "/dashboard?sharing=shared-with-me"));
@@ -154,7 +154,7 @@ export async function templateSharingJourney(args) {
   } finally {
     await context.close();
   }
-  pass("Permissions: viewer access, immediate role saves, Everyone restrictions, stale revisions, and two-user revocation");
+  pass("role-transitions", "Permissions: viewer access, immediate role saves, Everyone restrictions, stale revisions, and two-user revocation");
 }
 
 // Ownership moves through Workspace's own control in both directions, each confirmed in the page.
@@ -217,5 +217,5 @@ export async function ownershipTransferJourney(args) {
       assert.equal(back.status, 200, back.text);
     }
   }
-  pass("Ownership transfers to another user and back through Workspace");
+  pass("ownership-roundtrip", "Ownership transfers to another user and back through Workspace");
 }

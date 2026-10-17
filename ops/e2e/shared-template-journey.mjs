@@ -40,7 +40,7 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
     assert.match(await disease.inputValue(), /influenza/i);
     await page.getByRole("button", {name: "Back to Workspace", exact: true}).click();
     await page.locator("cedar-workspace-page .destinations").waitFor();
-    pass("A viewer populates and reopens a shared template with a private library source and a live terminology constraint");
+    pass("private-source-viewer", "A viewer populates and reopens a shared template with a private library source and a live terminology constraint");
   } finally {
     // The instance belongs to the recipient. The main journey's owner cannot clean it up, and must
     // not need access to the recipient's records. Only the instance this journey saved is removed:

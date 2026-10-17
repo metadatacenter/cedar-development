@@ -535,3 +535,15 @@ test("a sweep applies only the restore entries a process left unmarked, and repo
   assert.match(line, /not restored: API key "unreadable" on user1's account \(503\)/);
   assert.doesNotMatch(line, /finished/);
 });
+
+test("recording inventory cannot satisfy acceptance even when every unit passes", async () => {
+  const run = workspace();
+  const layout = standInPlan({journeys: [["a-pass-20"]]});
+  const {exitCode, report} = await runTier({layout, reportPath: run.report, cwd: scratch, workerScript: "worker.mjs",
+    lockFile: run.lock, environment: {CEDAR_JOURNEY_RECORD_INVENTORY: run.directory},
+    out: quiet, err: quiet, coreLeadLimitMs: 2000, sampleMs: 50});
+  assert.equal(report.inventoryMode, "candidate");
+  assert.equal(report.verdict, "CANDIDATE");
+  assert.equal(exitCode, 1);
+  assert.ok(report.units.every(unit => unit.outcome === "pass"));
+});

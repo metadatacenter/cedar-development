@@ -65,7 +65,7 @@ export async function olderArtifactJourney({page, base, designer, user, folderId
     await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
     if (kind === "field") await page.getByRole("tab", {name: "Presentation", exact: true}).click();
     assert.equal(await description.inputValue(), "Older " + kind + " description second");
-    pass(`Older ${kind} survives two description saves and reopening without changing other schema details, constraints or identities`);
+    pass(`preserve-${kind}`, `Older ${kind} survives two description saves and reopening without changing other schema details, constraints or identities`);
   }
 
   const instance = artifactBody("instance", name + " older metadata", {
@@ -95,7 +95,7 @@ export async function olderArtifactJourney({page, base, designer, user, folderId
   await notes.waitFor();
   assert.equal(await notes.inputValue(), "Old answer");
   assert.equal(await page.locator("cedar-embeddable-editor").getByLabel("Keep", {exact: true}).inputValue(), "Untouched answer");
-  pass("Editor renames and reopens older metadata without losing typed values, identity or existing context declarations");
+  pass("metadata-rename", "Editor renames and reopens older metadata without losing typed values, identity or existing context declarations");
 
   // Simulate a historical unreadable representation at the GET boundary. Do
   // not corrupt storage merely to test whether opening it enables a write.
@@ -131,5 +131,5 @@ export async function olderArtifactJourney({page, base, designer, user, folderId
   }
   await page.goto(designer + "/templates/edit/" + enc(templateId));
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
-  pass("Designer refuses an unsupported historical input shape without enabling save or changing stored content, and reopens a readable response");
+  pass("unsupported-shape", "Designer refuses an unsupported historical input shape without enabling save or changing stored content, and reopens a readable response");
 }

@@ -100,7 +100,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   assert.deepEqual(await ced.evaluate(el => el.currentArtifact), original,
     "discarding unsaved deletions restores the saved definitions, order and identities");
-  pass("Designer cancels populated-element deletion and restores unsaved field/element deletions by reopening and explicitly discarding the recovery draft");
+  pass("designer-cancel", "Designer cancels populated-element deletion and restores unsaved field/element deletions by reopening and explicitly discarding the recovery draft");
   await deleteChildren();
   await write(page, "PUT", "/templates/", () => page.locator("#save").click(), 200, true);
   await page.locator("#state").filter({hasText: /^Saved$/}).waitFor();
@@ -109,7 +109,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   assert.deepEqual(content(await ced.evaluate(el => el.currentArtifact)), content(withoutChildren(original, ["Notes", "Visits"])),
     "saved deletion removes only the selected definitions and their parent references");
-  pass("Designer saves and reopens field/element deletion without changing the surviving field or leaving stale parent references");
+  pass("designer-save", "Designer saves and reopens field/element deletion without changing the surviving field or leaving stale parent references");
 
   const editorTemplateId = await create("templates", definition(name + " editor deletion"));
   const instance = artifactBody("instance", name + " deletion values", {
@@ -161,7 +161,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   await discardRetainedDeletion(false);
   await opened();
   assert.deepEqual(await cee.evaluate(el => el.currentMetadata), initial);
-  pass("Editor restores unsaved repeated-field and element deletions by explicitly discarding the recovery draft after reopening, including original values, order and element identities");
+  pass("editor-discard", "Editor restores unsaved repeated-field and element deletions by explicitly discarding the recovery draft after reopening, including original values, order and element identities");
   await deleteMiddle();
   await write(page, "PUT", "/template-instances/", () => page.locator("#button-save-metadata").click(), 200, true);
   await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
@@ -173,7 +173,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   assert.deepEqual(reopened.Notes, reduced.Notes);
   assert.deepEqual(reopened.Visits, reduced.Visits);
   assert.deepEqual(reopened.Keep, initial.Keep);
-  pass("Editor saves and reopens middle-occurrence deletion while preserving surviving values, order, element identities and unrelated content");
+  pass("editor-middle-occurrence", "Editor saves and reopens middle-occurrence deletion while preserving surviving values, order, element identities and unrelated content");
   for (const pager of [pagers.nth(0), pagers.nth(1)]) {
     const remove = pager.getByRole("button", {name: "Delete current", exact: true});
     await remove.click();
@@ -194,5 +194,5 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   const emptyReopened = await cee.evaluate(el => el.currentMetadata);
   assert.deepEqual(emptyReopened.Notes, []);
   assert.deepEqual(emptyReopened.Visits, []);
-  pass("Editor deletes the remaining optional occurrences, disables further deletion and reopens the saved empty lists");
+  pass("editor-empty-lists", "Editor deletes the remaining optional occurrences, disables further deletion and reopens the saved empty lists");
 }

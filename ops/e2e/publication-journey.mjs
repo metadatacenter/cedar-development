@@ -25,7 +25,7 @@ export async function publicationJourney(args) {
   assert.notEqual(draft["@id"], record.templateId);
   assert.equal((await call(user.auth, "GET", "/template-instances/" + enc(record.id))).body["schema:isBasedOn"],
     record.templateId);
-  pass("Publish/new draft preserves metadata template identity");
+  pass("metadata-template-identity", "Publish/new draft preserves metadata template identity");
   await listed(page, base, record.folderId, templateName);
   await showInformation(page, templateName);
   await page.getByRole("tab", { name: "Version", exact: true }).click();
@@ -41,5 +41,5 @@ export async function publicationJourney(args) {
     .filter({ hasText: shown === "1.0.0" ? "· 1.1.0 · Draft" : "· 1.0.0 · Published" })
     .waitFor();
   await page.getByRole("tab", { name: "Details", exact: true }).click();
-  pass("Details and Version panels show the published/draft chain");
+  pass("version-panels", "Details and Version panels show the published/draft chain");
 }

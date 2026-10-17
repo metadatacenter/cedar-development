@@ -88,7 +88,7 @@ async function groupedMoveJourney({page, base, user, folderId, name, created, pa
       assert.equal(stored.status, 200);
       assert.deepEqual(stored.body, original.get(id));
     }
-    pass(mixed ? "A grouped move survives a permission refusal, a network failure and a lost committed response; fresh listing retains only unmoved selections and all content" : "A refused grouped move reports two real successes, leaves the refused artifact selected and preserves all content");
+    pass("partial-outcome", mixed ? "A grouped move survives a permission refusal, a network failure and a lost committed response; fresh listing retains only unmoved selections and all content" : "A refused grouped move reports two real successes, leaves the refused artifact selected and preserves all content");
     refusing = false;
     await drag(ids[1]);
     await page.getByText(mixed ? "Moved 2 items." : "Moved 1 item.", {exact: true}).waitFor();
@@ -98,7 +98,7 @@ async function groupedMoveJourney({page, base, user, folderId, name, created, pa
     assert.equal(report.status, 200);
     assert.ok(report.body.pathInfo.some(parent => parent["@id"] === targetId));
     assert.deepEqual((await call(user.auth, "GET", "/template-fields/" + enc(ids[1]))).body, original.get(ids[1]));
-    pass("Retrying the remaining selection after refusal clears preserves its content without repeating completed moves");
+    pass("retry-remaining", "Retrying the remaining selection after refusal clears preserves its content without repeating completed moves");
   } finally { await page.unroute(matcher, conflict); }
 }
 

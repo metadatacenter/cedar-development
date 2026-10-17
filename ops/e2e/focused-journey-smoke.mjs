@@ -1,4 +1,4 @@
-// Runs self-contained journeys against the live stack, one after another on one page, without the
+// Runs self-contained journeys against the live stack, one after another in fresh contexts, without the
 // inline chain of the full Workspace smoke and the fixtures it provisions.
 //
 //   node focused-journey-smoke.mjs [--root=NAME] <key>...
@@ -18,16 +18,39 @@
 // A first SIGINT or SIGTERM closes the browser, which ends the journey in flight. Its fixtures and
 // the root are then removed, and the process exits with status 1.
 import assert from "node:assert/strict";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { scenarioTracker, shuffled } from "./journey-contract.mjs";
+import { journeyBrowser } from "./journey-browser.mjs";
+import { beginHistory, finishHistory, failureCategory } from "./journey-history.mjs";
+import { acquire, release, lockPath, holderOf, describeHolder } from "./split-lock.mjs";
 import { chromium } from "playwright";
 import { actors, call, mutate, enc } from "./rest/lib.mjs";
 import { captureCreates, recordCreate } from "./journey-fixtures.mjs";
 import { JOURNEYS, journey } from "./journey-registry.mjs";
-import { enter, noteFixture, record } from "./split-steps.mjs";
+import { enter, noteFixture, record, evidenceDirectory } from "./split-steps.mjs";
 
 const args = process.argv.slice(2);
 const worker = args.includes("--worker");
 const rootArgument = args.find((argument) => argument.startsWith("--root="));
-const selected = args.filter((argument) => !argument.startsWith("--"));
+const option = key => args.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3);
+const seed = option("seed");
+let selected = args.includes("--all") ? JOURNEYS.map(entry => entry.key) : args.filter(argument => !argument.startsWith("--"));
+if (seed !== undefined) selected = shuffled(selected, seed);
+const recordDirectory = option("record-inventory") ?? process.env.CEDAR_JOURNEY_RECORD_INVENTORY;
+const here = dirname(fileURLToPath(import.meta.url));
+const reportPath = option("report") ?? join(evidenceDirectory(), "journeys.json");
+const results = [];
+let history, lock;
+if (!worker) {
+  const path = lockPath(here), holder = holderOf();
+  const taken = acquire(path, holder);
+  if (!taken.acquired) { console.error(`Another split run holds ${path}: ${describeHolder(taken.holder)}`); process.exit(75); }
+  lock = { path, holder };
+  process.on("exit", () => release(path, holder));
+  history = beginHistory({ cwd: here, kind: "focused", selection: selected, seed, retryOf: option("retry-of") });
+}
 if (worker) {
   assert.ok(process.send, "--worker runs under the split tier's runner, which forks it with an IPC channel");
   assert.equal(selected.length, 0, "A worker takes its keys from the runner, not from its arguments");
@@ -55,6 +78,7 @@ created.push = (...items) => {
 const errors = [],
   bodies = new Map();
 let browser,
+  authState,
   page,
   rootId = null,
   step = "login",
@@ -121,28 +145,30 @@ async function write(
   return body;
 }
 
+/** Fresh contexts reuse only the initial login cookies, never a previous journey's application storage. */
+async function authenticate(p) {
+  p.setDefaultTimeout(25000);
+  await p.goto(base + "/dashboard");
+  const ready = p.getByRole("button", { name: "New", exact: true });
+  const username = p.locator("#username");
+  await username.or(ready).first().waitFor();
+  if (await username.isVisible()) {
+    await username.fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
+    await p.locator("#password").fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
+    await p.locator("#kc-login").click();
+  }
+  await ready.waitFor();
+}
+
 /** Signs in through the form and makes the root folder. */
 async function setUp(user1) {
   step = enter("login");
   browser = await chromium.launch({ headless: !process.env.HEADED });
-  const context = await browser.newContext({
-    ignoreHTTPSErrors: true,
-    viewport: { width: 1500, height: 1000 },
-  });
-  context.setDefaultTimeout(25000);
-  await captureCreates(context, created, bodies);
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 } });
   page = await context.newPage();
-  page.on("dialog", (dialog) => dialog.accept());
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(base + "/dashboard");
-  await page
-    .locator("#username")
-    .fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
-  await page
-    .locator("#password")
-    .fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
-  await page.locator("#kc-login").click();
-  await page.getByRole("button", { name: "New", exact: true }).waitFor();
+  await authenticate(page);
+  authState = await context.storageState();
+  await context.close();
   const folder = await call(user1.auth, "POST", "/folders", {
     folderId: user1.profile.homeFolderId,
     name,
@@ -167,68 +193,62 @@ async function removeFixtures(user1) {
 /** Runs one journey under the root and removes its fixtures. A failure is recorded, not thrown. */
 async function runJourney(user1, key) {
   const began = Date.now();
-  let journeyChecks = 0,
-    failure = null;
+  let failure = null;
   step = enter(key);
-  errors.length = 0;
+  bodies.clear();
   running = true;
+  const tracked = scenarioTracker(key, { recordDirectory, emit: scenario => {
+    checks++;
+    record({ event: "scenario", step: key, ...scenario });
+    console.log(`PASS: ${key}/${scenario.id}: ${scenario.promise}`);
+  } });
+  const diagnostics = journeyBrowser(browser, {
+    directory: join(evidenceDirectory(), key), capture: context => captureCreates(context, created, bodies),
+  });
   try {
-    await journey(key).run({
-      page,
-      base,
-      designer,
-      user: user1,
-      folderId: rootId,
-      name,
-      created,
-      write,
-      pass: (message) => {
-        journeyChecks++;
-        checks++;
-        console.log("PASS: " + message);
-      },
-    });
-    // An error on the runner's page belongs to the journey that was running when it was thrown.
-    assert.deepEqual(errors, [], "uncaught browser errors");
+    const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 }, storageState: authState });
+    page = await context.newPage();
+    page.on("dialog", dialog => dialog.accept());
+    await authenticate(page);
+    // A previous identity journey may have ended its SSO session. Refresh only this clean baseline.
+    authState = await context.storageState();
+    await journey(key).run({ page, base, designer, user: user1, folderId: rootId, name, created, write, pass: tracked.pass });
+    assert.deepEqual(diagnostics.errors, [], "uncaught browser errors");
   } catch (error) {
-    failure = String(error?.message ?? error).slice(0, 2000);
+    failure = String(error?.stack ?? error).slice(0, 6000);
     record({ event: "fail", step: key, message: failure });
-    console.error("FAILED JOURNEY:", key);
-    console.error(error?.stack ?? failure);
-    console.error(
-      await page
-        ?.locator("body")
-        .innerText()
-        .catch(() => "Page unavailable"),
-    );
-  } finally {
-    running = false;
+    console.error("FAILED JOURNEY:", key, failure);
   }
   const cleanupBegan = Date.now();
-  const cleanupErrors = await removeFixtures(user1);
-  if (cleanupErrors.length && !failure) {
-    failure = "fixture cleanup: " + cleanupErrors.join("; ");
+  let cleanupErrors;
+  try { cleanupErrors = await removeFixtures(user1); }
+  catch (error) { cleanupErrors = [String(error)]; }
+  if (cleanupErrors.length) {
+    failure ??= "fixture cleanup: " + cleanupErrors.join("; ");
     record({ event: "fail", step: key, message: failure });
   }
-  // The journey's step ends here, so time spent waiting for the next key is not charged to it.
-  record({ event: "done", step: key, checks: journeyChecks, cleanupErrors });
-  const end = Date.now();
-  return {
-    key,
-    ok: !failure,
-    checks: journeyChecks,
-    seconds: Math.round((end - began) / 100) / 10,
-    cleanupSeconds: Math.round((end - cleanupBegan) / 100) / 10,
-    ...(failure ? { message: failure } : {}),
-    cleanupErrors,
-  };
+  if (!failure) {
+    try { tracked.finish(); }
+    catch (error) { failure = String(error.stack ?? error); record({ event: "fail", step: key, message: failure }); }
+  }
+  const cleanupSeconds = Math.round((Date.now() - cleanupBegan) / 100) / 10;
+  const evidence = await diagnostics.finish({ failure, scenarios: tracked.completed, cleanupErrors });
+  if (evidence) console.error("Journey evidence: " + evidence.directory);
+  running = false;
+  record({ event: "done", step: key, checks: tracked.completed.length, scenarios: tracked.completed, cleanupErrors, evidence });
+  const result = { key, name: key, kind: "journey", ok: !failure, outcome: stopping ? "interrupted" : failure ? "fail" : "pass",
+    checks: tracked.completed.length, scenarios: tracked.completed, seconds: Math.round((Date.now() - began) / 100) / 10,
+    cleanupSeconds, ...(failure ? { message: failure, failureCategory: failureCategory(failure, stopping ? "interrupted" : "fail") } : {}), cleanupErrors, evidence };
+  results.push(result);
+  return result;
 }
 
-const { user1 } = await actors();
+let user1;
 let failed = false;
 const teardownErrors = [];
 try {
   try {
+    ({ user1 } = await actors());
     await setUp(user1);
   } catch (error) {
     failed = true;
@@ -272,14 +292,29 @@ try {
   await browser?.close().catch(() => {});
   // A timeline entry of its own, so the root's removal is not charged to the last journey.
   record({ event: "step", step: "cleanup" });
-  teardownErrors.push(...(await removeFixtures(user1)));
+  if (user1) {
+    try { teardownErrors.push(...(await removeFixtures(user1))); }
+    catch (error) { teardownErrors.push(String(error)); }
+  }
   if (rootId) {
-    const removed = await mutate(user1.auth, "DELETE", "/folders/" + enc(rootId));
-    if (![200, 204, 404].includes(removed.status)) teardownErrors.push(`folders/${rootId}: ${removed.status}`);
+    try {
+      const removed = await mutate(user1.auth, "DELETE", "/folders/" + enc(rootId));
+      if (![200, 204, 404].includes(removed.status)) teardownErrors.push(`folders/${rootId}: ${removed.status}`);
+    } catch (error) { teardownErrors.push(`root fixture cleanup: ${error}`); }
   }
   record({ event: "end", step, checks, errors, cleanupErrors: teardownErrors });
   if (teardownErrors.length) console.error("Fixture cleanup failed: " + teardownErrors.join("; "));
   else console.log("Focused journey fixtures removed");
+  if (!worker) {
+    const report = { inventoryMode: recordDirectory ? "candidate" : "verified", verdict: stopping ? "INTERRUPTED" : failed || teardownErrors.length ? "FAIL" : recordDirectory ? "CANDIDATE" : "PASS", seed: seed ?? null,
+      selection: selected, units: results, cleanupErrors: teardownErrors, runtime: { browser: browser?.version() },
+      notRun: selected.filter(key => !results.some(result => result.key === key)) };
+    report.history = finishHistory(history, { ...report, reportPath });
+    mkdirSync(dirname(reportPath), { recursive: true });
+    writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
+    console.log(`Journey report: ${reportPath}; history ${report.history.id}`);
+    if (lock) release(lock.path, lock.holder);
+  }
   if (process.connected) process.disconnect();
 }
 process.exitCode = failed || stopping || teardownErrors.length ? 1 : 0;
