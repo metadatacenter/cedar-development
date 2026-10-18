@@ -73,12 +73,6 @@ const EXCLUDED = [
       + 'the deployment holds' },
   { server: 'terminology', path: /^\/bioportal\//, kinds: ['identifier'],
     reason: 'asks BioPortal before anything can refuse the request, on the API key the deployment holds' },
-  // Both are documented as taking credentials and serve anonymous callers, so a request without
-  // credentials is answered rather than refused, and answering it asks BioPortal.
-  { server: 'terminology', method: 'GET', path: '/bioportal/ontologies/{ontology}/classes/{id}/descendants',
-    kinds: ['anonymous'], reason: 'serves anonymous callers, so a request without credentials asks BioPortal' },
-  { server: 'terminology', method: 'GET', path: '/bioportal/search', kinds: ['anonymous'],
-    reason: 'serves anonymous callers, so a request without credentials asks BioPortal' },
 ];
 
 /**
@@ -174,9 +168,12 @@ function requestBodyTypes(spec, op) {
   return Object.keys(body?.content ?? {});
 }
 
-function isSecured(spec, op) {
+// An operation's security requirements are alternatives, and an empty one admits a caller with no
+// credentials, so an operation requires credentials only when every alternative names a scheme. One
+// that makes a credential optional is answered rather than refused without one, and is not probed so.
+function requiresCredentials(spec, op) {
   const requirements = op.security ?? spec.security ?? [];
-  return requirements.some(requirement => Object.keys(requirement).length > 0);
+  return requirements.length > 0 && requirements.every(requirement => Object.keys(requirement).length > 0);
 }
 
 function excludedBy(server, method, path, kind) {
@@ -188,7 +185,7 @@ function excludedBy(server, method, path, kind) {
 /** The probes one operation is sent, and the ones it is not, with the reason. */
 export function plan(server, spec, method, path, op) {
   const verb = method.toUpperCase();
-  const secured = isSecured(spec, op);
+  const secured = requiresCredentials(spec, op);
   const types = requestBodyTypes(spec, op);
   const takesJson = types.some(type => type === 'application/json' || type === '*/*');
   const takesIdentifier = path.includes('{');

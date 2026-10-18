@@ -83,6 +83,16 @@ test('no request reaches DataCite, BioPortal or an external registry', () => {
   }
 });
 
+test('an operation that makes a credential optional is not probed without one', () => {
+  const spec = { paths: {} };
+  const required = { security: [{ api_key: [] }], responses: {} };
+  const optional = { security: [{ api_key: [] }, {}], responses: {} };
+  assert.deepEqual(plan('x', spec, 'get', '/things', required).probes.map(p => p.kind), ['anonymous']);
+  assert.deepEqual(plan('x', spec, 'get', '/things', optional).probes, []);
+  assert.deepEqual(plan('x', spec, 'get', '/things/{id}', optional).probes.map(p => [p.kind, p.request.auth]),
+    [['identifier', 'none']]);
+});
+
 test('a credentialed write names nothing that exists or carries no JSON, and one taking no input is sent none', () => {
   for (const p of plans()) {
     for (const probe of p.probes) {

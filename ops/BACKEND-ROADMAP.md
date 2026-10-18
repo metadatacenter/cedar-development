@@ -335,16 +335,20 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 - **8. Complete the remaining backend trust-boundary, transport and credential security work.**
 
-  **Two terminology routes answer an anonymous caller, and that stays.** `POST
-  /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured
-  2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
-  server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
+  **Four terminology routes answer an anonymous caller, and that stays.** `GET /bioportal/search`,
+  the class-descendants route, `POST /bioportal/integrated-search` and `POST
+  /bioportal/integrated-retrieve` resolve no user, and the spec marks a credential as optional on
+  each. All four reach BioPortal on the server's own key, so an anonymous caller spends the
+  deployment's BioPortal quota.
 
-  Requiring a credential is not the remedy, for the reason item 9 gives: third-party deployments of
-  the embeddable editor call these routes from a browser with nothing to send, so a gate would break
-  every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
-  the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
-  limit in item 9, which covers `/ext-auth/*` and should cover these two on the same terms.
+  The reasons differ by route. The embeddable editor calls integrated search, and the embeddable
+  designer calls search and integrated search, from a browser with nothing to send, and third-party
+  deployments of the editor do the same, so a gate would break every host that embeds them.
+  Descendants was opened for OpenView in 2019. No CEDAR client calls integrated retrieve without a
+  key; it stays anonymous because every release since 2024 has served it so, and a gate could break
+  callers outside CEDAR. Requiring a credential is therefore not the remedy. What bounds the cost is
+  the edge rate limit in item 9, which covers `/ext-auth/*` and should cover these four on the same
+  terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
   rather than a status, which matches the decision; it should keep doing so.
@@ -385,14 +389,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 - **9. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
   anonymous caller can spend the deployment's third-party quota, and only the development host
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
-  three of them on credentials the deployment holds, and they carry none of their own. `POST
-  /bioportal/integrated-search` and `/bioportal/integrated-retrieve` belong in the same limit: both
-  are anonymous by the same decision and both spend the deployment's BioPortal key.
+  three of them on credentials the deployment holds, and they carry none of their own. The four
+  anonymous BioPortal routes item 8 lists belong in the same limit, since each spends the
+  deployment's BioPortal key.
 
-  A limit rather than a credential is deliberate. The embeddable editor calls them from a browser with
-  nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every host that
-  embeds it, and a key shipped to a browser is not a secret and would stop nobody who wanted to
-  relay through CEDAR.
+  A limit rather than a credential is deliberate. The embeddable editor calls integrated search from a
+  browser with nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every
+  host that embeds it, and a key shipped to a browser is not a secret and would stop nobody who
+  wanted to relay through CEDAR.
 
   Three things remain. Staging is not covered: only its `sites-enabled` directory is mirrored here,
   and `limit_req_zone` is valid only in the `http` context, so the zone has to be added on that
@@ -493,9 +497,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
-  hosted by third parties, and item 8 keeps `POST /bioportal/integrated-search` and
-  `/bioportal/integrated-retrieve` anonymous for exactly that reason, so those two are called from
-  origins CEDAR does not know. A deny-by-default list closes them unless the policy names them.
+  hosted by third parties and calls `POST /bioportal/integrated-search` from origins CEDAR does not
+  know, which is one reason item 8 keeps that route anonymous. A deny-by-default list closes it
+  unless the policy names it.
 
   Default to no CORS headers rather than to `*`, require the allow-list in each deployment profile,
   refuse credentials for any origin expression containing a wildcard rather than only for the bare
