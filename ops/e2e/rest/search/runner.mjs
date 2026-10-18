@@ -3,9 +3,10 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { plan } from './matrix.mjs';
+import { workerCount } from '../scheduler.mjs';
 
 export function parseOptions(args) {
-  const options = { live: false, check: false, validate: false, isolated: false, tier: 'rest' };
+  const options = { live: false, check: false, validate: false, isolated: false, tier: 'rest', workers: 4 };
   for (const arg of args) {
     if (arg === '--live') options.live = true;
     else if (arg === '--plan') options.explicitPlan = true;
@@ -14,6 +15,7 @@ export function parseOptions(args) {
     else if (arg === '--isolated') options.isolated = true;
     else if (arg.startsWith('--tier=')) options.tier = arg.slice(7);
     else if (arg.startsWith('--report=')) options.reportPath = resolve(arg.slice(9));
+    else if (arg.startsWith('--workers=')) options.workers = workerCount(arg.slice(10));
     else throw new Error(`Unknown search harness option: ${arg}`);
   }
   assert.ok(['rest', 'journey', 'all'].includes(options.tier), 'tier must be rest, journey or all');

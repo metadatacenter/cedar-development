@@ -3,6 +3,8 @@ import { definitions } from './corpus.mjs';
 import { hiddenFromReader, expectedAliases } from './queries.mjs';
 import { contentMatrix, accessMatrix, accessConfigurations, accessStates, pagingMatrix, lifecycleChecks } from './matrix.mjs';
 import { exactResults, assertNoDisclosure, converge, searchPath, walkSearch, resultMetadata, resultAuthority } from './assertions.mjs';
+import { drainPool, workerCount } from '../scheduler.mjs';
+import { timedPhase } from './execution.mjs';
 
 export function recorder(report, checkpoint = () => {}) {
   const seen = new Set();
@@ -10,13 +12,15 @@ export function recorder(report, checkpoint = () => {}) {
     assert.ok(!seen.has(id), `Matrix cell executed twice: ${id}`);
     seen.add(id);
     const start = Date.now();
+    let failed = false;
     try {
       const detail = await action();
       report.checks.push({ id, status: 'pass', elapsedMs: Date.now() - start, ...(detail ? { detail } : {}) });
     } catch (error) {
+      failed = true;
       report.checks.push({ id, status: 'fail', elapsedMs: Date.now() - start, message: error.message });
     }
-    checkpoint();
+    checkpoint(failed);
   };
 }
 export function completion(report, expected) {
@@ -37,55 +41,60 @@ export async function awaitCorpus(fixtures, request, report) {
   }
 }
 
-export async function runRest({ fixtures, request, report, scope, check }) {
+export async function runRest({ fixtures, request, report, scope, check, workers = 4, interrupted = () => false }) {
+  workerCount(workers);
+  const reads = (rows, action) => drainPool(rows, workers, row => check(row.id, () => action(row)), interrupted);
   const metadata = new Map(definitions.map(spec => [fixtures.id(spec.alias), { name: spec.name, kind: spec.kind }]));
-  for (const row of contentMatrix) await check(row.id, async () => {
+  await timedPhase(report, 'content', () => reads(contentMatrix, async row => {
     const path = searchPath(row.test, scope, { endpoint: row.endpoint });
     const response = await request(row.actor, 'GET', path);
     exactResults(response, row.expected.map(alias => fixtures.id(alias)));
     resultMetadata(response, metadata);
-  });
-  for (const row of pagingMatrix) await check(row.id, () => walkSearch(
+  }));
+  await timedPhase(report, 'paging', () => reads(pagingMatrix, row => walkSearch(
     path => request(row.actor, 'GET', path), row.test, scope,
-    expectedAliases(row.test, row.actor).map(alias => fixtures.id(alias)), { continuation: row.mode === 'continuation' }));
+    expectedAliases(row.test, row.actor).map(alias => fixtures.id(alias)), { continuation: row.mode === 'continuation' })));
 
   // Each configuration owns its instance and folder. Permission changes never touch existing user
   // groups, home ACLs, or artifacts outside this run. The owner/member identities remain constant.
-  for (const [number, config] of accessConfigurations.entries()) {
-    const alias = `SearchAccess${number}`, parent = `access-parent-${number}`, child = `access-child-${number}`;
-    await fixtures.folder(parent, fixtures.id('root'));
-    await fixtures.folder(child, fixtures.id(parent));
-    await fixtures.mutable(alias, fixtures.id(child));
-    const id = fixtures.id(alias);
-    const testFor = query => ({ query: query === 'value' ? `Notes:${alias}` : alias, types: ['instance'] });
-    await converge(async () => exactResults(await request('owner', 'GET', searchPath(testFor('name'), scope)), [id]),
-      { describe: `${alias} owner indexed before absence checks` });
-    for (const state of accessStates) {
-      if (state !== 'private') {
-        const grant = state === 'granted';
-        const target = config.source.includes('inherited') ? parent : alias;
-        const kind = config.source === 'inherited' ? 'direct' : config.source === 'everybody-inherited' ? 'everybody' : config.source;
-        await fixtures.permissions(target, grant ? { [kind]: config.role } : {});
-        if (!grant) {
-          // Security assertion is immediate; eventual index cleanup must not hide a disclosure.
-          for (const endpoint of ['search', 'search-deep'])
-            assertNoDisclosure(await request('reader', 'GET', searchPath(testFor('value'), scope, { endpoint })), [id]);
+  await timedPhase(report, 'access', async () => {
+    for (const [number, config] of accessConfigurations.entries()) {
+      const alias = `SearchAccess${number}`, parent = `access-parent-${number}`, child = `access-child-${number}`;
+      await fixtures.folder(parent, fixtures.id('root'));
+      await fixtures.folder(child, fixtures.id(parent));
+      await fixtures.mutable(alias, fixtures.id(child));
+      const id = fixtures.id(alias);
+      const testFor = query => ({ query: query === 'value' ? `Notes:${alias}` : alias, types: ['instance'] });
+      await converge(async () => exactResults(await request('owner', 'GET', searchPath(testFor('name'), scope)), [id]),
+        { describe: `${alias} owner indexed before absence checks` });
+      for (const state of accessStates) {
+        if (state !== 'private') {
+          const grant = state === 'granted';
+          const target = config.source.includes('inherited') ? parent : alias;
+          const kind = config.source === 'inherited' ? 'direct' : config.source === 'everybody-inherited' ? 'everybody' : config.source;
+          await fixtures.permissions(target, grant ? { [kind]: config.role } : {});
+          if (!grant) {
+            // Security assertion is immediate; eventual index cleanup must not hide a disclosure.
+            for (const endpoint of ['search', 'search-deep'])
+              assertNoDisclosure(await request('reader', 'GET', searchPath(testFor('value'), scope, { endpoint })), [id]);
+          }
+          await converge(async () => exactResults(await request('reader', 'GET', searchPath(testFor('name'), scope)), grant ? [id] : []),
+            { describe: `${config.source}/${config.role}/${state} projection` });
         }
-        await converge(async () => exactResults(await request('reader', 'GET', searchPath(testFor('name'), scope)), grant ? [id] : []),
-          { describe: `${config.source}/${config.role}/${state} projection` });
+        const read = await request('reader', 'GET', fixtures.path(alias));
+        assert.equal(read.status, state === 'granted' ? 200 : 403, 'Graph read and declared permission state differ');
+        // Finish every read in this state before changing a grant, moving on or cleaning up.
+        await reads(accessMatrix.filter(row => row.source === config.source && row.role === config.role && row.state === state),
+          async row => {
+            const response = await request(row.actor, 'GET', searchPath({ ...testFor(row.query), parameters: { sharing: row.sharing } }, scope,
+              { endpoint: row.endpoint }));
+            exactResults(response, row.visible ? [id] : []);
+            for (const hit of response.body.resources) resultAuthority(hit, config.role, row.actor === 'owner');
+          });
       }
-      const read = await request('reader', 'GET', fixtures.path(alias));
-      assert.equal(read.status, state === 'granted' ? 200 : 403, 'Graph read and declared permission state differ');
-      for (const row of accessMatrix.filter(row => row.source === config.source && row.role === config.role && row.state === state))
-        await check(row.id, async () => {
-          const response = await request(row.actor, 'GET', searchPath({ ...testFor(row.query), parameters: { sharing: row.sharing } }, scope,
-            { endpoint: row.endpoint }));
-          exactResults(response, row.visible ? [id] : []);
-          for (const hit of response.body.resources) resultAuthority(hit, config.role, row.actor === 'owner');
-        });
     }
-  }
-  await lifecycle({ fixtures, request, scope, check });
+  });
+  await timedPhase(report, 'lifecycle', () => lifecycle({ fixtures, request, scope, check }));
 }
 
 async function lifecycle({ fixtures: f, request, scope, check }) {

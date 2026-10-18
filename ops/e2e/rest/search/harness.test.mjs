@@ -7,10 +7,75 @@ import { contentMatrix, accessMatrix, pagingMatrix, plan, validateInventory } fr
 import { exactResults, assertNoDisclosure, scopedQuery, searchPath, converge, walkSearch, resultMetadata, resultAuthority } from './assertions.mjs';
 import { parseOptions, main } from './runner.mjs';
 import { Fixtures } from './fixtures.mjs';
-import { completion, recorder } from './suite.mjs';
+import { completion, recorder, runRest } from './suite.mjs';
+import { checkpointWriter } from './execution.mjs';
 
 const response = (ids, totalCount = ids.length) => ({ status: 200,
   body: { resources: ids.map(id => ({ '@id': id, 'schema:name': id })), totalCount } });
+
+test('worker bounds are checked before any live execution', async () => {
+  assert.equal(parseOptions([]).workers, 4);
+  for (const workers of [1, 2, 3, 4]) assert.equal(parseOptions([`--workers=${workers}`]).workers, workers);
+  for (const workers of ['0', '5', '1.5', 'no']) {
+    await assert.rejects(main(['--live', '--report=/unused', `--workers=${workers}`], {
+      executeLive: () => assert.fail('Invalid workers must not reach the stack'),
+    }), /integer from 1 to 4/);
+  }
+});
+
+test('successful reads coalesce checkpoints but fixture intents, failures and completion remain durable', async () => {
+  const report = { checks: [], fixtures: [], performance: {} }, written = [];
+  let now = 0;
+  const checkpoint = checkpointWriter(report, '/unused', { now: () => now,
+    write: (_path, body) => { written.push(JSON.parse(body)); now += 2; } });
+  checkpoint();
+  const check = recorder(report, checkpoint);
+  await check('pass/1', async () => {});
+  await check('pass/2', async () => {});
+  assert.equal(written.length, 1);
+  report.fixtures.push({ state: 'intent' });
+  checkpoint();
+  assert.equal(written.at(-1).fixtures[0].state, 'intent');
+  await check('fail', async () => { throw new Error('broken'); });
+  assert.equal(written.at(-1).checks.at(-1).status, 'fail');
+  now += 500;
+  await check('pass/3', async () => {});
+  assert.equal(written.length, 4);
+  report.status = 'FAIL';
+  checkpoint();
+  assert.equal(written.at(-1).status, 'FAIL');
+  assert.equal(report.performance.checkpoints.writes, 5);
+  assert.equal(report.performance.checkpoints.elapsedMs, 10);
+});
+
+test('parallel matrices finish every read before the next permission mutation or lifecycle step', async () => {
+  let active = 0, peak = 0, alias, granted = false;
+  const completed = [];
+  const fixtures = { id: key => key, path: key => `/artifacts/${key}`,
+    folder: async () => assert.equal(active, 0),
+    mutable: async key => {
+      assert.equal(active, 0);
+      if (key === 'SearchLifecycleRecord') throw new Error('lifecycle boundary');
+      alias = key; granted = false;
+    },
+    permissions: async (_key, grants) => { assert.equal(active, 0); granted = Object.keys(grants).length > 0; },
+  };
+  const request = async (actor, _method, path) => path.startsWith('/artifacts/')
+    ? { status: granted ? 200 : 403 } : response(actor === 'owner' || granted ? [alias] : []);
+  // Test scheduling independently of the result oracle, whose corruption cases are covered below.
+  const check = async id => {
+    peak = Math.max(peak, ++active);
+    const state = granted;
+    await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(granted, state);
+    completed.push(id); active--;
+  };
+  await assert.rejects(runRest({ fixtures, request, report: { performance: { phases: {} } },
+    scope: 'SearchCorpusabc', check, workers: 4 }), /lifecycle boundary/);
+  assert.equal(peak, 4);
+  assert.equal(active, 0);
+  assert.deepEqual(completed.sort(), [...contentMatrix, ...pagingMatrix, ...accessMatrix].map(row => row.id).sort());
+});
 
 test('matrix covers every declared query, identity and endpoint, with no absent oracle members', () => {
   assert.equal(validateInventory(), true);

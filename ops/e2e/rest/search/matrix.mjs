@@ -62,14 +62,14 @@ export function validateInventory() {
   }
   return true;
 }
-export function plan({ isolated = false, tier = 'rest' } = {}) {
+export function plan({ isolated = false, tier = 'rest', workers = 4 } = {}) {
   validateInventory();
   const inputHashes = Object.fromEntries(readdirSync(new URL('./', import.meta.url)).filter(name => /\.(mjs|json)$/.test(name)).sort()
     .map(name => [name, createHash('sha256').update(readFileSync(new URL(name, import.meta.url))).digest('hex')]));
   for (const name of ['minimal-template.json', 'minimal-element.json', 'minimal-field.json', 'minimal-instance.json'])
     inputHashes[`../../fixtures/${name}`] = createHash('sha256').update(readFileSync(new URL(`../../fixtures/${name}`, import.meta.url))).digest('hex');
   const harnessDigest = createHash('sha256').update(JSON.stringify(inputHashes)).digest('hex');
-  return { status: 'OFFLINE_PLAN_NOT_EXECUTED', corpusDigest, harnessDigest, inputHashes, scope: isolated ? 'isolated-unwrapped' : 'unique-run-token', tier,
+  return { status: 'OFFLINE_PLAN_NOT_EXECUTED', corpusDigest, harnessDigest, inputHashes, scope: isolated ? 'isolated-unwrapped' : 'unique-run-token', tier, workers,
     artifacts: Object.fromEntries(['field', 'element', 'template', 'instance'].map(kind => [kind, definitions.filter(item => item.kind === kind).length])),
     queries: queries.length, matrixCells: { content: contentMatrix.length, access: accessMatrix.length,
       paging: pagingMatrix.length, lifecycle: lifecycleChecks.length, journey: journeyScenarios.length },
