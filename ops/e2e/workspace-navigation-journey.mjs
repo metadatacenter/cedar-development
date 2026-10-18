@@ -95,7 +95,8 @@ export async function workspaceKeyboardSelectionJourney(args) {
   await focused(actions.last(), "End reaches the last available row action");
   await page.keyboard.press("Escape");
   await focused(trigger, "Escape returns focus to the row action trigger");
-  assert.equal(await page.locator(".resource-menu").count(), 0);
+  // Focus returns synchronously; Angular removes the menu on its next render.
+  await page.locator(".resource-menu").waitFor({ state: "detached" });
   assert.deepEqual(await Promise.all(fixtures.map(fixture => fixture.read())), before);
   pass("range-selection-cancel", "Keyboard range selection reaches grouped deletion, cancellation preserves all selected artifacts, and a row menu returns keyboard focus after dismissal");
 }
