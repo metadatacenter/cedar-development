@@ -4285,7 +4285,7 @@ and what it needs to run.
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
 | schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
 | submission | `SubmissionRoutesRespondTest` | `RouteSurface` 401 | none |
-| terminology | `TerminologyServerApplicationSmokeTest` | runtime-derived `RouteSurface` 401 with public-route exceptions and a separate property-search probe | none |
+| terminology | `TerminologyServerApplicationSmokeTest`, `AnonymousBioPortalRoutesTest` | runtime-derived `RouteSurface` 401 with public-route exceptions, which the spec must mark as taking an optional credential, a separate property-search probe, and the four anonymous BioPortal routes answered without a credential | none; a BioPortal HTTP stub for the anonymous routes |
 | user | `UsersResourceTest`, `UsersResourceNeo4jTest` | runtime-derived route inventory with missing/invalid user 401 probes; profile and key-management behaviour | in-memory users / embedded Neo4j |
 | valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
@@ -6204,7 +6204,7 @@ For locally-served ontologies the store keeps every language variant of every na
   default. Deferred by decision: `lang=all` (the `{lang:value}` hash), `lang=` on the public
   `search`/tree output, and honoring the submission's `naturalLanguage` for the default.
 
-Quick check (integrated-search has auth disabled, so no token needed):
+Quick check (integrated-search serves anonymous callers, so no token is needed):
 
 ```bash
 curl -s -X POST 'http://localhost:9004/bioportal/integrated-search?lang=fr' \

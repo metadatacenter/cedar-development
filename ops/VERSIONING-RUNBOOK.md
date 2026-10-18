@@ -609,17 +609,23 @@ Future ingests extract properties before calculating the ontology version automa
 The local-only API is unauthenticated, like version-aware class search:
 
 - `POST /properties/search`: `query`, optional `sources: [{sourceAcronym, versionId}]`, optional
-  `kinds` (`object`, `datatype`, `annotation`), `page` and `pageSize`. Unscoped search uses the index;
-  a scoped request reads the requested ontology snapshot. Every hit reports the ontology version
-  that answered, including when the corpus index is behind the catalog.
+  `kinds` (`object`, `datatype`, `annotation`), and either `limit` and `offset` or `page` and
+  `pageSize`. Unscoped search uses the index; a scoped request reads the requested ontology
+  snapshot. Every hit reports the ontology version that answered, including when the corpus index is
+  behind the catalog.
 - `GET /properties?sourceAcronym=...&versionId=...&propertyIri=...&kind=...`: one property and its
   literal annotations and parent IRIs. `versionId` is the same ontology version used for classes;
   omitted means `latest`.
-- `GET /properties/hierarchy` with those parameters and optional `offset`: the selected property,
-  its ancestor graph's nodes and up to 50 direct children.
-- `GET /properties/roots?sourceAcronym=...&versionId=...&kind=...&offset=0`: up to 50 roots.
+- `GET /properties/hierarchy` with those parameters and optional `limit` and `offset`: the selected
+  property, its ancestor graph's nodes and a page of its direct children.
+- `GET /properties/roots?sourceAcronym=...&versionId=...&kind=...` with optional `limit` and
+  `offset`: a page of roots.
 - `GET /properties/versions?sourceAcronym=...`: ontology releases with `propertiesAvailable`, so
   a pre-extraction version is distinguishable from one that contains zero properties.
+
+By default a hierarchy or roots page holds 50 properties and a search page holds 20. No page holds
+more than 200, the most the ontology store reads at once, and a request for more is refused with a
+400 that names the range.
 
 A missing release or property is 404; a release whose properties were not extracted, an unbuilt
 corpus property index, or an unconfigured local store is 503. A snapshot that cannot be read is 500,
