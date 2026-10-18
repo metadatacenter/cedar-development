@@ -3217,7 +3217,8 @@ so name both tags there (`-DexcludedGroups=bioportal,integration`) or the BioPor
 Bridge fixes its exclusion in the POM and ignores the property. A base class that starts a server
 carries the tag for its subclasses. A test that starts one itself needs the tag on its own class.
 The OpenSearch `*IT` suites carry the tag as well. Their names keep them out of the default build,
-because only Failsafe runs `*IT` classes.
+because only Failsafe runs `*IT` classes. `cedarcli check test-tags` names every class that starts
+one of these without the tag, and `cedarcli build java` refuses to run the tests while one exists.
 
 Search is the deliberate exception in CI. `cedar-microservice-libraries` and
 `cedar-resource-server` run `verify -Popensearch-it` against a disposable OpenSearch 2.19.1 service.
