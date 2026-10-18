@@ -21,7 +21,7 @@
     "test:search-harness": "node rest/search/runner.mjs --check",
     "presmoke:search": "npm run test:search-harness",
     "smoke:search": "node rest/search/runner.mjs --live --tier=all",
-    "test:rest-harness": "node --test --test-isolation=none rest/scheduler.test.mjs rest/errors.test.mjs",
+    "test:rest-harness": "node --test --test-isolation=none rest/scheduler.test.mjs rest/errors.test.mjs rest/runner.test.mjs rest/response-contract.test.mjs",
     "presmoke:rest": "npm run test:rest-harness",
     "smoke:rest": "node rest-smoke.mjs",
     "perf:rest:provision": "node rest-perf/provision-users.mjs",
@@ -55,6 +55,8 @@
     "report:journeys": "node journey-history.mjs"
   },
   "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "playwright": "^1.48.0"
   }
 }

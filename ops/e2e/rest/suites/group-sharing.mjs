@@ -10,7 +10,7 @@ import { suite, check, checkStatus, call, group, mutate, mutateGroup, cleanup, e
 
 export const name = 'group-sharing';
 
-/** A permissions request. The owner is mandatory; a request without one is refused outright. */
+/** A permissions request that explicitly preserves the owner. */
 function permissions(ownerId, { users = [], groups = [] } = {}) {
   return {
     owner: { '@id': ownerId },
@@ -92,6 +92,68 @@ export async function run({ user1, user2, homeFolderId }) {
     check((acl.body?.userPermissions ?? []).length === 0,
         'and holds no per-user grant for the member',
         `it held ${JSON.stringify(acl.body?.userPermissions).slice(0, 200)}`);
+  }
+
+  suite('group sharing: overlapping grants retain only the remaining authority');
+
+  async function memberGroup(label) {
+    const groupName = `${label} ${RUN}`;
+    const made = await group(user1.auth, 'POST', '/groups',
+        { 'schema:name': groupName, 'schema:description': 'Overlapping grants in the REST suites' });
+    if (!checkStatus(made, 201, `${label}: group created`)) return null;
+    const id = made.body['@id'];
+    const at = `/groups/${enc(id)}`;
+    cleanup('group', at, groupName, user1.auth, GROUP_SERVER);
+    if (!checkStatus(await mutateGroup(user1.auth, 'PUT', `${at}/users`, {
+      users: [[u1, true], [u2, false]].map(([id, administrator]) =>
+        ({ user: { '@id': id }, administrator, member: true })),
+    }), 200, `${label}: the grantee joins the group`)) return null;
+    return { id, at };
+  }
+
+  const stronger = await memberGroup('Overlap Editor');
+  const weaker = await memberGroup('Overlap Viewer');
+  if (stronger && weaker) {
+    for (const source of ['direct', 'group']) {
+      const target = await folder(`Overlap ${source}`);
+      if (!check(!!target, `${source}: folder created for overlapping grants`, 'folder creation failed')) continue;
+      const remaining = source === 'direct' ? { users: [[u2, 'viewer']] } : { groups: [[weaker.id, 'viewer']] };
+      const overlapping = { ...remaining, groups: [...(remaining.groups ?? []), [stronger.id, 'editor']] };
+      if (!checkStatus(await mutate(user1.auth, 'PUT', `${target.at}/permissions`, permissions(u1, overlapping)),
+          200, `${source}: Viewer and group Editor are granted together`)) continue;
+      const opened = await call(user2.auth, 'GET', target.at);
+      const etag = opened.headers?.get('etag');
+      if (!check(opened.status === 200 && !!etag, `${source}: the grantee reads a revision to edit`,
+          `HTTP ${opened.status}, ETag ${etag}`)) continue;
+      const changedName = `${target.name} edited`;
+      checkStatus(await call(user2.auth, 'PUT', target.at,
+          { 'schema:name': changedName, 'schema:description': 'Editor wins over Viewer' },
+          { headers: { 'If-Match': etag } }), 200, `${source}: the stronger group grant permits a write`);
+      check((await call(user1.auth, 'GET', target.at)).body?.['schema:name'] === changedName,
+          `${source}: the permitted write is stored`, 'the rename was not stored');
+
+      const removed = source === 'direct'
+        ? await mutate(user1.auth, 'PUT', `${target.at}/permissions`, permissions(u1, remaining))
+        : await mutateGroup(user1.auth, 'DELETE', stronger.at);
+      if (!checkStatus(removed, source === 'direct' ? 200 : 204,
+          `${source}: ${source === 'direct' ? 'the stronger grant is removed' : 'the stronger group is deleted'}`)) continue;
+
+      // No convergence wait: graph authorization must immediately reflect the remaining Viewer.
+      const reader = await call(user2.auth, 'GET', target.at);
+      const readerTag = reader.headers?.get('etag');
+      if (!check(reader.status === 200 && !!readerTag, `${source}: the remaining Viewer still reads immediately`,
+          `HTTP ${reader.status}, ETag ${readerTag}`)) continue;
+      const before = await call(user1.auth, 'GET', target.at);
+      checkStatus(await call(user2.auth, 'PUT', target.at,
+          { 'schema:name': `${target.name} forbidden`, 'schema:description': 'must not be stored' },
+          { headers: { 'If-Match': readerTag } }), 403, `${source}: the remaining Viewer cannot write immediately`);
+      const after = await call(user1.auth, 'GET', target.at);
+      check(before.status === 200 && after.status === 200 &&
+          after.body?.['schema:name'] === before.body?.['schema:name'] &&
+          after.body?.['schema:description'] === before.body?.['schema:description'] &&
+          after.headers?.get('etag') === before.headers?.get('etag'),
+      `${source}: the refused write preserves the stored content and revision`, 'content or revision changed');
+    }
   }
 
   suite('group sharing: sharing with everybody');

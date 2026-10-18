@@ -3634,12 +3634,27 @@ the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`,
 `contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
 `inclusion`, `negotiation`, `openness`, `pagination`, `search`, `sharing`, `validation` and
 `versioning`. The committed
-`rest/expected-checks.json` inventory holds 1,671 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 2,084 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
 them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
 artifact kinds.
+
+`pagination` checks fractional, overflowing and nonnumeric paging values, invalid sort and typed
+filter values, and the shared error envelope on those refusals. Empty optional string filters are
+normalized to absent at the HTTP boundary and retain their defaults. `group-sharing` checks direct
+Viewer plus group Editor and overlapping Viewer/Editor groups, including immediate loss of write
+authority when the stronger grant or group is removed. `sharing` sends a real artifact PUT with an
+ETag acquired before revocation, verifies unchanged stored content and revision after refusal, and
+retries the same request after access is restored.
+
+The success-schema pilot in `rest/response-contract.mjs` validates group reads, folder permissions
+and folder listings against their committed OpenAPI 3.0 response schemas using Ajv and ajv-formats.
+Call sites record fixed checks outside polling loops; there is no environment switch or automatic
+check per HTTP call. Required fields, nested references, formats and types are enforced without
+coercing responses; extra properties follow each schema's own rule. This supplements the existing
+behavioral assertions and does not replace the model schemas that govern artifact documents.
 
 On the 16-core workstation, run `cedarcli test e2e --rest-workers 4`. The REST runner uses two
 workers by default, bounded to one through four, and four is both the ceiling and the fastest
@@ -3654,7 +3669,7 @@ after that parallel batch: their home guards, protected group operations, catego
 tree, account credentials or global counts require a stable surrounding stack.
 New suites default to exclusive execution. One worker preserves the original suite
 order. Result merging restores the canonical suite order while preserving the check
-order within each suite, so the existing exact 1,063-check inventory is unchanged.
+order within each suite, so the same exact inventory applies at every worker count.
 
 After all suites drain, independent cleanup registries overlap within the same worker
 budget, each retaining its own reverse creation order. The shared parent is deleted
@@ -3667,7 +3682,8 @@ folder of its own.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
 and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
-barriers, interruption, report attribution and cleanup ordering; it also runs before
+barriers, interruption, report attribution, cleanup ordering, partial-inventory refusal and the
+success-schema pilot's rejection of malformed responses; it also runs before
 every `npm run smoke:rest` invocation.
 
 On the 16-core M4 workstation (2026-09-24), all 1,063 checks passed in 118.6 seconds
@@ -3750,8 +3766,10 @@ clean pass:
 npm run smoke:rest -- --update-inventory
 ```
 
-The runner refuses to replace the inventory after a failure or interruption. It also inventories
-timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
+Inventory updates require every suite. A partial selection with `--update-inventory` exits with
+code 2 before authentication, fixture creation or report writes; run a selected suite without that
+flag for diagnosis. The runner also refuses to replace the inventory after a failure or interruption.
+It inventories timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
 state or the current teardown did not restore the baseline.
 
 An interrupted run still cleans up after itself. `SIGINT` or `SIGTERM` stops it at the next suite

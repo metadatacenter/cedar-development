@@ -73,6 +73,13 @@ if (requested.length && selected.length !== requested.length) {
   process.exit(2);
 }
 
+// An update replaces the whole inventory. Refuse a partial run before authentication or fixtures,
+// rather than silently dropping the checks belonging to every unselected suite.
+if (updateInventory && selected.length !== ALL.length) {
+  console.error('--update-inventory requires every REST suite; omit suite names to regenerate the complete inventory.');
+  process.exit(2);
+}
+
 const started = Date.now();
 let auth1;
 let adminAuth;

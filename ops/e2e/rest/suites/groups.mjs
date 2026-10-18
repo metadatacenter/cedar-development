@@ -5,6 +5,7 @@
 // the groups themselves; group-sharing covers what a grant to one confers.
 import { suite, check, checkStatus, group, mutateGroup, cleanup, everybodyGroup, enc, RUN,
   GROUP_SERVER } from '../lib.mjs';
+import { responseContractProblem } from '../response-contract.mjs';
 
 export const name = 'groups';
 
@@ -37,7 +38,10 @@ export async function run({ user1, user2 }) {
   check(made.body.specialGroup === null, 'and carries no special marker',
       `specialGroup was ${JSON.stringify(made.body.specialGroup)}`);
 
-  checkStatus(await group(user1.auth, 'GET', at), 200, 'it can be read back by id');
+  const read = await group(user1.auth, 'GET', at);
+  checkStatus(read, 200, 'it can be read back by id');
+  const contractProblem = responseContractProblem('group', read);
+  check(!contractProblem, 'the group read matches its OpenAPI response schema', contractProblem);
 
   const listed = await group(user1.auth, 'GET', '/groups');
   check((listed.body?.groups ?? []).some(g => g['@id'] === id), 'and appears in the listing',
