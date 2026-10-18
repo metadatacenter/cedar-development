@@ -3354,6 +3354,34 @@ Redis without inheriting a developer profile's remote address and waiting for a 
 Dedicated queue tests bypass the CEDAR environment and point their service directly at their
 embedded Redis instance.
 
+HTTP write retries remain disabled: Surefire sets `jdk.httpclient.enableAllMethodRetry=false`,
+and `TestHttpClient` does not replay failed writes. An empty response does not prove that a server
+did not apply a request; retrying can apply it twice. `TestHttpClientTest` covers that boundary.
+
+All microservices install `UnreadRequestBodyFilter` through `CedarMicroserviceApplication` before
+the application servlet filters. For HTTP/1, its Jetty response-preparation hook adds
+`Connection: close` before the final response headers commit if the request body is still unread
+or partially read. This prevents an early authentication, authorization or media-type refusal from
+leaving a pooled client with a connection Jetty will close after the response. The hook never waits
+for or drains request bytes. Bodyless requests and fully consumed bodies retain connection reuse,
+including error responses; HTTP/2 is untouched. The policy is conservative: starting a response
+before consuming the body forfeits HTTP/1 reuse even when those bytes are already buffered.
+`UnreadRequestBodyFilterTest` holds request bodies back until the response arrives to exercise the
+failure deterministically, and also covers chunked bodies, servlet and asynchronous refusals,
+partial reads, `100 Continue`, and reuse after consumed bodies. A resource-server or submission-server
+failure reading the next response after an early refusal must be investigated at this boundary,
+not hidden by re-enabling write retries.
+
+The 2026-10-18 acceptance run passed the full Java build (8,653 tests reported, six skipped,
+no failures or errors), all fourteen deterministic connection-policy cases and the existing
+no-replay tests. All fifteen rebuilt service jars contained only Jetty 12.1.13 core/EE10 classes,
+verified against the dependency jars, and all fifteen services were healthy/current after local
+redeployment. An unauthenticated HTTP/1 probe across two resource-server write routes and four
+body-delivery timings found 59 unannounced closures in 80 requests before the change; all 80
+responses announced closure afterward. Whole-stack smoke passed, recorded in
+`ops/e2e/reports/smoke-gate/0a0a88041cfae3c6.json`; the full build report is
+`$CEDAR_HOME/.cedar/build-reports/20261018T170722Z-90e02d85.json`.
+
 Surefire also sets `cedar.test.dependencyTimeoutMillis=1000`. The Mongo and Neo4j client factories
 honor that property only when it is present: Mongo server selection/connection and Neo4j pool
 acquisition and transaction retry therefore reach the same unavailable-dependency exception paths
@@ -4633,6 +4661,21 @@ same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 
 the OpenSearch low-level REST client and the Keycloak event listener, which stay on HttpClient 4
 because those external APIs require v4 types), slf4j 2.0 with logback 1.5, swagger-core v3
 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.26, commons-lang3.
+
+`cedar-parent` imports both `org.eclipse.jetty:jetty-bom` and
+`org.eclipse.jetty.ee10:jetty-ee10-bom` using the single `org.eclipse.jetty.version` property.
+Changing that property advances the entire core and EE10 family. Individual overrides previously
+advanced only server, HTTP and servlets, leaving IO, utility, security, session and servlet modules
+on Dropwizard's older version. The inherited `enforce-jetty-alignment` Maven rule now rejects any
+resolved Jetty framework module at a different version, including protocol/WebSocket subgroups,
+transitive dependencies and test dependencies.
+The `org.eclipse.jetty.toolchain.setuid:jetty-setuid-jna` helper has its own version line and is
+outside those two module families.
+Neo4j's embedded test harness has its unused Jetty 9 `jetty-webapp` dependency excluded; the harness
+uses `withDisabledServer()` and exercises Bolt without the legacy HTTP stack. Keep that exclusion
+and the guard when updating the harness. Check the complete Java build after changing Jetty,
+followed by a local microservice redeploy and whole-stack smoke. The startup banner's Jetty version
+comes from `jetty-util`, so a banner alone is not proof of dependency alignment.
 
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.14-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
