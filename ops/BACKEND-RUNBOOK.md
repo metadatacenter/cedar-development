@@ -3089,8 +3089,9 @@ Jersey requires.
 Success representations keep their own shapes. So does one answer that is not an error body: a health
 report, which a failing check answers with 500. Recursive-folder plans and outcomes also keep their
 published operation contract, and the Workspace localizes an outcome by its `FOLDER_DELETE_*` code.
-A recursive deletion's refusals use the common envelope. A refused confirmation carries its outcome in
-`objects.outcome`, as a validation refusal carries its report in `objects.validationReport`. Four
+A recursive deletion's refusals use the common envelope. A confirmation refused because the folder
+changed or a blocker stops it carries its outcome in `objects.outcome`, as a validation refusal carries
+its report in `objects.validationReport`. Four
 other refusals carry a payload the same way. An inclusion-subgraph update the artifact server partly
 refused answers 502 with its update report in `objects.report`. A regeneration requested while one is
 in flight answers 409 with that job in `objects.job`. The bridge answers a DataCite refusal with
@@ -6680,15 +6681,17 @@ replays the deletion. Existing per-artifact deletion jobs complete content/graph
 failures. Neither the confirmation token nor a folder operation bypasses those artifact safeguards.
 
 An outcome carries a stable `FOLDER_DELETE_*` code. A refusal uses the common error envelope and
-keeps the reason's message. Its status and error key identify it:
+keeps the reason's message. Its status, its error key and, for a 409, the presence of an outcome
+identify it:
 
 - 400 `invalidInput`: the confirmation carries no token in the form an inventory issues.
 - 400 `folderCanNotBeDeleted`, with the reason `userHomeFolder` or `systemFolder`: the folder is a
   home or system folder.
 - 403 `folderCanNotBeDeleted`: the caller is not the folder's owner.
-- 409 with no key, from the inventory: the inventory could not be completed.
-- 409 from a confirmation: the folder changed or a blocker stops the deletion. The outcome is in
-  `objects.outcome`, and a blocked deletion also carries `folderCanNotBeDeleted`.
+- 409 with no key and no outcome: the inventory could not be completed. A confirmation repeats the
+  inventory before it deletes anything, so it is refused this way too, having deleted nothing.
+- 409 with an outcome, from a confirmation: the folder changed or a blocker stops the deletion. The
+  outcome is in `objects.outcome`, and a blocked deletion also carries `folderCanNotBeDeleted`.
 
 Workspace translates outcome codes, refusals and network failures into its bundled English and
 Hungarian messages. Raw server messages are not displayed in this dialog.
