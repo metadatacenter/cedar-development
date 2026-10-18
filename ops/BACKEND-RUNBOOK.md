@@ -3081,7 +3081,9 @@ exception's message stays out of the body, because Jersey's own exceptions carry
 text of a failed conversion. Two refusals are answered with a message instead. A parameter Jersey
 cannot convert, in the query, the path, a header or a form, is described from the route's
 declaration, as in `The query parameter limit must be an integer from -2147483648 to 2147483647`.
-`LinkedDataUtil` refuses an identifier a request supplied that it cannot resolve with
+A true-or-false parameter takes `true` or `false` in any case. Any other value, the empty one
+included, is refused with `The query parameter compact must be true or false` rather than read as
+false. `LinkedDataUtil` refuses an identifier a request supplied that it cannot resolve with
 `UnresolvableIdentifierException`, which is answered with `invalidInput` and the refusal's message,
 such as `Invalid template identifier`. Explicit response entities bypass exception normalization, as
 Jersey requires.
