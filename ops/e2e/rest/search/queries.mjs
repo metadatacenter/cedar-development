@@ -75,6 +75,8 @@ export const queries = [
   add('schema-independent-permission', 'Notes:Independentpermission', ['shared-private-schema', 'private-public-schema'], 'permissions'),
   add('roles-read-content', 'Notes:Rolepermission', ['editor-record', 'manager-record', 'overlap-record'], 'permissions'),
   add('public-view-with-term', 'title:Statistics', ['public-stats'], 'sharing', { parameters: { sharing: 'shared-with-everybody' } }),
+  add('shared-view-with-term', 'title:Statistics', ['ny-stats', 'boston-stats', 'phrase-gap', 'folder-stats'], 'sharing',
+    { parameters: { sharing: 'shared-with-me' }, matchesByActor: { owner: [] } }),
   add('private-twin-phrase', 'title:Statistics AND publisher:"City of New York" AND topic:statistics', ['ny-stats', 'private-twin'], 'permissions'),
   add('schema-title-exists', 'title:', ['title-field', 'catalog-template'], 'schema', { types: ['template', 'element', 'field'] }),
   add('schema-publisher-exists', 'publisher:', ['publisher-field', 'catalog-template', 'contact-element', 'nested-template', 'named-field', 'names-template'], 'schema', { types: ['template', 'element', 'field'] }),
@@ -88,7 +90,8 @@ export const queries = [
 // Independent access expectation. Schemas are shared except private-template; two instances remain
 // private even though their common template is readable. Do not infer this from observed GETs.
 export const hiddenFromReader = new Set(['private-twin', 'private-public-schema', 'private-template']);
-export const expectedAliases = (test, actor) => test.matches.filter(alias => actor !== 'reader' || !hiddenFromReader.has(alias));
+export const expectedAliases = (test, actor) => (test.matchesByActor?.[actor] ?? test.matches)
+  .filter(alias => actor !== 'reader' || !hiddenFromReader.has(alias));
 
 // These contracts need a product decision or a wider corpus. They remain visible in every plan and
 // report, never silently skipped or recorded as passing checks. No generated baseline blesses them.
@@ -105,5 +108,7 @@ export const journeyScenarios = [
   { id: 'compound-query', case: 'and-fields', promise: 'A compound field-value expression excludes wrong-field, wrong-value and private distractors' },
   { id: 'reload-back', promise: 'Reload and browser Back restore the expression and its exact results' },
   { id: 'type-filter', promise: 'Selecting Instance retains the expression and sends the selected resource type' },
-  { id: 'open-identity', promise: 'Opening a matching row loads that exact instance, despite an identically named private instance' }
+  { id: 'open-identity', promise: 'Opening a matching row loads that exact instance, despite an identically named private instance' },
+  { id: 'public-sharing', case: 'public-view-with-term', promise: 'Search and reload retain Shared with Everyone and render only public matches' },
+  { id: 'personal-sharing', case: 'shared-view-with-term', promise: 'Search retains Shared with Me, including shared-folder descendants and excluding public matches' }
 ];

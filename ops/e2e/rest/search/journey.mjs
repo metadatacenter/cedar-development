@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { queries, expectedAliases } from './queries.mjs';
 import { exactResults, scopedQuery } from './assertions.mjs';
 
-// Bound to the opt-in search runner while live validation is pending. No registry/default smoke
-// enrollment yet: another session's normal journey run must not pick up unverified live fixtures.
+// Bound to the opt-in search runner and its shared stack lock. Ordinary journey runs do not
+// provision this corpus; the explicit search command owns its creation, evidence and cleanup.
 export async function searchJourney({ page, base, fixtures, scope, check }) {
   const queryCase = id => queries.find(test => test.id === id);
   const expected = id => expectedAliases(queryCase(id), 'reader').map(alias => fixtures.id(alias));
@@ -63,4 +63,18 @@ export async function searchJourney({ page, base, fixtures, scope, check }) {
     assert.ok(route.includes(id) || route.endsWith('/' + id.split('/').at(-1)), 'Opened a different instance identity');
     assert.equal(await page.locator(`[data-resource-id="${fixtures.id('private-twin')}"]`).count(), 0);
   });
+  async function sharingSearch(id, label) {
+    await page.goto(base + '/dashboard');
+    await page.getByRole('link', { name: label, exact: true }).click();
+    const sharing = queryCase(id).parameters.sharing;
+    await page.waitForURL(url => url.searchParams.get('sharing') === sharing);
+    await submit(id);
+    assert.equal(new URL(page.url()).searchParams.get('sharing'), sharing);
+    const [response] = await Promise.all([page.waitForResponse(responseFor(expression(id))), page.reload()]);
+    assert.equal(new URL(response.url()).searchParams.get('sharing'), sharing);
+    await renderedResults(response, id);
+    assert.equal(new URL(page.url()).searchParams.get('sharing'), sharing);
+  }
+  await check('journey/public-sharing', () => sharingSearch('public-view-with-term', 'Shared with Everyone'));
+  await check('journey/personal-sharing', () => sharingSearch('shared-view-with-term', 'Shared with Me'));
 }

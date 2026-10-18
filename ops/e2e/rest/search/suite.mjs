@@ -63,8 +63,8 @@ export async function runRest({ fixtures, request, report, scope, check }) {
     for (const state of accessStates) {
       if (state !== 'private') {
         const grant = state === 'granted';
-        const target = config.source === 'inherited' ? parent : alias;
-        const kind = config.source === 'inherited' ? 'direct' : config.source;
+        const target = config.source.includes('inherited') ? parent : alias;
+        const kind = config.source === 'inherited' ? 'direct' : config.source === 'everybody-inherited' ? 'everybody' : config.source;
         await fixtures.permissions(target, grant ? { [kind]: config.role } : {});
         if (!grant) {
           // Security assertion is immediate; eventual index cleanup must not hide a disclosure.
@@ -78,7 +78,8 @@ export async function runRest({ fixtures, request, report, scope, check }) {
       assert.equal(read.status, state === 'granted' ? 200 : 403, 'Graph read and declared permission state differ');
       for (const row of accessMatrix.filter(row => row.source === config.source && row.role === config.role && row.state === state))
         await check(row.id, async () => {
-          const response = await request(row.actor, 'GET', searchPath(testFor(row.query), scope, { endpoint: row.endpoint }));
+          const response = await request(row.actor, 'GET', searchPath({ ...testFor(row.query), parameters: { sharing: row.sharing } }, scope,
+            { endpoint: row.endpoint }));
           exactResults(response, row.visible ? [id] : []);
           for (const hit of response.body.resources) resultAuthority(hit, config.role, row.actor === 'owner');
         });
@@ -165,6 +166,11 @@ async function lifecycle({ fixtures: f, request, scope, check }) {
     const reply = await request('owner', 'GET', searchPath(pitTest, scope,
       { endpoint: 'search-deep', limit: 1, continuation: first.body.continuation }));
     assert.equal(reply.status, 400, 'Continuation must be bound to its caller');
+  });
+  await record('continuation-sharing-change-refused', async () => {
+    const reply = await request('reader', 'GET', searchPath({ ...pitTest, parameters: { sharing: 'shared-with-everybody' } }, scope,
+      { endpoint: 'search-deep', limit: 1, continuation: first.body.continuation }));
+    assert.equal(reply.status, 400, 'Continuation must be bound to its sharing view');
   });
   for (let i = 0; i < 3; i++) await f.permissions(`SearchContinuation${i}`, {});
   await record('continuation-revocation', async () => {

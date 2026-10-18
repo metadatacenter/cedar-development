@@ -14,15 +14,28 @@ const response = (ids, totalCount = ids.length) => ({ status: 200,
 
 test('matrix covers every declared query, identity and endpoint, with no absent oracle members', () => {
   assert.equal(validateInventory(), true);
-  assert.equal(queries.length, 75);
-  assert.equal(contentMatrix.length, 300);
-  assert.equal(accessMatrix.length, 240);
-  assert.equal(pagingMatrix.length, 24);
+  assert.equal(queries.length, 76);
+  assert.equal(contentMatrix.length, 304);
+  assert.equal(accessMatrix.length, 792);
+  assert.equal(pagingMatrix.length, 32);
   for (const query of queries) for (const actor of ['owner', 'reader']) for (const endpoint of ['search', 'search-deep'])
     assert.equal(contentMatrix.filter(row => row.test.id === query.id && row.actor === actor && row.endpoint === endpoint).length, 1);
   for (const source of ['direct', 'group', 'inherited']) for (const role of ['viewer', 'editor', 'manager'])
     for (const state of ['private', 'granted', 'revoked'])
-      assert.equal(accessMatrix.filter(row => row.source === source && row.role === role && row.state === state).length, 8);
+      assert.equal(accessMatrix.filter(row => row.source === source && row.role === role && row.state === state).length, 24);
+});
+
+test('sharing views have independent ownership, public and inherited-access expectations', () => {
+  const test = queries.find(item => item.id === 'shared-view-with-term');
+  assert.deepEqual(expectedAliases(test, 'owner'), []);
+  assert.deepEqual(expectedAliases(test, 'reader'), ['ny-stats', 'boston-stats', 'phrase-gap', 'folder-stats']);
+  for (const row of accessMatrix.filter(row => row.sharing === 'shared-with-me')) {
+    if (row.actor === 'owner' || row.source.startsWith('everybody') || row.state !== 'granted') assert.equal(row.visible, false);
+    else assert.equal(row.visible, true);
+  }
+  const inheritedPublic = accessMatrix.filter(row => row.source === 'everybody-inherited' && row.sharing === 'shared-with-everybody');
+  assert.equal(inheritedPublic.length, 24);
+  assert.equal(inheritedPublic.filter(row => row.visible).length, 8);
 });
 
 test('field-value fixture contrasts and exact permissions are independently pinned', () => {

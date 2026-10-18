@@ -3183,8 +3183,8 @@ the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
 run-unique index and delete only that index afterward, so concurrent runs share the engine but not
 index lifecycle or documents.
 
-The opt-in **artifact search acceptance matrix** lives under `ops/e2e/rest/search/`; live validation
-is in progress and it is not yet enrolled in the default REST or journey smoke gate. Its default
+The opt-in **artifact search acceptance matrix** lives under `ops/e2e/rest/search/`. It has passed
+live validation and runs separately from the default REST and journey smoke gates. Its default
 command is an offline inventory, so another session's ordinary smoke run cannot accidentally create
 its corpus. Use the CLI:
 
@@ -3204,14 +3204,16 @@ The corpus contains 13 standalone fields, two reusable elements, four templates 
 Field names, property keys, preferred labels and UI overrides intentionally differ. Contrasts include
 wrong-field values, same-name private twins, absent/null/empty values, literal/linked values, ontology
 labels with different URIs, nested/repeated values, typed values, and readable instances of private
-templates. The 75 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
-300 exact-result checks. Permissions add 240 cells: direct/group/inherited grants at viewer/editor/
-manager, plus everybody viewer, crossed with private/granted/revoked, two actors, name/value queries
-and both endpoints. Another 24 cells walk small pages by offset and continuation; 20 lifecycle
+templates. The 76 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
+304 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
+manager, plus direct/inherited everybody viewer, crossed with private/granted/revoked, two actors,
+name/value queries, both endpoints and all three sharing views. Another 32 cells walk small pages
+by offset and continuation; 21 lifecycle
 checks cover rename, value and ontology changes, overlapping grants, membership, moves, deletion
-and continuation revocation. Five browser scenarios cover entry, exact rows, reload/Back, type
-filtering and opening the intended identity. The browser module is bound to this opt-in runner,
-pending validation before enrollment in the main journey registry.
+and continuation revocation, caller binding and sharing-view binding. Seven browser scenarios cover
+entry, exact rows, reload/Back, type filtering, opening the intended identity and searching within
+both sharing views. The browser module is bound to this opt-in runner; the complete corpus uses
+its own fixture lifecycle and retains the same stack lock as the main journey registry.
 
 Only an explicit live invocation contacts the stack and creates fixtures:
 
@@ -3221,7 +3223,7 @@ cedarcli test search --live --tier journey
 cedarcli test search --live --tier all
 ```
 
-A full run creates the 53 core artifacts plus 14 transition instances, 23 folders and one group,
+A full run creates the 53 core artifacts plus 15 transition instances, 25 folders and one group,
 using the existing two test accounts. It changes only its own grants/memberships and artifacts.
 It does not rebuild, redeploy, restart services, reset indexes or call external terminology providers.
 Run it after other work using the same test accounts has finished. It shares the split-tier lock
@@ -3239,6 +3241,13 @@ carry the token in their descriptions. All returned hits are checked, without fi
 down to known IDs. `--isolated` removes the wrapper for a dedicated test stack and must not be used
 to claim exact global counts on an occupied stack. Neither mode is a performance benchmark.
 
+Indexed search applies the sharing view before counting, sorting and pagination. `shared-with-me`
+includes caller grants through users, groups and shared-folder descendants, excluding caller-owned
+and publicly shared artifacts. `shared-with-everybody` includes direct and inherited public grants.
+The empty-query sharing views still list their shared roots through the graph. Workspace preserves
+the selected sharing view on search, reload and clearing the expression; continuation tokens bind
+the sharing filter as well as the query and caller.
+
 The matrix encodes the user guide's substring, Boolean precedence and public-sharing narrowing
 promises even where source inspection suggests a discrepancy; live failures must not be converted
 into new expected results just to pass. `openContracts` separately records unresolved key/name,
@@ -3248,12 +3257,15 @@ OpenView, outages and rebuilds remain outside this initial probe. Every plan and
 gaps. A successful run is labelled `IMPLEMENTED_CASES_PASS_WITH_DECLARED_GAPS`, never full search
 certification or release-gate evidence. The source/input digests accompany every report.
 
-The first live baseline on 2026-10-17 recorded 396 passing and 172 failing checks, with 16 later
-lifecycle checks blocked by a grouped URL query returning HTTP 500. All 240 permission cells passed
-and cleanup completed. Evidence is `.cedar/reports/search/rest-live-02.json`. It exposed quoted-value,
-grouped URL, existence, metadata wildcard and sharing-filter failures. Two unquoted field-name
-expectations were subsequently corrected to include `Publisher Name`; failures must be triaged
-against the documented contract and the corpus, not accepted as new baselines.
+The expanded live run on 2026-10-17 passed **1,156/1,156** checks in 149 seconds, with no missing
+cells or cleanup errors: `.cedar/reports/search/sharing-live.json`. This is a run against valid,
+synthetic CEDAR artifacts created through real APIs, not a survey of production data. The initial
+baseline (`rest-live-02.json`) exposed quoted-value, grouped URL, existence, metadata wildcard,
+Boolean-precedence and sharing-filter defects. The fixes also have an OpenSearch matrix using the
+shipped mapping (278 integration checks), resource HTTP integration coverage (37 checks), and a
+Workspace submit/clear matrix. Two unquoted field-name expectations were corrected to include
+`Publisher Name`; findings are resolved against the contract and corpus, never by accepting observed
+results as a new oracle. The offline harness has 24 passing self-tests.
 
 Backend-free Maven tests suppress the application-log queue through the
 `cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
