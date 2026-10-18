@@ -1,3 +1,4 @@
+import { withBrowserAuthentication, withJourneyAuthentication } from "./auth-activity.mjs";
 // Runs self-contained journeys against the live stack, one after another in fresh contexts, without the
 // inline chain of the full Workspace smoke and the fixtures it provisions.
 //
@@ -147,17 +148,19 @@ async function write(
 
 /** Fresh contexts reuse only the initial login cookies, never a previous journey's application storage. */
 async function authenticate(p) {
-  p.setDefaultTimeout(25000);
-  await p.goto(base + "/dashboard");
-  const ready = p.getByRole("button", { name: "New", exact: true });
-  const username = p.locator("#username");
-  await username.or(ready).first().waitFor();
-  if (await username.isVisible()) {
-    await username.fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
-    await p.locator("#password").fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
-    await p.locator("#kc-login").click();
-  }
-  await ready.waitFor();
+  return withBrowserAuthentication("journey worker sign-in", async () => {
+    p.setDefaultTimeout(25000);
+    await p.goto(base + "/dashboard");
+    const ready = p.getByRole("button", { name: "New", exact: true });
+    const username = p.locator("#username");
+    await username.or(ready).first().waitFor();
+    if (await username.isVisible()) {
+      await username.fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
+      await p.locator("#password").fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
+      await p.locator("#kc-login").click();
+    }
+    await ready.waitFor();
+  });
 }
 
 /** Signs in through the form and makes the root folder. */
@@ -212,7 +215,7 @@ async function runJourney(user1, key) {
     await authenticate(page);
     // A previous identity journey may have ended its SSO session. Refresh only this clean baseline.
     authState = await context.storageState();
-    await journey(key).run({ page, base, designer, user: user1, folderId: rootId, name, created, write, pass: tracked.pass });
+    await withJourneyAuthentication(journey(key), () => journey(key).run({ page, base, designer, user: user1, folderId: rootId, name, created, write, pass: tracked.pass }));
     assert.deepEqual(diagnostics.errors, [], "uncaught browser errors");
   } catch (error) {
     failure = String(error?.stack ?? error).slice(0, 6000);

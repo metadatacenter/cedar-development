@@ -13,7 +13,7 @@ import {
 // it hands out twice collides with itself on the names it creates, and an identity unit outside the
 // identity lane signs in alongside the others.
 const keys = JOURNEYS.map(entry => entry.key);
-const identityKeys = JOURNEYS.filter(entry => entry.signsInAsAnotherUser).map(entry => entry.key);
+const identityKeys = JOURNEYS.filter(entry => entry.authentication).map(entry => entry.key);
 const identityScripts = SCRIPTS.filter(script => script.identity).map(script => script.name);
 const durations = new Map(JOURNEYS.map((entry, index) => [entry.key, 1 + (index * 7) % 23]));
 
@@ -47,6 +47,16 @@ for (const lanes of [2, 3, MAX_LANES]) {
       assert.ok(lane.units.every(name => !layout.units.find(unit => unit.name === name).identity), lane.name);
   });
 }
+
+test("same-user recovery is identity work and retains its reason in the execution plan", () => {
+  const layout = plan({ lanes: 2 });
+  for (const name of ["draft-recovery", "uncertain-create"]) {
+    const unit = layout.units.find(unit => unit.name === name);
+    assert.equal(unit.identity, true);
+    assert.equal(unit.authentication, "reauthenticates the first user");
+    assert.ok(layout.projection.lanes.find(lane => lane.name === "identity").units.includes(name));
+  }
+});
 
 test("each lane works under a root of its own that sorts after the core lane's fixtures", () => {
   const layout = plan({lanes: DEFAULT_LANES, durations, stamp: 1760000000000});
@@ -115,7 +125,7 @@ test("a deadline is three times the measured duration plus 30 s, at least 60 s a
 });
 
 test("a unit no report measured counts as the median of its kind", () => {
-  const journeys = ["a", "b", "c", "new"].map(key => ({key, signsInAsAnotherUser: false}));
+  const journeys = ["a", "b", "c", "new"].map(key => ({key, authentication: false}));
   const layout = plan({lanes: 2, durations: new Map([["a", 2], ["b", 4], ["c", 30]]), journeys, scripts: []});
   assert.deepEqual(layout.estimates.new, {seconds: 4, measured: false});
   assert.deepEqual(layout.estimates.c, {seconds: 30, measured: true});

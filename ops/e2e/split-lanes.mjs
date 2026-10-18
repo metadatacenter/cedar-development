@@ -247,7 +247,7 @@ export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Dat
     return { ...rest, seconds, measured: isMeasured, deadlineSeconds: deadlineSeconds({ seconds, measured: isMeasured }, deadline) };
   };
   const units = [
-    ...journeys.map((entry, order) => unit({ kind: "journey", name: entry.key, identity: entry.signsInAsAnotherUser,
+    ...journeys.map((entry, order) => unit({ kind: "journey", name: entry.key, identity: Boolean(entry.authentication), authentication: entry.authentication ?? null,
       fallback: journeyDefault, order })),
     ...scripts.map((script, order) => unit({ kind: "script", name: script.name, args: [...script.args],
       identity: Boolean(script.identity), fallback: scriptDefault, order: journeys.length + order })),

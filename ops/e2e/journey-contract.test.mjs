@@ -17,7 +17,7 @@ test("omitting, repeating or substituting a scenario cannot produce a passing in
 });
 
 test("seeded ordering is repeatable, changes with the seed, and still serializes identities", () => {
-  const journeys = Array.from({ length: 15 }, (_, i) => ({ key: `journey-${i}`, signsInAsAnotherUser: i % 3 === 0 }));
+  const journeys = Array.from({ length: 15 }, (_, i) => ({ key: `journey-${i}`, authentication: i % 3 === 0 }));
   const build = seed => plan({ journeys, scripts: [], seed });
   assert.deepEqual(build("one").units, build("one").units);
   assert.notDeepEqual(build("one").units.map(u => u.name), build("two").units.map(u => u.name));

@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 // Real login + CED rendering, create/update and stale-save protection through the split host.
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
@@ -77,24 +78,26 @@ async function showFieldDescription() {
   await page.getByRole('tab', { name: 'Presentation', exact: true }).click();
 }
 async function open(path) {
-  afterSave = false;
-  await page.goto(designerBase + path);
-  await page.locator('#username, cedar-embeddable-designer, cedar-embeddable-field-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
-  if (await page.locator('#username').isVisible().catch(() => false)) {
-    await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || 'test1@test.com');
-    await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || 'test1');
-    await page.locator('#kc-login').click();
-  }
-  await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'));
-  await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
-  // Each opening starts a separate scenario from the saved artifact. Reload now
-  // retains refused work, so discard that earlier scenario's journal explicitly.
-  const discard = page.locator('#discard-draft');
-  if (await discard.isVisible()) {
-    await discard.click();
-    await discard.waitFor({state: 'hidden'});
-  }
-  if (path.startsWith('/fields/edit/')) await showFieldDescription();
+  return withBrowserAuthentication("Designer host sign-in", async () => {
+    afterSave = false;
+    await page.goto(designerBase + path);
+    await page.locator('#username, cedar-embeddable-designer, cedar-embeddable-field-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
+    if (await page.locator('#username').isVisible().catch(() => false)) {
+      await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || 'test1@test.com');
+      await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || 'test1');
+      await page.locator('#kc-login').click();
+    }
+    await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'));
+    await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
+    // Each opening starts a separate scenario from the saved artifact. Reload now
+    // retains refused work, so discard that earlier scenario's journal explicitly.
+    const discard = page.locator('#discard-draft');
+    if (await discard.isVisible()) {
+      await discard.click();
+      await discard.waitFor({state: 'hidden'});
+    }
+    if (path.startsWith('/fields/edit/')) await showFieldDescription();
+  });
 }
 try {
   for (const [kind, route, collection] of [['template', 'templates', 'templates'], ['element', 'elements', 'template-elements'], ['field', 'fields', 'template-fields']]) {

@@ -51,10 +51,10 @@ import { workspaceKeyboardFoldersJourney, workspaceKeyboardSelectionJourney, wor
 // journey made, so any set of them can run in any process. modern-workspace-smoke.mjs runs all of
 // them in this order after its inline chain, and focused-journey-smoke.mjs runs the keys it is given.
 //
-// `signsInAsAnotherUser` is true when the journey's own file says that it signs the second test user
-// in to a browser context of its own. The split tier runs every such journey in its identity lane,
-// one after another, because sign-ins contend in Keycloak and in the graph writes each one triggers,
-// and a logout ends the single sign-on session of its context.
+// `authentication` gives the reason a journey signs in, reauthenticates, or logs out. All such
+// journeys belong in the identity lane, including same-user SSO redirects. Their short auth flows
+// also share a machine-wide lock with worker setup and the core chain. The runners enforce this
+// declaration when a journey invokes a browser authentication helper.
 //
 // journey-registry.test.mjs fails when a journey file exports a journey that is neither listed here
 // nor named in BOUND.
@@ -63,10 +63,10 @@ export const JOURNEYS = [
   { key: "designer-authoring", run: designerAuthoringJourney },
   { key: "reusable-source-failure", run: reusableSourceFailureJourney },
   { key: "designer-conflict", run: designerConflictJourney },
-  { key: "template-sharing", run: templateSharingJourney, signsInAsAnotherUser: true },
-  { key: "ownership-transfer", run: ownershipTransferJourney, signsInAsAnotherUser: true },
-  { key: "cee-permissions", run: ceePermissionsJourney, signsInAsAnotherUser: true },
-  { key: "access-recheck", run: accessRecheckJourney, signsInAsAnotherUser: true },
+  { key: "template-sharing", run: templateSharingJourney, authentication: "signs in as another user" },
+  { key: "ownership-transfer", run: ownershipTransferJourney, authentication: "signs in as another user" },
+  { key: "cee-permissions", run: ceePermissionsJourney, authentication: "signs in as another user" },
+  { key: "access-recheck", run: accessRecheckJourney, authentication: "signs in as another user" },
   { key: "initial-load", run: initialLoadJourney },
   { key: "validation-rejection", run: validationRejectionJourney },
   { key: "current-template-constraint", run: currentTemplateConstraintJourney },
@@ -74,17 +74,17 @@ export const JOURNEYS = [
   { key: "restored-validation", run: restoredValidationJourney },
   { key: "repeated-schema", run: repeatedSchemaJourney },
   { key: "configuration-draft", run: configurationDraftJourney },
-  { key: "account-switch", run: accountSwitchJourney, signsInAsAnotherUser: true },
+  { key: "account-switch", run: accountSwitchJourney, authentication: "logs out and switches accounts" },
   { key: "combined-delete", run: combinedDeleteJourney },
   { key: "startup-recovery", run: startupRecoveryJourney },
-  { key: "tab-isolation", run: tabIsolationJourney, signsInAsAnotherUser: true },
-  { key: "opening-permissions", run: openingPermissionJourney, signsInAsAnotherUser: true },
-  { key: "signin-permissions", run: signInPermissionJourney, signsInAsAnotherUser: true },
+  { key: "tab-isolation", run: tabIsolationJourney, authentication: "signs in as another user" },
+  { key: "opening-permissions", run: openingPermissionJourney, authentication: "signs in as another user" },
+  { key: "signin-permissions", run: signInPermissionJourney, authentication: "signs in as another user" },
   { key: "numeric-constraint", run: numericConstraintJourney },
   { key: "mixed-move", run: mixedMoveJourney },
-  { key: "draft-sharing-workspace", run: workspaceDraftSharingJourney, signsInAsAnotherUser: true },
-  { key: "draft-sharing-designer", run: designerDraftSharingJourney, signsInAsAnotherUser: true },
-  { key: "uncertain-create", run: uncertainCreateJourney },
+  { key: "draft-sharing-workspace", run: workspaceDraftSharingJourney, authentication: "signs in as another user" },
+  { key: "draft-sharing-designer", run: designerDraftSharingJourney, authentication: "signs in as another user" },
+  { key: "uncertain-create", run: uncertainCreateJourney, authentication: "reauthenticates the first user" },
   { key: "uncertain-workspace-create", run: uncertainWorkspaceCreateJourney },
   { key: "uncertain-version", run: uncertainVersionJourney },
   { key: "partial-version-definition", run: partialVersionDefinitionJourney },
@@ -95,7 +95,7 @@ export const JOURNEYS = [
   { key: "save-status", run: saveStatusJourney },
   { key: "confirmed-save-recovery", run: confirmedSaveRecoveryJourney },
   { key: "recovery-element-edits", run: recoveryElementEditsJourney },
-  { key: "draft-recovery", run: draftRecoveryJourney },
+  { key: "draft-recovery", run: draftRecoveryJourney, authentication: "reauthenticates the first user" },
   { key: "metadata-reconciliation", run: metadataReconciliationJourney },
   { key: "content-deletion", run: contentDeletionJourney },
   { key: "incomplete-metadata", run: incompleteMetadataJourney },
@@ -133,7 +133,7 @@ export const JOURNEYS = [
   { key: "workspace-pagination", run: workspacePaginationJourney },
   { key: "workspace-search-return", run: workspaceSearchReturnJourney },
   { key: "workspace-renamed-breadcrumb", run: workspaceRenamedBreadcrumbJourney },
-].map(entry => Object.freeze({ signsInAsAnotherUser: false, ...entry }));
+].map(entry => Object.freeze({ authentication: null, ...entry }));
 
 // BOUND names the journeys that have no key, because they work on fixtures another runner hands them.
 // The inline chain of modern-workspace-smoke.mjs calls the first three on its own template and record,

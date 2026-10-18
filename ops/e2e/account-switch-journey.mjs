@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import { actors, call, mutate, enc } from "./rest/lib.mjs";
 import { recoveryFixture, settled } from "./recovery-boundary-journey.mjs";
@@ -22,22 +23,24 @@ export async function accountSwitchJourney(args) {
   page.on("dialog", (d) => d.accept());
   page.on("pageerror", (error) => errors.push(error.message));
   async function login(number, logout = true) {
-    await page.goto(base + (logout ? "/logout" : "/dashboard"));
-    await page.locator("#username").waitFor();
-    await page
-      .locator("#username")
-      .fill(
-        process.env[`CEDAR_FRONTEND_local_USER${number}_LOGIN`] ||
-          `test${number}@test.com`,
-      );
-    await page
-      .locator("#password")
-      .fill(
-        process.env[`CEDAR_FRONTEND_local_USER${number}_PASSWORD`] ||
-          `test${number}`,
-      );
-    await page.locator("#kc-login").click();
-    await page.getByRole("button", { name: "New", exact: true }).waitFor();
+    return withBrowserAuthentication("account switch", async () => {
+      await page.goto(base + (logout ? "/logout" : "/dashboard"));
+      await page.locator("#username").waitFor();
+      await page
+        .locator("#username")
+        .fill(
+          process.env[`CEDAR_FRONTEND_local_USER${number}_LOGIN`] ||
+            `test${number}@test.com`,
+        );
+      await page
+        .locator("#password")
+        .fill(
+          process.env[`CEDAR_FRONTEND_local_USER${number}_PASSWORD`] ||
+            `test${number}`,
+        );
+      await page.locator("#kc-login").click();
+      await page.getByRole("button", { name: "New", exact: true }).waitFor();
+    });
   }
   async function grant(path, role) {
     const r = await mutate(user.auth, "PUT", path + "/permissions", {

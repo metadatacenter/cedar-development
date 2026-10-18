@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 import {fixtureAt, journeyFolder} from "./journey-fixtures.mjs";
@@ -13,8 +14,8 @@ import {assertNoRecoveryFiles} from "./recovery-boundary-journey.mjs";
 // is exact, and absences are asserted only once the page has reached a settled state.
 //
 // All three journeys act as the runner's first test user. The sign-in case returns through the SSO
-// cookie, or through the login form if that has expired. It never logs out and never signs in as
-// another account, so these journeys run alongside the other single-user journeys.
+// cookie, or through the login form if that has expired. That journey belongs in the identity
+// lane even though the account stays the same; the other two journeys do not authenticate.
 
 const resource = new URL(RESOURCE).origin;
 const uuid = id => id.split("/").at(-1);
@@ -64,15 +65,18 @@ export const editAddress = (url, route, id) => {
 };
 
 /** Completes a sign-in redirect. A live SSO cookie returns at once; an expired one shows the login form. */
-async function signedIn(page, landed) {
-  const form = page.locator("#username");
-  await form.or(landed).first().waitFor();
-  if (await form.isVisible()) {
-    await form.fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
-    await page.locator("#password").fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
-    await page.locator("#kc-login").click();
-  }
-  await landed.waitFor();
+async function signedIn(page, landed, start) {
+  return withBrowserAuthentication("uncertain create sign-in", async () => {
+    await start();
+    const form = page.locator("#username");
+    await form.or(landed).first().waitFor();
+    if (await form.isVisible()) {
+      await form.fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
+      await page.locator("#password").fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
+      await page.locator("#kc-login").click();
+    }
+    await landed.waitFor();
+  });
 }
 
 /** Records a fixture for cleanup once, however many attempts name it. */
@@ -291,8 +295,7 @@ async function designerCreate(args, root, kind, outcome) {
       await page.locator("#message").filter({hasText: "Your session has expired"}).waitFor();
       assert.equal(await page.locator("#save").isDisabled(), true);
       await designerShows(page, "#check-save", "#sign-in-again");
-      await page.locator("#sign-in-again").click();
-      await signedIn(page, page.locator("#restore-draft"));
+      await signedIn(page, page.locator("#restore-draft"), () => page.locator("#sign-in-again").click());
       await designerShows(page, "#draft-offer");
       await page.locator("#restore-draft").click();
       await authoredAs("Submitted uncommitted");
@@ -420,8 +423,7 @@ async function editorCreate(args, root, templateId, outcome) {
       });
       assert.equal(await save.isDisabled(), true);
       await editorShows(page, "Check save status", "Sign in again");
-      await signIn.click();
-      await signedIn(page, restore);
+      await signedIn(page, restore, () => signIn.click());
       await editorShows(page, "Restore draft");
       await restore.click();
       await holds(notes, "Submitted uncommitted");

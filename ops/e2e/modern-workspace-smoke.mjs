@@ -1,3 +1,4 @@
+import { withBrowserAuthentication, withJourneyAuthentication } from "./auth-activity.mjs";
 // Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
 //
 // The steps before the journey loop are one chain on one template, authored in Designer with a
@@ -48,28 +49,30 @@ let page,
   folderId,
   step = "login";
 async function login(username, password, storageState) {
-  const context = await browser.newContext({
-    storageState,
-    ignoreHTTPSErrors: true,
-    viewport: { width: 1500, height: 1000 },
+  return withBrowserAuthentication("core or sequential runner sign-in", async () => {
+    const context = await browser.newContext({
+      storageState,
+      ignoreHTTPSErrors: true,
+      viewport: { width: 1500, height: 1000 },
+    });
+    context.setDefaultTimeout(25000);
+    await captureCreates(context, created, bodies);
+    const p = await context.newPage();
+    p.on("dialog", (dialog) => dialog.accept());
+    p.on("pageerror", (e) => errors.push(e.message));
+    await p.goto(base + "/dashboard", { waitUntil: "domcontentloaded" });
+    await p
+      .locator("#username, cedar-workspace-page .destinations")
+      .first()
+      .waitFor({ state: "visible" });
+    if (await p.locator("#username").isVisible()) {
+      await p.locator("#username").fill(username);
+      await p.locator("#password").fill(password);
+      await p.locator("#kc-login").click();
+    }
+    await ready(p);
+    return p;
   });
-  context.setDefaultTimeout(25000);
-  await captureCreates(context, created, bodies);
-  const p = await context.newPage();
-  p.on("dialog", (dialog) => dialog.accept());
-  p.on("pageerror", (e) => errors.push(e.message));
-  await p.goto(base + "/dashboard", { waitUntil: "domcontentloaded" });
-  await p
-    .locator("#username, cedar-workspace-page .destinations")
-    .first()
-    .waitFor({ state: "visible" });
-  if (await p.locator("#username").isVisible()) {
-    await p.locator("#username").fill(username);
-    await p.locator("#password").fill(password);
-    await p.locator("#kc-login").click();
-  }
-  await ready(p);
-  return p;
 }
 const listing = (p, id = folderId) => listingAt(p, base, id);
 const listed = (p, name, id = folderId) => listedAt(p, base, id, name);
@@ -578,7 +581,8 @@ try {
   assert.deepEqual(chainDiagnostics.errors, [], "uncaught browser errors in the core chain");
   await chainDiagnostics.finish();
   chainDiagnostics = null;
-  for (const { key, run } of chainOnly ? [] : JOURNEYS) {
+  for (const entry of chainOnly ? [] : JOURNEYS) {
+    const { key, run } = entry;
     step = enter(key);
     const began = Date.now(), fixtureStart = created.length;
     const tracker = scenarioTracker(key, { recordDirectory: process.env.CEDAR_JOURNEY_RECORD_INVENTORY,
@@ -591,7 +595,7 @@ try {
       page = await login(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com",
         process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1", baseline);
       baseline = await page.context().storageState();
-      await run({page, base, designer, user: user1, folderId, name: names.instance, created, write, pass: tracker.pass});
+      await withJourneyAuthentication(entry, () => run({page, base, designer, user: user1, folderId, name: names.instance, created, write, pass: tracker.pass}));
       assert.deepEqual(diagnostics.errors, [], "uncaught browser errors");
     } catch (error) { failure = error; }
     try {

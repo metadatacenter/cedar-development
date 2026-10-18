@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from 'node:assert/strict';
 import {actors,call,mutate,enc} from './rest/lib.mjs';
 import {recoveryFixture,settled} from './recovery-boundary-journey.mjs';
@@ -24,8 +25,10 @@ export async function openingPermissionJourney(args) {
       userPermissions:[{user:{'@id':user2.profile['@id']},role}],groupPermissions:[]});assert.equal(r.status,200,r.text);
   }
   try {
-    await reader.goto(base+'/dashboard');await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');
-    await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await reader.locator('#kc-login').click();await reader.getByRole('button',{name:'New',exact:true}).waitFor();
+    await withBrowserAuthentication("permission reader sign-in", async () => {
+      await reader.goto(base+'/dashboard');await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');
+      await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await reader.locator('#kc-login').click();await reader.getByRole('button',{name:'New',exact:true}).waitFor();
+    });
     for(const kind of ['template','metadata']) {
       const f=await recoveryFixture(args,kind,'opening permissions');
       if(f.templateId)await grant('/templates/'+enc(f.templateId),'viewer');
@@ -65,7 +68,9 @@ export async function signInPermissionJourney(args) {
     const r=await mutate(user.auth,'PUT',path+'/permissions',{owner:{'@id':user.profile['@id']},userPermissions:[{user:{'@id':user2.profile['@id']},role}],groupPermissions:[]});assert.equal(r.status,200,r.text);
   }
   try {
-    await reader.goto(base+'/dashboard');await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await reader.locator('#kc-login').click();await reader.getByRole('button',{name:'New',exact:true}).waitFor();
+    await withBrowserAuthentication("permission reader sign-in", async () => {
+      await reader.goto(base+'/dashboard');await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await reader.locator('#kc-login').click();await reader.getByRole('button',{name:'New',exact:true}).waitFor();
+    });
     for(const kind of ['template','metadata']) {
       const f=await recoveryFixture(args,kind,'sign-in permission change');if(f.templateId)await grant('/templates/'+enc(f.templateId),'viewer');await grant(f.path,'editor');
       await reader.goto(f.url);await f.ready(reader);await f.input(reader).fill('Retained across sign-in');
@@ -76,9 +81,13 @@ export async function signInPermissionJourney(args) {
       try {await f.save(reader).click();await reader.getByRole('button',{name:'Sign in again',exact:true}).waitFor();}
       finally {await reader.unroute(f.matcher,expire);}
       const refusedWrites=writes;assert.ok(refusedWrites>=1&&refusedWrites<=2,'at most one token refresh retry');
-      await grant(f.path,'viewer');await reader.getByRole('button',{name:'Sign in again',exact:true}).click();
-      await Promise.race([reader.locator('#username').waitFor(),reader.getByRole('button',{name:'Restore draft',exact:true}).waitFor()]);
-      if(await reader.locator('#username').isVisible()) {await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await reader.locator('#kc-login').click();}
+      await grant(f.path,'viewer');
+      await withBrowserAuthentication("permission recovery sign-in", async () => {
+        await reader.getByRole('button',{name:'Sign in again',exact:true}).click();
+        await reader.locator('#username').or(reader.getByRole('button',{name:'Restore draft',exact:true})).first().waitFor();
+        if(await reader.locator('#username').isVisible()) {await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await reader.locator('#kc-login').click();}
+        await reader.getByRole('button',{name:'Restore draft',exact:true}).waitFor();
+      });
       await reader.getByRole('button',{name:'Restore draft',exact:true}).click();
       await reader.waitForFunction(({selector,value})=>JSON.stringify(document.querySelector(selector)?.captureDraft?.())?.includes(value),{selector:f.metadata?'cedar-embeddable-editor':'cedar-embeddable-designer',value:'Retained across sign-in'});assert.ok(!(await f.save(reader).count()) || await f.save(reader).isDisabled());
       const recheck=reader.getByRole('button',{name:'Recheck access',exact:true});await recheck.click();await reader.getByText(/do not currently have permission to update/).waitFor();

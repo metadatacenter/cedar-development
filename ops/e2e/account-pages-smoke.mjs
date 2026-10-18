@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 // Modern account pages; fixtures are isolated and removed, secrets are never logged.
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
@@ -33,29 +34,31 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("dialog", (d) => d.accept());
 async function open(route) {
-  await page.goto(base + route);
-  await page
-    .locator(
-      "#username, cedar-account-shell .account-card, cedar-account-shell [role=alert], #groups-page .groups-card",
-    )
-    .first()
-    .waitFor();
-  if (await page.locator("#username").isVisible()) {
+  return withBrowserAuthentication("account page sign-in", async () => {
+    await page.goto(base + route);
     await page
-      .locator("#username")
-      .fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
+      .locator(
+        "#username, cedar-account-shell .account-card, cedar-account-shell [role=alert], #groups-page .groups-card",
+      )
+      .first()
+      .waitFor();
+    if (await page.locator("#username").isVisible()) {
+      await page
+        .locator("#username")
+        .fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
+      await page
+        .locator("#password")
+        .fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
+      await page.locator("#kc-login").click();
+    }
     await page
-      .locator("#password")
-      .fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
-    await page.locator("#kc-login").click();
-  }
-  await page
-    .getByRole("heading", {
-      name: route.slice(1)[0].toUpperCase() + route.slice(2),
-      exact: true,
-    })
-    .waitFor();
-  assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
+      .getByRole("heading", {
+        name: route.slice(1)[0].toUpperCase() + route.slice(2),
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
+  });
 }
 async function mutation(method, path, action, status) {
   const pending = page.waitForResponse(
@@ -197,15 +200,18 @@ try {
     );
     const viewer = await browser.newContext({ ignoreHTTPSErrors: true });
     const vp = await viewer.newPage();
-    await vp.goto(base + "/groups");
-    await vp.locator("#username").waitFor();
-    await vp
-      .locator("#username")
-      .fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
-    await vp
-      .locator("#password")
-      .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
-    await vp.locator("#kc-login").click();
+    await withBrowserAuthentication("group viewer sign-in", async () => {
+      await vp.goto(base + "/groups");
+      await vp.locator("#username").waitFor();
+      await vp
+        .locator("#username")
+        .fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
+      await vp
+        .locator("#password")
+        .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
+      await vp.locator("#kc-login").click();
+      await vp.getByRole("heading", { name: "Groups", exact: true }).waitFor();
+    });
     const selectAsViewer = async (member) => {
       const ownStatus = await call(user2.auth, "GET", path + "/membership/me", undefined, { base: GROUP_SERVER });
       assert.equal(ownStatus.status, 200);

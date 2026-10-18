@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import {journeyFolder} from "./journey-fixtures.mjs";
 import {editorStatus} from "./metadata-journey-fixtures.mjs";
 import assert from 'node:assert/strict';
@@ -53,14 +54,17 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
       await recovery.waitFor();assert.equal(await save.isDisabled(),true);
     } finally {await page.unroute(matcher,intercept);}
     if(failure==='sign-in') {
-      await page.getByRole('button',{name:'Sign in again',exact:true}).click();
-      // A valid SSO cookie returns directly; a fully expired session asks for credentials.
-      await Promise.race([page.locator('#username').waitFor(),page.getByRole('button',{name:'Restore draft',exact:true}).waitFor()]);
-      if(await page.locator('#username').isVisible()) {
-        await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN||'test1@test.com');
-        await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD||'test1');
-        await page.locator('#kc-login').click();
-      }
+      await withBrowserAuthentication("draft recovery sign-in", async () => {
+        await page.getByRole('button',{name:'Sign in again',exact:true}).click();
+        // A valid SSO cookie returns directly; a fully expired session asks for credentials.
+        await page.locator('#username').or(page.getByRole('button',{name:'Restore draft',exact:true})).first().waitFor();
+        if(await page.locator('#username').isVisible()) {
+          await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN||'test1@test.com');
+          await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD||'test1');
+          await page.locator('#kc-login').click();
+        }
+        await page.getByRole('button',{name:'Restore draft',exact:true}).waitFor();
+      });
     } else await page.reload();
     await page.getByRole('button',{name:'Restore draft',exact:true}).click();
     if(kind==='field')await page.getByRole('tab',{name:'Presentation',exact:true}).click();

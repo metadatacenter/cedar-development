@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { enc, poll } from "./rest/lib.mjs";
@@ -62,21 +63,23 @@ export async function ready(p) {
  * Every dialog on the page is accepted, and the page's uncaught errors are collected.
  */
 export async function signIn(browser, base, login, password) {
-  const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 } });
-  context.setDefaultTimeout(25000);
-  const page = await context.newPage();
-  const errors = [];
-  page.on("dialog", dialog => dialog.accept());
-  page.on("pageerror", error => errors.push(error.message));
-  await page.goto(base + "/dashboard", { waitUntil: "domcontentloaded" });
-  await page.locator("#username, cedar-workspace-page .destinations").first().waitFor({ state: "visible" });
-  if (await page.locator("#username").isVisible()) {
-    await page.locator("#username").fill(login);
-    await page.locator("#password").fill(password);
-    await page.locator("#kc-login").click();
-  }
-  await ready(page);
-  return { context, page, errors };
+  return withBrowserAuthentication("Workspace user sign-in", async () => {
+    const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 } });
+    context.setDefaultTimeout(25000);
+    const page = await context.newPage();
+    const errors = [];
+    page.on("dialog", dialog => dialog.accept());
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(base + "/dashboard", { waitUntil: "domcontentloaded" });
+    await page.locator("#username, cedar-workspace-page .destinations").first().waitFor({ state: "visible" });
+    if (await page.locator("#username").isVisible()) {
+      await page.locator("#username").fill(login);
+      await page.locator("#password").fill(password);
+      await page.locator("#kc-login").click();
+    }
+    await ready(page);
+    return { context, page, errors };
+  });
 }
 
 /** Signs the second test user in to a browser context of its own. */

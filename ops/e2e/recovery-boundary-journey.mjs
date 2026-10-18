@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from 'node:assert/strict';
 import {actors,artifactBody,call,mutate,enc,poll,RESOURCE} from './rest/lib.mjs';
 import {journeyFolder} from './journey-fixtures.mjs';
@@ -86,8 +87,10 @@ export async function tabIsolationJourney(args) {
   const otherContext=await page.context().browser().newContext({ignoreHTTPSErrors:true});
   const other=await otherContext.newPage();other.on('dialog',d=>d.accept());
   try {
-    await other.goto(base+'/dashboard');await other.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');
-    await other.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await other.locator('#kc-login').click();await other.getByRole('button',{name:'New',exact:true}).waitFor();
+    await withBrowserAuthentication("permission reader sign-in", async () => {
+      await other.goto(base+'/dashboard');await other.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');
+      await other.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await other.locator('#kc-login').click();await other.getByRole('button',{name:'New',exact:true}).waitFor();
+    });
     for(const kind of ['template','metadata']) {
       const f=await recoveryFixture(args,kind,'tab isolation');await f.input(page).fill('First tab draft');
       // Take the snapshot once the tab has retained the draft, or it would prove nothing about that draft.

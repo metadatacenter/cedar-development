@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from 'node:assert/strict';
 import {actors,artifactBody,call,enc} from './rest/lib.mjs';
 import {groupAccessJourney} from './group-access-journey.mjs';
@@ -24,10 +25,12 @@ export async function accessRecheckJourney({page,base,designer,user,folderId,nam
   const context=await page.context().browser().newContext({ignoreHTTPSErrors:true,viewport:{width:1500,height:1000}});
   const reader=await context.newPage();reader.on('dialog',dialog=>dialog.accept());
   try {
-    await reader.goto(base+'/dashboard');
-    await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');
-    await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');
-    await reader.locator('#kc-login').click();await reader.getByRole('button',{name:'New',exact:true}).waitFor();
+    await withBrowserAuthentication("permission reader sign-in", async () => {
+      await reader.goto(base+'/dashboard');
+      await reader.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');
+      await reader.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');
+      await reader.locator('#kc-login').click();await reader.getByRole('button',{name:'New',exact:true}).waitFor();
+    });
     await groupAccessJourney({page,reader,base,designer,owner:user,member:user2,templateId,
       instancePath:'/template-instances/'+enc(id),metadataUrl:base+'/instances/edit/'+enc(id),name,write,pass});
   } finally {await context.close();}

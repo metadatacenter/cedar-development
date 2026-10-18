@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import {journeyFolder} from "./journey-fixtures.mjs";
 import {actors, artifactBody, call, enc, mutate} from "./rest/lib.mjs";
@@ -14,17 +15,19 @@ const roleName = role => role ?? "unrelated";
 const uuid = id => id.split("/").at(-1);
 
 async function signIn(page, base) {
-  const context = await page.context().browser().newContext({ignoreHTTPSErrors: true, viewport: {width: 1500, height: 1000}});
-  const reader = await context.newPage();
-  const errors = [];
-  reader.on("dialog", dialog => dialog.accept());
-  reader.on("pageerror", error => errors.push(error.message));
-  await reader.goto(base + "/dashboard");
-  await reader.locator("#username").fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
-  await reader.locator("#password").fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
-  await reader.locator("#kc-login").click();
-  await reader.getByRole("button", {name: "New", exact: true}).waitFor();
-  return {context, reader, errors};
+  return withBrowserAuthentication("draft sharing reader sign-in", async () => {
+    const context = await page.context().browser().newContext({ignoreHTTPSErrors: true, viewport: {width: 1500, height: 1000}});
+    const reader = await context.newPage();
+    const errors = [];
+    reader.on("dialog", dialog => dialog.accept());
+    reader.on("pageerror", error => errors.push(error.message));
+    await reader.goto(base + "/dashboard");
+    await reader.locator("#username").fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
+    await reader.locator("#password").fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
+    await reader.locator("#kc-login").click();
+    await reader.getByRole("button", {name: "New", exact: true}).waitFor();
+    return {context, reader, errors};
+  });
 }
 
 async function fixtures(args, suffix) {

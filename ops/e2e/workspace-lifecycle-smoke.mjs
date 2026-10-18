@@ -1,3 +1,4 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 // Authentication and retired-route coverage. Uses only the local test account.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
@@ -22,22 +23,24 @@ async function login() {
  assert.equal(await page.evaluate(() => typeof window.angular), 'undefined');
 }
 try {
- await page.goto(base + '/messaging');await login();
- assert.equal(new URL(page.url()).pathname, '/dashboard');
- assert.equal(await page.getByRole('link', {name: 'Messaging', exact: true}).count(), 0);
- assert.deepEqual(messaging, []);
- console.log('PASS: retired Messaging route returns to Angular Workspace without messaging requests');
- if(mode==='all'){await page.goto(base+'/retired-workspace-route');await page.locator('.destinations').waitFor();assert.equal(new URL(page.url()).pathname,'/dashboard');assert.deepEqual(legacy,[]);console.log('PASS: unknown routes use Angular without the compatibility shell');}
- if(mode==='logout' || mode==='all') {
-  await page.getByLabel('User menu',{exact:true}).click();
-  await page.getByRole('link',{name:'Logout',exact:true}).click();
-  await page.locator('#username').waitFor();
-  console.log('PASS: Workspace menu logout ends the session');
-  await login();
-  await page.goto(base+'/logout');await page.locator('#username').waitFor();
-  await page.goto(base+'/dashboard');await page.locator('#username').waitFor();
-  await page.goto(base+'/logout');await page.locator('#username').waitFor();
-  console.log('PASS: direct Angular logout and already-signed-out logout return to sign-in without a loop');
- }
- assert.deepEqual(errors, []);
+ await withBrowserAuthentication("Workspace login and logout", async () => {
+   await page.goto(base + '/messaging');await login();
+   assert.equal(new URL(page.url()).pathname, '/dashboard');
+   assert.equal(await page.getByRole('link', {name: 'Messaging', exact: true}).count(), 0);
+   assert.deepEqual(messaging, []);
+   console.log('PASS: retired Messaging route returns to Angular Workspace without messaging requests');
+   if(mode==='all'){await page.goto(base+'/retired-workspace-route');await page.locator('.destinations').waitFor();assert.equal(new URL(page.url()).pathname,'/dashboard');assert.deepEqual(legacy,[]);console.log('PASS: unknown routes use Angular without the compatibility shell');}
+   if(mode==='logout' || mode==='all') {
+    await page.getByLabel('User menu',{exact:true}).click();
+    await page.getByRole('link',{name:'Logout',exact:true}).click();
+    await page.locator('#username').waitFor();
+    console.log('PASS: Workspace menu logout ends the session');
+    await login();
+    await page.goto(base+'/logout');await page.locator('#username').waitFor();
+    await page.goto(base+'/dashboard');await page.locator('#username').waitFor();
+    await page.goto(base+'/logout');await page.locator('#username').waitFor();
+    console.log('PASS: direct Angular logout and already-signed-out logout return to sign-in without a loop');
+   }
+   assert.deepEqual(errors, []);
+ });
 } finally {await browser.close();}

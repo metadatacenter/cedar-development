@@ -67,6 +67,10 @@ jobs:
         working-directory: cedar-development/ops/e2e
         run: npm run test:search-harness
 
+      - name: Check journey scheduling and authentication safeguards without a stack
+        working-directory: cedar-development/ops/e2e
+        run: npm run test:journey-runner
+
       # Ops utilities, REST scheduling and performance harness logic use built-ins, temporary
       # trees and stubbed requests; no npm packages, running stack or sibling servers are needed.
       - name: Run the Node ops, REST scheduler and performance harness suites

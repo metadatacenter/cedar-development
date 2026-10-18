@@ -33,18 +33,31 @@ test("every key and every journey appears once", () => {
   assert.equal(journey("no-such-journey"), undefined);
 });
 
-test("a file that signs the second user in has a flagged journey, and a flagged journey's file signs them in", () => {
-  // A journey that signs the second user in fills the login form with the second user's login, named
-  // outright or by its number, or calls signInSecondUser.
-  const signsIn = file => /CEDAR_FRONTEND_local_USER(?:2|\$\{\w+\})_LOGIN|signInSecondUser\(/
+test("browser authentication is classified, including same-user recovery", () => {
+  const signsIn = file => /withBrowserAuthentication\(|signInSecondUser\(/
     .test(readFileSync(join(here, file), "utf8"));
   const fileOf = new Map(files.flatMap(file => exported(file).map(name => [name, file])));
-  for (const entry of JOURNEYS.filter(entry => entry.signsInAsAnotherUser))
-    assert.ok(signsIn(fileOf.get(entry.run.name)), `${entry.key} is flagged, but its file never signs the second user in`);
+  for (const entry of JOURNEYS.filter(entry => entry.authentication)) {
+    assert.equal(typeof entry.authentication, "string", entry.key);
+    assert.ok(signsIn(fileOf.get(entry.run.name)), `${entry.key} declares authentication but has no browser sign-in helper`);
+  }
   for (const file of files.filter(signsIn))
-    assert.ok(JOURNEYS.some(entry => entry.signsInAsAnotherUser && fileOf.get(entry.run.name) === file),
-      `${file} signs the second user in, but none of its journeys is flagged`);
-  assert.equal(typeof JOURNEYS[0].signsInAsAnotherUser, "boolean");
+    assert.ok(JOURNEYS.some(entry => entry.authentication && fileOf.get(entry.run.name) === file),
+      `${file} authenticates, but none of its journeys declares why`);
+  for (const key of ["draft-recovery", "uncertain-create"])
+    assert.equal(journey(key).authentication, "reauthenticates the first user");
+  for (const key of ["metadata-reconciliation", "uncertain-workspace-create", "uncertain-version"])
+    assert.equal(journey(key).authentication, null, "non-authenticating siblings remain parallel");
+});
+
+test("explicit browser login sites in the parallel tier use the shared authentication helper", () => {
+  const scripts = ["focused-journey-smoke.mjs", "modern-workspace-smoke.mjs", "workspace-journey-fixtures.mjs",
+    "ced-host-smoke.mjs", "account-pages-smoke.mjs", "workspace-lifecycle-smoke.mjs"];
+  for (const file of [...files, ...scripts]) {
+    const source = readFileSync(join(here, file), "utf8");
+    if (source.includes("#kc-login"))
+      assert.match(source, /withBrowserAuthentication\(/, `${file}: wrap explicit sign-in through authenticated readiness`);
+  }
 });
 
 test("whatever a journey makes in the second user's home is named after the root it was given", () => {

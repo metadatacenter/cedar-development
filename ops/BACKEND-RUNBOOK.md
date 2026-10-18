@@ -3445,8 +3445,9 @@ their work from one queue. A unit of that work is one journey or one script. Eac
 own fixtures, browser errors and current step, so a failure in one lane cannot be charged to
 another. The core lane first runs the inline chain of the Workspace journey alone, with
 `modern-workspace-smoke.mjs --chain-only`. The chain's six steps work on one template, and each
-reads what an earlier step made. The identity lane runs every unit that signs the second test user
-in, one at a time. These are the journeys that do so and three scripts: the account groups page, the
+reads what an earlier step made. The identity lane runs every journey that signs in, reauthenticates
+(including the same user), or logs out, one at a time. This includes `draft-recovery` and
+`uncertain-create`. The lane also runs three scripts: the account groups page, the
 lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
 grant to the second user. Sign-ins contend in Keycloak and in the graph writes each one triggers,
 and a logout ends the single sign-on session of its browser context, so no other lane takes an
@@ -3470,8 +3471,21 @@ has made its fixtures, so that its Designer search finds the element it created 
 lanes' fixtures reach the search index. `node split-tier.mjs --plan` prints the queue, its rules,
 each unit's estimate and deadline, and when each lane would finish if every unit took its estimate.
 
-`journey-registry.mjs` lists every journey under its key and records whether it signs the second
-user in, which makes it an identity unit. The full smoke and the focused runner both read it.
+`journey-registry.mjs` lists every journey under its key. A non-null `authentication` reason
+makes it an identity unit. The reason is retained in the execution plan. Both
+runners enforce this declaration at runtime when a journey calls `withBrowserAuthentication`,
+including through shared helpers. An undeclared sign-in fails before its initiating action.
+
+Lane placement alone cannot serialize worker setup, fallback logins or the core chain's second-user
+login. `auth-activity.mjs` therefore coordinates explicit browser authentication and REST actor
+password grants across processes with `$CEDAR_HOME/.cedar/locks/authentication.lock`. Wrap the
+initiating navigation, Sign in again click or logout through authenticated page readiness in
+`withBrowserAuthentication`. Ordinary editing and background token refresh remain parallel. The
+lock waits up to 60 seconds, names the holder on timeout, releases on exceptions and recovers a dead
+owner. Authentication start/end events retain wait duration in the split run's step journal without
+credentials. Nested helpers can reuse a held lock. Separate async flows in one process still wait.
+`npm run test:journey-runner` exercises cross-process exclusion, crash recovery, classification,
+scheduling and scenario inventory without a browser or stack, and runs in CI on Linux and macOS.
 `npm run test:journey-harness` runs before the tier. It fails when a journey file exports a journey
 the registry does not list, and it drives `split-runner.mjs`, which carries out the plan, through
 the queue, the deadlines, the lock, a kill and a signal with stand-in units.

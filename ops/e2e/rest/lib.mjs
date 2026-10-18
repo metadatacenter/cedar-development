@@ -1,3 +1,4 @@
+import { withAuthentication } from "../auth-activity.mjs";
 // Shared harness for the REST-level end-to-end suites.
 //
 // The suites drive the real stack over HTTP with no browser. Everything they need is here:
@@ -163,22 +164,24 @@ async function profile(auth) {
 
 /** Both test users, authenticated, with their profiles. */
 export async function actors() {
-  const u1 = await token(env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com',
-      env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1');
-  const u2 = await token(env.CEDAR_FRONTEND_local_USER2_LOGIN ?? 'test2@test.com',
-      env.CEDAR_FRONTEND_local_USER2_PASSWORD ?? 'test2');
-  const out = {
-    user1: { auth: u1, profile: await profile(u1) },
-    user2: { auth: u2, profile: await profile(u2) },
-  };
-  // The administrator, by API key rather than password: the CEDAR admin user is not a Keycloak login
-  // with a password in the profile, but its key is. Some surfaces are admin-only — the category tree
-  // is writable only by someone with write on the root — so without this they cannot be exercised
-  // at all. The suites that need it fail when it is absent, so a run without it cannot pass with
-  // those surfaces unverified.
-  const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
-  if (adminKey) out.admin = { auth: adminKey };
-  return out;
+  return withAuthentication("REST test actor authentication", async () => {
+    const u1 = await token(env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com',
+        env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1');
+    const u2 = await token(env.CEDAR_FRONTEND_local_USER2_LOGIN ?? 'test2@test.com',
+        env.CEDAR_FRONTEND_local_USER2_PASSWORD ?? 'test2');
+    const out = {
+      user1: { auth: u1, profile: await profile(u1) },
+      user2: { auth: u2, profile: await profile(u2) },
+    };
+    // The administrator, by API key rather than password: the CEDAR admin user is not a Keycloak login
+    // with a password in the profile, but its key is. Some surfaces are admin-only — the category tree
+    // is writable only by someone with write on the root — so without this they cannot be exercised
+    // at all. The suites that need it fail when it is absent, so a run without it cannot pass with
+    // those surfaces unverified.
+    const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
+    if (adminKey) out.admin = { auth: adminKey };
+    return out;
+  });
 }
 
 // ── requests ────────────────────────────────────────────────────────────────

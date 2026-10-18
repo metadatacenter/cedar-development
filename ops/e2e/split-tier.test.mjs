@@ -119,7 +119,7 @@ function workspace() {
 function standInPlan({journeys, scripts = [], durations = {}, lanes = 2, deadline, chainMs = 100}) {
   const layout = plan({
     lanes,
-    journeys: journeys.map(([key, identity]) => ({key, signsInAsAnotherUser: Boolean(identity)})),
+    journeys: journeys.map(([key, identity]) => ({key, authentication: Boolean(identity)})),
     scripts: scripts.map(([name, mode, ms, identity]) => ({name, args: ["script.mjs", mode, String(ms)], ...(identity ? {identity: "stand-in"} : {})})),
     durations: new Map(Object.entries(durations)),
     deadline: deadline ?? {factor: 3, marginSeconds: 2, floorSeconds: 2, capSeconds: 20},
@@ -360,7 +360,7 @@ process.exitCode = outcome.exitCode;
 test("a signal stops a sequential run, a killed script is swept, and the lock is released", async () => {
   const run = workspace();
   const {code, report, sweeps} = await interrupt(run, `
-layout = plan({lanes: 1, journeys: [{key: "x-pass-1", signsInAsAnotherUser: false}], stamp: 1,
+layout = plan({lanes: 1, journeys: [{key: "x-pass-1", authentication: false}], stamp: 1,
   scripts: [{name: "long", args: ["script.mjs", "hang", "0"]}], durations: new Map([["long", 5], ["modern-workspace", 0.1]]),
   deadline: {factor: 3, marginSeconds: 2, floorSeconds: 2, capSeconds: 60}});
 layout.lanes[0].processes[0].args = ["script.mjs", "pass", "10"];`,
@@ -376,7 +376,7 @@ layout.lanes[0].processes[0].args = ["script.mjs", "pass", "10"];`,
 test("a signal reaches a journey runner, which ends its journey and removes its root itself", async () => {
   const run = workspace();
   const {code, report, sweeps} = await interrupt(run, `
-layout = plan({lanes: 2, journeys: [{key: "a-pass-4000", signsInAsAnotherUser: false}], scripts: [], stamp: 1,
+layout = plan({lanes: 2, journeys: [{key: "a-pass-4000", authentication: false}], scripts: [], stamp: 1,
   durations: new Map([["a-pass-4000", 4]]), deadline: {factor: 3, marginSeconds: 2, floorSeconds: 2, capSeconds: 60}});
 layout.chain.args = ["script.mjs", "chain", "10"];`,
   log => log.some(entry => entry.event === "start"));

@@ -5,7 +5,8 @@
   "type": "module",
   "description": "End-to-end smoke tests for CEDAR authentication, conditional mutations, artifact authoring, population, serialization, and OpenView",
   "scripts": {
-    "test:journey-harness": "node --test journey-fixtures.test.mjs journey-registry.test.mjs split-lanes.test.mjs split-tier.test.mjs journey-contract.test.mjs journey-browser.test.mjs",
+    "test:journey-runner": "node --test auth-activity.test.mjs journey-fixtures.test.mjs journey-registry.test.mjs split-lanes.test.mjs split-tier.test.mjs journey-contract.test.mjs",
+    "test:journey-harness": "npm run test:journey-runner && node --test journey-browser.test.mjs",
     "presmoke:journey": "npm run test:journey-harness",
     "smoke:journey": "node focused-journey-smoke.mjs",
     "smoke": "node login-smoke-test.mjs && node metadata-first-save-smoke.mjs",
