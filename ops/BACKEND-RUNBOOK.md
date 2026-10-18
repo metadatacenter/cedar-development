@@ -4451,8 +4451,11 @@ cedarcli check snapshots
 ```
 
 It asks Nexus for each publishing repository's recorded timestamp and GitHub for the time of the
-head commit on `develop`, and reports a snapshot that is older than its source, or absent. It exits
-non-zero on either. An unreadable Nexus or GitHub is reported and does not fail the check, because
+newest commit on `develop` that can change what the repository publishes, and reports a snapshot
+that is older than that commit, or absent. A commit that changes only CI configuration under
+`.github/`, or Markdown outside the source tree, cannot change an artifact and is passed over.
+Without that, `cedar-project`, whose CI verifies the aggregator without publishing it, would read as
+behind after every such commit. It exits non-zero on a snapshot that is behind or absent. An unreadable Nexus or GitHub is reported and does not fail the check, because
 failing there would blame the estate's source for a fault in the network reaching it. The grace
 period is two hours, so a build still running is not a finding; `--grace-hours` moves it.
 
