@@ -166,6 +166,18 @@
           "dependency": "cedar-model-typescript-library",
           "manifest": "package.json",
           "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-embeddable-term-picker",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-template-editor",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
         }
       ],
       "followsHead": true
@@ -1031,7 +1043,9 @@
           "./browser/node_modules/.bin/playwright",
           "install",
           "--with-deps",
-          "chromium"
+          "chromium",
+          "firefox",
+          "webkit"
         ]
       ],
       "verify": [

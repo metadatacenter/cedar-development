@@ -3828,3 +3828,32 @@ with its own checkbox, and that the PDF field/widget counts match the inventory
 entry count with every checkbox unchecked. Render and visually inspect the final
 page for clipping, overlaps, orphan headings and legibility. Deliver the full PDF;
 a Markdown hierarchy or an abbreviated checklist does not satisfy this request.
+
+
+## Shared text policies in browser consumers
+
+CEE/CEF and CED import `TextPolicy`, `IdentifierPolicy` and display helpers from the main
+model package they already use, so a second policy bundle is not included. CETP imports the
+lightweight `cedar-model-typescript-library/policy` entry. The legacy template editor copies
+`policy.umd.js` from its pinned dependency with `gulp copy:policy` and exposes it as the AMD
+module `CedarValidationPolicy`; its older full model bundle remains a separate consumer.
+The reactor inventories all of these model consumers in `ops/frontend-train.json`.
+
+The position-specific rules and corpus update procedure are in the backend runbook's
+“Shared text and identifier contract”. Keep display grapheme counts separate from JSON Schema
+code-point lengths. Searching and highlighting may derive folded text, while selection,
+attribute keys, labels and identifiers retain the original strings. Manual input padding is
+an explicit ASCII-only affordance; it is not a reader or writer normalization step.
+
+CETP's `npm run test:unicode` loads the actual packaged UMD policies in Chromium, Firefox
+and WebKit, under English and Turkish browser locales. Its normal CI gate includes this
+check and installs all three engines. The model package gate also checks CJS, ESM, UMD and
+TypeScript consumption of the lightweight entry and caps that bundle at 20 KB.
+
+The 2026-10-18 Unicode adoption passed the full frontend reactor, consumer demos, local
+redeployment, served-component verification and whole-stack smoke (source digest
+`8c87abdf5e294c08`). REST smoke passed 2,076 checks with eight declared skips; the search tier
+passed its implemented cases with its declared gaps. CED's browser gate ran 747 cases and
+CEE's visual gate passed 1,035 with 104 existing skips. An independent rendered review covered
+the fresh legacy designer, fresh CED, and ordinary CED editing; existing layout and controls
+were retained. This evidence covers text-policy adoption, not later parser or numeric changes.

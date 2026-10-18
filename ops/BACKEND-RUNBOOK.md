@@ -6701,3 +6701,38 @@ Hungarian messages. Raw server messages are not displayed in this dialog.
 Verification: `cedarcli test e2e` includes the recursive-delete probe in its modern Workspace tier.
 For the focused real-stack check, run `npm run smoke:folder-delete` from `ops/e2e` with the native
 profile sourced. It creates disposable resources as both test users and removes only those fixtures.
+## Shared text and identifier contract
+
+`cedar-model-validation-library` owns the pure Java `TextPolicy` and `IdentifierPolicy`
+APIs. The artifact library delegates to them. The TypeScript model library exposes the
+same text rules through its small `cedar-model-typescript-library/policy` entry point;
+the main package retains its existing exports and `JavaStrings` compatibility API.
+The policy package has CommonJS, ESM and UMD builds; its browser global is
+`CedarValidationPolicy`.
+
+The contract is position-specific:
+
+| Position or operation | Contract |
+| --- | --- |
+| Blank child/attribute names and pinned terminology version IDs | The explicit Java 17 whitespace set in `TextPolicy`. U+001C–U+001F are blank; U+00A0, U+2007, U+202F and U+FEFF are not. This is a presence check, not proof that a version exists. |
+| Artifact and terminology identifiers | Absolute IRIs in the spelling Java's `URI` can represent; reject malformed escapes, forbidden Unicode, unpaired surrogates and repeated fragment delimiters. |
+| Field-value IRIs | RFC 3987 character rules through `IriReference`; keep the original RDF spelling, including permitted Unicode spaces. Percent encoding for transport must not replace stored identity. Relative-reference compatibility remains position-specific. |
+| HTTP(S) addresses entered in editors | In addition to IRI syntax, the existing authoring contract requires an authority/host. URL parsing checks that condition only; its serialization is never stored. |
+| Schema string length | Unicode code points. An emoji outside the BMP counts as one; `e` followed by a combining accent counts as two. |
+| Display abbreviation and highlight boundaries | Graphemes, through `DisplayText`. Search keys use locale-independent lowercase and NFC on derived text; stored labels and keys keep their spelling. |
+| Manual IRI input padding | The explicit authoring affordance removes ASCII space/tab/CR/LF around typed input. Readers and writers never apply it. Unicode characters such as U+FEFF are not discarded. |
+
+Do not replace these with a general `trim`, `\s`, Unicode `White_Space`, locale-sensitive
+case conversion or blanket normalization. Different operations have different contracts.
+In particular, NFC and NFD object keys are distinct and must not merge; selection and identity
+continue to use the original strings even when a search groups equivalent displayed labels.
+
+`src/test/resources/concordance/text-policy.json` in the validation library is the normative
+corpus. Java tests also check every Unicode code point against the pinned Java 17 predicate.
+The TypeScript repository vendors the same corpus with its SHA-256 and source commit, and
+its artifact concordance matrix exercises the name boundaries at every supported position.
+After committing the Java changes, run `npm run sync:concordance` in the TypeScript repository,
+then `npm run test:concordance`. The sync refuses dirty Java source; do not change expected
+verdicts to match an observed regression. Model acceptance and preservation are separate
+assertions: accepted attribute names must remain both in the attribute list and beside their
+values after JSON and YAML round trips.
