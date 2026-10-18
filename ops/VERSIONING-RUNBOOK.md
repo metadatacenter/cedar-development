@@ -15,6 +15,32 @@ Sibling runbooks:
 
 ---
 
+## Exact identifier membership verification
+
+`POST /bioportal/validate-term` accepts `{ "iri": "…", "valueConstraints": { … } }` using the
+field's complete `_valueConstraints`, including source identity, release pins, ontology/class/branch/
+value-set constraints and actions. Do not submit a label query or a reduced list of acronyms. The
+HTTP 200 response carries `status`, `code`, `message` and the unchanged `iri`; malformed requests
+return 400. Verification status is `passed`, `failed`, `notChecked` or `unavailable`.
+
+The verifier checks exact identifiers against the declared source/release and hierarchy depth. It
+applies the same delete/move membership effects as integrated search. A pinned release never falls
+back to the current remote release. All declared sources must be checkable for a positive verified
+result; partial coverage remains unavailable. With no membership constraint, existence has not been
+checked. Bounded remote hierarchy traversal also reports unavailable when it cannot finish. These
+facts are independent of save policy: failed instance membership is quality, while a known failed
+template default cannot be saved.
+
+Remote replies must establish both the exact identifier and requested ontology identity. Provisional
+fallback cannot substitute a term from another ontology. A regular lookup outage followed by a
+provisional 404 remains unavailable; only a wholly definitive absence can fail membership. Malformed
+class or hierarchy responses are unavailable evidence, not empty result sets.
+
+Candidate search is not verification evidence. The local SQLite search path currently returns the
+whole subtree even when a finite `maxDepth` is requested; its candidates can therefore include a
+term that exact membership correctly rejects. The verifier enforces the declared depth independently.
+Use a genuinely permitted term when a journey expects all quality findings to clear.
+
 ## The Store
 
 The store is `$CEDAR_HOME/cedar-term/prod`. Three parts of it answer requests:

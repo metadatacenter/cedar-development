@@ -20,14 +20,13 @@ export async function configurationDraftJourney(args) {
       const metadata = kind === "metadata";
       let f;
       if (metadata) {
-        const field = numericField("Amount");
-        field._valueConstraints.decimalPlace = 1;
+        const field = numericField("Amount", "xsd:int");
         f = await metadataFixture(
           args,
           "unfinished config " + fault,
           { Amount: field, Keep: artifactBody("field", "Keep") },
           {
-            Amount: { "@value": "1.2", "@type": "xsd:decimal" },
+            Amount: { "@value": "1", "@type": "xsd:int" },
             Keep: { "@value": "Preserved" },
           },
         );
@@ -48,7 +47,9 @@ export async function configurationDraftJourney(args) {
       // The metadata editor retains its draft in the step that marks the page Modified, so the
       // snapshot below waits for that status.
       if (metadata) {
-        await amount.fill("1.234");
+        // Fractional input cannot represent an xsd:int. Unlike decimal precision or bounds,
+        // this is a structural draft: saving remains blocked until it becomes a typed value.
+        await amount.fill("1.2");
         await status(/^Modified$/).waitFor();
       } else {
         settings = await fieldConfiguration(page);
@@ -63,11 +64,29 @@ export async function configurationDraftJourney(args) {
       }
       const save = page.locator(metadata ? "#button-save-metadata" : "#save");
       assert.equal(await save.isDisabled(), true);
+      const retainedDraft = metadata
+        ? await page.evaluate(() => {
+            const editor = document.querySelector("cedar-embeddable-editor");
+            return { draft: editor.captureDraft(), report: editor.dataQualityReport };
+          })
+        : null;
+      if (metadata) {
+        assert.equal(retainedDraft.report.canSave, false);
+        assert.equal(retainedDraft.report.structurallyValid, false);
+        assert.ok(retainedDraft.report.problems.some(problem =>
+          problem.code === "numberType" && problem.category === "structural" &&
+          problem.path.join("/") === "Amount"));
+        // Numeric widgets retain the exact lexical input in draft metadata; the separate drafts
+        // list is reserved for unfinished composite controls. Neither representation is saveable.
+        assert.deepEqual(retainedDraft.draft.metadata.Amount, { "@value": "1.2", "@type": "xsd:int" });
+        assert.deepEqual(retainedDraft.draft.metadata.Keep, before.Keep);
+      }
       const retained = await page.evaluate(() =>
         Object.entries(sessionStorage).filter(([key]) =>
           key.startsWith("cedar."),
         ),
       );
+      if (metadata) assert.ok(retained.some(([, value]) => value.includes("1.2")), "retain the raw fractional integer draft");
       const matcher = (url) =>
         url.pathname ===
         (metadata
@@ -125,7 +144,14 @@ export async function configurationDraftJourney(args) {
       await page
         .getByRole("button", { name: "Restore draft", exact: true })
         .click();
-      if (metadata) await settled(amount, "1.234");
+      if (metadata) {
+        await settled(amount, "1.2");
+        const restored = await page.evaluate(() =>
+          document.querySelector("cedar-embeddable-editor").captureDraft());
+        assert.deepEqual(restored.drafts, retainedDraft.draft.drafts);
+        assert.deepEqual(restored.metadata.Amount, retainedDraft.draft.metadata.Amount);
+        assert.deepEqual(restored.metadata.Keep, before.Keep);
+      }
       else {
         settings = await fieldConfiguration(page);
         await settled(settings.getByLabel("Minimum", { exact: true }), "8");
@@ -137,7 +163,7 @@ export async function configurationDraftJourney(args) {
       }
       assert.equal(await save.isDisabled(), true);
       assert.deepEqual(await read(), before);
-      if (metadata) await amount.fill("1.3");
+      if (metadata) await amount.fill("2");
       else await settings.getByLabel("Minimum", { exact: true }).fill("2");
       await write(
         page,
@@ -154,7 +180,7 @@ export async function configurationDraftJourney(args) {
       const after = await read();
       if (metadata) {
         const expected = structuredClone(before);
-        expected.Amount["@value"] = "1.3";
+        expected.Amount["@value"] = "2";
         assert.deepEqual(comparable(after), comparable(expected));
       } else {
         assert.equal(after.properties.Notes.minItems, 2);
@@ -163,7 +189,7 @@ export async function configurationDraftJourney(args) {
       }
       await page.reload();
       await status(/^Unmodified$/).waitFor();
-      if (metadata) await settled(amount, "1.3");
+      if (metadata) await settled(amount, "2");
       else {
         settings = await fieldConfiguration(page);
         assert.equal(

@@ -14,6 +14,9 @@ import { diseaseTemplate, editorStatus, offeredTerm } from "./metadata-journey-f
 export async function incompleteMetadataJourney({page, base, user, folderId, name, created, write, pass}) {
   folderId = await journeyFolder({user, folderId, name, created}, "incomplete metadata");
   const template = diseaseTemplate(name + " required template");
+  // Influenza is a descendant beyond the root's immediate children. This journey tests
+  // completeness, so allow the whole disease branch and verify the offered identifier.
+  template.properties.Disease._valueConstraints.branches[0].maxDepth = 0;
   template.properties.Notes._valueConstraints = {
     ...template.properties.Notes._valueConstraints, requiredValue: true,
   };
@@ -54,6 +57,8 @@ export async function incompleteMetadataJourney({page, base, user, folderId, nam
   assert.equal(await notes.inputValue(), "");
   assert.match(await disease.inputValue(), /influenza/i);
   await notes.fill("Completed after reopening");
+  await page.waitForFunction(() => document.querySelector("cedar-embeddable-editor")
+    ?.dataQualityReport?.semanticChecks?.some(check => check.path.join("/") === "Disease" && check.status === "passed"));
   await warnings.waitFor({state: "detached"});
   await write(page, "PUT", "/template-instances/",
     () => page.locator("#button-save-metadata").click(), 200, true);

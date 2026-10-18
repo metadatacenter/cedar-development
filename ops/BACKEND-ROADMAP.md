@@ -35,13 +35,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   smoke. Done when every accepted write passes the applicable schema validation and the artifact
   library's read-and-render checks without the checks changing its stored content.
 
-  **Complete value-constraint enforcement across clients.** Audit the remaining text-length,
-  numeric datatype/precision, choice and terminology constraints against the server and Editor contracts,
-  including changes made by external clients while metadata is open. Keep deliberately saveable
-  incomplete metadata distinct from constraint violations. Measure affected stored data before
-  tightening further acceptance rules and return actionable field locations for new refusals.
-  Existing JSON Schema validation alone does not establish these CEDAR value-constraint contracts.
-
 - **2. Give the public npm releases a CLI route.** Four packages publish outside the platform
   release: `cedar-model-typescript-library`, `cedar-embeddable-editor` (CEE),
   `cedar-embeddable-designer` (CED) and `cedar-embeddable-term-picker` (CETP). The model library and

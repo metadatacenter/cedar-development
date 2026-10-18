@@ -1607,8 +1607,11 @@ npm run test:concordance
 ```
 
 Review the generated fixture diff when updating it. TypeScript CI needs no sibling checkout or JVM;
-`sync:concordance` rejects uncommitted Java source/test changes so its revision identifies the actual
-fixture producer. Ordinary Java tests fail when their generated fixture is stale.
+`sync:concordance` rejects uncommitted Java source/test changes by default so its revision identifies
+the actual fixture producer. For an explicitly uncommitted development review, use
+`node scripts/sync-concordance.mjs --matrix <name> --working-tree`: the lock records the base commit,
+`javaWorkingTree: true`, a hash of all Java source/test bytes, and the fixture hash. It does not claim
+those bytes belong to the base commit. Refresh that lock after further Java edits. Ordinary Java tests fail when their generated fixture is stale.
 
 The matrix compares parsed YAML structure (independent of formatting). For standalone attribute-value
 fields it compares the field definition inside Java's array wrapper. It pins one precise reader
@@ -2784,42 +2787,65 @@ wire compatibility and does not bypass validation or storage checks. If a privil
 needed again, introduce a separately authorized internal operation rather than reviving the public
 query switch.
 
-Instance writes enforce the current template's `_valueConstraints.regex` on nonempty textual
-`@value` answers, including repeated fields and nested/repeated elements. The constraint lives
-outside JSON Schema's `pattern` keyword and is checked explicitly by the shared validation
-library. Matching uses JavaScript RegExp semantics with the same `^(?:pattern)$` wrapper and no
-flags as Editor; Rhino is a managed Java dependency, with request-local expressions and no
-execution of template-supplied JavaScript. Each match has a one-million-instruction work budget;
-excessive backtracking returns a field finding asking the author to simplify the regex. Null and
-empty answers retain the existing incomplete metadata policy; malformed literal shapes still fail
-structural validation. Invalid regex syntax
-is refused on schema writes and reported safely if encountered in an older stored schema.
+Template-instance saves enforce structure against the current template. A missing required property,
+wrong object/array shape, malformed IRI, or malformed populated numeric/temporal value is refused.
+An unanswered literal retains `@value: null` and any required datatype property; omitting that
+property is a structural defect. A well-formed answer outside a declared range, pattern, precision,
+choice set or terminology constraint is saveable and appears in the quality report. Required-answer
+and occurrence shortfalls are completeness findings. Existing answers are preserved without coercion.
 
-A stale Editor cannot bypass a newly added regex: the artifact service reads the current template
-snapshot during validation and checks that template revision when storing the instance. A refusal
-returns HTTP 400 with the affected JSON Pointer (for example `/Visits/1/Code/@value`), leaving the
-stored content and instance ETag unchanged. The user can correct the retained answer and retry
-with the same instance ETag. Neither `skip_validation` nor verbatim writes bypass this rule.
-The live `current-template-constraint` journey covers a REST template edit while Editor is open,
-real rejection, navigation to the answer, correction and reopening. This does not migrate existing
-stored values or establish enforcement of every other `_valueConstraints` property.
+`ValidationFinding` and `ValidationPolicy` in `cedar-model-validation-library` define four categories:
+`structural`, `constraint`, `completeness`, and `verification`. Findings carry stable codes and RFC 6901
+paths, including occurrence indexes and the actual `@value`/`@id` member. `FieldValuePolicy` supplies
+local rules; the artifact library delegates constructor/default checks to it. Template definitions
+must satisfy their constraints, including default values, datatype bounds, precision and temporal
+settings. Invalid template defaults block schema saves even though the corresponding well-formed
+instance answer would be saveable.
 
-Numeric fields likewise enforce the current template's inclusive `_valueConstraints.minValue`
-and `maxValue` on nonempty string-valued answers. Comparisons use exact decimal arithmetic,
-including negative values and exponent notation, without rounding an answer to a binary double.
-Repeated fields and nested/repeated elements retain their precise JSON Pointer locations in
-refusals. Null and empty answers remain saveable; malformed literal/container shapes still fail
-structural validation. A bounded field containing nonnumeric text or an invalid stored range
-returns a finding instead of silently skipping the bounds. Other field types are unaffected.
+Reports retain `validates`, `errors` and `warnings` for existing clients and add `canSave`, `isValid`
+and `findings`. `canSave` applies the artifact's save policy; `isValid` also reflects quality and
+unverified applicable checks. Never use full validity as the instance save gate. The JSON/YAML create,
+update, normalization and verbatim paths use the same facts. `skip_validation` remains ineffective.
+The current-template revision check and ETag concurrency behavior remain in force. A structurally
+refused update leaves both stored content and ETag unchanged.
 
-`NumericRangeValidationTest` covers boundaries, precision, incomplete answers and nested paths.
-`CurrentTemplateConstraintTest` verifies current-template JSON/YAML writes, rejected creates,
-skip-validation and privileged verbatim requests, unchanged stored content/ETags after refusal,
-and correction with the original instance ETag. The REST `validation` suite exercises the
-deployed resource-to-artifact path with repeated numeric answers and both exact boundaries.
-Existing stored answers are not migrated: a later write must satisfy the current bounds.
-This does not establish numeric datatype or decimal-place enforcement, or browser recovery
-from numeric findings; those remain separate contracts.
+YAML instance completion reads a private template copy without defaults: completion supplies empty
+slots, never default answers. This lets an instance of a legacy template with an inconsistent unused
+default follow the same save policy as JSON. The stored template remains unchanged, all other
+constraints remain in the copy, and the completed instance is validated against the original template.
+Template authoring and template saves still enforce default consistency.
+
+Regex matching uses the existing ECMAScript engine, full-value wrapper and work budget documented
+below. A pattern mismatch is a constraint finding; an invalid template pattern is structural;
+pending or unavailable evaluation is explicit verification state. Numeric comparisons use exact
+arithmetic. Instance numeric lexical rules retain the editor's non-exponent spelling; default and
+bound inputs use the shared broader decimal grammar. Temporal empty answers are not populated typed
+values; their structural properties are still required where declared.
+
+Artifact-server verification calls `POST /bioportal/validate-term` on terminology with the exact IRI
+and complete `_valueConstraints`, or the authority-specific bridge `POST /ext-auth/{authority}/verify`.
+Wire field types map to existing bridge routes: `ext-pubmed` → `pmid`, `ext-pfas` → `comp-tox`,
+`ext-nih-grant-id` → `nih-grant`; ORCID, ROR, RRID and DOI retain their names. Calls forward caller
+authorization and use request-local caching keyed by endpoint and the complete request, a twenty-five-second
+per-call timeout, thirty-second request budget and 256 unique checks. There is no persistent success cache.
+
+Semantic facts distinguish `passed`, `failed`, `notChecked`, and `unavailable`. An outage, missing
+pinned release, partial source coverage or exhausted lookup budget cannot prove invalid membership;
+an omitted check cannot prove success. Known failed default membership blocks template saves; failed
+instance membership is a quality finding. Unverified defaults permit saving with a verification
+warning, consistently for interactive selection, loaded/imported definitions and server writes.
+Their quality verdict remains invalid until verification succeeds. DOI verification uses the existing
+DataCite service, so an absent DataCite record is unavailable coverage rather than proof that a DOI
+registered elsewhere does not exist.
+
+The normative `instance-validation.json`, `configuration-validation.json` and `semantic-verification.json` corpora in the Java
+validation library are vendored into TypeScript with source/hash locks. They check categories, codes,
+paths, accepted endpoint-specific semantic status/code pairs and the two save policies. An unsupported
+or contradictory service response becomes unavailable verification, never a structural defect in an
+otherwise well-formed answer. Passed evidence is not a quality problem. `CurrentTemplateConstraintTest` and the REST `validation` suite
+exercise saveable quality violations in JSON/YAML, invalid defaults, structural refusals, unchanged
+content/ETags and corrections. The current-template and numeric browser journeys verify the existing
+warning presentation and preservation after saving and reopening.
 
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
@@ -3679,7 +3705,7 @@ the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`,
 `contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
 `inclusion`, `negotiation`, `openness`, `pagination`, `search`, `sharing`, `validation` and
 `versioning`. The committed
-`rest/expected-checks.json` inventory holds 2,084 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 2,125 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
@@ -6732,8 +6758,8 @@ corpus. Java tests also check every Unicode code point against the pinned Java 1
 The TypeScript repository vendors the same corpus with its SHA-256 and source commit, and
 its artifact concordance matrix exercises the name boundaries at every supported position.
 After committing the Java changes, run `npm run sync:concordance` in the TypeScript repository,
-then `npm run test:concordance`. The sync refuses dirty Java source; do not change expected
-verdicts to match an observed regression. Model acceptance and preservation are separate
+then `npm run test:concordance`. The default sync refuses dirty Java source; the explicit `--working-tree` review mode described
+above records uncommitted source provenance. Do not change expected verdicts to match an observed regression. Model acceptance and preservation are separate
 assertions: accepted attribute names must remain both in the attribute list and beside their
 values after JSON and YAML round trips.
 

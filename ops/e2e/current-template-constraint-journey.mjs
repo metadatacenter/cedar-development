@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import {artifactBody, call, mutate, enc} from "./rest/lib.mjs";
-import {focused, journeyFolder} from "./journey-fixtures.mjs";
+import {journeyFolder} from "./journey-fixtures.mjs";
 import {editorStatus} from "./metadata-journey-fixtures.mjs";
 
 // No response injection: another REST client tightens the template while Editor
-// holds its earlier projection. The real server must reject and locate the value.
+// holds its earlier projection. The real server saves the value and reports its quality finding.
 //
 // The journey acts as the runner's first test user only and never signs in as another account.
 export async function currentTemplateConstraintJourney({page, base, user, folderId, name, created, write, pass}) {
@@ -48,39 +48,47 @@ export async function currentTemplateConstraintJourney({page, base, user, folder
   const tightened = await mutate(user.auth, "PUT", "/templates/" + enc(templateId), updatedTemplate);
   assert.equal(tightened.status, 200, tightened.text);
 
+  const draft = structuredClone(before.body);
+  draft.Code["@value"] = "lowercase";
+  const report = await call(user.auth, "POST", "/command/validate?resource_type=instance", draft);
+  assert.equal(report.status, 200, report.text);
+  assert.equal(report.body.canSave, true); assert.equal(report.body.isValid, false); assert.equal(report.body.validates, "true");
+  assert.ok(report.body.warnings.some(error => error.location === "/Code/@value"), report.text);
   const save = page.locator("#button-save-metadata");
-  const rejection = await write(page, "PUT", "/template-instances/", () => save.click(), 400, true);
-  assert.ok(rejection.objects.validationReport.errors.some(error =>
-    error.location === "/Code/@value" && error.message === "Does not match ^[A-Z]+$."), JSON.stringify(rejection));
-  const refused = await read("template-instances", instanceId);
-  assert.deepEqual(refused.body, before.body);
-  assert.equal(refused.headers.get("etag"), before.headers.get("etag"));
-  // The editor lists the server's findings once it has handled the refusal.
-  const issues = page.getByLabel("Metadata errors", {exact: true});
-  await issues.waitFor();
-  assert.equal(await code.inputValue(), "lowercase");
-  assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Preserved answer");
-  assert.equal(await save.isDisabled(), true);
-  await issues.locator("summary").click();
-  await issues.getByRole("button", {name: /Code.*Does not match/}).click();
-  await focused(code, "regex finding did not focus Code");
-  await code.fill("CORRECTED");
-  await issues.waitFor({state: "detached"});
   await write(page, "PUT", "/template-instances/", () => save.click(), 200, true);
   await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
-  const after = (await read("template-instances", instanceId)).body;
-  const expected = structuredClone(before.body);
-  expected.Code["@value"] = "CORRECTED";
-  for (const value of [after, expected]) { delete value["pav:lastUpdatedOn"]; delete value["oslc:modifiedBy"]; }
-  assert.deepEqual(after, expected);
-  await page.reload();
-  await editorStatus(page, /^Unmodified$/).waitFor();
-  await code.waitFor();
+  const saved = await read("template-instances", instanceId);
+  const content = value => {
+    const copy = structuredClone(value); delete copy["pav:lastUpdatedOn"]; delete copy["oslc:modifiedBy"]; return copy;
+  };
+  assert.deepEqual(content(saved.body), content(draft));
+  assert.notEqual(saved.headers.get("etag"), before.headers.get("etag"));
+  await page.reload(); await editorStatus(page, /^Unmodified$/).waitFor();
+  const issues = page.getByLabel("Metadata warnings", {exact: true});
+  await issues.waitFor(); await issues.locator("summary").click();
+  await issues.locator("li").filter({hasText: /Code.*(match|pattern)/i}).waitFor();
+  assert.equal(await page.getByLabel("Metadata errors", {exact: true}).count(), 0);
+  assert.equal(await code.inputValue(), "lowercase");
+  assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Preserved answer");
+  await page.waitForFunction(() => {
+    const report = document.querySelector("cedar-embeddable-editor")?.dataQualityReport;
+    return report?.canSave === true && report?.isValid === false;
+  });
+  // A fresh editor holding the tightened template also permits a well-formed nonmatching answer.
+  await code.fill("MixedCase");
+  await editorStatus(page, /^Modified$/).waitFor();
+  await write(page, "PUT", "/template-instances/", () => save.click(), 200, true);
+  await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
+  draft.Code["@value"] = "MixedCase";
+  assert.deepEqual(content((await read("template-instances", instanceId)).body), content(draft));
+  await code.fill("CORRECTED"); await issues.waitFor({state: "hidden"});
+  await write(page, "PUT", "/template-instances/", () => save.click(), 200, true);
+  await page.locator(".metadata-toolbar [role=status]").filter({hasText: /^Saved$/}).waitFor();
+  draft.Code["@value"] = "CORRECTED";
+  assert.deepEqual(content((await read("template-instances", instanceId)).body), content(draft));
+  await page.reload(); await editorStatus(page, /^Unmodified$/).waitFor(); await code.waitFor();
   assert.equal(await code.inputValue(), "CORRECTED");
   assert.equal(await cee.getByLabel("Keep", {exact: true}).inputValue(), "Preserved answer");
-  await code.fill("lowercase");
-  await page.waitForFunction(() => document.querySelector("#button-save-metadata")?.disabled === true);
-  assert.equal((await read("template-instances", instanceId)).body.Code["@value"], "CORRECTED");
-  await code.fill("CORRECTED");
-  pass("tightened-regex", "A newly tightened template regex rejects the stale Editor's save at the real server, focuses the answer, and permits correction without losing other content");
+  await page.getByLabel("Metadata warnings", {exact: true}).waitFor({state: "hidden"});
+  pass("tightened-regex", "A newly tightened template regex permits stale and fresh Editor saves, reports value-quality warnings on reload, and permits correction without losing other content");
 }

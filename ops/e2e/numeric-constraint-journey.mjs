@@ -32,32 +32,49 @@ export async function numericConstraintJourney({page,base,user,folderId,name,cre
   const latest=(await call(user.auth,'GET','/templates/'+enc(tid))).body;
   for(const key of ['Low','High'])Object.assign(latest.properties[key]._valueConstraints,{minValue:150,maxValue:175});
   const tightened=await mutate(user.auth,'PUT','/templates/'+enc(tid),latest);assert.equal(tightened.status,200,tightened.text);
+  const report=await call(user.auth,'POST','/command/validate?resource_type=instance',{
+    ...before.body,Low:{'@value':'125','@type':'xsd:decimal'},High:{'@value':'190','@type':'xsd:decimal'},
+  });
+  assert.equal(report.status,200,report.text);
+  assert.equal(report.body.canSave,true);assert.equal(report.body.isValid,false);assert.equal(report.body.validates,'true');
+  for(const key of ['Low','High'])assert.ok(report.body.warnings.some(e=>e.location==='/'+key+'/@value'),report.text);
   const save=page.locator('#button-save-metadata');
-  const rejected=await write(page,'PUT','/template-instances/',()=>save.click(),400,true);
-  for(const [key,message] of [['Low','Below the minimum 150.'],['High','Above the maximum 175.']])
-    assert.ok(rejected.objects.validationReport.errors.some(e=>e.location==='/'+key+'/@value'&&e.message===message),JSON.stringify(rejected));
-  const unchanged=await call(user.auth,'GET',path);assert.deepEqual(unchanged.body,before.body);assert.equal(unchanged.headers.get('etag'),before.headers.get('etag'));
-  // The editor lists the server's findings once it has handled the refusal.
-  const issues=page.getByLabel('Metadata errors',{exact:true});await issues.waitFor();
-  assert.equal(await low.inputValue(),'125');assert.equal(await high.inputValue(),'190');assert.equal(await save.isDisabled(),true);
-  await issues.locator('summary').click();
-  const finding=key=>issues.getByRole('button',{name:new RegExp(key+'.*(minimum|maximum)')});
-  for(const key of ['Low','High'])await finding(key).waitFor();
-  await finding('Low').click();
-  await focused(low,'Finding did not focus Low');
-  await low.fill('150');
-  // The findings are the server's verdict on the draft it rejected, so the first edit withdraws them
-  // all, the one for High included. Waiting for that, rather than racing it, is what keeps the next
-  // step deterministic.
-  await issues.waitFor({state:'hidden'});
-  await high.fill('175');
   await write(page,'PUT','/template-instances/',()=>save.click(),200,true);
   await page.locator('.metadata-save-status').filter({hasText:/^Saved$/}).waitFor();
-  const after=(await call(user.auth,'GET',path)).body,expected=structuredClone(before.body);
-  expected.Low['@value']='150';expected.High['@value']='175';
-  for(const value of [after,expected]) {delete value['pav:lastUpdatedOn'];delete value['oslc:modifiedBy'];}
-  assert.deepEqual(after,expected);await page.reload();
-  await editorStatus(page,/^Unmodified$/).waitFor();await low.waitFor();assert.equal(await low.inputValue(),'150');assert.equal(await high.inputValue(),'175');
+  const saved=await call(user.auth,'GET',path),expected=structuredClone(before.body);
+  expected.Low['@value']='125';expected.High['@value']='190';
+  const content=value=>{const copy=structuredClone(value);delete copy['pav:lastUpdatedOn'];delete copy['oslc:modifiedBy'];return copy;};
+  assert.deepEqual(content(saved.body),content(expected));
+  assert.notEqual(saved.headers.get('etag'),before.headers.get('etag'));
+  // Loading the current template exposes value-quality warnings while retaining both stored answers.
+  await page.reload();await editorStatus(page,/^Unmodified$/).waitFor();
+  const issues=page.getByLabel('Metadata warnings',{exact:true});await issues.waitFor();
+  await issues.locator('summary').click();
+  await issues.getByRole('button',{name:'Low: Value should be at least 150.',exact:true}).waitFor();
+  await issues.getByRole('button',{name:'High: Value should be at most 175.',exact:true}).waitFor();
+  assert.equal(await issues.locator('li').count(),2);
+  assert.equal(await page.getByLabel('Metadata errors',{exact:true}).count(),0);
+  assert.equal(await low.inputValue(),'125');assert.equal(await high.inputValue(),'190');
   assert.equal(await cee.getByLabel('Keep',{exact:true}).inputValue(),'Preserved');
-  pass("tightened-bounds", 'New numeric bounds reject stale Editor answers at the real server, list both findings, locate an answer from its finding, withdraw the findings once the answers change, and accept exact boundaries without changing other content');
+  await page.waitForFunction(()=>{const r=document.querySelector('cedar-embeddable-editor')?.dataQualityReport;return r?.canSave===true&&r?.isValid===false;});
+  const quality=await page.evaluate(()=>document.querySelector('cedar-embeddable-editor').dataQualityReport);
+  assert.equal(quality.structurallyValid,true);
+  for(const [key,code] of [['Low','minValue'],['High','maxValue']])assert.ok(quality.problems.some(problem=>
+    problem.path.join('/')===key&&problem.code===code&&problem.category==='constraint'&&problem.blocksSave===false),JSON.stringify(quality));
+  await issues.getByRole('button',{name:'Low: Value should be at least 150.',exact:true}).click();
+  await focused(low,'Quality warning did not focus Low');
+  await issues.getByRole('button',{name:'High: Value should be at most 175.',exact:true}).click();
+  await focused(high,'Quality warning did not focus High');
+  await low.fill('150');await high.fill('175');
+  await issues.waitFor({state:'hidden'});
+  await write(page,'PUT','/template-instances/',()=>save.click(),200,true);
+  await page.locator('.metadata-save-status').filter({hasText:/^Saved$/}).waitFor();
+  const after=(await call(user.auth,'GET',path)).body;
+  expected.Low['@value']='150';expected.High['@value']='175';
+  assert.deepEqual(content(after),content(expected));await page.reload();
+  await editorStatus(page,/^Unmodified$/).waitFor();await low.waitFor();
+  assert.equal(await low.inputValue(),'150');assert.equal(await high.inputValue(),'175');
+  assert.equal(await cee.getByLabel('Keep',{exact:true}).inputValue(),'Preserved');
+  await page.getByLabel('Metadata warnings',{exact:true}).waitFor({state:'hidden'});
+  pass('tightened-bounds','New numeric bounds retain saveable stale Editor answers, report both quality warnings on reload, and accept exact boundary corrections without changing other content');
 }

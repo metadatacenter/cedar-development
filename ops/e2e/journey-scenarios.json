@@ -202,7 +202,7 @@
   "current-template-constraint": [
     {
       "id": "tightened-regex",
-      "promise": "A newly tightened template regex rejects the stale Editor's save at the real server, focuses the answer, and permits correction without losing other content"
+      "promise": "A newly tightened template regex permits stale and fresh Editor saves, reports value-quality warnings on reload, and permits correction without losing other content"
     }
   ],
   "scalar-roundtrip": [
@@ -360,7 +360,7 @@
   "numeric-constraint": [
     {
       "id": "tightened-bounds",
-      "promise": "New numeric bounds reject stale Editor answers at the real server, list both findings, locate an answer from its finding, withdraw the findings once the answers change, and accept exact boundaries without changing other content"
+      "promise": "New numeric bounds retain saveable stale Editor answers, report both quality warnings on reload, and accept exact boundary corrections without changing other content"
     }
   ],
   "mixed-move": [

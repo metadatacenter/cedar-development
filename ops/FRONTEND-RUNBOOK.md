@@ -1828,8 +1828,9 @@ the same bad value in two entries is two problems. Each existing containing elem
 must satisfy a required field; one filled element cannot satisfy an empty sibling.
 The counters count declarations, with a declaration complete only when all its
 containing elements satisfy it. A repeating field needs at least one answer within
-each containing element. A repeatable list that a stored instance omits is reported as the empty list
-CEE writes, which is why there is no `missingProperty` code. The contract is in
+each containing element. An omitted optional repeatable list can represent an empty answer;
+an absent property required by the artifact structure is a `missingProperty` error. Raw input is
+checked before export completion can supply empty slots. The location contract is in
 `harness/test/report-locations.spec.ts`.
 
 `HandlerContext.validation` owns validation coordination. Loads and mutations rebuild
@@ -1838,9 +1839,11 @@ and `FieldValueValidator`; unfinished date/time and attribute-name drafts are ke
 by their actual occurrence node, so paging cannot relocate them, copying duplicates
 them independently, and deleting a branch removes its issues. Attribute deletion
 uses the accepted name and removes its sibling value before publishing a change.
-Required values, minimum counts and unnamed attribute rows carry `severity: warning`;
-malformed values, bad template constraints and unfinished edits carry `severity: error`.
-Both affect `isValid`; CEE does not impose a save policy on hosts.
+Required answers, minimum counts, provisional unnamed attribute rows and well-formed values outside
+their constraints carry `severity: warning`. Malformed typed values, malformed stored attribute names,
+missing structural properties and inconsistent template constraints carry `severity: error`.
+Both affect `isValid`; the common instance policy supplies `canSave`, `structurallyValid` and
+`blocksSave` for hosts, while the template policy blocks inconsistent defaults.
 
 JSON input recovery preserves malformed field IRIs and well-shaped numeric,
 temporal and IRI defaults for correction instead of rejecting the entire form.
@@ -3027,8 +3030,8 @@ Additional focused checks, also included in the regular modern smoke:
 - `tab-isolation`: separate tabs keep independent drafts; another account with the prior account's
   retained storage cannot discover or restore the draft.
 - `numeric-constraint`: tighten both numeric bounds through another REST client; the real server
-  rejects stale Editor answers, findings locate the controls, and exact boundaries save and reopen
-  while preserving all unrelated content.
+  retains well-formed answers with quality findings, the warnings locate both controls, and exact
+  boundaries clear the warnings after save and reopen while preserving all unrelated content.
 - `mixed-move`: combine a permission refusal, a pre-commit disconnect and a lost committed reply;
   fresh listing keeps only unmoved items selected and retry never repeats completed moves.
 - `restored-validation`: inject a server-only finding for templates, elements, fields and metadata;
@@ -3038,7 +3041,7 @@ Additional focused checks, also included in the regular modern smoke:
   unwrap them again in templates and elements; compare all content except update provenance on
   the edited field and root, including legacy constraints, annotations, identities and siblings.
 - `configuration-draft`: fail configuration with 503 and malformed JSON while Designer has an
-  inverted occurrence range or Editor has an invalid numeric precision; retain the exact input,
+  inverted occurrence range or Editor has a fractional value typed as an integer; retain the exact input,
   recover configuration, restore, correct and explicitly save.
 - `scalar-roundtrip`: preserve exact decimal text, integers beyond JavaScript's safe integer range,
   signed zero, leap dates and fractional/offset timestamps through unrelated edits; numeric edits
@@ -3848,7 +3851,7 @@ an explicit ASCII-only affordance; it is not a reader or writer normalization st
 CETP's `npm run test:unicode` loads the actual packaged UMD policies in Chromium, Firefox
 and WebKit, under English and Turkish browser locales. Its normal CI gate includes this
 check and installs all three engines. The model package gate also checks CJS, ESM, UMD and
-TypeScript consumption of the lightweight entry and caps that bundle at 20 KB.
+TypeScript consumption of the lightweight entry and caps that bundle at 23 KB, including the shared finding/save-policy contract.
 
 The 2026-10-18 Unicode adoption passed the full frontend reactor, consumer demos, local
 redeployment, served-component verification and whole-stack smoke (source digest
@@ -3887,3 +3890,58 @@ The backend runbook's shared policy section defines source parsing, explicit pro
 regex semantics, exact-number ownership and offline replay. Run `cedarcli build java`, redeploy the
 microservices, and run `cedarcli build frontends` for the complete consumer/package/browser/reactor,
 served-bundle and whole-stack verification contract. Focused unit gates do not replace that final run.
+
+### Instance quality and template consistency
+
+The TypeScript model library's main entry exposes `FieldValuePolicy`, `TemplateValueValidator`, and
+`InstanceValidator.validateReport`. The lightweight `/policy` entry also exposes `ValidationPolicy`
+and the finding/report types. The common categories and JSON Pointer paths are defined in the backend
+runbook's validation contract. Editor adapters supply field metadata and map locations into the
+existing controls; hosts consume the resulting `blocksSave`, `canSave` and `structurallyValid` facts.
+Legacy severity-only reports remain supported; modern Workspace also uses the common policy when a
+legacy report omits severity.
+
+The legacy Workbench removes its established `$$` transport bookkeeping at the exact-JSON boundary
+before presenting an artifact to CEE. The host retains its original ETag for conditional writes;
+genuine undeclared artifact properties remain visible to structural validation.
+
+CEE/CEF report malformed structure as errors and well-formed constraint/completeness failures as
+quality warnings. `isValid` remains stricter than `canSave`: an out-of-range answer can be saved while
+its quality report is invalid. Required structural properties must exist even when an answer is empty.
+Reading `currentMetadata` must not repair the live model or clear a structural finding. Validate loaded
+and imported data before export completion, and clear a retained source defect only after its actual
+node is corrected. Existing field diagnostics, report rows and host Save controls display the results.
+CEE uses its existing amber styling for saveable constraint findings. Standalone CEF retains its
+existing invalid-value styling because CED also uses it to edit template defaults; the host applies
+the appropriate save policy to the common facts.
+
+CED applies the template policy to defaults and definitions. It checks imported defaults as well as
+interactive selections. Controlled-term verification submits the exact identifier and complete
+version-aware constraints; label search is not membership evidence. Authority verification uses the
+existing bridge authority routes. Async results belong to the current field, identifier and constraint
+snapshot, so stale results cannot validate a later edit. Passed, failed, not checked and unavailable
+checks remain distinct. Known failures block defaults. Unverified defaults permit saving with the
+existing verification warning, consistently for interactive selection, loaded/imported definitions
+and server writes. An unknown result never counts as successful verification.
+
+Semantic evidence is cached by identifier and the complete constraint snapshot. Passed/failed results
+expire after five minutes; unavailable/not-checked results expire after thirty seconds. A subsequent
+validation or host report/save check refreshes expired evidence, without background polling or new
+controls. Pending work is shared, and changing the field cancels obsolete work.
+
+The full frontend reactor is the final gate for library, CEE/CEF, CED, legacy Workbench and modern
+Workspace changes. Run their targeted suites first, then `cedarcli build frontends` after the Java
+reactor and local backend redeployment. It verifies packages, applicable browser/visual gates, served
+component bytes and whole-stack behavior. No new interface controls or visual baselines are implied
+by adopting these validation facts.
+
+CED's shipped-bundle ceilings are 1,550,000 bytes raw and 443,000 bytes gzip. The shared validation
+integration measures 1,545,424 and 441,188 bytes respectively. This adds the common
+default/configuration rules and document verification through the existing
+model adapter, without another runtime dependency or a duplicate main/`policy` import.
+
+CED document checks block while a semantic lookup is pending. A settled unavailable/not-checked
+default is a warning (`valid: false`, `canSave: true`). Interactive controlled-term selection uses
+the same shared template save policy; document checks retain the warning after selection and reload.
+CEF authority edits also accept unknown-only results when all local problems are verification
+findings. Structural defects and confirmed default constraint failures remain blocking.
