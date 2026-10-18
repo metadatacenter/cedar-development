@@ -3282,9 +3282,9 @@ complete instance literal without shifting timezones. Choices are stored with
 Numeric authoring validates minimum, maximum and defaults against the datatype,
 finite-number limits, bound ordering and decimal precision. Integer datatypes accept
 only whole numbers and zero or unspecified decimal places. Byte, short and int use
-their datatype ranges; long is limited to JavaScript's exact integer range
-(-9007199254740991 to 9007199254740991), because the model stores numbers rather than
-arbitrary-precision integers. Float checks overflow and nonzero underflow. Invalid
+their datatype ranges, including the full signed 64-bit range for long. Exact numeric
+text and shared decimal comparison preserve bounds and defaults beyond native-number precision.
+Float checks overflow and nonzero underflow. Invalid
 and incomplete numeric input stays in the panel until corrected and does not replace
 the saved settings.
 
@@ -3857,3 +3857,33 @@ passed its implemented cases with its declared gaps. CED's browser gate ran 747 
 CEE's visual gate passed 1,035 with 104 existing skips. An independent rendered review covered
 the fresh legacy designer, fresh CED, and ordinary CED editing; existing layout and controls
 were retained. This evidence covers text-policy adoption, not later parser or numeric changes.
+
+
+### Exact values and bounded validation in browser hosts
+
+Workspace, the authenticated designer host, OpenView and Bridging use the lightweight policy entry
+at their artifact HTTP boundaries. Workspace and the designer host also use it for saved drafts,
+reconciliation and uncertain-save comparisons; an exact numeric atom is a scalar during comparison.
+OpenView preserves it when cloning artifact previews. The designer host stages the pinned ESM policy
+with a separate version/hash manifest in `app/components`; the legacy editor stages the UMD policy.
+All direct consumers are recorded in `ops/frontend-train.json`, so the reactor supplies current model
+sources and retained artifacts to them together. No registry publication is required for this loop.
+
+CEE/CEF preserve exact input text for numeric values and CED preserves raw bound/default input until
+it is valid. The shared decimal grammar is broader than CEE's established instance input grammar:
+instance widgets still reject exponent spelling and redundant leading zeroes and count typed trailing
+fractional zeroes toward decimal places. That compatibility rule is explicit. Datatype bounds and
+comparison use exact decimal/integer operations. Invalid precision configuration is a template error;
+it cannot construct an arbitrarily large browser regex.
+
+Regex checks are asynchronous worker operations shared through `RegexChecks`. CEE, CEF and CED
+report pending validation through their existing reports/events; hosts keep Save unavailable until
+the current draft settles. Timeout, unavailable worker, invalid pattern and mismatch remain distinct.
+Draft changes cancel obsolete checks, and the final result belongs only to the current state. No
+permanent controls or new recovery panels are introduced. Validate normal unchanged screens as well
+as failure paths, using the existing visual baselines and whole-stack journeys.
+
+The backend runbook's shared policy section defines source parsing, explicit provenance timestamps,
+regex semantics, exact-number ownership and offline replay. Run `cedarcli build java`, redeploy the
+microservices, and run `cedarcli build frontends` for the complete consumer/package/browser/reactor,
+served-bundle and whole-stack verification contract. Focused unit gates do not replace that final run.

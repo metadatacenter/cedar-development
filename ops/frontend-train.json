@@ -178,6 +178,30 @@
           "dependency": "cedar-model-typescript-library",
           "manifest": "package.json",
           "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-workspace",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-template-designer",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-openview",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "cedar-openview-src/package.json",
+          "lock": "cedar-openview-src/package-lock.json"
+        },
+        {
+          "repository": "cedar-bridging",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "cedar-bridging-src/package.json",
+          "lock": "cedar-bridging-src/package-lock.json"
         }
       ],
       "followsHead": true

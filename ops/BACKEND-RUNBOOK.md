@@ -6736,3 +6736,74 @@ then `npm run test:concordance`. The sync refuses dirty Java source; do not chan
 verdicts to match an observed regression. Model acceptance and preservation are separate
 assertions: accepted attribute names must remain both in the attribute list and beside their
 values after JSON and YAML round trips.
+
+### Numbers, timestamps and source parsing
+
+`NumericPolicy` in the validation library and the TypeScript policy entry accepts an explicit
+ASCII decimal grammar, including signed decimals and exponents. It does not trim input or accept
+Java numeric suffixes, hex floats, localized separators, NaN or infinity. Comparison is exact.
+Java retains `BigInteger`/`BigDecimal` where needed; TypeScript retains an `ExactDecimal` atom
+when a native number would change the value. Use `JsonSourcePolicy.clone` and `stringify` at
+artifact ownership and wire boundaries: native JSON and `structuredClone` cannot preserve these
+atoms. The JSON token stays a number, not a quoted string or an implementation object. Source
+lexical formatting can change; numerical value, string content, key spelling and array order cannot.
+
+`ProvenanceTimestamp` in `cedar-model-library` owns provenance parsing and formatting; core and
+validation delegate to it. It requires an explicit offset, checks the calendar, preserves the
+original offset and up to nine fractional-second digits, and accepts the historical colonless
+offset spelling. Temporal field values retain their separate partial-date and precision rules.
+The legacy typed user-record reader intentionally retains its offsetless/system-zone compatibility;
+that exception does not apply to artifact provenance. OpenSearch continuation-token decoding also
+retains its score-number types rather than changing all untyped floats to decimals.
+
+`JsonSourcePolicy` rejects duplicate decoded keys and trailing values and reads decimal tokens
+without binary rounding. `ArtifactSourceParser` is the Java artifact JSON/YAML boundary;
+`JsonSourcePolicy` and `YamlSourcePolicy` are its TypeScript counterparts. YAML is one mapping,
+with unique scalar string keys and YAML 1.2 core scalar interpretation: `yes`, `on` and dates remain
+strings, decimal leading zeroes are not YAML 1.1 octal, and explicit `0o`/`0x` integers are exact.
+Custom tags, nonfinite numbers, unsupported key structures, cyclic aliases and excessive expansion
+fail. Quoting preserves strings that otherwise resemble numbers, booleans or null. Readers and
+writers have separate acceptance and preservation assertions in the shared source-policy corpus.
+
+### Regex evaluation and compatibility
+
+Field regexes use ECMAScript syntax, no implicit flags, and the established full-value match
+`^(?:pattern)$`. Java uses the configured Rhino engine; the corpus includes JavaScript's non-`u`
+identity escapes, empty alternatives, line terminators, supplementary characters and invalid syntax.
+Do not substitute `java.util.regex` or add `u`/`i` flags silently. Java and TypeScript vendor identical
+`regex-policy.json` cases alongside numeric, timestamp, source and text fixtures, with commit/hash
+provenance checked by the model package gate.
+
+Browser validation uses `RegexPolicy` workers and `RegexChecks` coordination. A worker receives a
+250 ms evaluation budget after startup, with a five-second startup limit, bounded queue/input sizes
+and cancellation on superseded work. A timeout terminates the worker. Worker unavailability and
+limits are explicit failures; there is no synchronous main-thread fallback. Pending checks block
+save, and stale results cannot validate a newer draft. This operational browser limit is distinct
+from a semantic regex mismatch and is not a new stored-data rule.
+
+### Offline compatibility replay
+
+`ops/cedar_policy_replay.py` reads retained audit caches; it never contacts or writes a deployment.
+`extract --schema-db <corpus.sqlite> --instances <sources> --output <directory>` collects distinct
+scalar inputs. `sample` takes the same sources and `--output <values.jsonl>` and samples 50 ordinary
+and 50 Unicode/pattern documents per artifact kind, plus a precision/Unicode regression document.
+`run --values <values.jsonl> --output <directory> --java-classpath <classpath>
+--typescript-library <model-library/index.js>` compiles the adjacent Java bridge and runs both
+libraries. Use the native profile and Java 17, with the freshly built validation/model classes and
+their resolved runtime dependencies on the classpath; use the current TypeScript distribution.
+`compare --values <values.jsonl> --java <java.jsonl> --typescript <typescript.jsonl>
+--output <summary.json>` can compare completed runs again. Missing output or any disagreement fails.
+The source lane checks each language against the original, so identical loss in both cannot pass.
+
+Raw values remain in the requested local directory; console output and comparison summaries contain
+aggregate counts and row numbers. The manifest records input/bundle hashes and the Java classpath.
+This is a semantic replay of cached JSON: it cannot recover wire duplicates or rounding that occurred
+before caching, and it is not a production repair or a replacement for model/YAML round-trip tests.
+
+The 2026-10-18 replay covered 302,409 retained artifacts (4,833 templates, 5,306 elements, 141,690
+fields and 150,580 instances), containing 22,734,779 strings. Java and TypeScript agreed on all
+1,204,125 distinct scalar inputs: 212,036 text, 709,913 identifier, 281,779 timestamp, 335 numeric
+and 62 regex cases. Both rejected the same 243 distinct historical identifiers (390 occurrences).
+No identifiers were rewritten. All 401 sampled JSON source round-trips preserved exact values and
+string/key identity. Evidence is under `.cedar/audits/2026-10-18-policy-replay/`; these are retained
+cache results, not a fresh inventory of the current production deployment.
