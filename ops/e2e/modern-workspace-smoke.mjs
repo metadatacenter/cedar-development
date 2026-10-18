@@ -579,8 +579,9 @@ try {
   // on its own, under the same key.
   let baseline = await page.context().storageState();
   assert.deepEqual(chainDiagnostics.errors, [], "uncaught browser errors in the core chain");
-  await chainDiagnostics.finish();
+  const completedChain = chainDiagnostics;
   chainDiagnostics = null;
+  await completedChain.finish();
   for (const entry of chainOnly ? [] : JOURNEYS) {
     const { key, run } = entry;
     step = enter(key);
@@ -606,9 +607,15 @@ try {
       assert.deepEqual(cleanupErrors, [], "Fixture cleanup failed");
       if (!failure) tracker.finish();
     } catch (error) { failure ??= error; }
-    const evidence = await diagnostics.finish({ failure: failure?.stack, scenarios: tracker.completed, cleanupErrors });
+    let evidence;
+    try { evidence = await diagnostics.finish({ failure: failure?.stack, scenarios: tracker.completed, cleanupErrors }); }
+    catch (error) {
+      failure ??= error;
+      evidence = error.evidence;
+      cleanupErrors.push(...(error.teardownErrors ?? [String(error)]));
+    }
     record({ event: "done", step: key, checks: tracker.completed.length, scenarios: tracker.completed,
-      outcome: failure ? "fail" : "pass", message: failure?.message, seconds: (Date.now() - began) / 1000, evidence });
+      outcome: failure ? "fail" : "pass", message: failure?.message, seconds: (Date.now() - began) / 1000, cleanupErrors, evidence });
     if (failure) throw failure;
   }
   assert.deepEqual(errors, []);
@@ -647,13 +654,15 @@ try {
   }
   throw error;
 } finally {
-  if (chainDiagnostics) await chainDiagnostics.finish({ failure: chainFailure?.stack,
-    scenarios: checks.map(promise => ({ promise })) });
-  await browser.close();
+  const cleanupErrors = [];
+  if (chainDiagnostics) {
+    try { await chainDiagnostics.finish({ failure: chainFailure?.stack, scenarios: checks.map(promise => ({ promise })) }); }
+    catch (error) { cleanupErrors.push(...(error.teardownErrors ?? [String(error)])); }
+  }
+  await browser.close().catch(error => cleanupErrors.push("Browser cleanup: " + error.message));
   // A timeline entry of its own, so cleanup's time is not charged to the last step. The step
   // variable keeps the failing step for result.json.
   record({ event: "step", step: "cleanup" });
-  const cleanupErrors = [];
   // An identity recorded from a create attempt may never have committed, so 404 is a clean end state.
   for (const item of [...created].reverse()) {
     const path = "/" + item.collection + "/" + enc(item.id);
@@ -668,7 +677,8 @@ try {
     JSON.stringify({ step, checks, errors, cleanupErrors }, null, 2),
   );
   record({ event: "end", step, checks: checks.length, errors, cleanupErrors });
-  assert.deepEqual(cleanupErrors, [], "Fixture cleanup failed");
+  // Do not replace the journey's original failure with a secondary teardown failure.
+  if (!chainFailure) assert.deepEqual(cleanupErrors, [], "Runner cleanup failed");
 }
 console.log(
   `PASS: ${chainOnly ? "modern journey chain" : "full modern journey"} (${checks.length} checks), fixtures removed`,

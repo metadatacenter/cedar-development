@@ -3520,11 +3520,21 @@ Each focused worker and the dependent core chain start a Playwright trace for ev
 traces, screenshots, page text and accessible control snapshots (including shadow-root input values),
 browser errors, recent failed requests, completed
 scenarios and cleanup failures in the report's per-journey evidence directory under `reports/evidence-*`.
-These directories survive system temporary-file cleanup. Passing journeys
-remove their evidence. A process forcibly killed before tracing can finish may have no complete
+These directories survive system temporary-file cleanup. A context-close or trace-finalization
+failure fails the journey and retains whatever evidence was captured, even if the journey caught
+an earlier close rejection. Cleanup still attempts every other context and restores the browser
+wrapper. The original assertion and secondary teardown errors are recorded separately. A browser
+error arriving during cleanup also fails the journey. Passing journeys remove their evidence. A process forcibly killed before tracing can finish may have no complete
 trace; the tier's timeout record, fixture ledger and sweep report still identify it. Evidence contains
 test artifact content and can contain session credentials: keep it local and out of Git. Open a
 retained trace with `npx playwright show-trace <context-N.zip>` from `ops/e2e`.
+
+`draft-recovery` includes explicit `restore-template-expired-sso` and
+`restore-metadata-expired-sso` scenarios. They expire the browser's Keycloak SSO cookies without
+clearing application storage, require the real username/password form after Sign in again, and
+verify restoration, no automatic write replay, conditional save, stored content and a clean reopen.
+The ordinary sign-in cases retain coverage of the existing SSO redirect path. Run these together
+with `npm run smoke:journey -- draft-recovery`.
 
 Live terminology selection and recovery searches have a separate 90-second response ceiling: successful
 BioPortal-backed responses have taken 40–80 seconds. Ordinary UI operations retain their 25-second

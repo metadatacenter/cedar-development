@@ -2,9 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scenarioTracker, shuffled } from "./journey-contract.mjs";
 import { plan, createQueue } from "./split-lanes.mjs";
-import { summarizeHistory } from "./journey-history.mjs";
+import { failureCategory, summarizeHistory } from "./journey-history.mjs";
 
 const expected = [{ id: "save", promise: "Saving preserves input" }, { id: "reopen", promise: "Reopening preserves input" }];
+test("browser teardown failures remain cleanup failures in reliability history, including close timeouts", () => {
+  assert.equal(failureCategory("Error: Browser teardown failed: context-1 close-error: Timeout"), "cleanup");
+  assert.equal(failureCategory("Browser cleanup: transport disconnected"), "cleanup");
+  assert.equal(failureCategory("Uncaught browser errors: late render"), "browser-error");
+});
+
 test("omitting, repeating or substituting a scenario cannot produce a passing inventory", () => {
   const omitted = scenarioTracker("editing", { expected });
   omitted.pass("save", "Saving preserves input");

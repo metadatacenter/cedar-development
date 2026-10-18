@@ -5,15 +5,18 @@ import assert from 'node:assert/strict';
 import {artifactBody, call, mutate, enc, RESOURCE} from './rest/lib.mjs';
 
 // Both journeys act as the runner's first test user. The sign-in case returns through the SSO
-// cookie, or through the login form as the same user if that has expired. Neither signs in as
-// another account.
+// cookie. Separate expired-sso cases expire the browser's Keycloak cookies and require the real
+// credential form, while retaining the tab's application storage. Neither signs in as another account.
 export async function draftRecoveryJourney({page,base,designer,user,folderId,name,created,write,pass}) {
   folderId = await journeyFolder({user, folderId, name, created}, "recovery");
   async function create(collection,body) {
     const made=await call(user.auth,'POST','/'+collection+'?folder_id='+enc(folderId),body);
     assert.equal(made.status,201,made.text);created.push({collection,id:made.body['@id']});return made.body['@id'];
   }
-  for(const kind of ['template','element','field','metadata']) for(const failure of ['outage','lost reply','sign-in']) {
+  for(const kind of ['template','element','field','metadata']) for(const failure of [
+    'outage','lost reply','sign-in', ...(['template','metadata'].includes(kind)?['expired-sso']:[]),
+  ]) {
+    const signingIn = failure==='sign-in' || failure==='expired-sso';
     const metadata=kind==='metadata';
     const collection=metadata?'template-instances':{template:'templates',element:'template-elements',field:'template-fields'}[kind];
     let body;
@@ -42,23 +45,36 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
     page.on('request',countWrites);
     const intercept=async route=>{
       if(route.request().method()!=='PUT')return route.fallback();
-      if(failure==='sign-in')return route.fulfill({status:401,json:{message:'Session expired'}});
+      if(signingIn)return route.fulfill({status:401,json:{message:'Session expired'}});
       if(failure==='lost reply') {const response=await route.fetch();assert.equal(response.status(),200,await response.text());}
       return route.abort('failed');
     };
     const save=page.locator(metadata?'#button-save-metadata':'#save');
-    const recovery=page.getByRole('button',{name:failure==='sign-in'?'Recheck access':'Check save status',exact:true});
+    const recovery=page.getByRole('button',{name:signingIn?'Recheck access':'Check save status',exact:true});
     await page.route(matcher,intercept);
     try {
       await save.click();
       await recovery.waitFor();assert.equal(await save.isDisabled(),true);
     } finally {await page.unroute(matcher,intercept);}
-    if(failure==='sign-in') {
+    const refusedWrites = writes;
+    if(signingIn) {
       await withBrowserAuthentication("draft recovery sign-in", async () => {
+        if(failure==='expired-sso') {
+          // Expire only Keycloak SSO cookies. Draft-bearing local/session storage and app cookies
+          // stay intact; the server must now ask for credentials instead of accepting an SSO cookie.
+          const sso = cookie => /^KEYCLOAK_(IDENTITY|SESSION)(?:_|$)/.test(cookie.name);
+          const cookies = (await page.context().cookies()).filter(sso);
+          assert.ok(cookies.some(cookie=>cookie.name.startsWith('KEYCLOAK_IDENTITY')), 'Expected a live Keycloak SSO identity cookie');
+          await page.context().addCookies(cookies.map(cookie=>({...cookie,expires:1})));
+          assert.equal((await page.context().cookies()).filter(sso).length, 0, 'SSO cookies actually expired');
+        }
         await page.getByRole('button',{name:'Sign in again',exact:true}).click();
-        // A valid SSO cookie returns directly; a fully expired session asks for credentials.
-        await page.locator('#username').or(page.getByRole('button',{name:'Restore draft',exact:true})).first().waitFor();
-        if(await page.locator('#username').isVisible()) {
+        if(failure==='expired-sso') {
+          await page.locator('#username').waitFor();
+          assert.equal(await page.getByRole('button',{name:'Restore draft',exact:true}).isVisible(), false,
+            'An expired SSO cookie cannot bypass credential entry');
+        } else await page.locator('#username').or(page.getByRole('button',{name:'Restore draft',exact:true})).first().waitFor();
+        if(failure==='expired-sso' || await page.locator('#username').isVisible()) {
           await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN||'test1@test.com');
           await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD||'test1');
           await page.locator('#kc-login').click();
@@ -72,6 +88,7 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
       {element:await input.elementHandle(),value:'Retained '+failure});
     assert.equal(await input.inputValue(),'Retained '+failure);
     assert.equal(await save.isDisabled(),true);
+    assert.equal(writes,refusedWrites,'reload, sign-in and restoration must not replay the write');
     const beforeRecovery=writes;await recovery.click();
     await page.waitForFunction(selector=>!document.querySelector(selector)?.disabled,metadata?'#button-save-metadata':'#save');
     assert.equal(writes,beforeRecovery,'restoration and status checks must not repeat a write');
@@ -86,7 +103,9 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
     assert.equal(await page.getByRole('button',{name:'Restore draft',exact:true}).isVisible(),false);
     if(!metadata)assert.equal(await page.locator('#draft-offer').isVisible(),false);
     page.off('request',countWrites);
-    pass(`restore-${kind}-${failure}`, `${kind}: ${failure} survives reload/sign-in, restores real component input, checks outcome and saves conditionally`);
+    pass(`restore-${kind}-${failure}`, failure==='expired-sso'
+      ? `${kind}: expired SSO cookies require credential login, preserve the draft without replaying its write, and allow a conditional save and clean reopen`
+      : `${kind}: ${failure} survives reload/sign-in, restores real component input, checks outcome and saves conditionally`);
   }
 }
 

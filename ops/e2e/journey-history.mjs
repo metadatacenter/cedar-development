@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 export const historyDirectory = join(dirname(fileURLToPath(import.meta.url)), "reports", "journey-history");
 export function failureCategory(message, outcome = "fail") {
   if (outcome === "interrupted") return "interrupted";
+  if (/Browser teardown failed|Browser cleanup/i.test(message ?? "")) return "cleanup";
   if (outcome === "timeout" || /Timeout|timed out|deadline/i.test(message ?? "")) return "timeout";
   if (/inventory|scenario ID|scenarios executed/i.test(message ?? "")) return "inventory";
   if (/cleanup|fixture removal/i.test(message ?? "")) return "cleanup";

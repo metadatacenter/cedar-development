@@ -234,8 +234,16 @@ async function runJourney(user1, key) {
     try { tracked.finish(); }
     catch (error) { failure = String(error.stack ?? error); record({ event: "fail", step: key, message: failure }); }
   }
+  let evidence;
+  try { evidence = await diagnostics.finish({ failure, scenarios: tracked.completed, cleanupErrors }); }
+  catch (error) {
+    failure ??= String(error.stack ?? error);
+    evidence = error.evidence;
+    cleanupErrors.push(...(error.teardownErrors ?? [String(error)]));
+    record({ event: "fail", step: key, message: failure });
+    console.error("FAILED JOURNEY:", key, error.message);
+  }
   const cleanupSeconds = Math.round((Date.now() - cleanupBegan) / 100) / 10;
-  const evidence = await diagnostics.finish({ failure, scenarios: tracked.completed, cleanupErrors });
   if (evidence) console.error("Journey evidence: " + evidence.directory);
   running = false;
   record({ event: "done", step: key, checks: tracked.completed.length, scenarios: tracked.completed, cleanupErrors, evidence });
@@ -292,7 +300,7 @@ try {
 } catch {
   failed = true;
 } finally {
-  await browser?.close().catch(() => {});
+  await browser?.close().catch(error => teardownErrors.push("Browser cleanup: " + error.message));
   // A timeline entry of its own, so the root's removal is not charged to the last journey.
   record({ event: "step", step: "cleanup" });
   if (user1) {
@@ -306,7 +314,7 @@ try {
     } catch (error) { teardownErrors.push(`root fixture cleanup: ${error}`); }
   }
   record({ event: "end", step, checks, errors, cleanupErrors: teardownErrors });
-  if (teardownErrors.length) console.error("Fixture cleanup failed: " + teardownErrors.join("; "));
+  if (teardownErrors.length) console.error("Runner cleanup failed: " + teardownErrors.join("; "));
   else console.log("Focused journey fixtures removed");
   if (!worker) {
     const report = { inventoryMode: recordDirectory ? "candidate" : "verified", verdict: stopping ? "INTERRUPTED" : failed || teardownErrors.length ? "FAIL" : recordDirectory ? "CANDIDATE" : "PASS", seed: seed ?? null,

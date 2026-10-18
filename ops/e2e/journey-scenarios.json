@@ -637,6 +637,10 @@
       "promise": "template: sign-in survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
     },
     {
+      "id": "restore-template-expired-sso",
+      "promise": "template: expired SSO cookies require credential login, preserve the draft without replaying its write, and allow a conditional save and clean reopen"
+    },
+    {
       "id": "restore-element-outage",
       "promise": "element: outage survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
     },
@@ -671,6 +675,10 @@
     {
       "id": "restore-metadata-sign-in",
       "promise": "metadata: sign-in survives reload/sign-in, restores real component input, checks outcome and saves conditionally"
+    },
+    {
+      "id": "restore-metadata-expired-sso",
+      "promise": "metadata: expired SSO cookies require credential login, preserve the draft without replaying its write, and allow a conditional save and clean reopen"
     }
   ],
   "metadata-reconciliation": [
