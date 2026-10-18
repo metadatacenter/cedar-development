@@ -40,6 +40,9 @@ import { largeMetadataJourney, mixedMetadataJourney, keyboardMetadataJourney, ke
 import { nestedMetadataJourney, clonedElementJourney, boundedRepeatedJourney, duplicateNestedLabelsJourney,
   clearOptionalMetadataJourney, attributeEditingJourney } from "./structured-editing-journey.mjs";
 
+import { designerOrderJourney, largeDesignerJourney, designerKeyboardJourney, designerDefaultJourney,
+  nestedDesignerJourney, designerNavigationJourney } from "./designer-editing-journey.mjs";
+
 // JOURNEYS lists every self-contained journey under the key the runners know it by. Each journey
 // makes its fixtures in a folder of its own under the folder it is given and reads nothing another
 // journey made, so any set of them can run in any process. modern-workspace-smoke.mjs runs all of
@@ -115,6 +118,12 @@ export const JOURNEYS = [
   { key: "duplicate-nested-labels", run: duplicateNestedLabelsJourney },
   { key: "clear-optional-metadata", run: clearOptionalMetadataJourney },
   { key: "attribute-editing", run: attributeEditingJourney },
+  { key: "designer-order", run: designerOrderJourney },
+  { key: "large-designer", run: largeDesignerJourney },
+  { key: "designer-keyboard", run: designerKeyboardJourney },
+  { key: "designer-default", run: designerDefaultJourney },
+  { key: "nested-designer", run: nestedDesignerJourney },
+  { key: "designer-navigation", run: designerNavigationJourney },
 ].map(entry => Object.freeze({ signsInAsAnotherUser: false, ...entry }));
 
 // BOUND names the journeys that have no key, because they work on fixtures another runner hands them.

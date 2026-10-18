@@ -882,5 +882,45 @@
       "id": "attribute-copy-rename",
       "promise": "Adding, copying and renaming attribute-value answers survives real server validation and reopen, preserves the source and removes obsolete values and context terms"
     }
+  ],
+  "designer-order": [
+    {
+      "id": "root-order",
+      "promise": "Root field reordering saves and reopens without changing definitions or property identities, and new metadata remains bound to the correct fields"
+    },
+    {
+      "id": "nested-order",
+      "promise": "Nested field reordering saves and reopens without changing definitions or property identities, and new metadata remains bound to the correct fields"
+    }
+  ],
+  "large-designer": [
+    {
+      "id": "large-schema-placement",
+      "promise": "Editing distant placement descriptions in a thirty-five-field schema saves and reopens the intended fields while preserving all definitions, order, property identities and annotations"
+    }
+  ],
+  "designer-keyboard": [
+    {
+      "id": "designer-keyboard-edit",
+      "promise": "Designer card navigation, keyboard text entry and keyboard Save retain the selected configuration tab and reopen the exact placement edit"
+    }
+  ],
+  "designer-default": [
+    {
+      "id": "authored-default-to-metadata",
+      "promise": "A required text default and its length/regex constraints authored in Designer persist, initialize new metadata and accept a valid replacement through the real server"
+    }
+  ],
+  "nested-designer": [
+    {
+      "id": "nested-collapse-preservation",
+      "promise": "A nested field placement edit survives collapsing its element, saving and reopening while preserving the child definition and untouched top-level sibling"
+    }
+  ],
+  "designer-navigation": [
+    {
+      "id": "designer-cancel-save-discard",
+      "promise": "Designer Back cancellation retains the draft, Save establishes the new baseline, and explicit discard leaves no recovery draft or unintended stored changes"
+    }
   ]
 }

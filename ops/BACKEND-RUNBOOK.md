@@ -3476,6 +3476,15 @@ user in, which makes it an identity unit. The full smoke and the focused runner 
 the registry does not list, and it drives `split-runner.mjs`, which carries out the plan, through
 the queue, the deadlines, the lock, a kill and a signal with stand-in units.
 
+The Designer editing journeys in `designer-editing-journey.mjs` exercise root and nested field
+ordering through metadata creation, distant edits in a thirty-five-field template, keyboard card
+navigation and Save, authored defaults and constraints consumed by CEE, nested collapse/expand,
+and cancel/save/discard navigation. Placement fixtures deliberately use descriptions distinct from
+field definitions: draft fields whose descriptions still match are intentionally edited together.
+Schema-preservation comparisons treat JSON Schema `required` arrays as sets while checking the
+UI order explicitly. Run just this coverage with `npm run smoke:journey -- designer-order
+large-designer designer-keyboard designer-default nested-designer designer-navigation`.
+
 #### Journey contracts, diagnostics and reliability
 
 Each journey reports explicit scenario IDs and the user promise it verified. The committed
