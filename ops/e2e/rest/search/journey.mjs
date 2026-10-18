@@ -55,7 +55,7 @@ export async function searchJourney({ page, base, fixtures, scope, check }) {
   await check('journey/open-identity', async () => {
     const id = fixtures.id('ny-stats');
     // The attribute is the identity; matching the visible name alone would select the private twin.
-    await page.locator(`[data-resource-id="${id}"]`).dblclick();
+    await page.locator(`[data-resource-id="${id}"]`).getByRole('link', { name: 'Record 01', exact: true }).click();
     await page.getByRole('textbox', { name: 'Instance name', exact: true }).waitFor();
     await page.waitForFunction(() => document.querySelector('#instance-name')?.value === 'Record 01');
     assert.equal(await page.getByRole('textbox', { name: 'Instance name', exact: true }).inputValue(), 'Record 01');
