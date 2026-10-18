@@ -3183,10 +3183,10 @@ the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
 run-unique index and delete only that index afterward, so concurrent runs share the engine but not
 index lifecycle or documents.
 
-The opt-in **artifact search acceptance matrix** lives under `ops/e2e/rest/search/`. It has passed
-live validation and runs separately from the default REST and journey smoke gates. Its default
-command is an offline inventory, so another session's ordinary smoke run cannot accidentally create
-its corpus. Use the CLI:
+The **artifact search acceptance matrix** lives under `ops/e2e/rest/search/` and is a required
+fourth tier of `cedarcli test e2e`, after REST, browser and split journeys. It runs the full REST
+matrix and seven browser scenarios against one shared corpus. The standalone `cedarcli test search`
+command still defaults to an offline inventory. Use the CLI:
 
 ```bash
 cedarcli test search --plan       # no stack requests: expanded cells, expectations and exclusions
@@ -3212,15 +3212,17 @@ by offset and continuation; 21 lifecycle
 checks cover rename, value and ontology changes, overlapping grants, membership, moves, deletion
 and continuation revocation, caller binding and sharing-view binding. Seven browser scenarios cover
 entry, exact rows, reload/Back, type filtering, opening the intended identity and searching within
-both sharing views. The browser module is bound to this opt-in runner; the complete corpus uses
+both sharing views. The browser module uses the shared search runner; the complete corpus uses
 its own fixture lifecycle and retains the same stack lock as the main journey registry.
 
-Only an explicit live invocation contacts the stack and creates fixtures:
+The standard e2e command creates and cleans up the corpus automatically. For focused work,
+an explicit live standalone invocation does the same:
 
 ```bash
 cedarcli test search --live --tier rest
 cedarcli test search --live --tier journey
 cedarcli test search --live --tier all
+cedarcli test search --live --tier all --workers 1  # serial diagnosis
 ```
 
 A full run creates the 53 core artifacts plus 15 transition instances, 25 folders and one group,
@@ -3239,7 +3241,17 @@ Ambiguous POST outcomes remain recorded for investigation; cleanup never sweeps 
 On a shared development stack, expressions are wrapped in `RUN_TOKEN AND (expression)` and fixtures
 carry the token in their descriptions. All returned hits are checked, without filtering the answer
 down to known IDs. `--isolated` removes the wrapper for a dedicated test stack and must not be used
-to claim exact global counts on an occupied stack. Neither mode is a performance benchmark.
+to claim exact global counts on an occupied stack. Neither mode is a search-engine performance benchmark.
+
+Search defaults to four concurrent independent reads. `--workers 1..4` controls the standalone
+runner; `cedarcli test e2e --rest-workers N` controls both the ordinary REST suite pool and the
+search read pool. Each permission state drains before the next grant/revocation; lifecycle changes,
+provisioning and cleanup stay ordered, and pages within each continuation walk stay ordered.
+The four whole-stack tiers run one after another to avoid competing test-account changes. No
+cells are sampled, skipped or reused from an earlier run. Successful read checkpoints coalesce
+within 500 ms, while fixture intents, created identities, failures and final results force an atomic
+report replacement. Each report includes phase timings, request count/maximum concurrency and
+checkpoint count/time so future runtime changes can be attributed.
 
 Indexed search applies the sharing view before counting, sorting and pagination. `shared-with-me`
 includes caller grants through users, groups and shared-folder descendants, excluding caller-owned
@@ -3255,7 +3267,9 @@ display-override, repeated-occurrence correlation, literal-URI and post-revocati
 Third-user/admin/anonymous cases, version/publication transitions, category/date-filter combinations,
 OpenView, outages and rebuilds remain outside this initial probe. Every plan and report names these
 gaps. A successful run is labelled `IMPLEMENTED_CASES_PASS_WITH_DECLARED_GAPS`, never full search
-certification or release-gate evidence. The source/input digests accompany every report.
+certification. A standalone run alone is not release-gate evidence; the whole-stack gate includes
+this matrix, with its declared gaps, alongside the other three required tiers. The source/input
+digests accompany every report.
 
 The expanded live run on 2026-10-17 passed **1,156/1,156** checks in 149 seconds, with no missing
 cells or cleanup errors: `.cedar/reports/search/sharing-live.json`. This is a run against valid,
@@ -3265,7 +3279,28 @@ Boolean-precedence and sharing-filter defects. The fixes also have an OpenSearch
 shipped mapping (278 integration checks), resource HTTP integration coverage (37 checks), and a
 Workspace submit/clear matrix. Two unquoted field-name expectations were corrected to include
 `Publisher Name`; findings are resolved against the contract and corpus, never by accepting observed
-results as a new oracle. The offline harness has 24 passing self-tests.
+results as a new oracle. The offline harness has 27 passing self-tests, including concurrency barriers and checkpoint durability.
+
+With checkpoint coalescing in place, consecutive full runs on the same development stack measured
+138.8 seconds with one reader and 85.4 seconds with four; both passed the identical 1,156 cells,
+with no fatal, browser or cleanup errors. Reports are `.cedar/reports/search/integrated-serial.json`
+and `integrated-parallel.json`. The four-reader run observed a maximum of four in-flight requests.
+
+| Search phase | One reader, seconds | Four readers, seconds |
+| --- | ---: | ---: |
+| Content matrix | 17.2 | 1.6 |
+| Paging matrix | 3.3 | 0.3 |
+| Access matrix, including ordered setup/transitions | 69.6 | 35.4 |
+| Lifecycle | 17.4 | 19.8 |
+| Cleanup | 13.8 | 11.7 |
+| Complete run, including provisioning/login/readiness | 138.8 | 85.4 |
+
+The complete search tier therefore adds about 85 seconds on this workstation, down from the prior
+149-second implementation, without removing any matrix cells. These are harness-runtime observations,
+not controlled search-engine benchmarks; index refresh timing and cache warmth vary. Fixture setup,
+permission projections and lifecycle transitions now dominate. Report checkpoints fell to 338 writes
+and 2.3 seconds in the four-reader run; fixture intents and identities still persist immediately.
+The offline harness also runs in development CI and before every standard search smoke tier.
 
 Backend-free Maven tests suppress the application-log queue through the
 `cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
@@ -3648,8 +3683,7 @@ healthy worker consumers. Mean elapsed time was 51.26 seconds, range 47.3–55.2
 57% less than the serial baseline. Local logs and JSON reports are retained under
 `.cedar/build-reports/rest-repeat-10-20260924T162831Z/`.
 
-Only the REST tier runs concurrently, so it is no longer where a whole run spends most of its
-time. Five sequential runs of `cedarcli test e2e --rest-workers 4` on 2026-09-25 all passed, and
+In the September baseline, only the REST tier ran concurrently. Five sequential runs of `cedarcli test e2e --rest-workers 4` on 2026-09-25 all passed, and
 their wall-clock times ranged from 276 to 284 seconds. The gate records of four of them give the
 tier breakdown:
 
@@ -3680,7 +3714,7 @@ likewise be built from the development sources under test and redeployed before 
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
 manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
-`npm run smoke` and `npm run smoke:workspace:modern:full`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
+`npm run smoke`, `npm run smoke:workspace:modern:full` and `npm run smoke:search`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
 heads, beside a `latest.json` copy. The record names what the stack ran, so a checkout with another
 commit than its `develop` head checked out stops the run before it records anything. A modified or
 untracked file marks its repository dirty, since the build compiled it, and the gates refuse a dirty
@@ -3688,7 +3722,12 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>.json`, and the split tier's as `split-smoke-<digest>.json`. The split tier's
+`rest-smoke-<digest>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
+`search-smoke-<digest>-<uuid>.json`. Search evidence has a unique path per attempt so a refused or
+killed run cannot inherit a previous pass. The gate checks every planned search cell against the
+actual checks, requires all five families (content, access, paging, lifecycle and browser), and fails
+on missing, duplicate, skipped or failing cells, incomplete execution, browser errors or cleanup
+errors even if the process exits zero. Older three-tier records cannot satisfy the gate. The split tier's
 report says how long each lane and each process took and how it exited, how long each step of the
 chain and each journey took, and the machine's load average and swap at start, at peak and at end.
 Its schema 2 names every lane with its journeys and scripts, its time, its exit code and the step it

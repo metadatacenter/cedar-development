@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { queries, expectedAliases } from './queries.mjs';
 import { exactResults, scopedQuery } from './assertions.mjs';
 
-// Bound to the opt-in search runner and its shared stack lock. Ordinary journey runs do not
-// provision this corpus; the explicit search command owns its creation, evidence and cleanup.
+// The standard search tier and standalone search command share one runner and stack lock.
+// That runner owns corpus creation, evidence and cleanup for both REST and browser checks.
 export async function searchJourney({ page, base, fixtures, scope, check }) {
   const queryCase = id => queries.find(test => test.id === id);
   const expected = id => expectedAliases(queryCase(id), 'reader').map(alias => fixtures.id(alias));

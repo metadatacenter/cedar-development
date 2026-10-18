@@ -63,6 +63,10 @@ jobs:
         with:
           node-version: 24.19.0
 
+      - name: Check the search matrix harness without a stack
+        working-directory: cedar-development/ops/e2e
+        run: npm run test:search-harness
+
       # Every suite under ops/, ops/tests and ops/repairs. They mock publication and service
       # operations, stand in for the deployment and the library bridges, and never start a CEDAR
       # service or write external state. Each directory is its own start directory, because the
