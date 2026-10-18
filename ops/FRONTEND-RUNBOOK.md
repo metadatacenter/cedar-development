@@ -3939,6 +3939,8 @@ CED's shipped-bundle ceilings are 1,550,000 bytes raw and 443,000 bytes gzip. Th
 integration measures 1,545,424 and 441,188 bytes respectively. This adds the common
 default/configuration rules and document verification through the existing
 model adapter, without another runtime dependency or a duplicate main/`policy` import.
+The standalone host's initial JavaScript measures 1,530,588 bytes against a 1,535,000-byte
+Angular budget; `npm run build:app` checks that separate entry point in CI.
 
 CED document checks block while a semantic lookup is pending. A settled unavailable/not-checked
 default is a warning (`valid: false`, `canSave: true`). Interactive controlled-term selection uses
