@@ -3209,6 +3209,16 @@ exclusion with `-DexcludedGroups=` to run them against the real service. Their C
 still be set even when the tests are excluded, because the configuration substitutes them as it
 loads; a placeholder value is enough.
 
+A test that starts a Dropwizard application, an embedded store, embedded Redis, OpenSearch or a
+local socket server carries the `integration` tag. Every other test is a unit test. No POM excludes
+the tag, so the default build runs both kinds. Select one kind with `-Dgroups=integration` or
+`-DexcludedGroups=integration`. Terminology reads its exclusion from the `excludedGroups` property,
+so name both tags there (`-DexcludedGroups=bioportal,integration`) or the BioPortal tests run too.
+Bridge fixes its exclusion in the POM and ignores the property. A base class that starts a server
+carries the tag for its subclasses. A test that starts one itself needs the tag on its own class.
+The OpenSearch `*IT` suites carry the tag as well. Their names keep them out of the default build,
+because only Failsafe runs `*IT` classes.
+
 Search is the deliberate exception in CI. `cedar-microservice-libraries` and
 `cedar-resource-server` run `verify -Popensearch-it` against a disposable OpenSearch 2.19.1 service.
 The library integration test executes the materialized user/everybody permission filter,

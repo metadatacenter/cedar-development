@@ -141,6 +141,10 @@ The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#r
 
 Complete the recovery routes that still cannot resume saving or create a permitted copy:
 
+Follow the product-design checkpoints in [AGENTS.md](../AGENTS.md#preserve-the-agreed-product-design).
+Reliability work does not authorize new permanent controls: recovery actions must be conditional
+on an actual failure or retained unfinished work, and new UI requires agreement before implementation.
+
 - **Designer conflicts:** fetch the latest schema separately from the working draft and
   provide review and reconciliation for templates, elements and fields, including unknown
   content, server normalization and intervening writes; never attach its ETag to an
@@ -155,7 +159,7 @@ Complete the recovery routes that still cannot resume saving or create a permitt
 
 Keep status checks, access checks, review and explicit discard distinct. A failed recovery
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
-current recovery-file contract and operator verification commands.
+current draft-retention contract and operator verification commands.
 
 <a id="cee"></a>
 
@@ -263,5 +267,7 @@ failure needs investigation without asking the author to repair internal JSON Sc
 or implying that a recovery draft has been saved as a valid artifact.
 
 Use a real reproducible case to decide whether this facility is needed and how much to build.
+Agree its interaction before implementation; this proposal does not authorize a permanent
+diagnostic or recovery button, banner or file picker on ordinary editing screens.
 Any confirmed defect should lead to a generation or validation fix and a regression test; verify
 that the fallback preserves work while the rejected write remains blocked.
