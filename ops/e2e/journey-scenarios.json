@@ -922,5 +922,41 @@
       "id": "designer-cancel-save-discard",
       "promise": "Designer Back cancellation retains the draft, Save establishes the new baseline, and explicit discard leaves no recovery draft or unintended stored changes"
     }
+  ],
+  "workspace-keyboard-folders": [
+    {
+      "id": "keyboard-folder-tree",
+      "promise": "Keyboard grid traversal opens nested real folders, breadcrumbs return to the original tree without stale selection, and reload preserves the grid location"
+    }
+  ],
+  "workspace-keyboard-selection": [
+    {
+      "id": "range-selection-cancel",
+      "promise": "Keyboard range selection reaches grouped deletion, cancellation preserves all selected artifacts, and a row menu returns keyboard focus after dismissal"
+    }
+  ],
+  "workspace-type-filter": [
+    {
+      "id": "live-filter-sort-reload",
+      "promise": "Multiple type filters constrain the real listing, descending order and folders-first compose correctly, and refresh/reload preserve those choices until the type filter is explicitly cleared"
+    }
+  ],
+  "workspace-pagination": [
+    {
+      "id": "second-page-editor-return",
+      "promise": "A fifty-five-item folder has disjoint correctly ordered pages, clears stale selections when paging, and returns from a real Designer save to the selected item on page two"
+    }
+  ],
+  "workspace-search-return": [
+    {
+      "id": "search-editor-return",
+      "promise": "Editing a real search result restores its query, selection and Version tab on return while saving only the intended template description"
+    }
+  ],
+  "workspace-renamed-breadcrumb": [
+    {
+      "id": "renamed-ancestor-path",
+      "promise": "Renaming a populated parent updates nested breadcrumbs and reloads under the same identities, preserving the descendant artifact and navigation back to the renamed folder"
+    }
   ]
 }

@@ -3485,6 +3485,15 @@ Schema-preservation comparisons treat JSON Schema `required` arrays as sets whil
 UI order explicitly. Run just this coverage with `npm run smoke:journey -- designer-order
 large-designer designer-keyboard designer-default nested-designer designer-navigation`.
 
+The Workspace navigation journeys in `workspace-navigation-journey.mjs` cover nested keyboard
+folder traversal, range selection with deletion cancellation and menu focus return, composed type
+filters and sorting across reload, a fifty-five-resource folder with real paging and editor return,
+search-result editing with query/selection/tab restoration, and renamed-ancestor breadcrumbs.
+They use the real listing and search APIs; the paging fixture spans the fifty-item boundary and
+asserts every identity on both pages. Keyboard selection checks wait for Angular's rendered frame.
+Run them with `npm run smoke:journey -- workspace-keyboard-folders workspace-keyboard-selection
+workspace-type-filter workspace-pagination workspace-search-return workspace-renamed-breadcrumb`.
+
 #### Journey contracts, diagnostics and reliability
 
 Each journey reports explicit scenario IDs and the user promise it verified. The committed

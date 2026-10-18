@@ -43,6 +43,9 @@ import { nestedMetadataJourney, clonedElementJourney, boundedRepeatedJourney, du
 import { designerOrderJourney, largeDesignerJourney, designerKeyboardJourney, designerDefaultJourney,
   nestedDesignerJourney, designerNavigationJourney } from "./designer-editing-journey.mjs";
 
+import { workspaceKeyboardFoldersJourney, workspaceKeyboardSelectionJourney, workspaceTypeFilterJourney,
+  workspacePaginationJourney, workspaceSearchReturnJourney, workspaceRenamedBreadcrumbJourney } from "./workspace-navigation-journey.mjs";
+
 // JOURNEYS lists every self-contained journey under the key the runners know it by. Each journey
 // makes its fixtures in a folder of its own under the folder it is given and reads nothing another
 // journey made, so any set of them can run in any process. modern-workspace-smoke.mjs runs all of
@@ -124,6 +127,12 @@ export const JOURNEYS = [
   { key: "designer-default", run: designerDefaultJourney },
   { key: "nested-designer", run: nestedDesignerJourney },
   { key: "designer-navigation", run: designerNavigationJourney },
+  { key: "workspace-keyboard-folders", run: workspaceKeyboardFoldersJourney },
+  { key: "workspace-keyboard-selection", run: workspaceKeyboardSelectionJourney },
+  { key: "workspace-type-filter", run: workspaceTypeFilterJourney },
+  { key: "workspace-pagination", run: workspacePaginationJourney },
+  { key: "workspace-search-return", run: workspaceSearchReturnJourney },
+  { key: "workspace-renamed-breadcrumb", run: workspaceRenamedBreadcrumbJourney },
 ].map(entry => Object.freeze({ signsInAsAnotherUser: false, ...entry }));
 
 // BOUND names the journeys that have no key, because they work on fixtures another runner hands them.
