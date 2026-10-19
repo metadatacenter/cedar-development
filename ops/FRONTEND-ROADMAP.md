@@ -222,6 +222,58 @@ When an advisory is withdrawn, lower the counts recorded for the affected locks 
 publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
 each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
 
+## Frontend Dependencies and Tooling
+
+### 7. Take the Frontend Dependency Upgrades That Need Code Changes
+
+Each dependency below has a newer major release that a lock update cannot take. Some wait on an
+upstream release, most need code changes, and one needs a design decision. The versions are the
+newest that `npm outdated` reported on 2026-10-19, after every in-range update had been taken.
+
+**Waiting on upstream.**
+
+- **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
+  Angular release accepts 7.
+- **`@types/node` 26.** The types follow the runtime's major, and every project runs Node 24.
+
+**Needing code changes.**
+
+- **Vitest 5.** `@angular/build` 22.2.3 already accepts it. CEE's root and its domain harness must
+  move together, because the harness runs on the root's worker, and the harness's `oxc` transform
+  settings need checking against Vitest 5's Vite, since the previous major broke them. The other
+  Vitest projects are CED, CETP, Workspace, OpenView, Bridging, Monitoring and the Angular and
+  React demos. OpenView, Bridging and Monitoring also move `@vitest/browser-playwright` with it.
+- **ngx-translate 18** in OpenView, Bridging and Monitoring. It removes `TranslateModule`, so each
+  application's module-based setup moves to the provider functions.
+- **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring. The adapter's major
+  follows the Keycloak server, so these move with "Upgrade Keycloak to a supported release" in
+  [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
+- **ng-alt-snotify 17** in OpenView, Bridging and Monitoring, which run 16, 15 and 14. Each pins an
+  exact Angular major as a peer, which an npm `overrides` entry satisfies today. Check whether 17
+  changes the API the applications call before moving.
+- **TypeScript 6 in the model library.** The library builds with TypeScript 5.9, while every
+  Angular project and CEE's harness use 6.0.
+- **The demos' tooling.** ESLint 10 in all three demos; zone.js 0.16 and jsdom 30 in the Angular
+  demo; Babel 8, QUnit 3, ember-template-lint 7 and eslint-plugin-ember 13 in the Ember demo.
+  Moving ember-template-lint to 7 also removes one route for each advisory that "Clear the
+  Advisories Waiting on Upstream" tracks.
+
+**Needing a design decision.**
+
+- **lucide-static 1.59** in the design tokens, which pin 1.47.0 exactly. A newer release can
+  redraw icons that every consumer shows, so the move needs its rendered differences reviewed and
+  approved like any other visual change.
+
+### 8. Run the Design-Token Gate in the Reactor
+
+The reactor verifies each consumer with that consumer's own test gate, such as CEE's
+`npm run test:ci:prebuilt`, and none of those gates runs the design-token adoption check. The
+check runs only in each consumer's "Design token adoption" workflow and in the design tokens'
+consumer-contracts job, so a tree the reactor accepts can still fail on push. On 2026-10-19 a
+literal `margin-block: 4px` in CEE passed the reactor and then failed both. Run
+`cedarcli check design-tokens --strict` for each token consumer as part of the reactor's
+verification, so that the reactor refuses what CI refuses. The check takes seconds.
+
 <a id="ced"></a>
 
 ## CED
@@ -230,7 +282,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 7. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -244,14 +296,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 8. Keyboard and Screen-Reader Access
+### 10. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 9. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 11. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
