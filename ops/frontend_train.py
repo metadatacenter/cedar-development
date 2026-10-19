@@ -639,6 +639,33 @@ def wire_components(args, plan, repository):
     return changes
 
 
+def wire_model(args, plan, repository, config):
+    """Resolve the model library from this train in a repository that follows it.
+
+    Shared components and applications alike are verified against the model this train built,
+    and the release pins that same model, from the retained registry, wherever this wired it.
+    CEE is wired separately when it publishes, and the release pins the public CEE instead.
+    """
+    changes = []
+    if repository == config.get('cee', {}).get('repository'):
+        return changes
+    for followed in config.get('components', []):
+        if followed.get('repository') != plan['model']['repository']:
+            continue
+        for consumer in followed['consumers']:
+            if consumer['repository'] != repository:
+                continue
+            verify_record(plan['registry'], plan['model'])
+            root = args.workspace / repository
+            install_exact_alias((root / consumer['manifest']).parent, consumer['dependency'],
+                                plan['model']['name'], plan['model']['version'],
+                                bool(consumer.get('legacyPeerDeps', False)))
+            require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
+                                consumer['dependency'], plan['model']['name'], plan['model']['version'])
+            changes.extend([consumer['manifest'], consumer['lock']])
+    return changes
+
+
 def verification_environment(config, plan, repository, workspace, directory='.'):
     row = next(r for r in frontend_inventory.surfaces(config) if (r['repository'],r['directory']) == (repository,directory))
     environment = dict(os.environ)
@@ -677,18 +704,8 @@ def publish_component(args, plan, component):
     assert_clean_repository(root, component['repository'])
     stamp_package_version(root, component['version'])
     wire_components(args, plan, component['repository'])
-    # Followed model consumers also need the model built by this train.
     config = load_json(args.config)
-    for followed in config.get('components', []):
-        if followed.get('repository') != plan['model']['repository']:
-            continue
-        for consumer in followed['consumers']:
-            if consumer['repository'] == component['repository']:
-                verify_record(plan['registry'], plan['model'])
-                install_exact_alias((root / consumer['manifest']).parent,
-                                    consumer['dependency'], plan['model']['name'], plan['model']['version'])
-                require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
-                                    consumer['dependency'], plan['model']['name'], plan['model']['version'])
+    wire_model(args, plan, component['repository'], config)
     staged = verify_component_package(config, plan, component, root, args.workspace,
                                       getattr(args, 'workers', 4))
     run_command(['npm', 'publish', str(staged), '--tag', 'dev', '--registry', plan['registry']], root)
@@ -802,12 +819,15 @@ def prepare_frontends(args: argparse.Namespace) -> None:
     by_frontend: dict[str, list[str]] = {}
     for component in plan.get('components', []):
         publish_component(args, plan, component)
+    model_config = load_json(args.config)
     for frontend in plan['frontends']:
         changed = wire_components(args, plan, frontend['repository'])
+        changed += wire_model(args, plan, frontend['repository'], model_config)
         by_frontend.setdefault(frontend['id'], []).extend(changed)
     for repository in sorted({c['repository'] for c in plan.get('additionalCeeConsumers', [])}
                              - {f['repository'] for f in plan['frontends']}):
         wire_components(args, plan, repository)
+        wire_model(args, plan, repository, model_config)
     for consumer in plan["ceeConsumers"]:
         repository_root(args.workspace, source, consumer["repository"])
         manifest_path = args.workspace / consumer["repository"] / consumer["manifest"]
@@ -1002,14 +1022,13 @@ def complete(args: argparse.Namespace) -> None:
         verified.append(verify_record(plan["registry"], expected))
     for expected in plan.get("runtimePackages", []):
         verified.append(verify_record(expected["registry"], expected))
-    # Only the shared components, and the model this train built them against, are retained: a
-    # release pins them, while it pins the public CEE and publishes the frontends again under its
-    # own version. The model is retained because a component that follows it, the designer, keeps
-    # this train's model in its lockfile.
+    # Only the shared components, and the model this train built everything against, are retained:
+    # a release pins them, while it pins the public CEE and publishes the frontends again under its
+    # own version. The model is retained because every component and application that follows it
+    # keeps this train's model in its lockfile.
     retained_registry = plan.get("retainedRegistry")
     components = {(item["name"], item["version"]) for item in plan.get("components", [])}
-    if components:
-        components.add((plan["model"]["name"], plan["model"]["version"]))
+    components.add((plan["model"]["name"], plan["model"]["version"]))
     retained = [
         retain_package(retained_registry, record) for record in verified
         if retained_registry and (record["name"], record["version"]) in components

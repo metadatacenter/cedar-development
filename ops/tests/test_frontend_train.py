@@ -382,6 +382,39 @@ class FrontendTrainTest(unittest.TestCase):
                 self.assertEqual(['package.json', 'package-lock.json'],
                                  frontend_train.wire_components(args, plan, 'app'))
 
+    def test_model_wiring_pins_the_train_model_in_an_application_and_never_in_cee(self):
+        # An application that follows the model is verified against the model this train built,
+        # so the release can pin that model wherever the train wired it. CEE is wired when it
+        # publishes, and the release pins the public CEE in its place.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dependency = 'cedar-model-typescript-library'
+            model = {'name': '@org.metadatacenter/cedar-model-typescript-library',
+                     'version': '1.0.21-dev.train', 'repository': 'cedar-model-typescript-library'}
+            dependency_files(root / 'app' / 'src', dependency, model['name'], '1.0.20-dev.old')
+            config = {'cee': {'repository': 'cedar-embeddable-editor'}, 'components': [{
+                'id': 'model', 'repository': 'cedar-model-typescript-library', 'consumers': [
+                    {'repository': 'cedar-embeddable-editor', 'dependency': dependency,
+                     'manifest': 'package.json', 'lock': 'package-lock.json'},
+                    {'repository': 'app', 'dependency': dependency, 'legacyPeerDeps': True,
+                     'manifest': 'src/package.json', 'lock': 'src/package-lock.json'}]}]}
+            plan = {'registry': 'https://registry.example', 'model': model}
+            args = argparse.Namespace(workspace=root)
+            installs = []
+
+            def install(cwd, name, published, version, legacy):
+                installs.append((cwd, name, published, version, legacy))
+                dependency_files(cwd, name, published, version)
+
+            with patch.object(frontend_train, 'verify_record'), \
+                    patch.object(frontend_train, 'install_exact_alias', side_effect=install):
+                self.assertEqual(['src/package.json', 'src/package-lock.json'],
+                                 frontend_train.wire_model(args, plan, 'app', config))
+                self.assertEqual([], frontend_train.wire_model(
+                    args, plan, 'cedar-embeddable-editor', config))
+            self.assertEqual([(root / 'app' / 'src', dependency, model['name'],
+                               '1.0.21-dev.train', True)], installs)
+
     def test_registry_verification_hashes_the_downloaded_tarball(self):
         tarball = b"immutable npm tarball"
         integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
@@ -992,7 +1025,7 @@ class FrontendTrainTest(unittest.TestCase):
                     patch.object(frontend_train, "run_command", side_effect=publish):
                 frontend_train.complete(argparse.Namespace(version=VERSION, state=state))
 
-            # The model is copied because the designer, built against it, pins it; CEE and the
+            # The model is copied because everything built against it pins it. CEE and the
             # frontends are not, because a release pins the public CEE and republishes frontends.
             self.assertEqual(2, len(published))
             commands = {Path(command[2]).name: command for command, _ in published}
@@ -1015,6 +1048,24 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(integrity_of(content), tokens["integrity"])
             self.assertEqual("e" * 40, tokens["revision"])
             self.assertEqual("a" * 40, retained["model"]["revision"])
+
+    def test_completion_retains_the_model_when_only_applications_follow_it(self):
+        content = b"model tarball"
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            self.retention_plan(state)
+            plan_path = state / "npm" / "trains" / f"{VERSION}.json"
+            plan = frontend_train.load_json(plan_path)
+            del plan["components"]
+            write(plan_path, plan)
+            with patch.object(frontend_train, "verify_record", side_effect=self.verified(content)), \
+                    patch.object(frontend_train, "registry_record", return_value=None), \
+                    patch.object(frontend_train, "fetch", return_value=content), \
+                    patch.object(frontend_train, "run_command"):
+                frontend_train.complete(argparse.Namespace(version=VERSION, state=state))
+            completion = frontend_train.load_json(
+                state / "npm" / "completed" / f"{VERSION}.json")
+            self.assertEqual(["model"], [item["name"] for item in completion["retainedPackages"]])
 
     def test_completion_refuses_a_retained_copy_with_different_bytes(self):
         content = b"tokens tarball"

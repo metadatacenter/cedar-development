@@ -288,9 +288,9 @@ The release runs these phases, each verifying its work before the next begins:
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
    seven frontend consumer manifests and lockfiles. Shared-component pins (tokens, picker and
    designer) also follow the train's verified package graph, at the copies the train retained in
-   `npm-cedar-releases`. So does the designer's own pin of the model library, because the train
-   built the designer against the model it published itself. CEE follows the model too, but the
-   release pins the public CEE in its place. The copies carry the train's versions and bytes, at an
+   `npm-cedar-releases`. So does every other pin of the model library, in the designer and the
+   applications alike, because the train built each of them against the model it published
+   itself. CEE follows the model too, but the release pins the public CEE in its place. The copies carry the train's versions and bytes, at an
    address Nexus does not clean up. Their exact registry tarball and integrity are checked before
    and after lock generation, and preparation refuses a lockfile that still installs any tarball
    from another Nexus repository.
