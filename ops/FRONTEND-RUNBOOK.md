@@ -999,8 +999,8 @@ is the source of truth for which.
 
 | What | Node | Why |
 |---|---|---|
-| Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.19.0** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
-| `cedar-model-typescript-library` | 24.19.0 | Uses the same Node version as CEE. |
+| Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.22.0** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
+| `cedar-model-typescript-library` | 24.22.0 | Uses the same Node version as CEE. |
 
 CEE and the model library use the same Node version for development, builds and tests.
 
@@ -1169,7 +1169,7 @@ on the missing inputs. The CLI has no separate copy of the packaging rules now,
 so that class of drift cannot recur.
 
 Note that `cedarcli` builds CEE on whatever Node the login shell offers, which is
-not necessarily the 24.19.0 this repo declares.
+not necessarily the 24.22.0 this repo declares.
 
 `resolve-build-output.mjs` decides between two operations, and the difference is
 scope rather than filenames. Webpack wraps each chunk in an IIFE, so joining them
@@ -1551,7 +1551,7 @@ unimplemented there and every `newPage()` in the webkit-smoke project failed.
 Linux builds are current, so that constraint left with the runner. macOS runners
 cannot host a Linux container either way.
 
-**One Node version, 24.19.0, for the whole job.** It used to change midway —
+**One Node version, 24.22.0, for the whole job.** It used to change midway —
 build on 16.20.2, switch to 20.20.2, reinstall, then test the already-built
 `dist` — because Angular 14's toolchain and the Playwright the suite needs did
 not accept the same version. Angular 15 onwards do, so the split went at that
@@ -2227,7 +2227,7 @@ every kind, and a new code belongs in it.
 ### Troubleshooting
 
 **`ng` refuses to run, or `npm install` fails with engine errors**
-Check your Node version first — CEE is on 24.19.0 throughout, and a version
+Check your Node version first — CEE is on 24.22.0 throughout, and a version
 outside Angular 22's range fails in ways that look like something else.
 
 **Harness: `SyntaxError: Invalid or unexpected token` pointing at line 1 of a
@@ -2305,7 +2305,7 @@ Those assert what CEE *does*, deliberately. [FRONTEND-ROADMAP.md](./FRONTEND-ROA
 CEE consumes `@org.metadatacenter/cedar-model-typescript-library` as a published
 package, so this is only needed when working on the library itself.
 
-The library builds on **Node 24.19.0**, the same version CEE uses: `.nvmrc` names
+The library builds on **Node 24.22.0**, the same version CEE uses: `.nvmrc` names
 it, `engines` declares `^24.15.0`, and CI pins it. It sat on Node 20 until
 2026-08-16 — declared `>=20.19.0`, CI pinned 20.20.2, and the runbook called the
 split deliberate on the grounds that the library is a separate build with its own
@@ -2516,7 +2516,7 @@ seam where that met a component at CEE's 14px showed.
 
 ### Requirements
 
-Node 24.19.0, which `.nvmrc` pins and CI runs — the same version CEE and
+Node 24.22.0, which `.nvmrc` pins and CI runs — the same version CEE and
 `cedar-embeddable-term-picker` use. Nothing here needs Java or a running CEDAR stack, except
 controlled-term search, which needs a terminology server.
 

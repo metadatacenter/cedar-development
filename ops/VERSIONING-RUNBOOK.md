@@ -640,7 +640,7 @@ flows remain available. Explicit `termTypes` or `maximumTerms` selects the table
 workflow. The default is the table workflow with all types.
 
 
-`$CEDAR_HOME/cedar-embeddable-term-picker`, default branch `develop`. Node 24.19.0, the version `.nvmrc` pins.
+`$CEDAR_HOME/cedar-embeddable-term-picker`, default branch `develop`. Node 24.22.0, the version `.nvmrc` pins.
 
 ```bash
 npm --prefix $CEDAR_HOME/cedar-embeddable-term-picker install

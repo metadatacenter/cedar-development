@@ -58,10 +58,10 @@ jobs:
       # The frontend train suite shells out to node and npm. Both happen to be present on the
       # hosted runners, so the suite passed without asking for them, and would have started failing
       # on whichever runner image dropped them first.
-      - name: Set up Node 24.19.0
+      - name: Set up Node 24.22.0
         uses: actions/setup-node@v4
         with:
-          node-version: 24.19.0
+          node-version: 24.22.0
 
       - name: Check the search matrix harness without a stack
         working-directory: cedar-development/ops/e2e
@@ -165,10 +165,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up Node 24.19.0
+      - name: Set up Node 24.22.0
         uses: actions/setup-node@v4
         with:
-          node-version: 24.19.0
+          node-version: 24.22.0
 
       - name: Build the TypeScript model library
         working-directory: cedar-model-typescript-library

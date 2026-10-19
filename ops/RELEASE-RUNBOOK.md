@@ -90,7 +90,7 @@ findings. Network conditions affect the timing; the actual release pushes remain
 
 The plan settles four groups of question:
 
-- **The machine can run a release.** Java 17 and Node 24.19.0 are active, `git`, `mvn`, and `npm`
+- **The machine can run a release.** Java 17 and Node 24.22.0 are active, `git`, `mvn`, and `npm`
   are on PATH, Git author name and email are configured, the CEDAR profile is sourced, npm's
   effective user configuration contains no obsolete authentication setting, and there is disk for
   the release's estimated clean checkouts, release/next Maven and frontend builds, publication

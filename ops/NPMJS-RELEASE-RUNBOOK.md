@@ -53,12 +53,12 @@ update CEE's pin and lock before building. Build trains enforce token-first orde
 
 ## Shared Prerequisites
 
-Use Node 24.19.0 for both repositories. On the CEDAR development machine it is installed by
+Use Node 24.22.0 for both repositories. On the CEDAR development machine it is installed by
 Homebrew but is not the shell default:
 
 ```bash
 export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
-node --version                    # must print v24.19.0
+node --version                    # must print v24.22.0
 npm whoami                        # must print metadatacenter
 ```
 
