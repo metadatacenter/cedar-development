@@ -4569,11 +4569,12 @@ what failed, the publication needs repeating rather than the source.
 
 ### Automated Dependency Updates
 
-The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. Both
-repositories keep `renovate.json` on `main`, because the hosted app reads configuration from the
-default branch, and on `develop`, where the actual work lands. `baseBranchPatterns` is set to
-`develop`, so Renovate branches and pull requests must target `develop`, never `main`. Changes to a
-config therefore need a config-only pull request to `main` as well as the ordinary `develop` commit.
+The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. The hosted
+app reads its configuration from the default branch, `main`, while `baseBranchPatterns` is set to
+`develop`, so Renovate branches and pull requests must target `develop`, never `main`. A config
+change is committed to `develop` like any other change and reaches `main` with the next release.
+Until then the hosted app works from the configuration the last release carried, and may keep
+offering an update the new rules would hold back.
 
 `cedar-parent` is the Java dependency control point. Its config reads Maven through the CEDAR Nexus
 pull-through proxy, avoiding Maven Central's hosted-runner rate limit. It groups the Dropwizard,
