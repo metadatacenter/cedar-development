@@ -2090,6 +2090,15 @@ git show HEAD:visual/tests/render.spec.ts-snapshots/07-timezone-desktop-linux.pn
 Inspect each changed region. Do not accept unrelated differences merely because regeneration
 produced a passing comparison.
 
+A dependency patch can move baselines too. Angular Material 22.2.3 doubled the block margin of
+every chip in a chip set and gave each chip a 48px touch target, which made each occurrence pager
+8px taller and failed fourteen screenshots. CEE keeps its layout instead: `src/_cee-material-theme.scss`
+switches the touch target off and `src/styles-own.scss` restores the 4px margin. Adopting
+Material's spacing would be a design change, and it also breaks the narrow-header layout test, so
+it needs a decision of its own. The same upgrade moved the select panel's right edge by one pixel.
+Material 22.2.1 made the panel's opening animation fill `forwards`, which keeps the open panel on
+its own compositing layer. That baseline was re-recorded, because only the rasterisation changed.
+
 <a id="cee-running-the-angular-unit-tests"></a>
 
 ### Running the Angular Unit Tests
