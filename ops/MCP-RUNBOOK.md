@@ -119,7 +119,7 @@ curl -s https://registry.npmjs.org/cedar-embeddable-editor \
 
 The session page that `cedar-cee-mcp` serves styles its bar, status line and Done button with the
 shared CEDAR design tokens. The Maven build has no npm, and the token package exists only as
-development builds on Nexus, which its cleanup removes. The two compiled stylesheets the page links
+development builds on Nexus, which its cleanup removes. The compiled stylesheets the page links
 are therefore vendored in `src/main/resources/web/vendor/cedar-design-tokens/`, beside a
 `manifest.json` that names their version and each file's SHA-256 digest.
 
@@ -128,14 +128,17 @@ fails when a file no longer matches its digest, when the copy's `custom-properti
 declare the tokens held at the commit the version names, and when the page reads a token the pinned
 version lacks. A pin that lags the token checkout does not fail. Advance it when the page needs a
 newer token or when a value it reads has changed. To advance it, take the version the `dev`
-dist-tag names, replace the two files from that tarball, and rewrite the manifest.
+dist-tag names, replace the vendored files from that tarball, and rewrite the manifest. The same
+check fails when the page links the vendored stylesheets without `focus.css`, which draws the
+shared focus ring.
 
 ```bash
 cd $CEDAR_HOME/mcp/cedar-cee-mcp/src/main/resources/web/vendor/cedar-design-tokens
 version=$(curl -s https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-design-tokens \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["dist-tags"]["dev"])')
 curl -sf "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-$version.tgz" \
-  | tar -xzf - --strip-components=2 package/dist/custom-properties.css package/dist/secondary-action.css
+  | tar -xzf - --strip-components=2 package/dist/custom-properties.css package/dist/focus.css \
+      package/dist/secondary-action.css
 python3 - "$version" <<'PY'
 import hashlib, json, pathlib, sys
 manifest = json.loads(pathlib.Path('manifest.json').read_text())
