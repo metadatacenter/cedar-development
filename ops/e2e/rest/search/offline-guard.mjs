@@ -1,0 +1,12 @@
+import net from 'node:net';
+import tls from 'node:tls';
+import http from 'node:http';
+import https from 'node:https';
+import { syncBuiltinESMExports } from 'node:module';
+const refuse = () => { throw new Error('Network access is forbidden in offline search harness checks'); };
+globalThis.fetch = refuse;
+net.connect = net.createConnection = refuse;
+net.Socket.prototype.connect = refuse;
+tls.connect = refuse;
+http.request = http.get = https.request = https.get = refuse;
+syncBuiltinESMExports();

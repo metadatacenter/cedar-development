@@ -97,6 +97,11 @@ in Chromium and WebKit and checks that no artifact writes occur.
 The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
 It shows the owner and direct user/group grants to any reader, with searchable principals
 and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
+The caller's own access is shown separately from those direct assignments, using the resource
+report's role, ownership and capabilities. Missing information stays unknown. Role help is
+visible to readers as well as managers; removing a direct role is explained without promising
+to revoke access supplied by groups or containing folders. Group sharing requires no membership
+in the group. The ownership confirmation warns that the former owner may lose access entirely.
 Everyone is Viewer-only. Ownership transfer is a separate, confirmed user-only action,
 gated by `transferOwnership`. Each write uses the permissions ETag; a stale write displays
 the failed change and requires an explicit reload. Capabilities refresh after each successful
@@ -113,7 +118,14 @@ the last administrator. Privacy retains the existing policy wording in the Angul
 shell. In `ops/e2e`, run `npm run smoke:account:all` for all four pages, or
 `npm run smoke:account -- profile` (also `settings`, `groups`, `privacy`) for one page.
 The journeys remove their temporary keys/groups and restore the original date preference.
-Groups includes a second user's restricted view and a real stale-write conflict.
+Groups includes a second user's non-member, member and removed-member views and a real stale-write conflict.
+The selected group distinguishes “You are not a member” from membership without administrator
+access. An authorized roster supplies the caller's own status when available; otherwise Workspace
+reads `GET /groups/{id}/membership/me`. Missing endpoints on older servers, failed requests and
+malformed responses leave status unknown and show neutral viewing guidance. They never imply
+non-membership. Status refreshes on selection/reload and from confirmed membership writes,
+including self-removal or self-demotion. Roster visibility and administrative controls retain their
+existing restrictions. The Everyone group keeps its built-in membership explanation.
 
 Start it with `cedarcli native start frontend workspace`. With the native profile sourced,
 run `npm run build` in `cedar-workspace` after changing `src/`. `npm run build:deployment` configures and assembles the native server payload.
@@ -140,8 +152,53 @@ Server findings belong to the submitted draft and retire when it changes; late
 rejections cannot attach old findings to a newer draft. Unmapped findings retain
 both path and message. Failed loads offer Retry. Conflicts and missing revisions
 retain edits and require an explicit reload, with confirmation before discarding
-changes. An incomplete create acknowledgement blocks another create and directs
-the author back to Workspace to inspect the result. `metadata-state-matrix.spec.ts`
+changes. An incomplete create acknowledgement blocks another create until its outcome is
+settled. Lost replies and server errors report an unconfirmed save for both creates and updates;
+they do not claim the server accepted the write. A create is a PUT to an instance identity the
+editor minted and journaled before sending, so **Check save status** settles an unconfirmed
+create by reading that identity, as [settling a create or version write](#create-outcome-recovery)
+explains. For an unconfirmed update to an existing instance, Check save status reads the artifact
+and its permission report without replacing CEE. The same opened revision and content permit
+another conditional write; a different revision matching the submitted content acknowledges
+that snapshot and keeps newer edits. New element IDs are accepted only at template-declared
+element positions, then bound through CEE's captured save snapshot. Existing element IDs and
+term IRIs must match. A failed read, lost permission, missing revision or unexplained content
+change keeps the draft and the write guard.
+An existing write refused with 401/403 offers **Recheck access**. Restored permission enables
+saving only if the opened content and revision still match; neither a successful permission
+check nor a similar-looking submission permits adopting a different revision.
+Token-refresh refusal is a session failure, not an uncertain create. The modern Workspace
+smoke commits a real instance update before dropping its response and verifies that the form
+retains its input and cannot repeat the write without a successful status check. The
+`uncertain-create` journey does the same for creates. The host retains the instance
+description across field edits, including the description inherited on creation. Sparse save
+acknowledgements supplement the submitted snapshot rather than dropping metadata they omit.
+CEE's save snapshot binds submitted element occurrences to their working objects. When a save
+assigns new element identifiers, Workspace reads the stored document at the write's returned
+revision (including equivalent gzip-suffixed ETags) and acknowledges those IDs without remounting
+or replacing newer input. Reordered entries
+retain their own identities; deleted entries are not restored and new entries are not assigned
+another entry's ID. Failed readback, a changed revision or an invalid acknowledgement retains
+the draft and blocks further saves with an explicit message that the write succeeded.
+For an existing update, Check save status can retry verification after failed identity readback
+or a successful reply missing its ETag. It requires the saved content to match the captured
+submission before adopting the current revision and acknowledging IDs; an old opened revision
+cannot unblock a write already known to have succeeded. Newer input remains in the same form.
+Confirmed creates still require reload when their identity acknowledgement cannot complete.
+The modern smoke compares complete stored documents after a description edit in CED/CEFD and
+a field-value edit in CEE; only the intended change and root update provenance may differ.
+Schema fixtures include identifiers and annotations authored outside the description control.
+It also imports a library element, checks that later library edits leave the imported snapshot
+unchanged, and checks that edits to the imported element leave the library source unchanged.
+The reusable-source-failure journey selects a field and an element while the parent has an
+unsaved description. Search outages and refused, missing or unreachable element loads retain
+the selection and parent draft; a mixed batch cannot partially import its successfully loaded
+field. Retrying after recovery imports each definition once, saves the retained description and
+reopens both children without changing the library sources. The failures are injected at the
+browser request boundary; recovery and writes use the real services. Run
+`npm run smoke:journey -- reusable-source-failure`; the checks also run in the modern smoke.
+The resulting instance's second save must preserve its nested element identifiers.
+`metadata-state-matrix.spec.ts`
 and the browser state-coordination suite cover these transitions. First save replaces the create URL through Angular routing; it does
 not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.
 
@@ -170,11 +227,195 @@ In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
 sharing between two users, CEE metadata entry, versioning, OpenView and conditional writes.
+It runs its journeys in parallel lanes, which the
+[backend runbook](BACKEND-RUNBOOK.md#what-the-suites-actually-cover) describes, and
+`-- --lanes=1` runs them one after another.
+Its two-user access journeys revoke edit permission while Designer and Editor contain unsaved
+input, verify that saving is refused and the stored document is unchanged, and cancel the
+reload confirmation to verify that the local draft remains intact.
+The group-access journey creates a group and changes its membership through the Groups page,
+with access to the template and metadata instance granted only through that group. Removing
+the member while either editor is open refuses saving and preserves both the local draft and
+stored content. Restoring membership does not silently retry the save: **Recheck access**
+verifies restored permission and the unchanged stored artifact, then enables saving the same
+refused draft without reload. Checking while access is still denied also preserves input.
+The journey restores the original artifact permissions and removes its temporary group.
+Run `npm run smoke:journey -- access-recheck` for this focused two-user check.
+The terminology-failure journey injects HTTP 503 responses and dropped connections into
+the test page's terminology searches, leaving the shared service running. Designer shows
+the failure while preserving its chosen constraints and artifact draft; changing the query
+after access returns produces real search results. Editor preserves the selected term and
+other input, can save unrelated edits during the outage without changing that term, and can
+search and select again after recovery. These checks cover search outages after the editor
+is open; they do not establish recovery for every supporting service.
+The initial-load journey injects both HTTP 503 and connection failures into Designer's artifact,
+permission-report and component-manifest reads, and Editor's metadata, permission-report,
+template, configuration and component-script reads. Neither surface enables Save or shows an
+editable partial document; its existing retry control opens the intact stored artifact once
+the fault is removed. Whole-document comparisons and request observation verify that no write
+occurs. Run these focused cases with `npm run smoke:journey -- initial-load`; they also run in
+the modern Workspace smoke. Faults are page-scoped and fixtures are removed after the run.
+The validation-rejection journey supplies server-only findings at the HTTP response boundary,
+then uses real components and conditional server writes for correction and resubmission.
+Designer retains the rejected description and links the finding to its control. A nested regex
+finding opens the correct field through a repeated element and focuses its pattern setting;
+editing clears the obsolete report, and correction saves without changing sibling content.
+Editor follows a finding into the second occurrence of a repeated element, focuses its field,
+and preserves every other answer and nested identity when the correction is saved and reopened.
+Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
+handling of a rejection, not the validator that generates it.
+The save-status journey interrupts existing template, element, standalone-field and metadata
+updates both before a write and after an actual commit. It first fails the status read, then
+holds a successful read while more input arrives, checks the appropriate baseline/revision,
+and saves and reopens again. Editor adds a repeated element before the lost reply; recovery
+and the following save retain its minted identity. Additional Designer and Editor cases commit
+the first request after an unchanged status check, proving the stale retry receives 412 and
+keeps newer input. Run `npm run smoke:journey -- save-status`; all ten checks also run in the
+modern Workspace smoke. These checks cover open-page recovery of existing updates, not
+restoration after reload or an authoritative result lookup for a create.
+Run `npm run smoke:journey -- confirmed-save-recovery` for successful-update replies with a
+missing ETag in Designer's template, element and field editors and in Editor, plus Editor's
+failed identity readback. All five cases fail the first status check, retain input typed during
+a later check and save and reopen successfully; the metadata cases also preserve assigned
+element IDs. They also run in the modern smoke.
+The recovery-element-edits journey changes repeated metadata entries while a status read is
+held after a real committed save loses its reply. One case removes an earlier occurrence and
+copies the submitted one; another removes the submitted occurrence and adds a replacement.
+Acknowledgement binds minted IDs to surviving submitted objects, does not resurrect deleted
+entries or assign their IDs to replacements, and retains the current values. The next save
+mints a distinct replacement ID; whole-document comparison and reopening verify the result.
+Run `npm run smoke:journey -- recovery-element-edits`; both cases run in the modern smoke.
+The current-template-constraint journey changes a text regex through another REST client while
+Editor holds the earlier template. Its save must receive a real server 400 with `/Code/@value`,
+retain all local answers and preserve stored content and its ETag. Clicking the finding focuses
+Code; correction saves with the existing instance revision and reopens with other content intact.
+The reopened Editor enforces the new regex locally before another write can be submitted.
+Run `npm run smoke:journey -- current-template-constraint`; it also runs in the modern Workspace
+smoke. Unlike the injected report checks above, this exercises deployed server validation.
+The duplication journey copies templates, elements, standalone fields and metadata through
+Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
+It compares content, checks derivation and fresh draft-series identity, and verifies that neither
+editing direction changes the other artifact. Copies regenerate name-derived schema text and
+creation timestamps, and omit the original's external identifier; those are explicit assertions,
+not losses hidden by a normalization save. Untouched typed metadata answers remain intact.
+Run `npm run smoke:journey -- duplication` for the focused check.
+The template-evolution journey keeps unsaved metadata open in a second tab while Designer
+removes a field already used by that record. Cancelling the version dialog retains both drafts
+without changing storage; confirming publishes the original schema and creates a revised draft.
+The open record can then save and reopen its answer against the original template, while a new
+record created from the revised draft has only the remaining field. Run
+`npm run smoke:journey -- template-evolution`. This verifies structural changes through the
+supported Designer versioning path, not arbitrary in-place template changes by external clients
+or conversion between field types.
+The draft-sharing journeys check that a new draft is shared as the version it was drafted from.
+Workspace's Create Draft and Designer's Create new draft each draft three templates. The second
+test user holds no grant on the first, can view the second and can edit the third. As that user,
+the journey checks server reads and writes, how Designer opens each draft and what Shared with Me
+lists. The editor saves a change, the viewer sees the draft read only, and the user without a
+grant can neither read nor open it. Each draft keeps its owner and carries exactly its original's
+grants, the original's grants stay unchanged, and the folder grants nothing, so no access comes
+from it. Run
+`npm run smoke:journey -- draft-sharing-workspace draft-sharing-designer`; both also run in the
+modern Workspace smoke. They sign in as the second user, so they belong with the other two-user
+journeys rather than alongside single-user ones.
+The uncertain-create journeys lose real replies to creates and new versions at the browser's
+request boundary and check that each outcome is settled by the identity its client minted, never
+by repeating the write. `uncertain-create` creates a template, an element and a standalone field
+in Designer and an instance in the metadata editor, each in three series. In the first, the reply
+is lost after the server stored the artifact, and a reload and the restored draft's Check save
+status open it at its edit address. In the second, the write never reaches the server and an
+injected 401 refuses the first check for the session. Sign in again returns through the SSO cookie
+or the login form, the restored draft's check finds nothing, and Save sends the same identity
+again. In the third, a check in the open tab finds nothing, and the original request then commits
+late, modelled by a REST PUT of the body the browser sent. The next Save is refused as occupied,
+and the check adopts what was stored. Designer keeps the newer edit on screen but requires a
+reload, which discards it, before the next save. The metadata editor keeps it as an unsaved change
+that saves conditionally. `uncertain-workspace-create` loses the replies to New folder, Copy,
+Create Draft and Publish, committed or not, and settles each through the dialog's Retry. One Copy
+is reopened after a reload and takes up the retained identity and values. `uncertain-version`
+loses the reply to Designer's Create new draft, committed or not, and settles it after a reload.
+Every case ends with exactly one result: one artifact, folder, copy, successor or publication.
+Where Designer or the metadata editor created the artifact, a conditional edit follows, and the
+reopened page offers neither Restore draft nor Check save status. Run
+`npm run smoke:journey -- uncertain-create uncertain-workspace-create uncertain-version`. All three
+also run in the modern Workspace smoke, and none signs in as another user.
+The partial-version journeys check that Designer's Create new draft stores nothing when the server
+refuses it, and that a corrected retry creates exactly one successor. In
+`partial-version-definition`, a page-scoped rewrite removes the `oslc:modifiedBy` declaration from
+the submitted definition, and the server's validator refuses it with 400 before publication.
+Designer lists the findings, and editing the definition retires them. In `partial-version-draft`,
+the author owns the template, but the second test user owns its folder and has made the author a
+viewer of it, so the server refuses the draft with 403. The refusal survives a reload, a restored
+draft and an access recheck, which reads only the template's own permissions. Once the second user
+restores the editor grant, the retry succeeds. In both journeys the source stays the draft that was
+opened, at the same ETag and with one version, until the corrected retry. `partial-version-draft`
+uses the second user by REST token and never signs that user in to a browser. It writes in that
+user's home folder, so it belongs with the two-user journeys. Run
+`npm run smoke:journey -- partial-version-definition partial-version-draft`. Both also run in the
+modern Workspace smoke.
+The content-deletion journey uses temporary templates and metadata to check cancellation of
+populated-element deletion in Designer, removal of fields/elements and their parent references,
+and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
+root update provenance, preserving surviving definitions, values, order and element-instance
+identities. Reopening and explicitly discarding the retained recovery draft restores unsaved
+deletions; reopening after a successful save preserves deletions, including empty optional lists. The stored Designer fixtures are compared
+directly, without an initial normalizing save.
+Neither surface currently offers deletion Undo; explicitly discarding the recovery draft after
+reopening the saved artifact is the recovery tested here, and does not preserve other unsaved work.
+Run this check alone with `npm run smoke:journey -- content-deletion`.
+The older-artifact journey opens legacy-shaped templates, elements and standalone fields,
+edits each description twice, and verifies that unrelated schema shapes, constraints,
+annotations and identities survive saving and reopening. Editor also renames and reopens
+older metadata without losing typed answers or existing context declarations; its writer
+adds the standard `pav:derivedFrom` context declaration if absent. An unsupported historical
+field type is injected only into a GET response to verify that Designer refuses to open it,
+keeps Save disabled and sends no artifact writes. Repairing arbitrary invalid or unsupported
+artifacts is not established by these focused checks.
+The partial-selection deletion journey commits two deletes and drops the second response.
+It verifies that only the first is reported as confirmed, later items remain untouched, and
+the author can finish from a fresh selection without repeating the uncertain request.
+Hermetic bulk-delete recovery journeys extend this to a confirmed recursive-folder deletion,
+an uncertain individual delete, and an unattempted remaining record. Repeated HTTP 503 or
+disconnected inventory/listing reads retain confirmed counts and leave deletion disabled.
+Restored inventory reads recheck permissions and revisions; a revoked permission blocks the
+whole remaining selection, and recovery requires explicit confirmation using fresh ETags.
+If the uncertain item returns 403 or 404, neither response proves deletion: its count stays
+unconfirmed and the old selection stays blocked. Close the dialog, refresh Workspace after
+service recovery, and review a new selection of remaining items before confirming deletion.
+`npm --prefix browser test -- bulk-delete-recovery.spec.mjs` exercises these paths in Chromium
+and WebKit against a built Workspace. This is unit and hermetic browser coverage of the
+existing workflow; combined deletion outage cases still need live-stack verification.
+The partial-move journey refuses one grouped move at the HTTP boundary while two others
+commit at the real server. Workspace reports the two successes and the refusal, retains only
+the remaining item in its selection, and can move that item after the refusal clears without
+repeating successful moves. All stored artifact content is compared before and after. Run
+`npm run smoke:journey -- partial-move`.
+The uncertain-move journey lets all three moves commit, then drops one response. Workspace
+reports only the two confirmed successes alongside the error and refreshes the source listing,
+removing the already-moved items from selection. Opening the destination finds all three with
+their entire artifact content unchanged, and no move is replayed. Run
+`npm run smoke:journey -- uncertain-move`; the full modern smoke includes it too. This covers
+recovery through a successful listing refresh, not an outage that prevents checking placement.
+Workspace also preserves unresolved move selections through repeated listing failures and shows
+the refresh error alongside individual move failures. An explicit retry first checks every
+selected resource's current placement, capabilities and revision. A resource already directly
+inside the requested destination is confirmed without another move request; selected descendants
+stay with their selected ancestor. Unavailable or malformed placement reports prevent all writes.
+Hermetic Chromium and WebKit journeys cover lost replies both before and after commit, repeated
+listing failures, placement-check failure, and recovery without replaying confirmed moves.
+Run `npm --prefix browser test -- bulk-move-recovery.spec.mjs` against a built Workspace.
+These outage combinations have unit and hermetic browser coverage; live-stack verification is
+still pending. The isolated test build does not redeploy the shared Designer or Editor.
+The main smoke registers copies by the collection in their canonical identity, since copy
+responses are artifact documents without `resourceType`; this ensures non-template copies
+are removed from the correct collection during cleanup.
 The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
 current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
 by the REST download suite, and the main browser smoke exercises CEE download controls.
-Each Workspace run removes its fixtures; the result and failure screenshots, including open
-second-user pages, are written under `/tmp/cedar-modern-workspace-smoke/`.
+Each Workspace run removes its fixtures. Its result and failure screenshots, including open
+second-user pages, go to a directory of the run's own: under the split tier, the evidence directory
+its report names, and otherwise a new `cedar-e2e-evidence-*` directory in the system's temporary
+directory, which the smoke prints.
 `npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
 runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
 and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).
@@ -283,8 +524,9 @@ and test success can both be checked. These requirements also apply to direct `o
    packages to Nexus and advance development pins in `package.json` and lockfiles as needed.
    Registry publication and development-pin changes are allowed parts of the reactor, not
    blockers or separate work the user must request again.
-3. Run the applicable component, integration and visual regression checks. Review intentional
-   visual changes before updating baselines; do not accept failed screenshots automatically.
+3. Run the applicable component, integration and visual regression checks, or reuse a result
+   that passed for exactly the same inputs. Review intentional visual changes before updating
+   baselines; do not accept failed screenshots automatically.
 4. Redeploy all local frontends, verify the bundles actually served match the selected build,
    and run the whole-stack smoke tests. Preserve that selection across restarts and dependency
    reinstalls so old pins cannot silently restore an earlier component.
@@ -304,7 +546,20 @@ changes. Commit/push remains subject to the user’s instruction.
 
 The command runs the component verification gates in the isolated build copies, records the
 successful package selection, restarts all native frontends, verifies their installed reactor
-packages, and runs the whole-stack smoke tiers. A failure at any stage returns nonzero. A
+packages, and runs the whole-stack smoke tiers.
+
+A repository whose inputs match an earlier passing result is not verified again. Each passing
+task leaves a record in `.reactor/results/`, named by a fingerprint of everything it read: the
+content of its source tree, its exact commands, the package each CEDAR dependency resolved to in
+the build, the integration bundles its checks loaded, the Node.js and npm versions, the platform,
+and the reactor's own tooling, which is cedar-cli's source and the frontend inputs in
+`cedar-development`. A task with the same fingerprint takes the recorded package and passes
+without running its commands. The build report lists it as `reuse <fingerprint>`, and its
+evidence record names the result it took. A changed producer yields a different package, so
+every repository built on it runs again. The fingerprint leaves out the worker budget, scratch
+paths, the time and the shell's environment. A recorded package that has left the store, or no
+longer has its digest, is not a result. `cedarcli build frontends --no-reuse` runs every
+repository's checks again, and so does the next build after `.reactor/results/` is deleted. A failure at any stage returns nonzero. A
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
 
@@ -322,7 +577,7 @@ Before a failed isolated frontend build is cleaned up, the CLI retains its comma
 npm's debug logs, and available `test-results`, `playwright-report`, `surefire-reports`,
 `failsafe-reports`, and `coverage` files under
 `$CEDAR_HOME/.cedar/build-reports/failures/`. The failure prints the exact directory.
-npm writes its debug logs into the build's own cache rather than the copied repository, and a
+npm writes its debug logs into a directory the build owns, outside the copied repository, and a
 bundle keeps them under `npm-logs/`. Each bundle is capped at 250 MiB of copied files;
 `manifest.json` lists retained files and files omitted for size. Dependencies, Git metadata
 and symlinks are excluded.
@@ -346,10 +601,60 @@ does not redirect those checks to an absent or stale sibling `cedar-test-artifac
 
 #### Bounded parallel builds and test gates
 
+The Angular, React and Ember CEE consumer demos are a separate conditional gate,
+not ordinary reactor applications. `cedarcli build frontends` (and test-enabled
+`build all`) omits their installs/builds from the main graph, then checks all three
+against the exact CEE tarball just built when their embedding inputs have changed.
+The first run also checks them. A successful fingerprint under `.cedar/cee-demos/`
+covers CEE's public declarations, custom-element registration/bootstrap, host wrappers
+and configuration, packaging scripts/manifests, every declared CEE consumer manifest
+and lock, and demo sources/tooling. Internal field-rendering changes alone do not
+invalidate it. Missing, corrupt or failed evidence never suppresses a check.
+Failures stop completion before runtime activation. Deployment, served-byte checks
+and whole-stack smoke remain required.
+
+Force all three demos with `cedarcli test cee-demos`. By default this verifies their
+checked-out pins. To test a release candidate, use
+`cedarcli test cee-demos --cee-package /absolute/path/to/staged-package-or.tgz`.
+Both modes lint, integration-test and production-build all three in disposable copies;
+candidate pins/locks are rewritten only in those copies. The explicit command always
+runs, even when a matching local check exists. Consumer-demo CI checks its pins on
+push/PR; CEE CI checks every newly staged candidate, including release-preparation
+PRs, before dev publication. Build trains and platform release verification retain
+all three demo surfaces. Before publishing a public CEE release, explicitly test
+the final staged package as described in the npmjs release runbook.
+
 On the 16-core workstation, which runs little else, build with
-`cedarcli build --jobs 2 --workers 12 frontends`. Twelve workers per repository measured
-faster than the default of eight, and sixteen gained little over twelve. The defaults suit a
-smaller or shared machine.
+`cedarcli build --jobs 3 --workers 12 frontends`. With reuse, most builds run only the
+repositories that changed, and a repository running on its own gains most from more workers.
+Measured on 2026-10-14 with a warm npm cache and a filled result store, one run each:
+
+| What changed                    | Repositories run | `--jobs` / `--workers` | Wall time |
+| ------------------------------- | ---------------- | ---------------------- | --------- |
+| Nothing                         | none             | 3 / 8                  | 8 s       |
+| CED alone                       | CED              | 3 / 12                 | 159 s     |
+| CED alone                       | CED              | 3 / 8                  | 232 s     |
+
+A full rebuild follows any change to cedar-cli or to the frontend inputs in
+`cedar-development`, because both are part of every fingerprint. It is CPU-bound for most of
+its run, so more parallelism there mostly adds contention. A third job lets the small
+applications run beside the long CEE and CED suites, and fewer workers keep those suites from
+oversubscribing the cores when they overlap:
+
+| Scheduling                               | `--jobs` / `--workers` | Wall time | CPU busy |
+| ---------------------------------------- | ---------------------- | --------- | -------- |
+| Consumers start from a packaged producer | 3 / 8                  | 345 s     | 86%      |
+| Consumers start from a packaged producer | 3 / 12                 | 361 s     | 86%      |
+| Consumers start from a packaged producer | 2 / 12                 | 380 s     |          |
+| Consumers wait for every check           | 2 / 12                 | 376 s     | 78%      |
+| Consumers wait for every check           | 3 / 8                  | 435 s     | 63%      |
+
+Twelve workers therefore cost a full rebuild 16 s and save a single-repository build more than a
+minute. Reports: `.cedar/build-reports/20261015T035218Z-12bec28f.json`,
+`20261015T035723Z-0ac7e652.json`, `20261015T035247Z-0015beba.json`,
+`20261015T012311Z-c285cb6b.json`, `20261015T011659Z-fedcff7b.json`,
+`20261015T010102Z-576ae15f.json`, `20261015T010854Z-104313dc.json` and
+`20261015T012939Z-82d73030.json`. The defaults suit a smaller or shared machine.
 
 `cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
 repositories at once, with two workers per repository. Two repositories is the default;
@@ -358,14 +663,29 @@ the worker default is half the detected CPU count, at least one and capped at ei
 build options before the target; `--jobs 1 --workers 1` provides a serial comparison.
 The scheduler reads dependencies from nested package manifests (including npm aliases)
 and the inventory's integration bundle inputs. A consumer waits for its current-source
-producers to pass all checks and publish their immutable local artifacts. Other build
-commands remain exclusive barriers, and deployment and the smoke tiers run after all
-frontend checks pass. A failed producer blocks its consumers, including in continue mode.
+producers' immutable local artifacts. Other build commands remain exclusive barriers, and
+deployment and the smoke tiers run after all frontend checks pass. A failed producer blocks
+its consumers, including in continue mode.
+
+A surface in `frontend-train.json` may declare a `package` phase between `setup` and
+`verify`: the commands that build and stage what it publishes. The model library and CEE
+declare one. When that phase passes, the reactor stores the artifact and starts the
+consumers waiting for it, while the producer's own checks continue in the same job slot.
+Such an artifact is offered only to the consumers in this build. When the producer's checks
+pass, its package is packed again and must match the stored artifact byte for byte. Only
+then is it advertised in `.reactor/refs/`, and a consumer built on it is advertised only
+after that. If the producer's checks fail, its waiting consumers are blocked, any already
+running finish, the build fails, and nothing built on that artifact is advertised. Trains
+and every other runner of a surface's commands run setup, the package phase and verify in
+that order. Each task in the build report carries a `timeline`: the seconds into the build
+at which it started, packaged and passed or failed.
 
 The CEE gate overlaps independent build, domain, unit, lint and type-check stages within
 `CEDAR_TEST_WORKERS`. The Angular build and coordinator tests remain ordered because they
 share a cache. The domain harness has its own Vite cache and `harness/coverage/`
 reports, so it cannot clear another tier's output. Visual checks follow those stages; packaging follows the visual gate.
+The reactor builds, bundles and stages CEE's package first, as its package phase, and then
+runs `test:ci:prebuilt` against those built bytes.
 `test:ci`, `test:ci:prebuilt` and `test:ci:nonvisual:prebuilt` retain their original checks.
 Direct npm gate invocations use the same CPU-based worker default. Each stage prints its elapsed time.
 
@@ -373,12 +693,15 @@ The model's `test:ci` gate overlaps lint, types, coverage, YAML parity, JSON par
 and the packaged-consumer smoke. Jest receives most of the worker budget rather
 than being forced into `--runInBand`; pretest fixture generation still completes
 once before any of the checks start (parity reads the same generated module). Each parity invocation owns its temporary output tree,
-and only packaging writes `dist/`. Every check must pass before consumers start.
+and only packaging writes `dist/`. In the reactor, `npm run build` first produces the package
+its consumers receive. The gate's packaging stage rebuilds `dist/`, and that rebuild must
+match the package already given out byte for byte.
 
 The designer's `test:ci` overlaps unit, lint, types, import-boundary and packaging
 checks. Its Angular unit tests and distribution build remain ordered because they
-share a cache; browser checks wait for the distribution and use the full budget.
-The reactor still runs the separate container visual gate afterward. CEE gives
+share a cache. The browser checks and the container visual baselines both wait for the
+distribution and then run together: the baselines take two workers when the budget is at
+least six, one otherwise, and the browser checks the rest. CEE gives
 its domain/unit tiers two workers each when the budget permits, and fixture
 opening waits for finite animations instead of an unconditional 300 ms delay.
 No screenshot tolerance, baseline, browser project or integration input is removed.
@@ -608,6 +931,70 @@ Angular's own build reports 1.6s and 3.2s.
 
 The check reads the workspace rather than the repository registry, so a component counts
 as one as soon as a sibling installs it.
+
+## Seeded history tests
+
+The ordinary test gates include bounded, repeatable generated histories in CED,
+CEE, Workspace, the term picker and the TypeScript model library. These complement example and matrix tests:
+they explore combinations and operation order, while explicit regressions retain
+the small cases discovered by a failing history.
+
+| Repository | Generated histories and their independent checks |
+|---|---|
+| `cedar-embeddable-designer` | Tree edits, moves, copies, deletes, defaults and serialization; compare against a plain adjacency model and check old snapshots remain unchanged. Deferred terminology replies check field intent ownership, recovery, dirty state and save blocking through edits, moves, reloads and read-only transitions. |
+| `cedar-embeddable-editor` | Nested occurrence and attribute operations; compare values, counts and pager positions against plain data. Host assignments check claims, atomic rejection, owned input snapshots and isolation between editors. Controlled-term and external-authority lookup histories combine timed queries, out-of-order replies, nested paging, template replacement, selection and destruction. |
+| `cedar-model-typescript-library` | Nested schema and instance serialization; compare authored content and JSON/YAML stability. Instance YAML deliberately omits context and unfilled field slots, so that lane checks the documented payload rather than exact JSON equality. |
+| `cedar-workspace` | Metadata create/edit histories compare the current draft, acknowledged baseline, revision and recovery requirements with a plain reference model. Saves, further edits, delayed responses, remote changes, discard confirmations and host recreation must preserve unsaved input and prevent duplicate uncertain creates. |
+| `cedar-embeddable-term-picker` | Search and hierarchy histories mix response ordering, paging, release selection, source/endpoint changes, constraint replacement, selection and component recreation. Plain result lists, tree pages and constraint identities check ownership, duplicate prevention, pinned-term verification and immutable host inputs. |
+
+Run larger explorations from the respective repository, after loading the native
+profile as for other direct npm commands:
+
+```bash
+# CED: 2,000 editing histories
+CEDAR_FUZZ_RUNS=2000 npm test -- --watch=false --include='**/editing-history.fuzz.spec.ts'
+
+# CED: 2,000 histories with manually scheduled terminology responses
+CEDAR_FUZZ_RUNS=2000 npm test -- --watch=false --include='**/terminology-history.fuzz.spec.ts'
+
+# CEE: occurrence, attribute and host-assignment histories
+CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/shared/util/occurrence-history.fuzz.spec.ts src/app/modules/shared/util/host-input-history.fuzz.spec.ts
+
+# CEE: 2,000 histories each for controlled terms and external authorities
+CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/input-types/components/lookup-history.fuzz.spec.ts
+
+# Workspace: 2,000 histories each for metadata creation and editing
+CEDAR_FUZZ_RUNS=2000 npx ng test --watch=false --include='**/metadata-history.fuzz.spec.ts'
+
+# Term picker: 2,000 versioned search, hierarchy and selection histories
+CEDAR_FUZZ_RUNS=2000 npx ng test --watch=false --include='**/picker-history.fuzz.spec.ts'
+
+# Model library: 1,000 instance cases and 1,000 schema cases
+CEDAR_FUZZ_RUNS=1000 npm test -- --runInBand SerializationFuzz
+```
+
+`CEDAR_FUZZ_SEED=1214` selects one seed instead of the run count. A failure prints
+its seed and a reduced command list: the test deletes commands while retaining
+the original assertion-message signature. This is a debugging aid, not a proof
+of the smallest possible reproduction. Each replay starts with fresh state.
+The asynchronous histories use deferred promises (CED) and a fake clock with
+controlled response streams (CEE), so response order and debounce boundaries are
+repeatable without network calls or sleeps. CED's async shrinker awaits each replay
+and also preserves the assertion site. Both suites use two editors to check
+isolation. CEE exercises real handlers, nested pager state, registry updates and
+autocomplete subscriptions; actual browser rendering and live network behavior
+remain the browser/integration suites' responsibility.
+
+Workspace's metadata histories exercise the real host with CEE's public boundary,
+HTTP and confirmation replies simulated; they do not replace CEE's own instance
+tests. The picker histories exercise the real component and replace only its
+terminology client. Both use fake clocks and awaited shrinking. Explicit histories
+pin save/edit acknowledgement and release-switching races alongside the generated
+cases. The default gates run 100 metadata histories per mode and 100 picker
+histories; extended counts apply to each mode independently.
+
+The preview-answer carry tests have their own existing `CARRY_FUZZ_RUNS` and
+`CARRY_FUZZ_RUN` controls; they do not use the history-test variables above.
 
 ## Embeddable Editor (CEE/CEF)
 
@@ -1441,8 +1828,9 @@ the same bad value in two entries is two problems. Each existing containing elem
 must satisfy a required field; one filled element cannot satisfy an empty sibling.
 The counters count declarations, with a declaration complete only when all its
 containing elements satisfy it. A repeating field needs at least one answer within
-each containing element. A repeatable list that a stored instance omits is reported as the empty list
-CEE writes, which is why there is no `missingProperty` code. The contract is in
+each containing element. An omitted optional repeatable list can represent an empty answer;
+an absent property required by the artifact structure is a `missingProperty` error. Raw input is
+checked before export completion can supply empty slots. The location contract is in
 `harness/test/report-locations.spec.ts`.
 
 `HandlerContext.validation` owns validation coordination. Loads and mutations rebuild
@@ -1451,9 +1839,11 @@ and `FieldValueValidator`; unfinished date/time and attribute-name drafts are ke
 by their actual occurrence node, so paging cannot relocate them, copying duplicates
 them independently, and deleting a branch removes its issues. Attribute deletion
 uses the accepted name and removes its sibling value before publishing a change.
-Required values, minimum counts and unnamed attribute rows carry `severity: warning`;
-malformed values, bad template constraints and unfinished edits carry `severity: error`.
-Both affect `isValid`; CEE does not impose a save policy on hosts.
+Required answers, minimum counts, provisional unnamed attribute rows and well-formed values outside
+their constraints carry `severity: warning`. Malformed typed values, malformed stored attribute names,
+missing structural properties and inconsistent template constraints carry `severity: error`.
+Both affect `isValid`; the common instance policy supplies `canSave`, `structurallyValid` and
+`blocksSave` for hosts, while the template policy blocks inconsistent defaults.
 
 JSON input recovery preserves malformed field IRIs and well-shaped numeric,
 temporal and IRI defaults for correction instead of rejecting the entire form.
@@ -2250,7 +2640,16 @@ would suddenly be sharing one.
 
 ### Internal Boundaries
 
-`EditorSession` owns the authoring document and active container. Every document
+`EditorSession` owns the authoring document, active container and `EditorAccess`
+policy. Access distinguishes definition edits from parent-owned placement edits;
+host read-only and root publication block both. Commands and controls share that
+policy. Tabs, expansion, outline selection and read-only preview remain available.
+Permission changes close editing dialogs and cancel outstanding edits without
+reviving them when access returns; existing unsaved input is retained. The host
+reserves `inert` for loading, failed loads and saving. See the designer README's
+read-only access table and its access, command and browser matrices.
+
+Every document
 update passes synchronously through `ValidationCoordinator`, which owns pending
 settings edits, syntax errors, asynchronous checks, error visibility and the public
 validation report. It validates edits against their own node, retries related drafts
@@ -2457,14 +2856,223 @@ drafts block Save even before CED discloses their errors. Failed startup and loa
 Reload; script loading and asynchronous element registration both have bounded waits.
 Malformed repository child lists and update assessments cannot authorize an operation.
 
+For an existing artifact, the coordinator retains both the loaded document and the
+component's initial JSON projection. Saving applies changes relative to that projection
+to the loaded document, so normalization by the component does not rewrite untouched older
+schema branches. When a child key changes, a unique definition identity carries its stored
+branch to the new key; property IRIs distinguish reused definitions that share an identity.
+Key swaps follow the same correspondence, while a newly added copy does not inherit hidden
+content from another placement. Changing a field between single and repeated cardinality moves
+its stored definition into or out of the array wrapper without replacing it with the normalized
+projection; simultaneous definition edits still apply. Explicit deletions and changes still reach
+storage; changed JSON arrays use the component's complete authored value. The stored and projected
+snapshots advance together only after a confirmed save, while newer edits remain dirty. The write still uses the ETag
+from the loaded representation; this preservation step does not reconcile concurrent edits.
+
+`npm run smoke:journey -- older-key-rename` verifies a real key rename on a legacy-shaped
+field, comparing its full stored definition, annotations, identifiers, provenance and sibling
+content after save and reopen. The server also follows unambiguous child identities when
+preserving provenance, so changing a placement key does not turn an existing field into a new creation.
+
+Designer freezes editing and disables Save while a write is pending. Unlike Editor's
+continued-typing workflow, its controls cannot receive focus or keyboard input until the
+request settles. `npm run smoke:journey -- designer-pending-save` delays real successful
+PUT replies for templates, elements and standalone fields, verifies that freeze, then checks
+that acknowledgement retains the open component and enables editing. A second conditional
+save and reopening prove adoption of the new revision and preservation of the complete stored
+document apart from the authored description and root update provenance. These checks concern
+existing identities; first-create and version-creation recovery have separate contracts.
+
 Structured server findings retain their nested location and message, belong to the
 submitted snapshot and retire when it changes. Errors block Save, while server warnings
-remain advisory. The host lists those findings; attaching them to CED's own cards and
-navigation still requires the component API described in the frontend roadmap.
-Conflicts, permission loss and missing revision tokens preserve edits and require an
-explicit reload, with confirmation before discarding changes. An acknowledgement without
-an artifact identifier cannot trigger another create; the author is directed to inspect
-Workspace. Changes while an update assessment or version confirmation is pending cancel
+remain advisory. The host forwards them through CED/CEFD's `validationFindings` input as
+`{location, message, severity}` rows. CED gives them `source: 'host'`, maps recognized JSON
+Pointers through nested and repeated definitions to settings, and joins them to its existing
+summary and inline errors. Both the component summary and host disclosure can navigate to
+the affected control; `revealValidationFinding(location)` reports whether a path is mapped.
+Unknown paths remain visible as text. Warnings neither mark controls invalid nor block Save.
+An accepted document edit or replacement retires the supplied snapshot; invalid pending
+settings remain intact. Hosts must discard late reports about an older submitted snapshot.
+Conflicts and missing revision tokens preserve edits and block another write. Workspace offers
+**Review latest saved version** for existing metadata; Designer still needs explicit schema
+reconciliation or a confirmed reload that discards the working changes. A refused existing-artifact save (401/403), including
+an update assessment refused before writing, offers **Recheck access**. Both hosts read the
+artifact and permissions separately from the working draft; only restored update permission
+and unchanged opened content/revision enable saving again. A different revision remains blocked
+even if its values resemble the attempted submission. Failed checks keep the draft and can
+be repeated. Clean read-only openings and denied create destinations also offer an access recheck,
+as described below. A lost response, server error, timeout or acknowledgement without an artifact identifier blocks another write and reports
+that saving could not be confirmed. An uncertain create or publish/create-draft operation
+also hides Reload, so it cannot repeat the write. Its outcome is settled by the identity the
+write carried, as [settling a create or version write](#create-outcome-recovery) explains.
+An unconfirmed existing-identity update offers **Check save status** separately from Reload.
+The host reads the artifact and its permission report without calling `loadArtifact`. Matching
+the opened content and revision permits a conditional retry; matching the submitted content
+at a new revision advances the saved baseline and ETag while keeping newer edits. The
+comparison ignores only root update provenance: child identities and provenance, values,
+annotations, order and unknown content still count. Server normalization that cannot be
+reconciled exactly leaves Save blocked. Failed reads and denied access preserve the draft and
+allow another check; they do not claim the artifact was deleted. A late first commit after an
+unchanged read makes the retry stale, so the server refuses it rather than overwriting it.
+A successful existing-identity update whose reply omits its ETag also offers Check save status.
+The retained opened revision and exact submitted body allow a matching newer stored snapshot
+to restore saving without replacing CED or CEFD, losing newer input or repeating the write.
+Because the update is known to have succeeded, an old opened revision cannot release this
+guard. A missing revision, changed content or denied permission keeps Save blocked and the
+check retryable.
+A failed update assessment can be retried because it has not written an artifact. The CED
+host smoke commits real updates before dropping their replies to verify this distinction.
+Designer schema reconciliation and changed-template migration remain open in the
+[save-recovery roadmap](FRONTEND-ROADMAP.md#save-recovery).
+Both hosts retain unfinished work in the tab's `sessionStorage`, scoped to the deployment,
+signed-in account, artifact kind and identity, or the destination folder for a new artifact.
+The component APIs `captureDraft()` and `restoreDraft()` preserve unfinished control input,
+validation gates and accepted content separately from a server-saveable artifact. Reload offers
+**Restore draft** after fresh artifact, template and permission reads. It never silently replaces
+the latest document or grants the retained draft's former permissions. Neither host displays
+recovery-file download or import controls. Server errors and
+warnings retain their submitted-content key in that envelope: restoring the same rejected content
+retains its findings and save gate, while changing the content retires the report.
+Closing the tab ends automatic retention.
+
+A clean read-only opening, or an initial 401/403 refusal, offers **Recheck access** and
+**Sign in again**. Recheck reloads content and permissions together; it cannot replace local
+work or attach a fresh revision to an older draft. Create routes recheck their destination
+folder. Retry after a failed opening preserves retained work. Once deployment and account are
+known, existing-record and explicit-destination drafts can be offered even if
+profile loading fails. Restore stays disabled until the component/configuration prerequisites
+are available. A create route using an unresolved default home folder waits for profile recovery
+before selecting its draft scope. If Designer configuration fails before authentication identifies
+the account, the host retains browser storage but cannot expose a scoped draft yet; Reload after
+configuration recovery offers it. Editor configuration failures occur after scope selection;
+restoration waits for its prerequisites. Unavailable and malformed JSON
+configuration responses follow the same recovery path.
+
+
+The hosts journal before dispatching a write. Pending submissions and unresolved create/version
+outcomes survive reload, and an uncertain creation cannot be discarded to enable
+a second create. Existing-update status checks restore saving only after comparing authoritative
+content and revisions. **Sign in again**, offered with access recovery, persists the draft before
+redirecting; a storage failure keeps the author on the page. A restored form
+whose access is later granted becomes editable after the fresh access check. Explicit ordinary
+discard and a clean acknowledged save remove the retained draft. Storage failures are visible.
+
+<a id="create-outcome-recovery"></a>
+
+A create or version write carries an identity its client chose, so a lost reply can be settled
+by reading that identity rather than by inspecting Workspace. Before the first attempt, the host
+mints `https://repo.<domain>/<collection>/<random UUID>` on the deployment base it already uses
+for short addresses, and records the identity in the tab's journal. Every attempt reuses it
+until the outcome is settled. A create is `PUT /<collection>/<identity>?folder_id=<folder>`
+without `If-Match`. Designer's **Create new draft** sends the draft's identity as the `draft_id`
+query parameter, and its journal also keeps the submitted definition, the source identity and the
+opened ETag. A create attempt answered 412 or 428 means only that the identity is occupied. The
+outcome stays unresolved until a check settles it, and is reported as neither success nor failure.
+
+After an uncertain create or version write, the alert names **Check save status**, and that
+control appears in this state as well as for existing-identity updates. The check reads the
+identity and settles the outcome as one of three:
+
+- Committed: the identity exists. A new draft must also name the source as `pav:previousVersion`
+  and hold the submitted definition. The host opens the artifact at its edit address and keeps
+  later edits as unsaved changes.
+- Not committed: the identity answers 404. For a new draft, the source must also still be the
+  draft that was opened. The alert says the work was not saved, and Save is enabled again with
+  the same identity.
+- Unresolved: any other answer. Save stays blocked and the check can be repeated. A check refused
+  for the session offers **Sign in again**.
+
+Discard stays refused until the outcome is settled. A journal written before hosts recorded an
+identity carries none, so its uncertain create stays blocked without Check save status.
+
+Workspace's resource dialogs settle their writes the same way. New folder creates by
+`PUT /folders/<identity>`. Copy sends the copy's identity as `copyId`, and Create Draft sends the
+draft's as `draftId`. Publish creates no artifact, so its outcome is read from the source. In a
+dialog's uncertain state, **Retry** checks the outcome instead of resending the request. A folder
+is committed when it exists in the requested parent, a copy when it exists with `pav:derivedFrom`
+naming the source, a draft when it exists with `pav:previousVersion` naming the source, and a
+publication when the source is published at the requested version. A committed outcome completes
+the dialog as a success would. When the identity answers 404, or the source of a publication is
+still the draft that was opened, the dialog enables submit again with the same identity and
+values. Any other answer leaves the dialog uncertain, and Retry can be repeated. The tab's
+`sessionStorage` keeps the identity and values per deployment, account, action, item and
+destination, so reopening the same action on the same item and destination after a reload reuses
+them.
+
+A lookup cannot tell an identity that was never created from one that was created and then
+deleted. If the artifact is deleted while its author's tab still holds the unresolved outcome,
+the check reports it as not saved, and a retried create recreates it under the same identity.
+
+Workspace's **Review latest saved version** reads the artifact, access report and template without
+changing the form. It combines independent metadata edits and requires a choice for each conflict;
+repeated entries are compared together rather than paired by index. Repository identity and
+provenance come from the latest document. **Apply reviewed changes** updates the form only, and
+Save still performs a conditional write with the reviewed ETag. Editing during review invalidates
+its application. A changed template or unfinished raw input leaves the draft intact and explains
+why reconciliation cannot yet proceed.
+
+`npm run smoke:journey -- draft-recovery metadata-reconciliation` exercises the deployed component
+APIs and real stored artifacts: reload after an outage or lost committed reply, full sign-in,
+restoration, authoritative status checks, subsequent conditional saves and readback, plus a real
+metadata conflict followed by explicit reconciliation. The regular Workspace stack smoke includes
+these journeys too. Fixtures are removed when the run ends.
+
+Additional focused checks, also included in the regular modern smoke:
+
+- `opening-permissions`: real viewer-to-editor grants for clean existing records and denied
+  create destinations in both hosts, including fresh content and a subsequent conditional save.
+- `signin-permissions`: retain a refused draft through full sign-in while real permissions are
+  reduced to viewer; restoration and rechecks do not write, and saving resumes only after a new
+  edit grant and explicit save.
+- `startup-recovery`: inject profile, component, artifact and destination-folder outages while
+  drafts exist; retain work during failure, Retry, restore and save without losing input,
+  with no recovery-file controls in the opening, failed or restored form.
+- `tab-isolation`: separate tabs keep independent drafts; another account with the prior account's
+  retained storage cannot discover or restore the draft.
+- `numeric-constraint`: tighten both numeric bounds through another REST client; the real server
+  retains well-formed answers with quality findings, the warnings locate both controls, and exact
+  boundaries clear the warnings after save and reopen while preserving all unrelated content.
+- `mixed-move`: combine a permission refusal, a pre-commit disconnect and a lost committed reply;
+  fresh listing keeps only unmoved items selected and retry never repeats completed moves.
+- `restored-validation`: inject a server-only finding for templates, elements, fields and metadata;
+  reload and restore, verify the save gate and finding navigation, then correct, conditionally save
+  and compare the complete stored document on reopening.
+- `repeated-schema`: wrap older field definitions in arrays, change their occurrence bounds and
+  unwrap them again in templates and elements; compare all content except update provenance on
+  the edited field and root, including legacy constraints, annotations, identities and siblings.
+- `configuration-draft`: fail configuration with 503 and malformed JSON while Designer has an
+  inverted occurrence range or Editor has a fractional value typed as an integer; retain the exact input,
+  recover configuration, restore, correct and explicitly save.
+- `scalar-roundtrip`: preserve exact decimal text, integers beyond JavaScript's safe integer range,
+  signed zero, leap dates and fractional/offset timestamps through unrelated edits; numeric edits
+  also retain their lexical value after saving and reopening.
+- `account-switch`: perform real logout and alternate two accounts in the same tab; each keeps its
+  own draft, reduced permissions are freshly enforced on return, and saving resumes only after a
+  new access grant and explicit save.
+- `combined-delete`: combine a confirmed recursive deletion and an uncertain artifact deletion
+  with 503/disconnected listing and inventory reads; retain confirmed counts, prevent automatic
+  retries, and delete only remaining resources using refreshed revisions after recovery.
+- `uncertain-create`: lose the reply to Designer and metadata creates that committed, did not
+  commit, or committed late, across reload, sign-in and the open tab. Check save status adopts the
+  artifact or re-enables Save under the same identity, and each create series leaves exactly one
+  artifact.
+- `uncertain-workspace-create`: lose the reply to New folder, Copy, Create Draft and Publish.
+  Retry settles each by the identity it created, or Publish by the state of its source, and no
+  action takes effect twice. One Copy is reopened after a reload and settled there.
+- `uncertain-version`: lose the reply to Designer's Create new draft. After a reload, Check save
+  status adopts the committed draft or re-enables Save with the same draft identity.
+- `partial-version-definition`: a definition the real validator refuses is rejected before
+  publication. The source stays the opened draft, and the corrected retry creates one successor.
+- `partial-version-draft`: a parent folder the author may no longer create in refuses Create new
+  draft before publication, through reload and access rechecks, until the grant returns. It uses
+  the second test account by REST token only.
+
+Run any subset with `npm run smoke:journey -- <names>`. Failure injection tests the hosts' handling
+of the specified HTTP outcome; fixture creation, successful writes, readback and permission
+changes use the running services. Every journey removes its isolated fixtures.
+
+
+Changes while an update assessment or version confirmation is pending cancel
 the write. A successful save stays in Designer. After a create or a new draft, the host
 reads the stored artifact back, opens it and moves to its edit address, so the next
 update starts from the identity and version metadata the server assigned. Saving an
@@ -2480,9 +3088,15 @@ the local CED bundle with `CEDAR_CED_BUNDLE` until a CEFD-containing Nexus snaps
 is pinned. The host fails clearly if the pinned bundle lacks CEFD, and
 [`cedarcli check components`](#component-staleness) reports the same condition before a build.
 
-Version creation requires the original ETag in `If-Match`; the resource
-server conditionally publishes that exact source snapshot before creating the draft.
-Missing validators return 428 and concurrent changes return 412 with no draft created.
+Version creation requires the original ETag in `If-Match`, and the host sends the draft's
+minted identity as `draft_id`. The resource server conditionally publishes that exact source
+snapshot, creates the draft and applies the submitted definition as one operation, which
+either does all three or changes nothing. A missing validator returns 428. A concurrent change
+or an occupied draft identity returns 412, a parent folder the author may not create in returns
+403, and a definition the validator refuses returns 400 with the validator's report. Each of
+these is refused before publication, so the opened ETag stays valid and a corrected retry
+creates exactly one draft. A step that still fails after publication, through an outage or a
+race, is undone, and the command answers with that step's status, or 503 when none came.
 
 Run `npm test` in the host repository for the host contract suite, including
 `test/host-state-matrix.test.mjs`. `npm run test:browser` covers create/edit across
@@ -2671,9 +3285,9 @@ complete instance literal without shifting timezones. Choices are stored with
 Numeric authoring validates minimum, maximum and defaults against the datatype,
 finite-number limits, bound ordering and decimal precision. Integer datatypes accept
 only whole numbers and zero or unspecified decimal places. Byte, short and int use
-their datatype ranges; long is limited to JavaScript's exact integer range
-(-9007199254740991 to 9007199254740991), because the model stores numbers rather than
-arbitrary-precision integers. Float checks overflow and nonzero underflow. Invalid
+their datatype ranges, including the full signed 64-bit range for long. Exact numeric
+text and shared decimal comparison preserve bounds and defaults beyond native-number precision.
+Float checks overflow and nonzero underflow. Invalid
 and incomplete numeric input stays in the panel until corrected and does not replace
 the saved settings.
 
@@ -2779,8 +3393,20 @@ npm --prefix browser test
 
 The preview mode selector offers Read-only (the default) and Editable, one at a
 time. Read-only shows what each field accepts; Editable lets an author try filling
-in the form. Preview answers do not change the template and reset when the template
-or preview mode changes. CEE applies configuration once, so a mode change replaces
+in the form. Preview answers do not change the template. Changing preview mode or
+loading a different template identifier resets them. Edits retaining the identifier
+carry compatible answers, unfinished widget drafts and occurrence cursors into the
+new form. Defaults follow the edited template until the reader changes them;
+explicit clearing and deletion survive subsequent edits. Occurrence history follows
+insertions and copies, so a coincidental default change does not take ownership of
+a reader's answer. Rejected values are repaired individually. A new configuration
+defect in an optional added element removes the smallest removable occurrence rather
+than clearing unrelated answers. Temporal conversion never promotes storage padding
+to precision the reader did not supply. The recursive operation and conversion
+matrices live in `carried-answers.matrix.spec.ts`; the actual datetime widget and
+original audit regressions live in `carried-answers.audit.spec.ts`. The domain gate
+also runs the framework-free migration suites and their seeded fuzz checks.
+CEE applies configuration once, so a mode change replaces
 the preview element; ordinary template updates reuse it. It also asks CEE to drop
 its Expand All and Collapse All buttons, through
 `showExpandCollapseAll`, because the designer has its own controls over the same
@@ -3205,3 +3831,119 @@ with its own checkbox, and that the PDF field/widget counts match the inventory
 entry count with every checkbox unchecked. Render and visually inspect the final
 page for clipping, overlaps, orphan headings and legibility. Deliver the full PDF;
 a Markdown hierarchy or an abbreviated checklist does not satisfy this request.
+
+
+## Shared text policies in browser consumers
+
+CEE/CEF and CED import `TextPolicy`, `IdentifierPolicy` and display helpers from the main
+model package they already use, so a second policy bundle is not included. CETP imports the
+lightweight `cedar-model-typescript-library/policy` entry. The legacy template editor copies
+`policy.umd.js` from its pinned dependency with `gulp copy:policy` and exposes it as the AMD
+module `CedarValidationPolicy`; its older full model bundle remains a separate consumer.
+The reactor inventories all of these model consumers in `ops/frontend-train.json`.
+
+The position-specific rules and corpus update procedure are in the backend runbook's
+“Shared text and identifier contract”. Keep display grapheme counts separate from JSON Schema
+code-point lengths. Searching and highlighting may derive folded text, while selection,
+attribute keys, labels and identifiers retain the original strings. Manual input padding is
+an explicit ASCII-only affordance; it is not a reader or writer normalization step.
+
+CETP's `npm run test:unicode` loads the actual packaged UMD policies in Chromium, Firefox
+and WebKit, under English and Turkish browser locales. Its normal CI gate includes this
+check and installs all three engines. The model package gate also checks CJS, ESM, UMD and
+TypeScript consumption of the lightweight entry and caps that bundle at 23 KB, including the shared finding/save-policy contract.
+
+The 2026-10-18 Unicode adoption passed the full frontend reactor, consumer demos, local
+redeployment, served-component verification and whole-stack smoke (source digest
+`8c87abdf5e294c08`). REST smoke passed 2,076 checks with eight declared skips; the search tier
+passed its implemented cases with its declared gaps. CED's browser gate ran 747 cases and
+CEE's visual gate passed 1,035 with 104 existing skips. An independent rendered review covered
+the fresh legacy designer, fresh CED, and ordinary CED editing; existing layout and controls
+were retained. This evidence covers text-policy adoption, not later parser or numeric changes.
+
+
+### Exact values and bounded validation in browser hosts
+
+Workspace, the authenticated designer host, OpenView and Bridging use the lightweight policy entry
+at their artifact HTTP boundaries. Workspace and the designer host also use it for saved drafts,
+reconciliation and uncertain-save comparisons; an exact numeric atom is a scalar during comparison.
+OpenView preserves it when cloning artifact previews. The designer host stages the pinned ESM policy
+with a separate version/hash manifest in `app/components`; the legacy editor stages the UMD policy.
+All direct consumers are recorded in `ops/frontend-train.json`, so the reactor supplies current model
+sources and retained artifacts to them together. No registry publication is required for this loop.
+
+CEE/CEF preserve exact input text for numeric values and CED preserves raw bound/default input until
+it is valid. The shared decimal grammar is broader than CEE's established instance input grammar:
+instance widgets still reject exponent spelling and redundant leading zeroes and count typed trailing
+fractional zeroes toward decimal places. That compatibility rule is explicit. Datatype bounds and
+comparison use exact decimal/integer operations. Invalid precision configuration is a template error;
+it cannot construct an arbitrarily large browser regex.
+
+Regex checks are asynchronous worker operations shared through `RegexChecks`. CEE, CEF and CED
+report pending validation through their existing reports/events; hosts keep Save unavailable until
+the current draft settles. Timeout, unavailable worker, invalid pattern and mismatch remain distinct.
+Draft changes cancel obsolete checks, and the final result belongs only to the current state. No
+permanent controls or new recovery panels are introduced. Validate normal unchanged screens as well
+as failure paths, using the existing visual baselines and whole-stack journeys.
+
+The backend runbook's shared policy section defines source parsing, explicit provenance timestamps,
+regex semantics, exact-number ownership and offline replay. Run `cedarcli build java`, redeploy the
+microservices, and run `cedarcli build frontends` for the complete consumer/package/browser/reactor,
+served-bundle and whole-stack verification contract. Focused unit gates do not replace that final run.
+
+### Instance quality and template consistency
+
+The TypeScript model library's main entry exposes `FieldValuePolicy`, `TemplateValueValidator`, and
+`InstanceValidator.validateReport`. The lightweight `/policy` entry also exposes `ValidationPolicy`
+and the finding/report types. The common categories and JSON Pointer paths are defined in the backend
+runbook's validation contract. Editor adapters supply field metadata and map locations into the
+existing controls; hosts consume the resulting `blocksSave`, `canSave` and `structurallyValid` facts.
+Legacy severity-only reports remain supported; modern Workspace also uses the common policy when a
+legacy report omits severity.
+
+The legacy Workbench removes its established `$$` transport bookkeeping at the exact-JSON boundary
+before presenting an artifact to CEE. The host retains its original ETag for conditional writes;
+genuine undeclared artifact properties remain visible to structural validation.
+
+CEE/CEF report malformed structure as errors and well-formed constraint/completeness failures as
+quality warnings. `isValid` remains stricter than `canSave`: an out-of-range answer can be saved while
+its quality report is invalid. Required structural properties must exist even when an answer is empty.
+Reading `currentMetadata` must not repair the live model or clear a structural finding. Validate loaded
+and imported data before export completion, and clear a retained source defect only after its actual
+node is corrected. Existing field diagnostics, report rows and host Save controls display the results.
+CEE uses its existing amber styling for saveable constraint findings. Standalone CEF retains its
+existing invalid-value styling because CED also uses it to edit template defaults; the host applies
+the appropriate save policy to the common facts.
+
+CED applies the template policy to defaults and definitions. It checks imported defaults as well as
+interactive selections. Controlled-term verification submits the exact identifier and complete
+version-aware constraints; label search is not membership evidence. Authority verification uses the
+existing bridge authority routes. Async results belong to the current field, identifier and constraint
+snapshot, so stale results cannot validate a later edit. Passed, failed, not checked and unavailable
+checks remain distinct. Known failures block defaults. Unverified defaults permit saving with the
+existing verification warning, consistently for interactive selection, loaded/imported definitions
+and server writes. An unknown result never counts as successful verification.
+
+Semantic evidence is cached by identifier and the complete constraint snapshot. Passed/failed results
+expire after five minutes; unavailable/not-checked results expire after thirty seconds. A subsequent
+validation or host report/save check refreshes expired evidence, without background polling or new
+controls. Pending work is shared, and changing the field cancels obsolete work.
+
+The full frontend reactor is the final gate for library, CEE/CEF, CED, legacy Workbench and modern
+Workspace changes. Run their targeted suites first, then `cedarcli build frontends` after the Java
+reactor and local backend redeployment. It verifies packages, applicable browser/visual gates, served
+component bytes and whole-stack behavior. No new interface controls or visual baselines are implied
+by adopting these validation facts.
+
+CED's shipped-bundle ceilings are 1,550,000 bytes raw and 443,000 bytes gzip. The shared validation
+integration measures 1,545,424 and 441,188 bytes respectively. This adds the common
+default/configuration rules and document verification through the existing
+model adapter, without another runtime dependency or a duplicate main/`policy` import.
+The standalone host's initial JavaScript measures 1,530,588 bytes against a 1,535,000-byte
+Angular budget; `npm run build:app` checks that separate entry point in CI.
+
+CED document checks block while a semantic lookup is pending. A settled unavailable/not-checked
+default is a warning (`valid: false`, `canSave: true`). Interactive controlled-term selection uses
+the same shared template save policy; document checks retain the warning after selection and reload.
+CEF authority edits also accept unknown-only results when all local problems are verification
+findings. Structural defects and confirmed default constraint failures remain blocking.

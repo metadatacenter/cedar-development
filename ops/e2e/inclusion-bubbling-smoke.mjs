@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { actors, call, mutate, artifactBody, enc, RUN } from './rest/lib.mjs';
 import * as S from './selectors.mjs';
+import { evidencePath } from './split-steps.mjs';
 
 const BASE = process.env.CEDAR_BASE ?? `https://cedar.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
 const USER = process.env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com';
@@ -179,7 +180,12 @@ try {
   console.log('PASS: Update Bubbling greys out a published target, keeps it out of the posted tree, '
       + 'and still propagates into the draft beside it');
 } catch (error) {
-  await page.screenshot({ path: '/tmp/inclusion-bubbling-smoke-failure.png', fullPage: true }).catch(() => {});
+  // The screenshot goes to the evidence directory a runner names, or else to a new directory of this
+  // run's own, which evidencePath makes and prints.
+  const shot = evidencePath('failure.png');
+  await page.screenshot({ path: shot, fullPage: true })
+      .then(() => console.error(`Failure screenshot: ${shot}`))
+      .catch(() => {});
   throw error;
 } finally {
   await browser.close();

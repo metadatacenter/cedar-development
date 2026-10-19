@@ -260,9 +260,14 @@ the expected source directory, start and stop both fail without signalling it. B
 the Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy); frontend health
 requires a successful response from the served root.
 
-Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
-against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. `MISSING` means a process answers while no jar for
+Two columns exist so a green table cannot hide a stale one. Each microservice runs a copy of its jar,
+which the controller takes from `target/` as the process starts and keeps in
+`$CEDAR_HOME/log/run/jars/`. Maven rewrites the jar in `target/` in place, and a JVM whose jar changes
+beneath it fails on every class it has not loaded yet, so a service that ran the build itself broke
+whenever its repository was built. A build cannot reach the copy. **BINARY** compares when a process
+started against when the jar in `target/` was written. `STALE` means a newer build exists than the one
+the service runs, so its health says nothing about your latest code, and a restart runs the new build.
+`MISSING` means a process answers while no jar for
 the configured `CEDAR_VERSION` exists, which is what a version change leaves running until the new
 version is built. Both are warned about under the table, and `cedarcli test e2e` refuses to record a
 run while either exists, or while a container rather than the controller serves a service, since
@@ -845,30 +850,51 @@ artifact server, then holds the shared lifecycle lock while checking for a works
 fence still prevents a delayed create from registering the missing document. Retrying a missing
 artifact (404) finishes the job. A changed or recreated document (412) is retained and the job parked.
 
+A create by `PUT`, a copy with `copyId` and a draft with `draftId` or `draft_id` each write at an
+identity their caller chose, and each records that identity with its intent. When such a create
+loses its answer, the resource server reads the identity back, and a document found there is
+recorded with its revision and removed unless the graph registers it. The write can also be stored
+after that read found nothing, because the artifact server sets no deadline on a request it has
+accepted. The document is then unregistered, and while it remains every create at the identity is
+refused with 412 `nodeAlreadyPresent`. The relay therefore reads the identity every thirty seconds
+for thirty minutes from the record's creation. That outlasts the 25 minutes the artifact server's
+MongoDB timeouts allow an instance create before its insert reaches the database. A document the
+graph has not registered is removed with `If-Match` on the revision just read. Before the deletion,
+one locked transaction records that revision and fences every record that holds the identity, so
+neither the create nor a retry at its identity can register the document being removed. A document
+another record holds at that revision is left to that record. Once the thirty minutes have passed
+with nothing unregistered at the identity, the record is removed.
+
 An unknown content response, missing validator, existing workspace node, permanent client refusal,
-or sixty failed attempts parks the record and logs a warning. Transient failures, including 408 and
-429, remain eligible for retry. A response lost before its generated identifier is recorded leaves
-an intent with an unknown artifact identity; it needs inspection, never a guessed delete. A late
+or sixty failed attempts parks the record and logs a warning. A record that holds its identity is
+not parked for an unknown response or for a workspace node at the identity. The relay reads the
+identity again instead. One whose identity still cannot be read once the thirty minutes have passed
+is parked after its sixtieth failed read. Transient failures, including 408 and 429, remain eligible
+for retry. A response lost before its generated identifier is recorded, which only a create by
+`POST` can suffer, leaves an intent with an unknown artifact identity; it needs inspection, never a
+guessed delete. A late
 response can supply that evidence while no cleanup has occurred. Parked records are retained rather
 than silently cleared. Inspect them with read-only Cypher:
 
 ```cypher
 MATCH (j:CedarArtifactCreateCleanup)
-RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt,
+RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt, j.recheckUntil,
        j.attempts, j.lastStatus, j.cleanupStarted, j.parked, j.parkedReason
 ORDER BY j.createdAt
 ```
 
 Deploy the resource server and worker with the matching workspace/search libraries: producers,
-registration transactions and relays share this protocol. Both relays use the same graph lock, so
+registration transactions and relays share this protocol. A relay built before identities were
+recorded parks a record that holds one instead of reading it. Both relays use the same graph lock, so
 multiple processes cannot race registration against cleanup. A slow artifact-server call holds that
 lock until its configured timeout, as projection recovery does. Tests cover persisted restart,
-rollback, lost acknowledgements, delayed registration, later revisions, ownership transfer, and real
-resource HTTP failures across ordinary creation, copies and drafts. The cleanup change adds seventeen
-regression cases; two more cover an unavailable recommender notification in an unrelated artifact or
-the same version chain. `ResourceStateRoundTripIT` also exercises publish/draft/delete transitions
-against a real OpenSearch index with Redis unavailable, requiring details, folder listings and search
-to offer the same actions immediately after each transition.
+rollback, lost acknowledgements, delayed registration, later revisions, ownership transfer, a write
+stored after its lost answer was read back, and real resource HTTP failures across ordinary
+creation, copies and drafts. The cleanup change adds seventeen regression cases; two more cover an
+unavailable recommender notification in an unrelated artifact or the same version chain.
+`ResourceStateRoundTripIT` also exercises publish/draft/delete transitions against a real OpenSearch
+index with Redis unavailable, requiring details, folder listings and search to offer the same
+actions immediately after each transition.
 
 ## The Redis Queues, and Where Failed Permission Events Go
 
@@ -893,6 +919,26 @@ memory, and a failed batch is retried before its messages are dead-lettered. The
 NCBI consumer acknowledges handled submissions, dead-letters malformed ones, and wakes for shutdown
 by interrupting its blocking connection; it does not enqueue the old JSON `null` sentinel or log an
 empty one-second blocking-pop timeout as an error.
+
+Queue transfers check the types of all participating Redis keys before changing them and append to
+the destination before removing the source. Lua excludes other clients, but does not roll back an
+earlier command when a later one fails. A wrong-type destination must therefore leave the source
+message available for recovery; repairing the key permits the same claim or dead-letter transfer to
+be retried.
+
+Clone claims additionally carry a unique receipt in `<queue>:claims`, while pending and processing
+lists keep their existing raw JSON payloads. Begin, acknowledgement and dead-letter operations check
+that receipt atomically. Recovery assigns a new receipt when the message is claimed again, so an old
+consumer cannot start it after its replacement completed, remove the replacement's work, or clear
+its execution fence. An obsolete acknowledgement completes as a no-op; an obsolete dead-letter
+request does not move anything. The existing `<queue>:executions` fence still parks any recovered
+clone whose mutation outcome is uncertain rather than executing it again.
+
+**Deploying clone claim receipts:** fully stop every old worker before starting a worker with this
+protocol. Old binaries do not check receipts and cannot safely overlap new consumers. No queue drain
+or payload rewrite is needed: raw pending messages and pre-existing execution fences remain readable.
+If an old clone handler is still running after the shutdown grace period, establish that it has
+terminated before starting the replacement or replaying its uncertain event.
 
 The value-recommender status endpoint returns synchronized snapshots across generation start,
 completion and restart. The worker defers an update when its template is already processing or
@@ -991,7 +1037,7 @@ dependency simply parks the events again. Then move them back, oldest first, app
 whatever is already queued rather than jumping ahead of it:
 
 ```bash
-while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli eval "local m = redis.call('LPOP', KEYS[1]); if m then redis.call('RPUSH', KEYS[2], m); end; return m" 2 CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission > /dev/null; done
+while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli -e eval "local m = redis.call('LINDEX', KEYS[1], 0); if m then redis.call('RPUSH', KEYS[2], m); redis.call('LPOP', KEYS[1]); end; return m" 2 CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission > /dev/null || break; done
 ```
 
 A message that cannot be parsed is parked on its first failure rather than retried, since retrying
@@ -1135,6 +1181,15 @@ submission. Blank unnamed draft attribute rows still undergo the normal draft cl
 `skip_validation` cannot bypass post-normalization validation, and verbatim writes remain strict.
 The [retirement evidence and template-impact procedure](#ordinary-write-normalization-and-template-impact)
 record the measured population and the remaining distinction between normalization and contract changes.
+
+Schema-child provenance follows an unambiguous definition identity when its property key changes,
+including repeated elements and their nested children. When the same library definition is used
+more than once, distinct property IRIs identify its placements. An unchanged definition keeps
+its stored creation and modification records; an actual content change keeps creation and updates
+modification. Key swaps do not exchange authorship, and an added duplicate does not borrow an
+existing placement's creation record. Ambiguous identities retain the existing property-based
+comparison rather than selecting an arbitrary sibling. Incoming provenance cannot override a
+matched stored counterpart; verbatim writes retain their separate exact-content contract.
 
 **A term whose attribute is gone is removed**, in addition to blank unnamed draft rows. Three questions decide each term, and two of them need the template,
 which is why the prune runs where the template is already loaded — fetched to validate against. A name
@@ -1552,8 +1607,19 @@ npm run test:concordance
 ```
 
 Review the generated fixture diff when updating it. TypeScript CI needs no sibling checkout or JVM;
-`sync:concordance` rejects uncommitted Java source/test changes so its revision identifies the actual
-fixture producer. Ordinary Java tests fail when their generated fixture is stale.
+`sync:concordance` rejects uncommitted Java source/test changes by default so its revision identifies
+the actual fixture producer. For an explicitly uncommitted development review, use
+`node scripts/sync-concordance.mjs --matrix <name> --working-tree`: the lock records the base commit,
+`javaWorkingTree: true`, a hash of all Java source/test bytes, and the fixture hash. It does not claim
+those bytes belong to the base commit. Refresh that lock after further Java edits. Ordinary Java tests fail when their generated fixture is stale.
+
+The artifact library's separate `CorpusFixtureVerifier` gate checks the shared
+`cedar-test-artifacts` renderings. Three historical definitions have inconsistent defaults;
+`src/test/resources/concordance/corpus-expected-rejections.json` pins their source SHA-256,
+reader exception and sole blocking finding's code/path. The gate must verify each rejection,
+and fails for changed or missing sources, unexpected acceptance or any unlisted rejection.
+Their old renderings remain historical fixtures and are never regenerated by `--write`.
+All accepted corpus artifacts still require current generated output.
 
 The matrix compares parsed YAML structure (independent of formatting). For standalone attribute-value
 fields it compares the field definition inside Java's array wrapper. It pins one precise reader
@@ -2310,8 +2376,12 @@ few seconds is within noise. Reports: `.cedar/build-reports/20260925T142927Z-e31
 
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
-execution permission before running it. Isolated frontend copies and their npm caches live there;
-`TMPDIR`, `TMP`, and `TEMP` point to its scratch directory. Maven builds also receive
+execution permission before running it. Isolated frontend copies and their npm debug logs live
+there, and `TMPDIR`, `TMP`, and `TEMP` point to its scratch directory. npm's download cache is the
+exception: every isolated frontend build shares `$CEDAR_HOME/.cedar/frontend-npm-cache`, so each
+package is downloaded once rather than by every build. npm checks each package against its lockfile
+hash as it leaves the cache. Deleting the directory is always safe and costs only the next build's
+downloads. Maven builds also receive
 `java.io.tmpdir` through child-scoped `JAVA_TOOL_OPTIONS`, so Surefire/Failsafe JVMs and embedded
 Redis use the same executable storage. This works when system `/tmp` is mounted `noexec` and
 does not change the environment of running services. Normal completion, failures and handled
@@ -2455,6 +2525,27 @@ version; a successor draft gets a new identifier and must have a greater version
 the destination folder is required. Copying starts a separate series. Manager access alone does not
 confer publication or drafting authority, and instances are not versioned.
 
+A client may choose the new artifact's identifier, so that a lost reply can be settled by reading
+it. `POST /command/create-draft-artifact` accepts `draftId`, `POST /command/copy-artifact-to-folder`
+accepts `copyId`, and `POST /command/publish-create-draft-template/{id}` accepts the `draft_id` query
+parameter. Each is a full IRI in the source's collection. A malformed identifier, or one in another
+collection, returns 400. One that either store already holds returns 412 with `nodeAlreadyPresent`
+and writes nothing. Without one, the server mints the identifier. Registration is the same either
+way, and so is cleanup, with one addition for a chosen identity. A create whose answer was lost can
+still be stored after the server read the identity back and found nothing. The identity then answers
+412 until the [create cleanup](#after-an-artifact-create-fails) removes that unregistered document,
+within about thirty-five seconds of its being stored, and a retry after that succeeds.
+
+`publish-create-draft-template` publishes the source, creates its draft and applies the submitted
+definition as one operation, which either does all three or changes nothing. Before publishing, it
+refuses what a later step would refuse: 403 when the owner may not create in the source's folder,
+412 for an occupied `draft_id`, and 400 with the validator's report for a definition the artifact
+server's PUT would refuse. The definition is judged exactly as that PUT judges the body it stores,
+transforms included, without storing anything. A step that still fails after publication, through
+an outage or a race, is undone. Any successor the command created is removed from both stores,
+guarded by its ETag, and the source's pre-publication document and graph state are restored
+conditionally. The command then answers with the failing step's status, or 503 when no answer came.
+
 The graph and search carry three series-wide flags. `isLatestVersion` selects the draft when one
 exists, otherwise the newest surviving published version; `isLatestDraftVersion` selects the sole
 draft; `isLatestPublishedVersion` selects the newest surviving published version. A status with no
@@ -2514,6 +2605,53 @@ only its history pointer, and checks graph Latest listings and indexed Latest se
 After changing this contract, run `cedarcli build java`, redeploy the affected native services and
 run `cedarcli test e2e`.
 
+### Renumbering a Draft by Hand
+
+No command changes a draft's version once the draft exists; the
+[backend roadmap](BACKEND-ROADMAP.md) tracks adding one. The version is held twice, as the
+document's `pav:version` and as the graph node's `pav_version`, and neither ordinary route reaches
+both. An ordinary update refuses the change. A verbatim write replaces the document but updates
+only the node's name, description and identifier. Until the command exists, an administrator can
+renumber a draft with two writes, graph first. The verbatim write queues the version projection,
+which reads the graph, so writing the document first would reindex search from the old version.
+
+1. **Set the node's version under the lifecycle lock.** On production, `cypher-shell` is on the
+   `PATH`; the shared profile's `$CEDAR_NEO4J_HOME` names a directory that does not exist there. As
+   `cedar`, the profile supplies the connection without the password appearing on a command line:
+
+   ```bash
+   NEO4J_USERNAME="$CEDAR_NEO4J_USER_NAME" NEO4J_PASSWORD="$CEDAR_NEO4J_USER_PASSWORD" cypher-shell -a "bolt://$CEDAR_NEO4J_HOST:$CEDAR_NEO4J_BOLT_PORT"
+   ```
+
+   Open a transaction with `:begin` and run the statement, substituting the artifact's `@id` and
+   both versions. The new version must exceed the published predecessor's, as a draft's always
+   does. Finish with `:commit` only if it returns one row carrying the new version, and with
+   `:rollback` otherwise:
+
+   ```cypher
+   MATCH (lock:CedarVersionLock {id: 'lifecycle'})
+   SET lock.revision = coalesce(lock.revision, 0) + 1
+   WITH lock
+   MATCH (a:Artifact {_id: '<artifact @id>'})
+   WHERE a.pav_version = '<old version>' AND a.bibo_status = 'bibo:draft'
+     AND NOT EXISTS { MATCH (:Artifact {pav_previousVersion: a._id}) }
+   SET a.pav_version = '<new version>'
+   RETURN a.pav_version, a.bibo_status;
+   ```
+
+2. **Write the document with `PUT ?verbatim=true`,** changing only `pav:version`. Make the write
+   conditional on the stored body's ETag, save that body first, and read the artifact back to
+   confirm nothing else changed. `RepairClient` in `ops/repairs/cedar_artifact_repair.py`
+   performs exactly this write. The key needs `WRITE_ARTIFACT_VERBATIM`, which the
+   `artifactPrivilegedAdministrator` role carries.
+
+3. **Verify both stores.** Read the document back, run `cedarcli check artifact-versioning` on the
+   deployment without `--apply`, and check the Workspace listing and the version history.
+
+To undo, write the saved body back verbatim and run the statement with the two versions swapped.
+On 2026-10-11 this procedure took template `6f7c88e4-3dc6-43e8-bedb-146bff534bef` from 1.0.1 to 2.0.0
+in production.
+
 ## Artifact Write and Diagnostic Contracts
 
 ### Production artifact repair
@@ -2561,6 +2699,14 @@ Failed`. The Mongo replacement predicates on both `@id` and the internal `_cedar
 check remains atomic when two requests pass the HTTP read check at the same time. Legacy documents
 without the internal field read as revision zero and acquire revision one on their first conditional
 update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
+
+The same route creates an artifact under an identifier the caller chose.
+`PUT /{collection}/{id}?folder_id={folder}` without `If-Match`, with the body's `@id` equal to the
+identifier in the URL, returns 201 and the new ETag. A body naming a different identifier returns
+400. Once the identifier is taken, an unconditional repeat returns 428 or 412 and writes nothing, so
+a repeated create can never make a second artifact.
+`PUT /folders/{id}` creates a folder the same way from a body of `@id`, `folderId`, `name` and
+`description`. An unconditional repeat returns 428 before the body's shape is checked.
 
 Each artifact collection has a companion `<collection>_revision_history` collection, keyed by the
 artifact identifier. It records revision high-water marks before mutation and survives both ordinary
@@ -2630,13 +2776,84 @@ rows can be deleted concurrently: each deletion reads and sends its own resource
 shared folder validator. Completion removes only the matching row and adjusts the count only if
 that row is still present, so navigation or another deletion cannot remove a different selection.
 Group metadata and group membership likewise have separate validators; permission and ownership
-commands use their own representation contracts. New-resource POSTs have no prior ETag and need
-reentrancy guards to prevent duplicate creation.
+commands use their own representation contracts. A new resource has no prior ETag, so its create
+needs a reentrancy guard to prevent duplicate creation. The split Workspace and Designer also create
+under an identifier they mint, so a repeated create cannot make a second resource.
+
+`GET /groups/{id}/membership/me` reports only the authenticated caller's own `member` and
+`administrator` boolean relationships. It requires the same login and `GROUP_READ` permission as
+reading group metadata; an existing group returns 200 even for a non-member, and a missing group
+returns 404. Both flags describe graph relationships, independently of system administrator
+overrides. The query reads only the caller's relationships, never the group roster. The response
+has `Cache-Control: private, no-store`, contains no user identifiers or member counts, and supplies
+no ETag for writes. Existing group and roster representations, validators and authorization are
+unchanged. Deploy the group service before the new Workspace for immediate membership wording;
+Workspace falls back to neutral wording against servers without this additive endpoint.
 
 Template-instance validation is unconditional. `skip_validation=true` remains accepted only for
 wire compatibility and does not bypass validation or storage checks. If a privileged bypass is ever
 needed again, introduce a separately authorized internal operation rather than reviving the public
 query switch.
+
+Template-instance saves enforce structure against the current template. A missing required property,
+wrong object/array shape, malformed IRI, or malformed populated numeric/temporal value is refused.
+An unanswered literal retains `@value: null` and any required datatype property; omitting that
+property is a structural defect. A well-formed answer outside a declared range, pattern, precision,
+choice set or terminology constraint is saveable and appears in the quality report. Required-answer
+and occurrence shortfalls are completeness findings. Existing answers are preserved without coercion.
+
+`ValidationFinding` and `ValidationPolicy` in `cedar-model-validation-library` define four categories:
+`structural`, `constraint`, `completeness`, and `verification`. Findings carry stable codes and RFC 6901
+paths, including occurrence indexes and the actual `@value`/`@id` member. `FieldValuePolicy` supplies
+local rules; the artifact library delegates constructor/default checks to it. Template definitions
+must satisfy their constraints, including default values, datatype bounds, precision and temporal
+settings. Invalid template defaults block schema saves even though the corresponding well-formed
+instance answer would be saveable.
+
+Reports retain `validates`, `errors` and `warnings` for existing clients and add `canSave`, `isValid`
+and `findings`. `canSave` applies the artifact's save policy; `isValid` also reflects quality and
+unverified applicable checks. Never use full validity as the instance save gate. The JSON/YAML create,
+update, normalization and verbatim paths use the same facts. `skip_validation` remains ineffective.
+The current-template revision check and ETag concurrency behavior remain in force. A structurally
+refused update leaves both stored content and ETag unchanged.
+
+YAML instance completion reads a private template copy without defaults: completion supplies empty
+slots, never default answers. This lets an instance of a legacy template with an inconsistent unused
+default follow the same save policy as JSON. The stored template remains unchanged, all other
+constraints remain in the copy, and the completed instance is validated against the original template.
+Template authoring and template saves still enforce default consistency.
+
+Regex matching uses the existing ECMAScript engine, full-value wrapper and work budget documented
+below. A pattern mismatch is a constraint finding; an invalid template pattern is structural;
+pending or unavailable evaluation is explicit verification state. Numeric comparisons use exact
+arithmetic. Instance numeric lexical rules retain the editor's non-exponent spelling; default and
+bound inputs use the shared broader decimal grammar. Temporal empty answers are not populated typed
+values; their structural properties are still required where declared.
+
+Artifact-server verification calls `POST /bioportal/validate-term` on terminology with the exact IRI
+and complete `_valueConstraints`, or the authority-specific bridge `POST /ext-auth/{authority}/verify`.
+Wire field types map to existing bridge routes: `ext-pubmed` → `pmid`, `ext-pfas` → `comp-tox`,
+`ext-nih-grant-id` → `nih-grant`; ORCID, ROR, RRID and DOI retain their names. Calls forward caller
+authorization and use request-local caching keyed by endpoint and the complete request, a twenty-five-second
+per-call timeout, thirty-second request budget and 256 unique checks. There is no persistent success cache.
+
+Semantic facts distinguish `passed`, `failed`, `notChecked`, and `unavailable`. An outage, missing
+pinned release, partial source coverage or exhausted lookup budget cannot prove invalid membership;
+an omitted check cannot prove success. Known failed default membership blocks template saves; failed
+instance membership is a quality finding. Unverified defaults permit saving with a verification
+warning, consistently for interactive selection, loaded/imported definitions and server writes.
+Their quality verdict remains invalid until verification succeeds. DOI verification uses the existing
+DataCite service, so an absent DataCite record is unavailable coverage rather than proof that a DOI
+registered elsewhere does not exist.
+
+The normative `instance-validation.json`, `configuration-validation.json` and `semantic-verification.json` corpora in the Java
+validation library are vendored into TypeScript with source/hash locks. They check categories, codes,
+paths, accepted endpoint-specific semantic status/code pairs and the two save policies. An unsupported
+or contradictory service response becomes unavailable verification, never a structural defect in an
+otherwise well-formed answer. Passed evidence is not a quality problem. `CurrentTemplateConstraintTest` and the REST `validation` suite
+exercise saveable quality violations in JSON/YAML, invalid defaults, structural refusals, unchanged
+content/ETags and corrections. The current-template and numeric browser journeys verify the existing
+warning presentation and preservation after saving and reopening.
 
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
@@ -2694,7 +2911,8 @@ error text when one is unreachable. Insight endpoints are operationally sensitiv
 Inclusion-subgraph regeneration is a tracked single-flight worker job. An authorized
 `POST /command/regenerate-inclusion-subgraph` returns `202 Accepted`, a job document, and a
 `Location` header for `GET /command/regenerate-inclusion-subgraph/{jobId}`. While that job is queued
-or running, another POST returns `409 Conflict` with the active job and the same status location.
+or running, another POST returns `409 Conflict` in the common `CedarError` envelope, with the active
+job in `objects.job` and the same status location.
 Status records expose queued, running, succeeded and failed states, including timestamps and an
 error for failures. A succeeded record also lists `unreadableArtifacts`: the templates and elements
 the artifact server answered with anything but 200 for, whose arcs the run left as they were rather
@@ -2718,17 +2936,114 @@ The permanent coverage belongs to the affected services:
 
 | Suite | Sequence it protects |
 | --- | --- |
-| Artifact `ArtifactRecreationTest` | Delete/recreate the same identifier, then submit an old update or delete. |
+| Artifact `ArtifactRecreationTest` | Delete/recreate the same identifier, then submit an old update or delete. Bulk-delete documents while preserving indexes, then race two recreations and reject old revision tokens; reuse the existing Mongo fixture. |
 | Artifact `TemplateDeletionRaceTest` | Create after a zero-reference count, delete or propagate a structural inclusion after validation, and mutate while another service holds a reservation; distinguish a rejected write from a lost acknowledgement. |
 | Resource `CrossStoreSequenceTest` | Delay an earlier successful content reply until the next save has updated the graph; remove a copy destination while its content POST is in flight. |
 | Resource `Neo4jArtifactRestoreOutboxTest` | Keep the newer revision fence after job completion and outbox restart. |
 | Worker `CloneAcknowledgementTest` | False acknowledgements, exceptions before/after Redis removal, and recovery of a begun execution with duplicate delivery. |
+| Queue library `QueueRecoveryMatrixTest`; worker `CloneRecoveryOverlapTest` | Failed claim/recovery/dead-letter transfers preserve messages; repaired keys permit retries. Stale clone callbacks cannot mutate replacement claims, including a reused payload; two overlapping processors must not execute the same clone twice. Legacy execution fences remain effective. |
+| Search library `IndexRebuildConcurrencyTest` | Force Redis command interleavings around rebuild replacement, cleanup, write/delete tracking and snapshot reads; exercise concurrent clients and the in-memory store, stale cached generations, cap transitions, expiry and Redis failure. Uses bundled Redis on a private port. |
 | Search library `CloneInstancesExecutorServiceTest` | Conditionally discard a worker clone that never reaches its destination graph, including an ownership transfer after its document POST. |
 | Workspace library `InstanceCloneOwnershipTest` | Transfer the instance or destination folder while a background clone waits; check ownership under graph locks before registration and provenance creation. |
 | Resource `InclusionTransitionTest` | Publish or edit an inclusion target, or create its first instance, after propagation preflight. |
 | Resource `DraftTransitionTest` | Two draft requests pass preflight together; a successful request loses its client response and is retried. Require one successor and one clone job. |
 | Resource `RecursiveDeletionTransitionTest`, `RecursiveFolderDeletionTest` | Interrupt deletion, move a surviving subtree, edit content, add an outside reference, or lose a delete acknowledgement; require fresh confirmation before continuing. |
 | Resource `IndexedSearchOpenSearchIT`, `OpenArtifactsResourceTest` | Move a subtree into and out of an open ancestor; revoke a direct grant and deliver an older index write. Search rechecks current graph access while retained direct grants remain usable. |
+
+The rebuild concurrency regressions also run in the normal search-library Maven suite; the artifact
+bulk-deletion case runs in the existing recreation suite. They need no scheduled fuzz run. Forced
+command-boundary tests assert that their callback ran, so changing Redis commands cannot silently
+turn a race regression into an unexercised passing test. Bounded thread races supplement these
+controlled schedules. Exploratory `*Experiment` classes are excluded by the default Surefire naming
+rules and require explicit `-Dtest=...` selection; they do not add their history loops to ordinary builds.
+
+**API-key cache invalidation matrix (2026-10-12).** A lookup that overlaps a local user mutation
+may return its previously read graph snapshot to that in-flight request, but cannot repopulate the
+cache after invalidation. Lookup completion carries the cache generation; invalidation advances it
+even when the cache is empty. The generation check and insertion are serialized, with graph I/O
+outside the cache monitor. Every user mutation, including creation and exceptional completion,
+invalidates in `finally`: a thrown completion does not prove that the graph write rolled back.
+Other JVMs still use the documented short TTL; this does not add estate-wide immediate revocation.
+
+`ApiKeyInvalidationMatrixTest` runs 32 database-free cases: all eight mutation entry points crossed
+with stale positive, negative and permission-bearing lookups, plus uncertain write completion at
+each entry point. The original seven-entry-point probe failed all 28 assertions on the old code,
+with no test errors. The full user-operations suite passes 52 cases. Its existing expiry test now
+uses a controllable monotonic clock instead of sleeping, so the new coverage does not add a database
+startup or a long-running fuzz loop. The full Java build and local redeployment passed; whole-stack
+smoke passed all 1,471 REST checks and browser tiers on retry after initial navigation/picker
+timeouts (smoke digest `42d6e93f00d61631`).
+
+**Application-log sequence audit (2026-10-11).** The original seventeen deterministic probes used
+the existing monitor database fixture, production logging/aggregation DAOs, and the worker's
+`UnitOfWorkAwareProxyFactory` construction. They produced twelve assertion failures, five passes and
+no test errors against the revisions recorded in the evidence. The cases
+took 1.05 seconds; the suite including database/server startup took 15.09 seconds. This is embedded
+MariaDB 11.4.5 evidence, not a production MySQL 8 run. Sanitized per-case results and source revisions
+are in `ops/backend-audit/2026-10-11-logging/evidence.json`.
+
+| Boundary | Observed result |
+| --- | --- |
+| Commit, lose acknowledgement, replay the same event | Replayed request START violates the unique request key; replayed Cypher inserts a second row and doubles its usage count. The worker retries persistence when acknowledgement fails. |
+| Request START, handler START, END arrival permutations | Only the chronological order preserves all fields. The other five lose duration and/or status; END before handler START does not recompute durations when START arrives. |
+| Completion after a settled-day aggregation | Raw duration becomes three seconds and status 503, but the rollup retains zero duration and zero errors. The marked raw row is eligible for pruning. |
+| Two aggregation transactions read the same row before either flushes | Both request and Cypher rollups count it twice. |
+| Lower auto-increment ID commits after SELECT but before marking | Both log types mark two rows after counting only one. The next batch sees no work; pruning removes both. The range-based marker includes a row the batch never read. |
+| Failure after rollup flush, before marking | Both log types roll back the rollup and marker together; retry counts once. |
+| Ordinary pruning controls | Both log types retain unaggregated rows and rows newer than the cutoff, and delete eligible rows only once. |
+
+The original failing source is archived beside that evidence as `LogHistoryExperiment.java`;
+it requires the recorded pre-fix APIs and is not compiled by the default build. Current coverage is
+`LogPersistenceCases`, inherited by `LogListingPagingTest.Persistence`. It runs in the existing
+monitor database/server fixture, with no additional database startup. Run it from
+`cedar-monitor-server`, with the native develop profile sourced and Java 17 selected:
+
+```bash
+./mvnw -o -pl cedar-monitor-server-application -am test -Dtest=LogListingPagingTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+The matrix covers all 24 arrival orders of filter START, handler START, exception and END;
+missing-fragment subsets; overlapping aggregators; delayed lower-ID commits; rollback; concurrent
+fragments and replay; legacy query messages; and replay after pruning. Small library tests cover
+wire identity and canonical legacy identities. Worker tests ensure a batch skipped because another
+worker owns its rows uses idle polling instead of spinning.
+The default additions are 48 database cases, three identity cases and two scheduler cases. The
+database cases took 3.23 seconds in the full backend build and share the existing startup.
+The full Java build and subsequent local redeploy/whole-stack smoke passed (1,471 REST checks,
+plus browser and modern Workspace suites); `verification.json` beside the original evidence records
+case outcomes and the working-tree source hashes.
+
+**Application-log persistence and rollout.** `log_event_receipt` is a durable, compact replay ledger:
+one row per request (a phase mask), one per Cypher execution. The receipt and raw mutation commit
+in the same transaction. New query messages carry an execution UUID; queued legacy messages use a
+canonical hash of their original payload. Truly identical legacy payloads cannot be distinguished
+as separate executions; new UUIDs remove that ambiguity. Receipt rows survive raw-log pruning and
+must not be deleted while an old queue message can be replayed. Their storage grows with traffic;
+a bounded replay horizon and an explicit receipt-retention policy are separate capacity work.
+
+A request fragment may arrive first and create the raw skeleton. A request phase is applied once;
+replays cannot overwrite the first accepted phase or recreate a pruned request. Durations are
+recomputed as their endpoints arrive. Live aggregation requires filter START, handler START, END
+and a response status. Incomplete requests remain visible in raw logs and are excluded from both
+permanent rollups and pruning. This includes requests that never reached a handler or whose events
+were dropped: the settle margin alone does not make those complete. They do not keep the scheduler
+busy. With all three phases present, later exception details do not change the status-based error
+count. An exception arriving after raw pruning is acknowledged without resurrecting that row.
+
+Aggregation uses `FOR UPDATE SKIP LOCKED` and marks only the selected IDs, committing rollups and
+markers together. Incomplete historical rows already marked by an older worker are protected from
+pruning; a missing phase arriving for one is rejected for reconciliation rather than silently
+changing its raw data while leaving the old rollup untouched. Previously wrong rollups are not
+repaired automatically, and pre-upgrade writes have no receipt proving whether they already ran.
+
+Both monitor and worker register the ledger entity. The additive DDL is
+`cedar-logging-operations-library/db-migrations/2026-10-12-log-event-receipts.sql`; local Hibernate
+schema update creates it as well. For deployment, create/verify the ledger and fully stop old worker
+consumers before starting the new worker: old consumers do not honor receipt or aggregation locks.
+The producer upgrade may follow because legacy payloads remain supported. Rollback may leave the
+ledger in place, but an old consumer forfeits the replay and aggregation guarantees. No existing
+raw table or index is dropped. Live aggregation and pruning retain their disabled defaults; this
+change is not authorization to enable them or to rewrite production history.
 
 The ordinary suites run in `cedarcli build java`. The OpenSearch case belongs to the existing
 `opensearch-it` profile and requires OpenSearch 2.19.1. It creates a UUID-named `cedar-search-it-*`
@@ -2795,14 +3110,37 @@ Use `status(int)` when relaying a numeric status. The enum remains a convenient 
 not a filter for upstream answers. An unnamed error uses `HTTP_<code>` as its symbolic status.
 Jersey exception normalization retains protocol headers, including multiple authentication
 challenges, `Allow`, and `Retry-After`; representation headers are regenerated for the new body.
-Malformed query-parameter conversion is 400; a missing route remains 404. Explicit response
-entities bypass exception normalization, as Jersey requires.
+Malformed query-parameter conversion is 400, and a missing route remains 404. A bodyless
+exception's message stays out of the body, because Jersey's own exceptions carry generic text or the
+text of a failed conversion. Two refusals are answered with a message instead. A parameter Jersey
+cannot convert, in the query, the path, a header or a form, is described from the route's
+declaration, as in `The query parameter limit must be an integer from -2147483648 to 2147483647`.
+A true-or-false parameter takes `true` or `false` in any case. Any other value, the empty one
+included, is refused with `The query parameter compact must be true or false` rather than read as
+false. `LinkedDataUtil` refuses an identifier a request supplied that it cannot resolve with
+`UnresolvableIdentifierException`, which is answered with `invalidInput` and the refusal's message,
+such as `Invalid template identifier`. Explicit response entities bypass exception normalization, as
+Jersey requires.
 
-Success representations and intentional external payloads keep their own shapes. Recursive-folder
-plans, outcomes and `{code,message}` refusals also keep their published operation contract: the
-Workspace uses the `FOLDER_DELETE_*` codes for localization. Do not rewrite those as ordinary errors
-without migrating their consumers. Terminology property failures and request-quota refusals use
-the common native envelope.
+Success representations keep their own shapes. So does one answer that is not an error body: a health
+report, which a failing check answers with 500. Recursive-folder plans and outcomes also keep their
+published operation contract, and the Workspace localizes an outcome by its `FOLDER_DELETE_*` code.
+A recursive deletion's refusals use the common envelope. A confirmation refused because the folder
+changed or a blocker stops it carries its outcome in `objects.outcome`, as a validation refusal carries
+its report in `objects.validationReport`. Four
+other refusals carry a payload the same way. An inclusion-subgraph update the artifact server partly
+refused answers 502 with its update report in `objects.report`. A regeneration requested while one is
+in flight answers 409 with that job in `objects.job`. The bridge answers a DataCite refusal with
+`upstreamServerError` and DataCite's own errors in `objects.dataCiteErrors`, keeping DataCite's status
+for a refusal of the request itself and answering 502 when DataCite fails, refuses the repository
+credentials or limits the deployment's requests. It answers an external registry's refusal of an
+authority search or lookup by the same rule, with `upstreamServerError` and the authority's answer in
+`objects.authorityAnswer`, where `found` is false and a lookup echoes `requestedId`. On both, a status
+that is neither a success nor a refusal answers 502. The authority routes take no credentials, and
+none of their answers is a 401. Terminology property
+failures and request-quota refusals use the common native envelope. A property route whose ontology
+store fails answers 500 with a message and an `errorId`, and the database exception is logged under
+that `errorId` rather than returned.
 
 Dependency classification is declared per integration. LINCS retains its established gateway
 mapping for upstream 400/401/500 (and treats deployment-owned credential rejection 403 likewise);
@@ -2871,6 +3209,17 @@ exclusion with `-DexcludedGroups=` to run them against the real service. Their C
 still be set even when the tests are excluded, because the configuration substitutes them as it
 loads; a placeholder value is enough.
 
+A test that starts a Dropwizard application, an embedded store, embedded Redis, OpenSearch or a
+local socket server carries the `integration` tag. Every other test is a unit test. No POM excludes
+the tag, so the default build runs both kinds. Select one kind with `-Dgroups=integration` or
+`-DexcludedGroups=integration`. Terminology reads its exclusion from the `excludedGroups` property,
+so name both tags there (`-DexcludedGroups=bioportal,integration`) or the BioPortal tests run too.
+Bridge fixes its exclusion in the POM and ignores the property. A base class that starts a server
+carries the tag for its subclasses. A test that starts one itself needs the tag on its own class.
+The OpenSearch `*IT` suites carry the tag as well. Their names keep them out of the default build,
+because only Failsafe runs `*IT` classes. `cedarcli check test-tags` names every class that starts
+one of these without the tag, and `cedarcli build java` refuses to run the tests while one exists.
+
 Search is the deliberate exception in CI. `cedar-microservice-libraries` and
 `cedar-resource-server` run `verify -Popensearch-it` against a disposable OpenSearch 2.19.1 service.
 The library integration test executes the materialized user/everybody permission filter,
@@ -2881,6 +3230,125 @@ the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
 `CEDAR_OPENSEARCH_REST_PORT` select the engine and default to `127.0.0.1:9200`. Both tests use a
 run-unique index and delete only that index afterward, so concurrent runs share the engine but not
 index lifecycle or documents.
+
+The **artifact search acceptance matrix** lives under `ops/e2e/rest/search/` and is a required
+fourth tier of `cedarcli test e2e`, after REST, browser and split journeys. It runs the full REST
+matrix and seven browser scenarios against one shared corpus. The standalone `cedarcli test search`
+command still defaults to an offline inventory. Use the CLI:
+
+```bash
+cedarcli test search --plan       # no stack requests: expanded cells, expectations and exclusions
+cedarcli test search --check      # offline harness tests; HTTP/TCP connections are blocked
+cedarcli test search --validate   # Java 17 validator + reader, using the existing local artifact-server jar
+```
+
+Validation neither builds nor resolves dependencies. It checks all 53 materialized artifacts with
+`cedar-model-validation-library`, and all 19 schema artifacts with `cedar-artifact-library`'s reader.
+The checked-out builders and the already-built validator may represent different revisions; the
+validation output identifies its jar. This establishes fixture validity, not server acceptance or
+search correctness.
+
+The corpus contains 13 standalone fields, two reusable elements, four templates and 34 instances.
+Field names, property keys, preferred labels and UI overrides intentionally differ. Contrasts include
+wrong-field values, same-name private twins, absent/null/empty values, literal/linked values, ontology
+labels with different URIs, nested/repeated values, typed values, and readable instances of private
+templates. The 76 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
+304 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
+manager, plus direct/inherited everybody viewer, crossed with private/granted/revoked, two actors,
+name/value queries, both endpoints and all three sharing views. Another 32 cells walk small pages
+by offset and continuation; 21 lifecycle
+checks cover rename, value and ontology changes, overlapping grants, membership, moves, deletion
+and continuation revocation, caller binding and sharing-view binding. Seven browser scenarios cover
+entry, exact rows, reload/Back, type filtering, opening the intended identity and searching within
+both sharing views. The browser module uses the shared search runner; the complete corpus uses
+its own fixture lifecycle and retains the same stack lock as the main journey registry.
+
+The standard e2e command creates and cleans up the corpus automatically. For focused work,
+an explicit live standalone invocation does the same:
+
+```bash
+cedarcli test search --live --tier rest
+cedarcli test search --live --tier journey
+cedarcli test search --live --tier all
+cedarcli test search --live --tier all --workers 1  # serial diagnosis
+```
+
+A full run creates the 53 core artifacts plus 15 transition instances, 25 folders and one group,
+using the existing two test accounts. It changes only its own grants/memberships and artifacts.
+It does not rebuild, redeploy, restart services, reset indexes or call external terminology providers.
+Run it after other work using the same test accounts has finished. It shares the split-tier lock
+and refuses before authentication if another journey run holds it. Reports and the fixture ledger
+default to `.cedar/reports/search/<uuid>.json`; `--report` chooses another path. Requests omit
+credentials. Exact set comparisons reject foreign, forbidden, missing and duplicate hits; response
+counts, displayed names, resource kinds, current ownership/role capabilities and page unions are
+checked. Static queries run once after a proven corpus baseline.
+Convergence polling belongs only to setup and transitions, while revocation disclosure is checked
+immediately. A missing matrix cell, failed setup, interruption or unsuccessful cleanup cannot pass.
+Ambiguous POST outcomes remain recorded for investigation; cleanup never sweeps an unrelated home.
+
+On a shared development stack, expressions are wrapped in `RUN_TOKEN AND (expression)` and fixtures
+carry the token in their descriptions. All returned hits are checked, without filtering the answer
+down to known IDs. `--isolated` removes the wrapper for a dedicated test stack and must not be used
+to claim exact global counts on an occupied stack. Neither mode is a search-engine performance benchmark.
+
+Search defaults to four concurrent independent reads. `--workers 1..4` controls the standalone
+runner; `cedarcli test e2e --rest-workers N` controls both the ordinary REST suite pool and the
+search read pool. Each permission state drains before the next grant/revocation; lifecycle changes,
+provisioning and cleanup stay ordered, and pages within each continuation walk stay ordered.
+The four whole-stack tiers run one after another to avoid competing test-account changes. No
+cells are sampled, skipped or reused from an earlier run. Successful read checkpoints coalesce
+within 500 ms, while fixture intents, created identities, failures and final results force an atomic
+report replacement. Each report includes phase timings, request count/maximum concurrency and
+checkpoint count/time so future runtime changes can be attributed.
+
+Indexed search applies the sharing view before counting, sorting and pagination. `shared-with-me`
+includes caller grants through users, groups and shared-folder descendants, excluding caller-owned
+and publicly shared artifacts. `shared-with-everybody` includes direct and inherited public grants.
+The empty-query sharing views still list their shared roots through the graph. Workspace preserves
+the selected sharing view on search, reload and clearing the expression; continuation tokens bind
+the sharing filter as well as the query and caller.
+
+The matrix encodes the user guide's substring, Boolean precedence and public-sharing narrowing
+promises even where source inspection suggests a discrepancy; live failures must not be converted
+into new expected results just to pass. `openContracts` separately records unresolved key/name,
+display-override, repeated-occurrence correlation, literal-URI and post-revocation-count semantics.
+Third-user/admin/anonymous cases, version/publication transitions, category/date-filter combinations,
+OpenView, outages and rebuilds remain outside this initial probe. Every plan and report names these
+gaps. A successful run is labelled `IMPLEMENTED_CASES_PASS_WITH_DECLARED_GAPS`, never full search
+certification. A standalone run alone is not release-gate evidence; the whole-stack gate includes
+this matrix, with its declared gaps, alongside the other three required tiers. The source/input
+digests accompany every report.
+
+The expanded live run on 2026-10-17 passed **1,156/1,156** checks in 149 seconds, with no missing
+cells or cleanup errors: `.cedar/reports/search/sharing-live.json`. This is a run against valid,
+synthetic CEDAR artifacts created through real APIs, not a survey of production data. The initial
+baseline (`rest-live-02.json`) exposed quoted-value, grouped URL, existence, metadata wildcard,
+Boolean-precedence and sharing-filter defects. The fixes also have an OpenSearch matrix using the
+shipped mapping (278 integration checks), resource HTTP integration coverage (37 checks), and a
+Workspace submit/clear matrix. Two unquoted field-name expectations were corrected to include
+`Publisher Name`; findings are resolved against the contract and corpus, never by accepting observed
+results as a new oracle. The offline harness has 27 passing self-tests, including concurrency barriers and checkpoint durability.
+
+With checkpoint coalescing in place, consecutive full runs on the same development stack measured
+138.8 seconds with one reader and 85.4 seconds with four; both passed the identical 1,156 cells,
+with no fatal, browser or cleanup errors. Reports are `.cedar/reports/search/integrated-serial.json`
+and `integrated-parallel.json`. The four-reader run observed a maximum of four in-flight requests.
+
+| Search phase | One reader, seconds | Four readers, seconds |
+| --- | ---: | ---: |
+| Content matrix | 17.2 | 1.6 |
+| Paging matrix | 3.3 | 0.3 |
+| Access matrix, including ordered setup/transitions | 69.6 | 35.4 |
+| Lifecycle | 17.4 | 19.8 |
+| Cleanup | 13.8 | 11.7 |
+| Complete run, including provisioning/login/readiness | 138.8 | 85.4 |
+
+The complete search tier therefore adds about 85 seconds on this workstation, down from the prior
+149-second implementation, without removing any matrix cells. These are harness-runtime observations,
+not controlled search-engine benchmarks; index refresh timing and cache warmth vary. Fixture setup,
+permission projections and lifecycle transitions now dominate. Report checkpoints fell to 338 writes
+and 2.3 seconds in the four-reader run; fixture intents and identities still persist immediately.
+The offline harness also runs in development CI and before every standard search smoke tier.
 
 Backend-free Maven tests suppress the application-log queue through the
 `cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
@@ -2896,6 +3364,34 @@ to the deliberately dead port `1`. Other best-effort queue paths can therefore e
 Redis without inheriting a developer profile's remote address and waiting for a network timeout.
 Dedicated queue tests bypass the CEDAR environment and point their service directly at their
 embedded Redis instance.
+
+HTTP write retries remain disabled: Surefire sets `jdk.httpclient.enableAllMethodRetry=false`,
+and `TestHttpClient` does not replay failed writes. An empty response does not prove that a server
+did not apply a request; retrying can apply it twice. `TestHttpClientTest` covers that boundary.
+
+All microservices install `UnreadRequestBodyFilter` through `CedarMicroserviceApplication` before
+the application servlet filters. For HTTP/1, its Jetty response-preparation hook adds
+`Connection: close` before the final response headers commit if the request body is still unread
+or partially read. This prevents an early authentication, authorization or media-type refusal from
+leaving a pooled client with a connection Jetty will close after the response. The hook never waits
+for or drains request bytes. Bodyless requests and fully consumed bodies retain connection reuse,
+including error responses; HTTP/2 is untouched. The policy is conservative: starting a response
+before consuming the body forfeits HTTP/1 reuse even when those bytes are already buffered.
+`UnreadRequestBodyFilterTest` holds request bodies back until the response arrives to exercise the
+failure deterministically, and also covers chunked bodies, servlet and asynchronous refusals,
+partial reads, `100 Continue`, and reuse after consumed bodies. A resource-server or submission-server
+failure reading the next response after an early refusal must be investigated at this boundary,
+not hidden by re-enabling write retries.
+
+The 2026-10-18 acceptance run passed the full Java build (8,653 tests reported, six skipped,
+no failures or errors), all fourteen deterministic connection-policy cases and the existing
+no-replay tests. All fifteen rebuilt service jars contained only Jetty 12.1.13 core/EE10 classes,
+verified against the dependency jars, and all fifteen services were healthy/current after local
+redeployment. An unauthenticated HTTP/1 probe across two resource-server write routes and four
+body-delivery timings found 59 unannounced closures in 80 requests before the change; all 80
+responses announced closure afterward. Whole-stack smoke passed, recorded in
+`ops/e2e/reports/smoke-gate/0a0a88041cfae3c6.json`; the full build report is
+`$CEDAR_HOME/.cedar/build-reports/20261018T170722Z-90e02d85.json`.
 
 Surefire also sets `cedar.test.dependencyTimeoutMillis=1000`. The Mongo and Neo4j client factories
 honor that property only when it is present: Mongo server selection/connection and Neo4j pool
@@ -3020,21 +3516,263 @@ CED authoring with a Disease field constrained to the DOID disease branch throug
 picker, recovery from an expired token in both applications, stale-save protection, populating
 with a live DOID suggestion, publication and drafts, downloads, OpenView and conditional deletion.
 
+The tier runs these scripts through `split-tier.mjs` in lanes that run at the same time and take
+their work from one queue. A unit of that work is one journey or one script. Each process keeps its
+own fixtures, browser errors and current step, so a failure in one lane cannot be charged to
+another. The core lane first runs the inline chain of the Workspace journey alone, with
+`modern-workspace-smoke.mjs --chain-only`. The chain's six steps work on one template, and each
+reads what an earlier step made. The identity lane runs every journey that signs in, reauthenticates
+(including the same user), or logs out, one at a time. This includes `draft-recovery` and
+`uncertain-create`. The lane also runs three scripts: the account groups page, the
+lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
+grant to the second user. Sign-ins contend in Keycloak and in the graph writes each one triggers,
+and a logout ends the single sign-on session of its browser context, so no other lane takes an
+identity unit and no two run at once. Every other unit is general. The general lanes take general
+units from the start, the core lane once its chain has finished, and the identity lane once its own
+units are done.
+
+A lane that is free takes the longest unit it may run. Each unit's length is its duration in the
+newest split report that measured it, cleanup included, and a unit no report has measured counts as
+the median of its kind. Which lane runs which unit is decided while the tier runs, so the lanes that
+would otherwise finish early take a share of everyone else's work. A lane runs its journeys in one
+`focused-journey-smoke.mjs --worker` process that stays up until the queue has nothing left for it.
+The runner sends that process one journey key at a time over the IPC channel it opened when it
+forked the process. Each journey opens a fresh browser context from a clean authenticated baseline,
+under a root folder named `Focused journey <stamp> <lane>`. Every context the journey creates is
+closed afterward, including secondary-user contexts it forgot to close; cookies, application storage,
+routes, listeners and pages cannot carry into the next journey. The browser process stays up. The
+worker removes the journey's fixtures and reports the result and its timing. A lane runs each script as a process of its own. Every process signs in through the
+login form in a browser context of its own. The core lane starts first, and the others start once it
+has made its fixtures, so that its Designer search finds the element it created before the other
+lanes' fixtures reach the search index. `node split-tier.mjs --plan` prints the queue, its rules,
+each unit's estimate and deadline, and when each lane would finish if every unit took its estimate.
+
+`journey-registry.mjs` lists every journey under its key. A non-null `authentication` reason
+makes it an identity unit. The reason is retained in the execution plan. Both
+runners enforce this declaration at runtime when a journey calls `withBrowserAuthentication`,
+including through shared helpers. An undeclared sign-in fails before its initiating action.
+
+Lane placement alone cannot serialize worker setup, fallback logins or the core chain's second-user
+login. `auth-activity.mjs` therefore coordinates explicit browser authentication and REST actor
+password grants across processes with `$CEDAR_HOME/.cedar/locks/authentication.lock`. Wrap the
+initiating navigation, Sign in again click or logout through authenticated page readiness in
+`withBrowserAuthentication`. Ordinary editing and background token refresh remain parallel. The
+lock waits up to 60 seconds, names the holder on timeout, releases on exceptions and recovers a dead
+owner. Authentication start/end events retain wait duration in the split run's step journal without
+credentials. Nested helpers can reuse a held lock. Separate async flows in one process still wait.
+`npm run test:journey-runner` exercises cross-process exclusion, crash recovery, classification,
+scheduling and scenario inventory without a browser or stack, and runs in CI on Linux and macOS.
+`npm run test:journey-harness` runs before the tier. It fails when a journey file exports a journey
+the registry does not list, and it drives `split-runner.mjs`, which carries out the plan, through
+the queue, the deadlines, the lock, a kill and a signal with stand-in units.
+
+The Designer editing journeys in `designer-editing-journey.mjs` exercise root and nested field
+ordering through metadata creation, distant edits in a thirty-five-field template, keyboard card
+navigation and Save, authored defaults and constraints consumed by CEE, nested collapse/expand,
+and cancel/save/discard navigation. Placement fixtures deliberately use descriptions distinct from
+field definitions: draft fields whose descriptions still match are intentionally edited together.
+Schema-preservation comparisons treat JSON Schema `required` arrays as sets while checking the
+UI order explicitly. Run just this coverage with `npm run smoke:journey -- designer-order
+large-designer designer-keyboard designer-default nested-designer designer-navigation`.
+
+The Workspace navigation journeys in `workspace-navigation-journey.mjs` cover nested keyboard
+folder traversal, range selection with deletion cancellation and menu focus return, composed type
+filters and sorting across reload, a fifty-five-resource folder with real paging and editor return,
+search-result editing with query/selection/tab restoration, and renamed-ancestor breadcrumbs.
+They use the real listing and search APIs; the paging fixture spans the fifty-item boundary and
+asserts every identity on both pages. Keyboard selection checks wait for Angular's rendered frame.
+Run them with `npm run smoke:journey -- workspace-keyboard-folders workspace-keyboard-selection
+workspace-type-filter workspace-pagination workspace-search-return workspace-renamed-breadcrumb`.
+
+#### Journey contracts, diagnostics and reliability
+
+Each journey reports explicit scenario IDs and the user promise it verified. The committed
+`ops/e2e/journey-scenarios.json` inventory lists the required scenarios in execution order. A missing,
+duplicate, unexpected or reordered scenario fails even when every executed assertion passes. The
+focused, parallel and legacy sequential runners enforce the same inventory. A new journey needs a
+registry entry and scenarios; a new case inside an existing journey needs its own stable ID.
+
+Each focused worker and the dependent core chain start a Playwright trace for every context they create. A failure retains those
+traces, screenshots, page text and accessible control snapshots (including shadow-root input values),
+browser errors, recent failed requests, completed
+scenarios and cleanup failures in the report's per-journey evidence directory under `reports/evidence-*`.
+These directories survive system temporary-file cleanup. A context-close or trace-finalization
+failure fails the journey and retains whatever evidence was captured, even if the journey caught
+an earlier close rejection. Cleanup still attempts every other context and restores the browser
+wrapper. The original assertion and secondary teardown errors are recorded separately. A browser
+error arriving during cleanup also fails the journey. Passing journeys remove their evidence. A process forcibly killed before tracing can finish may have no complete
+trace; the tier's timeout record, fixture ledger and sweep report still identify it. Evidence contains
+test artifact content and can contain session credentials: keep it local and out of Git. Open a
+retained trace with `npx playwright show-trace <context-N.zip>` from `ops/e2e`.
+
+`draft-recovery` includes explicit `restore-template-expired-sso` and
+`restore-metadata-expired-sso` scenarios. They expire the browser's Keycloak SSO cookies without
+clearing application storage, require the real username/password form after Sign in again, and
+verify restoration, no automatic write replay, conditional save, stored content and a clean reopen.
+The ordinary sign-in cases retain coverage of the existing SSO redirect path. Run these together
+with `npm run smoke:journey -- draft-recovery`.
+
+Live terminology selection and recovery searches have a separate 90-second response ceiling: successful
+BioPortal-backed responses have taken 40–80 seconds. Ordinary UI operations retain their 25-second
+limit, and the chain's overall deadline and recorded runtime still expose external-service slowness.
+Do not interpret passing under that ceiling as an acceptable interactive latency.
+
+For focused diagnosis and independence checks, after loading the normal native profile:
+
+```bash
+npm run smoke:journey -- scalar-roundtrip template-evolution
+npm run smoke:journey -- --all --seed=editing-order-1
+npm run smoke:journey:verify -- --seed=editing-order-2 --independent scalar-roundtrip template-evolution
+npm run smoke:workspace:modern:full -- --seed=editing-order-3
+npm run report:journeys
+npm run report:journeys -- --json
+```
+
+`--all` selects the complete registry. `--seed` gives a reproducible shuffled order; on the parallel
+tier it changes queue order while preserving the identity-lane exclusion. Actual lane assignment
+still depends on completion times, so the report records both queue order and the executed order.
+The verification command first runs the selected journeys in shuffled order, then `--independent`
+runs each in a separate process. Omit names to verify the entire registry. The direct focused runner
+uses the same machine-wide lock as the tier. `--lanes=1` preserves legacy order and does not accept a
+shuffle seed; its individual journeys also use fresh contexts and failure capture.
+
+Every completed focused or split run keeps an immutable record under `ops/e2e/reports/journey-history/`,
+including source identity, runtime-selection digest, scenario outcomes, evidence, durations and
+failure categories. Reports distinguish first attempts from explicit reruns: pass `--retry-of=<run-id>`
+with the same selection and sources to link a retry to the failed attempt. A changed source or runtime
+selection is a new observation. The summary reports first-attempt pass rates, recoveries on retry,
+successful-run median/p95/max durations, sample counts and failure categories. These categories describe
+observed symptoms, not a proven root cause. `--source=<commit-or-test-digest>` filters the summary;
+without it the summary spans the retained source versions. Candidate-inventory runs are excluded.
+No retry happens automatically, and a passing retry never changes the original failed report.
+
+To deliberately change coverage, record a candidate separately from the committed inventory:
+
+```bash
+node focused-journey-smoke.mjs --record-inventory=reports/scenario-candidate <journey-keys>
+node journey-inventory.mjs --report=<candidate-report>
+node journey-inventory.mjs --report=<candidate-report> --apply
+npm run smoke:journey -- <journey-keys>
+```
+
+The direct candidate command allows a new registry entry whose scenarios are not committed yet;
+the normal npm preflight requires the complete inventory. The first command prints its report path.
+The preview lists added and removed IDs. Review that list
+and the associated promises before applying it. The updater accepts only a clean candidate report
+with no unexecuted journeys, and the resulting inventory must cover the whole registry. Existing
+entries outside the selected set are preserved. A candidate run reports `CANDIDATE`, not `PASS`, and
+cannot satisfy the full smoke gate; rerun with ordinary inventory enforcement before acceptance.
+The full tier also accepts `--record-inventory=<directory>` for a complete inventory migration.
+
+`--lanes=N`, from two to four, sets the number of general lanes beside the core and identity
+lanes. The default is two, because the 16-core workstation runs with its swap nearly full and every lane
+drives a browser of its own. `--lanes=1` runs the tier as it ran before lanes existed: all of
+`modern-workspace-smoke.mjs`, its chain and then every journey, followed by the other scripts, one
+after another, stopping at the first failure.
+`cedarcli test e2e --split-lanes N` passes the setting through the gate.
+
+Every unit has a deadline, so a journey or script that hangs cannot hang the gate. The deadline is
+three times the unit's newest measured duration plus 30 seconds, at least 60 seconds and at most a
+cap of 1,200 seconds. The factor allows for load. A unit of ten seconds or more has taken at most
+1.7 times as long in one run as in another, so three times leaves room for a heavier load than any
+yet seen. The margin lets a slow unit that is failing report its own failure, since Playwright waits
+25 to 30 seconds before an action fails. The floor keeps a unit measured at a second or two from
+being judged hung after one such wait. The shorter units have varied by up to 3.7 times, but none
+has yet taken more than 18 seconds. A unit no report has measured gets the cap, since nothing says
+how long it should take, and the cap also bounds the sequential run's full smoke, which takes about
+500 seconds. `--timeout-cap=SECONDS` sets the cap, and
+`cedarcli test e2e --split-timeout-cap SECONDS` passes it through the gate. A journey runner has 120
+seconds to sign in, and as long again to remove its root at the end.
+
+A unit that overruns its deadline is killed with its process group and every descendant, the
+browsers included, which Playwright starts in process groups of their own. The runner then sweeps
+what the unit created through REST. A journey's fixtures are all under its lane's root, so the sweep
+deletes the root, as one recursive deletion when the server allows it and otherwise item by item. A
+journey that makes something in the second user's home names it after the root, and the sweep
+removes that too. Every process also notes each fixture it creates in a ledger the runner keeps for
+the run, and the sweep removes whatever the ledger holds that neither tree did, which covers what a
+killed script made. The failure names the unit, the lane and the elapsed time, the lane takes no
+further units, and the other lanes run the units that remain.
+
+Deleting fixtures cannot undo a change to a test user's own account. The profile smoke adds an API
+key to the first user's account, so before it adds the key, it notes a restore entry in the same
+ledger. The entry identifies the key by the description the smoke gives it, which no other run uses.
+The smoke removes the key in its own cleanup and then marks the entry as restored. After a kill, the
+sweep applies each unmarked entry through the restoration the smoke itself uses, which reads the
+account and deletes only the keys with that description. It never applies a marked entry, so it
+never writes over what the smoke put back, and a restoration that finds the key already gone
+changes nothing. The sweep's line in the runner's output and its entry in the report list what it
+restored, what it found already as it was and what it could not restore. No other script in the
+tier changes an account. The Settings page writes nothing. Each group the tier creates is a fixture
+in the ledger, and each permission and OpenView setting it changes is on a fixture, so the sweep's
+deletions remove them.
+
+A lane that fails takes no further units either, and every other lane runs to its end, so one run
+names every lane that fails while each unit still runs once. The tier fails when any lane does, or
+when a unit is left that no lane could run. A first SIGINT, SIGTERM or SIGHUP stops every lane. A
+journey runner closes its browser, which ends the journey in flight, and removes that journey's
+fixtures and its root. Any other process dies at once, and the runner sweeps what it created once it
+has. The verdict is `INTERRUPTED`, and the exit status is 130. A second signal kills every process
+and its browsers at once and forgoes both, which can leave each lane's root folder in the first
+user's home.
+
+Only one split tier runs on the machine at a time. Two runs on one stack see each other's fixtures
+and contend for the same sign-ins. A run takes a lock at start, the file
+`$CEDAR_HOME/.cedar/locks/split-tier.lock`, which holds its PID, start time, command, working
+directory and host. Every session on the machine shares that directory, whichever checkout of
+`cedar-development` it runs from, while the e2e reports directory belongs to one checkout, so a run
+from a worktree would never see a lock kept there. Without `CEDAR_HOME`, the runner uses the
+directory that holds its checkout. A second run refuses at once with exit status 75, naming the
+holder's PID, start time and command, and writes no report. A lock whose holder is no longer
+running, or whose PID now belongs to a process that started after the lock was written, was left by
+a run that was killed, and the next run replaces it and says so. The runner releases the lock on
+every way out, a signal included. Each run also keeps its fixture ledger and every script's
+evidence, its screenshots and result files, in a directory of its own made with `mkdtemp` and named
+in the report, so not even a run that bypasses the lock can overwrite another's evidence.
+
+Lanes see one another's fixtures wherever a listing spans folders. Workspace's top search returns
+every artifact whose name shares a word with the query, fifty to a page and sorted by name, so a
+journey reads every page of a search, as it does of Shared with Me.
+
+On 2026-10-17, on the 16-core workstation with 32.2 of its 33.8 GB of swap in use, a sequential run
+took 564 seconds and a run in the default lanes took 120, with the same 186 checks. The queue had
+projected 114 seconds. Each lane was busy for 115 to 119 seconds and idle for at most 3.4, and
+starting and stopping a lane's journey runner cost it less than 2 seconds. With the lanes fixed in
+advance, the same tier had taken 185 seconds, because the general lanes were busy for 182 and 178
+seconds while the identity lane finished at 103 and the core lane at 42. The load average peaked at
+14.6 in the queued run and at 9.6 in the sequential one.
+
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly (timings below), and reaches what no unit suite can: the artifact
 write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
-the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `deletion`, `download`,
-`finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
-`pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 1,208 exact suite/section/check identities; a passing run
+the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
+`contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
+`inclusion`, `negotiation`, `openness`, `pagination`, `search`, `sharing`, `validation` and
+`versioning`. The committed
+`rest/expected-checks.json` inventory holds 2,125 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
 them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
 artifact kinds.
+
+`pagination` checks fractional, overflowing and nonnumeric paging values, invalid sort and typed
+filter values, and the shared error envelope on those refusals. Empty optional string filters are
+normalized to absent at the HTTP boundary and retain their defaults. `group-sharing` checks direct
+Viewer plus group Editor and overlapping Viewer/Editor groups, including immediate loss of write
+authority when the stronger grant or group is removed. `sharing` sends a real artifact PUT with an
+ETag acquired before revocation, verifies unchanged stored content and revision after refusal, and
+retries the same request after access is restored.
+
+The success-schema pilot in `rest/response-contract.mjs` validates group reads, folder permissions
+and folder listings against their committed OpenAPI 3.0 response schemas using Ajv and ajv-formats.
+Call sites record fixed checks outside polling loops; there is no environment switch or automatic
+check per HTTP call. Required fields, nested references, formats and types are enforced without
+coercing responses; extra properties follow each schema's own rule. This supplements the existing
+behavioral assertions and does not replace the model schemas that govern artifact documents.
 
 On the 16-core workstation, run `cedarcli test e2e --rest-workers 4`. The REST runner uses two
 workers by default, bounded to one through four, and four is both the ceiling and the fastest
@@ -3042,25 +3780,28 @@ measured setting. Use `--rest-workers 1` for the serial diagnostic path. For an 
 `npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
 REST invocation does not replace the release smoke gate.
 
-Thirteen audited suites may overlap. Each has its own working folder, asynchronous
+Fourteen audited suites may overlap. Each has its own working folder, asynchronous
 check context, creation tracking and cleanup registry. The `folders`, `groups`,
 `categories`, `authentication`, `pagination` and `contract` suites run exclusively
 after that parallel batch: their home guards, protected group operations, category
 tree, account credentials or global counts require a stable surrounding stack.
 New suites default to exclusive execution. One worker preserves the original suite
 order. Result merging restores the canonical suite order while preserving the check
-order within each suite, so the existing exact 1,063-check inventory is unchanged.
+order within each suite, so the same exact inventory applies at every worker count.
 
 After all suites drain, independent cleanup registries overlap within the same worker
 budget, each retaining its own reverse creation order. The shared parent is deleted
 last. A first interrupt stops new suites, drains active work and then cleans up;
 a second interrupt forces exit. Preflight, final leftover checks and worker health
 checks still surround the entire run. Do not run separate smoke processes or other
-fixture-mutating tests simultaneously against the same stack.
+fixture-mutating tests simultaneously against the same stack. The split tier's lanes are the one
+exception. They run inside one tier, after the REST tier has finished, and each works under a root
+folder of its own.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
 and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
-barriers, interruption, report attribution and cleanup ordering; it also runs before
+barriers, interruption, report attribution, cleanup ordering, partial-inventory refusal and the
+success-schema pilot's rejection of malformed responses; it also runs before
 every `npm run smoke:rest` invocation.
 
 On the 16-core M4 workstation (2026-09-24), all 1,063 checks passed in 118.6 seconds
@@ -3076,8 +3817,7 @@ healthy worker consumers. Mean elapsed time was 51.26 seconds, range 47.3–55.2
 57% less than the serial baseline. Local logs and JSON reports are retained under
 `.cedar/build-reports/rest-repeat-10-20260924T162831Z/`.
 
-Only the REST tier runs concurrently, so it is no longer where a whole run spends most of its
-time. Five sequential runs of `cedarcli test e2e --rest-workers 4` on 2026-09-25 all passed, and
+In the September baseline, only the REST tier ran concurrently. Five sequential runs of `cedarcli test e2e --rest-workers 4` on 2026-09-25 all passed, and
 their wall-clock times ranged from 276 to 284 seconds. The gate records of four of them give the
 tier breakdown:
 
@@ -3108,7 +3848,7 @@ likewise be built from the development sources under test and redeployed before 
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
 manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
-`npm run smoke` and `npm run smoke:workspace:modern:full`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
+`npm run smoke`, `npm run smoke:workspace:modern:full` and `npm run smoke:search`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
 heads, beside a `latest.json` copy. The record names what the stack ran, so a checkout with another
 commit than its `develop` head checked out stops the run before it records anything. A modified or
 untracked file marks its repository dirty, since the build compiled it, and the gates refuse a dirty
@@ -3116,7 +3856,24 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>.json`.
+`rest-smoke-<digest>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
+`search-smoke-<digest>-<uuid>.json`. Search evidence has a unique path per attempt so a refused or
+killed run cannot inherit a previous pass. The gate checks every planned search cell against the
+actual checks, requires all five families (content, access, paging, lifecycle and browser), and fails
+on missing, duplicate, skipped or failing cells, incomplete execution, browser errors or cleanup
+errors even if the process exits zero. Older three-tier records cannot satisfy the gate. The split tier's
+report says how long each lane and each process took and how it exited, how long each step of the
+chain and each journey took, and the machine's load average and swap at start, at peak and at end.
+Its schema 2 names every lane with its journeys and scripts, its time, its exit code and the step it
+failed in, and lists every failure, while the fields schema 1 had still name the first failing
+script and step. Schema 3 keeps every field of schema 2. It adds, for each lane, the units it ran
+with their timings and outcomes, its busy, overhead and idle time, any unit that overran its
+deadline and what the sweep after that kill removed. At the top it adds the lock's holder, the
+deadline settings, every timeout and sweep, the queue's order and the run's evidence directory. The
+gate record keeps the lanes with their units, every failure and timeout, a count of what each sweep
+removed and the five slowest steps, so a failed run names each place it failed, and it reads a
+report of any of the three schemas. A run the lock refused writes no report, and the gate records
+it as refused rather than reading whatever file is at the report's path.
 
 Every run writes `reports/rest-smoke.json` by default; `--report=PATH` chooses another file. The JSON
 records the selected suites, pass/fail/skip totals, duration, inventory verdict and each individual
@@ -3127,8 +3884,10 @@ clean pass:
 npm run smoke:rest -- --update-inventory
 ```
 
-The runner refuses to replace the inventory after a failure or interruption. It also inventories
-timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
+Inventory updates require every suite. A partial selection with `--update-inventory` exits with
+code 2 before authentication, fixture creation or report writes; run a selected suite without that
+flag for diagnosis. The runner also refuses to replace the inventory after a failure or interruption.
+It inventories timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
 state or the current teardown did not restore the baseline.
 
 An interrupted run still cleans up after itself. `SIGINT` or `SIGTERM` stops it at the next suite
@@ -3601,7 +4360,7 @@ and what it needs to run.
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
 | schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
 | submission | `SubmissionRoutesRespondTest` | `RouteSurface` 401 | none |
-| terminology | `TerminologyServerApplicationSmokeTest` | runtime-derived `RouteSurface` 401 with public-route exceptions and a separate property-search probe | none |
+| terminology | `TerminologyServerApplicationSmokeTest`, `AnonymousBioPortalRoutesTest` | runtime-derived `RouteSurface` 401 with public-route exceptions, which the spec must mark as taking an optional credential, a separate property-search probe, and the four anonymous BioPortal routes answered without a credential | none; a BioPortal HTTP stub for the anonymous routes |
 | user | `UsersResourceTest`, `UsersResourceNeo4jTest` | runtime-derived route inventory with missing/invalid user 401 probes; profile and key-management behaviour | in-memory users / embedded Neo4j |
 | valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
@@ -3768,8 +4527,11 @@ cedarcli check snapshots
 ```
 
 It asks Nexus for each publishing repository's recorded timestamp and GitHub for the time of the
-head commit on `develop`, and reports a snapshot that is older than its source, or absent. It exits
-non-zero on either. An unreadable Nexus or GitHub is reported and does not fail the check, because
+newest commit on `develop` that can change what the repository publishes, and reports a snapshot
+that is older than that commit, or absent. A commit that changes only CI configuration under
+`.github/`, or Markdown outside the source tree, cannot change an artifact and is passed over.
+Without that, `cedar-project`, whose CI verifies the aggregator without publishing it, would read as
+behind after every such commit. It exits non-zero on a snapshot that is behind or absent. An unreadable Nexus or GitHub is reported and does not fail the check, because
 failing there would blame the estate's source for a fault in the network reaching it. The grace
 period is two hours, so a build still running is not a finding; `--grace-hours` moves it.
 
@@ -3910,6 +4672,21 @@ same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 
 the OpenSearch low-level REST client and the Keycloak event listener, which stay on HttpClient 4
 because those external APIs require v4 types), slf4j 2.0 with logback 1.5, swagger-core v3
 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.26, commons-lang3.
+
+`cedar-parent` imports both `org.eclipse.jetty:jetty-bom` and
+`org.eclipse.jetty.ee10:jetty-ee10-bom` using the single `org.eclipse.jetty.version` property.
+Changing that property advances the entire core and EE10 family. Individual overrides previously
+advanced only server, HTTP and servlets, leaving IO, utility, security, session and servlet modules
+on Dropwizard's older version. The inherited `enforce-jetty-alignment` Maven rule now rejects any
+resolved Jetty framework module at a different version, including protocol/WebSocket subgroups,
+transitive dependencies and test dependencies.
+The `org.eclipse.jetty.toolchain.setuid:jetty-setuid-jna` helper has its own version line and is
+outside those two module families.
+Neo4j's embedded test harness has its unused Jetty 9 `jetty-webapp` dependency excluded; the harness
+uses `withDisabledServer()` and exercises Bolt without the legacy HTTP stack. Keep that exclusion
+and the guard when updating the harness. Check the complete Java build after changing Jetty,
+followed by a local microservice redeploy and whole-stack smoke. The startup banner's Jetty version
+comes from `jetty-util`, so a banner alone is not proof of dependency alignment.
 
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.14-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
@@ -5294,7 +6071,9 @@ dynamic fields absent from the template's `properties`, even when those fields h
 permits null. Neither supplies an entered term, date, number or other missing required value.
 Completion's invariant permits only declared empty shapes, required context additions and fresh
 element identities. Run the repair suites with
-`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`.
+`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`. The
+`Release tooling CI` workflow runs every suite under `ops`, `ops/tests` and `ops/repairs` on each
+push and pull request.
 
 ### Choose the Repair
 
@@ -5515,7 +6294,7 @@ For locally-served ontologies the store keeps every language variant of every na
   default. Deferred by decision: `lang=all` (the `{lang:value}` hash), `lang=` on the public
   `search`/tree output, and honoring the submission's `naturalLanguage` for the default.
 
-Quick check (integrated-search has auth disabled, so no token needed):
+Quick check (integrated-search serves anonymous callers, so no token is needed):
 
 ```bash
 curl -s -X POST 'http://localhost:9004/bioportal/integrated-search?lang=fr' \
@@ -5647,7 +6426,9 @@ It builds one element reused by a published template and a draft one, edits the 
 real editor, and holds the window to three things: the published row cannot be ticked and reads as
 greyed rather than merely inert, a click on it never reaches the tree that gets posted, and the draft
 beside it still propagates. It then reads both templates back, so a pass means the change landed in
-exactly one of them. Fixtures are created and deleted by the run.
+exactly one of them. Fixtures are created and deleted by the run. A failure leaves a screenshot in a
+new `ops/e2e/reports/evidence-*` directory, and the smoke prints its
+path.
 
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
 It proves that both preview route shells and independent AngularJS bootstraps are being served, the
@@ -5989,10 +6770,128 @@ failure can leave completion uncertain; the client refreshes the listing and nev
 replays the deletion. Existing per-artifact deletion jobs complete content/graph/search cleanup after
 failures. Neither the confirmation token nor a folder operation bypasses those artifact safeguards.
 
-Operational responses include stable `FOLDER_DELETE_*` codes. Workspace translates those codes
-and network/error fallbacks into its bundled English and Hungarian messages; raw server messages
-are not displayed in this dialog. An owner refusal uses HTTP 403 and `FOLDER_DELETE_NOT_OWNER`.
+An outcome carries a stable `FOLDER_DELETE_*` code. A refusal uses the common error envelope and
+keeps the reason's message. Its status, its error key and, for a 409, the presence of an outcome
+identify it:
+
+- 400 `invalidInput`: the confirmation carries no token in the form an inventory issues.
+- 400 `folderCanNotBeDeleted`, with the reason `userHomeFolder` or `systemFolder`: the folder is a
+  home or system folder.
+- 403 `folderCanNotBeDeleted`: the caller is not the folder's owner.
+- 409 with no key and no outcome: the inventory could not be completed. A confirmation repeats the
+  inventory before it deletes anything, so it is refused this way too, having deleted nothing.
+- 409 with an outcome, from a confirmation: the folder changed or a blocker stops the deletion. The
+  outcome is in `objects.outcome`, and a blocked deletion also carries `folderCanNotBeDeleted`.
+
+Workspace translates outcome codes, refusals and network failures into its bundled English and
+Hungarian messages. Raw server messages are not displayed in this dialog.
 
 Verification: `cedarcli test e2e` includes the recursive-delete probe in its modern Workspace tier.
 For the focused real-stack check, run `npm run smoke:folder-delete` from `ops/e2e` with the native
 profile sourced. It creates disposable resources as both test users and removes only those fixtures.
+## Shared text and identifier contract
+
+`cedar-model-validation-library` owns the pure Java `TextPolicy` and `IdentifierPolicy`
+APIs. The artifact library delegates to them. The TypeScript model library exposes the
+same text rules through its small `cedar-model-typescript-library/policy` entry point;
+the main package retains its existing exports and `JavaStrings` compatibility API.
+The policy package has CommonJS, ESM and UMD builds; its browser global is
+`CedarValidationPolicy`.
+
+The contract is position-specific:
+
+| Position or operation | Contract |
+| --- | --- |
+| Blank child/attribute names and pinned terminology version IDs | The explicit Java 17 whitespace set in `TextPolicy`. U+001C–U+001F are blank; U+00A0, U+2007, U+202F and U+FEFF are not. This is a presence check, not proof that a version exists. |
+| Artifact and terminology identifiers | Absolute IRIs in the spelling Java's `URI` can represent; reject malformed escapes, forbidden Unicode, unpaired surrogates and repeated fragment delimiters. |
+| Field-value IRIs | RFC 3987 character rules through `IriReference`; keep the original RDF spelling, including permitted Unicode spaces. Percent encoding for transport must not replace stored identity. Relative-reference compatibility remains position-specific. |
+| HTTP(S) addresses entered in editors | In addition to IRI syntax, the existing authoring contract requires an authority/host. URL parsing checks that condition only; its serialization is never stored. |
+| Schema string length | Unicode code points. An emoji outside the BMP counts as one; `e` followed by a combining accent counts as two. |
+| Display abbreviation and highlight boundaries | Graphemes, through `DisplayText`. Search keys use locale-independent lowercase and NFC on derived text; stored labels and keys keep their spelling. |
+| Manual IRI input padding | The explicit authoring affordance removes ASCII space/tab/CR/LF around typed input. Readers and writers never apply it. Unicode characters such as U+FEFF are not discarded. |
+
+Do not replace these with a general `trim`, `\s`, Unicode `White_Space`, locale-sensitive
+case conversion or blanket normalization. Different operations have different contracts.
+In particular, NFC and NFD object keys are distinct and must not merge; selection and identity
+continue to use the original strings even when a search groups equivalent displayed labels.
+
+`src/test/resources/concordance/text-policy.json` in the validation library is the normative
+corpus. Java tests also check every Unicode code point against the pinned Java 17 predicate.
+The TypeScript repository vendors the same corpus with its SHA-256 and source commit, and
+its artifact concordance matrix exercises the name boundaries at every supported position.
+After committing the Java changes, run `npm run sync:concordance` in the TypeScript repository,
+then `npm run test:concordance`. The default sync refuses dirty Java source; the explicit `--working-tree` review mode described
+above records uncommitted source provenance. Do not change expected verdicts to match an observed regression. Model acceptance and preservation are separate
+assertions: accepted attribute names must remain both in the attribute list and beside their
+values after JSON and YAML round trips.
+
+### Numbers, timestamps and source parsing
+
+`NumericPolicy` in the validation library and the TypeScript policy entry accepts an explicit
+ASCII decimal grammar, including signed decimals and exponents. It does not trim input or accept
+Java numeric suffixes, hex floats, localized separators, NaN or infinity. Comparison is exact.
+Java retains `BigInteger`/`BigDecimal` where needed; TypeScript retains an `ExactDecimal` atom
+when a native number would change the value. Use `JsonSourcePolicy.clone` and `stringify` at
+artifact ownership and wire boundaries: native JSON and `structuredClone` cannot preserve these
+atoms. The JSON token stays a number, not a quoted string or an implementation object. Source
+lexical formatting can change; numerical value, string content, key spelling and array order cannot.
+
+`ProvenanceTimestamp` in `cedar-model-library` owns provenance parsing and formatting; core and
+validation delegate to it. It requires an explicit offset, checks the calendar, preserves the
+original offset and up to nine fractional-second digits, and accepts the historical colonless
+offset spelling. Temporal field values retain their separate partial-date and precision rules.
+The legacy typed user-record reader intentionally retains its offsetless/system-zone compatibility;
+that exception does not apply to artifact provenance. OpenSearch continuation-token decoding also
+retains its score-number types rather than changing all untyped floats to decimals.
+
+`JsonSourcePolicy` rejects duplicate decoded keys and trailing values and reads decimal tokens
+without binary rounding. `ArtifactSourceParser` is the Java artifact JSON/YAML boundary;
+`JsonSourcePolicy` and `YamlSourcePolicy` are its TypeScript counterparts. YAML is one mapping,
+with unique scalar string keys and YAML 1.2 core scalar interpretation: `yes`, `on` and dates remain
+strings, decimal leading zeroes are not YAML 1.1 octal, and explicit `0o`/`0x` integers are exact.
+Custom tags, nonfinite numbers, unsupported key structures, cyclic aliases and excessive expansion
+fail. Quoting preserves strings that otherwise resemble numbers, booleans or null. Readers and
+writers have separate acceptance and preservation assertions in the shared source-policy corpus.
+
+### Regex evaluation and compatibility
+
+Field regexes use ECMAScript syntax, no implicit flags, and the established full-value match
+`^(?:pattern)$`. Java uses the configured Rhino engine; the corpus includes JavaScript's non-`u`
+identity escapes, empty alternatives, line terminators, supplementary characters and invalid syntax.
+Do not substitute `java.util.regex` or add `u`/`i` flags silently. Java and TypeScript vendor identical
+`regex-policy.json` cases alongside numeric, timestamp, source and text fixtures, with commit/hash
+provenance checked by the model package gate.
+
+Browser validation uses `RegexPolicy` workers and `RegexChecks` coordination. A worker receives a
+250 ms evaluation budget after startup, with a five-second startup limit, bounded queue/input sizes
+and cancellation on superseded work. A timeout terminates the worker. Worker unavailability and
+limits are explicit failures; there is no synchronous main-thread fallback. Pending checks block
+save, and stale results cannot validate a newer draft. This operational browser limit is distinct
+from a semantic regex mismatch and is not a new stored-data rule.
+
+### Offline compatibility replay
+
+`ops/cedar_policy_replay.py` reads retained audit caches; it never contacts or writes a deployment.
+`extract --schema-db <corpus.sqlite> --instances <sources> --output <directory>` collects distinct
+scalar inputs. `sample` takes the same sources and `--output <values.jsonl>` and samples 50 ordinary
+and 50 Unicode/pattern documents per artifact kind, plus a precision/Unicode regression document.
+`run --values <values.jsonl> --output <directory> --java-classpath <classpath>
+--typescript-library <model-library/index.js>` compiles the adjacent Java bridge and runs both
+libraries. Use the native profile and Java 17, with the freshly built validation/model classes and
+their resolved runtime dependencies on the classpath; use the current TypeScript distribution.
+`compare --values <values.jsonl> --java <java.jsonl> --typescript <typescript.jsonl>
+--output <summary.json>` can compare completed runs again. Missing output or any disagreement fails.
+The source lane checks each language against the original, so identical loss in both cannot pass.
+
+Raw values remain in the requested local directory; console output and comparison summaries contain
+aggregate counts and row numbers. The manifest records input/bundle hashes and the Java classpath.
+This is a semantic replay of cached JSON: it cannot recover wire duplicates or rounding that occurred
+before caching, and it is not a production repair or a replacement for model/YAML round-trip tests.
+
+The 2026-10-18 replay covered 302,409 retained artifacts (4,833 templates, 5,306 elements, 141,690
+fields and 150,580 instances), containing 22,734,779 strings. Java and TypeScript agreed on all
+1,204,125 distinct scalar inputs: 212,036 text, 709,913 identifier, 281,779 timestamp, 335 numeric
+and 62 regex cases. Both rejected the same 243 distinct historical identifiers (390 occurrences).
+No identifiers were rewritten. All 401 sampled JSON source round-trips preserved exact values and
+string/key identity. Evidence is under `.cedar/audits/2026-10-18-policy-replay/`; these are retained
+cache results, not a fresh inventory of the current production deployment.

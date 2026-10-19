@@ -1,14 +1,16 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 // Modern account pages; fixtures are isolated and removed, secrets are never logged.
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import {
   actors,
   call,
-  USER_SERVER,
   GROUP_SERVER,
   mutateGroup,
   enc,
 } from "./rest/lib.mjs";
+import { evidencePath, noteFixture, noteRestore, noteRestored } from "./split-steps.mjs";
+import { apiKeyRestore, restore } from "./user-state.mjs";
 const area = process.argv[2] || "profile";
 assert.ok(
   ["profile", "settings", "groups", "privacy"].includes(area),
@@ -21,6 +23,8 @@ const userId = JSON.parse(
 ).sub;
 const userPath = "/users/" + enc(userId);
 let groupId;
+// The API key the profile area adds belongs to the account rather than to any fixture.
+let keyRestore;
 const fixture = "Workspace account smoke " + Date.now();
 const browser = await chromium.launch({ headless: !process.env.HEADED });
 const context = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -30,29 +34,31 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("dialog", (d) => d.accept());
 async function open(route) {
-  await page.goto(base + route);
-  await page
-    .locator(
-      "#username, cedar-account-shell .account-card, cedar-account-shell [role=alert], #groups-page .groups-card",
-    )
-    .first()
-    .waitFor();
-  if (await page.locator("#username").isVisible()) {
+  return withBrowserAuthentication("account page sign-in", async () => {
+    await page.goto(base + route);
     await page
-      .locator("#username")
-      .fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
+      .locator(
+        "#username, cedar-account-shell .account-card, cedar-account-shell [role=alert], #groups-page .groups-card",
+      )
+      .first()
+      .waitFor();
+    if (await page.locator("#username").isVisible()) {
+      await page
+        .locator("#username")
+        .fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || "test1@test.com");
+      await page
+        .locator("#password")
+        .fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
+      await page.locator("#kc-login").click();
+    }
     await page
-      .locator("#password")
-      .fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || "test1");
-    await page.locator("#kc-login").click();
-  }
-  await page
-    .getByRole("heading", {
-      name: route.slice(1)[0].toUpperCase() + route.slice(2),
-      exact: true,
-    })
-    .waitFor();
-  assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
+      .getByRole("heading", {
+        name: route.slice(1)[0].toUpperCase() + route.slice(2),
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
+  });
 }
 async function mutation(method, path, action, status) {
   const pending = page.waitForResponse(
@@ -81,6 +87,9 @@ try {
     await open("/profile");
     await page.getByRole("heading", { name: /API Keys/ }).waitFor();
     await page.getByLabel("New key description (optional)").fill(fixture);
+    // Should the split tier kill this process, its sweep removes the key through this entry.
+    keyRestore = apiKeyRestore({ as: "user1", userPath, description: fixture });
+    noteRestore(keyRestore);
     await mutation(
       "POST",
       "/api-keys",
@@ -164,6 +173,7 @@ try {
       201,
     );
     groupId = (await created.json())["@id"];
+    noteFixture({ collection: "groups", id: groupId, base: "group" });
     const path = "/groups/" + enc(groupId);
     await page.getByRole("button", { name: "Save", exact: true }).waitFor();
     const me = page.getByRole("listitem", {
@@ -188,6 +198,48 @@ try {
       () => page.getByRole("button", { name: "Save", exact: true }).click(),
       200,
     );
+    const viewer = await browser.newContext({ ignoreHTTPSErrors: true });
+    const vp = await viewer.newPage();
+    await withBrowserAuthentication("group viewer sign-in", async () => {
+      await vp.goto(base + "/groups");
+      await vp.locator("#username").waitFor();
+      await vp
+        .locator("#username")
+        .fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
+      await vp
+        .locator("#password")
+        .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
+      await vp.locator("#kc-login").click();
+      await vp.getByRole("heading", { name: "Groups", exact: true }).waitFor();
+    });
+    const selectAsViewer = async (member) => {
+      const ownStatus = await call(user2.auth, "GET", path + "/membership/me", undefined, { base: GROUP_SERVER });
+      assert.equal(ownStatus.status, 200);
+      assert.deepEqual(ownStatus.body, { member, administrator: false });
+      assert.equal(ownStatus.headers.get("cache-control"), "private, no-store");
+      assert.equal(ownStatus.headers.get("etag"), null);
+      const roster = await call(user2.auth, "GET", path + "/users", undefined, { base: GROUP_SERVER });
+      assert.equal(roster.status, 403);
+      await vp.getByRole("combobox", { name: "Find a group" }).fill(fixture);
+      await vp.getByRole("option", { name: fixture + " - Smoke description", exact: true }).click();
+      await vp.getByText(member
+        ? "You are a member of this group, but not a Group Administrator."
+        : "You are not a member of this group. You can view its name and description.",
+        { exact: true }).waitFor();
+      await vp.getByText("Only administrators of this group can view its member list.", { exact: true }).waitFor();
+      assert.equal(await vp.getByRole("button", { name: "Save", exact: true }).count(), 0);
+      assert.equal(await vp.locator(".groups-member-count").count(), 0);
+      assert.equal(await vp.evaluate(() => typeof window.angular), "undefined");
+      await vp.screenshot({
+        path: evidencePath(`groups-${member ? "member" : "non-member"}.png`),
+        fullPage: true,
+      });
+      await vp.getByRole("tab", { name: "Delete group", exact: true }).click();
+      await vp.getByText("Only administrators of this group can delete it.", { exact: true }).waitFor();
+      assert.equal(await vp.locator(".groups-delete-button").count(), 0);
+      await vp.getByRole("tab", { name: "Manage groups", exact: true }).click();
+    };
+    await selectAsViewer(false);
     await page
       .getByRole("combobox", { name: "Add a member", exact: true })
       .fill(
@@ -217,33 +269,7 @@ try {
       exact: true,
     });
     await other.waitFor();
-    const viewer = await browser.newContext({ ignoreHTTPSErrors: true });
-    const vp = await viewer.newPage();
-    await vp.goto(base + "/groups");
-    await vp.locator("#username").waitFor();
-    await vp
-      .locator("#username")
-      .fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com");
-    await vp
-      .locator("#password")
-      .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
-    await vp.locator("#kc-login").click();
-    await vp.getByRole("combobox", { name: "Find a group" }).fill(fixture);
-    await vp
-      .getByRole("option", {
-        name: fixture + " - Smoke description",
-        exact: true,
-      })
-      .click();
-    await vp
-      .getByText("Only a Group Administrator can see who is in this group.")
-      .waitFor();
-    assert.equal(
-      await vp.getByRole("button", { name: "Save", exact: true }).count(),
-      0,
-    );
-    assert.equal(await vp.evaluate(() => typeof window.angular), "undefined");
-    await viewer.close();
+    await selectAsViewer(true);
     await mutation(
       "PUT",
       path + "/users",
@@ -278,6 +304,8 @@ try {
       200,
     );
     await other.waitFor({ state: "detached" });
+    await selectAsViewer(false);
+    await viewer.close();
     const external = await mutateGroup(user1.auth, "PUT", path, {
       "schema:name": fixture,
       "schema:description": "Concurrent update",
@@ -305,7 +333,12 @@ try {
     await page
       .getByRole("button", { name: "Reload group", exact: true })
       .click();
-    await page.getByRole("button", { name: "Save", exact: true }).waitFor();
+    // Save stays disabled until the page holds the server's current revision again.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("button")].some(
+        (button) => button.textContent.trim() === "Save" && !button.disabled,
+      ),
+    );
     assert.equal(
       await page.getByLabel("Description", { exact: true }).inputValue(),
       "Local edit retained",
@@ -317,7 +350,7 @@ try {
       200,
     );
     await page.screenshot({
-      path: "/tmp/cedar-modern-groups.png",
+      path: evidencePath("groups.png"),
       fullPage: true,
     });
     await page.getByRole("tab", { name: "Delete group", exact: true }).click();
@@ -334,7 +367,7 @@ try {
       .filter({ hasText: "Group deleted." })
       .waitFor();
     console.log(
-      "PASS: Groups is Angular-only; CRUD, membership, administrator changes, restricted viewer, last administrator, and stale-write conflict",
+      "PASS: Groups is Angular-only; CRUD, private caller status, non-member/member/removal views, administrator changes, last administrator, and stale-write conflict",
     );
   }
   if (area === "privacy") {
@@ -356,7 +389,7 @@ try {
       "Privacy overflows on mobile",
     );
     await page.screenshot({
-      path: "/tmp/cedar-modern-privacy-mobile.png",
+      path: evidencePath("privacy-mobile.png"),
       fullPage: true,
     });
     // The account pages are standalone: each is reached by its own route, with no shared navigation.
@@ -394,20 +427,9 @@ try {
       "Temporary group cleanup failed",
     );
   }
-  const current = await call(user1.auth, "GET", userPath, undefined, {
-    base: USER_SERVER,
-  });
-  assert.equal(current.status, 200);
-  for (const key of current.body.apiKeys || []) {
-    if (key.description === fixture) {
-      const result = await call(
-        user1.auth,
-        "DELETE",
-        userPath + "/api-keys/" + enc(key.id),
-        undefined,
-        { base: USER_SERVER },
-      );
-      assert.equal(result.status, 200, "Temporary key cleanup failed");
-    }
+  if (keyRestore) {
+    const restored = await restore(keyRestore, { call, auth: user1.auth });
+    assert.ok(restored.ok, `Temporary key cleanup failed: ${restored.status}`);
+    noteRestored(keyRestore);
   }
 }

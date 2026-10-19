@@ -125,20 +125,47 @@ path that resolves it.
 
 Associate an existing draft with its source artifact directly rather than by matching DataCite
 records on the OpenView URL. Move orchestration, configuration and error mapping out of
-`DataCiteResource`. Add offline tests for create versus update, retry after timeout and repeated
-publish. Extend the opt-in `datacite`-tagged test, or add a sandbox smoke beside it, to cover the
-full mint and attach contract and the credential check.
+`DataCiteResource`. Add offline tests for retry after timeout and repeated publish. The opt-in
+`datacite`-tagged test cannot pass as written, because its positive cases name source artifacts
+that no resource server holds. Rework it, or replace it with a sandbox smoke, to cover the full
+mint and attach contract and the credential check.
 
 Establish how historical document/graph DOI disagreements arose; do not assume they prove a
 minting timeout. Extend offline regression coverage to ordinary unchanged-DOI updates after
 reconciliation and continued rejection of DOI replacement or deletion through ordinary updates.
 The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
+<a id="save-recovery"></a>
+
+### 3. Recover Failed Saves Without Losing Work in Designer and Editor
+
+Complete the recovery routes that still cannot resume saving or create a permitted copy:
+
+Follow the product-design checkpoints in [AGENTS.md](../AGENTS.md#preserve-the-agreed-product-design).
+Reliability work does not authorize new permanent controls: recovery actions must be conditional
+on an actual failure or retained unfinished work, and new UI requires agreement before implementation.
+
+- **Designer conflicts:** fetch the latest schema separately from the working draft and
+  provide review and reconciliation for templates, elements and fields, including unknown
+  content, server normalization and intervening writes; never attach its ETag to an
+  unreconciled draft.
+- **Changed metadata templates:** reconcile retained metadata against a changed template
+  through an explicit migration workflow, preserving unfinished input and unsupported values.
+- **Permitted copies:** recover retained work to another folder when the original artifact is
+  inaccessible or deleted, checking destination permissions without silently recreating the
+  original or mistaking a permission refusal for deletion.
+- **Recovery validation:** extend live coverage to additional invalid control shapes and newer edits
+  during recovery; include schema normalization and unresolved version operations.
+
+Keep status checks, access checks, review and explicit discard distinct. A failed recovery
+read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
+current draft-retention contract and operator verification commands.
+
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 3. Whole-Component Runtime Theme Overrides
+### 4. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -147,7 +174,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 4. Authoring Feedback for Unsupported Markup
+### 5. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -160,7 +187,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 5. Clear the Advisories Waiting on Upstream
+### 6. Clear the Advisories Waiting on Upstream
 
 Two advisories remain in the frontend locks, and no release of either package fixes them. Both
 sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
@@ -203,17 +230,6 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 6. Display Host-Supplied Validation Findings in CED
-
-Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
-settings, show the messages beside the affected controls and in CED's validation summary, and
-give host findings a source of their own so they remain distinguishable from CED's model and
-draft findings.
-
-Specify when host findings become stale after an edit or artifact replacement. Preserve unsaved
-input and cover correction, clearing and replacement of reports. The host calls the schema
-server and decides whether an artifact may be saved.
-
 ### 7. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
@@ -234,3 +250,24 @@ Verify keyboard focus order across settings, palette actions and nested elements
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
+
+### 9. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+
+Evaluate a fallback for a document CED considers saveable but the server rejects for a
+structural problem the author cannot repair through Designer controls. Treat this as a possible
+generation or validation defect: CED must produce valid artifacts, and server validation must
+remain strict. An injected server finding tests the fallback; it does not establish that ordinary
+editing produces invalid documents. Keep already-invalid imported artifacts a separate case.
+
+Consider preserving the working state through the shared [save-recovery workflow](#save-recovery)
+and offering a user-reviewed diagnostic download or bug report. Include the submitted document,
+server validation response, component/build versions and reproduction steps where available.
+Exclude credentials and let the user review artifact content before sharing it. Explain that the
+failure needs investigation without asking the author to repair internal JSON Schema structures
+or implying that a recovery draft has been saved as a valid artifact.
+
+Use a real reproducible case to decide whether this facility is needed and how much to build.
+Agree its interaction before implementation; this proposal does not authorize a permanent
+diagnostic or recovery button, banner or file picker on ordinary editing screens.
+Any confirmed defect should lead to a generation or validation fix and a regression test; verify
+that the fallback preserves work while the rejected write remains blocked.

@@ -49,8 +49,9 @@ import * as apidocs from './rest/suites/apidocs.mjs';
 import * as freeze from './rest/suites/freeze.mjs';
 import * as addressing from './rest/suites/addressing.mjs';
 import * as bodies from './rest/suites/bodies.mjs';
+import * as errors from './rest/suites/errors.mjs';
 
-const ALL = [folders, deletion, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing, bodies];
+const ALL = [folders, deletion, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing, bodies, errors];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
@@ -69,6 +70,13 @@ const selected = requested.length
 if (requested.length && selected.length !== requested.length) {
   const known = ALL.map(s => s.name).join(', ');
   console.error(`unknown suite. known suites: ${known}`);
+  process.exit(2);
+}
+
+// An update replaces the whole inventory. Refuse a partial run before authentication or fixtures,
+// rather than silently dropping the checks belonging to every unselected suite.
+if (updateInventory && selected.length !== ALL.length) {
+  console.error('--update-inventory requires every REST suite; omit suite names to regenerate the complete inventory.');
   process.exit(2);
 }
 

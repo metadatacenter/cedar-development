@@ -857,7 +857,8 @@ class RestIntegrationTests(unittest.TestCase):
         _FakeCedarHandler.requests = []
         _FakeCedarHandler.serves_continuations = True
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeCedarHandler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
 
     def tearDown(self):

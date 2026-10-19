@@ -751,17 +751,34 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
             failures.append(str(error))
             return failures
         runs = list(probe.runs)
-        # The train workflow is the caller currently performing this check. Counting it would
-        # make cedar-development wait on itself forever (or inherit a previous train failure).
-        if repository == "cedar-development":
-            runs = [
-                run_record for run_record in runs
-                if run_record.get("path") != ".github/workflows/build-train.yml"
-            ]
-        if not runs:
-            failures.append(
-                f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
-            return failures
+        develop_runs = getattr(policy, "develop_runs", None)
+        finished_runs = getattr(policy, "finished_runs", None)
+        if develop_runs is not None and finished_runs is not None:
+            # The rule `cedarcli check ci`, the train survey and the release preflight apply. Only
+            # develop's own push and dispatch runs answer for the commit: not a pull request's run
+            # under the same name, and not the train workflow performing this check. A cancelled
+            # run answers nothing, and the newest run that finished answers in its place.
+            ran = develop_runs(runs, revision)
+            runs = finished_runs(ran)
+            if not runs:
+                failures.append(
+                    f"{repository}: every CI run for {revision[:8]} was cancelled; rerun it" if ran
+                    else f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
+                return failures
+        else:
+            # A train captured before cedar-cli carried those filters keeps the rule it was
+            # built with. The train workflow is the caller currently performing this check;
+            # counting it would make cedar-development wait on itself forever (or inherit a
+            # previous train failure).
+            if repository == "cedar-development":
+                runs = [
+                    run_record for run_record in runs
+                    if run_record.get("path") != ".github/workflows/build-train.yml"
+                ]
+            if not runs:
+                failures.append(
+                    f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
+                return failures
         for name, run_record in policy.latest_runs_by_name(runs).items():
             status = run_record.get("status")
             conclusion = run_record.get("conclusion")

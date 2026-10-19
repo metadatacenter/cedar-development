@@ -10,7 +10,7 @@ import { suite, check, checkStatus, call, group, mutate, mutateGroup, cleanup, e
 
 export const name = 'group-sharing';
 
-/** A permissions request. The owner is mandatory; a request without one is refused outright. */
+/** A permissions request that explicitly preserves the owner. */
 function permissions(ownerId, { users = [], groups = [] } = {}) {
   return {
     owner: { '@id': ownerId },
@@ -54,16 +54,15 @@ export async function run({ user1, user2, homeFolderId }) {
 
     checkStatus(await roster([u1, true, true], [u2, false, true]), 200,
         'the second user is a member of it');
-    check((await call(user2.auth, 'GET', shared.at)).status >= 400,
-        'and still cannot reach the folder, since the group has no grant yet',
-        'the folder was readable before any grant existed');
+    checkStatus(await call(user2.auth, 'GET', shared.at), 403,
+        'and still cannot reach the folder, since the group has no grant yet');
 
     // Read through the group.
     if (checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`,
         permissions(u1, { groups: [[gid, 'viewer']] })), 200, 'the folder is shared with the group as Viewer')) {
       checkStatus(await call(user2.auth, 'GET', shared.at), 200, 'the member can now read it');
-      check((await rename(user2.auth, shared.at, `${shared.name} renamed by a group reader`)).status >= 400,
-          'and cannot edit it', 'a group Viewer grant allowed an edit');
+      checkStatus(await rename(user2.auth, shared.at, `${shared.name} renamed by a group reader`), 403,
+          'and cannot edit it');
     }
 
     // Raised to Manager through the same group.
@@ -75,9 +74,8 @@ export async function run({ user1, user2, homeFolderId }) {
 
     // Access follows membership: dropping the member must drop the access, with the grant untouched.
     if (checkStatus(await roster([u1, true, true]), 200, 'the member is removed from the group')) {
-      check((await call(user2.auth, 'GET', shared.at)).status >= 400,
-          'and loses access to the folder, though the group still holds the grant',
-          'the folder stayed readable after the user left the group');
+      checkStatus(await call(user2.auth, 'GET', shared.at), 403,
+          'and loses access to the folder, though the group still holds the grant');
     }
 
     // And returns when they rejoin, which proves the loss above was the membership and not the grant.
@@ -96,6 +94,68 @@ export async function run({ user1, user2, homeFolderId }) {
         `it held ${JSON.stringify(acl.body?.userPermissions).slice(0, 200)}`);
   }
 
+  suite('group sharing: overlapping grants retain only the remaining authority');
+
+  async function memberGroup(label) {
+    const groupName = `${label} ${RUN}`;
+    const made = await group(user1.auth, 'POST', '/groups',
+        { 'schema:name': groupName, 'schema:description': 'Overlapping grants in the REST suites' });
+    if (!checkStatus(made, 201, `${label}: group created`)) return null;
+    const id = made.body['@id'];
+    const at = `/groups/${enc(id)}`;
+    cleanup('group', at, groupName, user1.auth, GROUP_SERVER);
+    if (!checkStatus(await mutateGroup(user1.auth, 'PUT', `${at}/users`, {
+      users: [[u1, true], [u2, false]].map(([id, administrator]) =>
+        ({ user: { '@id': id }, administrator, member: true })),
+    }), 200, `${label}: the grantee joins the group`)) return null;
+    return { id, at };
+  }
+
+  const stronger = await memberGroup('Overlap Editor');
+  const weaker = await memberGroup('Overlap Viewer');
+  if (stronger && weaker) {
+    for (const source of ['direct', 'group']) {
+      const target = await folder(`Overlap ${source}`);
+      if (!check(!!target, `${source}: folder created for overlapping grants`, 'folder creation failed')) continue;
+      const remaining = source === 'direct' ? { users: [[u2, 'viewer']] } : { groups: [[weaker.id, 'viewer']] };
+      const overlapping = { ...remaining, groups: [...(remaining.groups ?? []), [stronger.id, 'editor']] };
+      if (!checkStatus(await mutate(user1.auth, 'PUT', `${target.at}/permissions`, permissions(u1, overlapping)),
+          200, `${source}: Viewer and group Editor are granted together`)) continue;
+      const opened = await call(user2.auth, 'GET', target.at);
+      const etag = opened.headers?.get('etag');
+      if (!check(opened.status === 200 && !!etag, `${source}: the grantee reads a revision to edit`,
+          `HTTP ${opened.status}, ETag ${etag}`)) continue;
+      const changedName = `${target.name} edited`;
+      checkStatus(await call(user2.auth, 'PUT', target.at,
+          { 'schema:name': changedName, 'schema:description': 'Editor wins over Viewer' },
+          { headers: { 'If-Match': etag } }), 200, `${source}: the stronger group grant permits a write`);
+      check((await call(user1.auth, 'GET', target.at)).body?.['schema:name'] === changedName,
+          `${source}: the permitted write is stored`, 'the rename was not stored');
+
+      const removed = source === 'direct'
+        ? await mutate(user1.auth, 'PUT', `${target.at}/permissions`, permissions(u1, remaining))
+        : await mutateGroup(user1.auth, 'DELETE', stronger.at);
+      if (!checkStatus(removed, source === 'direct' ? 200 : 204,
+          `${source}: ${source === 'direct' ? 'the stronger grant is removed' : 'the stronger group is deleted'}`)) continue;
+
+      // No convergence wait: graph authorization must immediately reflect the remaining Viewer.
+      const reader = await call(user2.auth, 'GET', target.at);
+      const readerTag = reader.headers?.get('etag');
+      if (!check(reader.status === 200 && !!readerTag, `${source}: the remaining Viewer still reads immediately`,
+          `HTTP ${reader.status}, ETag ${readerTag}`)) continue;
+      const before = await call(user1.auth, 'GET', target.at);
+      checkStatus(await call(user2.auth, 'PUT', target.at,
+          { 'schema:name': `${target.name} forbidden`, 'schema:description': 'must not be stored' },
+          { headers: { 'If-Match': readerTag } }), 403, `${source}: the remaining Viewer cannot write immediately`);
+      const after = await call(user1.auth, 'GET', target.at);
+      check(before.status === 200 && after.status === 200 &&
+          after.body?.['schema:name'] === before.body?.['schema:name'] &&
+          after.body?.['schema:description'] === before.body?.['schema:description'] &&
+          after.headers?.get('etag') === before.headers?.get('etag'),
+      `${source}: the refused write preserves the stored content and revision`, 'content or revision changed');
+    }
+  }
+
   suite('group sharing: sharing with everybody');
 
   const everybody = await everybodyGroup(user1.auth);
@@ -103,17 +163,16 @@ export async function run({ user1, user2, homeFolderId }) {
   const open = await folder('Everybody Shared');
 
   if (open) {
-    check((await call(user2.auth, 'GET', open.at)).status >= 400,
-        'the second user cannot reach the folder to begin with',
-        'it was readable before being shared');
+    checkStatus(await call(user2.auth, 'GET', open.at), 403,
+        'the second user cannot reach the folder to begin with');
 
     if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`,
         permissions(u1, { groups: [[eid, 'viewer']] })), 200, 'the folder is shared with Everyone as Viewer')) {
       // The second user was never named, and belongs to no group created here.
       checkStatus(await call(user2.auth, 'GET', open.at), 200,
           'another user can read it without ever being named');
-      check((await rename(user2.auth, open.at, `${open.name} renamed by everybody`)).status >= 400,
-          'and cannot edit it', 'sharing with Everyone as Viewer allowed an edit');
+      checkStatus(await rename(user2.auth, open.at, `${open.name} renamed by everybody`), 403,
+          'and cannot edit it');
 
       // The distinction that matters: everybody means every account, not the public. Without a
       // credential this must still be refused — openness is a different mechanism entirely.
@@ -126,15 +185,13 @@ export async function run({ user1, user2, homeFolderId }) {
     checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`,
         permissions(u1, { groups: [[eid, 'manager']] })), 400,
         'the Everyone group cannot be granted Manager');
-    check((await rename(user2.auth, open.at, `${open.name} renamed after a refused Manager grant`)).status >= 400,
-        'the refused Manager grant leaves every account as Viewer',
-        'an account could edit after the Manager grant was refused');
+    checkStatus(await rename(user2.auth, open.at, `${open.name} renamed after a refused Manager grant`), 403,
+        'the refused Manager grant leaves every account as Viewer');
 
     if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`, permissions(u1)), 200,
         'the grant to everybody is withdrawn')) {
-      check((await call(user2.auth, 'GET', open.at)).status >= 400,
-          'and the other user loses access again',
-          'the folder stayed readable after the everybody grant was withdrawn');
+      checkStatus(await call(user2.auth, 'GET', open.at), 403,
+          'and the other user loses access again');
     }
   }
 

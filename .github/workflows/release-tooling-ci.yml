@@ -31,6 +31,18 @@ jobs:
     steps:
       - name: Check out cedar-development
         uses: actions/checkout@v7
+        with:
+          path: cedar-development
+
+      # The frontend reactor runtime loads cedar-cli's npm install rule from the checkout beside
+      # this one, as it does on a workstation, so its suite needs cedar-cli where CEDAR_HOME would
+      # put it.
+      - name: Check out cedar-cli
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-cli
+          ref: develop
+          path: cedar-cli
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -51,17 +63,27 @@ jobs:
         with:
           node-version: 24.19.0
 
-      # These suites mock publication and service operations, but exercise real platform process
-      # discovery. They validate the captured controllers without starting a CEDAR service or
-      # writing external state.
-      - name: Run non-destructive controller tests
+      - name: Check the search matrix harness without a stack
+        working-directory: cedar-development/ops/e2e
+        run: npm run test:search-harness
+
+      - name: Check journey scheduling and authentication safeguards without a stack
+        working-directory: cedar-development/ops/e2e
+        run: npm run test:journey-runner
+
+      # Ops utilities, REST scheduling and performance harness logic use built-ins, temporary
+      # trees and stubbed requests; no npm packages, running stack or sibling servers are needed.
+      - name: Run the Node ops, REST scheduler and performance harness suites
+        working-directory: cedar-development
+        run: node --test ops/test-*.mjs ops/e2e/rest/scheduler.test.mjs ops/e2e/rest-perf/test/*.test.mjs
+
+      # Python suites under ops/, ops/tests and ops/repairs. They mock publication and service
+      # operations, stand in for the deployment and the library bridges, and never start a CEDAR
+      # service or write external state. Each directory is its own start directory, because the
+      # modules load their siblings by path rather than as a package.
+      - name: Run the ops suites
+        working-directory: cedar-development
         run: |
-          python -m unittest -v \
-            ops.tests.test_build_train \
-            ops.tests.test_docker_train \
-            ops.tests.test_push_train_state \
-            ops.tests.test_frontend_train \
-            ops.tests.test_npm_lock_availability \
-            ops.tests.test_train_dependency_cache \
-            ops.tests.test_native_process_safety \
-            ops.tests.test_angular_build_isolation_canary
+          python -m unittest discover -v -s ops -t ops -p 'test_*.py'
+          python -m unittest discover -v -s ops/tests -t ops/tests -p 'test_*.py'
+          python -m unittest discover -v -s ops/repairs -t ops/repairs -p 'test_*.py'

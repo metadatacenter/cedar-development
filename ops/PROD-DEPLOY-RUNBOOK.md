@@ -331,6 +331,10 @@ service nginx start
 - **The log DB is a different server and may be unreachable from prod.** Hop from staging. It's an
   **async** worker DB (fed off Redis), so migrating it does **not** take CEDAR down.
 - **nginx is bounced as `root`, not `cedar`.** Separate `sudo su -` shell.
+- **`cypher-shell` is on the `PATH`, not under `$CEDAR_NEO4J_HOME`.** The shared profile sets
+  `CEDAR_NEO4J_HOME=/srv/cedar/neo4j/`, which does not exist on the production host, so
+  `$CEDAR_NEO4J_HOME/bin/cypher-shell` fails. The connection command, which takes its credentials
+  from the profile, is in [Renumbering a Draft by Hand](BACKEND-RUNBOOK.md#renumbering-a-draft-by-hand).
 - **Keep the downtime window tight:** `build all` *before* `stop java`; DB migrations and the editor
   rebuild can overlap the window, but don't `start java` until the app-DB migration is done.
 

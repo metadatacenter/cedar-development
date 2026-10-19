@@ -68,7 +68,9 @@ class BackfillLabelsFromRawTest(unittest.TestCase):
         env = dict(os.environ,
                    PATH=f"{self.bin}:{os.environ['PATH']}",
                    TS_DIR=str(self.ts_dir),
-                   TMPDIR=str(self.tmp / "work"))
+                   TMPDIR=str(self.tmp / "work"),
+                   # The fake service stops at once, so there is nothing to let settle.
+                   STOP_SETTLE_SECONDS="0")
         return subprocess.run(
             ["/bin/bash", str(self.script), str(self.catalog), str(self.snapshots), *args],
             capture_output=True, text=True, env=env, timeout=120)

@@ -282,6 +282,71 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stderr)
 
+    def test_a_service_running_the_copy_of_its_jar_is_recognized_for_safe_shutdown(self):
+        result = self.run_library(
+            'process_command() { echo "java -jar $RUN/jars/'
+            'cedar-group-server-application-2.9.3-SNAPSHOT.jar server config.yml"; }; '
+            'is_service_process group 4242'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_a_service_launches_from_a_copy_of_its_build(self):
+        result = self.run_library(
+            'mkdir -p "$(dirname "$(jar_of group)")"; printf build > "$(jar_of group)"; '
+            'exec() { echo "EXEC $*"; }; '
+            'run_one_foreground group'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("-jar ", result.stdout)
+        self.assertIn("/log/run/jars/cedar-group-server-application-2.9.3-SNAPSHOT.jar server ",
+                      result.stdout)
+        self.assertNotIn("/target/", result.stdout)
+
+    def test_a_rebuild_leaves_the_copy_a_service_runs_unchanged(self):
+        """A Maven build rewrote the jar in target/ under four running services, which then failed."""
+        result = self.run_library(
+            'mkdir -p "$(dirname "$(jar_of group)")"; printf first > "$(jar_of group)"; '
+            'running=$(stage_running_jar group) || exit 1; '
+            # The running process holds its copy open, and the build is rewritten in place.
+            'exec 3<"$running"; '
+            'printf second > "$(jar_of group)"; '
+            'echo "copy=$(cat "$running")"; '
+            # A restart copies the new build to the same path without touching the open file.
+            'staged=$(stage_running_jar group) || exit 1; '
+            'echo "restarted=$(cat "$staged") path=$([ "$staged" = "$running" ] && echo same)"; '
+            'echo "held=$(cat <&3)"'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("copy=first", result.stdout)
+        self.assertIn("restarted=second path=same", result.stdout)
+        self.assertIn("held=first", result.stdout)
+
+    def test_copying_a_build_removes_only_that_service_s_other_versions(self):
+        result = self.run_library(
+            'mkdir -p "$(dirname "$(jar_of group)")" "$RUN/jars"; printf build > "$(jar_of group)"; '
+            'touch "$RUN/jars/cedar-group-server-application-2.9.2.jar" '
+            '"$RUN/jars/cedar-user-server-application-2.9.2.jar"; '
+            'stage_running_jar group >/dev/null || exit 1; '
+            'ls "$RUN/jars"'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["cedar-group-server-application-2.9.3-SNAPSHOT.jar",
+                          "cedar-user-server-application-2.9.2.jar"], sorted(result.stdout.split()))
+
+    def test_a_service_whose_build_cannot_be_copied_does_not_launch(self):
+        result = self.run_library(
+            'exec() { echo "EXEC $*"; }; '
+            'run_one_foreground group'
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("could not copy", result.stderr)
+        self.assertNotIn("EXEC", result.stdout)
+
     def test_stop_refuses_an_unknown_port_owner_without_signalling_it(self):
         result = self.run_library(
             'port_owner() { echo 4242; }; '

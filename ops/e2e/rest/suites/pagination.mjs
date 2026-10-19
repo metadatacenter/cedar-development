@@ -10,11 +10,20 @@ import {
   suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
   TERMINOLOGY,
 } from '../lib.mjs';
+import { cedarErrorProblem } from './errors.mjs';
+import { responseContractProblem } from '../response-contract.mjs';
 
 export const name = 'pagination';
 
 const PAGE_TAG = `Paging${RUN.replace(/[^0-9]/g, '')}`;
 const N = 5;
+
+function badQuery(res, what) {
+  checkStatus(res, 400, what);
+  const problem = cedarErrorProblem(res);
+  check(!problem && res.body?.status === 'BAD_REQUEST', `${what}: the refusal is a CedarError`,
+      problem ?? `status was ${res.body?.status}`);
+}
 
 export async function run({ user1, admin, folderId }) {
   const auth = user1.auth;
@@ -42,6 +51,8 @@ export async function run({ user1, admin, folderId }) {
   if (!check(created === N, `all ${N} templates are created in it`, `only ${created} were created`)) return {};
 
   const full = await call(auth, 'GET', `${contents}?limit=100`);
+  const contractProblem = responseContractProblem('listing', full);
+  check(!contractProblem, 'the folder listing matches its OpenAPI response schema', contractProblem);
   if (checkStatus(full, 200, 'the folder lists its contents')) {
     check(full.body?.totalCount === N, `totalCount is ${N}`, `it was ${full.body?.totalCount}`);
     check((full.body?.resources ?? []).length === N, `and all ${N} rows come back in one large page`,
@@ -191,6 +202,11 @@ export async function run({ user1, admin, folderId }) {
     { what: 'a negative limit', qs: 'limit=-1' },
     { what: 'a negative offset', qs: 'offset=-5' },
     { what: 'an excessive limit', qs: 'limit=100000' },
+    { what: 'a fractional limit', qs: 'limit=1.5' },
+    { what: 'a fractional offset', qs: 'offset=0.25' },
+    { what: 'an overflowing limit', qs: 'limit=999999999999999999' },
+    { what: 'an overflowing offset', qs: 'offset=2147483648' },
+    { what: 'a non-numeric offset', qs: 'offset=null' },
   ];
   const endpoints = [
     { name: 'folder contents', path: contents },
@@ -202,17 +218,14 @@ export async function run({ user1, admin, folderId }) {
     const sep = endpoint.path.includes('?') ? '&' : '?';
     for (const bad of badArgs) {
       const res = await call(auth, 'GET', `${endpoint.path}${sep}${bad.qs}`);
-      check(res.status === 400,
-          `${endpoint.name} with ${bad.what} is refused with 400`,
-          `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
+      badQuery(res, `${endpoint.name} with ${bad.what} is refused with 400`);
     }
-    // A non-numeric limit is rejected by Jersey's parameter conversion before the request reaches the
-    // application, so it surfaces as the framework's own 404 rather than the validator's 400. The
-    // point of the fix is that it is no longer a 500 server fault; it is a client error either way.
+    // A non-numeric limit fails Jersey's parameter conversion before the request reaches the
+    // application. Jersey reports that as 404. The shared exception mapper reclassifies a failed query
+    // parameter as 400, which matches the validator's answer to a numeric limit out of range.
     const nonNumeric = await call(auth, 'GET', `${endpoint.path}${sep}limit=abc`);
-    check(nonNumeric.status >= 400 && nonNumeric.status < 500,
-        `${endpoint.name} with a non-numeric limit is a client error, not a server fault`,
-        `expected 4xx, got ${nonNumeric.status}`);
+    badQuery(nonNumeric,
+        `${endpoint.name} with a non-numeric limit is a client error, not a server fault`);
   }
 
   suite('pagination: every other listing refuses an invalid limit or offset with 400');
@@ -246,13 +259,44 @@ export async function run({ user1, admin, folderId }) {
     if (!checkStatus(valid, 200, `${listing.name} answers a valid page`)) continue;
     for (const bad of badArgs) {
       const res = await get(bad.qs);
-      check(res.status === 400, `${listing.name} with ${bad.what} is refused with 400`,
-          `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
+      badQuery(res, `${listing.name} with ${bad.what} is refused with 400`);
     }
     const nonNumeric = await get('limit=abc');
-    check(nonNumeric.status >= 400 && nonNumeric.status < 500,
-        `${listing.name} with a non-numeric limit is a client error, not a server fault`,
-        `expected 4xx, got ${nonNumeric.status}`);
+    badQuery(nonNumeric,
+        `${listing.name} with a non-numeric limit is a client error, not a server fault`);
+  }
+
+  suite('pagination: typed listings refuse invalid sorting and filters');
+
+  // These routes declare the same typed query. Unknown parameters and arbitrary search text are
+  // not invalid by definition; probe only values the declared sort and filter contracts reject.
+  const typedListings = [...endpoints.slice(0, 3), { name: 'search-deep', path: `/search-deep?q=${enc(PAGE_TAG)}` }];
+  const badFilters = [
+    ['an unknown sort field', 'sort=not-a-sort'],
+    ['a delimiter-bearing sort field', `sort=${enc('name;DROP TABLE')}`],
+    ['a compound sort with an unknown field', 'sort=name,not-a-sort'],
+    ['an unknown resource type', 'resource_types=template,not-a-type'],
+    ['an unknown version filter', 'version=not-a-version'],
+    ['a delimiter-only version filter', 'version=,'],
+    ['an unknown publication filter', 'publication_status=not-a-status'],
+    ['a delimiter-only publication filter', 'publication_status=,'],
+  ];
+  for (const listing of typedListings) {
+    const sep = listing.path.includes('?') ? '&' : '?';
+    checkStatus(await call(auth, 'GET', `${listing.path}${sep}sort=name&resource_types=template&version=all&publication_status=all`),
+        200, `${listing.name} accepts valid sorting and filters`);
+    // The HTTP Optional<String> binding treats an empty value as absent, before validation. Pin
+    // that existing behavior separately from nonempty values outside the supported enumerations.
+    const defaults = await call(auth, 'GET', `${listing.path}${sep}resource_types=&version=&publication_status=`);
+    checkStatus(defaults, 200, `${listing.name} accepts empty optional filters as absent`);
+    check(defaults.body?.request?.version === 'all' && defaults.body?.request?.publicationStatus === 'all' &&
+        ['folder', 'field', 'element', 'template', 'instance'].every(kind =>
+          defaults.body?.request?.resource_types?.includes(kind)),
+    `${listing.name} uses the unfiltered defaults for empty optional filters`, 'empty filters changed the defaults');
+    for (const [what, qs] of badFilters) {
+      badQuery(await call(auth, 'GET', `${listing.path}${sep}${qs}`),
+          `${listing.name} with ${what} is refused with 400`);
+    }
   }
 
   suite('pagination: a listing that pages by number as well refuses both at once');

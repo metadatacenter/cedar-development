@@ -29,10 +29,11 @@ cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
-cedarcli build frontends       # full frontend reactor; `build --jobs 2 --workers 12 frontends` on the 16-core workstation; completion contract below
+cedarcli build frontends       # full frontend reactor; `build --jobs 3 --workers 12 frontends` on the 16-core workstation; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
 cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require; --rest-workers 4 on the 16-core workstation
+cedarcli test cee-demos        # force all three framework consumer gates; --cee-package <path> tests a staged CEE release candidate
 ```
 
 The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not
@@ -280,6 +281,11 @@ Git commit/push are separate from this contract.
 
 The command runs component verification, records the immutable build graph and runtime selection,
 restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
+A repository whose inputs match an earlier passing result reuses it instead of running its checks
+again. `cedarcli build frontends --no-reuse` runs them all.
+The Angular, React and Ember consumer demos run as a separate conditional gate when CEE's
+embedding API/packaging, consumer pins or demo inputs change, or no passing evidence exists.
+`cedarcli test cee-demos` forces all three; CEE release candidates always require that gate.
 Tracked development pins remain unchanged: dependency rewrites and resolved locks belong to the
 isolated build and its retained evidence. Trains independently build captured committed sources.
 See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and failure contract.
@@ -307,6 +313,22 @@ See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and fa
 - Keep design changes visible in progress updates and the final change summary. Check tests
   against the requested and existing user experience; do not rewrite expectations or visual
   baselines merely to legitimize an unapproved redesign.
+- Default to no visible change when improving reliability or completing user journeys. Implement
+  safeguards through the existing interface wherever possible. Authorization to handle a failure
+  or work autonomously through a journey list is not approval to introduce new UI.
+- Show exceptional actions only when the relevant condition actually occurs. Recovery, retry and
+  diagnostic controls must not become permanent controls on normal pages merely because a failure
+  is possible. Automatic retention does not itself justify a visible recovery panel.
+- New buttons, banners, dialogs or navigation require the user's agreement to concrete before/after
+  behavior before implementation, unless that UI change has already been explicitly requested or
+  approved. Inspect existing interaction patterns before proposing a new one.
+- Review the normal experience as well as failure paths before calling a UI change complete:
+  inspect the rendered fresh, unchanged and ordinary editing screens. Verify that exceptional
+  controls are absent when their triggering condition is absent, and include that negative case
+  in relevant journey tests.
+- Treat functional verification and design review as separate checks. Passing tests establish
+  behavior, not whether that behavior belongs in the interface. Review the actual screen against
+  the agreed design; tests and screenshots that merely encode a new implementation are not approval.
 
 ## Conventions
 

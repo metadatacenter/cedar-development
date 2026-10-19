@@ -137,18 +137,26 @@ export async function run({ user1, user2, admin, folderId }) {
 
     const attach = await call(auth, 'POST', '/command/attach-category',
         { artifactId: artId, categoryId: id });
+    let attachedReport;
     if (checkStatus(attach, [200, 201, 204], 'with Classifier granted, the user can categorise their artifact')) {
       const report = await call(auth, 'GET', `/templates/${enc(artId)}/report`);
-      check(JSON.stringify(report.body ?? {}).includes(id),
+      attachedReport = JSON.stringify(report.body ?? {});
+      check(attachedReport.includes(id),
           'the artifact report names the attached category',
           'the report did not mention it');
     }
 
-    // Attaching twice must not double-count or fail obscurely.
+    // Attaching twice must neither fail nor attach the category a second time. The graph write
+    // merges the relation (CypherQueryBuilderCategory.attachCategoryToArtifact), so the repeat
+    // answers 200, and the report names the category as often as it did after the first attach.
     const again = await call(auth, 'POST', '/command/attach-category',
         { artifactId: artId, categoryId: id });
-    check(again.status < 500, 'attaching the same category twice is not a server error',
-        `got ${again.status}`);
+    if (checkStatus(again, 200, 'attaching the same category twice succeeds') && attachedReport !== undefined) {
+      const report = JSON.stringify((await call(auth, 'GET', `/templates/${enc(artId)}/report`)).body ?? {});
+      const mentions = text => text.split(id).length - 1;
+      check(mentions(report) === mentions(attachedReport), 'and does not attach it a second time',
+          `the report names it ${mentions(report)} times, where it named it ${mentions(attachedReport)}`);
+    }
 
     const detach = await call(auth, 'POST', '/command/detach-category',
         { artifactId: artId, categoryId: id });
@@ -169,11 +177,11 @@ export async function run({ user1, user2, admin, folderId }) {
       `/categories/${enc('https://repo.metadatacenter.orgx/categories/00000000-0000-0000-0000-000000000000')}`),
       404, 'an unknown category answers 404');
 
-  // A second user may read the vocabulary but must not extend or alter someone else's branch.
+  // A second user may read the vocabulary but must not extend or alter someone else's branch. The
+  // capability check runs before the precondition, so the refusal is 403 with or without If-Match.
   const intrude = await mutate(auth, 'PUT', at,
       { 'schema:name': 'Renamed by an intruder', 'schema:description': 'nope' });
-  check(intrude.status >= 400, 'a normal user cannot rename an administrator\'s category',
-      `expected 4xx, got ${intrude.status}`);
+  checkStatus(intrude, 403, 'a normal user cannot rename an administrator\'s category');
   const stillNamed = await call(adm, 'GET', at);
   check(stillNamed.body?.['schema:name'] === renamed, 'and the refusal changed nothing',
       `name is now "${stillNamed.body?.['schema:name']}"`);

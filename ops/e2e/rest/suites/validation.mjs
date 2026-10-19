@@ -3,7 +3,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { suite, check, checkStatus, call, updateArtifact, cleanup, enc, RUN } from '../lib.mjs';
+import { isDeepStrictEqual } from 'node:util';
+import { suite, check, checkStatus, call, updateArtifact, artifactBody, cleanup, enc, RUN, BRIDGE, TERMINOLOGY } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
@@ -11,8 +12,178 @@ const yaml = name => readFileSync(resolve(FIXTURES, name), 'utf8');
 
 export const name = 'validation';
 
+// Compare exact stored content while allowing only the metadata a successful update changes.
+const content = body => {
+  const copy = structuredClone(body);
+  delete copy['pav:lastUpdatedOn']; delete copy['oslc:modifiedBy'];
+  return copy;
+};
+const answers = body => Object.fromEntries(['Measurements','Code','Choice','Keep'].map(key=>[key,body[key]]));
+const withoutYamlId = text => text.replace(/^id:.*\r?\n/m,'');
+
+async function numericRangeJourney(auth, folderId) {
+  suite('validate: current-template quality findings and structural save gates');
+  const template = artifactBody('template', `Current constraints ${RUN}`);
+  const terms = {};
+  for (const key of ['Measurements','Code','Choice','Keep']) {
+    const field = artifactBody('field',key);
+    if (key === 'Measurements') {
+      field._ui.inputType = 'numeric';
+      field._valueConstraints = {requiredValue:true,numberType:'xsd:decimal'};
+      field.required = ['@value','@type'];
+    }
+    if (key === 'Choice') {
+      field._ui.inputType = 'radio';
+      field._valueConstraints = {requiredValue:false,multipleChoice:false,literals:[{label:'Allowed'},{label:'Other'}]};
+    }
+    terms[key] = 'https://schema.metadatacenter.org/properties/constraint-journey-' + key;
+    template.properties[key] = key === 'Measurements' ? {type:'array',minItems:0,items:field} : field;
+    template.properties['@context'].properties[key] = {enum:[terms[key]]};
+    template.properties['@context'].required.push(key);
+    template.required.push(key); template._ui.order.push(key); template._ui.propertyLabels[key] = key;
+  }
+  const created = await call(auth,'POST',`/templates?folder_id=${enc(folderId)}`,template);
+  if (!checkStatus(created,201,'create a template before its numeric, regex and literal constraints tighten')) return;
+  const templatePath = '/templates/' + enc(created.body['@id']);
+  cleanup('template',templatePath,template['schema:name']);
+  const instance = artifactBody('instance',`Quality answers ${RUN}`,{'schema:isBasedOn':created.body['@id']});
+  // The YAML renderer supplies this standard mapping. Start with the same canonical context so
+  // the whole-document assertion below can require exact preservation of every other property.
+  Object.assign(instance['@context'],{'pav:derivedFrom':{'@type':'@id'}},terms);
+  instance.Measurements = ['100','200'].map(value=>({'@value':value,'@type':'xsd:decimal'}));
+  instance.Code = {'@value':'lowercase'}; instance.Choice = {'@value':'Other'}; instance.Keep = {'@value':'Preserved sibling'};
+  const saved = await call(auth,'POST',`/template-instances?folder_id=${enc(folderId)}`,instance);
+  if (!checkStatus(saved,201,'save answers before the template constraints are tightened')) return;
+  const path = '/template-instances/' + enc(saved.body['@id']);
+  cleanup('instance',path,instance['schema:name']);
+  let current = await call(auth,'GET',path);
+  if (!checkStatus(current,200,'read the record before tightening constraints')) return;
+  check(!!current.headers.get('etag'),'the record has a revision for conditional updates');
+  const latestTemplate = await call(auth,'GET',templatePath);
+  Object.assign(latestTemplate.body.properties.Measurements.items._valueConstraints,{minValue:150,maxValue:175});
+  latestTemplate.body.properties.Code._valueConstraints.regex = '^[A-Z]+$';
+  latestTemplate.body.properties.Choice._valueConstraints.literals = [{label:'Allowed'}];
+  if (!checkStatus(await updateArtifact(auth,templatePath,latestTemplate.body),200,'tighten bounds, regex and literal membership while the client holds the old record')) return;
+  const validation = await call(auth,'POST','/command/validate?resource_type=instance',current.body);
+  check(validation.status === 200 && validation.body?.validates === 'true' && validation.body?.canSave === true && validation.body?.isValid === false,
+    'well-formed answers outside current constraints are saveable quality findings',validation.text);
+  for (const [code,location] of [['minValue','/Measurements/0/@value'],['maxValue','/Measurements/1/@value'],['regex','/Code/@value'],['choiceMembership','/Choice/@value']]) {
+    check(validation.body?.findings?.some(f=>f.code === code && f.path === location && f.category === 'constraint') &&
+        validation.body?.warnings?.some(f=>f.location === location),`${code} has a stable finding code, constraint category, exact path and warning`,validation.text);
+  }
+  for (const format of ['json','yaml']) {
+    const before = current;
+    const body = format === 'json' ? before.body : (await call(auth,'GET',path,undefined,{accept:'application/yaml'})).text;
+    const response = await call(auth,'PUT',path,body,
+      {contentType:format === 'json' ? 'application/json' : 'application/yaml',headers:{'If-Match':before.headers.get('etag')}});
+    checkStatus(response,200,`${format} updates preserve answers outside current numeric, regex and literal constraints`);
+    current = await call(auth,'GET',path);
+    check(isDeepStrictEqual(content(current.body),content(before.body)),`${format} update preserves every answer, sibling and unrelated property`,
+      JSON.stringify({before:content(before.body),after:content(current.body)},null,2));
+  }
+  for (const format of ['json','yaml']) {
+    const body = format === 'json' ? instance : withoutYamlId((await call(auth,'GET',path,undefined,{accept:'application/yaml'})).text);
+    const response = await call(auth,'POST',`/template-instances?folder_id=${enc(folderId)}`,body,
+      {contentType:format === 'json' ? 'application/json' : 'application/yaml'});
+    if (checkStatus(response,201,`${format} creates permit the same well-formed value-quality violations`)) {
+      const createdPath = '/template-instances/' + enc(response.body['@id']);
+      cleanup('instance',createdPath,`Quality ${format} create`);
+      const reopened = await call(auth,'GET',createdPath);
+      check(isDeepStrictEqual(answers(reopened.body),answers(instance)),`${format} create preserves exact numeric text, rejected-choice text and sibling content`);
+    }
+  }
+
+  // A present empty answer is incomplete, while an absent required structural property is malformed.
+  const empty = structuredClone(current.body); empty.Measurements[0]['@value'] = null;
+  const emptyReport = await call(auth,'POST','/command/validate?resource_type=instance',empty);
+  check(emptyReport.status === 200 && emptyReport.body?.canSave === true && emptyReport.body?.isValid === false &&
+      emptyReport.body?.findings?.some(f=>f.category === 'completeness' && f.path === '/Measurements/0/@value'),
+    'a present null numeric answer is incomplete and saveable, not a missing structural value',emptyReport.text);
+  for (const [label,damage] of [
+    ['malformed numeric text',b=>{b.Measurements[0]['@value']='not a number';}],
+    ['missing numeric @type',b=>{delete b.Measurements[0]['@type'];}],
+    ['missing numeric @value',b=>{delete b.Measurements[0]['@value'];}],
+    ['missing required property',b=>{delete b.Measurements;}],
+  ]) {
+    const broken = structuredClone(current.body); damage(broken);
+    const report = await call(auth,'POST','/command/validate?resource_type=instance',broken);
+    check(report.status === 200 && report.body?.validates === 'false' && report.body?.canSave === false && report.body?.errors?.length > 0,
+      `${label} is a structural refusal in the common report`,report.text);
+    checkStatus(await call(auth,'PUT',path,broken,{headers:{'If-Match':current.headers.get('etag')}}),400,`${label} cannot update a record`);
+    const unchanged = await call(auth,'GET',path);
+    check(isDeepStrictEqual(unchanged.body,current.body) && unchanged.headers.get('etag') === current.headers.get('etag'),
+      `${label} refusal preserves the entire record and its ETag`);
+    broken['@id'] = null;
+    checkStatus(await call(auth,'POST',`/template-instances?folder_id=${enc(folderId)}`,broken),400,`${label} cannot create a record`);
+  }
+  const yamlBefore = await call(auth,'GET',path,undefined,{accept:'application/yaml'});
+  const malformedYaml = yamlBefore.text.replace(/(\bvalue:\s*)["']?100["']?(?=\s*\n)/,'$1"not a number"');
+  if (check(malformedYaml !== yamlBefore.text,'the YAML structural probe changes a numeric scalar')) {
+    checkStatus(await call(auth,'PUT',path,malformedYaml,{contentType:'application/yaml',headers:{'If-Match':current.headers.get('etag')}}),400,
+      'YAML malformed numeric text cannot update a record');
+    const unchanged = await call(auth,'GET',path);
+    check(isDeepStrictEqual(unchanged.body,current.body) && unchanged.headers.get('etag') === current.headers.get('etag'),
+      'YAML structural refusal preserves the entire record and its ETag');
+    checkStatus(await call(auth,'POST',`/template-instances?folder_id=${enc(folderId)}`,withoutYamlId(malformedYaml),{contentType:'application/yaml'}),400,
+      'YAML malformed numeric text cannot create a record');
+  }
+
+  const definition = await call(auth,'GET',templatePath), inconsistent = structuredClone(definition.body);
+  inconsistent.properties.Measurements.items._valueConstraints.defaultValue = '999';
+  const defaultReport = await call(auth,'POST','/command/validate?resource_type=template',inconsistent);
+  check(defaultReport.status === 200 && defaultReport.body?.canSave === false && defaultReport.body?.validates === 'false',
+    'an out-of-range numeric default makes the template unsaveable',defaultReport.text);
+  checkStatus(await call(auth,'PUT',templatePath,inconsistent,{headers:{'If-Match':definition.headers.get('etag')}}),400,
+    'an inconsistent numeric default cannot update a template');
+  const unchangedDefinition = await call(auth,'GET',templatePath);
+  check(isDeepStrictEqual(unchangedDefinition.body,definition.body) && unchangedDefinition.headers.get('etag') === definition.headers.get('etag'),
+    'rejected template defaults preserve the definition and its ETag');
+  inconsistent['@id'] = null;
+  checkStatus(await call(auth,'POST',`/templates?folder_id=${enc(folderId)}`,inconsistent),400,
+    'an inconsistent numeric default cannot create a template');
+
+  const correction = structuredClone(current.body);
+  correction.Measurements[0]['@value'] = '150'; correction.Measurements[1]['@value'] = '175';
+  correction.Code['@value'] = 'CORRECTED'; correction.Choice['@value'] = 'Allowed';
+  checkStatus(await call(auth,'PUT',path,correction,{headers:{'If-Match':current.headers.get('etag')}}),200,
+    'exact boundaries, a matching string and an allowed choice save');
+  const reopened = await call(auth,'GET',path);
+  check(isDeepStrictEqual(content(reopened.body),content(correction)) && reopened.headers.get('etag') !== current.headers.get('etag'),
+    'all corrected answers reopen exactly, with every other property preserved and a new ETag');
+  const correctedReport = await call(auth,'POST','/command/validate?resource_type=instance',reopened.body);
+  check(correctedReport.status === 200 && correctedReport.body?.canSave === true && correctedReport.body?.isValid === true,
+    'corrected answers satisfy the current template as well as the save policy',correctedReport.text);
+}
+
+async function semanticVerification(auth) {
+  suite('validate: semantic facts distinguish invalid, omitted and unavailable checks');
+  const iri = 'urn:cedar:e2e:semantic-probe';
+  const verify = valueConstraints => call(auth,'POST','/bioportal/validate-term',{iri,valueConstraints},{base:TERMINOLOGY});
+  const unchecked = await verify({});
+  check(unchecked.status === 200 && unchecked.body?.status === 'notChecked' && unchecked.body?.code === 'semanticNotChecked' && unchecked.body?.iri === iri,
+    'no terminology constraints means not checked, never proof of existence',unchecked.text);
+  const missingRelease = await verify({ontologies:[{acronym:'CEDAR_E2E_MISSING_RELEASE',version:{id:'missing-release'}}]});
+  check(missingRelease.status === 200 && missingRelease.body?.status === 'unavailable' && missingRelease.body?.code === 'semanticUnavailable',
+    'an unavailable pinned release is not an invalid term and cannot fall back to latest',missingRelease.text);
+  const excluded = await verify({actions:[{termUri:iri,action:'delete',type:'OntologyClass',source:'DOID'}]});
+  check(excluded.status === 200 && excluded.body?.status === 'failed' && excluded.body?.code === 'controlledTermMembership' && excluded.body?.iri === iri,
+    'an exact identifier exclusion is a failed membership fact without a label lookup',excluded.text);
+  checkStatus(await verify({futureConstraint:true}),400,'unknown semantic constraint fields are rejected rather than silently omitted');
+  checkStatus(await verify({branches:[{uri:'urn:cedar:e2e:root',acronym:'DOID',maxDepth:-1}]}),400,
+    'a negative branch depth is malformed rather than an unconstrained success');
+  const authorityIri = 'https://example.org/not-an-orcid';
+  const authority = await call(auth,'POST','/ext-auth/orcid/verify',{iri:authorityIri},{base:BRIDGE});
+  check(authority.status === 200 && authority.body?.status === 'failed' && authority.body?.code === 'authorityIdentifier' && authority.body?.iri === authorityIri,
+    'authority-specific verification refuses a foreign identifier and preserves its spelling',authority.text);
+  checkStatus(await call(auth,'POST','/ext-auth/orcid/verify',{iri:123},{base:BRIDGE}),400,
+    'malformed authority requests are rejected before verification');
+}
+
 export async function run({ user1, folderId }) {
   const auth = user1.auth;
+  await numericRangeJourney(auth, folderId);
+  await semanticVerification(auth);
+  suite('validation');
 
   // Validating an instance is not a purely syntactic check: the server resolves the template the
   // instance is based on and refuses with 400 when it cannot be found. So the instance fixture needs

@@ -269,8 +269,11 @@ An entry answers three questions — *which* value space (`iri` identity, `acron
 ]
 ```
 
-`version` is polymorphic: **absent** → latest · **`"latest"`** → latest (explicit intent) ·
-**`{id, effectiveDate, declaredVersion}`** → pinned. Branch/class entries evolve identically, and
+`version` is polymorphic: **absent** → latest · **`"latest"`** → latest ·
+**`{id, effectiveDate, declaredVersion}`** → pinned. `"latest"` is another spelling of absent, not a
+separate state. Both model libraries read either as unpinned and write an unpinned entry with no
+`version`, so a round trip drops an explicit `"latest"`, and nothing may treat the two differently.
+Branch/class entries evolve identically, and
 there `iri` is derivable for free from the target `uri` (`DOID_4` → `obo/DOID_`).
 
 **Naming landmine:** `branches`/`classes` already carry a `source` field — a free-text display string
@@ -315,8 +318,7 @@ provenance — useful, but not the identity.
 
 | State | `version` | Resolution |
 |---|---|---|
-| Draft (default / legacy) | absent | newest at serve time |
-| Draft (explicit float) | `"latest"` | newest at serve time |
+| Draft | absent, or `"latest"` | newest at serve time |
 | **Published** | the triple | fixed `id` (hash), forever |
 
 Freezing is **not** a terminology-server operation. The terminology server exposes one capability —

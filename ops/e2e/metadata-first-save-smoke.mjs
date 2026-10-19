@@ -51,9 +51,15 @@ try {
   await context.route('**://*:35729/**', (route) => route.abort());
   await context.addInitScript(() => {
     const removeChild = Node.prototype.removeChild;
+    // How many removals are being held back, so the journey can tell when every one has run.
+    window.__heldRemovals = 0;
     Node.prototype.removeChild = function (child) {
       if (child && child.querySelector && child.querySelector('cedar-embeddable-editor')) {
-        setTimeout(() => removeChild.call(this, child), 300);
+        window.__heldRemovals += 1;
+        setTimeout(() => {
+          removeChild.call(this, child);
+          window.__heldRemovals -= 1;
+        }, 300);
         return child;
       }
       return removeChild.call(this, child);
@@ -84,8 +90,19 @@ try {
   assert.equal((await create).status(), 201, 'the first save did not create the instance');
   await page.waitForURL(/\/instances\/edit\//, { timeout: 20_000 });
   instanceId = decodeURIComponent(page.url().match(/\/instances\/edit\/(.+?)(?:\?|$)/)[1]);
-  // Past the held removal, so a rebuilt view would have had its chance to replace the editor.
-  await page.waitForTimeout(1500);
+  // A rewrite of the address that AngularJS did not make reaches ngRoute through a digest, and
+  // ngRoute then rebuilds the view. Run a digest and let it finish, rather than waiting for the
+  // page to start one, so a rebuilt view exists before anything is counted.
+  await page.evaluate(() => new Promise((resolve) => {
+    const $rootScope = window.angular.element(document).injector().get('$rootScope');
+    $rootScope.$$postDigest(resolve);
+    $rootScope.$applyAsync();
+  }));
+  // A rebuilt view leaves the outgoing editor on the page until its held removal has run, and the
+  // Text Field locator would read the outgoing editor's value until then. The page has settled
+  // once it holds a single editor and no removal is held back.
+  await page.waitForFunction(() => window.__heldRemovals === 0
+    && document.querySelectorAll('cedar-embeddable-editor').length === 1, null, { timeout: 10_000 });
 
   assert.equal(await page.evaluate(() => window.__editorsCreated), 1, 'the first save rebuilt the view');
   assert.equal(await field.inputValue(), VALUE, 'the form lost the typed value after the first save');

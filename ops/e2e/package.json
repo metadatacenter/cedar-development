@@ -5,6 +5,10 @@
   "type": "module",
   "description": "End-to-end smoke tests for CEDAR authentication, conditional mutations, artifact authoring, population, serialization, and OpenView",
   "scripts": {
+    "test:journey-runner": "node --test auth-activity.test.mjs journey-fixtures.test.mjs journey-registry.test.mjs split-lanes.test.mjs split-tier.test.mjs journey-contract.test.mjs",
+    "test:journey-harness": "npm run test:journey-runner && node --test journey-browser.test.mjs",
+    "presmoke:journey": "npm run test:journey-harness",
+    "smoke:journey": "node focused-journey-smoke.mjs",
     "smoke": "node login-smoke-test.mjs && node metadata-first-save-smoke.mjs",
     "smoke:first-save": "node metadata-first-save-smoke.mjs",
     "smoke:docker": "CEDAR_RESOURCE_BASE=https://resource.metadatacenter.orgx CEDAR_USER_BASE=http://127.0.0.1:9005 CEDAR_GROUP_BASE=http://127.0.0.1:9009 CEDAR_KEYCLOAK_BASE=http://127.0.0.1:8080 CEDAR_OPENVIEW_BASE=http://127.0.0.1:9013 CEDAR_WORKER_BASE=http://127.0.0.1:9011 CEDAR_TERMINOLOGY_BASE=https://terminology.metadatacenter.orgx NODE_TLS_REJECT_UNAUTHORIZED=0 node login-smoke-test.mjs",
@@ -15,7 +19,10 @@
     "smoke:split:hostnames:keycloak": "CEDAR_AUTH_URL=https://auth.metadatacenter.orgx CEDAR_SPLIT_KEYCLOAK_ORIGINS=https://workspace.metadatacenter.orgx,https://designer.metadatacenter.orgx npm run smoke:split:keycloak",
     "smoke:split:hostnames": "NODE_TLS_REJECT_UNAUTHORIZED=0 CEDAR_WORKSPACE_PREVIEW=https://workspace.metadatacenter.orgx CEDAR_DESIGNER_PREVIEW=https://designer.metadatacenter.orgx CEDAR_AUTH_URL=https://auth.metadatacenter.orgx CEDAR_RESOURCE_API=https://resource.metadatacenter.orgx node split-frontend-smoke.mjs",
     "smoke:split:hostnames:deployment": "CEDAR_REQUIRE_BUILD_INFO=1 npm run smoke:split:hostnames",
-    "test:rest-harness": "node --test rest/scheduler.test.mjs",
+    "test:search-harness": "node rest/search/runner.mjs --check",
+    "presmoke:search": "npm run test:search-harness",
+    "smoke:search": "node rest/search/runner.mjs --live --tier=all",
+    "test:rest-harness": "node --test --test-isolation=none rest/scheduler.test.mjs rest/errors.test.mjs rest/runner.test.mjs rest/response-contract.test.mjs",
     "presmoke:rest": "npm run test:rest-harness",
     "smoke:rest": "node rest-smoke.mjs",
     "perf:rest:provision": "node rest-perf/provision-users.mjs",
@@ -37,15 +44,20 @@
     "record:split:deployment": "node record-split-frontend-deployment.mjs",
     "smoke:ced-host": "node ced-host-smoke.mjs",
     "smoke:workspace:modern": "node modern-workspace-smoke.mjs",
-    "smoke:workspace:modern:full": "npm run smoke:workspace:modern && npm run smoke:ced-host && npm run smoke:account:all && npm run smoke:workspace:lifecycle && npm run smoke:folder-delete",
+    "presmoke:workspace:modern:full": "npm run test:journey-harness",
+    "smoke:workspace:modern:full": "node split-tier.mjs",
     "smoke:account": "node account-pages-smoke.mjs",
     "smoke:account:all": "npm run smoke:account -- profile && npm run smoke:account -- settings && npm run smoke:account -- groups && npm run smoke:account -- privacy",
     "smoke:workspace:lifecycle": "node workspace-lifecycle-smoke.mjs all",
     "smoke:ui-unification": "node ui-unification-smoke.mjs",
     "smoke:inclusion:bubbling": "node inclusion-bubbling-smoke.mjs",
-    "smoke:folder-delete": "node recursive-folder-delete-smoke.mjs"
+    "smoke:folder-delete": "node recursive-folder-delete-smoke.mjs",
+    "smoke:journey:verify": "node journey-verify.mjs",
+    "report:journeys": "node journey-history.mjs"
   },
   "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "playwright": "^1.48.0"
   }
 }

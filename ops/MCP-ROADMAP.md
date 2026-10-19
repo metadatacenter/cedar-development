@@ -13,9 +13,10 @@ by name in commits.
 ## Across the Servers
 
 - **1. Build and release the MCP servers with everything else.** Four repositories, none part of
-  `cedarcli build java`, none with a GitHub Actions workflow, and until now unmentioned by
-  [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) or [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md). They are
-  built by hand, which means they are built when somebody remembers.
+  `cedarcli build java`, and until now unmentioned by [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) or
+  [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md). The three Maven servers run `mvn verify` in CI on every
+  push to `main`, which covers a change made in their own repository. Nothing builds them when
+  `cedar-artifact-library` moves, and `bioportal-term-mcp` has no workflow at all.
 
   What that costs is particular to an MCP. **A tool's description is the only documentation the
   calling model ever reads, and it ships inside the jar.** `cedar-artifact-rest-mcp` once ran a
@@ -28,7 +29,6 @@ by name in commits.
   - Build the three Maven servers with the rest. When `cedar-artifact-library` advances, bump its
     two MCP consumers in the same delivery and build them after the declared library release, so a
     signature break fails before a client sees it.
-  - Give each Java repository the workflow every other Java repository already has.
   - Give `bioportal-term-mcp` the Python equivalent: `uv run pytest` and `uv run pyright` on every
     push, and a nightly `uv run pytest -m live` to catch BioPortal shape drift early. Both precede
     any publication to PyPI, should that ever be wanted.
@@ -53,9 +53,9 @@ by name in commits.
   broke its build twice on `jackson-annotations`, because each library release brings a newer
   databind that reaches for the annotations release of its own line, and a hand-picked version
   satisfies that only until the next one. Neither server picks a Jackson version by hand now —
-  annotations follows databind, and a library bump is one property rather than three. What none of
-  these had was a build that would have caught them: each surfaced when somebody happened to
-  rebuild, which is the argument for building these servers continuously.
+  annotations follows databind, and a library bump is one property rather than three. Each surfaced
+  when somebody happened to rebuild. The repositories' own CI now catches such a break when the
+  bump is committed there, but a library release that nobody bumps them to still goes unnoticed.
 
 - **2. Track the CEE bundle a client actually serves.** `cedar-cee-mcp` pins the CEE by version and
   hash and refuses a mismatch, so what a build produces is known. What a *client* is running is not:

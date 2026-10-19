@@ -401,6 +401,7 @@ npm ci
 npm --prefix harness ci
 npm --prefix visual ci
 npm run test:ci
+cedarcli test cee-demos --cee-package "$CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor"
 ```
 
 This covers lint, strict type checks, unit/coordinator/domain tests, a production build, all
@@ -469,6 +470,7 @@ staged directory:
 
 ```bash
 npm run test:package
+cedarcli test cee-demos --cee-package "$CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor"
 cmp -s README.md dist-npm/cedar-embeddable-editor/README.md
 npm publish ./dist-npm/cedar-embeddable-editor --dry-run
 npm publish ./dist-npm/cedar-embeddable-editor
@@ -476,6 +478,13 @@ npm publish ./dist-npm/cedar-embeddable-editor
 
 Never run `npm publish` from the repository root. It would pack the source repository instead of
 the tested distributable.
+
+The demo command is mandatory before public publication, even if an earlier candidate
+passed. It tests the exact staged package in Angular, React and Ember without changing
+their checked-out pins. CEE CI also tests its staged artifact in all three frameworks;
+wait for **CEE framework consumers** alongside the prepare and visual jobs before merging
+a release PR. The runner lives in `cedar-component-demo`, which must contain the current
+`scripts/check-demos.py` before enabling this CEE workflow on the remote.
 
 Verify the public registry and README:
 

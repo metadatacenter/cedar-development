@@ -1,7 +1,7 @@
 // Only audited suites may overlap. New suites default to exclusive execution.
 export const PARALLEL_SUITES = new Set([
   'artifacts', 'versioning', 'sharing', 'group-sharing', 'openness', 'validation',
-  'search', 'finding', 'negotiation', 'download', 'inclusion', 'apidocs', 'freeze',
+  'search', 'finding', 'negotiation', 'download', 'inclusion', 'apidocs', 'freeze', 'errors',
 ]);
 
 export function workerCount(value = 2) {

@@ -34,8 +34,8 @@ export const MOVE_MODAL = '#move-modal';
 export const MOVE_DESTINATION_ROW = '#moveModalContent .box-row';
 export const MOVE_CONFIRM = '#move-modal .modal-footer button.confirm';
 // Accessible button name, not a CSS selector: used with getByRole('button', {name}).
-// The dialog is sweetalert, which binds its handler as it animates in — see
-// confirmDelete in login-smoke-test.mjs for why that matters.
+// The dialog is SweetAlert, whose confirm button acts only once the dialog carries the
+// class `visible`. confirmDelete in login-smoke-test.mjs explains why that matters.
 export const DELETE_CONFIRM_NAME = 'Yes, delete it!';
 // A generic modal, as a fallback for getByRole('dialog') where the markup predates
 // ARIA roles.

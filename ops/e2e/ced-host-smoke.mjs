@@ -1,8 +1,11 @@
+import { withBrowserAuthentication } from "./auth-activity.mjs";
 // Real login + CED rendering, create/update and stale-save protection through the split host.
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { actors, call, mutate, enc, artifactBody } from './rest/lib.mjs';
+import { createdFixture, createAttempt, fixtureAt } from './journey-fixtures.mjs';
+import { evidencePath, noteFixture } from './split-steps.mjs';
 const designerBase = process.env.CEDAR_DESIGNER_BASE || 'https://designer.metadatacenter.orgx';
 const workspaceBase = process.env.CEDAR_BASE || 'https://workspace.metadatacenter.orgx';
 const { user1 } = await actors();
@@ -13,17 +16,37 @@ const page = await context.newPage();
 const created = [];
 const errors = [];
 const responseBodies = new Map();
+let loseNextWrite = false;
+let writeCount = 0;
 // Capture writes before fulfilling them, so each response body stays readable whatever the page does next.
+// A create is a PUT to the identity Designer minted, so its address identifies the fixture; a
+// version command names the draft it created in its reply.
 await page.route(url => /^\/(templates|template-elements|template-fields|command\/publish-create-draft-template)(?:\/|$)/.test(url.pathname), async intercepted => {
   const req = intercepted.request();
   if (!['POST', 'PUT'].includes(req.method())) return intercepted.continue();
-  const response = await intercepted.fetch();
+  writeCount++;
+  let response;
+  try {
+    response = await intercepted.fetch();
+  } catch (error) {
+    // A create whose reply never arrived may still have committed; cleanup removes it or finds it absent.
+    if (createAttempt(req)) {
+      created.push(fixtureAt(req.url()));
+      noteFixture(fixtureAt(req.url()));
+    }
+    throw error;
+  }
   const data = await response.json();
   responseBodies.set(req.method() + ' ' + req.url(), data);
-  if (req.method() === 'POST' && response.ok() && data['@id']) {
-    const path = new URL(req.url()).pathname;
-    const collection = path.startsWith('/template-fields') ? 'template-fields' : path.startsWith('/template-elements') ? 'template-elements' : 'templates';
-    created.push({ collection, id: data['@id'] });
+  const fixture = createdFixture(req.method(), req.url(), response.status(), data);
+  if (fixture) {
+    created.push(fixture);
+    noteFixture(fixture);
+  }
+  if (loseNextWrite) {
+    loseNextWrite = false;
+    assert.ok(response.ok(), JSON.stringify(data));
+    return intercepted.abort('failed');
   }
   await intercepted.fulfill({ response });
 });
@@ -55,17 +78,26 @@ async function showFieldDescription() {
   await page.getByRole('tab', { name: 'Presentation', exact: true }).click();
 }
 async function open(path) {
-  afterSave = false;
-  await page.goto(designerBase + path);
-  await page.locator('#username, cedar-embeddable-designer, cedar-embeddable-field-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
-  if (await page.locator('#username').isVisible().catch(() => false)) {
-    await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || 'test1@test.com');
-    await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || 'test1');
-    await page.locator('#kc-login').click();
-  }
-  await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
-  await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
-  if (path.startsWith('/fields/edit/')) await showFieldDescription();
+  return withBrowserAuthentication("Designer host sign-in", async () => {
+    afterSave = false;
+    await page.goto(designerBase + path);
+    await page.locator('#username, cedar-embeddable-designer, cedar-embeddable-field-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
+    if (await page.locator('#username').isVisible().catch(() => false)) {
+      await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || 'test1@test.com');
+      await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || 'test1');
+      await page.locator('#kc-login').click();
+    }
+    await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'));
+    await page.waitForFunction(() => ['Unmodified', 'Saved', 'Modified'].includes(document.getElementById('state').textContent));
+    // Each opening starts a separate scenario from the saved artifact. Reload now
+    // retains refused work, so discard that earlier scenario's journal explicitly.
+    const discard = page.locator('#discard-draft');
+    if (await discard.isVisible()) {
+      await discard.click();
+      await discard.waitFor({state: 'hidden'});
+    }
+    if (path.startsWith('/fields/edit/')) await showFieldDescription();
+  });
 }
 try {
   for (const [kind, route, collection] of [['template', 'templates', 'templates'], ['element', 'elements', 'template-elements'], ['field', 'fields', 'template-fields']]) {
@@ -86,16 +118,19 @@ try {
     }
     await nameInput().fill(name);
     await page.waitForFunction(() => !document.getElementById('save').disabled);
-    const savedResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().includes(`/${collection}?`));
+    // The first save creates the artifact by PUT, at an identity Designer minted, without If-Match.
+    const savedResponse = page.waitForResponse(response => response.request().method() === 'PUT' && new URL(response.url()).pathname.startsWith(`/${collection}/`));
     await save();
     const response = await savedResponse;
-    const body = responseBodies.get('POST ' + response.url());
+    const body = responseBodies.get('PUT ' + response.url());
     if (response.status() !== 201) {
-      await writeFile('/tmp/ced-host-rejected-artifact.json', response.request().postData());
-      await writeFile('/tmp/ced-host-rejection.json', JSON.stringify(body, null, 2));
+      await writeFile(evidencePath('rejected-artifact.json'), response.request().postData());
+      await writeFile(evidencePath('rejection.json'), JSON.stringify(body, null, 2));
     }
     assert.equal(response.status(), 201, JSON.stringify(body).slice(0, 1200));
+    assert.equal(response.request().headers()['if-match'], undefined, 'A create carries no If-Match');
     const id = body['@id'];
+    assert.equal(fixtureAt(response.url())?.id, id, 'The reply names the identity the create addressed');
     // A successful save stays in Designer, at the new artifact's edit address with the same query.
     await page.waitForURL(url => editAddress(url, route, id, params));
     await saved();
@@ -120,6 +155,23 @@ try {
     assert.equal(await nameInput().inputValue(), name);
     assert.equal(await descriptionInput().inputValue(), 'Updated through CED');
     console.log(`PASS: ${kind} create and conditional update without leaving Designer, Workspace return, reopen`);
+    // Commit at the real server, then lose only the response delivered to the browser.
+    await descriptionInput().fill('Saved but acknowledgement lost');
+    loseNextWrite = true;
+    await save();
+    await page.waitForFunction(() => document.getElementById('message').textContent.includes('could not confirm whether'));
+    assert.equal(await page.locator('#save').isDisabled(), true);
+    assert.equal(await descriptionInput().inputValue(), 'Saved but acknowledgement lost');
+    const confirmed = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
+    assert.equal(confirmed.body['schema:description'], 'Saved but acknowledgement lost');
+    const countAfterLoss = writeCount;
+    // Designer's host runs a save's first step, which shows Saving…, before it awaits anything, and
+    // the dispatched click runs it at once. A refused click therefore leaves the page as it was.
+    await page.locator('#save').dispatchEvent('click');
+    assert.notEqual(await page.locator('#state').textContent(), 'Saving…');
+    assert.match(await page.locator('#message').textContent(), /could not confirm whether/);
+    assert.equal(writeCount, countAfterLoss);
+    console.log(`PASS: ${kind} committed update with lost response keeps input and blocks another write`);
     // Concurrent backend edit must prevent the stale host from writing over it.
     await open(`/${route}/edit/${enc(id)}?${params}`);
     const external = { ...stored.body, 'schema:description': 'Concurrent editor' };
@@ -147,6 +199,7 @@ try {
       await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
       await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+      await page.locator('#version-dialog').waitFor({ state: 'hidden' });
       assert.equal(await page.getByPlaceholder('Template name', { exact: true }).inputValue(), name + ' revised');
       await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
@@ -188,18 +241,19 @@ try {
       assert.equal(metadata.body['schema:isBasedOn'], id);
       console.log('PASS: template with metadata confirms versioning in place, preserves cancellation, leaves instances on original');
     }
-
+    // A create whose reply is lost is uncertain-create's journey, which settles it by its identity.
   }
   assert.deepEqual(errors, []);
 } catch (error) {
   console.error('Host message:', (await page.locator('#message').textContent({ timeout: 1000 }).catch(() => 'unavailable')).slice(0, 1200));
   console.error('Page errors:', errors);
-  await page.screenshot({ path: '/tmp/ced-host-smoke-failure.png', fullPage: true });
+  await page.screenshot({ path: evidencePath('failure.png'), fullPage: true });
   throw error;
 } finally {
   await browser.close();
+  // An identity recorded from a create attempt may never have committed, so 404 is a clean end state.
   for (const item of created.reverse()) {
     const result = await mutate(user1.auth, 'DELETE', `/${item.collection}/${enc(item.id)}`);
-    assert.ok([200, 204].includes(result.status), `Cleanup failed: ${result.text}`);
+    assert.ok([200, 204, 404].includes(result.status), `Cleanup failed: ${result.text}`);
   }
 }
