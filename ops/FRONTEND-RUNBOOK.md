@@ -3423,11 +3423,15 @@ a mistake worth remembering.
 ### Shared Component Defaults and Configuration
 
 Every modern frontend consumes `cedar-design-tokens` at build time: CEE/CEF, CED/CEFD,
-CETP, Workspace, OpenView, Monitoring, Bridging and the Template Designer host. The package owns
-the whole vocabulary, 61 tokens: the font stack and embedded Roboto sources, five type
-sizes and two weights, the theme colour, three text colours, two rules, three surfaces,
-the status pairs, the two control densities, the 4/8/12/16/24px spacing scale, one
-corner radius and a pill, two shadows, motion and layers. Its README lists them, and
+CETP, Workspace, OpenView, Monitoring, Bridging and the Template Designer host. Two
+further consumers sit outside that set. The MCP session page in `mcp/cedar-cee-mcp`
+vendors compiled stylesheets under a checksum manifest, which the adoption check
+verifies. The legacy Template Editor loads compiled stylesheets and the icon sprite
+outside the adoption check. The package owns the whole vocabulary of 54 tokens. They
+cover the font stack, four type sizes and two weights, the theme colour, three text
+colours, two rules, three surfaces, the status pairs, the two control densities, the
+4/8/12/16/24px spacing scale, one corner radius and a pill, one shadow, motion and
+layers. The package also owns the embedded Roboto sources. Its README lists the tokens, and
 `tools/retired-tokens.json` names the replacement for every retired name. Material remains inside CEE's adapter; CED uses CSS
 properties and its native-control adapter. Geometry unique to one component stays
 local.
@@ -3553,7 +3557,7 @@ its tests exercise.
 #### Monitoring token adoption
 
 Run `cedarcli check design-tokens` for Workspace, CEE/CEF, CED/CEFD, CETP,
-OpenView, Monitoring, Bridging and the Template Designer host,
+OpenView, Monitoring, Bridging, the Template Designer host and the MCP session page,
 `--strict` to gate new color/typography, spacing, control geometry, layers and
 motion drift, `--json` for an archived report, and `--repo <name> --prune-baseline`
 after removing existing findings. Policy 2 includes Angular styles, inline templates,
@@ -3631,16 +3635,14 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
 #### CED token coverage audit (2026-10-04)
 
-The source `cedarcli check design-tokens --strict --json` audit passes the
-new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-The scanner reports **23 existing findings**:
-20 geometry declarations, two dynamic styles and one utility style. These are
-source findings, including development surfaces, not 23 demonstrated visual
-defects. Resolved baseline
-allowances are pruned rather than retained as permission for drift to return.
+Passing the new-drift gate does not mean that CED's presentation is centrally
+enforced. `cedarcli check design-tokens --strict --all --repo cedar-embeddable-designer`
+lists the existing findings that remain. They are source findings, development
+surfaces included, not demonstrated visual defects. Resolved baseline allowances are
+pruned rather than retained as permission for drift to return.
 
-The registered CED inventory has 36 entries and 33 rendered contracts, with no
-recorded differences. The authoring label, control and table-cell contracts run at
+The same check counts CED's registered surfaces and rendered contracts, and reports
+any recorded difference. The authoring label, control and table-cell contracts run at
 desktop and 375px widths on representative surfaces: the annotation entry row, a
 field's metadata, a field's constraint select, an element's metadata, a nested
 field's constraints, a default-value label beside real CEF, and a field's metadata
@@ -3673,9 +3675,9 @@ empty/populated default-row alignment. A same-valued token substitution is not
 proof that the correct semantic role or shared recipe is used. Baselines must
 remain tied to approved presentation, not regenerated to accept unexpected output.
 
-CEE currently has **138 existing findings**: 57 spacing, 25 geometry,
-30 color and 26 typography declarations. These counts are legacy findings, not
-approved exceptions. CEE's `STYLING.md` records ownership by surface; CED's README
+CEE's existing findings are legacy debt, not approved exceptions.
+`cedarcli check design-tokens --strict --all --repo cedar-embeddable-editor` lists them.
+CEE's `STYLING.md` records ownership by surface; CED's README
 records the corresponding boundary. Read-only specification boxes, separators and
 links share central recipes, including standalone defaults and supported host
 overrides. The CED property, type and default-term dialogs use the central surface
@@ -3692,10 +3694,10 @@ work. Prune resolved baseline entries.
 Tokens also cannot enforce validation timing, save-state terminology or separation
 of selected values from defaults. Those require application-state tests. Finally,
 source adoption, installed package pins and served component bytes are separate
-checks: retain all three alongside the reactor and smoke evidence. CED's baseline
-holds one finding by decision: the field library's two section heights, which its
-divider sets as it is dragged. No stylesheet can name a value that exists only at
-runtime, so the finding stays as recorded debt.
+checks: retain all three alongside the reactor and smoke evidence. By decision, CED's
+baseline keeps the field library's two section heights, which its divider sets as it
+is dragged. No stylesheet can name a value that exists only at runtime, so both stay
+as recorded debt.
 
 ## Surface inventory and token coverage
 
