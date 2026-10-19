@@ -962,6 +962,6 @@ calling shell.
   for an explicitly local experiment.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
-- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.2. This is
+- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.6. This is
   accepted because their compatibility contract is the shared 2.19 line; Docker-build CI enforces
   that major/minor pairing mechanically.

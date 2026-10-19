@@ -4576,12 +4576,18 @@ default branch, and on `develop`, where the actual work lands. `baseBranchPatter
 config therefore need a config-only pull request to `main` as well as the ordinary `develop` commit.
 
 `cedar-parent` is the Java dependency control point. Its config reads Maven through the CEDAR Nexus
-pull-through proxy, avoiding Maven Central's hosted-runner rate limit; groups the Dropwizard,
-Metrics, Jetty, Jersey and Hibernate baseline; does not offer Java 17 changes; and leaves Keycloak
-updates behind dashboard approval. `cedar-docker-build` watches the locked server variables in
-`bin/cedar-images-base.sh` through its custom manager as well as ordinary Dockerfile and Actions
-references. It groups the locked server updates and keeps platform-changing updates behind
-approval. Neither repository permits automerge, and both impose a fourteen-day minimum release age.
+pull-through proxy, avoiding Maven Central's hosted-runner rate limit. It groups the Dropwizard,
+Metrics, Jetty, Jersey and Hibernate baseline, and leaves Keycloak and OpenSearch updates behind
+dashboard approval. It holds Java at 17, the Jakarta EE APIs with Jersey and Hibernate on their
+EE 10 lines, Logback below 1.6 and logback-access below 2.0.14, Netty on 4.1, embedded Mongo below
+4.23.0, and the OpenSearch client on the server's 2.19 line. It offers nothing for the pins that
+carry another artifact's choice: Lucene and reactor-core follow OpenSearch, hk2-locator follows
+Jersey, Jandex follows RESTEasy and protobuf-java follows Connector/J. Nor does it offer the MariaDB
+test binaries, whose single version property has to exist for three platforms. Those move by hand.
+
+`cedar-docker-build` watches the locked server variables in `bin/cedar-images-base.sh` through its
+custom manager as well as ordinary Dockerfile and Actions references. It groups the locked server
+updates and keeps platform-changing updates behind approval. Neither repository permits automerge, and both impose a fourteen-day minimum release age.
 
 Each repository has a Renovate **Dependency Dashboard** issue for approving held updates and
 retrying or rebasing branches. A scan can also be started from the repository's **Actions → Run
@@ -4595,7 +4601,9 @@ Validate either config with the same current Renovate generation the hosted serv
 npm exec --yes --package=renovate@latest -- renovate-config-validator renovate.json
 ```
 
-Every Renovate pull request runs the repository's normal suite. In addition,
+Every Renovate pull request runs the repository's normal suite. For `cedar-parent` that suite shows
+only that the POM resolves, so a version change still needs `cedarcli build java`, a redeploy and
+`cedarcli test e2e` before it merges. In addition,
 `ops/check_version_pairing.py` runs in both `cedar-parent` and `cedar-docker-build` CI, checking the
 client versions from the parent POM against the locked server images in the Docker manifest. That
 check is the invariant Renovate cannot infer: a syntactically valid update is not safe when it moves
@@ -4681,7 +4689,7 @@ theme are a coordinate change, no change at all, and two FreeMarker files respec
 and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
 servers; do not restate them here.
 
-Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.13, Jersey
+Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.14, Jersey
 3.1.12, Hibernate 6.6.58.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.3. Jetty, Jersey,
 Hibernate and Jackson run ahead of the versions the Dropwizard 5.0.2 bundle names, each within the
 same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are
