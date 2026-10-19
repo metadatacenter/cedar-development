@@ -222,7 +222,7 @@ When an advisory is withdrawn, lower the counts recorded for the affected locks 
 publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
 each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
 
-## Frontend Dependencies and Tooling
+## Frontend Dependencies
 
 ### 7. Take the Frontend Dependency Upgrades That Need Code Changes
 
@@ -264,16 +264,6 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
   redraw icons that every consumer shows, so the move needs its rendered differences reviewed and
   approved like any other visual change.
 
-### 8. Run the Design-Token Gate in the Reactor
-
-The reactor verifies each consumer with that consumer's own test gate, such as CEE's
-`npm run test:ci:prebuilt`, and none of those gates runs the design-token adoption check. The
-check runs only in each consumer's "Design token adoption" workflow and in the design tokens'
-consumer-contracts job, so a tree the reactor accepts can still fail on push. On 2026-10-19 a
-literal `margin-block: 4px` in CEE passed the reactor and then failed both. Run
-`cedarcli check design-tokens --strict` for each token consumer as part of the reactor's
-verification, so that the reactor refuses what CI refuses. The check takes seconds.
-
 <a id="ced"></a>
 
 ## CED
@@ -282,7 +272,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -296,14 +286,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 10. Keyboard and Screen-Reader Access
+### 9. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 11. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible

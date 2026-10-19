@@ -517,7 +517,13 @@ This contract does not require a release, a production deployment, or a Git comm
 Development package publication and development-pin updates are distinct from release-version
 changes. Commit/push remains subject to the user’s instruction.
 
-The command runs the component verification gates in the isolated build copies, records the
+Before it builds anything, the command runs `cedarcli check design-tokens --strict` over every
+token consumer's checkout, the check each consumer's "Design token adoption" workflow runs in CI,
+and stops on a finding. No consumer's own test gate includes it, so without this step a tree the
+reactor accepted could still fail that workflow on push. It takes seconds. `cedarcli build all`
+runs the same check unless `--skip-tests` is given.
+
+The command then runs the component verification gates in the isolated build copies, records the
 successful package selection, restarts all native frontends, verifies their installed reactor
 packages, and runs the whole-stack smoke tiers.
 
