@@ -49,7 +49,14 @@ test('unexpected callback failure drains in-flight work before rejecting', async
   for (const value of [0, -1, 5, 1.5, 'bad']) assert.throws(() => workerCount(value));
 });
 
-test('overlapping contexts retain check labels and unwind their own fixtures', async () => {
+test('overlapping contexts retain check labels and unwind their own fixtures', async t => {
+  // lib.mjs prints its banners and checks to stdout, which an isolated test file shares with the
+  // runner's serialized messages. Node before 24.20.0 reads the four bytes after each message as
+  // the next one's length without looking for a message header, and reads them signed, so a
+  // non-ASCII banner that arrives in the same read as a message is deserialized as one. The parent
+  // then fails with "Unable to deserialize cloned data" (nodejs/node#64706). Keeping the output off
+  // stdout makes this file safe on any Node version and under either isolation mode.
+  t.mock.method(console, 'log', () => {});
   const originalFetch = globalThis.fetch;
   const live = new Set();
   const deleted = [];
