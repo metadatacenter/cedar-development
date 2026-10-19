@@ -65,9 +65,9 @@ Point it at `https://resource.metadatacenter.orgx` for the local stack.
 ### Restart After Rebuilds or Configuration Changes
 
 Restart the client, or stop the server and let the client respawn it, after changing its
-configuration or rebuilding its jar. Builds overwrite `target/<server>.jar`; a running JVM may
-then load new classes through its old jar index. In `cedar-cee-mcp`, this can leave the first
-`show_template` or `fill_instance` hanging without a log message.
+configuration or rebuilding its jar. A build renames a new `target/<server>.jar` into place rather
+than writing over the old file, so a running server keeps the jar it opened and goes on running the
+earlier build until it restarts.
 
 Verify `CEDAR_BASE_URL` before writing: its default is production. `ping` reports only the MCP
 server's name/version and does not verify the destination deployment.
@@ -98,8 +98,8 @@ terminology and bridge services the fields themselves call.
 Two lines in `pom.xml` pin it:
 
 ```xml
-<cee.version>2.0.23</cee.version>
-<cee.sha256>97bfdc29582a5fab312ed578123ae3a8a10440c7bcb562f0e1ba263da181cfd3</cee.sha256>
+<cee.version>2.0.25</cee.version>
+<cee.sha256>0821ebe422cfde9db3c07a96c7e1a80e9edcaafb0774ec4d38b57e9f95f2bc8d</cee.sha256>
 ```
 
 The hash is the bundle's own, from the package's `bundle-manifest.json`, and the build refuses a
