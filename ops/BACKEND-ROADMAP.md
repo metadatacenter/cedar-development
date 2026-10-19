@@ -590,6 +590,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   persistence migration tracked in the Docker roadmap. MySQL is the real decision left among the
   data stores.
 
+  For MySQL the choice is between the 8.4 LTS line the images pin, supported until about 2032, and
+  9.7, the first 9.x LTS, released in April 2026. Every 9.x release before it was an Innovation
+  release, supported only until the next one, and after 9.7 MySQL numbers releases by year and
+  month, so 26.7 is the July 2026 Innovation release. Keycloak settles it for now. Its realm lives
+  in this MySQL, and Keycloak's supported configurations list only MySQL 8.0 and 8.4, so stay on 8.4
+  until a Keycloak release CEDAR runs supports a 9.x LTS. The client is ready either way, since
+  Connector/J 9.7.0 supports MySQL 8.0 and later.
+
+  The development workstation is off the lock. Its native MySQL comes from Homebrew's unpinned
+  `mysql` formula and ran 9.6.0 on 2026-10-19, an Innovation release nothing deployed runs, so local
+  end-to-end runs have exercised 9.6 since April. Pin the formula, then move the workstation to
+  `mysql@8.4` by dump and restore, because an 8.4 server cannot open a 9.x data directory. These
+  documents do not record production's MySQL version. Confirm it with `SELECT VERSION()` before
+  planning its move.
+
   Production is the part this item owns for every store: each version rehearsed on a copy of
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
@@ -701,15 +716,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - the **build JVM**, `[17,18)` in `cedar-parent`'s enforcer — major only;
   - **CI**, `distribution: temurin` with `java-version: "17"` — major only, so whatever 17 the
     runner has that week;
-  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.8_7-jre-ubi9-minimal` — exact, to the build
+  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.20_8-jre-ubi9-minimal` — exact, to the build
     number, and the most precisely pinned thing in the estate;
   - **Keycloak's own JVM**, `dnf install java-17-openjdk-headless` in its image — major only, and a
     different vendor from everything else.
 
   So the thing that runs the servers is pinned harder than the thing that compiles them, which is
-  backwards. Measured 2026-08-09 while adding the Maven wrapper: the build JVM on this machine is
-  **Oracle 17.0.14** against a runtime image on **Temurin 17.0.8_7** — a different vendor, six
-  patches apart, and both are "17" as far as every check in the estate is concerned.
+  backwards. Measured 2026-10-19: the build JVM on the development workstation is **Oracle
+  17.0.14** against a runtime image on **Temurin 17.0.20_8** — a different vendor, six patches
+  apart, and both are "17" as far as every check in the estate is concerned.
 
   Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
   move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
@@ -834,7 +849,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     the JSON provider, and `cedar-auth-operations-keycloak-library` already excludes the same two
     RESTEasy providers for that reason. Put those exclusions on the admin tool's direct dependency;
     Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin. No
-    admin-tool source uses multipart, JAXB or Mime4j.
+    admin-tool source uses multipart, JAXB or Mime4j. The two providers resolve at 6.0.0 beside a
+    6.2.19 RESTEasy core, because `cedar-parent` manages only `resteasy-client` and
+    `resteasy-jackson2-provider`, so removing them also ends a split RESTEasy.
   - **The rest belong to a different runtime:** `checker-qual`, `jaxb-core`, `txw2`,
     `jackson-dataformat-cbor`, `jakarta.transaction-api` and the event listener's copy of
     `commons-collections4` are all `provided` transitives of `keycloak-services:22.0.4`. They are
@@ -1002,13 +1019,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   no run is recorded against a service whose source the gate cannot establish.
 
 - **24. Take the dependency upgrades that need code changes.** The versions that could move without
-  consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
-  versions that follow something else, and versions whose newest release is not a final.
+  consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
+  What stayed behind stayed deliberately, and it separates into work to do, versions that follow
+  something else, and versions whose newest release is not a final.
 
   **The upgrades that need code or test changes.** Each of these is a change to make rather than a
   version to raise, which is why none of them rode along with a sweep.
 
-  - **json-schema-validator 1.5.9 to 3.0.7.** Two major lines on the library that decides which
+  - **json-schema-validator 1.5.9 to 3.0.8.** Two major lines on the library that decides which
     stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
@@ -1023,6 +1041,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
   Keycloak client stack, which items 6 and 20 own.
+
+  Maven 3.9.14 to 3.10.0 is a sweep rather than a version. Each of the 29 repositories carries its
+  own wrapper, so the move is one change across all of them, gated on the full build and a train
+  dry run and made just after a release. A Renovate pull request that moved only `cedar-parent`'s
+  wrapper was closed on 2026-10-19, because it would have split the estate across two Maven
+  versions.
 
   Embedded Mongo 4.22.0 to 4.33.0 and 5.0.0 belongs here too, and it is the deployed Mongo it
   follows rather than a framework. The obstacle is the binary. MongoDB published no macOS ARM build
@@ -1051,16 +1075,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   shipping a line built against 1.6.
 
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
-  resolves one version of an artifact nothing here depends on directly, which makes these five
-  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.138 to
-  4.2.18, protobuf-java 4.31.1 to 4.36.2 and Reactor Core 3.7.19 to 3.8.7. Each belongs to a
-  framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
-  Raising one on its own would pin a version its owner does not expect.
+  resolves one version of an artifact nothing here depends on directly, which makes these four
+  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.3, which follows Jersey; Jandex 2.4.5 to 3.3.1,
+  which follows RESTEasy; protobuf-java 4.31.1 to 4.36.2, which follows Connector/J, the newer of
+  its two users; and Reactor Core 3.7.19 to 3.8.7, which follows OpenSearch with the Lucene pin.
+  Each moves to the version its owner's POM names when that owner moves. Raising one on its own
+  would pin a version its owner does not expect, and the Renovate config offers none of them.
 
-  Netty does not fit that rule. The Neo4j driver 5.28.15 is built against Netty 4.2.17, and the 4.1
-  pin exists for neo4j-harness 5.3.0, which declares 4.1.84 and runs its embedded Bolt server on it.
-  A test dependency therefore sets the Netty every production server runs the driver on. Ending the
-  hold needs the harness proved on 4.2, or replaced as the parent POM's harness note anticipates.
+  Netty, 4.1.138 to 4.2.19, is held for a different reason. The Neo4j driver 5.28.15 is built
+  against Netty 4.2.17, and the 4.1 pin exists for neo4j-harness 5.3.0, which declares 4.1.84 and
+  runs its embedded Bolt server on it. A test dependency therefore sets the Netty every production
+  server runs the driver on. Ending the hold needs the harness proved on 4.2, or replaced as the
+  parent POM's harness note anticipates.
 
   **Versions whose newest release is not a final.** These have no final to move to: HttpCore
   5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J
@@ -1073,8 +1099,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   pre-release at the head conceals every stable release behind it. Seven Maven plugins sat in this
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
-  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every entry above was gathered the same
-  way and is unverified in the same way. Read an artifact's
+  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. The versions in the first three groups
+  were rechecked against the published metadata on 2026-10-19, with pre-releases set aside. The
+  pre-release list has not been rechecked. Read an artifact's
   `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest release a
   given Maven version can actually use, before concluding that something cannot move.
 
