@@ -1085,6 +1085,16 @@ the last restart, or one that twenty later jobs have pushed out, is no longer kn
 The same exclusion and the same pair of routes cover the value sets ontology import, under
 `GET /command/load-valuesets-ontology-status`.
 
+Possible-value indexing loads `CADSR-VS.owl` lazily in each process that indexes a CADSR-constrained
+field, including the resource server and projection worker. Both need the file at
+`$CEDAR_CADSR_ONTOLOGIES_FOLDER/CADSR-VS.owl`. A missing/unreadable file fails that projection before
+it can replace an existing search document with empty possible values. Fields without CADSR value
+sets do not require the file. The loaded immutable snapshot is reused; the explicit ontology-load
+command reloads it in the resource process when the file changes. A worker restart loads the new
+file on its next relevant projection. Loading alone does not populate already-indexed fields: use
+the controlled search rebuild above after verifying the ontology and its required value-set URIs.
+The load-command status tracks that administrative command, not every process's lazy snapshot.
+
 A job that throws releases the index whatever it threw. A job that never returns cannot, so a claim
 is believed for six hours. Past that the status reports it as `overdue`, and the refusal names the
 command that takes the index back:
@@ -3173,6 +3183,45 @@ Tests use explicit expected policies rather than consulting production mapping c
 counts in the submission matrix prove that authentication or routing did not short-circuit the case.
 These contracts supplement the redeploy and whole-stack smoke gate; they do not replace it.
 
+### Production search probe, 2026-10-19
+
+`ops/cedar_search_readonly_probe.py` performs 68 sequential GETs against `/search` and
+`/search-deep`, requesting three sample identifiers per query. It checks case, whitespace,
+analyzed punctuation, Boolean count relationships, malformed-query status and returned pagination
+URLs. It refuses redirects and sends the key only to the selected HTTPS origin. Run it without
+putting the key in the command line:
+
+```bash
+python3 ops/cedar_search_readonly_probe.py \
+  --api-key-file "$HOME/.cedar-admin-key" \
+  --out "$CEDAR_HOME/.cedar/reports/search/production-readonly.json"
+```
+
+This is a bounded search probe, not a complete content or permissions audit. Counts are live and
+permission-scoped; three samples cannot establish complete set equality. An admin probe supplements
+the user-scoped browser matrix but does not test ordinary-user permission isolation. Exit 1 means
+the report contains findings. The 2026-10-19 production run against 2.9.25 confirmed:
+
+| Surface | Observed production behavior | Corrected behavior |
+| --- | --- | --- |
+| Quoted single word | `"Rad"` lost its quotes and matched `gradual`, `grade` and `radioactive` in descriptions. | Case-insensitive analyzed word/phrase matching; unquoted `Rad` retains substring matching. |
+| Quoted punctuation | `"Moles/volume"` returned 0 versus 166 for `"Moles volume"`; `"2-Dimensional"` returned 0 versus 244 for the spaced phrase. | Preserve the quoted atom and slash before analysis. |
+| Escaped wildcard | `rad\*` expanded the star like `rad*`. | Preserve the escape; only unescaped wildcards expand. |
+| Field separator spacing | `Sex: Male` returned 102,188 versus 47,721 for `Sex:Male`, including quoted-value variants. | Whitespace after the colon keeps the field-value association. |
+| Invalid syntax | Unclosed quote/group returned HTTP 500 on both endpoints. | HTTP 400 survives service exception wrapping. |
+| Pagination | Spaces became literal plus signs; following a `"Dried blood spot"` link changed the query to `"Dried+blood+spot"` and returned 0. | Form-decode query parameters before building offset and continuation links. |
+| Possible values | `[pv]*` found only three fields; `[pv]Yes` found none despite field CDE 4768151 referencing the two-term Yes No Indicator set. | Load the ontology in each indexing process; rebuild existing projections after checking the deployed file. |
+| Public URL scheme | HTTPS requests returned HTTP pagination links. | Resource honors trusted-proxy forwarding headers; deploy the proxy header rules described in the production runbook. |
+
+Case variants, Boolean count identities and equivalent existence forms passed the admin probe.
+The possible-value observation establishes missing indexed content, while source inspection identifies
+the empty process-local ontology as a failure mechanism; the GET-only audit cannot establish the
+contents or availability of production's ontology file. Evidence is in
+`.cedar/reports/search/production-admin-matrix-20261019.json` and
+`.cedar/reports/search/production-api-20261019.jsonl`. The parser and URL corrections have real
+OpenSearch and HTTP regression coverage; the full-stack corpus includes the production quote,
+punctuation, escape and spacing cases, and checks that pagination links retain the expression.
+
 ### Default test environment
 
 Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, Redis or
@@ -3219,18 +3268,18 @@ cedarcli test search --check      # offline harness tests; HTTP/TCP connections 
 cedarcli test search --validate   # Java 17 validator + reader, using the existing local artifact-server jar
 ```
 
-Validation neither builds nor resolves dependencies. It checks all 53 materialized artifacts with
+Validation neither builds nor resolves dependencies. It checks all 55 materialized artifacts with
 `cedar-model-validation-library`, and all 19 schema artifacts with `cedar-artifact-library`'s reader.
 The checked-out builders and the already-built validator may represent different revisions; the
 validation output identifies its jar. This establishes fixture validity, not server acceptance or
 search correctness.
 
-The corpus contains 13 standalone fields, two reusable elements, four templates and 34 instances.
+The corpus contains 13 standalone fields, two reusable elements, four templates and 36 instances.
 Field names, property keys, preferred labels and UI overrides intentionally differ. Contrasts include
 wrong-field values, same-name private twins, absent/null/empty values, literal/linked values, ontology
 labels with different URIs, nested/repeated values, typed values, and readable instances of private
-templates. The 76 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
-304 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
+templates. The 87 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
+348 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
 manager, plus direct/inherited everybody viewer, crossed with private/granted/revoked, two actors,
 name/value queries, both endpoints and all three sharing views. Another 32 cells walk small pages
 by offset and continuation; 21 lifecycle
@@ -3250,7 +3299,7 @@ cedarcli test search --live --tier all
 cedarcli test search --live --tier all --workers 1  # serial diagnosis
 ```
 
-A full run creates the 53 core artifacts plus 15 transition instances, 25 folders and one group,
+A full run creates the 55 core artifacts plus 15 transition instances, 25 folders and one group,
 using the existing two test accounts. It changes only its own grants/memberships and artifacts.
 It does not rebuild, redeploy, restart services, reset indexes or call external terminology providers.
 Run it after other work using the same test accounts has finished. It shares the split-tier lock

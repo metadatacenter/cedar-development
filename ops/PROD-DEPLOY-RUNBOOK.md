@@ -23,6 +23,26 @@ headroom while its consumer is unavailable.
 
 ## The Sequence
 
+### Search fixes: trusted proxy and possible-value data prerequisites
+
+Before deploying the search corrections following 2.9.25, install the forwarding-header rules from
+the versioned nginx global include into the active proxy configuration. Resource's application
+connector now honors forwarded headers so pagination retains HTTPS after TLS termination. Keep
+its application port private to the trusted proxy/internal network. The proxy must clear incoming
+`Forwarded`, overwrite `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Server` and
+`X-Forwarded-Proto` using its own host/port/scheme, and set the client-address forwarding policy.
+Check for location-level `proxy_set_header` directives that override inheritance. Validate with
+`nginx -t` before reloading. Do not enable forwarding-header trust behind an unverified proxy.
+
+Verify that both resource and worker can read
+`$CEDAR_CADSR_ONTOLOGIES_FOLDER/CADSR-VS.owl`, and that it contains the CADSR value sets required by
+the deployment, before rebuilding search. A missing file now fails the affected projection rather
+than silently erasing its possible values. After deployment, run the bounded GET-only search probe
+in the backend runbook; then use the documented controlled search rebuild to repopulate existing
+fields. The probe and code deployment alone do not repair existing index content. Confirm that
+`[pv]Yes` finds the known Yes No Indicator field and that pagination URLs retain HTTPS and the exact
+decoded query. No artifact-document repair is needed for these search changes.
+
 Run the sequence as `cedar` inside `tmux` so it survives a disconnect. Examples use the profile's
 `gocedar` and `goeditor` navigation aliases. Without the `cedarcli` alias, export `CEDAR_HOME` and
 use `bash "$CEDAR_HOME/cedar-cli/cli.sh" <args>`; the CLI loads its selected profile itself.

@@ -1,5 +1,5 @@
 {
-  "revision": 1,
+  "revision": 2,
   "fields": [
     {"alias":"title-field","name":"title","type":"text"},
     {"alias":"publisher-field","name":"publisher","preferred":"publishing institution","type":"text"},
@@ -26,6 +26,8 @@
     {"alias":"private-template","name":"Private schema study","private":true,"children":{"Notes":"notes-field"}}
   ],
   "instances": [
+    {"alias":"rad-word","template":"catalog-template","name":"Rad measurement","description":"Moles/volume in Dried blood; 2-Dimensional Electrophoresis","access":"direct","values":{}},
+    {"alias":"rad-substring","template":"catalog-template","name":"Radiation measurement","description":"A gradual change of grade","access":"direct","values":{}},
     {"alias":"ny-stats","template":"catalog-template","name":"Record 01","access":"direct","values":{"title":"Statistics","publisher":"City of New York","Contact Email":"research@example.org","topic":{"uri":"http://edamontology.org/topic_2269","label":"statistics"},"url":{"uri":"https://catalog.data.gov/dataset/demographic-statistics-by-zip-code-acfc9"}}},
     {"alias":"boston-stats","template":"catalog-template","name":"Record 02","access":"direct","values":{"title":"Statistics","publisher":"City of Boston"}},
     {"alias":"ny-math","template":"catalog-template","name":"Record 03","access":"group","values":{"title":"Mathematics","publisher":"City of New York"}},
