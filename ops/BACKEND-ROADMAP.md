@@ -1012,14 +1012,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
-    in a compile.
+    in a compile. Even 4.5.29, the newest release on the current line, is more than a patch. It
+    replaces the Sesame 2.7.16, Semargl and `jsonld-java-sesame` parsers under all three users with
+    RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major.
 
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
-  6.3.0, MySQL Connector/J 8.4.0 to 26.7.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
+  6.3.0, MySQL Connector/J 9.7.0 to 26.7.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
   9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.09.0.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.4 to 7.0.4 is held by the
+  their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
   Keycloak client stack, which items 6 and 20 own.
 
   Embedded Mongo 4.22.0 to 4.33.0 and 5.0.0 belongs here too, and it is the deployed Mongo it
@@ -1051,7 +1053,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
   resolves one version of an artifact nothing here depends on directly, which makes these five
   nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.138 to
-  4.2.18, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.7.19 to 3.8.7. Each belongs to a
+  4.2.18, protobuf-java 4.31.1 to 4.36.2 and Reactor Core 3.7.19 to 3.8.7. Each belongs to a
   framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
   Raising one on its own would pin a version its owner does not expect.
 

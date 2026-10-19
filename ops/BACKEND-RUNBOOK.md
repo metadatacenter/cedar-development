@@ -4680,7 +4680,14 @@ those servers may move; the servers themselves may not.
 
 Four of those six moved on 2026-08-08, deliberately and as part of containerizing them for
 development: Redis to 7.2.7, OpenSearch to 2.19.1, Mongo to 5.0.31 and Neo4j to 5.26.0, each set to
-the version already running natively. MySQL and Keycloak have not moved.
+the version already running natively. MySQL and Keycloak have not moved in the images.
+
+The native workstation stack holds the lock only where Homebrew is told to. MongoDB comes from the
+versioned `mongodb-community@5.0` formula, and `redis` and `opensearch` are pinned with `brew pin`,
+but `mysql` is neither versioned nor pinned. On 2026-10-19 it ran 9.6.0, an Innovation release,
+against the 8.4.11 the images pin, and Homebrew's current `mysql` was 26.7.0, which the next
+`brew upgrade` would install. A local e2e run therefore exercises a newer MySQL than the images
+carry. Check `brew list --pinned` before upgrading Homebrew on a workstation.
 
 **Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.7.1, and
 the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
@@ -4696,7 +4703,7 @@ Hibernate and Jackson run ahead of the versions the Dropwizard 5.0.2 bundle name
 same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are
 the OpenSearch low-level REST client and the Keycloak event listener, which stay on HttpClient 4
 because those external APIs require v4 types), slf4j 2.0 with logback 1.5, swagger-core v3
-(OpenAPI 3), mysql-connector-j 8.4, log4j 2.26, commons-lang3.
+(OpenAPI 3), mysql-connector-j 9.7, log4j 2.26, commons-lang3.
 
 `cedar-parent` imports both `org.eclipse.jetty:jetty-bom` and
 `org.eclipse.jetty.ee10:jetty-ee10-bom` using the single `org.eclipse.jetty.version` property.
