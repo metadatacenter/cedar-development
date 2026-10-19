@@ -8,6 +8,10 @@ const publishers = ['ny-stats', 'boston-stats', 'ny-math', 'private-twin', 'swap
 const titleValues = [...stats, 'ny-math', 'swapped', 'punctuation'];
 const add = (id, query, matches, family, extra = {}) => ({ id, query, matches, family, types: ['instance'], ...extra });
 export const queries = [
+  add('literal-percent-quote', '"Rad%22"', [], 'escaping'),
+  add('literal-percent-plus', '"C%2B%2B"', [], 'escaping'),
+  add('literal-percent-nested', '"Rad%2522"', [], 'escaping'),
+  add('literal-braces', '"{Rad}"', ['rad-word'], 'escaping'),
   add('quoted-single-word', '"Rad"', ['rad-word'], 'metadata'),
   add('quoted-single-word-case', '"rAD"', ['rad-word'], 'metadata'),
   add('unquoted-substring', 'Rad', ['rad-word', 'rad-substring'], 'metadata'),

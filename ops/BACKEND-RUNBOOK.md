@@ -3222,6 +3222,51 @@ contents or availability of production's ontology file. Evidence is in
 OpenSearch and HTTP regression coverage; the full-stack corpus includes the production quote,
 punctuation, escape and spacing cases, and checks that pagination links retain the expression.
 
+The deeper post-deployment audit uses `ops/cedar_search_matrix_audit.py`:
+
+```bash
+python3 ops/cedar_search_matrix_audit.py \
+  --api-key-file "$HOME/.cedar-admin-key" \
+  --out "$CEDAR_HOME/.cedar/reports/search/production-search-matrix.json"
+```
+
+It follows only same-origin HTTPS search links, reads sequentially with a delay, caps requests and
+complete-set sizes, and checkpoints each response as JSONL. It records identifiers and selected
+search metadata, plus constraints from a bounded field sample, not credentials, continuation tokens
+or full artifact documents. Use a fresh output path for every run. It refuses redirects and stops on
+authorization failure or repeated server failures. This is a functional audit, not a load test.
+
+On 2026-10-19, the post-deployment baseline, expanded matrix and targeted confirmations made 766
+GET requests. Both search endpoints agreed on counts across 108 filter combinations; 26 complete
+Boolean-set comparisons, 86 bounded complete walks, 21 sort-order checks and 20 returned-title
+phrase checks passed. The original quote/punctuation/spacing/HTTPS defects were corrected:
+`"Rad"`, `"rad"` and `"RAD"` each found 18 resources, while unquoted `Rad` found 5,217.
+
+The deeper checks exposed these additional defects:
+
+| Surface | Production observation | Regression contract |
+| --- | --- | --- |
+| Query data in URLs | `"C%2B%2B"` became `"C++"` in links; a `"Rad%22"` first link answered 400 when followed. `"{Rad}"` answered 500. | Treat decoded parameter values as URI-template substitutions so percent escapes and braces remain data. |
+| Empty last page | No matches with `limit=1` produced `offset=-1`; following it answered 400. | Empty-result first/last offsets are zero. |
+| Equal sort values | Ordinary and deep search ordered identical names differently. Repeated complete walks found no loss or duplicates in this sample. | Both paths use the identifier as the final tie-breaker. |
+| Conflicting selectors | A nonexistent template had zero instances, but adding `q=Sex:Male` returned 47,721 unrelated instances because `is_based_on` was ignored. | Refuse `q` together with `is_based_on` as HTTP 400. |
+| Identifier pagination | `id=...&offset=1` repeated the one resource. A deep identifier lookup accepted a garbage continuation. | Keep total 1, return an empty page past offset zero, and refuse a continuation the graph lookup cannot resume. |
+| Possible-value projections | `[pv]*` still found only three fields. Of 40 selected Indicator fields read from storage, all 13 with nonempty CADSR value sets were absent from that result. The known Yes/No witness also remained absent. | Check the deployed ontology and rebuild projections using the production runbook. Code deployment alone does not populate existing records. |
+
+Positive possible-value witnesses (`White`/`white`/`WHITE`, and the phrase `Stage II`) established
+that case folding and exact/phrase matching work for the few populated projections. The GET-only
+audit cannot establish whether the production ontology file is present, current or complete.
+
+Raw evidence lives under `.cedar/reports/search/production-postdeploy-baseline-20261019.json`,
+`production-hard-matrix-20261019-r2.json`, `production-hard-followup-20261019.json`,
+`production-encoding-20261019.json` and `production-hard-confirm-20261019.json`. Raw failed-check
+counts are not defect counts: the first pass also challenged empty optional parameters, compact
+identifier links, identifier-selector precedence and literal square brackets. These existing
+contracts were confirmed and the reusable audit now recognizes them. Empty optionals mean omission;
+identifier lookup takes precedence over a text query and does not apply version/publication filters;
+square brackets are escaped literal text, not supported range syntax. Admin scope does not establish
+ordinary-user permission isolation or exhaustive store/index parity.
+
 ### Default test environment
 
 Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, Redis or
@@ -3278,11 +3323,13 @@ The corpus contains 13 standalone fields, two reusable elements, four templates 
 Field names, property keys, preferred labels and UI overrides intentionally differ. Contrasts include
 wrong-field values, same-name private twins, absent/null/empty values, literal/linked values, ontology
 labels with different URIs, nested/repeated values, typed values, and readable instances of private
-templates. The 87 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
-348 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
+templates. The 91 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
+364 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
 manager, plus direct/inherited everybody viewer, crossed with private/granted/revoked, two actors,
-name/value queries, both endpoints and all three sharing views. Another 32 cells walk small pages
-by offset and continuation; 21 lifecycle
+name/value queries, both endpoints and all three sharing views. Another 48 cells walk single-row pages
+by offset and continuation, including literal percent/braces and empty-result links. Sixteen protocol
+cells cover malformed queries, conflicting template selectors, identifier offsets and unusable
+continuations; 21 lifecycle
 checks cover rename, value and ontology changes, overlapping grants, membership, moves, deletion
 and continuation revocation, caller binding and sharing-view binding. Seven browser scenarios cover
 entry, exact rows, reload/Back, type filtering, opening the intended identity and searching within

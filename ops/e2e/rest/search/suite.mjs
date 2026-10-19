@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { definitions } from './corpus.mjs';
 import { hiddenFromReader, expectedAliases } from './queries.mjs';
-import { contentMatrix, accessMatrix, accessConfigurations, accessStates, pagingMatrix, lifecycleChecks } from './matrix.mjs';
-import { exactResults, assertNoDisclosure, converge, searchPath, walkSearch, resultMetadata, resultAuthority } from './assertions.mjs';
+import { contentMatrix, accessMatrix, accessConfigurations, accessStates, pagingMatrix, protocolMatrix, lifecycleChecks } from './matrix.mjs';
+import { exactResults, assertNoDisclosure, assertSearchLinks, converge, searchPath, walkSearch, resultMetadata, resultAuthority } from './assertions.mjs';
 import { drainPool, workerCount } from '../scheduler.mjs';
 import { timedPhase } from './execution.mjs';
 
@@ -50,10 +50,29 @@ export async function runRest({ fixtures, request, report, scope, check, workers
     const response = await request(row.actor, 'GET', path);
     exactResults(response, row.expected.map(alias => fixtures.id(alias)));
     resultMetadata(response, metadata);
+    assertSearchLinks(response, row.test, scope);
   }));
   await timedPhase(report, 'paging', () => reads(pagingMatrix, row => walkSearch(
     path => request(row.actor, 'GET', path), row.test, scope,
     expectedAliases(row.test, row.actor).map(alias => fixtures.id(alias)), { continuation: row.mode === 'continuation' })));
+
+  await timedPhase(report, 'protocol', () => reads(protocolMatrix, async row => {
+    const params = new URLSearchParams({ limit: '1' });
+    if (row.test === 'malformed-query') params.set('q', '"Rad');
+    if (row.test === 'template-query-conflict') {
+      params.set('q', scope || 'Statistics');
+      params.set('is_based_on', fixtures.id('catalog-template'));
+    }
+    if (row.test.startsWith('identifier-')) {
+      params.set('id', fixtures.id('catalog-template'));
+      params.set(row.test === 'identifier-offset' ? 'offset' : 'continuation', row.test === 'identifier-offset' ? '1' : 'garbage');
+    }
+    const reply = await request(row.actor, 'GET', `/${row.endpoint}?${params}`);
+    if (row.test === 'identifier-offset') {
+      exactResults(reply, [], { total: false });
+      assert.equal(reply.body.totalCount, 1, 'Identifier total must remain independent of the page');
+    } else assert.equal(reply.status, 400, 'Invalid search must be refused instead of ignoring a selector');
+  }));
 
   // Each configuration owns its instance and folder. Permission changes never touch existing user
   // groups, home ACLs, or artifacts outside this run. The owner/member identities remain constant.
@@ -197,4 +216,4 @@ async function lifecycle({ fixtures: f, request, scope, check }) {
   });
 }
 
-export const restCheckIds = [...contentMatrix, ...pagingMatrix, ...accessMatrix].map(row => row.id).concat(lifecycleChecks);
+export const restCheckIds = [...contentMatrix, ...pagingMatrix, ...protocolMatrix, ...accessMatrix].map(row => row.id).concat(lifecycleChecks);
