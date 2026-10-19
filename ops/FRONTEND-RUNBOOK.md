@@ -1539,8 +1539,10 @@ zero, and a diff can only mean CEE draws something different.
 Two consequences worth knowing before changing either. The runner must be arm64,
 because the script asks for `linux/arm64` and an x86_64 runner would rasterise
 differently and put the problem back without saying so. And the image tag in that
-script is the thing that moves every baseline at once — treat a bump the way an
-OS upgrade used to be treated, by re-recording deliberately.
+script can move every baseline at once, so treat a bump the way an OS upgrade used to
+be treated. Run every container suite on the new image first, and re-record only what
+it moves, deliberately. The move from `v1.63.0-noble` to `v1.64.1-noble` on 19 October
+2026 moved none of the 247 CEE, CED, CETP and Workspace baselines.
 
 This was `macos-15`, pinned so a runner bump would not move the macOS baselines,
 and specifically not `macos-14`, where Playwright served a WebKit frozen at v2251
@@ -3499,7 +3501,7 @@ The full `npm run smoke:workspace:modern` journey also checks editable and read-
 Permissions dialogs, including visible role/ownership controls on phones; it accepts
 the same screenshot directory. These live checks need the authenticated local stack.
 CETP's `npm run test:visual` compares two zero-tolerance desktop/phone baselines in
-Playwright 1.63.0's ARM Linux container, matching its CI runner. Build first; update
+Playwright 1.64.1's ARM Linux container, matching its CI runner. Build first; update
 with `npm run test:visual -- --update-snapshots` only after reviewing the render.
 CEE's existing read-only and editable visual baselines remain the design reference.
 
