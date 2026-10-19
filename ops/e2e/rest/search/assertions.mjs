@@ -81,6 +81,11 @@ export async function walkSearch(request, test, scope, expectedIds, { continuati
     assert.ok(Array.isArray(response.body?.resources), 'Missing paged resources');
     assert.equal(response.body.totalCount, expectedIds.length, 'Static paging total changed');
     assert.ok(response.body.resources.length <= pageSize, 'Page limit ignored');
+    for (const link of Object.values(response.body.paging ?? {})) {
+      if (typeof link !== 'string' || !link) continue;
+      assert.equal(new URL(link, 'https://resource.example').searchParams.get('q'),
+        scopedQuery(test.query, scope), 'Returned pagination link changed the expression');
+    }
     rows.push(...response.body.resources);
     if (continuation) {
       token = response.body.continuation;

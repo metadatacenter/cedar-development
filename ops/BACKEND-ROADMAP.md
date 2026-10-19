@@ -1012,29 +1012,29 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
-    in a compile.
-  - **jaxb2-maven-plugin 4.1.0 to 4.2.0.** A code generator whose only consumer is
-    `cedar-cadsr-tools`, so what has to be reviewed is the sources it emits rather than the version.
+    in a compile. Even 4.5.29, the newest release on the current line, is more than a patch. It
+    replaces the Sesame 2.7.16, Semargl and `jsonld-java-sesame` parsers under all three users with
+    RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major.
 
-  **Versions that follow a locked server or framework.** Six sit here: the Neo4j driver 5.28.14 to
-  6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.1, the OpenSearch client
-  2.19.2 to 3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1.
+  **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
+  6.3.0, MySQL Connector/J 9.7.0 to 26.7.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
+  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.09.0.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
-  their own. The Mongo driver is the exception: 5.11.1 stays inside major 5, so nothing about it
-  needs proving against the pinned server, and it is grouped here only to move with that server's
-  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 6 and 20 own.
+  their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
+  Keycloak client stack, which items 6 and 20 own.
 
-  Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
-  than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
-  `de.flapdoodle.commons.reverse`, and `EmbeddedCedarMongo` is the estate's only consumer. The
-  obstacle is the binary: 5.0.0 offers no mongod 5.0 package for macOS on ARM, so every suite that
+  Embedded Mongo 4.22.0 to 4.33.0 and 5.0.0 belongs here too, and it is the deployed Mongo it
+  follows rather than a framework. The obstacle is the binary. MongoDB published no macOS ARM build
+  before 6.0, and flapdoodle 4.22.0 and earlier resolve the x86-64 build there instead. From 4.23.0,
+  5.0.0 included, flapdoodle offers no mongod 5.0 package for macOS on ARM, so every suite that
   starts the embedded store dies at `could not resolve package for
-  V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start.
-  MongoDB published no macOS ARM build before 6.0 and 4.20.0 resolves one anyway; 5.0.0 does not.
-  Taking the upgrade therefore means running the suites against a different major from the deployed
-  5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 14.
+  V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start. Linux
+  CI does not see the failure; every Apple silicon workstation does. Taking the upgrade therefore
+  means running the suites against a different major from the deployed 5.0.31, which is the one
+  thing `EmbeddedCedarMongo` exists to avoid. It moves with item 14. Version 5.0.0 also costs one
+  import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and
+  `EmbeddedCedarMongo` is the estate's only consumer.
 
   Logback 1.6 belongs here rather than among the upgrades to make, and SLF4J is not what holds it:
   every 1.6 release builds against slf4j 2.0.18, which the estate already carries. Dropwizard does.
@@ -1046,16 +1046,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   What the hold costs is only what 1.6 itself carries, because the 1.5 maintenance line is still
   open and `cedar-parent` runs on it, ahead of the 1.5.33 that Dropwizard 5.0.2 pins.
-  logback-access is held by its own build rather than by that rule: its 2.0.15 release compiles
-  against logback-core 1.6.3, so it cannot move while 1.6 is banned. Both wait on Dropwizard
+  logback-access is held by its own builds rather than by that rule. Its 2.0.13 release is the last
+  built against logback-core 1.5, and 2.0.14 is the first built against 1.6. Both wait on Dropwizard
   shipping a line built against 1.6.
 
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
   resolves one version of an artifact nothing here depends on directly, which makes these five
   nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.138 to
-  4.2.18, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.5.20 to 3.8.7. Each belongs to a
+  4.2.18, protobuf-java 4.31.1 to 4.36.2 and Reactor Core 3.7.19 to 3.8.7. Each belongs to a
   framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
   Raising one on its own would pin a version its owner does not expect.
+
+  Netty does not fit that rule. The Neo4j driver 5.28.15 is built against Netty 4.2.17, and the 4.1
+  pin exists for neo4j-harness 5.3.0, which declares 4.1.84 and runs its embedded Bolt server on it.
+  A test dependency therefore sets the Netty every production server runs the driver on. Ending the
+  hold needs the harness proved on 4.2, or replaced as the parent POM's harness note anticipates.
 
   **Versions whose newest release is not a final.** These have no final to move to: HttpCore
   5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J

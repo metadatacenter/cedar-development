@@ -79,8 +79,8 @@ test('parallel matrices finish every read before the next permission mutation or
 
 test('matrix covers every declared query, identity and endpoint, with no absent oracle members', () => {
   assert.equal(validateInventory(), true);
-  assert.equal(queries.length, 76);
-  assert.equal(contentMatrix.length, 304);
+  assert.equal(queries.length, 87);
+  assert.equal(contentMatrix.length, 348);
   assert.equal(accessMatrix.length, 792);
   assert.equal(pagingMatrix.length, 32);
   for (const query of queries) for (const actor of ['owner', 'reader']) for (const endpoint of ['search', 'search-deep'])
@@ -119,7 +119,7 @@ test('field-value fixture contrasts and exact permissions are independently pinn
 test('full artifact graph is deterministic and preserves distinct names, values, URIs and repetitions', () => {
   const first = materialize(), second = materialize();
   assert.deepEqual(first, second);
-  assert.equal(first.size, 53);
+  assert.equal(first.size, 55);
   const names = first.get('names-template');
   assert.equal(names.properties.publisherCode['schema:name'], 'Publisher Name');
   assert.equal(names.properties.publisherCode['skos:prefLabel'], 'Publishing organisation');

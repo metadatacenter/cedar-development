@@ -1,15 +1,16 @@
 # Runbook — the app-log queue is growing
 
 **Symptom:** the monitoring **Queue Counts** page shows *App Log* climbing and not coming back down.
-Left alone it reaches millions of messages and degrades Redis, which also serves search permissions
-and caching — so the blast radius is wider than logging.
+An unchecked backlog can exhaust Redis capacity and affect search permissions and caching.
 
 Written after the 2026-09-08→14 incident (`worklog/2026-09-14-app-log-queue-incident.md`). Companion
 analysis: `LOG-PIPELINE-CAPACITY.md`.
 
 ---
 
-## 0 · The One Thing to Understand First
+<a id="0--the-one-thing-to-understand-first"></a>
+
+## 0 · Measure Arrival and Drain Rates
 
 During the September 8–14 incident the consumer drained about 6 rows/s against normal traffic of
 about 0.76/s. Measure current arrival and drain rates first. Look for a producer surge, a blocked
@@ -19,11 +20,10 @@ consumer or dependency failure before changing tuning; the commands below distin
 
 ## 1 · Triage in Four Commands
 
-Run these on the app host (`cedr-prd-app-05`). They take under a minute and they split every case.
+Run these on the app host. Sample counts at least 60 seconds apart.
 
-> The Monitor's **Queue Counts** page now shows pending, processing and dead-letter depths for every
-> queue, so (a), (c)'s two counts and §4b's depths are readable without an SSH session. Come here for
-> (b), for the in-flight message's own payload, and whenever the Monitor is itself unavailable.
+> Monitor's **Queue Counts** page shows pending, processing and dead-letter depths. Use the shell
+> for database progress, message payloads, or when Monitor is unavailable.
 
 ```bash
 # a. Is the queue growing, and how fast?
@@ -35,7 +35,7 @@ mysql -h "$CEDAR_LOG_MYSQL_HOST" -u "$CEDAR_LOG_MYSQL_USER" -p "$CEDAR_LOG_MYSQL
          TIMESTAMPDIFF(SECOND, MAX(requestTime), UTC_TIMESTAMP()) AS lag_seconds
   FROM ${CEDAR_LOG_MYSQL_DB}.log_request;"
 
-# c. IS A PERMISSION CASCADE RUNNING?  <-- check this early, it is the most likely cause
+# c. Is permission work in flight?
 redis-cli LLEN CEDAR-QUEUE-search-permission
 redis-cli LLEN CEDAR-QUEUE-search-permission-processing
 redis-cli LRANGE CEDAR-QUEUE-search-permission-processing 0 -1
@@ -48,10 +48,10 @@ redis-cli LRANGE CEDAR-QUEUE-app-log -3 -1
 
 | observation | meaning |
 |---|---|
-| (b) `max_id` not moving | consumer is dead — see §4 |
-| (b) `max_id` climbing ~6/s, queue still growing | normal consumer, excess inbound — find the source |
-| (c) `-processing` = **1** with an old `createdAt` | **a permission cascade is grinding — most likely cause, §2** |
-| (c) pending count static for hours *and* `-processing` = 1 | same thing; a static pending count does **not** mean idle |
+| (b) `max_id` not moving while request messages are pending | consumer or dependency may be blocked — see §4 |
+| (b) `max_id` climbing, queue still growing | arrivals exceed the drain rate — identify the producer and measure both rates |
+| (c) processing is nonzero with old `createdAt` values | permission work is pending or in flight; inspect worker logs and the deployed version, §2 |
+| (c) pending count static while processing is nonzero | not evidence that the consumer is idle |
 | (d) messages are `SERVER_ARTIFACT` / `template-instances` | something is walking the artifact tree |
 | (d) `userId` = CEDAR Admin, `authSource` = apiKey | internal machinery **or** a script using the admin key — both look identical |
 
@@ -60,27 +60,27 @@ redis-cli LRANGE CEDAR-QUEUE-app-log -3 -1
 
 ---
 
-## 2 · Most Likely Cause: An Unbounded Permission Cascade
+<a id="2--most-likely-cause-an-unbounded-permission-cascade"></a>
 
-`GROUP_MEMBERS_UPDATED`, `GROUP_DELETED` and `FOLDER_PERMISSION_CHANGED` each enqueue a ~200-byte
-pointer, but the work is derived: the consumer walks **every resource that group or folder can
-reach** and reindexes its permissions, fetching each one from the artifact server.
+## 2 · Permission Cascades
 
-There is **no batching, no time limit, no progress reporting, and no way to tell whether one is
-advancing or wedged.**
+This was the cause of the September 2026 incident on the older worker. Group/folder events walked
+every reachable resource and fetched each artifact again. One `GROUP_MEMBERS_UPDATED` for
+**"CEDAR Dev Team"** had been in flight for **~48.5 hours**, with nine events queued behind it.
 
-On 2026-09-14 a single `GROUP_MEMBERS_UPDATED` on the 2016-era **"CEDAR Dev Team"** group had been
-in flight for **~48.5 hours** without finishing, with nine more queued behind it.
+Current workers batch permission events and update graph-derived search fields without fetching
+existing artifact content; missing index documents still require a full rebuild. Check the deployed
+binary before applying the old diagnosis. See the current
+[queue protocol and permission projection](BACKEND-RUNBOOK.md#the-redis-queues-and-where-failed-permission-events-go).
 
-The message tells you when it started:
+The message records when the event was created, not when handling began:
 
 ```json
 {"id":"...groups/295c93d3-...","eventType":"GROUP_MEMBERS_UPDATED",
  "createdAt":"2026-09-12T11:16:25-07:00"}
 ```
 
-Identify the group before deciding anything — its reach is the difference between "will finish" and
-"never will":
+Identify the group and its reachable resources before deciding whether to interrupt the work:
 
 ```bash
 curl -s -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY" \
@@ -115,10 +115,11 @@ correctness trade, not a cleanup.
 
 ## 3 · Draining the Backlog
 
-Once inbound stops, the backlog clears at roughly 5/s net — **about 60 hours per million messages.**
+The incident's net drain rate was roughly 5/s — **about 60 hours per million messages**.
+Estimate current drain time from measured arrival and consumption rates.
 
-If the backlog is mostly a cascade's own artifact fetches (it usually is, and it has no analytical
-value), purge it instead, **while the worker is stopped**:
+If the captured messages confirm a cascade-generated backlog and discarding those log records is
+approved, purge it **while the worker is stopped**:
 
 ```bash
 redis-cli LLEN CEDAR-QUEUE-app-log      # record the number first
@@ -132,14 +133,14 @@ Then verify the fix held:
 redis-cli LLEN CEDAR-QUEUE-app-log; sleep 60; redis-cli LLEN CEDAR-QUEUE-app-log
 ```
 
-**A flat single- or double-digit number is what success looks like.**
+Verify that the backlog drains and stays bounded under normal traffic.
 
 ---
 
 ## 4 · If the Consumer Really Is Dead
 
-`max_id` not moving at all. The consumer catches every exception and retries every 10 s forever, so
-it does not exit — it spins.
+If request messages are pending but `max_id` does not move, inspect the consumer and its dependencies.
+A retrying consumer can remain alive without making progress.
 
 ```bash
 grep -n 'log queue consumer failed' $CEDAR_HOME/log/cedar-worker-server/dropwizard*.log | tail -5
@@ -156,10 +157,7 @@ either way.** Use `max_id` as the liveness signal, not the log.
 
 ## 4B · Dead-Lettered Log Messages
 
-**Start on the Monitor's Queue Counts page.** It reports three depths per queue — pending,
-processing and dead-letter — so the whole of this section's triage is readable without shelling into
-the app host. The `redis-cli` equivalents below still work and are what to use when the Monitor is
-the thing that is down.
+Read the depths on Monitor's **Queue Counts** page, or use these shell checks:
 
 ```bash
 curl -s http://127.0.0.1:9111/healthcheck | python3 -m json.tool | grep -A3 queue-dead-letter
@@ -172,19 +170,12 @@ done
 A message lands there after `handleWithRetries` fails **3 times** (`MAX_HANDLING_ATTEMPTS`, 1 s
 apart). The payload is parked rather than lost, and the depth is the alarm.
 
-> **Changed 2026-09-15: a parked message no longer makes the worker UNHEALTHY.** It used to —
-> `queue-consumers` failed on any non-empty dead-letter queue, which 500'd the admin endpoint, and
-> `cedar-services.sh` derives readiness from that endpoint and accepts only 200. So one parked
-> message made **every** `cedarcli native start microservices` wait out its full 240 s budget on a
-> worker that was listening and serving, then report the start as failed. Prod's 54 did exactly that
-> on 2026-09-15.
->
-> The check is now split: **`queue-consumers`** still fails when a consumer has stopped or is failing,
-> and **`queue-dead-letter`** reports depths and stays healthy. A parked message is a backlog to look
-> at, not a server that cannot serve. **It still needs looking at** — the depth is on the health
-> message and on Queue Counts, and it is nobody's alarm if nobody reads either.
+`queue-consumers` fails when a consumer stops or fails. `queue-dead-letter` reports parked-message
+depths without failing readiness. Inspect nonzero depths even when the worker is healthy; nothing
+automatically retries those messages. Before 2026-09-15, a parked message also failed readiness and
+could exhaust the native launcher's 240-second wait.
 
-**Read one before clearing** — they are usually all the same shape, and the shape is the diagnosis:
+Read representative messages and the corresponding exceptions before deciding whether to clear:
 
 ```bash
 redis-cli LRANGE CEDAR-QUEUE-app-log-dead-letter 0 2
@@ -197,12 +188,13 @@ redis-cli LRANGE CEDAR-QUEUE-app-log-dead-letter 0 -1 > ~/app-log-dead-letter-$(
 redis-cli DEL CEDAR-QUEUE-app-log-dead-letter
 ```
 
-### Why Messages Dead-Letter, and It Is Not the Message
+<a id="why-messages-dead-letter-and-it-is-not-the-message"></a>
 
-**Settled 2026-09-15 from prod's own logs.** The payload is not the cause. Both prod's 54 and
-staging's 26 shared a shape — `type: cypherQuery`, `methodName: findUserByApiKey` or
-`getResourceMaterializedPermission`, **both request IDs null** — and that shape reads as systematic.
-It is not. It is what happens to be in flight when a dependency goes away.
+### Dependency Outages and Dead Letters
+
+In the 2026-09-15 investigation, production's 54 and staging's 26 parked messages were
+`cypherQuery` events with `findUserByApiKey` or `getResourceMaterializedPermission` and null request
+IDs. Dependency failures, rather than that payload shape, caused the production dead letters.
 
 Prod's `$CEDAR_HOME/log/cedar-worker-server/dropwizard-2026-09-14.log`, exception by minute:
 
@@ -217,22 +209,16 @@ Prod's `$CEDAR_HOME/log/cedar-worker-server/dropwizard-2026-09-14.log`, exceptio
 20  2026-09-14 18:55  java.net.ConnectException
 ```
 
-**The 54 ConnectExceptions are the 54 parked messages, exactly.** The log DB was unreachable on the
-evening of 2026-09-14 while `cedr-prd-db-01` was resized and restarted. Three attempts a second apart
-is a ~3-second budget against a restart that takes minutes, so everything consumed in that window
-parked.
+The 54 connection failures matched the 54 parked messages while the log DB was resized and
+restarted. Three attempts one second apart could not span that outage. Payloads created at 17:21:59
+were consumed after 18:15; their null request IDs came from background permission work.
 
-The null request IDs are a consequence of the backlog, not of the message type. The payloads are
-stamped 17:21:59 and were not consumed until 18:15 — an hour behind, which is what a 6/s consumer
-with a backlog looks like. At 17:21 the only producer was the permission cascade, and background work
-has no HTTP request to take an ID from. Whatever had been running would have parked.
-
-**So: a dead-letter depth after a database or Redis outage is expected and needs no investigation
-beyond confirming the window.** Capture, read one, clear.
+Correlate dead letters with dependency outages before blaming a message shape. Preserve the
+messages and confirm the dependency has recovered before choosing replay or approved disposal.
 
 ### MISCONF: Redis Refusing Writes Duplicates Log Rows
 
-The 96 MISCONF failures are a different and worse problem, and all three fall on flood days:
+The incident also recorded 96 MISCONF failures during three backlog surges:
 
 ```
 MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on
@@ -245,8 +231,8 @@ the database and the acknowledge fails — the message is retried and **written 
 times. Dead-lettering then also fails, so it stays in the processing list and is replayed on the next
 restart.
 
-**A MISCONF window therefore multiplies log rows rather than losing them.** `log_cypher` went 5.2M to
-17.0M across exactly these days. Some of that is the flood; some of it is this.
+A MISCONF window can duplicate log rows. `log_cypher` grew from 5.2M to 17.0M during the incident;
+the measurements do not separate producer traffic from retry duplicates.
 
 Suspected cause: a Redis holding millions of queued messages cannot fork and snapshot on a host with
 limited free disk. That makes it a consequence of the flood as well as a contributor to it. Check the
@@ -273,7 +259,7 @@ awk '/^ERROR \[/{ts=substr($0,8,16)}
 `$CEDAR_HOME` is **not set** in a non-interactive `ssh host '<cmd>'` shell — wrap it in `bash -lc`, or
 use the literal path (`/srv/cedar` on prod).
 
-If the depth climbs back after clearing with no outage to explain it, then it is worth investigating.
+Investigate any renewed growth after recovery.
 
 ---
 
@@ -298,7 +284,9 @@ Use these measurements to avoid repeating the same investigation unless current 
 
 ---
 
-## 6 · Escalation Facts Worth Having to Hand
+<a id="6--escalation-facts-worth-having-to-hand"></a>
+
+## 6 · Historical Host Capacity and Access
 
 These host measurements are from the incident; recheck capacity and access before acting.
 

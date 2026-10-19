@@ -13,7 +13,9 @@ rehearses), `PROD-DEPLOY-RUNBOOK.md` (deploy mechanics — staging variant noted
 
 ---
 
-## 0 · Why This Run Matters More Than a Normal Staging Deploy
+<a id="0--why-this-run-matters-more-than-a-normal-staging-deploy"></a>
+
+## 0 · Deployment Risks
 
 A production-sized log copy can share staging's MySQL instance with app, messaging and Keycloak
 schemas. Confirm the topology: if shared, backfill and pruning compete for the same memory, I/O and
@@ -31,18 +33,16 @@ Do not infer today's staging version from this plan's original baseline.
 
 ## 1 · Gather the Connection Facts
 
-You need six values before anything else. **None of them are invented — five come from the staging
-box, one comes from whoever took the MySQL copy.** Here is where each lives.
+Collect the five database connection values from staging and the dump date from its operator.
 
 ### Where to Put Them
 
-Make a scratch file **on the staging app host**, in the `cedar` user's home — *not* in the repo, it
-holds a password, and `$CEDAR_HOME` is a git checkout:
+Keep the password-bearing scratch file in the `cedar` user's home on staging, outside repositories:
 
 ```bash
 ssh <you>@<staging app host>
 sudo su - cedar
-vi ~/logagg-vars.sh        # scratch, gitignored by virtue of living outside $CEDAR_HOME
+vi ~/logagg-vars.sh        # outside the repository
 chmod 600 ~/logagg-vars.sh
 ```
 
@@ -62,7 +62,7 @@ done.
 ### Where Each Value Comes From
 
 **`LOG_DB_HOST` / `LOG_DB_PORT` / `LOG_DB_NAME` / `LOG_DB_USER`** — staging already runs a log DB
-(2.9.1 has been writing to it for weeks), so these are already configured. Read the effective values:
+and has these values configured. Read the effective values:
 
 ```bash
 gocedar
@@ -98,13 +98,12 @@ grep CEDAR_LOG_MYSQL_PASSWORD $CEDAR_HOME/set-env-internal.sh
 >
 > §2's check 1 and check 2 tell you which world you are in. Do not assume.
 
-**`COPY_TAKEN_ON`** — the date the prod MySQL dump was taken. **No command can tell you this; it comes
-from whoever ran the dump (you, or Martin).** Write it down before you start, because it predicts the
-single most expensive branch in this rollout:
+**`COPY_TAKEN_ON`** — obtain the dump date from its operator or backup record. It predicts whether
+the expensive `queryParameters` conversion is needed; verify the actual type in preflight check 6:
 
 - prod's `log_request.queryParameters` went `varchar(350)` → `LONGTEXT` on **2026-09-01** (commit
   `a7eaa255`) — the change that took prod down 23:19–01:29 UTC.
-- Copy taken **after 2026-09-01** → already `LONGTEXT`; §4c does not apply; this is a short day.
+- Copy taken **after 2026-09-01** → expect `LONGTEXT`; §4c does not apply if confirmed.
 - Copy taken **before 2026-09-01** → still `varchar`; §4c applies; budget hours, not minutes.
 
 `COPY_TAKEN_ON` is your *expectation*. §2's check 6 is the *verification*. If they disagree, believe
@@ -118,10 +117,12 @@ SELECT MAX(requestTime) FROM log_request;   -- the copy can be no older than its
 
 ---
 
-## 2 · Pre-Flight — Measure Before You Change Anything
+<a id="2--pre-flight--measure-before-you-change-anything"></a>
 
-One script, read-only, changes nothing. Run it **before** deploying. It establishes the baseline every
-later check compares against, and it is the data that sizes next week's prod run.
+## 2 · Preflight
+
+Run the read-only preflight before deploying. Retain its output for parity checks and production
+capacity estimates.
 
 Work in `tmux` on whichever host can reach the log DB, and keep that session for the whole rollout:
 
@@ -142,8 +143,8 @@ The script prints eight numbered sections. What each one decides:
 
 | § | Question | What you want to see | If not |
 |---|---|---|---|
-| 1 | Is this schema log-only? | `log_*` and nothing else | App tables here → the copy went into a shared schema. Restore it into its own (`cedar_log_staging`) before continuing; §6's `DROP` needs to be unambiguous. |
-| 2 | Which schemas share this instance? | tells you whether §0(a) applies | If staging's app/Keycloak/messaging schemas are on the same instance, the blast-radius guarantee is gone — throttle hard in §5. |
+| 1 | Is this schema log-only? | `log_*` and nothing else | App tables here → the copy went into a shared schema. Restore it into its own (`cedar_log_staging`) before continuing; §8's `DROP` needs to be unambiguous. |
+| 2 | Which schemas share this instance? | tells you whether §0 applies | If staging's app/Keycloak/messaging schemas are on the same instance, the blast-radius guarantee is gone — throttle hard in §5. |
 | 3 | **Baseline row counts** | four numbers | Record them. If they look like staging's own small tables rather than prod's, `CEDAR_LOG_MYSQL_DB` is pointing at the wrong schema (see §1). |
 | 4 | Date span + id ranges | history back to CEDAR's early days | If `*_pre284` are missing, the dump excluded them — §8 has nothing to drain and you have not rehearsed the expensive half. |
 | 5 | Size + headroom | free space **>** `log_request`'s own size | A `COPY` materialises a full second copy before swapping. Too tight → §4c is unsafe; use the `RENAME TABLE` escape hatch instead. |
@@ -191,7 +192,7 @@ cedarcli mode                              # must report native
 
 # 3.1 Reconcile — investigate any dirty repo before discarding
 cedarcli git status
-# goeditor && git status && git checkout .   # only for a KNOWN hot-patch being folded in
+# Preserve and reconcile reviewed hot-patches before restoring specific paths.
 
 # 3.2 Pull the release
 cedarcli git checkout main
@@ -221,10 +222,12 @@ cedarcli native status                     # confirm 9011 and 9014 are down
 
 Source: `cedar-microservice-libraries/cedar-logging-operations-library/db-migrations/2026-07-29-log-capture-phase1.sql`.
 
-Run it against `$LOG_DB_NAME`. **Skip any section §2.5 showed is already applied.** Time every
-statement — these numbers are next week's prod estimates.
+Run against `$LOG_DB_NAME`. Skip changes that preflight check 6 shows are already applied.
+Time each statement for production estimates.
 
-### 4A · Columns (INSTANT — Seconds Even on Huge Tables)
+<a id="4a--columns-instant--seconds-even-on-huge-tables"></a>
+
+### 4A · Add Columns with INSTANT
 
 ```sql
 SET @t0 = NOW(6);
@@ -245,7 +248,9 @@ SELECT TIMESTAMPDIFF(SECOND, @t0, NOW(6)) AS seconds;
 Naming `ALGORITHM=INSTANT` explicitly is the point: MySQL **errors out** rather than silently doing a
 rebuild. Never drop the clause to "make it work".
 
-### 4B · Indexes (INPLACE — This Is the One That Takes Real Time)
+<a id="4b--indexes-inplace--this-is-the-one-that-takes-real-time"></a>
+
+### 4B · Build Indexes with INPLACE
 
 Prod's `log_request`/`log_cypher` were small when this ran on 2026-07-29. On the restored copy they
 are not. Expect minutes to hours. **This measurement is the main deliverable of the staging run.**
@@ -270,7 +275,9 @@ FROM performance_schema.events_stages_current;
 SHOW PROCESSLIST;
 ```
 
-### 4C · Only If §2.5 Showed `queryParameters` Is Still `varchar`
+<a id="4c--only-if-25-showed-queryparameters-is-still-varchar"></a>
+
+### 4C · Convert queryParameters if Required
 
 ```sql
 -- Confirm the algorithm rather than assuming — expect this to FAIL:
@@ -280,7 +287,7 @@ ALTER TABLE log_request MODIFY queryParameters LONGTEXT NULL, ALGORITHM=INPLACE,
 When it fails, `COPY` is the only path. Options, in order of preference:
 
 1. **Run it deliberately, off-peak, in tmux, with monitor+worker stopped** (they already are). Check
-   free space **>** `log_request`'s own size first (§2.4). Time it — on prod, `log_request` at ~5
+   free space **>** `log_request`'s own size first (§2 check 5). Time it — on prod, `log_request` at ~5
    weeks of data was ≤ ~2h; a years-old table was estimated 13–18h.
 2. **The 2026-07-28 escape hatch:** `RENAME TABLE log_request TO log_request_preNNN;` and let hbm2ddl
    create a fresh empty table (metadata-only, instant). This is what brought prod back in minutes
@@ -330,10 +337,8 @@ export CEDAR_LOG_PRUNE_ENABLED="false"
 Staging-specific tuning to add now (commented-out defaults are in the template):
 
 ```bash
-# Backfill: same conservative throttle as prod, because on staging the log DB shares an instance
-# with everything else (§0a). Window 0-0 means "always on" (start==end short-circuits inWindow()),
-# which is correct on staging — there is no real traffic to stay off-peak from, and you want the
-# full-drain wall-clock number for next week.
+# Use production throttles if staging shares its database instance (§0).
+# Window 0-0 means always on; use it only for this isolated staging rehearsal.
 export CEDAR_LOG_BACKFILL_BATCH="1000"
 export CEDAR_LOG_BACKFILL_PAUSE_MS="2000"
 export CEDAR_LOG_BACKFILL_WINDOW_UTC="0-0"
@@ -344,7 +349,7 @@ export CEDAR_LOG_BACKFILL_WINDOW_UTC="0-0"
 # export CEDAR_LOG_LIVE_AGG_POLL_MS="900000"
 # export CEDAR_LOG_LIVE_AGG_MARGIN_HOURS="3"
 
-# Prune: leave OFF until §7.
+# Prune: leave OFF until §9.
 export CEDAR_LOG_PRUNE_RETENTION_DAYS="30"
 export CEDAR_LOG_PRUNE_BATCH="1000"
 export CEDAR_LOG_PRUNE_PAUSE_MS="2000"
@@ -361,7 +366,9 @@ gocedar
 
 ---
 
-## 6 · First Boot on 2.9.7 — the Moment of Truth
+<a id="6--first-boot-on-297--the-moment-of-truth"></a>
+
+## 6 · First Boot and Verification
 
 ```bash
 cedarcli dev copy-keycloak-listener
@@ -431,16 +438,17 @@ NULL — that is the aggregator's marker, and the aggregator is off.
 check, `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` absent/false, a non-admin login producing one clean
 provisioning callback, monolith + Workspace serving the intended CEE hash in an incognito window.
 
-**Stop here for the day if anything above is off.** The deploy is complete and reversible at this
-point; the jobs are all still off and nothing has been written or deleted.
+Stop if any acceptance check fails. The jobs are still disabled; aggregation and pruning have not
+run. Normal logging and the additive schema changes have already written to the database.
 
 ---
 
-## 7 · Phase 1 — Live Aggregator (Recent Data, Small, Easy to Eyeball)
+<a id="7--phase-1--live-aggregator-recent-data-small-easy-to-eyeball"></a>
 
-Deliberately first. Live covers post-2026-07-28 days, backfill covers pre-2026-07-28 history —
-**disjoint hour buckets**, so order is correctness-neutral. Live-first is an *operational* choice: it
-sanity-checks the pipeline on small, recent, verifiable data before the long drain.
+## 7 · Live Aggregation
+
+Live covers post-2026-07-28 days; backfill covers earlier history in disjoint hour buckets.
+Enable live first to verify recent data before the longer historical drain.
 
 ```bash
 vi set-env-internal.sh    # CEDAR_LOG_LIVE_AGG_ENABLED="true"
@@ -475,7 +483,7 @@ SELECT COUNT(*) AS unaggregated FROM log_request WHERE aggregatedAt IS NULL;
 
 ### Correctness Check — Pick One Settled Day and Reconcile by Hand
 
-This is the check that actually proves the pipeline, and it is worth doing carefully once:
+Reconcile raw and aggregated counts for one fully settled day:
 
 ```sql
 SET @d = '2026-08-15';   -- any fully settled day well inside the data
@@ -516,7 +524,9 @@ matching.
 
 ---
 
-## 8 · Phase 2 — Historical Backfill (the Expensive One)
+<a id="8--phase-2--historical-backfill-the-expensive-one"></a>
+
+## 8 · Historical Backfill
 
 Only after §7 has run clean overnight.
 
@@ -550,10 +560,13 @@ FROM log_aggregation_state
 WHERE sourceTable LIKE '%_pre284';
 ```
 
-**Record the rows/hour rate.** Multiplied by prod's `COUNT(*)`, that is how many nights next week's
-prod backfill needs — the number `PROD-LOG-AGGREGATION-ROLLOUT.md` §10.2 asks for and nobody has yet.
+Record the rows/hour rate. Estimated runtime is production row count divided by rows/hour;
+divide that runtime by the nightly window length to estimate nights. Record the result in
+`PROD-LOG-AGGREGATION-ROLLOUT.md` §10.2.
 
-### Watch the DB While It Drains (This Is the §0a Concern)
+<a id="watch-the-db-while-it-drains-this-is-the-0a-concern"></a>
+
+### Monitor Database Load
 
 ```bash
 # On the DB host:
@@ -563,7 +576,7 @@ df -h "$(mysql -N -e 'SELECT @@datadir')"
 ```
 
 If staging's UI gets sluggish while the backfill runs, that is exactly the shared-instance contention
-from §0a — **raise `CEDAR_LOG_BACKFILL_PAUSE_MS` and lower `_BATCH`**, then restart the worker. It
+from §0 — **raise `CEDAR_LOG_BACKFILL_PAUSE_MS` and lower `_BATCH`**, then restart the worker. It
 resumes from the cursor; nothing is lost. Note what values it took to stay quiet.
 
 ### Stop Condition
@@ -579,7 +592,7 @@ cedarcli native stop microservices && cedarcli native start microservices
 ### Parity Check, Then Reclaim the Disk
 
 ```sql
--- Total folded rows vs the baseline you recorded in §2.2
+-- Total folded rows vs the baseline you recorded in §2 check 3
 SELECT sourceTable, rowsIn, rowsOut FROM log_aggregation_state WHERE sourceTable LIKE '%_pre284';
 SELECT COUNT(*) FROM log_request_pre284;
 SELECT COUNT(*) FROM log_cypher_pre284;
@@ -601,7 +614,9 @@ disk. Re-check `df -h` after.
 
 ---
 
-## 9 · Phase 3 — Prune (Test It HERE, Not on Prod)
+<a id="9--phase-3--prune-test-it-here-not-on-prod"></a>
+
+## 9 · Test Pruning on Staging
 
 Prune is the only destructive job. Staging holding a *copy* makes it the correct place to exercise it
 — worst case you re-restore the dump. **Do not carry prune to prod next week**; per
@@ -649,7 +664,7 @@ Record these measurements for the production rollout decision.
 | §4c `queryParameters` COPY (if needed) | | the 13–18h class of risk |
 | Free-space headroom ratio | | must exceed the table's own size |
 | §7 live catch-up wall-clock | | prod's phase-1 wait |
-| §8 backfill rows/hour at batch=1000/pause=2000 | | ÷ prod row count = nights required |
+| §8 backfill rows/hour at batch=1000/pause=2000 | | prod rows ÷ rate = hours; divide by nightly window for nights |
 | Throttle values that kept the DB quiet | | prod's starting tuning |
 | Disk reclaimed by `DROP *_pre284` | | prod's headroom gain |
 
@@ -666,7 +681,7 @@ Prod differences to remember, beyond the numbers:
 
 ## 11 · Rollback
 
-- **Before §7** — nothing has been written. Redeploy the previous release; the added columns/indexes
+- **Before §7** — aggregation and pruning have not run. Redeploy the previous release; added columns/indexes
   are harmless to older code (all nullable, additive) and `DROP COLUMN` is also INSTANT if you want
   them gone. The migration file's rollback block has the exact statements.
 - **After §7/§8, before the `DROP`** — aggregation is **non-destructive**. Set all three env gates to
@@ -680,7 +695,9 @@ Prod differences to remember, beyond the numbers:
 
 ---
 
-## 12 · Convention
+<a id="12--convention"></a>
+
+## 12 · Record Results
 
 Write `worklog/2026-09-04-staging-log-aggregation.md` when this ships, and update
 `PROD-LOG-AGGREGATION-ROLLOUT.md` §10.2 with the measured numbers from §10.

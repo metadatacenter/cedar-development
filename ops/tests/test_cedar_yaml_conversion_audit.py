@@ -6,7 +6,8 @@ serves the YAML in ``cedar-test-artifacts``; everything after the fetch — the 
 validator, the records, the summary and the report — is the real thing.
 
 The suite skips when a toolchain it cannot build is absent, which is what a machine without JDK 17
-or without the TypeScript library's ``dist`` sees.
+or without the TypeScript library's ``dist`` sees. Release tooling CI builds the toolchain in a job
+of its own and sets ``CEDAR_REQUIRE_CONVERSION_TOOLCHAIN=1``, which turns that skip into a failure.
 """
 
 from __future__ import annotations
@@ -41,6 +42,11 @@ TEST_ARTIFACTS = CEDAR_HOME / "cedar-test-artifacts" / "artifacts"
 TS_LIBRARY = CEDAR_HOME / "cedar-model-typescript-library" / "dist" / "index.js"
 ARTIFACT_LIBRARY_CLASSES = CEDAR_HOME / "cedar-artifact-library" / "target" / "classes"
 VALIDATION_LIBRARY_CLASSES = CEDAR_HOME / "cedar-model-validation-library" / "target" / "classes"
+# The historical corpus definitions the Java library declares it refuses, each with the exception it
+# expects. Read from the library itself, so this suite and the library's own corpus gate cannot
+# disagree about which artifacts are meant to fail.
+EXPECTED_REJECTIONS = (CEDAR_HOME / "cedar-artifact-library" / "src" / "test" / "resources"
+                       / "concordance" / "corpus-expected-rejections.json")
 
 # One directory per artifact, holding the YAML the Java library generates from the reference JSON.
 CORPUS_DIRECTORIES = {"template": "templates", "element": "elements", "field": "fields"}
@@ -54,18 +60,40 @@ REPOSITORY_PATHS = {"template": "templates", "element": "template-elements",
                     "field": "template-fields"}
 
 
+def declared_rejections() -> dict[str, dict]:
+    """The corpus artifacts the Java library declares it refuses, by the identifier the stub serves.
+
+    A library that predates the declarations refuses nothing in the corpus, so a missing file means
+    every artifact has to convert.
+    """
+    if not EXPECTED_REJECTIONS.is_file():
+        return {}
+    kinds = {directory: kind for kind, directory in CORPUS_DIRECTORIES.items()}
+    declared = {}
+    for case in json.loads(EXPECTED_REJECTIONS.read_text(encoding="utf-8"))["cases"]:
+        directory, number = case["source"].split("/")[:2]
+        if directory in kinds:
+            declared[f"{REPOSITORY}/{REPOSITORY_PATHS[kinds[directory]]}/{number}"] = case
+    return declared
+
+
 def corpus() -> dict[str, list[tuple[str, str, str]]]:
-    """A few artifacts of each kind: the identifier the stub serves them under, a name, and the YAML."""
+    """A few artifacts of each kind: the identifier the stub serves them under, a name, and the YAML.
+
+    Each kind contributes its first few artifacts the library accepts, then every artifact it
+    declares it refuses, so the audit is asked about both and has to tell them apart.
+    """
+    rejected = declared_rejections()
     found: dict[str, list[tuple[str, str, str]]] = {}
     for kind, directory in CORPUS_DIRECTORIES.items():
         documents = sorted((TEST_ARTIFACTS / directory).glob(
             f"*/{kind}-*-generated-java-artifact-lib.yaml"))
-        found[kind] = [
-            (f"{REPOSITORY}/{REPOSITORY_PATHS[kind]}/{document.parent.name}",
-             f"{kind} {document.parent.name}",
-             document.read_text(encoding="utf-8"))
-            for document in documents[:PER_TYPE]
-        ]
+        entries = [(f"{REPOSITORY}/{REPOSITORY_PATHS[kind]}/{document.parent.name}",
+                    f"{kind} {document.parent.name}", document) for document in documents]
+        chosen = ([entry for entry in entries if entry[0] not in rejected][:PER_TYPE]
+                  + [entry for entry in entries if entry[0] in rejected])
+        found[kind] = [(identifier, name, document.read_text(encoding="utf-8"))
+                       for identifier, name, document in chosen]
     return found
 
 
@@ -132,6 +160,10 @@ def toolchain_available() -> tuple[bool, str]:
 
 
 AVAILABLE, UNAVAILABLE_REASON = toolchain_available()
+# A machine without the toolchain skips the suite. The CI job that builds the toolchain to run it
+# sets this, so that a missing piece fails the job rather than letting it pass having tested nothing.
+if not AVAILABLE and os.environ.get("CEDAR_REQUIRE_CONVERSION_TOOLCHAIN") == "1":
+    raise RuntimeError(f"the YAML conversion toolchain is required here: {UNAVAILABLE_REASON}")
 
 
 @unittest.skipUnless(AVAILABLE, UNAVAILABLE_REASON)
@@ -195,10 +227,26 @@ class YamlConversionAuditEndToEnd(unittest.TestCase):
                 self.assertIn("convert", record[lane], record["artifactId"])
 
     def test_the_java_lane_converts_and_validates_the_corpus_the_library_itself_wrote(self):
-        """The Java library's own YAML must survive its own round trip; anything else is a defect."""
-        failures = [record["artifactId"] for record in self.written
-                    if record["outcome"][conversion.JAVA] != "valid"]
-        self.assertEqual(failures, [], self.report)
+        """The Java library's own YAML must survive its own round trip. The only exceptions are the
+        historical definitions the library declares it refuses."""
+        failures = sorted(record["artifactId"] for record in self.written
+                          if record["outcome"][conversion.JAVA] != "valid")
+        sampled = {identifier for documents in self.corpus.values() for identifier, _, _ in documents}
+        self.assertEqual(failures, sorted(set(declared_rejections()) & sampled), self.report)
+
+    def test_a_definition_the_library_refuses_is_reported_by_both_lanes_for_its_recorded_reason(self):
+        sampled = {identifier for documents in self.corpus.values() for identifier, _, _ in documents}
+        declared = {identifier: case for identifier, case in declared_rejections().items()
+                    if identifier in sampled}
+        if not declared:
+            self.skipTest(f"the artifact library declares no refused corpus definitions ({EXPECTED_REJECTIONS})")
+        outcomes = {record["artifactId"]: record["outcome"] for record in self.written}
+        reasons = {entry["artifactId"]: entry["reason"]
+                   for entry in self.failures["byLane"][conversion.JAVA]["artifacts"]}
+        for identifier, case in declared.items():
+            for lane in conversion.LANES:
+                self.assertNotEqual(outcomes[identifier][lane], "valid", f"{lane} accepted {identifier}")
+            self.assertIn(case["exceptionMessage"], reasons[identifier], identifier)
 
     def test_the_validator_is_the_same_one_for_both_lanes(self):
         toolchain = self.summary["toolchain"]

@@ -8,6 +8,17 @@ const publishers = ['ny-stats', 'boston-stats', 'ny-math', 'private-twin', 'swap
 const titleValues = [...stats, 'ny-math', 'swapped', 'punctuation'];
 const add = (id, query, matches, family, extra = {}) => ({ id, query, matches, family, types: ['instance'], ...extra });
 export const queries = [
+  add('quoted-single-word', '"Rad"', ['rad-word'], 'metadata'),
+  add('quoted-single-word-case', '"rAD"', ['rad-word'], 'metadata'),
+  add('unquoted-substring', 'Rad', ['rad-word', 'rad-substring'], 'metadata'),
+  add('quoted-word-boundary', '"Radi"', [], 'metadata'),
+  add('quoted-slash', '"Moles/volume"', ['rad-word'], 'escaping'),
+  add('quoted-slash-phrase', '"Moles/volume in Dried"', ['rad-word'], 'escaping'),
+  add('quoted-hyphen', '"2-Dimensional"', ['rad-word'], 'escaping'),
+  add('escaped-metadata-wildcard', 'rad\\*', [], 'escaping'),
+  add('metadata-star-prefix', 'rad*', ['rad-word', 'rad-substring'], 'wildcards'),
+  add('field-whitespace', 'title: Statistics', stats, 'field-value'),
+  add('field-phrase-whitespace', 'publisher: "City of New York"', ny, 'field-value'),
   add('field-literal', 'title:Statistics', stats, 'field-value'),
   add('field-phrase', 'publisher:"City of New York"', ny, 'field-value'),
   add('preferred-label', '"publishing institution":"City of New York"', ny, 'names'),

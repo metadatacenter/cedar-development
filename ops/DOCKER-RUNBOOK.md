@@ -90,31 +90,23 @@ lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(80|443|3306|6379|7474|7687|8080|8443|92
 
 ## Sizing Docker's Virtual Machine
 
-Docker Desktop gives its virtual machine a fixed slice of host memory, and the default is smaller
-than the CEDAR stack needs once the terminology server reads a local store. The 29 core containers
-hold about 13 GB resident. A 16 GB virtual machine leaves roughly 1.4 GB for everything else, and
-the container processes start evicting and swapping.
-
-The terminology server pays for that, because a corpus-wide search reads an 8.2 GB SQLite index.
-Measured 2026-08-25 on the same image and the same data, the two-letter query `ce` took between 5.8
-and 77 seconds across runs against a 16 GB virtual machine. Raising the allocation to 32 GB held it
-between 4.95 and 5.06 seconds over six consecutive runs. The larger allocation buys consistency
-rather than speed: the fast result was always reachable, and only became repeatable.
+Allocate at least 32 GB to Docker Desktop when serving the local terminology store. In the
+2026-08-25 measurement, 29 containers used about 13 GB resident and a 16 GB VM had about 1.4 GB
+available. Searching an 8.2 GB index for `ce` took 5.8–77 seconds at 16 GB, versus 4.95–5.06 seconds
+over six runs at 32 GB with the same image and data.
 
 The extra memory does not cache the index. A bind mount delivers the store, and virtiofs serves it
 from the host's page cache rather than the guest's, so reading all 8.2 GB inside a container leaves
 the guest's `buff/cache` where it was. The allocation relieves the container processes instead.
 
-Latency that swings by a factor of ten reads as a defect in the query and is not one, so check the
-allocation before reading any code:
+Check VM memory when query latency varies sharply:
 
 ```bash
 docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i free -m
 ```
 
-An `available` figure below the size of the store's index means the virtual machine is too small.
-Raise it in Docker Desktop's resource settings, which restarts the daemon and stops all 29
-containers.
+Low available memory or swapping warrants checking the allocation against the measured baseline.
+Changing Docker Desktop's resource settings restarts the daemon and stops the containers.
 
 Start them again in place rather than through `cedarcli docker start all` whenever a container is
 pinned to an image the aggregate start would not choose. That command recreates each container from
@@ -883,8 +875,9 @@ docker run --rm --network cedarnet \
 
 Resource and Terminology deliberately go through containerized nginx so this also covers their
 published API and Swagger UI routes. Artifact stays on its internal service address, and Worker is
-addressed directly because its diagnostic-authentication checks have no nginx vhost. Expected: 19
-suites pass and the final result is `PASS`. The first invocation may pull `node:20-alpine`.
+addressed directly because its diagnostic-authentication checks have no nginx vhost. Every suite
+must pass with the committed `rest/expected-checks.json` inventory and final result `PASS`.
+The first invocation may pull `node:20-alpine`.
 
 The artifact service key authenticates this trusted internal test runner. Ordinary-user boundary
 probes explicitly omit it. Provision and rotate the key using the backend runbook's
@@ -969,6 +962,6 @@ calling shell.
   for an explicitly local experiment.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
-- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.2. This is
+- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.6. This is
   accepted because their compatibility contract is the shared 2.19 line; Docker-build CI enforces
   that major/minor pairing mechanically.

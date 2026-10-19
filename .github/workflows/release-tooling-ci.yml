@@ -58,10 +58,10 @@ jobs:
       # The frontend train suite shells out to node and npm. Both happen to be present on the
       # hosted runners, so the suite passed without asking for them, and would have started failing
       # on whichever runner image dropped them first.
-      - name: Set up Node 24.19.0
+      - name: Set up Node 24.22.0
         uses: actions/setup-node@v4
         with:
-          node-version: 24.19.0
+          node-version: 24.22.0
 
       - name: Check the search matrix harness without a stack
         working-directory: cedar-development/ops/e2e
@@ -87,3 +87,101 @@ jobs:
           python -m unittest discover -v -s ops -t ops -p 'test_*.py'
           python -m unittest discover -v -s ops/tests -t ops/tests -p 'test_*.py'
           python -m unittest discover -v -s ops/repairs -t ops/repairs -p 'test_*.py'
+
+  # The YAML conversion audit's end-to-end suite runs both model libraries for real, so it needs
+  # what a workstation has beside this checkout: the Java artifact and validation libraries built,
+  # the TypeScript library's dist, and the shared corpus. The job above has none of them and skips
+  # the suite, which is how a corpus definition the libraries had begun to refuse went unnoticed.
+  # This job lays the repositories out as CEDAR_HOME would, builds them, and requires the suite
+  # to run rather than skip.
+  conversion-audit:
+    name: YAML conversion audit with both model libraries (ubuntu-latest, Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      CEDAR_HOME: ${{ github.workspace }}
+      CEDAR_REQUIRE_CONVERSION_TOOLCHAIN: "1"
+
+    steps:
+      - name: Check out cedar-development
+        uses: actions/checkout@v7
+        with:
+          path: cedar-development
+
+      - name: Check out cedar-artifact-library
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-artifact-library
+          ref: develop
+          path: cedar-artifact-library
+
+      - name: Check out cedar-model-validation-library
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-model-validation-library
+          ref: develop
+          path: cedar-model-validation-library
+
+      - name: Check out cedar-model-typescript-library
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-model-typescript-library
+          ref: develop
+          path: cedar-model-typescript-library
+
+      - name: Check out the shared corpus
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-test-artifacts
+          ref: develop
+          path: cedar-test-artifacts
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore the Maven repository
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.m2/wrapper
+          key: conversion-audit-maven-${{ runner.os }}-${{ hashFiles('cedar-artifact-library/**/pom.xml', 'cedar-model-validation-library/**/pom.xml') }}
+          restore-keys: conversion-audit-maven-${{ runner.os }}-
+
+      # The audit resolves each library's classpath with a plain `mvn`, so the libraries' own Nexus
+      # settings become the user settings here, with the credentials read from the environment.
+      - name: Use the libraries' Nexus settings for Maven
+        run: |
+          mkdir -p ~/.m2
+          cp cedar-artifact-library/.m2/nexus-settings.xml ~/.m2/settings.xml
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node 24.22.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.0
+
+      - name: Build the TypeScript model library
+        working-directory: cedar-model-typescript-library
+        run: |
+          npm ci
+          npm run build
+
+      - name: Compile the Java validation and artifact libraries
+        run: |
+          for library in cedar-model-validation-library cedar-artifact-library; do
+            (cd "$library" && ./mvnw --batch-mode --no-transfer-progress --update-snapshots -DskipTests compile)
+          done
+
+      - name: Run the YAML conversion audit end to end
+        working-directory: cedar-development
+        run: python -m unittest discover -v -s ops/tests -t ops/tests -p 'test_cedar_yaml_conversion_audit.py'
