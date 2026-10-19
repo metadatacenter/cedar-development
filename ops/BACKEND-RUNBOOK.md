@@ -4720,6 +4720,22 @@ and the guard when updating the harness. Check the complete Java build after cha
 followed by a local microservice redeploy and whole-stack smoke. The startup banner's Jetty version
 comes from `jetty-util`, so a banner alone is not proof of dependency alignment.
 
+Jersey follows the same pattern. `cedar-parent` imports `org.glassfish.jersey:jersey-bom` at the
+`org.glassfish.jersey.version` property, and the inherited `enforce-jersey-alignment` rule rejects
+any resolved Jersey module at another version. Until 2026-10-19 the parent managed only
+`jersey-container-servlet` and `jersey-hk2`, so `jersey-common`, `jersey-server`, `jersey-client`
+and every other Jersey module ran the 3.1.11 that the Dropwizard bundle names, beside those two at
+3.1.12.
+
+`maven-dependency-plugin:analyze-only` lists every declared dependency that no compiled class
+references, which makes it the starting point for finding declarations nothing uses. Read that list
+as candidates only. A JDBC driver, a
+logging backend, a JAXB or JAX-RS implementation, a Jackson module and a test fixture are all found
+at run time by name or service lookup, and classes generated into `target/generated-sources` count
+as the module's own. Confirm each candidate against sources, generated sources, resources and the
+jar's `META-INF/services` before removing it, then run the full build, a redeploy and the e2e
+smoke.
+
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.14-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
 names 1.18.8-jdk5. The managed pair is intentional, so that both share one version. Keep the core and
