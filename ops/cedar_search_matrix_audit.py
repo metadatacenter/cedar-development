@@ -371,14 +371,26 @@ def run(a):
             a.search(q, {'limit': 3}, 'extended-syntax/' + q, ep)
 
 
-def followup(a, reference):
-    """Read-only cross-checks of graph selectors, tied pages, and stored constraints."""
-    cohorts = {}
+def complete_reference_cohorts(reference):
+    """A capped, failed or changing walk cannot be an oracle for a complete result set."""
+    pages = {}
     for row in reference:
         if row['label'].startswith(('equivalence/', 'cohort/')):
-            q = row['parameters']['q']
-            cohorts.setdefault(q, {})
-            cohorts[q].update({r['@id']: r for r in row['resources']})
+            pages.setdefault(row['parameters']['q'], []).append(row)
+    cohorts = {}
+    for query, group in pages.items():
+        rows = [r for page in group for r in page['resources']]
+        unique = {r['@id']: r for r in rows}
+        total = group[0]['totalCount']
+        if (all(page['status'] == 200 and page['totalCount'] == total for page in group)
+                and len(rows) == len(unique) == total):
+            cohorts[query] = unique
+    return cohorts
+
+
+def followup(a, reference):
+    """Read-only cross-checks of graph selectors, tied pages, and stored constraints."""
+    cohorts = complete_reference_cohorts(reference)
     # Every title supplied by search is an independent positive phrase witness.
     witnesses = list(cohorts.get('"Rad"', {}).values())[:8]
     witnesses += list(cohorts.get('"Moles/volume"', {}).values())[:12]
@@ -420,7 +432,7 @@ def followup(a, reference):
 
     # Cut through known equal-name pairs with odd page sizes and repeat the shallow walk.
     for q in ['"Moles/volume"', 'ALT:']:
-        source = list(cohorts[q].values())
+        source = list(cohorts[q].values()) if q in cohorts else None
         walked = []
         for ep, cont in [('/search', False), ('/search', False), ('/search-deep', True)]:
             rows = a.walk(q, endpoint=ep, continuation=cont, limit=13, label=f'ties/{q}/{ep}/{cont}')
@@ -455,7 +467,7 @@ def followup(a, reference):
 
     # Measure a selected cohort's missing projections, without downloading full documents to disk.
     sample = a.search('Indicator', {'resource_types': 'field', 'limit': 40}, 'pv/coverage-sample')
-    indexed = set(cohorts.get('[pv]*', {}))
+    indexed = set(cohorts['[pv]*']) if '[pv]*' in cohorts else None
     eligible, missing = [], []
     for row in (sample or {}).get('resources', []):
         field = a.get('/template-fields/' + urllib.parse.quote(row['@id'], safe=''), {}, 'pv/coverage-field')
@@ -463,10 +475,13 @@ def followup(a, reference):
         if any(s.get('uri', '').startswith('https://cadsr.nci.nih.gov/metadata/CADSR-VS/')
                and s.get('numTerms', 0) > 0 for s in sets):
             eligible.append(row['@id'])
-            if row['@id'] not in indexed:
+            if indexed is not None and row['@id'] not in indexed:
                 missing.append(row['@id'])
-    a.check('cadsr-projection-coverage-sample', not missing, sampled=len((sample or {}).get('resources', [])),
-            eligible=len(eligible), missing=len(missing), missingIds=missing)
+    if indexed is None:
+        a.skipped.append({'label': 'cadsr-projection-coverage-sample', 'reason': 'incomplete possible-value cohort'})
+    else:
+        a.check('cadsr-projection-coverage-sample', not missing, sampled=len((sample or {}).get('resources', [])),
+                eligible=len(eligible), missing=len(missing), missingIds=missing)
 
     # These are literal square brackets, deliberately escaped by the server, not range syntax.
     for q in ['[Rad TO Ray]', 'Sex:[A TO Z]']:

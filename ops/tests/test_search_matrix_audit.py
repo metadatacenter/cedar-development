@@ -52,6 +52,16 @@ class SearchMatrixAuditTest(unittest.TestCase):
                          audit.redacted_params({'q': 'rad', 'continuation': 'private-position'}))
         self.assertEqual({'continuation': 'start'}, audit.redacted_params({'continuation': 'start'}))
 
+    def test_complete_reference_sets_exclude_capped_failed_duplicate_and_changing_walks(self):
+        def page(query, total, identifiers, status=200):
+            return {'label': 'cohort/' + query, 'parameters': {'q': query}, 'status': status,
+                    'totalCount': total, 'resources': [{'@id': value} for value in identifiers]}
+        cohorts = audit.complete_reference_cohorts([
+            page('empty', 0, []), page('complete', 2, ['a']), page('complete', 2, ['b']),
+            page('capped', 1001, ['a']), page('duplicate', 2, ['a', 'a']),
+            page('changing', 2, ['a']), page('changing', 3, ['b']), page('failed', 1, ['a'], 500)])
+        self.assertEqual({'empty': {}, 'complete': {'a': {'@id': 'a'}, 'b': {'@id': 'b'}}}, cohorts)
+
     def test_only_documented_normalizations_are_equivalent(self):
         self.assertEqual({'id': 'template-fields/abc', 'q': '"C%2B%2B"'}, audit.comparable_params({
             'id': 'https://repo.metadatacenter.org/template-fields/abc', 'q': '"C%2B%2B"',
