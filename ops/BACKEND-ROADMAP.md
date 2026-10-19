@@ -1033,6 +1033,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     in a compile. Even 4.5.29, the newest release on the current line, is more than a patch. It
     replaces the Sesame 2.7.16, Semargl and `jsonld-java-sesame` parsers under all three users with
     RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major.
+  - **Jedis 5.2.0 to 8.0.2.** Every release from 6.0 supports Redis 7.2 and later, so the deployed
+    server can stay. The majors since 5.x removed deprecated APIs, and 7.0 also dropped
+    `JedisSharding` and renamed the pipeline and transaction base classes. CEDAR uses only `Jedis`,
+    `JedisPool`, `JedisPoolConfig` and two exception types, in thirteen main source files across the
+    queue, logging, search, rate-limit, value-recommender, monitor and submission code, so compiling
+    against 8.0.2 measures the cost. The embedded Redis the queue and quota suites start is 6.2,
+    below what Jedis 6 and later support, so those suites stop being evidence for this change and
+    the real-stack smoke against Redis 7.2 decides it.
 
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
   6.3.0, MySQL Connector/J 9.7.0 to 26.7.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
@@ -1089,10 +1097,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   parent POM's harness note anticipates.
 
   **Versions whose newest release is not a final.** These have no final to move to: HttpCore
-  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J
-  2.1.0-alpha1, Log4j 3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, and the Jakarta
-  activation, persistence, servlet, validation and XML binding milestones. The old javax jaxb-api's
-  only newer version is a 2018 build that was never finalized, so it stays too.
+  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta2,
+  Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, and the Jakarta activation, persistence, servlet,
+  validation and XML binding milestones. The old javax jaxb-api's only newer version is a 2018 build
+  that was never finalized, so it stays too.
 
   Read that list with suspicion, because the report it came from hides releases.
   `versions:display-property-updates` names only the newest version an artifact has, so a
