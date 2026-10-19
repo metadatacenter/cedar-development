@@ -10,12 +10,12 @@ Cut a CEDAR release from a completed [build train](BUILD-RUNBOOK.md). For deploy
 
 ## The Route
 
-A release consumes a completed build train. The train has already built and verified a coordinated
-source state, so the release takes its exact commits, stamps versions onto them, and proves that
-what it publishes matches what the train built. Creating a train is covered in
-[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
+A release stamps the completed train's exact commits and verifies that published artifacts match
+the train. Create the train using [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
-### Ask What the Workspace Can Answer First
+<a id="ask-what-the-workspace-can-answer-first"></a>
+
+### Check Workspace Readiness
 
 Run workspace readiness before creating a train, so fixes do not invalidate its captured source:
 
@@ -46,9 +46,8 @@ It does not dispatch, publish, accept exceptions, or replace `release plan|start
 
 ### The Plan
 
-The route proper begins with one read-only plan and four explicit inputs. Nothing is inferred
-from the train identifier and no manifest path is accepted. The CLI owns the immutable manifest
-under `~/.cedar/train-releases/`.
+Run a read-only plan with four explicit inputs. The CLI owns the immutable manifest under
+`~/.cedar/train-releases/`; do not supply a manifest path or infer versions from the train ID.
 
 ```bash
 cedarcli release plan \
@@ -64,7 +63,9 @@ versions, and the byte-equivalence proof between the train's development
 CEE and the public npmjs CEE, and then runs the complete release gate. It must finish with
 `No changes made.`
 
-### Nothing May Land Between the Train and the Release
+<a id="nothing-may-land-between-the-train-and-the-release"></a>
+
+### Source Freeze
 
 A release stamps the train's exact commits and refuses any captured repository whose `develop`
 has moved. Finish CI, tooling and documentation changes before creating the train. A later source
@@ -77,8 +78,7 @@ whose permitted normalizations are defined in the npmjs runbook.
 
 ## What Plan Checks
 
-`plan` and `start` run the identical complete gate, so a release cannot begin from a state `plan`
-would have refused. It answers in about a minute what previously took a build phase to discover.
+`plan` and `start` run the same complete gate.
 
 Preflight prints elapsed time for each check, including a check that fails. Remote
 release-ref availability and dry-run push-permission probes use four concurrent
@@ -106,8 +106,8 @@ The plan settles four groups of question:
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
   the train was built from is green wherever that commit defines a workflow. A whole-stack smoke
-  run recorded by `cedarcli test e2e` against exactly the train's source commits has passed both
-  tiers. The immutable source
+  run recorded by `cedarcli test e2e` against exactly the train's source commits has passed every
+  tier. The immutable source
   also contains every declared wrapper, manifest, lock, build, preserve, version, and Docker stamp
   input before a long build is allowed to start. Every frontend lifecycle script in the captured
   lockfiles has an exact true/false `allowScripts` decision.
@@ -121,16 +121,11 @@ The plan settles four groups of question:
   declared, every `license.txt` carries a recognisable copyright line, and each remote's `main`
   holds nothing that `develop` does not.
 
-A `main` that holds content `develop` does not stops the release. What it holds is a commit someone
-made straight to `main`, or a hotfix nobody back-merged, and the release replaces it with a push:
-the work leaves the branch that held it and nothing says so afterwards. Port it to `develop` and
-build a train from that source. Where `develop` dropped the file deliberately and `main` is simply
-behind, `--accept-main-only <repository>` takes the replacement. `start` records the acceptance in
-the ledger, and `release resume` applies it again. The version files a release stamps onto each
-branch separately do not count as divergence.
-
-`cedarcli check main` asks the same question of all forty-five repositories at any time, which is
-where it is cheap to answer. Asked during a release, it is already expensive.
+Content present only on `main` blocks the release because integration replaces that tree. Port
+unmerged hotfixes to `develop` before building the train. If the removal from `develop` was
+intentional, use `--accept-main-only <repository>` after reviewing it; the ledger retains that
+acceptance for resume. Branch-specific version stamps do not count as divergence.
+Run `cedarcli check main` before creating the train to find this early.
 
 Release build validation runs the Angular, Ember and React demo lint and test suites
 against the prepared public CEE pins, in both release and next-development workspaces.
@@ -155,8 +150,6 @@ checked-out repository's `develop` to equal the live remote `develop`. The stric
 that builds from its own checkout, which is the production and staging deploy route rather than this
 one.
 
-Two of those deserve their own note.
-
 **Nexus reads fall back to anonymous** and succeed whether or not credentials are available, so the
 presence of `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD` proves nothing. The CLI uses those
 variables when both are set; otherwise it reads the username and password from the
@@ -180,11 +173,8 @@ budget that is exhausted. The budget is a rolling 24-hour window, so the answer 
 roll off, and to check the Usage Center for what is consuming it. A train is a few hundred requests,
 so a run of failed trains is itself a substantial contributor.
 
-**CI is asked about the train's source commit**, not about whatever `develop` points at now. A
-missing, unreadable, queued, or running required check blocks the release; a repository whose exact
-source commit defines no workflow is reported as advisory because it has no CI contract. That is
-both the more precise question and the stable one, since a release advances `develop` everywhere at
-once and a run against the new head answers for a commit nobody is releasing.
+**CI must cover the train's exact source commit.** A missing, unreadable, queued or running
+required check blocks the release. A repository with no workflow at that commit is advisory.
 
 GitHub may briefly return no run while indexing a just-pushed SHA, and it may transiently return
 502/503/504. The shared train/release probe gives only those cases a bounded retry, naming the
@@ -201,15 +191,10 @@ not execute the committed check inventory, or when a repository held uncommitted
 smoke ran. Unlike a red develop, nothing accepts a missing or failed run. The answer to a flaky run
 is to rerun it.
 
-**What a browser application serves is asked about too.** The frontends reach each other as
-published npm packages, so a host's pin and the bundle it serves each sit a step away from the
-component's own source, and a host can build and test green while serving something the component
-replaced. The preflight refuses a host that serves bytes its lock does not name, that creates a
-custom element no locked bundle defines, or that pins a build the component's `develop` cannot
-account for. It does not refuse a host merely sitting behind a published component, which is true
-of the estate for most of a cycle, and it does not ask about a locally staged bundle, because a
-release builds frontends in an isolated workspace from the lock and no override reaches it.
-`cedarcli check components` asks the same question on its own.
+**Component pins must be reproducible.** Preflight uses `cedarcli check components` to reject
+unexplained package provenance, served bytes inconsistent with the lock and custom elements absent
+from locked bundles. Merely lagging a published component is advisory. Local bundle overrides are
+excluded because release builds use isolated, locked installs.
 
 **Frontend installs use the same policy in train and release.** `plan` reads `package.json` and
 `package-lock.json` from each train-captured commit, requires every `hasInstallScript` dependency to
@@ -223,11 +208,6 @@ The Docker source carries three suite selectors: `IMAGE_VERSION`, `CEDAR_MAVEN_V
 `CEDAR_APPLICATION_VERSION`. Plan requires all three to equal the train source version, and release
 stamping advances all three together on the release and next-development variants. This prevents a
 new Docker tag from silently building old Maven or frontend application inputs.
-
-Those runs used to go red as a matter of course, because the snapshots they resolve arrived after
-the pushes that triggered them. Publishing the snapshots first removed that, so a red `develop` now
-means something. If you are looking at a release cut before that change, re-run the failed builds:
-they pass unmodified once the snapshots are in Nexus.
 
 When CI is genuinely broken for a reason that must not hold up a release, accept the specific run:
 
@@ -249,11 +229,10 @@ cedarcli release start \
   --cee-version <PUBLIC_CEE_VERSION>
 ```
 
-Run it in an interactive `cedar` shell inside `tmux`, so a long run survives a disconnect.
-`cedarcli` is a shell alias and will not work in a bare `bash script.sh`. Without `tmux`, run it
-under `nohup` with its output redirected to a file and follow the file with `tail -f`; the CLI
-line-buffers its output when it is not writing to a terminal, so each progress line reaches the
-file as it is printed.
+Run in a `cedar` shell inside `tmux` to survive disconnects. Without the alias, export
+`CEDAR_HOME` and invoke `bash "$CEDAR_HOME/cedar-cli/cli.sh" <args>`. For unattended execution,
+use that entry point under `nohup`, redirect output to a file and follow it with `tail -f`;
+the CLI line-buffers redirected output.
 
 Transient transport retries are built in, so a network fault does not end a long release. The
 bounded policy covers direct connection failures, HTTP 502/503/504 from resumable Git, Maven, and
@@ -330,7 +309,10 @@ The release runs these phases, each verifying its work before the next begins:
    `npm-cedar-releases`, then download it from both and verify its integrity, content hash,
    provenance, and runtime-asset hashes. Nexus removes a release from `npm-cedar` thirty days after
    upload, so the retained copy is the one that lasts.
-9. Accept the release, proving from outside the ledger that it holds. Acceptance also runs the
+9. Verify next-development snapshot bytes, train/audit configuration and CI at the integrated
+   `develop` commits. The `development` phase and its resume rules are described above; older
+   ledgers retain their original phase contract.
+10. Accept the release, proving from outside the ledger that it holds. Acceptance also runs the
    captured build-train configuration validator against the complete `<NEXT>` workspace and its
    exact expected snapshot version, so `develop` is not considered ready merely because version
    stamping and publication succeeded.
@@ -343,17 +325,15 @@ what advances `develop` to the next version everywhere at once, and the CI each 
 triggers resolves the parent and the libraries at that version from Nexus. Publishing first means
 those builds find what they are looking for.
 
-Each integration commit is written from the prepared tree rather than merged towards it, so `main`
-comes to hold exactly the released content. Anything committed to `main` alone and never merged back
-into `develop` is therefore left out of the release, and out of `main` once the release lands. It
-stays reachable through the integration commit's first parent, but restoring it takes a deliberate
-commit on `develop`. Plan reports such content, and reconciling a divergent `main` belongs
-before a release rather than after one.
+Integration writes the prepared tree to `main`. Replaced main-only content remains reachable
+through the integration commit's first parent; restoring it requires a commit on `develop`.
 
 The stable npm surfaces are Template Editor, Workspace, Template Designer, the TypeScript model
 library demo, OpenView, Content Distribution, Monitoring, Bridging, and the Angular CEE demo.
 
-## What a Release Costs
+<a id="what-a-release-costs"></a>
+
+## Historical Release Timings
 
 Release 2.9.8 ran 63 minutes from `start` to acceptance on the development workstation, with
 Nexus and GitHub responsive throughout: about ten minutes to clone forty repositories and pin the
@@ -423,24 +403,15 @@ An accepted release advances `develop` in every repository it integrated and lea
 checkouts on the commits before it, so it prints what the next train needs: `cedarcli git pull`,
 then `cedarcli check ci` and `cedarcli test e2e` at the new heads.
 
-Once the proof holds, acceptance retires the release branches earlier releases left behind. Each
-release writes `release/pre-<version>` to every repository it touches and `release/post-<next>` to
-the release repositories, and the preflight refuses a version whose refs already exist, so nothing
-removed them and they accumulated a pair per release per repository. The current pair stays — it is
-this release's evidence, and what a rollback would reach for — and every older one goes, superseded
-by the tag naming the same tree. The sweep runs only after the proof, so a failed acceptance still
-has the older refs to be read against, and it is housekeeping rather than proof: a remote that
-refuses a delete is recorded in the ledger under `branchRetirement` and does not fail a release that
-has already been accepted.
+After successful acceptance, the controller retains the current `release/pre-<version>` and
+`release/post-<next>` branches and removes older pairs, whose trees remain tagged. A refused delete
+is recorded under `branchRetirement` without failing the accepted release. Failed acceptance
+leaves the older branches intact.
 
 Acceptance also marks the release concluded and frees the active slot. There is no separate
 `finish` command. If the process stops after writing the accepted ledger but before marking its
 pointer concluded, `cedarcli release resume` repairs that final bookkeeping step without rerunning
 the release.
-
-The exact-ref query already proves each tag at its recorded commit, so acceptance does not make a
-second tag-only request across all repositories. This matters on a forty-repository release and on a
-Nexus installation with a finite request budget.
 
 Only `COMPLETE` means successfully released. `ABANDONED` means the retained attempt was closed
 without releasing it; every other status remains incomplete.

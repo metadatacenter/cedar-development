@@ -4,13 +4,13 @@ Publish and maintain posts at **https://metadatacenter.org**. For cutting or dep
 release, use [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md) and
 [PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md).
 
-## What the Site Is
+<a id="what-the-site-is"></a>
 
-WordPress 7.x on PHP 7.4, running the **Enfold** theme (Avia framework — it supplies the post
-byline, the tag footer, and the share box you see on every post). The block editor (Gutenberg) is
-what authors posts. Elementor is installed and offers an "Edit with Elementor" button on every post,
-but **no news post uses it** — they are all plain Gutenberg blocks, and staying on blocks is what
-keeps a new post visually identical to the old ones.
+## Site and Access
+
+The site uses WordPress with the **Enfold** theme (Avia framework), which supplies post bylines,
+tag footers and share boxes. Author news posts in **Gutenberg blocks** to match existing posts;
+do not use the installed Elementor editor. Hosting and software upgrades are separate maintenance.
 
 The plugins that matter while posting:
 
@@ -18,9 +18,6 @@ The plugins that matter while posting:
   scores. Existing posts mostly score "Focus keyphrase not set", so the scores are advisory.
 - **W3 Total Cache** fronts the public pages. Post rows in the admin list carry a "Purge from cache"
   action, which is how you force a stale public page to refresh.
-- **UpdraftPlus** and **WPBackItUp** handle backups; **WPForms** handles the contact forms. Neither
-  is involved in posting.
-
 Sign in at `https://metadatacenter.org/wp-admin/` with the shared **CEDAR admin** account, which
 authors every post. Credentials live in the team password store, not here.
 
@@ -68,7 +65,7 @@ and unadorned:
 
 - **No headings.** Posts are a sequence of paragraphs. A four-item bulleted list or a blockquote is
   fine; `<h2>`s are not used.
-- **400–650 words.** Long enough to explain the thing, short enough to read in one sitting.
+- **400–650 words.**
 - **Open with the problem, not the announcement.** The strongest recent posts spend two paragraphs
   on why the reader should care before naming the feature.
 - **Show, with one or two code blocks.** YAML and JSON examples are the norm; keep them trimmed to
@@ -83,9 +80,8 @@ no need to write one.
 
 ## Writing the Post
 
-Compose the body as **Gutenberg block markup** in a local file first, then paste it in. Drafting
-outside the browser means you can review the prose properly, and block markup pastes into the code
-editor exactly as written, with no autoformatting to fight.
+Draft the body as **Gutenberg block markup** in a local file, review it, then paste it into the
+code editor to avoid visual-editor autoformatting.
 
 The block vocabulary these posts use is small:
 
@@ -131,15 +127,12 @@ Then, in the admin:
    the full title, which is usually far too long.
 6. **Save draft**, then verify it stuck (below).
 
-## Verify the Save — Do Not Skip This
+<a id="verify-the-save--do-not-skip-this"></a>
 
-**The block editor will report "Saved" while leaving category, tag, and slug changes uncommitted.**
-This is not theoretical; it happened twice while writing the post that prompted this runbook, and it
-is why an earlier draft on the site still sits in `Uncategorized` with no tags. The post content
-saves reliably. The sidebar metadata does not.
+## Verify Saved Content and Metadata
 
-The symptom is easy to miss: the toolbar shows "Saved", but navigating away raises a "Leave site?"
-dialog, and reloading the editor shows the terms reverted.
+**The block editor can report "Saved" while category, tag or slug changes remain uncommitted.**
+A "Leave site?" prompt or reverted sidebar values after reload indicates unsaved metadata.
 
 Check the editor's own state rather than the toolbar. In the browser console, on the edit screen:
 
@@ -147,9 +140,8 @@ Check the editor's own state rather than the toolbar. In the browser console, on
 wp.data.select('core/editor').isEditedPostDirty()
 ```
 
-`false` means everything is committed. If it is `true` after saving, click **Save draft** again and
-re-check. Then reload the edit screen and confirm the sidebar still shows what you set — a reload is
-the only honest confirmation.
+If it is `true` after saving, click **Save draft** again and recheck. Once it is `false`, reload
+the edit screen and confirm the title, content, categories, tags and slug persisted.
 
 For a scripted check of all three at once:
 
@@ -158,10 +150,8 @@ const e = wp.data.select('core/editor'), p = e.getCurrentPost();
 ({ status: p.status, slug: p.slug, dirty: e.isEditedPostDirty() })
 ```
 
-Two further notes on saving. **Never leave two editor tabs open on the same post** — the stale tab
-holds its own dirty state and will fight the live one. And the Yoast metabox's slug field is a
-reliable way to set the slug when the sidebar's permalink popover refuses to open; it syncs straight
-into the editor store.
+Keep only one editor tab open per post to avoid conflicting drafts. If the sidebar permalink
+popover fails, set the slug in the Yoast metabox; it synchronizes with the editor store.
 
 ## Preview and Publish
 
@@ -183,9 +173,7 @@ W3 Total Cache will keep serving archive pages generated *before* the post exist
 routinely fails to show up on `/category/happenings/` even though it published correctly. Purge with
 **Performance → Purge All Caches** in the admin bar.
 
-One purge is often not enough. Verify, and expect to run it twice. Every cached page carries its
-generation time in an HTML comment near the end, which tells you whether you are looking at a stale
-copy or a real problem:
+Verify after purging. The generation time in the page's HTML comment identifies a stale copy:
 
 ```bash
 curl -s "https://metadatacenter.org/category/happenings/" | grep -o "Served from: .*"
@@ -202,17 +190,12 @@ curl -s "https://metadatacenter.org/category/happenings/?cb=$RANDOM" | grep -c "
 Individual post pages can also be purged from the **Purge from cache** action on the post's row in
 Posts → All Posts.
 
-Cloudflare sits in front of the origin but returns `cf-cache-status: DYNAMIC` for these pages, so it
-is not the layer holding anything stale. Check with `curl -sI <url> | grep -i cf-cache-status` before
-suspecting it.
+Check Cloudflare separately with `curl -sI <url> | grep -i cf-cache-status`; `DYNAMIC` indicates
+that Cloudflare is not serving a cached page.
 
-**Some cached pages resist purging altogether.** The `/category/happenings/` archive has been observed
-pinned to one generation through two rounds of Purge All Caches *and* a Purge Modules → Page Cache,
-while a cache-busted request rendered correctly. When that happens the content is genuinely fine and
-the entry expires on its own. It is worth distinguishing what is actually affected: the archive shows
-only the auto-generated excerpt, so a stale copy there misstates a sentence in a listing, while the
-post itself — the page readers land on — is already correct. Do not keep purging in the hope it
-resolves; confirm the origin with a cache-buster, then move on.
+The Happenings archive has remained stale after repeated W3 purges while cache-busted requests
+were correct. Check the post and archive separately, record which remains stale, and investigate
+cache expiry if another purge fails. Do not mistake a correct preview for a refreshed public archive.
 
 ## Reading the Site Without Logging In
 
@@ -245,31 +228,17 @@ Gutenberg's category checkboxes as unchecked whether or not they are. Read the r
 Note that the sidebar reorders itself after a reload, floating the checked terms to the top, so never
 address those checkboxes by position.
 
-**A typing call that reports a timeout has usually still succeeded.** Pasting a long block of markup
-into the code editor can exceed the automation layer's 30-second command timeout while the keystrokes
-land anyway. Screenshot the end of the textarea before retrying — retyping blindly duplicates the
-whole block. Splitting the paste into one block per call avoids it entirely.
+**Inspect the textarea after a typing timeout before retrying.** The paste may have succeeded;
+retyping can duplicate the body. Paste one block per call if long pastes time out.
 
 **Row actions need a genuine hover.** Quick Edit, Trash, and Purge from cache are hidden until the
 row is hovered, and a scripted click on the link silently does nothing. Use the full editor rather
 than fighting Quick Edit.
-
-**The permalink popover often refuses to open.** Clicking "Change link" in the sidebar toggles it open
-and shut unpredictably. The Yoast metabox's slug field is the dependable path — it syncs straight into
-the editor store, and the sidebar button updates to match.
 
 **Chrome's screenshot of this admin is narrower than the window**, which clips the settings sidebar
 regardless of how you resize. Work through element references and `wp.data` rather than coordinates.
 
 ## Gotchas
 
-- **Happenings is a parent category.** Filing a post only under News keeps it off the
-  `/category/happenings/` archive the team links to.
-- **`Uncategorized` rides along.** WordPress checks it by default. Uncheck it explicitly.
-- **The sidebar save is unreliable.** Verify with `isEditedPostDirty()` and a reload, every time.
-- **A published post can be missing from `/category/happenings/`** purely because W3 Total Cache is
-  serving a page generated before it existed. Purge, verify, and purge again.
-- **Do not open the post in Elementor.** It will convert the post away from plain blocks, and the
-  result no longer matches the rest of the site.
-- **The site runs an outdated PHP (7.4) and an out-of-date WordPress.** Both nag on every admin
-  screen. Updating either is a hosting decision, not something to do in passing while posting.
+For posting failures, check [categories](#how-the-categories-are-wired),
+[saved metadata](#verify-the-save--do-not-skip-this) and [cache state](#clearing-the-cache).

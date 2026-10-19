@@ -85,23 +85,14 @@ history. Merely lagging a published component is advisory.
 CI environment drift is also advisory: `cedarcli check ci-env` compares Java workflows with
 `ops/ci-env-block.yml`; `--apply` repairs copies for review and a separate commit in each repository.
 
-The CI question is also answered on its own by `cedarcli check ci`. It lists every captured
-`develop` head whose CI is not green, with the run to look at and, for a red run, the `gh run
-rerun --failed` command that repeats only its failed jobs. A release advances `develop` in forty
-repositories at once, so run it after a release lands and before the next train, rather than
-learning about a red repository from the dispatch preflight hours later.
+Run `cedarcli check ci` after a release and before the next train. It lists captured `develop`
+heads without passing CI, links their runs and prints `gh run rerun --failed` for failed jobs.
 
-The smoke question has its own command as well. `cedarcli test e2e` runs the whole-stack tiers
-under `cedar-development/ops/e2e` against the native stack: the REST suite, the monolith's browser
-smoke and the split applications' journey. It records the run under the `develop` head of every
-train repository at that moment, in `ops/e2e/reports/smoke-gate/`. The dispatch preflight reads the record for exactly the heads the
-train would capture. It refuses when there is no such record, when any tier failed, when the REST
-run did not execute the committed check inventory, or when a repository held uncommitted changes
-while the smoke ran. A run is evidence about commits rather than about a moment, so it never
-expires, and a commit to any train repository after it, a runbook edit included, calls for a rerun
-of about three minutes. The command itself refuses to start while any managed service is unhealthy
-or stale, because a green run against a stale jar says nothing about the source. No option skips
-the gate.
+`cedarcli test e2e` runs the native REST, monolith-browser and split-application tiers and records
+every train repository's `develop` head in `ops/e2e/reports/smoke-gate/`. Dispatch requires a passing
+record for exactly the captured heads, the complete committed REST check inventory, and clean
+sources during the run. Records do not expire, but any later commit, including a runbook edit,
+requires another run. Unhealthy or stale managed services block smoke. No option skips this gate.
 
 The exact-SHA CI probe retries only a short GitHub indexing absence and transient network or
 502/503/504 failures. It names the repository, SHA, attempt, and delay. Pending or red CI,
@@ -125,12 +116,8 @@ Then create the train:
 cedarcli publish train
 ```
 
-The real command repeats that complete local preflight; `--dry-run` is a useful rehearsal, not a
-safety step the operator can accidentally omit. No additional parameter opts into these checks.
-The CLI reads the next version from `cedar-parent`, adds the current UTC minute, and dispatches the
-`cedar-development` workflow. The train ID is allocated automatically; operators do not choose it.
-On a successful dispatch, the CLI prints two views. Use the compact watcher when the GitHub matrix
-detail obscures the overall state:
+The command repeats the complete preflight, derives the train ID from `cedar-parent` and the UTC
+minute, and dispatches the workflow. Follow its compact status with:
 
 ```bash
 cedarcli publish train-status --watch
@@ -147,13 +134,9 @@ workflow run URL and `gh run watch` command using that run ID:
 gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-status
 ```
 
-`cedar-design-tokens` is one of the npm repositories captured, and it is registered ahead of every
-repository that consumes it. CEDAR's font stack, type scale, brand palettes and neutrals are
-published from there as `@org.metadatacenter/cedar-design-tokens`, and a consumer's styles resolve
-that package from Nexus when its own build starts: a frontend built before the tokens publish reads
-the previous snapshot and renders the previous values. The order lives in the CLI's repository
-registry rather than in prose, and `tests/test_design_tokens_registration.py` holds it
-there.
+The train publishes `@org.metadatacenter/cedar-design-tokens` before its consumers so they compile
+the captured design values. The CLI registry defines this order;
+`tests/test_design_tokens_registration.py` verifies it.
 
 The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
 and orchestration repository. Before it records train state or starts Maven, a hosted preflight
@@ -291,15 +274,11 @@ runtime tarball OpenView copies. Only then does `npm/current.json` advance. A tr
 the complete model → CEE → frontend chain; it never silently substitutes whichever dev packages
 happened to have been published before the train began.
 
-Nexus does not keep what a train publishes to `npm-cedar`. The repository's cleanup runs daily at
-08:00 UTC and removes a prerelease three days after upload and a release thirty days after it, so
-every package a train publishes there is gone within days. A release pins the train's design
-tokens, term picker and designer. It also pins the train's model library in every repository
-other than CEE that follows the model, because the train wires its own model into each of them,
-the designer and the applications alike, before verifying it. Completion therefore copies those
-four tarballs, byte for byte and under the same version, into `npm-cedar-releases`, a repository
-with no cleanup policy that refuses a second upload of a version. The completion record lists the copies under
-`retainedPackages`, and a release refuses a train whose record has none.
+Nexus cleanup runs daily at 08:00 UTC: `npm-cedar` removes prereleases after three days and releases
+after thirty. Completion therefore copies the train's tokens, picker, designer and model tarballs,
+unchanged, to `npm-cedar-releases`, which has no cleanup policy and disables redeploy. Releases use
+these retained packages for shared-component and non-CEE model pins. The completion record lists
+them under `retainedPackages`; a release refuses a train without that evidence.
 
 Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
@@ -333,7 +312,9 @@ now resolves to different registry content is rejected before any service starts
 carries the train ID, and Nexus removes a `-dev.` tag from both Docker repositories three days after
 upload, so a machine can pull a train's images only within three days of the train.
 
-## What a Train Costs
+<a id="what-a-train-costs"></a>
+
+## Historical Train Timings
 
 Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven phases, two for the
 TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
@@ -362,11 +343,8 @@ cedarcli publish train-status <TRAIN_ID>
   again rather than offering a resume, which would spend an immutable version on a train that was
   merely finishing.
 
-A complete train also reports whether it can still back a release. A release stamps a train's exact
-commits and refuses any repository whose `develop` has left them, so a train stops being releasable
-the moment anything lands in one of the forty-five it captured. The verdict counts the repositories
-that moved against what the train captured and names them, which is the difference between one
-commit that can be explained and an estate that has moved on.
+A completed train's status also reports release eligibility and names repositories whose `develop`
+has moved. Source changes in drift-checked repositories require a new train.
 
 Train state has no abandon operation. An incomplete immutable ID remains useful evidence of what was
 attempted; it cannot block a later ID.

@@ -9,6 +9,7 @@ in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 | --- | --- |
 | Configure or start a native stack | [Environment](#environment-select-the-native-mode-first), [bring-up](#bring-up-sequence) |
 | Restart, inspect health or logs | [Native controller](#the-controller-cedarcli-native), [ports](#port-map), [gotchas](#known-gotchas-and-fixes-the-expensive-ones) |
+| Diagnose authorization or queued work | [Artifact routes](#artifact-route-ownership), [permissions](#artifact-and-folder-permissions), [queues](#the-redis-queues-and-where-failed-permission-events-go), [log backlog](LOG-QUEUE-RUNBOOK.md) |
 | Build and test | [Build](#building-cedar), [tests](#testing-cedar), [whole-stack smoke](#end-to-end-smoke-test-opse2e), [CI](#continuous-integration) |
 | Audit or repair stored artifacts | [REST inventory](#auditing-production-artifacts-through-rest), [validation](#validating-every-stored-artifact-with-the-library), [repair](#repairing-a-defect-across-the-stored-population) |
 | Docker or hybrid operation | [Docker runbook](DOCKER-RUNBOOK.md) |
@@ -26,10 +27,12 @@ Three tiers:
   modes deliberately do not include native JVMs over an independently assembled Docker data tier.
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
-- **Frontends** — the production-safe AngularJS monolith (`cedar-template-editor`) is served by
+- **Frontends** — the AngularJS monolith (`cedar-template-editor`) is served locally by
   `gulp` on port 4200 and proxied by nginx to `https://cedar.metadatacenter.orgx`. During its
-  extraction, `cedar-workspace` (4201) and `cedar-template-designer` (4202) run beside it as preview
-  frontends. The active auxiliary UIs are openview, monitoring, bridging, and content.
+  extraction, Angular Workspace (`cedar-workspace`, 4201) and `cedar-template-designer` (4202)
+  run beside it. The auxiliary UIs are OpenView, Monitoring, Bridging and Content. See the
+  [frontend runbook](FRONTEND-RUNBOOK.md#modern-split-workspace) for current host implementation
+  and the [deployment runbook](PROD-DEPLOY-RUNBOOK.md) for production routing.
 
 ## Environment: Select the Native Mode First
 
@@ -70,16 +73,15 @@ before selecting native. The complete transition commands are in the
 [Docker runbook](./DOCKER-RUNBOOK.md#prerequisites). Do not select a second mode over a running
 deployment.
 
-`JAVA_HOME` must be JDK 17 for commands run directly rather than through cedarcli. CEDAR services and Keycloak require Java 17. The machine's default
-`java` is newer (23/25) and **Keycloak crashes on it** (`Failed to start caches … getSubject is
-supported only if a security manager is allowed` — the SecurityManager was disabled in JDK 18+).
+Use JDK 17 for direct Java or Keycloak commands outside `cedarcli`. Newer default JDKs (23/25)
+can crash Keycloak with `Failed to start caches … getSubject is supported only if a security
+manager is allowed`. On macOS:
 
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 ```
 
-The native controller and `cedarcli` select JDK 17 for managed processes. Set `JAVA_HOME` yourself
-only for direct Java or Keycloak commands outside the CLI.
+The native controller and `cedarcli` select JDK 17 for managed processes.
 
 **Keycloak TLS verification is secure by default.** Both the bearer-token client that fetches realm
 JWKS and the admin client that sends the CEDAR administrator password use the JVM truststore and
@@ -104,31 +106,21 @@ open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2
 (cd ops/e2e && npm run smoke)
 ```
 
-`cedarcli native start all` runs both steps above, including native infrastructure. It does not open or
-control a terminal application. Each application has its own PID file and log instead.
+`cedarcli native start all` starts infrastructure and applications headlessly. Each application
+has a PID file and log. Login and smoke remain separate steps.
 
-Infrastructure already listening is left alone: starting Keycloak over a bound 8080 fails and used
-to end the whole command before it reached the applications. When every managed port has a listener
-the command says so and starts the applications only. To put fresh binaries behind a running stack,
-`cedarcli native restart` with no arguments is the command; `start` adopts what is already up rather
-than replacing it.
+`start` adopts services already listening. Use `cedarcli native restart` to redeploy running
+applications with fresh binaries.
 
-Start waits for what it launched to serve, and says so. Infrastructure is waited for first, because
-a microservice reaches Neo4j, Mongo and Keycloak while it boots. The applications are then launched
-together and polled as a set, so the wait costs the slowest one rather than the sum of all of them;
-each is reported as `ready <name>` when it arrives, and anything that never does is named with the
-last lines of its log and removed rather than left respawning. `CEDAR_START_READY_TIMEOUT` bounds
-the set, 240 seconds by default, and `CEDAR_HEALTH_PROBE_TIMEOUT` bounds one probe, 5 seconds by
-default.
+Start waits for infrastructure, then launches and polls applications together. It reports
+`ready <name>` for each success; failed launches are removed and reported with the end of their log.
+`CEDAR_START_READY_TIMEOUT` bounds the group wait (default 240 seconds), and
+`CEDAR_HEALTH_PROBE_TIMEOUT` bounds one probe (default 5 seconds).
 
-A probe that runs out of that bound is reported as `slow`, separately from `starting`. A `starting`
-service has begun listening and has not finished booting. A `slow` one is serving and could not
-answer for its own health in time, which one slow dependency inside its health report is enough to
-produce. Both count as not-healthy for `cedarcli native health`, and `cedarcli test e2e` waits
-either of them out before refusing. Reporting a timeout as `starting` told operators a healthy
-server was still booting, which is how a four-second BioPortal fetch inside terminology's
-`ontology-catalogue` check came to refuse a gate run. That check now takes its measurement off the
-request thread, so the endpoint answers within two seconds whatever BioPortal is doing.
+A listening service still booting is `starting`; a health probe that exceeds its deadline is `slow`.
+Both fail `cedarcli native health`, and smoke waits for them before refusing. A slow dependency can
+cause a probe timeout. Terminology samples `ontology-catalogue` off the request thread to keep
+BioPortal latency out of its health response.
 
 ## The Containerized Stack
 
@@ -158,7 +150,7 @@ changes and confirm its startup log. Do not infer the active store from a health
 
 ## The Controller: `cedarcli native`
 
-Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
+Manages the 15 microservices and seven frontends as
 background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
 systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/log/run/`. The
 controller resolves `JAVA_HOME` to a JDK 17 and refuses to start anything on another JDK, puts
@@ -169,7 +161,7 @@ standalone.
 `NativeWorker` calls that script for every verb below. Reach for the script directly only for the
 one case the CLI does not cover, noted after the table.
 
-The Gulp frontends deliberately run side by side: `ui-main` is the production monolith on 4200,
+The main browser applications run side by side: `ui-main` is the monolith on 4200,
 `ui-workspace` is the extracted Workspace preview on 4201, and `ui-designer` is the extracted
 Template Designer preview on 4202. Starting the previews does not change nginx routing or production
 traffic. Start the migration comparison set with `cedarcli native start frontend main`, then
@@ -724,7 +716,9 @@ A lease timeout is not treated as answerless even though nothing was answered. I
 saturated, so an immediate repeat queues against the same full pool and doubles the wait a call site
 was promised. Repeating it wants a request deadline to come out of, and there is none.
 
-### The Registries That Stop Answering
+<a id="the-registries-that-stop-answering"></a>
+
+### External Registry Outages
 
 Each external authority in the bridge server sits behind its own `AuthorityCircuitBreaker`. A
 registry that is down does not refuse a connection; it accepts one and never replies, so every
@@ -2011,7 +2005,9 @@ emits, because authoring form is compact throughout and stored form is full thro
 inside an instance is classified as an empty multi-instance field by Java and an empty list by
 TypeScript, while both emit the same bytes for it.
 
-## Known Gotchas and Fixes (the Expensive Ones)
+<a id="known-gotchas-and-fixes-the-expensive-ones"></a>
+
+## Troubleshooting
 
 - **Browser blocks login with a cert error, but `curl` works** → the local TLS **leaf certs
   expired**. The `*.metadatacenter.orgx` sites are served by nginx with self-signed leaves issued by
@@ -2225,24 +2221,17 @@ TypeScript, while both emit the same bytes for it.
   should be ~130 MB, not a few MB (a thin jar has no `Main-Class` and dies at start instead — a
   different, louder failure covered above).
 
-  Staleness does not always announce itself. A jar that is merely old rather than broken answers
-  `200` and does exactly what the build it came from did, so nothing reaches any log and the service
-  simply disagrees with the source in front of you. Suspect the binary before the code whenever what
-  the stack does contradicts what the source says it should do. One tell settles it without a
-  redeploy: pick a line the code path logs unconditionally — `BioPortalFailure.relay` warns for
-  every BioPortal status at or above 400, say — and if the running service never wrote it, that
-  service does not have that code. A terminology-server relay path was reported broken on this,
-  having been read in source that already handled the case while the running jar predated it.
+  An old jar can return 200 while behaving differently from current source. Check binary identity
+  before debugging that mismatch; a missing expected log line is a clue, not proof by itself.
 
 ## Cedarcli (Headless Invocation)
 
-`cedarcli` is normally a shell alias (`source $CEDAR_HOME/cedar-cli/cli.sh`) that activates a venv
-and runs `cedar.py`. To drive it non-interactively, invoke the same Python entry point. The selected
-mode must already be recorded; the CLI loads its profile and JDK internally:
+Without the shell alias, use the CLI's shell entry point, which activates its virtualenv. The
+selected mode must already be recorded; the CLI loads its profile and JDK internally:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-$CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py <command>
+bash "$CEDAR_HOME/cedar-cli/cli.sh" <command>
 ```
 
 The `docker` group covers build, validation, Docker-aware status, per-stack start/stop, one-time
@@ -2265,18 +2254,13 @@ stack in dependency order: parent, libraries, project, and clients. Inside a sin
 `cedarcli build this --wd "$PWD"` builds just that repo. The CLI loads the selected profile and pins
 JDK 17 for these child processes.
 
-**Maven comes from the wrapper, not from the machine.** Every Java repository carries `mvnw` pinned
-to 3.9.14, CI invokes it, and `cedarcli` does too, so the build tool is the same everywhere instead
-of whatever each developer and each runner happens to have installed. It is script-only — no jar is
-committed — and fetches its distribution into `~/.m2/wrapper` on first use. Run `./mvnw` rather than
-`mvn` from inside a repository; the exceptions are the commands that pass `-f` with
-an absolute path from outside one, where a wrapper cannot be resolved. Container jar-fetch stages
-use the `MAVEN_BUILDER_VERSION` pinned in `cedar-images-base.sh`; Maven and its JDK never enter a
-served runtime image.
+**Use the Maven wrapper.** Java repositories pin `mvnw` to 3.9.14; CI and `cedarcli` use it.
+The script downloads Maven into `~/.m2/wrapper` on first use. Use `./mvnw` for direct commands
+inside a repository; external `-f` invocations may require `mvn`. Container jar-fetch stages use
+`MAVEN_BUILDER_VERSION` from `cedar-images-base.sh`; the build toolchain stays outside runtime images.
 
-Java is not pinned this tightly. The enforcer requires `[17,18)` and CI asks for `17`, both major
-only, while the runtime image ships an exact Temurin build — so the thing that runs the servers is
-pinned harder than the thing that compiles them. The roadmap carries that, with the Java 21 move.
+The enforcer requires Java `[17,18)` and CI requests major version 17; runtime images pin an exact
+Temurin build. Framework/toolchain changes are tracked in the backend roadmap.
 
 The CLI build runs the Java test suites by default: every Java repo is built with
 `./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
@@ -2402,35 +2386,28 @@ characters and names the limit. Keep unrelated JVM options; remove competing `-D
 settings from `MAVEN_OPTS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS` and use this override instead.
 Direct Maven invocations outside `cedarcli` do not receive this configuration. Test reports remain in the repositories' normal `target` directories.
 
-Release preparation, Maven publication, and immutable build-train assembly remain explicit
-`-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
+Immutable train assembly and snapshot publication use `-DskipTests`; verify source through the
+default CLI build or repository CI. Release validation runs Maven tests for the release variant
+and skips them for the next-development variant; see [the release procedure](RELEASE-RUNBOOK.md#running-the-release).
 
-Order is not optional. A server compiled against a stale `cedar-parent` picks up the parent's old
-managed versions and plugin configuration, which fails silently rather than loudly (see the
-stale-parent gotcha above). When bumping a dependency or changing shared build configuration, always
-install `cedar-parent` first, then the libraries, then rebuild consumers.
+After changing managed dependencies or shared build configuration, install `cedar-parent`, then
+libraries, then consumers. Otherwise consumers can compile with stale parent configuration.
 
 When invoking Maven directly, never pipe its output through a reader that can close early (`head`,
 `grep -m`). A closing reader sends SIGPIPE to `mvn`, which can end the reactor early while the shell
 reports success. Redirect the full log to a file and grep the file.
 
-**Rebuilding a server without `clean` can ship the previous build's dependency.** Change a shared
-library, `mvn install` it, then `mvn install` a server that depends on it, and the server's fat jar is
-rewritten — with the library's *old* classes still inside. Everything says the build worked: the
-reactor is green, the jar's modification time is seconds old, `cedarcli native status` reports the
-binary `current`, and a `dependency:build-classpath` scan finds only the new library. The service then
-runs the old code. The tell is inside the jar rather than around it, and this is how to see it:
+**Use `clean` when rebuilding a server after a shared-library change.** An incremental shaded jar
+can retain old dependency classes despite a successful build, fresh jar timestamp and `current`
+binary status. Inspect an affected class inside the jar:
 
 ```bash
 unzip -l cedar-artifact-server/cedar-artifact-server-application/target/*-SNAPSHOT.jar \
   | grep 'org/metadatacenter/server/jsonld/LinkedDataUtil.class'
 ```
 
-An entry dated days ago in a jar built moments ago is the whole diagnosis: shade preserves each
-entry's timestamp from the jar it copied, so the date names when that class was compiled rather than
-when it was packaged. `mvn clean install` in the consuming repository fixes it. `cedarcli build java`
-is unaffected — it passes `clean` — so this bites exactly when rebuilding one server by hand to try a
-library change, which is the common case while developing one.
+Shade preserves dependency-entry timestamps, so an unexpectedly old class is a stale-byte clue.
+Run `./mvnw clean install` in the consumer. `cedarcli build java` already includes `clean`.
 
 Packaging is centrally managed. The shade plugin configuration lives once in `cedar-parent`'s
 `pluginManagement` as the `cedar-shade` execution, guarded by the `cedar.shade.phase` property
@@ -3472,7 +3449,9 @@ double-quoted scalar, so an unescaped quote closes that scalar early. Dropwizard
 error that follows as `Could not read the CEDAR configuration file cedar-main.yml`, which reads like
 a missing file.
 
-### What the Suites Actually Cover
+<a id="what-the-suites-actually-cover"></a>
+
+### Test Coverage
 
 The suites fall into layers that answer different questions. Use the current test reports for
 counts; this table describes the coverage each layer provides.
@@ -3488,12 +3467,11 @@ counts; this table describes the coverage each layer provides.
 | Matrices | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | YAML and JSON transcode both ways |
-| REST smoke | The real stack, no browser: 19 suites, 1,063 expected checks |
+| REST smoke | The real stack, no browser; required checks are in `ops/e2e/rest/expected-checks.json` |
 | End-to-end smoke | The real stack, through a browser |
 
-**The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
-modes.** It logs in through Keycloak and treats browser-observed request and response headers as part
-of the acceptance contract. In Workspace it conditionally renames and deletes a folder, replaces its
+Browser smoke logs in through Keycloak and verifies request and response headers as part of the
+acceptance contract. Use the report for the tested source to establish whether it passed. In Workspace it conditionally renames and deletes a folder, replaces its
 permissions twice, updates a group twice, replaces that group's membership twice, and conditionally
 deletes the group. It also opens and closes a folder while checking inherited anonymous access,
 moves an artifact and a folder through the real destination-picker modal, and enables and disables
@@ -4329,9 +4307,7 @@ Which integration baseline each CEDAR microservice meets. The baseline is one su
 module that boots the real service wiring, exercises a request over HTTP, and pins both a success and
 a meaningful failure path, without any external service.
 
-All fifteen microservices meet it. The point of recording that is so a newly added service cannot
-quietly omit it: a row with gaps is visible here, where otherwise it takes a hand audit of fifteen
-repositories to notice.
+All fifteen microservices meet this baseline. Add a row when adding a service.
 
 A suite must run without shared developer infrastructure or a live external API. Use
 `cedar-test-support-library` for in-process stores and authentication, bind application and stub
@@ -4414,31 +4390,22 @@ its existing profile and API-key tests cover authenticated success and ownership
 inventories supplement the per-operation behavioural suites rather than asserting that 401 alone
 proves an endpoint correct.
 
-### Two Services Have No 401 to Assert
+<a id="two-services-have-no-401-to-assert"></a>
 
-`openview` and `schema` are anonymous by design, so "rejects an unauthenticated request" is not a
-contract they have. Their rows pin what refusal means for them instead.
+### Anonymous Service Contracts
 
-The open-view server builds an *anonymous* request context and serves artifacts that have been made
-open. Its failure path is that an artifact it should not serve is refused rather than leaked. The
-reachable half is an artifact absent from the graph, which answers 404; the other half, an artifact
-present but not open, needs a seeded graph and belongs with the sharing tests. The 404 assertion also
-checks the response body names the artifact, since a bare 404 would not distinguish an absent artifact
-from an absent route.
+`openview` and `schema` accept anonymous requests; a blanket missing-credential 401 is therefore
+not their contract. OpenView strips caller credentials and proxies resource's anonymous artifact
+responses. `OpenViewProxyTest` covers success, 401, 404 and upstream failures without fallback;
+`OpenViewResourceOutageTest` covers unavailable resource service. `OpenViewFolderReadTest` covers
+inherited folder openness, public projection and 401 for a closed tree.
 
-The schema server's whole surface is its index. An unrouted path answering 404 is the only meaningful
-way it can say no.
+Schema's index is public; its suite verifies 404 for an unrouted path.
 
 ### Known Gaps
 
-Two, none of them a missing row.
-
-The matrix is derived from the test sources by hand, so nothing fails when a new service lands without
-one. Wiring the derivation into the test-enabled `cedarcli build` mode would make a missing baseline
-break the build rather than go unnoticed.
-
-Open-view pins only the absent-artifact half of its contract. An artifact that exists but is not open
-needs a seeded graph and belongs with the sharing tests.
+The matrix is maintained manually. The build does not detect a newly added service missing from it;
+check the service inventory when updating these rows.
 
 ### Regenerating This
 
@@ -6310,58 +6277,26 @@ curl -s -X POST 'http://localhost:9004/bioportal/integrated-search?lang=fr' \
 
 ### Building the Cross-Snapshot Search Index
 
-A corpus-wide term search — a query naming no ontology — is answered from one index rather than by
-opening every snapshot in the catalog. `SearchIndexJob` builds it, and the terminology server reads
-it when `terminologyStore.searchIndexPath` points at one. Without that property a search must name
-its sources, and the startup log says so.
+Use the [versioning ingest/index procedure](VERSIONING-RUNBOOK.md#ingesting), which builds the
+runtime classpath from Maven rather than hard-coding a SQLite JDBC jar. Configure the resulting
+index using [Serving the Store](VERSIONING-RUNBOOK.md#serving-the-store).
+`--acronyms A,B` limits a rebuild; `--force` reindexes unchanged versions. Pinned searches read
+snapshots because the cross-snapshot index holds only each ontology's current version.
 
-```bash
-cd $CEDAR_HOME/cedar-terminology-server
-mvn -q -pl cedar-terminology-server-ingest -am install -DskipTests
-java -Xmx24g -cp "cedar-terminology-server-ingest/target/classes:cedar-terminology-server-store/target/classes:\
-$HOME/.m2/repository/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1.jar" \
-  org.metadatacenter.terms.ingest.SearchIndexJob \
-  $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite
-```
-
-Measured 2026-08-13 over the served prod catalog: **1,215 ontologies, 13,939,470 terms, 24,278,806
-names, 196 seconds, 5.44 GB**. The heap is what NCBITaxon needs — an ontology is loaded one at a
-time, and that one is 2.85M concepts. `--skip-larger-than N` leaves the giants for a separate run
-with a bigger heap; whatever is skipped is printed, because an index silently missing an ontology
-answers "no matches" for it.
-
-The job is idempotent and incremental: an ontology already indexed at the catalog's current version
-is skipped, so a rebuild after a few re-ingests costs a few ontologies rather than the corpus.
-`--force` reindexes anyway, `--acronyms A,B` limits it to named ones.
-
-The index holds each ontology's **current** version and no other, and records which. A corpus-wide
-search cannot be pinned — there is no one version to pin it to — so it searches what is current,
-and a pinned search names its sources and reads their snapshots. Full design in
-[The Search API](VERSIONING-ROADMAP.md#the-search-api).
+Historical baseline (2026-08-13): 1,215 ontologies, 13,939,470 terms and 24,278,806 names built in
+196 seconds into 5.44 GB. For current sizing, use the
+[index rebuild measurements](VERSIONING-RUNBOOK.md#index-rebuild-performance).
 
 ### Re-Ingesting an Ontology
 
-Ingest is `IngestJob <catalogPath> <snapshotDir> <ACRONYM>…`, `BIOPORTAL_API_KEY` in the env. OWLAPI
-4.5.9 resolves http imports via Apache HttpClient and parses with JAXB, neither of which it declares
-and JAXB is not in JDK 17 — both are now declared in the ingest module's pom, so a classpath from the
-build is complete (a hand-assembled one that omits them makes an import-heavy ontology fail with
-`NoClassDefFoundError` and, before the guard, produced an empty snapshot):
+Follow [Ingesting](VERSIONING-RUNBOOK.md#ingesting) for the classpath, credentials, source selection
+and rebuild commands. The Maven-derived classpath includes OWLAPI's HTTP and JAXB dependencies;
+hand-assembled classpaths can fail with `NoClassDefFoundError` on import-heavy ontologies.
 
-```bash
-cd $CEDAR_HOME/cedar-terminology-server
-mvn -q -pl cedar-terminology-server-ingest -am install -DskipTests
-mvn -q -pl cedar-terminology-server-ingest dependency:build-classpath \
-    -Dmdep.outputFile=/tmp/ingest-cp.txt -DincludeScope=runtime
-CP="cedar-terminology-server-ingest/target/classes:$(cat /tmp/ingest-cp.txt)"
-BIOPORTAL_API_KEY=$CEDAR_BIOPORTAL_API_KEY java -cp "$CP" \
-    org.metadatacenter.terms.ingest.IngestJob $CEDAR_HOME/cedar-term/prod/catalog.sqlite \
-    $CEDAR_HOME/cedar-term/prod/snapshots DOID
-```
-
-Ingest is idempotent on the content hash (same download overwrites in place, atomically, only on a
-non-empty extraction) and won't overwrite a good snapshot with a failed/empty one. `version_id`
-changing means BioPortal's content changed; the old snapshot is then orphaned — delete rows/files not
-referenced by any `version_tag`.
+A new version does not make older snapshots disposable: pinned constraints can still reference
+them. Use the catalog-aware cleanup and writer reservation described under
+[Publication, interruption and cleanup](VERSIONING-RUNBOOK.md#publication-interruption-and-cleanup).
+Do not delete snapshot rows or files merely because the `latest` tag moved.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
@@ -6435,9 +6370,8 @@ new `ops/e2e/reports/evidence-*` directory, and the smoke prints its
 path.
 
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
-It proves that both preview route shells and independent AngularJS bootstraps are being served, the
-Workspace carries its pinned CEE bundle, both applications agree on their navigation and Keycloak
-origins, and the live resource service accepts authenticated CORS preflights from both origins:
+It checks Workspace's Angular bootstrap, Designer's CED host, the served component bundles,
+navigation and Keycloak origins, and the resource service's CORS preflights from both origins:
 
 ```bash
 cd $CEDAR_HOME/cedar-development

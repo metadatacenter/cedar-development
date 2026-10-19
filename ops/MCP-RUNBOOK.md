@@ -1,7 +1,7 @@
 # CEDAR MCP Servers — Runbook
 
-Building, configuring, testing and upgrading the four MCP servers under `$CEDAR_HOME/mcp`. What is
-still to do with them is in [MCP-ROADMAP.md](./MCP-ROADMAP.md).
+Build, configure, test and upgrade the four MCP servers under `$CEDAR_HOME/mcp`.
+Open work is in [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
 The [CEDAR MCPs Tutorial](https://metadatacenter.readthedocs.io/en/latest/tutorials/cedar_mcps_tutorial/)
 covers conversational authoring, terminology lookup, form rendering and persistence end to end.
@@ -15,10 +15,6 @@ covers conversational authoring, terminology lookup, form rendering and persiste
 | `cedar-cee-mcp` | Java 17, Maven | Renders a template or instance as a form in the browser, and collects what a person fills in | none |
 | `cedar-artifact-rest-mcp` | Java 17, Maven | Creates, fetches, updates, deletes and validates artifacts on a live CEDAR server | `CEDAR_API_KEY`, `CEDAR_BASE_URL` |
 
-Each is its own repository. They compose rather than overlap: build in `cedar-artifact-mcp`, look
-in `cedar-cee-mcp`, persist in `cedar-artifact-rest-mcp`, and reach for `bioportal-term-mcp`
-whenever a real IRI is needed.
-
 ## Build
 
 ```bash
@@ -30,9 +26,9 @@ Java 17, as everywhere in CEDAR. `mvn package` writes a shaded, executable jar a
 version-less copy beside it — `target/<artifactId>.jar` — so a client's configuration can name a
 fixed path that survives a version bump.
 
-Two of the three Maven servers depend on released `cedar-artifact-library` 2.9.8. Their POMs name
-the anonymous-read BMIR Nexus releases repository, so no sibling checkout or local install is
-needed. `cedar-artifact-rest-mcp` does not use the library and resolves from Maven Central alone.
+`cedar-artifact-mcp` and `cedar-cee-mcp` pin released `cedar-artifact-library` versions in their
+respective POMs and resolve them from anonymous-read BMIR Nexus; no sibling checkout is needed.
+`cedar-artifact-rest-mcp` does not use the library and resolves from Maven Central alone.
 
 Tool descriptions ship inside the jar. Rebuild and restart the client after changing them so the
 model receives descriptions matching the running implementation.
@@ -64,17 +60,17 @@ once in the client's configuration (`~/.claude.json` for Claude Code), naming th
 `CEDAR_BASE_URL` decides which CEDAR the writing server writes to, and defaults to **production**.
 Point it at `https://resource.metadatacenter.orgx` for the local stack.
 
-### A Rebuilt Jar Does Not Take Effect Until the Server Restarts
+<a id="a-rebuilt-jar-does-not-take-effect-until-the-server-restarts"></a>
 
-The MCP client holds a child process for each server. Editing `CEDAR_BASE_URL` does not change that
-process. A rebuild does not upgrade it either, but it can break it. Each build copies the shaded jar
-onto `target/<server>.jar` in place, so a running server reads any class it has not yet loaded from
-the new bytes through the index it read at startup. `cedar-cee-mcp` loads its web server on the
-first form it opens, and after a rebuild that first `show_template` or `fill_instance` never answers
-and logs nothing. Restart the client, or stop the server and let the client respawn it, after either
-change. Verify the destination before writing: the default is
-production. `ping` reports the MCP server's name/version without contacting CEDAR and therefore
-cannot verify the destination deployment.
+### Restart After Rebuilds or Configuration Changes
+
+Restart the client, or stop the server and let the client respawn it, after changing its
+configuration or rebuilding its jar. Builds overwrite `target/<server>.jar`; a running JVM may
+then load new classes through its old jar index. In `cedar-cee-mcp`, this can leave the first
+`show_template` or `fill_instance` hanging without a log message.
+
+Verify `CEDAR_BASE_URL` before writing: its default is production. `ping` reports only the MCP
+server's name/version and does not verify the destination deployment.
 
 ## Test
 
@@ -89,11 +85,9 @@ uv run pytest -m live # + the tests that call BioPortal; needs BIOPORTAL_API_KEY
 Live tests are opt-in everywhere and excluded by default, so an ordinary build needs no key and no
 server. A live test must delete whatever it creates, in a `finally`, and assert that it did.
 
-Beyond the suites, two things only a browser can confirm for `cedar-cee-mcp`: that the form renders,
-and that the CEE accepted the configuration it was handed. **Watch the browser console** — CEE
-reports a configuration key it does not read and then ignores it, which is otherwise silent. A unit
-test asserts every key the server sends is one CEE reads, so a release that narrows the surface
-fails the build rather than the form.
+For `cedar-cee-mcp`, also open a form and check rendering and the browser console. CEE warns about
+unrecognized configuration keys and ignores them. The unit suite checks the server's configuration
+keys against those CEE accepts.
 
 ## Upgrading the CEE Bundle
 
@@ -151,14 +145,14 @@ pathlib.Path('manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 PY
 ```
 
-Then run the check and the suite, and open a session with the console visible. A rebuilt jar reaches
-a client only after it restarts, as
-[A Rebuilt Jar Does Not Take Effect Until the Server Restarts](#a-rebuilt-jar-does-not-take-effect-until-the-server-restarts)
-explains. A page that links another of the package's stylesheets adds it to the manifest, to
+Run the check and suite, [restart the server](#restart-after-rebuilds-or-configuration-changes),
+and open a session with the console visible. A page that links another stylesheet must add it to the manifest, to
 `CeeWebServer.TOKEN_STYLESHEETS` and to the page in one change; the unit suite fails while the three
 disagree.
 
-## The Dependency That Breaks a Rebuild
+<a id="the-dependency-that-breaks-a-rebuild"></a>
+
+## Dependency Conflicts
 
 The MCP SDK validates tool schemas with `json-schema-validator` 3.x, and loads it at startup.
 `cedar-artifact-library` brings 1.5.9, which Maven prefers as the nearer declaration, and which has
@@ -173,22 +167,17 @@ validator built on the 1.x release already present, so the SDK never asks for on
 The symptom to recognize: a jar that built cleanly and exits immediately on startup. Read the
 server's stderr — the client hides it.
 
-Jackson breaks a rebuild the same way, and does not announce itself either. Every
-`cedar-artifact-library` release brings a newer `jackson-databind`, and databind reaches for the
-`jackson-annotations` release of its own line — 2.22 wants `JsonSerializeAs`, which no 3.0 release
-candidate declares. A hand-picked annotations version therefore survives exactly until the next
-library bump, and the failure arrives masked: `JacksonAnnotationIntrospector` fails to initialize,
-and every test then reports `NoClassDefFoundError: Could not initialize class ObjectMapper` with the
-real cause only in the first stack trace. Neither `cedar-artifact-mcp` nor `cedar-cee-mcp` names an
-annotations version now; both let it follow databind, which satisfies the SDK's Jackson 3 as well,
-since `JsonFormat.Shape.POJO` has been present since 2.20. Do not reintroduce a pin to fix a
-version conflict — match databind to the library instead.
+Jackson version conflicts can produce `NoClassDefFoundError: Could not initialize class
+ObjectMapper`; inspect the first stack trace for the underlying `JacksonAnnotationIntrospector`
+failure. Databind 2.22 needs `JsonSerializeAs`, absent from the annotations 3.0 release candidates.
+Let `jackson-annotations` follow databind and match databind to `cedar-artifact-library`; do not
+add an independent annotations pin. The SDK's Jackson 3 also accepts this line because
+`JsonFormat.Shape.POJO` has existed since 2.20.
 
 ## What the Servers Write
 
-`cedar-artifact-rest-mcp` is the only one that writes anything, and `delete_*` is irreversible. Its
-tool descriptions say so, and the model is told to confirm with a person first, but nothing enforces
-that. When it is pointed at production, treat it as production.
+`cedar-artifact-rest-mcp` is the only server that persists CEDAR artifacts. Its `delete_*` operations
+are irreversible. Tool descriptions require human confirmation, but the server does not enforce it.
 
 Identity belongs to CEDAR. Every identifier a stored artifact carries — its own, its children's, and
 the property IRIs in its `@context` — is minted by the server on create, so nothing here invents one.

@@ -5,8 +5,8 @@ How to publish the two independent public npm packages that sit outside the norm
 - `cedar-model-typescript-library`
 - `cedar-embeddable-editor` (CEE)
 
-This is the operational release procedure. For development, architecture, and the complete test
-surfaces, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee). For the platform release that consumes a public
+For development and test gates, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee).
+For the platform release that consumes a public
 CEE package, see [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
 
 ## Release Contract
@@ -35,15 +35,11 @@ as a runtime dependency for the embedding application to resolve. Consequently:
 
 ### The Design Tokens Are a Build-Time Dependency
 
-CEDAR's design values — the font stack, the type scale, the brand palettes and the neutrals — are
-published from `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, under the scope
-`.npmrc` routes to the CEDAR Nexus registry. Sass reads those values and compiles them away, so a
-built bundle carries the numbers and colours and no reference to the package.
+`@org.metadatacenter/cedar-design-tokens` supplies the shared font, type scale and palette from
+CEDAR Nexus. Sass compiles those values into the bundle.
 
-The package stays a `devDependency`, and the published manifest may not name it at all. A scoped
-name resolves only from Nexus, and an embedding application installing public CEE from npmjs cannot
-reach that registry: the install fails with a 404 against a host it holds no credentials for. Check
-the staged `dist-npm/cedar-embeddable-editor/package.json`, rather than the repository's manifest:
+Keep the package as a build-time `devDependency`; public CEE must not require consumers to resolve
+CEDAR's Nexus packages. Check the staged `dist-npm/cedar-embeddable-editor/package.json`:
 
 ```bash
 node -e "const p=require('./dist-npm/cedar-embeddable-editor/package.json');
@@ -52,10 +48,8 @@ console.log(Object.keys({...p.dependencies, ...p.peerDependencies}).filter(d => 
 
 An empty list is the only passing answer.
 
-A release build resolves whatever snapshot Nexus holds when it starts. Publish the tokens first and
-raise CEE's dependency to that version before building, or the bundle carries the values of the
-previous snapshot — the same ordering `cedarcli` enforces for a build train by registering the
-package ahead of every npm repository that consumes it.
+A release build uses CEE's locked token version. If token changes are required, publish them and
+update CEE's pin and lock before building. Build trains enforce token-first ordering automatically.
 
 ## Shared Prerequisites
 
@@ -109,8 +103,6 @@ is why `npm whoami` comes first.
 
 Skip this section when CEE will embed an already-published model version. A model release is not a
 required preamble to every CEE release.
-
-This runbook is the whole procedure. The repository carries no release document of its own.
 
 ### Prepare on `develop`
 
@@ -592,16 +584,12 @@ git -C $CEDAR_HOME/cedar-development commit -m "Refresh the npm audit baselines 
 git -C $CEDAR_HOME/cedar-development push origin develop
 ```
 
-The refresh prints each digest and the four severity counts on either side of it, and those counts
-are the review. Unchanged counts say the new editor carries no advisory the previous one did not.
-A count that moved is a dependency review to hold before the train, not after it.
+Review the refreshed digests and advisory counts before committing. Changed counts require a
+dependency review; unchanged totals alone do not prove that the advisory identities are unchanged.
 
-**Refresh before the smoke gate, not after.** Those baselines live in `cedar-development`, which is
-itself one of the sources a smoke run records, so committing them after `cedarcli test e2e` moves
-that source out from under the record the train is about to ask for — and the dispatch refuses a
-second time, with `no passing whole-stack smoke run covers this source`. The order that holds is:
-propagate, commit each consumer, refresh and commit the baselines, rebuild the deployed frontends,
-then `cedarcli check ci` and `cedarcli test e2e`.
+**Commit baselines before smoke.** A later commit invalidates the smoke record for the train's
+source. Order: propagate, commit consumers, refresh and commit baselines, rebuild deployed
+frontends, then run `cedarcli check ci` and `cedarcli test e2e`.
 
 ## Use the Public CEE in a Train-Backed CEDAR Release
 
@@ -653,8 +641,8 @@ On `start`, that proven public CEE is pinned in all declared frontend consumers 
 variant is stamped. Both the release and next-development Git trees retain the stable CEE pin; the
 next-development tree does not silently return to the train's development CEE. The route then
 integrates those exact trees into `main` and `develop`, publishes the stable frontend npm packages,
-and verifies their downloaded registry tarballs. Workspace receives the same Git wiring but keeps
-its independent package publication path. Operational details and resume rules are in
+and verifies their downloaded registry tarballs. Workspace publishes with the other platform
+frontends. Operational details and resume rules are in
 [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#the-route).
 
 ## Release Notes

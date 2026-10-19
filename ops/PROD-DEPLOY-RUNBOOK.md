@@ -9,7 +9,9 @@ restart services and verify served frontend bytes. First cut the release using
 > `<MODIFIER>` with the deploy's version modifier (see step 3). Never commit real hostnames,
 > credentials, or the raw migration SQL into this file.
 
-## What a Prod Deploy Actually Is
+<a id="what-a-prod-deploy-actually-is"></a>
+
+## Deployment Model
 
 Production builds released `main` checkouts in place. Build before stopping Java to keep the
 outage between `cedarcli native stop microservices` and `cedarcli native start microservices`
@@ -41,7 +43,9 @@ verification, selects served frontend payloads, and refuses placeholder server s
 the existing mode reports `docker` or `hybrid`; do not change a production topology until the
 deployment using that mode has been identified and stopped through its own command surface.
 
-### 1 · Reconcile Local State — Revert Any Hot-Patches
+<a id="1--reconcile-local-state--revert-any-hot-patches"></a>
+
+### 1 · Reconcile Local Changes
 Inspect local edits before pulling. Reconcile each known hot-patch with the release; retain a copy
 and restore only the paths whose changes are already accounted for. Investigate unexplained edits.
 ```bash
@@ -94,12 +98,10 @@ not as root. Running it again on the next release keeps the existing key. It pri
 and deployment instructions, never the key. It requires native mode with the server profile and
 refuses to create a competing file when an external provider already supplies the key.
 
-For the application-host layout in this runbook, **there is no distribution step to perform**:
-artifact, resource and worker run under the same CEDAR installation. On their next start, the native
-profile reads this one file and the launcher passes the key to those three Java processes. Other
-services and frontends do not receive it. Do not paste a key into `set-env-internal.sh`, copy the
-development machine's file onto production, or enter it in a browser. The production command only
-prepares the file; it does not restart services or change running requests.
+Artifact, resource and worker share this installation's secret file; the native launcher passes
+the key only to those processes on their next start. The command does not restart them.
+Do not paste the key into `set-env-internal.sh`, copy a development key to production or enter it
+in a browser.
 
 Use a separate key for staging and production. If these services are split across application hosts,
 supply the same environment's key to artifact, resource and worker through the deployment's secret
@@ -130,8 +132,7 @@ cedarcli check versions --strict
 cedarcli build java
 ```
 
-The key command creates or reuses the environment's local secret file. Building embeds the changed
-libraries in the service jars. Neither command restarts a running service. Stop if any command fails.
+Stop if any command fails. Provisioning and building do not restart services.
 
 **Choose one deployment path.** For the normal maintenance-window deployment below, provision the
 key first, build the complete release, then stop/start all microservices using that procedure; do
@@ -203,14 +204,18 @@ monitor binaries need their previous document-store configuration/connectivity. 
 previous set, then repeat health and read checks. No artifact data needs restoring for this rollout.
 Do not rotate or delete the new key merely because a binary rollout is being rolled back.
 
-### 4 · Build (Java Still Running — Keep the Downtime Window Short)
+<a id="4--build-java-still-running--keep-the-downtime-window-short"></a>
+
+### 4 · Build Before Stopping Java
 ```bash
 cedarcli check versions --strict   # expected version and modifier, and no checkout behind its remote
 cedarcli build maven clean all
-cedarcli build all             # this deploy: ~0:11:24
+cedarcli build all
 ```
 
-### 5 · Redeploy Backend + Configure Frontends (Java Goes Down Here)
+<a id="5--redeploy-backend--configure-frontends-java-goes-down-here"></a>
+
+### 5 · Stop Services and Configure Frontends
 ```bash
 cedarcli native stop microservices
 cedarcli native status                 # confirm Java services are down
@@ -262,8 +267,7 @@ cache without asking Nexus.
 # (Keep the actual SQL out of this file — take it from the release's migration set.)
 ```
 **Log DB — on a separate host (no downtime; async worker DB):**
-The log DB is not the app DB and may **not be reachable from the prod app host**. This deploy
-reached it from staging:
+The log DB may **not be reachable from the prod app host**. Use an approved host with access:
 ```bash
 ssh youruser@<prod-log-db-host>        # if refused from prod, hop from the staging host
 # run the release's log-DB migration queries here.
@@ -284,10 +288,8 @@ service nginx start
 ## Verify
 
 - `cedarcli native status` — all Java services up on the new build.
-- `cedarcli check versions --strict` — every repo at the expected version + modifier, and no
-  checkout behind its remote. This host builds from its own checkouts, so a clone nobody pulled
-  produces binaries from older source while every version string still reads correctly. `--strict`
-  is what makes that a failure rather than a note.
+- `cedarcli check versions --strict` — expected version and modifier, with no checkout behind its
+  remote. Matching version strings alone do not prove source freshness.
 - Confirm `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` is absent or `false`. Never use the native-development
   bypass to make a staging or production certificate failure disappear; install the Keycloak issuer
   CA in the JVM truststore and correct the hostname instead.
@@ -317,26 +319,14 @@ service nginx start
   embedded MariaDB could not open its socket under one. Java's forked test JVMs receive the same temporary-directory setting, so
   embedded Redis tests do not require `--skip-tests` merely because `/tmp` is hardened.
 
-- **Hot-patches on prod are invisible to `git pull`.** If someone live-edited the box, `git pull`
-  either conflicts or silently keeps the patch. Always `cedarcli git status` (and `git status` in the
-  frontend) **first**, understand the diff, then reconcile — don't pull blind.
-- **Re-source the env after editing `set-env-internal.sh` or after a pull.** The running shell keeps
-  the old `CEDAR_VERSION_MODIFIER` and the pre-pull aliases/`cedarcli` until a fresh login shell.
-  Exit + restart tmux. (Same trap as the release runbook.)
-- **Do not use `CEDAR_VERSION_MODIFIER` to identify source code.** AngularJS module URLs contain the
-  source commit and modern Angular bundles have content-hashed filenames. Use the modifier only when
-  the same commit produces materially different environment payloads. Stale-UI prevention also
-  requires nginx to serve entry/config responses with `no-store`; purge any older CDN objects whose
-  previous headers allowed them to survive — see the frontend-caching notes.
-- **The log DB is a different server and may be unreachable from prod.** Hop from staging. It's an
-  **async** worker DB (fed off Redis), so migrating it does **not** take CEDAR down.
-- **nginx is bounced as `root`, not `cedar`.** Separate `sudo su -` shell.
+- **Cached entry/config responses can outlive a rebuild.** Serve them with `no-store` and purge
+  older CDN objects; see [cache invalidation](#cache-invalidation-for-cutover-and-rollback).
 - **`cypher-shell` is on the `PATH`, not under `$CEDAR_NEO4J_HOME`.** The shared profile sets
   `CEDAR_NEO4J_HOME=/srv/cedar/neo4j/`, which does not exist on the production host, so
   `$CEDAR_NEO4J_HOME/bin/cypher-shell` fails. The connection command, which takes its credentials
   from the profile, is in [Renumbering a Draft by Hand](BACKEND-RUNBOOK.md#renumbering-a-draft-by-hand).
-- **Keep the downtime window tight:** `build all` *before* `stop java`; DB migrations and the editor
-  rebuild can overlap the window, but don't `start java` until the app-DB migration is done.
+- **Finish the app-DB migration before starting microservices.** Build before the outage; monitor
+  Redis capacity while the separate log consumer is unavailable.
 
 ## What Each Non-Obvious Command Does
 

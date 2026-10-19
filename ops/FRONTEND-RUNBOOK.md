@@ -24,8 +24,6 @@ and the main browser applications. Shared design values belong in
 | Term-picker operation | [Versioning runbook](VERSIONING-RUNBOOK.md) |
 | What a host serves against its components | [Component staleness](#component-staleness) |
 
-<a id="cee"></a>
-
 ## Browser Metadata Editing
 
 Workspace and the combined Template Editor use CEE exclusively for creating and editing
@@ -427,57 +425,32 @@ See the Workspace README for the boundary, request contracts and direct build pr
 
 ## Component Staleness
 
-A component's source and the bundle a host serves are separated by a publication and
-a pin, so a committed change reaches a host only once both have moved. Nothing in a
-host's own signals reports the gap: its CI, its suite and its browser tests all
-exercise whatever bundle sits on the disk they run on.
+A component change reaches a host only after the host resolves and serves the new package.
+A passing host suite alone does not prove that its component is current.
 
 ```shell
-cedarcli check components            # report the gap
-cedarcli check components --strict   # also fail on a host behind a published component
-cedarcli check components --all      # every comparison, not only the findings
+cedarcli check components            # report findings
+cedarcli check components --strict   # also fail on advisory freshness findings
+cedarcli check components --all      # show every comparison
 ```
 
-Three comparisons, none of which needs a judgement about versions. A pin names a
-source commit, so measuring it against the component's develop head gives the commits
-the host cannot see, by subject. A staged bundle carries bytes, so hashing them against
-the locked package says whether a clean install would serve the same thing. A host names
-the elements it creates, so looking for each one in the locked bundles says whether it
-exists at all.
+The check compares source commits, locked package bytes and the custom elements the host creates.
 
-Serving bytes the lock does not name, creating an element no locked bundle defines, and
-pinning a build the component's history cannot account for each fail the check outright.
-A host sitting behind a published component, a local bundle staged over a locked one, and
-a version carrying no recoverable source commit are reported and fail only under
-`--strict`: each is true of an estate mid-cycle, and failing on them by default would
-train people past the three that matter.
+| Finding | Default result |
+| --- | --- |
+| Served bytes inconsistent with the lock, an element absent from locked bundles, or a pin unexplained by source history | Failure |
+| Host behind a published component, explicit local bundle override, or version without a recoverable source commit | Advisory; fails with `--strict` |
 
-The release plan and the train dispatch preflights ask this check themselves, at its own
-severity rather than under `--strict`. A host sits on the last published component for as
-long as it takes to publish the next one, so refusing a release on that would refuse
-nearly every release, and a gate that always refuses earns an override flag. Both build
-frontends in an isolated workspace from the lock, so a locally staged bundle never reaches
-them and is not asked about; an element the locked bundle does not define still refuses,
-which is the case no clean install repairs. `--strict` belongs to a server payload, which
-serves whatever the lock resolves.
+Train and release preflights use the default severity. They exclude local staged overrides because
+both build isolated copies from locks. Use strict checks for a served payload, and the reactor's
+source/package/runtime evidence for current-development acceptance.
 
 ### Advancing a Pin
 
-The Java estate never asks this question. `cedar-parent` names `cedar.version` once, child poms
-name dependencies without a version, and the coordinate is a `-SNAPSHOT` that Maven re-resolves
-from Nexus on every build, so a merge to `develop` reaches every downstream build with no source
-edit anywhere.
-
-npm has neither half of that. Each consumer declares an exact immutable version in its own
-`package.json` and again in its lock, and nothing stands in for a snapshot: `npm ci` reads the lock
-rather than a dist-tag, and a semver range over these prereleases snaps back to release-time builds.
-The lock is what makes a build reproducible, so the pin stays exact, and advancing it is a source
-change across several repositories.
-
-The frontend reactor must handle this dependency propagation as part of the requested work.
-Publishing development packages to Nexus and advancing consumers’ development manifests and
-lockfiles are valid ways to do it; npm’s immutable versions are not a reason to leave consumers
-on older components. Release preparation remains a separate operation.
+npm consumers keep exact immutable versions in manifests and lockfiles; `npm ci` does not follow a
+moving dist-tag. To advance tracked registry pins, use [Recording a Pin](#recording-a-pin).
+The local reactor instead wires packages built from current sources into isolated consumers,
+leaving tracked pins unchanged. Both routes must verify the installed and served bytes.
 
 ### The Reactor
 
@@ -996,14 +969,13 @@ histories; extended counts apply to each mode independently.
 The preview-answer carry tests have their own existing `CARRY_FUZZ_RUNS` and
 `CARRY_FUZZ_RUN` controls; they do not use the history-test variables above.
 
+<a id="cee"></a>
+
 ## Embeddable Editor (CEE/CEF)
 
-Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
-Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
-stable release documented here is CEE 2.0.3; all seven embedding manifests, including
-the extracted Workspace, pin that public npmjs release. Consumer coherence is verified
-from manifests and lockfiles, and deployed identity is verified by the bundle sha256
-rather than only by the version each host reports.
+Build, run and test **CEE** (`cedar-embeddable-editor`) locally. Check the repository's CI
+configuration for its toolchain and consumer manifests/lockfiles for installed versions.
+Verify deployed identity by the served bundle's SHA-256; a displayed version is insufficient.
 
 Sibling runbooks:
 - [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee) — where CEE currently is, and the open
@@ -1018,7 +990,9 @@ Sibling runbooks:
 
 <a id="cee-node-versions--read-this-first"></a>
 
-### Node Versions — Read This First
+<a id="node-versions--read-this-first"></a>
+
+### Node Version
 
 CEE builds, runs and tests on one Node version, and `.github/workflows/test.yml`
 is the source of truth for which.
@@ -1026,14 +1000,9 @@ is the source of truth for which.
 | What | Node | Why |
 |---|---|---|
 | Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.19.0** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
-| `cedar-model-typescript-library` | 24.19.0 | Webpack 5 / TS 5.3. Its own build, and now on CEE's Node rather than the Node 20 it outlived. |
+| `cedar-model-typescript-library` | 24.19.0 | Uses the same Node version as CEE. |
 
-The split this table used to describe — 18 for interactive development, 20.20.2
-for the gate — is gone. It existed because Angular 14's toolchain and the current
-Playwright did not accept the same Node, and the Angular march removed the reason
-for it. The model library was the last thing left on a Node of its own, and joined
-these on 2026-08-16. One version now builds every artifact that ships and runs the
-tests that judge it.
+CEE and the model library use the same Node version for development, builds and tests.
 
 Install it with Homebrew, keg-only so it does not displace the Node the other
 CEDAR frontends use:
@@ -1270,13 +1239,10 @@ checked out.
 
 #### Getting a Local Build into the Frontends
 
-Two routes. A **symlink** covers a tight edit loop, where the point is to see a
-change without publishing anything. A **dev release to Nexus** covers the other
-case — putting one named, fetchable build in front of every frontend at once,
-which is what to reach for when the build is worth referring to later or worth
-someone else installing. That route is
-[Releasing a dev snapshot locally](#cee-releasing-a-dev-snapshot-locally) below; the
-symlink is the rest of this section.
+For a complete current-source build, use [the reactor](#the-reactor). The symlink procedure below
+is a focused edit loop; it does not replace reactor acceptance and must not overwrite an active
+reactor selection. To publish an installable package, see
+[Releasing a dev snapshot locally](#cee-releasing-a-dev-snapshot-locally).
 
 Point the consumer at `dist-npm/cedar-embeddable-editor` — `ln -s` over its
 `node_modules/cedar-embeddable-editor` — and staging is then necessary but not
@@ -1312,14 +1278,8 @@ cedarcli native restart ui-openview
 The cache is gitignored and rebuilds itself, so deleting it costs a slower first
 compile and nothing else. Do not trust the restart on its own: check the hash.
 
-This is worth knowing because of how it presents. A dev server started before the
-symlink existed went on serving the **1.5.2** it had installed from npmjs, for a
-day, while the CEDAR workspace served `1.6.0-dev` from the same symlink. The
-symptoms were smaller type, a different typeface and no field-type icons in
-openview alone — which reads as a CEE styling bug in one host, and sends you
-looking at stylesheets and the shadow boundary rather than at which file is being
-served. 1.5.2 predates the private font names, the unified type scale and the icon
-slot, so all three symptoms came from the version and none from CSS.
+A stale bundle can look like a styling defect: an older OpenView-served CEE once lacked the font,
+type scale and field icons present in Workspace. Compare served hashes before changing styles.
 
 Ask what each host actually serves before believing anything about appearance:
 
@@ -2081,18 +2041,9 @@ temporal-normalization behavior; `host-change.spec.ts` owns the public mutation 
 Shared host operations belong in the typed `tests/support/host.ts` driver. Keep new tests
 with the contract they extend instead of growing `render.spec.ts` back into the only suite.
 
-It no longer *silently* tests a stale bundle if you forget — `npm test` refuses
-to run when `../dist` is newer than the copy in `public/`. That guard exists
-because the suite did exactly that, reporting green against the previous build,
-and a real fix was briefly believed not to work on the strength of such a run.
-
-Not all screenshots any more: the external-authority and BioPortal tests assert
-behaviour — that a keystroke raises no error, that free text is discarded on
-blur, that clicking a suggestion actually keeps the term it selects — because
-that is a class of defect the domain harness cannot see and a baseline image
-would not describe. Each of those iterates every widget rather than sampling
-one; the last of them is there because sampling one hid a defect in five for
-months.
+`npm test` refuses to run when `../dist` is newer than the prepared bundle in `public/`.
+External-authority and BioPortal tests also check each widget's typing, blur and selection
+behavior, which screenshots and the domain harness cannot establish.
 
 To accept an intentional visual change:
 
@@ -2110,51 +2061,34 @@ rendering is correct.
 
 <a id="cee-when-a-baseline-passes-and-is-still-wrong"></a>
 
-#### When a Baseline Passes and Is Still Wrong
+<a id="when-a-baseline-passes-and-is-still-wrong"></a>
 
-Every screenshot is judged against an absolute budget, and that budget is now
-**zero**: the suite runs in a container, so a laptop and a runner rasterise text
-identically and a single differing pixel means CEE draws something different. The
-history of how it got there is worth understanding before trusting a green run.
+#### Reviewing Visual Baselines
 
-A proportional budget forgives in step with image size, so a localised change to a
-tall page cannot move enough pixels to fail it: 1% of a 1280x4418 corpus page is
-some 56,000 pixels. Six intended changes went green against stale baselines in a
-single day that way — a decimal separator's colour and size, a placeholder from
-`000` to `sss`, `AM` losing 100 of font weight, an occurrence chip going 32px to
-26px, the UTC offset's alignment, and the type scale. Adopting the absolute budget
-failed fourteen baselines at once, between 557 and 8,837 differing pixels each, none
-of it rasterisation noise.
+The containerized screenshot suite permits **zero differing pixels**. Do not restore a percentage
+budget: on a 1280×4418 page, 1% permits about 56,000 changed pixels and can hide localized defects.
+When the suite switched to an absolute budget, fourteen stale baselines differed by 557–8,837
+pixels, including typography, occurrence-chip sizing and UTC-offset alignment.
 
-So a passing screenshot proved only that the difference was under budget, and that
-was never the same claim as the baseline matching what CEE renders. At zero they
-are the same claim, which is the point of the container: the tolerance existed for
-cross-machine rasterisation, and there is no longer a machine boundary to cross.
-
-**`npm --prefix visual run update` cannot fix such a baseline.** Playwright rewrites a snapshot only
-when its comparison failed, so one that passes while depicting the previous
-rendering stays as it is, however many times you run the update. Delete it and let
-the suite write it fresh:
+A matching screenshot proves agreement with the baseline, not approval of the design. Review every
+changed image against the requested behavior before accepting it. If a legacy tolerance lets an
+old baseline pass, Playwright may leave it untouched during an update. Remove the specific baseline
+and regenerate through the container command:
 
 ```bash
 rm visual/tests/render.spec.ts-snapshots/07-timezone-*.png
-npm --prefix visual test   # writes what is missing, and fails while doing so
-npm run test:visual:prebuilt   # confirm it passes against what it just wrote
+npm run update:visual
+npm run test:visual:prebuilt
 ```
 
-Then find out what actually moved, rather than accepting the new image because it is
-new. Extract the committed version and compare scanlines:
+Compare with the committed image when a change is unexplained:
 
 ```bash
 git show HEAD:visual/tests/render.spec.ts-snapshots/07-timezone-desktop-linux.png > /tmp/old.png
 ```
 
-Decode both and list the rows that differ, then group them into bands and look at
-each one. A band the change in hand does not explain is a change some earlier commit
-left behind — which is how the offset alignment was found still sitting in
-`07-timezone` two commits after it shipped. Reading the bands takes a minute and is
-the difference between re-recording a baseline and laundering an unexplained diff
-into it.
+Inspect each changed region. Do not accept unrelated differences merely because regeneration
+produced a passing comparison.
 
 <a id="cee-running-the-angular-unit-tests"></a>
 
@@ -3447,7 +3381,9 @@ sends the right CORS headers. Bringing that store up is in
 
 <a id="ced-the-things-that-bite"></a>
 
-### The Things That Bite
+<a id="the-things-that-bite"></a>
+
+### Troubleshooting CED
 
 **Nexus is a hard dependency of `npm install`.** One package comes from it. An
 outage is a broken install and a red CI run at the install step; nothing after it

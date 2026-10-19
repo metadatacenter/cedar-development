@@ -474,112 +474,70 @@ deployment wants more, with `-Dcedar.terminology.openSnapshots.max`,
 
 ## Which Store Answers
 
-An ontology is answered from the index when the store serves it at all, when it holds at least
-250,000 terms, when the constraint names no version, and when the index holds the release the
-catalog currently serves. The first condition is easy to forget while reading timings: DDSS and
-MEDGEN are both large enough to route and neither is in the served allowlist, so both go to
-BioPortal, and a BioPortal round trip timed beside local ones reads as a slow routed answer.
+An ontology uses the cross-snapshot index only when it is locally enabled, has at least 250,000
+terms, has no explicit version constraint, and the index's release matches the catalog's current
+release. Otherwise it uses its snapshot or, outside the local allowlist, BioPortal. A pinned release
+always uses its snapshot; pin the current catalog version to compare both paths.
 
-The version conditions are not caution. The index keeps one version an ontology, so a constraint
-naming an older release has to be answered from the snapshot that holds it, and a re-ingest can move
-the current version before the index catches up, which would otherwise attribute terms to a release
-that did not produce them.
+The index keeps one release per ontology. Version constraints and catalog/index agreement prevent
+it from attributing terms to the wrong release after a re-ingest.
 
-Two things a routed answer does differently, both deliberate and both visible to whoever reads it.
+The paths differ in matching, ranking and totals:
 
-It finds fewer, and so far always the right fewer. The index matches whole tokens by prefix where a
-snapshot matches a substring anywhere in a label. Usually the two agree closely: PR returns 4,392
-against 4,509 and LOINC 6,101 against 6,120. Where they diverge it has been the substring match at
-fault. GAZ answers "acid" with 2 against its snapshot's 25, and the 23 it drops are `Lake Placid`
-six times over, `Almonacid de Toledo`, `Villacidro` and `Saint-Placide` — "acid" sitting inside
-another word. What it keeps is `Acid Factory Brook` and `Municipality of Acidara`, and "placid"
-still finds Lake Placid.
+| Behavior | Cross-snapshot index | Snapshot |
+| --- | --- | --- |
+| Matching | Whole-token prefixes | Substrings anywhere in a label |
+| Ranking example: NCBITAXON `Escherichia` | Leads with `Escherichia` | Can lead with short labels matching only through synonyms, such as `Muvirus mu` |
+| Large totals | Capped; MESH reported 10,000 | Exact; the same query reported 21,297 |
 
-It ranks better too. Searching NCBITAXON for "Escherichia" the snapshot leads with short labels
-carrying the word in a synonym, `Muvirus mu` and `Inovirus M13`, where the index leads with
-`Escherichia` itself.
-
-It counts to a cap rather than exactly, so MESH reports 10,000 matches where its snapshot reports
-21,297. The page an author reads is unaffected; the total above it is. Counting exactly means
-fetching every match, which when tried made DDSS slower than the snapshot it replaced.
-
-To see which store answered, pin the constraint to the version the catalog serves and compare: a
-pinned constraint is always answered from its snapshot.
+Measured comparisons returned 4,392 versus 4,509 PR hits and 6,101 versus 6,120 LOINC hits.
+For GAZ `acid`, the index returned 2 versus 25: substring-only matches included `Lake Placid`,
+`Almonacid de Toledo`, `Villacidro` and `Saint-Placide`. Both retained `Acid Factory Brook` and
+`Municipality of Acidara`; `placid` still finds Lake Placid. These are examples, not proof of
+identical result sets. Exact counting was slower than snapshot lookup in the DDSS experiment.
 
 ## When a Lookup Is Slow
 
-Reach for the query before the server. `POST /search` puts each token of a query to the index as a
-prefix match, and a token of one or two characters matches most of the index: `"d"*` reaches seven
-million names where `"mannitol"*` reaches 2,398. Punctuation makes such tokens without anyone typing
-them, because the index splits on it. Chemical and strain names are built out of exactly those
-fragments.
+Check the query, selected source and active store before tuning the server. `POST /search` uses
+prefix matches. Short tokens can match millions of names: `"d"*` matched seven million, while
+`"mannitol"*` matched 2,398. Punctuation can split chemical or strain names into broad tokens.
+The query planner holds short tokens back when a longer token can narrow the search, so
+`D-mannitol` costs about as much as `mannitol`; broad queries without a useful narrow token remain
+expensive.
 
-A query with a long token in it holds its short tokens back and applies them afterwards, so
-`D-mannitol` costs about what `mannitol` costs. A query with nothing long in it cannot: every token
-of `L-alpha-amino acid`, `1,2,5` and `ce` is short, one of them is broad, and the query pays for it.
-Those are the queries left to answer.
+Corpus-wide label ranking groups all matching names before selecting the best 25 labels. A small
+page therefore does not make a query matching 1.7 million names cheap. Selecting one source limits
+the search to that ontology and commonly reduces latency to tens of milliseconds. The picker
+requires at least three characters for an unscoped search; scoped searches permit shorter codes.
 
-Choosing the tokens by how selective they actually are, rather than by assuming a long one is
-narrow, is the obvious next idea and was measured on 2026-08-25 as worse. FTS5 keeps the counts and
-an `fts5vocab` table reaches them cheaply, but doclist size turns out to predict what a query costs
-poorly: what a match costs depends on how its doclists overlap, and holding back a broad token that
-was usefully narrowing the intersection costs more than the token was costing. Over 300 labels drawn
-from six ontologies, every threshold tried matched the shipped rule's speedup at best while making
-29 to 39 of the queries more than half as slow again, where the shipped rule makes none of them
-slower. The setting that finally answered `L-alpha-amino acid` was the worst of them overall. The
-remaining queries need a different idea rather than a better threshold.
-
-A corpus-wide search — one naming no source — is the shape left slow, and the cost is one query:
-ranking the labels. `searchByLabelPage` groups every matched name by label to find the best-ranked
-twenty-five, so a query matching 1.7 million names groups 1.7 million rows. Scoping does not help
-because there is nothing to scope to, and the page is small because the group-by is what is
-expensive, not the page.
-
-Three ways out have been measured, and the measurements are worth more care than they were given.
-Bounding the rows before grouping was recorded as slower on a comparison where only one side was
-measured correctly, so that verdict is withdrawn rather than upheld. FTS5's own relevance ordering
-is genuinely 2 to 3 times faster and ranks badly for choosing a term, leading "disease" with
-`disease-disease association` and "acid" with `acidipropionibacterium`; that verdict stands, because
-it rests on the results rather than the timings.
-
-The third was tried twice. Filling a page from the labels a query begins is exact while it fills,
-since ranks 0 to 4 all outrank 5 to 7, and it is much faster: with the label text indexed, "cell"
-fell from 5,609 ms to 148 and "acid" from 850 to 28 on the same twenty-five labels. It shipped on
-2026-08-26 and was withdrawn the same day. Exact *while it fills* is the whole difficulty. Where the
-prefixes run out, the next page comes from the full ranking in a slightly different order, and a
-label can arrive on both pages: "leukaemia" has forty such labels, so page one came from prefixes,
-page two could not, and four labels appeared twice in a picker that appends pages into one list.
-Making the two orders agree needs the tie-break on shortest matching name computed over every
-matched row, which is the work being avoided. A composite order, the prefix labels first and then
-the full ranking with those labels excluded, would be consistent across pages and is the way to try
-it a third time.
-
-The first attempt at this was also recorded here as measured-and-rejected, on numbers from a harness
-that bound its parameters in the wrong order and so searched for a bare token instead of a prefix.
-It reported 9 of 25 results agreeing where the truth was that they agreed exactly. Two conclusions
-in this section came from that harness; a measurement of a corpus-wide query returning in single-
-digit milliseconds is the tell, and means the query matched nothing.
-
-What is left is not a tuning problem. Ranking a large match set by a ladder SQLite cannot index
-costs what it costs, so the ways left change what is asked rather than how it is answered. The
-picker takes the first of them: it will not search the whole corpus for fewer than three characters,
-and says so instead. That removes the worst of the cost rather than the shape of it. Typing towards
-"cellular" cost 4,200 ms at "ce" and 2,512 at "cel", and the query that now runs first, at "cellu",
-costs 539, so a corpus-wide answer is still measured in hundreds of milliseconds. What remains
-unexplored is a curated subset searched ahead of the rest.
-
-Narrowing lifts the floor, in the picker and in the cost. A search naming one source reads only that
-ontology and answers in tens of milliseconds, which is why an author hunting a two-letter code
-narrows first, and why the floor applies only while nothing is narrowed.
-
-Confirm which case you are in before reading any code, since the two look identical from outside:
+Check the match count:
 
 ```bash
 sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
   "SELECT COUNT(*) FROM name_fts WHERE name_fts MATCH '\"ce\"*';"
 ```
 
-A count in the millions is the query, not the server.
+A count in the millions identifies a broad query; it does not by itself rule out server pressure.
+For Docker memory checks, see [VM sizing](DOCKER-RUNBOOK.md#sizing-dockers-virtual-machine).
+
+Retain these August 2026 experiments when evaluating another optimization:
+
+| Experiment | Measurement and limitation |
+| --- | --- |
+| Select tokens by FTS5 vocabulary counts | Across 300 labels from six ontologies, tested thresholds matched the shipped rule at best and made 29–39 queries over 50% slower. Doclist size alone did not predict intersection cost. |
+| Bound rows before grouping | The earlier slower verdict is invalid: one comparison used incorrectly bound parameters. Remeasure before drawing a conclusion. |
+| Use FTS5 relevance ordering | 2–3 times faster, but led `disease` with `disease-disease association` and `acid` with `acidipropionibacterium`. |
+| Fill from prefix labels first | `cell` fell from 5,609 to 148 ms and `acid` from 850 to 28 ms for the same 25 labels. Withdrawn on 2026-08-26 because switching to full ranking on later pages duplicated four `leukaemia` labels. |
+
+The prefix experiment requires consistent ordering across pages. Computing the shortest-matching-name
+tie-break over every match restores the work it tried to avoid. A prefix-first composite order
+excluding earlier labels from later pages remains unverified. The first harness incorrectly bound
+parameters and reported only 9/25 matching results where all 25 agreed; implausibly fast queries
+must be checked for empty matches.
+
+Historical typing measurements were 4,200 ms for `ce`, 2,512 ms for `cel` and 539 ms for `cellu`.
+Longer queries reduce cost but do not eliminate corpus-wide ranking. Open optimization work belongs
+in [VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md).
 
 ## Versioned Properties in Ontology Snapshots
 
@@ -805,7 +763,9 @@ registrar's stylesheet *is* those 184 kB, and Angular's budgets cannot exempt on
 consequence is worth knowing rather than discovering: that budget no longer says anything useful
 about an ordinary component stylesheet, since another one would have to reach 190 kB to trip it.
 
-## Fonts, and Why There Is a Component That Renders Nothing
+<a id="fonts-and-why-there-is-a-component-that-renders-nothing"></a>
+
+## Font Registration
 
 Browsers do not register `@font-face` from inside a shadow root, so the picker cannot simply put the
 faces in its own encapsulated stylesheet. `FontRegistrar` is the answer CEE also arrived at: a
@@ -848,18 +808,21 @@ what a name already means before reusing it.
 
 ## Releasing the Picker
 
-The first development snapshot is
-`@org.metadatacenter/cedar-embeddable-term-picker@0.1.0-dev.20260915.0ec47d9c`
-on CEDAR Nexus. The split Designer host pins it through an npm alias. There is
-no public npmjs release yet, and `cedarcli` does not currently publish this
-component. After choosing a commit-derived `-dev.` version, run:
+The picker publishes development packages to CEDAR Nexus as
+`@org.metadatacenter/cedar-embeddable-term-picker`; the split Designer consumes an exact npm alias.
+Run its gate, then use the CLI's declared `cetp` component to plan and apply publication:
 
-```sh
+```bash
 PORT=4607 npm run test:ci
-npm publish ./dist-npm/cedar-embeddable-term-picker --tag dev --dry-run
-npm publish ./dist-npm/cedar-embeddable-term-picker --tag dev
+cedarcli publish components --component cetp
+cedarcli publish components --component cetp --apply
 ```
 
-The package's `publishConfig` selects Nexus. The gate tests the production build,
-then stages its single-file bundle and declarations; publish those exact bytes.
-`PORT` isolates browser tests from the CED demo, which also defaults to 4599.
+The source must be clean and at its pushed `develop` head. The CLI derives the immutable version,
+rebuilds the staged package, publishes it and updates declared consumer pins for review; it commits
+nothing. With an active local reactor, it leaves installed and served packages intact. See
+[Recording a Pin](FRONTEND-RUNBOOK.md#recording-a-pin) for publication and activation rules.
+`PORT` keeps browser tests off the CED demo's default 4599.
+
+Build trains also publish and verify the picker from captured sources, with their own isolated
+versions and consumer wiring; see [BUILD-RUNBOOK.md](BUILD-RUNBOOK.md).
