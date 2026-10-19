@@ -4004,6 +4004,44 @@ Anything younger than fifteen minutes is reported and skipped, because a run sti
 its working folder exactly as a dead one did and two sessions share this stack. `--min-age=0`
 includes it, which is what to pass when the run is known to be over.
 
+### Code Coverage
+
+JaCoCo measures which lines and branches of CEDAR's Java code the suites execute. `cedar-parent`
+attaches its agent to every Surefire and Failsafe JVM on every build that runs tests, so a local
+build runs its suites exactly as CI does. Each module that runs tests writes its own report:
+`target/site/jacoco/` for Surefire suites and `target/site/jacoco-it/` for Failsafe ones. CI
+uploads the reports as the `coverage-reports` artifact, and `cedarcli build` says how many reports a
+build wrote. `-Djacoco.skip=true` runs one Maven build without the agent:
+
+```bash
+./mvnw verify -Djacoco.skip=true
+```
+
+Three properties of the reports matter when reading them.
+
+- **A report credits a module only with its own tests.** JaCoCo reports on the classes a module
+  compiles, so library code that a server's suites run counts toward neither the server's report
+  nor the library's. A server's report does cover the server itself, because the suites start the
+  Dropwizard application inside the test JVM rather than calling a separate process.
+- **Only CEDAR's own classes are instrumented.** The embedded Neo4j, MongoDB, Dropwizard and Jersey
+  run in the same JVM. Measuring them would cost time and say nothing about CEDAR, so the agent
+  instruments only classes under `org.metadatacenter`.
+- **Generated classes are excluded.** `cedar-impex-server-core` and `cedar-submission-server-core`
+  compile jsonschema2pojo and xjc output, and `cedar-cadsr-tools` compiles xjc output. Each of those
+  modules excludes them in its own declaration of the JaCoCo plugin.
+
+The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
+that configures Surefire's or Failsafe's `<argLine>` itself must begin it with `@{argLine}`.
+Otherwise its tests run without the agent, and its report reads zero with no error. No module sets
+one today.
+
+Measured on 2026-10-19, the agent's cost is within run-to-run variation. `cedarcli build java`
+took 230 seconds with it, against 217 and 227 seconds for the two full builds before it without.
+`cedarcli build this` in `cedar-resource-server` took 118 seconds without it and 116 with it.
+
+No coverage floor is enforced. JaCoCo's `check` goal can fail a build that falls below one once a
+baseline has been measured.
+
 ### REST Performance Testing
 
 `ops/e2e/rest-perf` is the k6 load harness for the real REST stack. It is deliberately separate from
@@ -4523,12 +4561,14 @@ authenticated surface, so excluding the tagged tests does not silently drop a ro
 Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
 temurin, a cache of the Maven repository, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME`
-and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the surefire
-reports uploaded whatever the outcome. The search-library and resource-server workflows also upload
-their Failsafe reports, add the `opensearch-it` profile and an OpenSearch service; other component
-workflows remain backend-free. Jobs carry a hard timeout: twenty minutes for a component, thirty for
-those two OpenSearch jobs, forty-five for `cedar-project`, which builds nineteen repositories in one
-reactor.
+and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the Surefire
+and JaCoCo reports uploaded whatever the outcome, as the `surefire-reports` and `coverage-reports`
+artifacts. `cedar-monitor-server` runs `test` rather than `verify`, so it names `jacoco:report` on
+its command line. [Code Coverage](#code-coverage) describes the reports. The search-library and
+resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and an
+OpenSearch service; other component workflows remain backend-free.
+Jobs carry a hard timeout: twenty minutes for a component, thirty for those two OpenSearch jobs,
+forty-five for `cedar-project`, which builds nineteen repositories in one reactor.
 
 Two repositories are aggregators over `../` sibling paths that a lone checkout cannot satisfy, so
 `cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
