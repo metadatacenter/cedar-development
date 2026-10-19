@@ -6,7 +6,8 @@ serves the YAML in ``cedar-test-artifacts``; everything after the fetch — the 
 validator, the records, the summary and the report — is the real thing.
 
 The suite skips when a toolchain it cannot build is absent, which is what a machine without JDK 17
-or without the TypeScript library's ``dist`` sees.
+or without the TypeScript library's ``dist`` sees. Release tooling CI builds the toolchain in a job
+of its own and sets ``CEDAR_REQUIRE_CONVERSION_TOOLCHAIN=1``, which turns that skip into a failure.
 """
 
 from __future__ import annotations
@@ -159,6 +160,10 @@ def toolchain_available() -> tuple[bool, str]:
 
 
 AVAILABLE, UNAVAILABLE_REASON = toolchain_available()
+# A machine without the toolchain skips the suite. The CI job that builds the toolchain to run it
+# sets this, so that a missing piece fails the job rather than letting it pass having tested nothing.
+if not AVAILABLE and os.environ.get("CEDAR_REQUIRE_CONVERSION_TOOLCHAIN") == "1":
+    raise RuntimeError(f"the YAML conversion toolchain is required here: {UNAVAILABLE_REASON}")
 
 
 @unittest.skipUnless(AVAILABLE, UNAVAILABLE_REASON)

@@ -6073,7 +6073,11 @@ Completion's invariant permits only declared empty shapes, required context addi
 element identities. Run the repair suites with
 `python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`. The
 `Release tooling CI` workflow runs every suite under `ops`, `ops/tests` and `ops/repairs` on each
-push and pull request.
+push and pull request. The YAML conversion audit's end-to-end suite needs both Java libraries
+compiled, the TypeScript library's `dist` and the shared corpus, so it skips there. A second job
+checks those four repositories out at `develop` beside this one, builds them, and runs the suite
+with `CEDAR_REQUIRE_CONVERSION_TOOLCHAIN=1`, which fails it if anything it needs is missing rather
+than letting it skip.
 
 ### Choose the Repair
 
