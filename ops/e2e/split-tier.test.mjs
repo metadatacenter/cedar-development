@@ -77,7 +77,6 @@ const SCRIPT = `
 import {appendFileSync} from "node:fs";
 import {enter, noteFixture, noteRestore, noteRestored, record} from ${JSON.stringify(steps)};
 const [mode, ms] = process.argv.slice(2), name = process.env.CEDAR_SPLIT_SCRIPT;
-appendFileSync(process.env.STANDIN_LOG, JSON.stringify({lane: name, event: "script", mode, at: Date.now()}) + "\\n");
 enter(mode === "chain" ? "login" : "run");
 noteFixture({collection: "folders", id: "folder:" + name});
 if (mode.startsWith("restore-")) {
@@ -86,6 +85,9 @@ if (mode.startsWith("restore-")) {
   noteRestore(entry);
   if (mode === "restore-pass") noteRestored(entry);
 }
+// Announced only once everything above is recorded, so a test that signals the run as soon as the
+// script appears finds its fixture already noted, however slowly the machine is running.
+appendFileSync(process.env.STANDIN_LOG, JSON.stringify({lane: name, event: "script", mode, at: Date.now()}) + "\\n");
 if (mode === "chain") setTimeout(() => enter("create-template"), 50);
 if (mode === "timeout-error") record({event: "fail", step: "run", message: "Timeout 25000ms waiting for live search"});
 if (mode.endsWith("hang")) setInterval(() => {}, 1000);
