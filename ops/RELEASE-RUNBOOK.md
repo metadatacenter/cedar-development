@@ -302,7 +302,9 @@ The release runs these phases, each verifying its work before the next begins:
    Editor at the public CEE version, and `npm-cedar-releases` as `CEDAR_NPM_REGISTRY`, because
    those two registries keep a package indefinitely.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
-   the production frontend builds. Generated distribution bytes are inventoried, so an ignored
+   the production frontend builds. A frontend installs with the whole setup the train and the
+   reactor run for it, so a test package's own install and the browsers it drives are in place
+   before its verification commands. Generated distribution bytes are inventoried, so an ignored
    `dist` file cannot change before publication. Each test-bearing Maven task checks for embedded
    MongoDB children both before it starts and after it returns; a leak stops the phase with the PID,
    listener, and `cedarcli test cleanup` recovery command instead of allowing a later task to reuse
