@@ -288,10 +288,10 @@ content and the transition to a host-supplied editable document.
 
 ### 9. Keyboard and Screen-Reader Access
 
-Verify keyboard focus order across settings, palette actions and nested elements. Add
-live-region announcements for constraint changes, accepted or rejected local Apply actions and
-host-supplied validation results. Exercise those workflows with a screen reader and verify that
-focus returns to a useful control after each action.
+Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with
+VoiceOver and Safari and with NVDA and Firefox, and fix what it finds. The browser suite
+cannot tell whether a screen reader speaks the live region's messages, in what order, or
+whether one interrupts another.
 
 ### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 

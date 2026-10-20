@@ -2669,10 +2669,23 @@ server, and the one covering `<cedar-embeddable-term-picker>` registers a stub e
 the page.
 
 `accessibility.spec.ts` runs axe-core over each state the suite can reach: fresh,
-nested, published, read-only, narrow, showing host findings, and every field type's
-settings tabs. Any violation of axe's rules for WCAG 2.2 levels A and AA fails it.
-The tags are Workspace's gate with WCAG 2.1 level A added. Axe cannot judge focus
-order, focus return or announcements, so a clean run says nothing about them.
+nested, published, read-only, narrow, showing host findings, both settings dialogs,
+and every field type's settings tabs. Any violation of axe's rules for WCAG 2.2
+levels A and AA fails it. The tags are Workspace's gate with WCAG 2.1 level A added.
+Axe cannot judge focus order, focus return or announcements, so three specs cover
+them:
+
+- `keyboard-order.spec.ts` pins the Tab order of each surface, naming every stop by
+  role and accessible name.
+- `focus-return.spec.ts` checks where focus lands after each action. A deleted
+  card gives focus to its next sibling, else its previous one, else its container's
+  Add field. A closed dialog or menu returns focus to the control that opened it.
+- `announcements.spec.ts` reads the designer's one polite live region after each
+  announced event: an applied constraint set, a cleared default, a chosen default
+  term, a new or cleared set of host findings, and a move in the Overview.
+
+None of the three can say what a screen reader actually speaks, so a release that
+changes these surfaces also gets the [screen-reader protocol](#ced-screen-reader-protocol).
 
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
 been through `npm run dist` is not the thing under test. That used to be a
@@ -2714,6 +2727,64 @@ and a box's width depends on the fonts available — so a row with no slack fits
 a developer's Mac and overflows on the runner. An option row's delete button sat
 31 pixels outside its card on CI and nowhere else, and the suite was red for three
 commits before anyone ran it where CI runs it.
+
+<a id="ced-screen-reader-protocol"></a>
+
+#### Screen-Reader Protocol
+
+The browser suite shows that focus lands where it should and that the live region
+holds the right text. It cannot show that a screen reader speaks either, or in what
+order. This protocol checks that by hand, with VoiceOver and Safari on macOS and with
+NVDA and Firefox on Windows.
+
+Build the distribution and serve the fixture pages:
+
+```sh
+cd "$CEDAR_HOME/cedar-embeddable-designer"
+npm run dist
+node browser/serve.mjs
+```
+
+Open `http://localhost:4598/host.html?picker=stub`. The stub term picker applies a
+fixed term, so the constraint steps need no terminology server. Start the screen
+reader (Command-F5 for VoiceOver, Control-Alt-N for NVDA) and work through each
+step from the keyboard alone. Each step says what should be heard.
+
+1. Tab into the designer. The toolbar, the Overview, the template header and each
+   field card follow in that order, and each card is read as a group named after
+   its field.
+2. On a card, press the down arrow. Focus moves to the next card, which is read by
+   name.
+3. Open a field's settings, move between its tabs with the arrow keys, and Tab
+   through a panel. Each control is read with its label.
+4. Delete a field with its Delete button. The next card is read, or the previous
+   one when the field was last.
+5. Press Add field, Tab into the palette and press Escape. The palette closes and
+   Add field is read again. Open it again and choose Text. The new field's name box
+   is read.
+6. Press Import fields and elements. The picker's search box is read. Press Escape,
+   and Import is read again.
+7. Add a Controlled Terms field, open its constraint dialog with Edit and pick the
+   term. After the Edit button, "Disease now has 1 constraint." is heard, with the
+   field's own name in place of Disease.
+8. Open the constraint dialog again and press Escape. It closes and Edit is read.
+9. Open Edit default term and pick the term. After the Edit default term button,
+   "Default set to cancer." is heard.
+10. In the browser console, set
+    `document.querySelector('cedar-embeddable-designer').validationFindings` to
+    `[{ location: '/schema:description', message: 'Explain this study', severity: 'error' }]`.
+    "The host reported 1 error." is heard and focus does not move. Set it to `[]`,
+    and "The host's reported issues are cleared." is heard.
+11. In the Overview, focus a Reorder button and press the down arrow. "Title moved
+    to position 2 of 3." is heard.
+12. Open Preferences from the user menu. The dialog is read by its title, Tab stays
+    inside it, and Escape returns focus to User Menu, which is read.
+13. Open the user menu and press Escape. The menu closes and User Menu is read.
+14. Set `document.querySelector('cedar-embeddable-designer').language = 'hu'` and
+    repeat step 11. The message is read in Hungarian.
+
+Record the screen reader's and the browser's versions, the date and every step that
+fails. A failure becomes an item on the [frontend roadmap](FRONTEND-ROADMAP.md).
 
 <a id="ced-packaging-and-release"></a>
 
