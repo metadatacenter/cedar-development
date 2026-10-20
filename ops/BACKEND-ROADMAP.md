@@ -1015,15 +1015,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - **Jedis 5.2.0 to 8.0.2.** Every release from 6.0 supports Redis 7.2 and later, so the deployed
     server can stay. The majors since 5.x removed deprecated APIs, and 7.0 also dropped
     `JedisSharding` and renamed the pipeline and transaction base classes. CEDAR uses only `Jedis`,
-    `JedisPool`, `JedisPoolConfig` and two exception types, in eleven main source files across the
-    queue, logging, search, rate-limit and monitor code, so compiling against 8.0.2 measures the
-    cost. The embedded Redis the queue and quota suites start is 6.2, below what Jedis 6 and later
+    `JedisPool`, `JedisPoolConfig` and two exception types, in ten main source files across the
+    queue, logging, search, rate-limit and monitor code. On 2026-10-20 the four libraries holding
+    them and the monitor server compiled against 8.0.2 unchanged, main and test sources alike. The
+    embedded Redis the queue and quota suites start is 6.2, below what Jedis 6 and later
     support, so those suites stop being evidence for this change and the real-stack smoke against
     Redis 7.2 decides it.
 
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
-  6.3.0, MySQL Connector/J 9.7.0 to 26.7.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
-  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.09.0.
+  6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
+  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.10.0.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
@@ -1061,6 +1062,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   built against logback-core 1.5, and 2.0.14 is the first built against 1.6. Both wait on Dropwizard
   shipping a line built against 1.6.
 
+  Dropwizard also holds the Jakarta EE 11 generation. Hibernate 6.6.58 to 7.4.13 and Jersey 3.1.12
+  to 4.0.3 have finals, as do the Jakarta Persistence 3.2.0, Servlet 6.1.0, Validation 3.1.1,
+  RESTful Web Services 4.0.0 and Annotations 3.0.0 APIs, against the 3.1.0, 6.0.0, 3.0.2, 3.1.0 and
+  2.1.1 the parent manages. Dropwizard 5.0.2 pins the Jakarta EE 10 line of every one of them, so
+  they move together when Dropwizard ships a line built on EE 11. Raising one alone would put two
+  generations on one classpath.
+
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
   resolves one version of an artifact nothing here depends on directly, which makes these four
   nobody's choice to raise: HK2 locator 3.0.6 to 4.0.3, which follows Jersey; Jandex 2.4.5 to 3.3.1,
@@ -1076,21 +1084,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   parent POM's harness note anticipates.
 
   **Versions whose newest release is not a final.** These have no final to move to: HttpCore
-  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta2,
-  Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, and the Jakarta activation, persistence, servlet,
-  validation and XML binding milestones. The old javax jaxb-api's only newer version is a 2018 build
-  that was never finalized, so it stays too.
+  5.5-beta4 and HttpClient 5.7-alpha1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta3, Angus Activation
+  2.1.0-M1, and the Jakarta activation and XML binding milestones. The old javax jaxb-api's only
+  newer version is a 2018 build that was never finalized, so it stays too.
 
   Read that list with suspicion, because the report it came from hides releases.
   `versions:display-property-updates` names only the newest version an artifact has, so a
   pre-release at the head conceals every stable release behind it. Seven Maven plugins sat in this
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
-  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. The versions in the first three groups
-  were rechecked against the published metadata on 2026-10-19, with pre-releases set aside. The
-  pre-release list has not been rechecked. Read an artifact's
-  `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest release a
-  given Maven version can actually use, before concluding that something cannot move.
+  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every version this item names was
+  rechecked against the published metadata on 2026-10-20, with pre-releases set aside. Read an
+  artifact's `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest
+  release a given Maven version can actually use, before concluding that something cannot move.
 
   Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
   blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
