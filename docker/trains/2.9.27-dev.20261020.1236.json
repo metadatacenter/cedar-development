@@ -1,0 +1,183 @@
+{
+  "createdAt": "2026-10-20T13:15:48.949120+00:00",
+  "frontendPackages": {
+    "CEDAR_BRIDGING_NPM_VERSION": "2.9.27-dev.20261020.gff679053ae18.t1236.p4",
+    "CEDAR_CONTENT_NPM_VERSION": "2.9.27-dev.20261019.ge6ace17187ce.t134545.p3",
+    "CEDAR_MONITORING_NPM_VERSION": "2.9.27-dev.20261020.gda1ce5875904.t1236.p4",
+    "CEDAR_OPENVIEW_CEE_NPM_VERSION": "2.0.26-dev.20261020.g879c2a1b86e6.t1236",
+    "CEDAR_OPENVIEW_NPM_VERSION": "2.9.27-dev.20261020.g1ddc8ed34e94.t1236.p4",
+    "CEDAR_OPENVIEW_WEBCOMPONENTS_NPM_VERSION": "2.8.0",
+    "CEDAR_TEMPLATE_DESIGNER_NPM_VERSION": "2.9.27-dev.20261020.ge3ef8ba40057.t1236.p4",
+    "CEDAR_TEMPLATE_EDITOR_NPM_VERSION": "2.9.27-dev.20261020.gdcde67988426.t1236.p4",
+    "CEDAR_WORKSPACE_NPM_VERSION": "2.9.27-dev.20261020.g417d72d6001c.t1236.p4"
+  },
+  "images": [
+    {
+      "image": "cedar-java",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar-internal",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar-internal/cedar-java:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-microservice",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar-internal",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar-internal/cedar-microservice:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-infra-keycloak",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-keycloak:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-infra-mongo",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-mongo:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-infra-mysql",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-mysql:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-infra-neo4j",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-neo4j:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-infra-nginx",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-nginx:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-infra-opensearch",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-opensearch:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-infra-redis-persistent",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-redis-persistent:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-artifact",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-artifact:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-bridge",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-bridge:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-group",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-group:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-impex",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-impex:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-messaging",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-messaging:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-monitor",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-monitor:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-openview",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-openview:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-repo",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-repo:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-resource",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-resource:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-schema",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-schema:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-submission",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-submission:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-terminology",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-terminology:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-user",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-user:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-valuerecommender",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-valuerecommender:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-server-worker",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-worker:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-frontend-content",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-content:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-frontend-main",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-main:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-frontend-monitoring",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-monitoring:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-frontend-bridging",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-bridging:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-frontend-openview",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-openview:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-frontend-workspace",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-workspace:2.9.27-dev.20261020.1236"
+    },
+    {
+      "image": "cedar-frontend-template-designer",
+      "prefix": "nexus.bmir.stanford.edu/docker-cedar",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-template-designer:2.9.27-dev.20261020.1236"
+    }
+  ],
+  "javaCompletion": "completed/2.9.27-dev.20261020.1236.json",
+  "javaManifest": "trains/2.9.27-dev.20261020.1236.json",
+  "npmCompletion": "npm/completed/2.9.27-dev.20261020.1236.json",
+  "npmPlan": "npm/trains/2.9.27-dev.20261020.1236.json",
+  "npmPlanSha256": "534b3f15169445a3af2e37b49de50baf345b4b8697353b97fce9f85552038562",
+  "repositories": {
+    "cedar-cli": "c033b675a2e9b900eb772d1bb46803df83dc94e3",
+    "cedar-docker-build": "14ae9e492d0e1a5a9211dc313f4b8adada93452d"
+  },
+  "schemaVersion": 2,
+  "sourceManifestSha256": "fee240b44339d1fb4cc634a654fed0a30c8c8c65b9fcd716776562ff11a93e6b",
+  "version": "2.9.27-dev.20261020.1236"
+}
