@@ -1007,14 +1007,16 @@ These three items concern the component alone, and none waits on a host.
 
 - **24. Fix the picker's remaining WCAG failures.** The
    [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these beyond items 22
-   and 23. The hierarchy is a flat list whose depth shows only as indentation, and "Selected term"
-   looks like a heading without being one. Neither fix changes the screen. The tree's 16px twists,
-   its terms, 14px tall on a 16px pitch, and the history's 22px releases are under WCAG 2.2's 24px
-   minimum target, and `browser/tests/accessibility.spec.ts` records each as pending. At 375px the
-   history head's count column has no width, so "3 releases, newest first" overlaps "effective
-   date", and a release row overflows and clips its tag. The targets and the narrow history need
-   visible changes, so agree them first. The tint that alone marks the current release and a picked
-   tree term is part of "Fix the WCAG Failures the Components Share" on the
+   and 23, and each needs a visible change, so agree them first. The tree's 16px twists, its terms,
+   14px tall on a 16px pitch, and the history's 22px releases are under WCAG 2.2's 24px minimum
+   target. At 375px the history head's count column has no width, so "3 releases, newest first"
+   overlaps "effective date", and a release row clips its tag. At 320px the release history scrolls
+   sideways, where each release could take two lines. At 200% zoom the selection's source line
+   loses its acronym to an ellipsis, a value set row cuts its matched terms, and the narrowing panel
+   opens with about 96px of room, clipping its list and its Clear all, Cancel and Apply buttons until
+   the page is scrolled. `browser/tests/accessibility.spec.ts` and `layout-resilience.spec.ts`
+   record each as an exception. The tint that alone marks the current release and a picked tree term
+   is part of "Fix the WCAG Failures the Components Share" on the
    [frontend roadmap](FRONTEND-ROADMAP.md).
 
 ### The Template Designer

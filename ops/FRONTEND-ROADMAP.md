@@ -165,27 +165,31 @@ current draft-retention contract and operator verification commands.
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found four WCAG 2.2
 criteria that Workspace fails, two of them through causes it shares with the other components.
-Most of the fixes change nothing on screen. Agree the ones marked as visible before making them.
+Agree the fixes marked as visible before making them.
 
-- **Item type in the list view (1.1.1, 2.1.1).** The type is an `aria-hidden` icon whose tooltip
-  appears only on hover (`src/app/workspace.html`), so neither a keyboard nor a screen reader
-  reaches it.
-- **Help on disabled controls (2.1.1).** Disabled group controls explain themselves only in hover
-  tooltips (`src/app/groups.html`).
-- **Widget semantics (1.3.1, 4.1.2).** Rows set `aria-selected` inside a plain table, and the Info
-  tab has no `tabpanel`. A row's name runs its version and status together, as "1.0.0Draft",
-  because the separator between them is hidden from assistive technology. The resource menu is a
-  labelled group rather than a menu, and its trigger has no `aria-haspopup`. Workspace's templates
-  are not linted with angular-eslint's accessibility rules, as CED's are.
-- **The Information panel's links (2.4.4).** Its Open location and Open in OpenView icon links
-  rely on the panel's heading alone to say which artifact they open.
+- **Help that only a pointer reaches (2.1.1).** The Permissions dialog's owner checkboxes and the
+  metadata editor's refused Save explain themselves only in hover tooltips on disabled controls.
+  The group administrator's controls show the pattern that fixes them: an `aria-disabled` control
+  that keeps focus and shows its tooltip on focus.
+- **Text spacing in grid cards (1.4.12).** Visible. Under WCAG's text spacing a grid card's type
+  and date line, such as "Template · 1 day ago", ends in an ellipsis. The line needs to wrap and the
+  card to grow, through the token package's resource-card recipe, which also changes cards that are
+  cut today.
+- **Selection as a state (1.3.1, 4.1.2).** A selected row is described as Selected, because a plain
+  table's rows take no `aria-selected`. Stating it as a state needs a grid and its arrow-key model,
+  which is a keyboard design decision.
 - **Menus that stay open (2.4.3).** Visible. The resource menu and the user, actions and New
   menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
 - **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
   with no confirmation or undo. Decide whether it needs either.
+- **What remains unmarked or unannounced (3.1.2, 4.1.3).** The joined list of failed moves, raw
+  unknown statuses and CEE's validation text carry no language, and outcomes on Groups and
+  description saves are not announced.
 
-Extend `browser/tests/accessibility.spec.mjs` to the Move, Copy and Publish dialogs and to a narrow
-window, which it never builds.
+Extend `browser/tests/layout-resilience.spec.mjs` to the dialogs, which it covers at neither 320
+pixels nor 200% zoom. The initial bundle stands 0.55 kB under its 1.03 MB budget, so the next
+change here needs budget. `focus-order.spec.mjs`'s test that a page button keeps focus fails now and
+then under load, which looks like a race in `restoreFocus`.
 
 <a id="cee"></a>
 
@@ -250,15 +254,14 @@ each project's lint, tests and build, and run `cedarcli publish baselines --refr
 
 ### 8. Fix CEE's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found six WCAG 2.2
-criteria that CEE fails, two of them through causes it shares with the other components. Agree the
-fixes marked as visible before making them.
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
+criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
+Agree the fixes marked as visible before making them.
 
-- **Descriptions on hover only (1.1.1, 2.1.1).** A field's description and property IRI appear only
-  while the pointer rests on an icon that cannot take focus (`cedar-component-header.component.html`).
-  The section break's help icon is `aria-hidden`, so its description reaches neither a keyboard nor
-  a screen reader. `render.spec.ts` asserts `aria-describedby` on that hidden icon as if it were the
-  screen-reader route.
+- **Element descriptions on hover only (2.1.1).** Visible. An element's description and property
+  IRI marks sit inside its panel header, which is a button, so they cannot take focus, and only a
+  pointer shows their tooltips. Either the marks move out of the header or the header shows the
+  tooltip when it takes focus.
 - **Notices that vanish (2.2.1).** Visible. The notices that an entry was cleared or reverted
   disappear after five seconds, and nothing keeps them.
 - **Severity by colour (1.4.1).** Visible. Range and quality warnings differ from errors only by
@@ -266,12 +269,10 @@ fixes marked as visible before making them.
 - **The link-out icon (2.5.8).** Visible. At 480px a read-only term's 20px link-out icon touches its
   IRI link. It needs a 24px target or a 4px gap. `visual/tests/accessibility.spec.ts` records it as
   a known violation.
-- **Changes nothing announces (4.1.3).** Adding or deleting an occurrence and turning a page change
-  the form without a word to a screen reader.
-- **Descriptions not tied to controls (1.3.1).** A field's description is not linked to the
-  controls it describes.
+- **A template's language (3.1.2).** A template's own `@language` does not mark its labels.
 
-Add angular-eslint's `templateAccessibility` preset, which CED already uses.
+Extend `visual/tests/layout-resilience.spec.ts` to the field element and to open overlays, and
+check clipped text at 320 pixels as well as horizontal scrolling.
 
 ## Frontend Dependencies
 
@@ -332,14 +333,6 @@ cause lives.
   current release and picked tree term, Workspace's selected list row and pressed view switch, and
   the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
   hue alone. Agree one second cue, such as a bar, a weight or an icon, and apply it in each place.
-- **Known languages left unmarked (3.1.2).** Each component marks its own text with its UI
-  language. Values typed into a field that declares a language, in CED and CEE, and messages a
-  server writes, which the term picker and Workspace show as they arrive, are not marked. Mark each
-  where its language is known. This changes nothing on screen.
-- **Untested layout and placeholders (1.4.3, 1.4.4, 1.4.10, 1.4.12).** No suite tests a component
-  at 320 CSS pixels, at 200% text size or with WCAG's text spacing, and axe does not measure
-  placeholder text. Add one check for all four, run it in each browser suite, and fix what it
-  finds.
 
 <a id="ced"></a>
 
@@ -393,9 +386,14 @@ accessibility lint rules until this is done. Remove that exception in the same c
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these failures in
 CED beyond the ones it shares with the other components. Several need a design decision first.
 
-- **Narrow widths (1.4.10, 2.1.1).** Below 768px of width the designer hides the Overview
-  (`app.component.scss`), and with it outline navigation, Expand all and Collapse all, and the only
-  keyboard route for reordering. Decide how a narrow host reaches them.
+- **Narrow widths (1.4.4, 1.4.10, 2.1.1).** Visible. Below 768px of width the designer hides the
+  Overview (`app.component.scss`), and with it outline navigation, Expand all and Collapse all, and
+  the only keyboard route for reordering, so it is gone at 200% zoom as well. At 320px the
+  Preferences field-type list scrolls sideways by 8px, the Define Presets body scrolls sideways,
+  and a nested element's Element label overlaps its Version. The template's Types row pushes Enter
+  IRI manually past the card's edge and sets "No types selected." one letter to a line, already at
+  375px. `browser/tests/layout-resilience.spec.ts` records each as an exception. Decide how a
+  narrow host lays these out.
 - **Dragging (2.5.7).** Reordering on the canvas, in the Overview, in the child picker and in the
   sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route
   that needs only single clicks, such as Move up and Move down buttons, which is new UI to agree
@@ -407,11 +405,12 @@ CED beyond the ones it shares with the other components. Several need a design d
   field header beside it, which opens the same settings, is 23px tall, a pixel short of WCAG's 24.
   The settings panel's last control also sits within 12px of the toggle's centre. Either the toggle
   or the header needs 24px. `browser/tests/accessibility.spec.ts` records it under `EXCEPTIONS`.
-- **Semantics (1.1.1, 1.3.1, 4.1.2).** The child picker's Type column is an icon alone, and its
-  result rows act on a click but are plain table rows. The Preferences radio group has no grouping,
-  its preset buttons have no `aria-pressed`, and Define Presets labels its rows with `td` cells.
-  The Add field palette's library dropdown has no `aria-expanded`. None of these changes the
-  screen.
+- **The child picker's results (1.3.1, 4.1.2).** Its result rows act on a click but are plain table
+  rows, whose selected state Chromium ignores. A grid needs an arrow-key model, a list of buttons is
+  a redesign, and a visually hidden button in each row disturbs the scroller. Decide which. The
+  smokes find a row by its name, Select and the artifact's name, which any choice must keep.
+- **Checkbox groups (1.3.1).** The Preferences checkbox groups rely on their headings alone, which
+  nothing ties to the boxes.
 - **Labels that vanish (3.3.2).** Visible. The field-name and option boxes and the library search
   are labelled only by placeholders, which disappear once the box holds text. They need labels
   that stay.
