@@ -107,7 +107,8 @@ export async function workspaceTypeFilterJourney(args) {
   const folder = await make(args, root, "Alpha folder", "folder"), template = await make(args, root, "Zeta template"),
     element = await make(args, root, "Middle element", "element"), field = await make(args, root, "Beta field", "field");
   await listing(page, base, root);
-  const type = page.getByRole("button", { name: "Type", exact: true });
+  // The chip is named "Type" until a filter applies, then by its choice, as "Folder, Template (type filter)".
+  const type = page.getByRole("button", { name: /^Type$|\(type filter\)$/ });
   await type.click();
   const filter = page.getByRole("dialog", { name: "Filter by type", exact: true });
   await filter.getByRole("checkbox", { name: "Folder", exact: true }).check();
