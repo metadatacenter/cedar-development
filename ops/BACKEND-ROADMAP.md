@@ -163,8 +163,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
   ended at 22.0.5. On 2026-09-30 Dependabot reported 93 open advisories against the Keycloak
   artifacts `cedar-parent` manages, 25 of them high. No community 22 release fixes any of them, and
-  26.7.5, the current release, fixes all 93. The fixed 22.0.x versions some advisories name belong to
-  Red Hat's subscription build rather than to the community line.
+  every release from 26.7.5 fixes all 93. The current release is 26.8.1. The fixed 22.0.x versions
+  some advisories name belong to Red Hat's subscription build rather than to the community line.
 
   The advisories concern the server rather than CEDAR's code. The microservices ship only
   `keycloak-core`, `keycloak-common` and the adapter, to verify bearer tokens, and none of the
