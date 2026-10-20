@@ -281,7 +281,7 @@ export async function combinedDeleteJourney(args) {
                 ?.getAttribute("aria-busy") === "false",
           );
           await row(remaining).waitFor();
-          if ((await row(remaining).getAttribute("aria-selected")) !== "true")
+          if (!(await row(remaining).evaluate(node => node.classList.contains("selected"))))
             await row(remaining).locator(".resource-icon").click();
           await page
             .getByRole("button", { name: "Delete (1)", exact: true })

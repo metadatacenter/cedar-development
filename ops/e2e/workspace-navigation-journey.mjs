@@ -9,7 +9,8 @@ const ids = page => items(page).evaluateAll(nodes => nodes.map(node => node.data
 async function selected(page) {
   // Angular renders keyboard selection on the next frame, after focus has already moved.
   await rendered(page);
-  return page.locator('.explorer-item[aria-selected="true"]').evaluateAll(nodes => nodes.map(node => node.dataset.resourceId));
+  // A selected row carries the class "selected" and is described as Selected; it states no aria-selected.
+  return page.locator('.explorer-item.selected').evaluateAll(nodes => nodes.map(node => node.dataset.resourceId));
 }
 async function make(args, parent, suffix, kind = "template") {
   const title = args.name + " " + suffix;

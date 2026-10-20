@@ -78,7 +78,7 @@ async function groupedMoveJourney({page, base, user, folderId, name, created, pa
     for (const id of [ids[0], ids[2]]) await row(id).waitFor({state: "detached"});
     await listingIdle(page);
     await row(ids[1]).waitFor();
-    assert.equal(await row(ids[1]).getAttribute("aria-selected"), "true");
+    assert.equal(await row(ids[1]).evaluate(node => node.classList.contains("selected")), true);
     assert.equal(await page.locator("tr.selected").count(), mixed ? 2 : 1);
     for (const id of ids) {
       const report = await call(user.auth, "GET", "/template-fields/" + enc(id) + "/report");
