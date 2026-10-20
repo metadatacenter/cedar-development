@@ -1471,19 +1471,3 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
-
-- **25. Point production's crontab at `ops/cron`.** CEDAR's two scheduled jobs moved from the
-  archived `cedar-util` to `ops/cron`, where `crontab.txt` records their entries, but production's
-  crontab still starts them from `/srv/cedar/cedar-util`. The nightly caDSR update runs unchanged
-  from its new location.
-
-  The instance-sharing job has granted nothing since production took 2.9.10 at the latest. Since
-  that release the server reads a grant as a role, and it now accepts a permissions write only under
-  the ETag of the permissions it replaces. The copy production runs sends neither, and it calls a
-  script path that moved in 2020. `cedar_share_instances.py` writes grants the current way, so its
-  first pass grants every instance created since the job last worked. Before switching it on, ask
-  the owners of the five groups which of the 16 rules in `share-instances.sh` they still need, and
-  remove the rest.
-
-  Done when production's crontab starts both jobs from `ops/cron` and runs nothing from
-  `cedar-util`.
