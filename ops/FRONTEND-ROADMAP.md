@@ -288,17 +288,18 @@ content and the transition to a host-supplied editable document.
 
 ### 9. Keyboard and Screen-Reader Access
 
-Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with
-VoiceOver and Safari and with NVDA and Firefox, and fix what it finds. The browser suite
+Two parts of CED's keyboard and screen-reader access remain open. One needs a person with a
+screen reader, and the other needs a design decision before it can be built.
+
+**Screen readers.** Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol)
+with VoiceOver and Safari and with NVDA and Firefox, and fix what it finds. The browser suite
 cannot tell whether a screen reader speaks the live region's messages, in what order, or
 whether one interrupts another.
 
-### 10. Give the Sidebar's Field List a Keyboard Route
-
-Each entry in the sidebar's list of the template's fields opens the container that holds its
-field, selects the field and scrolls to it. Only a click does this. The entry,
-`.draggable-field-item` in `field-library-sidebar.component.html`, has no `tabindex` and no key
-handler, so a keyboard cannot reach it. Dragging an entry reorders the fields, and the Overview
+**The sidebar's field list.** Each entry in the sidebar's list of the template's fields opens
+the container that holds its field, selects the field and scrolls to it. Only a click does
+this. The entry, `.draggable-field-item` in `field-library-sidebar.component.html`, has no
+`tabindex` and no key handler, so a keyboard cannot reach it. Dragging an entry reorders the fields, and the Overview
 already offers that by keyboard. Going straight to a field has no keyboard route. A keyboard can
 reach each field on the canvas, but only by moving through the cards before it, which the list
 lets a pointer skip.
@@ -310,7 +311,7 @@ resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` 
 focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
 accessibility lint rules until this is done. Remove that exception in the same change.
 
-### 11. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
