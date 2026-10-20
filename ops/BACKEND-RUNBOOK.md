@@ -4053,8 +4053,19 @@ Measured on 2026-10-19, the agent's cost is within run-to-run variation. `cedarc
 took 230 seconds with it, against 217 and 227 seconds for the two full builds before it without.
 `cedarcli build this` in `cedar-resource-server` took 118 seconds without it and 116 with it.
 
-No coverage floor is enforced. JaCoCo's `check` goal can fail a build that falls below one once a
-baseline has been measured.
+Each tested module has a floor, which JaCoCo's `check` goal enforces in the `verify` phase of every
+build that runs tests. The floor is the `cedar.coverage.line.minimum` property in the module's own
+POM: the share of its lines its Surefire suites must cover, set on 2026-10-19 two points below the
+figure it measured, rounded down. A comment beside each records that figure. `cedar-parent` defaults
+the property to zero, so a module without a floor of its own has none, and the check skips a module
+that ran no tests. The floor uses the module's own figure, not the any-test one, so it cannot be met
+by another repository's suites. To raise a floor after adding tests, set the property to the new
+figure less two points. Lowering one is a decision to accept less coverage, and the commit should say
+why.
+
+Three modules carry no floor: the bridge server's, whose DataCite model was being replaced on
+2026-10-19, and the submission and value-recommender servers', which are to be retired.
+`cedar-monitor-server`'s CI stops at `test`, so its floor is checked by local builds and not by CI.
 
 ### REST Performance Testing
 
