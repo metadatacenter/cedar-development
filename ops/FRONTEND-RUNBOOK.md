@@ -2687,6 +2687,14 @@ them:
 None of the three can say what a screen reader actually speaks, so a release that
 changes these surfaces also gets the [screen-reader protocol](#ced-screen-reader-protocol).
 
+Axe leaves two checks undecided, and both were settled by measurement on
+2026-10-19. It cannot compute contrast for the native dropdowns, because their
+chevron is drawn as a background gradient; their text is 87% black on white, about
+16:1. It cannot size the settings toggles, whose content overflows them; they are
+36 by 14px, under WCAG 2.2's 24px minimum, but the card header beside each opens
+the same settings and is the larger equivalent target that criterion 2.5.8 allows.
+A change to either control's colour, size or header behaviour reopens the question.
+
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
 been through `npm run dist` is not the thing under test. That used to be a
 sentence here and nothing more; `check:fresh` now refuses the run, comparing the
