@@ -467,11 +467,23 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   (`cedar-main.yml:82` for messaging, `:104` for the log store). The first two together permit
   public-key substitution on an unencrypted authentication channel, which is the part to fix.
 
-  The timezone is a different matter and the comment beside it says why: the aggregator is
-  self-consistent under the connection timezone, and forcing UTC would make the connection misread
-  the years of existing rows in `log_request`, `log_cypher` and their `_pre284` predecessors.
-  Converting those rows is its own piece of work with its own evidence, so this item only moves the
-  value out of the constant and into the profile.
+  The timezone is a different matter. The comment beside it says that the aggregator is
+  self-consistent under the connection timezone, and that forcing UTC would make the connection
+  misread the years of existing rows in `log_request`, `log_cypher` and their `_pre284`
+  predecessors. The first claim no longer holds. Hibernate 6 writes each `Instant` as UTC wall-clock
+  time whatever the connection timezone is. On the local stack on 2026-10-20 the newest `log_request`
+  row read 04:24 while the server clock read 21:54 PDT. The logging library's native SQL reads and
+  binds `DATETIME` values in the connection timezone, so it places every row written since the
+  Hibernate 6 upgrade 7 or 8 hours after it happened. The aggregator still folds each row exactly
+  once, so its counts are right. But each day it settles runs from 17:00 to 17:00 UTC (16:00 in
+  winter), and the hourly rollups and the log explorer read 7 or 8 hours ahead.
+  `LogQueryDAO.normalize` records the shift in the explorer. An embedded MariaDB under the servers'
+  settings shows it in the aggregator, where a request logged at 10:01 UTC reads back as 17:01.
+
+  The second claim still holds for rows stored before the upgrade in Los Angeles time, so the tables
+  can hold both forms, and no single setting reads all of them correctly. Converting those rows is
+  its own piece of work with its own evidence, starting with where the UTC rows begin, so this item
+  only moves the value out of the constant and into the profile.
 
   Make all three profile-controlled, ship TLS on and public-key retrieval off everywhere but a
   developer machine, and record the developer exception where the profile is documented. Done when
