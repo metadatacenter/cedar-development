@@ -4034,7 +4034,11 @@ Because of the first property, `cedarcli build` reports two figures after a buil
 tests. It reads each module's own-test figure from its report. It then merges the execution data of
 every test JVM the build ran and credits each module's classes with any test that ran them. The
 console shows both figures in one line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds
-them per module and per repository, for lines and for branches. On 2026-10-19 the estate stood at
+them per module and per repository, for lines and for branches. `cedarcli build diagnostics` removes
+records older than its `--days`, as it does failed-build bundles. cedar-project's CI job, which runs
+every server's suites against the develop libraries in one reactor, runs the same report through
+`python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
+JSON as the `coverage-summary` artifact. On 2026-10-19 the estate stood at
 53.4% of 64,351 lines by each module's own tests and 68.7% by any test. The shared libraries differ
 most. `cedar-microservice-libraries` reached 80.2% by any test against 47.6% by its own. The figures
 are a report, not a gate. When cedarcli cannot compute the merged figure, for instance because the
