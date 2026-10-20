@@ -222,9 +222,23 @@ When an advisory is withdrawn, lower the counts recorded for the affected locks 
 publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
 each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
 
+### 7. Run an Accessibility Gate in CEE's Browser Suite
+
+CEE's Playwright suite under `visual/` checks rendering, theming, density, keyboard paging and
+host changes, but it runs no rule engine over what it renders. The browser suites of CED and
+Workspace each run axe-core over their states and fail on any violation of WCAG 2.2 levels A
+and AA. Add the same check to CEE, over states its specs already build: the editor and the field
+element under each combination of presentation settings, compact density in editable and
+read-only modes, a form opened with stored problems, and an authority search under way. Run it
+in the Playwright container with the rest of the suite.
+
+Expect the first run to report defects. Fix those whose fix changes nothing on screen, and agree
+any visible change before making it. The term picker's browser suite has no gate either. That work
+is tracked with the picker's other open items in [VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md).
+
 ## Frontend Dependencies
 
-### 7. Take the Frontend Dependency Upgrades That Need Code Changes
+### 8. Take the Frontend Dependency Upgrades That Need Code Changes
 
 Each dependency below has a newer major release that a lock update cannot take. Some wait on an
 upstream release, most need code changes, and one needs a design decision. The versions are the
@@ -272,7 +286,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -286,14 +300,50 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 9. Keyboard and Screen-Reader Access
+### 10. Keyboard and Screen-Reader Access
 
 Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with
 VoiceOver and Safari and with NVDA and Firefox, and fix what it finds. The browser suite
 cannot tell whether a screen reader speaks the live region's messages, in what order, or
 whether one interrupts another.
 
-### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 11. Give the Sidebar's Field List a Keyboard Route
+
+Each entry in the sidebar's list of the template's fields opens the container that holds its
+field, selects the field and scrolls to it. Only a click does this. The entry,
+`.draggable-field-item` in `field-library-sidebar.component.html`, has no `tabindex` and no key
+handler, so a keyboard cannot reach it. Dragging an entry reorders the fields, and the Overview
+already offers that by keyboard. Going straight to a field has no keyboard route. A keyboard can
+reach each field on the canvas, but only by moving through the cards before it, which the list
+lets a pointer skip.
+
+Two designs fit. A button per entry adds one Tab stop per field, which in a long template puts
+the canvas many stops away. A listbox adds a single Tab stop, and the arrow keys move within
+it. Decide as well whether choosing an entry moves focus to the card it selects. Agree the
+resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` and pin where
+focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
+accessibility lint rules until this is done. Remove that exception in the same change.
+
+### 12. Check Label in Name in the Accessibility Gates
+
+WCAG 2.1 success criterion 2.5.3, Label in Name, requires a control's accessible name to
+contain the text it shows, so that a person using speech input reaches the control by saying
+its visible label. No automated gate checks it. CED's gate selects axe-core's rules by WCAG tag
+and adds `wcag21a` to the tags that Workspace's gate,
+`cedar-workspace/browser/tests/accessibility.spec.mjs`, selects. In axe-core 4.13.0 the only
+rule carrying that tag is `label-content-name-mismatch`. That rule is marked experimental, and
+axe leaves experimental rules out of a tag selection that does not also name `experimental`.
+The two gates therefore run the same 63 rules, and neither runs this one.
+
+Enable the rule by name in both gates, and in CEE's and the term picker's when they exist. The
+rule is experimental and can report false positives, so review its first results by hand before
+it may fail a run. Then give every gate one tag list, so that a difference between two gates
+records a decision rather than drift. The [CED testing](FRONTEND-RUNBOOK.md#ced-testing)
+section of the runbook and the comment heading CED's `accessibility.spec.ts` both describe the
+designer's gate as Workspace's with WCAG 2.1 level A added, which adds no rule. Correct both in
+the same change.
+
+### 13. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
