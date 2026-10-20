@@ -1480,10 +1480,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   branches by each module's own tests, and 83.5% and 71.4% by any test.
 
   The libraries whose branches decide what a write stores and what it refuses carry the most risk.
-  `cedar-model-validation-library` reaches 72.4% of its branches by its own tests and
-  `cedar-artifact-library` 63.8%. Raise both to 80%. Hold each server's application module to at
-  least 70%. The bridge server (57.7%), the monitor (61.0%), the terminology server (65.1%) and the
-  resource server (68.1%) are below it.
+  `cedar-model-validation-library` reaches 72.4% of its branches by its own tests. Raise it to 80%.
+  Hold each server's application module to at least 70%. The bridge server (57.7%), the monitor
+  (61.0%), the terminology server (65.1%) and the resource server (68.1%) are below it.
+
+  `cedar-artifact-library` reaches 63.8% of its branches, but the figure mixes two kinds of code.
+  About a fifth of its lines are standalone exports and command-line tools that no other repository
+  uses: the Excel, TSV, UBKG and REDCap exporters, the spreadsheet utilities, the `Template2Excel`,
+  `Template2Tsv` and `Templates2Ubkg` tools, the reporters and `ArtifactConvertor`. They reach 34.0%
+  of their lines and 26.8% of their branches, and 24 of their classes run in no test. The rest of the
+  library, the path that reads, validates and renders artifacts, reaches 87.0% of its lines and
+  74.9% of its branches. The 80% target applies to that core path.
+
+  Most of the core path's missed branches are cheap to reach. The copy builders dispatch over about
+  25 field types and the tests copy a few of them, every `with…` method throws on a null argument
+  that no test passes, and the YAML reader and renderer miss 84 and 76 branches, mostly on error
+  paths. Running the copy-builder test over every field type and testing each argument guard would
+  close much of the gap.
+
+  Decide separately what happens to the standalone exports. Either test them, starting with the
+  Excel renderer, which misses 214 of its 268 branches, or move them out of the library, since
+  nothing else depends on them. The module's branch floor measures the whole module, so it reflects
+  the core path only once the exports are tested, moved or left out of the report.
 
   Several shared libraries are covered mostly by other repositories' tests, which run their code
   without asserting what it does. `cedar-workspace-operations-library` reaches 85.1% of its lines
@@ -1496,5 +1514,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   below its measured figure, as it sets the line floor. Measure every floor from a clean build,
   because a figure read after an earlier run without `clean` overstates it.
 
-  Done when every module declares a branch floor, both model libraries hold at least 80% of their
-  branches by their own tests, and no server's application module is below 70%.
+  Done when every module declares a branch floor, `cedar-model-validation-library` and the artifact
+  library's core path hold at least 80% of their branches by their own tests, the standalone exports
+  are either tested or moved, and no server's application module is below 70%.
