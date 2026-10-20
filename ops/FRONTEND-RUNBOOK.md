@@ -2671,7 +2671,9 @@ the page.
 `accessibility.spec.ts` runs axe-core over each state the suite can reach: fresh,
 nested, published, read-only, narrow, showing host findings, both settings dialogs,
 and every field type's settings tabs. Any violation of axe's rules for WCAG 2.2
-levels A and AA fails it. The tags are Workspace's gate with WCAG 2.1 level A added.
+levels A and AA fails it, and the same rules gate Workspace, the term picker and CEE.
+axe-core's rule for WCAG 2.1's Label in Name is experimental, and a tag selection leaves it
+out, so each of the four gates runs it by name.
 Axe cannot judge focus order, focus return or announcements, so three specs cover
 them:
 

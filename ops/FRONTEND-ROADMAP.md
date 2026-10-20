@@ -318,24 +318,7 @@ resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` 
 focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
 accessibility lint rules until this is done. Remove that exception in the same change.
 
-### 12. Check Label in Name in the Accessibility Gates
-
-WCAG 2.1 success criterion 2.5.3, Label in Name, requires a control's accessible name to
-contain the text it shows, so that a person using speech input reaches the control by saying
-its visible label. No automated gate checks it. The four gates, in CED, Workspace, the term
-picker and CEE, select axe-core's rules by WCAG tag and all name `wcag21a`. In axe-core 4.13.0
-the only rule carrying that tag is `label-content-name-mismatch`. That rule is marked
-experimental, and axe leaves experimental rules out of a tag selection that does not also name
-`experimental`, so naming the tag adds no rule and none of the gates runs this one.
-
-Enable the rule by name in all four gates. It is experimental and can report false positives,
-so review its first results by hand before it may fail a run. Keep one tag list across the
-gates, so that a difference between two records a decision rather than drift. The
-[CED testing](FRONTEND-RUNBOOK.md#ced-testing) section of the runbook and the comments heading
-the CED, term picker and CEE `accessibility.spec.ts` files say the gates cover WCAG 2.1 level A,
-which they do only once this rule runs. Correct them in the same change.
-
-### 13. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 12. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible

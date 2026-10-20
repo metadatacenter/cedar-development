@@ -179,7 +179,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
     await remove.click();
     await remove.click();
     // An emptied pager says so in place of its occurrence numbers.
-    await pager.getByRole("option", {name: "No values yet", exact: true}).waitFor();
+    await pager.getByRole("option", {name: "No instances yet", exact: true}).waitFor();
     assert.equal(await remove.isDisabled(), true);
   }
   const emptied = await cee.evaluate(el => el.currentMetadata);
