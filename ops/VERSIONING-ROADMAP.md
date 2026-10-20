@@ -996,21 +996,14 @@ These two items concern the component alone, and neither waits on a host.
    results, so decide whether an arrow key shows its tab at once or only moves focus until Enter
    or Space. Pin the order in the browser suite.
 
-- **23. Run an accessibility gate in the browser suite.** The picker's Playwright suite under
-   `browser/` drives the built bundle against a stubbed terminology server, but it runs no rule
-   engine over what it renders. CED's browser suite runs axe-core and fails on any violation of
-   WCAG 2.2 levels A and AA. Add the same check over states the picker's specs already reach, such
-   as each tab with results, a marked row's open detail, the narrowing panel, a notice, an error,
-   and the language and property modes. Use the rule set that "Check Label in Name in the
-   Accessibility Gates" in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md) settles, so the picker and
-   the designer that embeds it are held to the same rules. Expect the first run to report
-   defects, and agree any visible change before making it.
-
-### The Template Designer
-
-Later work, and deliberately after the component stands on its own. Embedding turns every open
-question about the picker into a question about the Workbench as well, and none of the three items
-here can be finished without the component being finished first.
+- **23. Give the result list semantics a screen reader can follow.** The browser suite's axe gate,
+   `browser/tests/accessibility.spec.ts`, names two findings as its only exceptions. A result row
+   is an `option` outside any `listbox`, carries `aria-expanded`, which an option does not take, and
+   holds buttons of its own. Choose list semantics that fit rows with their own actions, such as a
+   grid or a list of rows whose actions are reached from the row, and decide how the arrow keys move
+   through them, since that changes the keyboard model. The release-history buttons are also under
+   WCAG 2.2's 24px minimum target, and growing them changes the row's layout, so agree that change
+   first. Remove each exception from the spec as its finding is fixed.
 
 - **24. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
    focus moves in when it opens, Tab and Shift+Tab cannot leave it, and Escape closes it and gives

@@ -222,21 +222,13 @@ When an advisory is withdrawn, lower the counts recorded for the affected locks 
 publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
 each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
 
-### 7. Run an Accessibility Gate in CEE's Browser Suite
+### 7. Extend CEE's Accessibility Gate to the Rest of Its States
 
-CEE's Playwright suite under `visual/` checks rendering, theming, density, keyboard paging and
-host changes, but it runs no rule engine over what it renders. The browser suites of CED and
-Workspace each run axe-core over their states and fail on any violation of WCAG 2.2 levels A
-and AA. Add the same check to CEE, over states its specs already build: the editor and the field
+CEE's visual suite runs axe-core over every fixture, empty, filled with each of its instances and
+read only, at both widths. It does not yet cover states other specs already build: the field
 element under each combination of presentation settings, compact density in editable and
-read-only modes, a form opened with stored problems, and an authority search under way. Run it
-in the Playwright container with the rest of the suite.
-
-Expect the first run to report defects. Fix those whose fix changes nothing on screen, and agree
-any visible change before making it. The term picker's browser suite has no gate either. That work
-is tracked with the picker's other open items in [VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md).
-
-## Frontend Dependencies
+read-only modes, and an authority search under way. Add them to `visual/tests/accessibility.spec.ts`,
+fix the defects whose fix changes nothing on screen, and agree any visible change before making it.
 
 ### 8. Take the Frontend Dependency Upgrades That Need Code Changes
 
@@ -328,20 +320,18 @@ accessibility lint rules until this is done. Remove that exception in the same c
 
 WCAG 2.1 success criterion 2.5.3, Label in Name, requires a control's accessible name to
 contain the text it shows, so that a person using speech input reaches the control by saying
-its visible label. No automated gate checks it. CED's gate selects axe-core's rules by WCAG tag
-and adds `wcag21a` to the tags that Workspace's gate,
-`cedar-workspace/browser/tests/accessibility.spec.mjs`, selects. In axe-core 4.13.0 the only
-rule carrying that tag is `label-content-name-mismatch`. That rule is marked experimental, and
-axe leaves experimental rules out of a tag selection that does not also name `experimental`.
-The two gates therefore run the same 63 rules, and neither runs this one.
+its visible label. No automated gate checks it. The four gates, in CED, Workspace, the term
+picker and CEE, select axe-core's rules by WCAG tag and all name `wcag21a`. In axe-core 4.13.0
+the only rule carrying that tag is `label-content-name-mismatch`. That rule is marked
+experimental, and axe leaves experimental rules out of a tag selection that does not also name
+`experimental`, so naming the tag adds no rule and none of the gates runs this one.
 
-Enable the rule by name in both gates, and in CEE's and the term picker's when they exist. The
-rule is experimental and can report false positives, so review its first results by hand before
-it may fail a run. Then give every gate one tag list, so that a difference between two gates
-records a decision rather than drift. The [CED testing](FRONTEND-RUNBOOK.md#ced-testing)
-section of the runbook and the comment heading CED's `accessibility.spec.ts` both describe the
-designer's gate as Workspace's with WCAG 2.1 level A added, which adds no rule. Correct both in
-the same change.
+Enable the rule by name in all four gates. It is experimental and can report false positives,
+so review its first results by hand before it may fail a run. Keep one tag list across the
+gates, so that a difference between two records a decision rather than drift. The
+[CED testing](FRONTEND-RUNBOOK.md#ced-testing) section of the runbook and the comments heading
+the CED, term picker and CEE `accessibility.spec.ts` files say the gates cover WCAG 2.1 level A,
+which they do only once this rule runs. Correct them in the same change.
 
 ### 13. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
