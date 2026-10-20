@@ -33,7 +33,7 @@ export async function designerAuthoringJourney(args) {
     if (kind === "field")
       await page.getByRole("button", { name: "Number", exact: true }).click();
     await page.getByRole("textbox", {
-      name: kind === "field" ? "Field display name" : "Element name",
+      name: kind === "field" ? "Enter field name" : "Element name",
       exact: true,
     }).fill(names[kind]);
     artifacts[kind] = (await editorSave(page, write, "PUT", collection, 201))["@id"];

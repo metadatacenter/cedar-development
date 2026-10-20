@@ -60,6 +60,6 @@ export async function olderKeyRenameJourney({page, designer, user, folderId, nam
   await settings.locator(".settings-toggle").click();
   await settings.getByRole("tab", {name: "Configuration", exact: true}).click();
   assert.equal(await settings.getByLabel("Key", {exact: true}).inputValue(), "Renamed");
-  assert.equal(await card.getByLabel("Field display name", {exact: true}).inputValue(), "Notes");
+  assert.equal(await card.getByLabel("Enter field name", {exact: true}).inputValue(), "Notes");
   pass("rename-preserves-content", "Renaming an older template's child key preserves its definition, annotations, identity, property IRI and sibling content through save and reopen");
 }

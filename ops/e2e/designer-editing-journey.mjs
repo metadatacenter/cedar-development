@@ -100,7 +100,7 @@ export async function designerOrderJourney(args) {
     }
     assert.deepEqual(semanticSchema(comparable(after)), semanticSchema(comparable(expected)));
     await open(page, fixture);
-    const labels = ced(page).getByRole("textbox", { name: "Field display name", exact: true });
+    const labels = ced(page).getByRole("textbox", { name: "Enter field name", exact: true });
     assert.deepEqual(await labels.evaluateAll(els => els.map(el => el.value)), ["Beta", "Gamma", "Alpha"]);
     const metadata = await populated(args, fixture);
     const values = nested ? metadata.Section : metadata;

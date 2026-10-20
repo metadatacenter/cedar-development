@@ -125,7 +125,7 @@ async function constrainToDoidDiseaseBranch(p) {
   const field = p
     .locator("app-field-card")
     .filter({ has: p.locator("app-controlled-term-config") });
-  await field.getByRole("textbox", { name: "Field display name", exact: true }).fill("Disease");
+  await field.getByRole("textbox", { name: "Enter field name", exact: true }).fill("Disease");
   const settings = field.locator("app-field-settings");
   const toggle = settings.locator(".settings-toggle");
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
@@ -263,7 +263,7 @@ try {
     .getByRole("button", { name: "Text", exact: true })
     .click();
   await page
-    .getByRole("textbox", { name: "Field display name", exact: true })
+    .getByRole("textbox", { name: "Enter field name", exact: true })
     .fill("Notes");
   await constrainToDoidDiseaseBranch(page);
   artifacts.template = (await editorSave(page, "PUT", "templates", 201))["@id"];
