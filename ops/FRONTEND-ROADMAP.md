@@ -219,7 +219,7 @@ data images.
 
 ### 7. Clear the Advisories Waiting on Upstream
 
-Five advisories remain in the frontend locks. All of them sit in build, lint, test or
+Seven advisories remain in the frontend locks. All of them sit in build, lint, test or
 development-server tooling, and nothing the affected projects ship contains them. The train's lock
 baselines record the current counts as reviewed, so trains and releases pass, and nothing waits on
 this item.
@@ -247,13 +247,16 @@ No override helps while no fixed version exists. Dropping stylelint and ember-te
 not help either, because ember-cli and Embroider would still bring `braces`, and moving
 ember-template-lint to 7 removes one route for each package without clearing either.
 
-Three more have fixed releases the locks have not taken. npm's audit began counting all three on
-2026-10-20.
+Three more packages have fixed releases the locks have not taken. npm's audit began counting them
+on 2026-10-20.
 
-- `vite` (GHSA-698v-4r3x-3vcv, moderate) affects 8.3.0 to 8.3.2, whose development server's editor
-  launcher does not escape `%` on Windows. Every Angular project carries 8.3.0, because
-  `@angular/build` 22.2.3 pins it exactly. vite 8.3.4 fixes it. An npm override could take it before
-  Angular moves its pin, once each project's development server and build pass with it.
+- `vite` carries three advisories against 8.3.0 to 8.3.2, all in the development server's editor
+  launcher: GHSA-587h-7wmj-h5pm (high), whose file existence check can be bypassed on Windows,
+  GHSA-r825-w8mm-5pxw (moderate), where some editors misread a command-line flag, and
+  GHSA-698v-4r3x-3vcv (moderate), which does not escape `%` on Windows. Every Angular project and
+  component carries 8.3.0, because `@angular/build` 22.2.3 pins it exactly. vite 8.3.4 fixes all
+  three. An npm override could take it before Angular moves its pin, once each project's
+  development server and build pass with it.
 - `follow-redirects` (GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c, high) affects 1.16.0, which can
   carry credential headers to another origin. It reaches the Ember demo through ember-cli's
   `http-proxy`. 1.16.1 fixes both, within the range ember-cli asks for.
@@ -290,11 +293,8 @@ Agree the fixes marked as visible before making them.
   need about 271 and 276px and get 264px, so their last letters are cut. They need a shorter
   instruction, or the instruction moved into hint text that wraps.
   `visual/tests/layout-resilience.spec.ts` records it as an exception.
-- **A template's language, where it is lost (3.1.2).** The model library's JSON writer puts a
-  template's or element's `@language` in `properties['@context']`, where its own reader does not
-  look, so a template CED saves loses its declared language in CEE. Fix it in the model library.
-  CEE also leaves unmarked a select's panel, names that join a label to CEE's words, such as "Time
-  for" a label, and options that carry the default mark.
+- **Text still unmarked (3.1.2).** CEE leaves unmarked a select's panel, names that join a label to
+  CEE's words, such as "Time for" a label, and options that carry the default mark.
 
 Extend `visual/tests/layout-resilience.spec.ts` to tooltips, the multi-select, time zone and
 terminology panels, and long values in read-only boxes.
