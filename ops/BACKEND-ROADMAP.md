@@ -1471,3 +1471,30 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
+
+- **25. Raise branch coverage where the branches decide what CEDAR stores, and gate branches as
+  lines are gated.** Each module sets `cedar.coverage.line.minimum` a little below its measured line
+  figure, and `cedar-parent`'s coverage check fails a build whose module falls under it by its own
+  tests. Nothing gates branches, so a change can stop exercising the decisions a module makes
+  without failing anything. The full build of 2026-10-20 measured 67.6% of lines and 61.2% of
+  branches by each module's own tests, and 83.5% and 71.4% by any test.
+
+  The libraries whose branches decide what a write stores and what it refuses carry the most risk.
+  `cedar-model-validation-library` reaches 72.4% of its branches by its own tests and
+  `cedar-artifact-library` 63.8%. Raise both to 80%. Hold each server's application module to at
+  least 70%. The bridge server (57.7%), the monitor (61.0%), the terminology server (65.1%) and the
+  resource server (68.1%) are below it.
+
+  Several shared libraries are covered mostly by other repositories' tests, which run their code
+  without asserting what it does. `cedar-workspace-operations-library` reaches 85.1% of its lines
+  by any test but 33.4% by its own, `cedar-core-library` 86.2% against 43.1%, and
+  `cedar-server-utils-core-library` 85.9% against 47.9%. Give each of them tests of its own where
+  its logic is more than wiring.
+
+  Add a branch counter beside the line counter in the coverage check, through a
+  `cedar.coverage.branch.minimum` property that defaults to zero and that each module sets a little
+  below its measured figure, as it sets the line floor. Measure every floor from a clean build,
+  because a figure read after an earlier run without `clean` overstates it.
+
+  Done when every module declares a branch floor, both model libraries hold at least 80% of their
+  branches by their own tests, and no server's application module is below 70%.
