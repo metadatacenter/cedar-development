@@ -2668,6 +2668,12 @@ be as intrusive as possible, and it is hermetic: no test reaches a terminology
 server, and the one covering `<cedar-embeddable-term-picker>` registers a stub element in
 the page.
 
+`accessibility.spec.ts` runs axe-core over each state the suite can reach: fresh,
+nested, published, read-only, narrow, showing host findings, and every field type's
+settings tabs. Any violation of axe's rules for WCAG 2.2 levels A and AA fails it.
+The tags are Workspace's gate with WCAG 2.1 level A added. Axe cannot judge focus
+order, focus return or announcements, so a clean run says nothing about them.
+
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
 been through `npm run dist` is not the thing under test. That used to be a
 sentence here and nothing more; `check:fresh` now refuses the run, comparing the
