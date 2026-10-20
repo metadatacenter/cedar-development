@@ -11,7 +11,6 @@ alias goproject='cd $CEDAR_HOME/cedar-project'
 alias golibraries='cd $CEDAR_HOME/cedar-libraries'
 alias goclients='cd $CEDAR_HOME/cedar-clients'
 
-alias goutil='cd $CEDAR_HOME/cedar-util'
 alias godocs='cd $CEDAR_HOME/cedar-docs'
 alias gomicroservice='cd $CEDAR_HOME/cedar-microservice-libraries'
 alias gomodel='cd $CEDAR_HOME/cedar-model-validation-library'
