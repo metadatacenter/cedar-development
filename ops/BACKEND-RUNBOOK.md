@@ -4063,8 +4063,8 @@ by another repository's suites. To raise a floor after adding tests, set the pro
 figure less two points. Lowering one is a decision to accept less coverage, and the commit should say
 why.
 
-Three modules carry no floor: the bridge server's, whose DataCite model was being replaced on
-2026-10-19, and the submission and value-recommender servers', which are to be retired.
+The submission and value-recommender servers' modules carry no floor, because both servers are to be
+retired.
 `cedar-monitor-server`'s CI stops at `test`, so its floor is checked by local builds and not by CI.
 
 ### REST Performance Testing
