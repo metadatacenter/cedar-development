@@ -4010,8 +4010,8 @@ JaCoCo measures which lines and branches of CEDAR's Java code the suites execute
 attaches its agent to every Surefire and Failsafe JVM on every build that runs tests, so a local
 build runs its suites exactly as CI does. Each module that runs tests writes its own report:
 `target/site/jacoco/` for Surefire suites and `target/site/jacoco-it/` for Failsafe ones. CI
-uploads the reports as the `coverage-reports` artifact, and `cedarcli build` says how many reports a
-build wrote. `-Djacoco.skip=true` runs one Maven build without the agent:
+uploads the reports as the `coverage-reports` artifact. `-Djacoco.skip=true` runs one Maven build
+without the agent:
 
 ```bash
 ./mvnw verify -Djacoco.skip=true
@@ -4029,6 +4029,16 @@ Three properties of the reports matter when reading them.
 - **Generated classes are excluded.** `cedar-impex-server-core` and `cedar-submission-server-core`
   compile jsonschema2pojo and xjc output, and `cedar-cadsr-tools` compiles xjc output. Each of those
   modules excludes them in its own declaration of the JaCoCo plugin.
+
+Because of the first property, `cedarcli build` reports two figures after a build that runs Java
+tests. It reads each module's own-test figure from its report. It then merges the execution data of
+every test JVM the build ran and credits each module's classes with any test that ran them. The
+console shows both figures in one line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds
+them per module and per repository, for lines and for branches. On 2026-10-19 the estate stood at
+53.4% of 64,351 lines by each module's own tests and 68.7% by any test. The shared libraries differ
+most. `cedar-microservice-libraries` reached 80.2% by any test against 47.6% by its own. The figures
+are a report, not a gate. When cedarcli cannot compute the merged figure, for instance because the
+local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
 The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
 that configures Surefire's or Failsafe's `<argLine>` itself must begin it with `@{argLine}`.
