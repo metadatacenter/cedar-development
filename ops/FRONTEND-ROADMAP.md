@@ -161,11 +161,41 @@ Keep status checks, access checks, review and explicit discard distinct. A faile
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
 current draft-retention contract and operator verification commands.
 
+### 4. Fix Workspace's WCAG Failures
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
+criteria that Workspace fails. Most of the fixes change nothing on screen. Agree the ones marked
+as visible before making them.
+
+- **Page titles (2.4.2).** Every route keeps the title "CEDAR Workspace", which `src/main.ts` sets
+  once at start-up. Give each route a title that names its page.
+- **Item type in the list view (1.1.1, 2.1.1).** The type is an `aria-hidden` icon whose tooltip
+  appears only on hover (`src/app/workspace.html`), so neither a keyboard nor a screen reader
+  reaches it.
+- **Repeated link names (2.4.4).** Every row's "Open in OpenView" and "Populate template" links
+  share one name, and nothing in the row's markup ties them to its artifact.
+- **Filter chip names (2.5.3).** An active chip shows its choice, such as "Folder, Template", but is
+  named after its filter, "Type" (`src/app/filter-chip.ts`).
+- **Unannounced results (4.1.3).** Result counts and "No items" change after a search, a filter or
+  a page turn without a live region.
+- **Help on disabled controls (2.1.1).** Disabled group controls explain themselves only in hover
+  tooltips (`src/app/groups.html`).
+- **Widget semantics (1.3.1, 4.1.2).** The resource menu is a `div` with no role, and its trigger
+  has no `aria-haspopup`. Rows set `aria-selected` inside a plain table, and the Info tab has no
+  `tabpanel`. Workspace's templates are not linted with angular-eslint's accessibility rules, as
+  CED's are.
+- **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
+  with no confirmation or undo. Decide whether it needs either.
+
+Extend `browser/tests/accessibility.spec.mjs` to the states these defects live in, such as an
+active filter chip, an open resource menu, a selected Information panel and the metadata editor, so
+that each fix stays fixed.
+
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 4. Whole-Component Runtime Theme Overrides
+### 5. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -174,7 +204,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 5. Authoring Feedback for Unsupported Markup
+### 6. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -187,7 +217,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 6. Clear the Advisories Waiting on Upstream
+### 7. Clear the Advisories Waiting on Upstream
 
 Two advisories remain in the frontend locks, and no release of either package fixes them. Both
 sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
@@ -222,9 +252,39 @@ When an advisory is withdrawn, lower the counts recorded for the affected locks 
 publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
 each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
 
+### 8. Fix CEE's WCAG Failures
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eleven WCAG 2.2
+criteria that CEE fails. Most of the fixes change nothing on screen. Agree the ones marked as
+visible before making them.
+
+- **Groups and names (1.3.1, 2.5.3).** A multiple-choice radio group has no name, and a checkbox
+  field's boxes have no group. Editable date controls are named "Select Date", and the timezone
+  select keeps the name "Timezone unspecified" after a choice, so neither carries the field's
+  label.
+- **Descriptions on hover only (1.1.1, 2.1.1).** A field's description and property IRI appear only
+  while the pointer rests on an icon that cannot take focus (`cedar-component-header.component.html`).
+  The section break's help icon is `aria-hidden`, so its description reaches neither a keyboard nor
+  a screen reader. `render.spec.ts` asserts `aria-describedby` on that hidden icon as if it were the
+  screen-reader route.
+- **Focus (2.4.3).** Clear buttons remove themselves without moving focus, in the text, numeric,
+  email, phone, link, select, controlled, authority and date-time inputs. Required-value errors
+  carry `tabindex="0"` and so become Tab stops.
+- **Messages (2.2.1, 3.3.1, 4.1.3).** Field problems, checkbox and temporal errors, and "No results
+  found" appear outside any live region and are not linked to their control. The notices that an
+  entry was cleared or reverted vanish after five seconds, and nothing keeps them.
+- **Names and roles (4.1.2).** The lookup spinner has no name, and a read-only term value puts
+  `aria-label` on a `div` with no role.
+- **Severity by colour (1.4.1).** Visible. Range and quality warnings differ from errors only by
+  amber against red.
+
+Extend `visual/tests/accessibility.spec.ts` to read-only with an instance, an open calendar, menu
+and select, and a lookup in progress, none of which the gate builds today. Add angular-eslint's
+`templateAccessibility` preset, which CED already uses.
+
 ## Frontend Dependencies
 
-### 7. Take the Frontend Dependency Upgrades That Need Code Changes
+### 9. Take the Frontend Dependency Upgrades That Need Code Changes
 
 Each dependency below has a newer major release that a lock update cannot take. Some wait on an
 upstream release, most need code changes, and one needs a design decision. The versions are the
@@ -264,6 +324,30 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
   redraw icons that every consumer shows, so the move needs its rendered differences reviewed and
   approved like any other visual change.
 
+## Accessibility Across Components
+
+### 10. Fix the WCAG Failures the Components Share
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found failures that recur
+across CED, CEE, the term picker and Workspace because they share a cause. Fix each once, where its
+cause lives.
+
+- **Control borders (1.4.11).** `control-border-default` in `cedar-design-tokens` is
+  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, and CED, CEE and Workspace draw text-input borders
+  with it. Criterion 1.4.11 asks for 3:1. A darker value changes every consumer's controls, so
+  agree it as a visual change, and extend the token package's contrast test from text pairs to
+  non-text pairs.
+- **Tint-only state (1.4.1, 1.4.11).** A tint of about 1.2:1 is the only mark of the term picker's
+  current release and picked tree term, Workspace's selected list row and pressed view switch, and
+  the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
+  hue alone. Agree one second cue, such as a bar, a weight or an icon, and apply it in each place.
+- **Unmarked language (3.1.2).** CED, CEE and the term picker take a UI language but never set
+  `lang`, so a screen reader reads Hungarian text with the host page's language. Set it on the root
+  each element renders. This changes nothing on screen.
+- **Untested layout (1.4.4, 1.4.10, 1.4.12).** No suite tests a component at 320 CSS pixels, at
+  200% text size or with WCAG's text spacing. Add one check for all three, run it in each browser
+  suite, and fix what it finds.
+
 <a id="ced"></a>
 
 ## CED
@@ -272,7 +356,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -286,7 +370,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 9. Keyboard and Screen-Reader Access
+### 12. Keyboard and Screen-Reader Access
 
 Two parts of CED's keyboard and screen-reader access remain open. One needs a person with a
 screen reader, and the other needs a design decision before it can be built.
@@ -311,7 +395,36 @@ resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` 
 focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
 accessibility lint rules until this is done. Remove that exception in the same change.
 
-### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 13. Fix CED's Remaining WCAG Failures
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these failures in
+CED beyond the ones it shares with the other components. Several need a design decision first.
+
+- **Narrow widths (1.4.10, 2.1.1).** Below 768px of width the designer hides the Overview
+  (`app.component.scss`), and with it outline navigation, Expand all and Collapse all, and the only
+  keyboard route for reordering. Decide how a narrow host reaches them.
+- **Dragging (2.5.7).** Reordering on the canvas, in the Overview, in the child picker and in the
+  sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route
+  that needs only single clicks, such as Move up and Move down buttons, which is new UI to agree
+  first. The sidebar's divider never resizes anything, because it looks for a `.border-r` ancestor
+  that does not exist (`field-library-sidebar.component.ts`).
+- **Insertion pills (1.4.13).** The insertion pills that appear on hover between cards are 36px tall
+  in an 8px gap. They overlap the neighbouring cards, and Escape does not dismiss them.
+- **Semantics (1.1.1, 1.3.1, 4.1.2).** The child picker's Type column is an icon alone, and its
+  result rows act on a click but are plain table rows. The Preferences radio group has no grouping,
+  its preset buttons have no `aria-pressed`, and Define Presets labels its rows with `td` cells.
+  The sidebar and library toggles have no `aria-expanded`. None of these changes the screen.
+- **Error messages (4.1.3).** Name and description errors and the validation summary appear
+  without a role or a live region (`container-editor.component.html`, `field-card.component.html`,
+  `validation-summary.component.html`).
+- **Placeholder labels (2.5.3, 3.3.2).** The field-name and option inputs and the library search
+  have only placeholders. The field-name input shows "Enter field name" but is named "Field display
+  name". Naming it by what it shows changes nothing on screen. A visible label would.
+
+Extend `browser/tests/accessibility.spec.ts` to sidebar mode, the term dialogs and the property and
+types pickers, which it never scans.
+
+### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible

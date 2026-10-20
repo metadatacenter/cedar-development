@@ -23,6 +23,7 @@ and the main browser applications. Shared design values belong in
 | Public npmjs releases | [Npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) |
 | Term-picker operation | [Versioning runbook](VERSIONING-RUNBOOK.md) |
 | What a host serves against its components | [Component staleness](#component-staleness) |
+| How each component measures against WCAG 2.2 | [Accessibility conformance](#accessibility-conformance) |
 
 ## Browser Metadata Editing
 
@@ -3785,6 +3786,142 @@ checks: retain all three alongside the reactor and smoke evidence. By decision, 
 baseline keeps the field library's two section heights, which its divider sets as it
 is dragged. No stylesheet can name a value that exists only at runtime, so both stay
 as recorded debt.
+
+<a id="accessibility-conformance"></a>
+
+## Accessibility Conformance
+
+Each component's axe gate reports whether axe's rules pass in the states its suite scans. Those
+rules settle only part of WCAG, so a passing gate cannot say how accessible a component is. A
+conformance report measures that instead. It takes every WCAG 2.2 success criterion at levels A
+and AA, 55 in all, and records for each component what evidence settles it.
+
+CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their source and tests
+at CED `d91d4ea`, CEE `879c2a1b`, the term picker `e39593e` and Workspace `59190f1a`. The
+assessment read code and tests only. Nobody ran a screen reader, zoomed a page or applied text
+spacing, and only the English text was judged, not the Hungarian translations.
+
+A criterion counts as met only when every part of it is evidenced. Three kinds of evidence count:
+
+- an automated gate that passes in CI;
+- a spec that asserts the behaviour;
+- a review of all the source the criterion concerns, used only where source can settle it, such as
+  the absence of time limits, flashing or an orientation lock.
+
+Each criterion takes one of six statuses:
+
+- **Met:** every part is evidenced.
+- **Partial:** some parts are evidenced, and the rest need a test or a person.
+- **Fails:** the component has a known failure, whether a gate exception, a roadmap finding or a
+  defect the assessment found.
+- **Unverified:** nothing in the tests or the source settles it.
+- **Host:** the criterion belongs to the page that embeds the component, such as its title, its
+  language or its sign-in.
+- **N/A:** the component has none of the content the criterion governs, such as audio or links.
+
+### Scores
+
+A component's score is the share of the criteria that apply to it which are met. Host and N/A
+criteria do not apply.
+
+| Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
+| --- | --- | --- | --- | --- | --- | --- |
+| CED | 16 | 11 | 11 | 1 | 16 | 16 of 39, 41% |
+| CEE | 16 | 13 | 11 | 7 | 8 | 16 of 47, 34% |
+| Term picker | 20 | 8 | 9 | 2 | 16 | 20 of 39, 51% |
+| Workspace | 20 | 18 | 8 | 1 | 8 | 20 of 47, 43% |
+
+CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
+its captions and descriptions are the template author's.
+
+### Failures Several Components Share
+
+Most failures sit in states the gates never build, or in properties axe has no rule for. Five
+recur across components:
+
+- **Control borders.** Text inputs draw their boundary in `control-border-default`,
+  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, where criterion 1.4.11 asks for 3:1. CED, CEE and
+  Workspace take their borders from that token.
+- **Tint-only state.** The term picker marks the current release and a picked tree term, Workspace
+  a selected list row and the pressed view switch, and CEE the calendar's focused date, only by a
+  tint of about 1.2:1 (1.4.1, 1.4.11). CED tells an errored settings tab from the selected one by
+  hue alone.
+- **Unmarked language.** CED, CEE and the term picker can show Hungarian inside an English page,
+  and none sets `lang` on what it renders (3.1.2).
+- **Silent messages.** Some messages appear outside any live region, so a screen reader does not
+  announce them (4.1.3). They include result counts and empty results in Workspace and the term
+  picker, and field errors in CED and CEE.
+- **Names in unscanned states.** Controls in states the gates never build carry accessible names
+  that omit their visible text (2.5.3). Workspace's active filter chips, CEE's date inputs and the
+  term picker's narrowed ontology chip are examples.
+
+No suite tests a component at 320 CSS pixels, at 200% text size or with WCAG's text spacing, so
+criteria 1.4.4, 1.4.10 and 1.4.12 are partial or worse everywhere. The fixes are open work on the
+[frontend roadmap](FRONTEND-ROADMAP.md) and, for the term picker, the
+[versioning roadmap](VERSIONING-ROADMAP.md).
+
+### By Criterion
+
+The table gives each component's status for every criterion. Reassess a criterion after a change
+that touches it, and update the assessment date and commits with it.
+
+| Criterion | Level | CED | CEE | Term picker | Workspace |
+| --- | --- | --- | --- | --- | --- |
+| 1.1.1 Non-text Content | A | Fails | Fails | Met | Fails |
+| 1.2.1 Audio-only and Video-only (Prerecorded) | A | N/A | Unverified | N/A | N/A |
+| 1.2.2 Captions (Prerecorded) | A | N/A | Unverified | N/A | N/A |
+| 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | N/A | Unverified | N/A | N/A |
+| 1.2.4 Captions (Live) | AA | N/A | Unverified | N/A | N/A |
+| 1.2.5 Audio Description (Prerecorded) | AA | N/A | Unverified | N/A | N/A |
+| 1.3.1 Info and Relationships | A | Fails | Fails | Fails | Partial |
+| 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
+| 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
+| 1.3.4 Orientation | AA | Met | Met | Met | Met |
+| 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
+| 1.4.1 Use of Color | A | Fails | Fails | Fails | Fails |
+| 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
+| 1.4.3 Contrast (Minimum) | AA | Partial | Partial | Partial | Partial |
+| 1.4.4 Resize Text | AA | Partial | Partial | Unverified | Partial |
+| 1.4.5 Images of Text | AA | Met | Met | Met | Met |
+| 1.4.10 Reflow | AA | Fails | Partial | Partial | Partial |
+| 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
+| 1.4.12 Text Spacing | AA | Unverified | Unverified | Unverified | Unverified |
+| 1.4.13 Content on Hover or Focus | AA | Fails | Partial | Met | Met |
+| 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
+| 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
+| 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
+| 2.2.1 Timing Adjustable | A | Met | Fails | Met | Partial |
+| 2.2.2 Pause, Stop, Hide | A | Met | Met | Met | Partial |
+| 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
+| 2.4.1 Bypass Blocks | A | Host | Host | Host | Met |
+| 2.4.2 Page Titled | A | Host | Host | Host | Fails |
+| 2.4.3 Focus Order | A | Partial | Fails | Fails | Partial |
+| 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Fails |
+| 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
+| 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
+| 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
+| 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
+| 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
+| 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
+| 2.5.3 Label in Name | A | Partial | Fails | Fails | Fails |
+| 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
+| 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
+| 2.5.8 Target Size (Minimum) | AA | Partial | Partial | Fails | Partial |
+| 3.1.1 Language of Page | A | Host | Host | Host | Met |
+| 3.1.2 Language of Parts | AA | Fails | Fails | Fails | Partial |
+| 3.2.1 On Focus | A | Partial | Met | Met | Met |
+| 3.2.2 On Input | A | Met | Met | Met | Met |
+| 3.2.3 Consistent Navigation | AA | Host | Host | Host | Met |
+| 3.2.4 Consistent Identification | AA | Met | Met | Partial | Partial |
+| 3.2.6 Consistent Help | A | Host | Host | Host | Met |
+| 3.3.1 Error Identification | A | Met | Partial | Met | Met |
+| 3.3.2 Labels or Instructions | A | Partial | Partial | Met | Met |
+| 3.3.3 Error Suggestion | AA | Partial | Partial | Partial | Partial |
+| 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Host | Host | Host | Partial |
+| 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
+| 3.3.8 Accessible Authentication (Minimum) | AA | Host | Host | Host | N/A |
+| 4.1.2 Name, Role, Value | A | Fails | Fails | Fails | Partial |
+| 4.1.3 Status Messages | AA | Fails | Fails | Fails | Fails |
 
 ## Surface inventory and token coverage
 
