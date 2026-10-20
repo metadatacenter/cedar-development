@@ -163,33 +163,29 @@ current draft-retention contract and operator verification commands.
 
 ### 4. Fix Workspace's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
-criteria that Workspace fails. Most of the fixes change nothing on screen. Agree the ones marked
-as visible before making them.
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found four WCAG 2.2
+criteria that Workspace fails, two of them through causes it shares with the other components.
+Most of the fixes change nothing on screen. Agree the ones marked as visible before making them.
 
-- **Page titles (2.4.2).** Every route keeps the title "CEDAR Workspace", which `src/main.ts` sets
-  once at start-up. Give each route a title that names its page.
 - **Item type in the list view (1.1.1, 2.1.1).** The type is an `aria-hidden` icon whose tooltip
   appears only on hover (`src/app/workspace.html`), so neither a keyboard nor a screen reader
   reaches it.
-- **Repeated link names (2.4.4).** Every row's "Open in OpenView" and "Populate template" links
-  share one name, and nothing in the row's markup ties them to its artifact.
-- **Filter chip names (2.5.3).** An active chip shows its choice, such as "Folder, Template", but is
-  named after its filter, "Type" (`src/app/filter-chip.ts`).
-- **Unannounced results (4.1.3).** Result counts and "No items" change after a search, a filter or
-  a page turn without a live region.
 - **Help on disabled controls (2.1.1).** Disabled group controls explain themselves only in hover
   tooltips (`src/app/groups.html`).
-- **Widget semantics (1.3.1, 4.1.2).** The resource menu is a `div` with no role, and its trigger
-  has no `aria-haspopup`. Rows set `aria-selected` inside a plain table, and the Info tab has no
-  `tabpanel`. Workspace's templates are not linted with angular-eslint's accessibility rules, as
-  CED's are.
+- **Widget semantics (1.3.1, 4.1.2).** Rows set `aria-selected` inside a plain table, and the Info
+  tab has no `tabpanel`. A row's name runs its version and status together, as "1.0.0Draft",
+  because the separator between them is hidden from assistive technology. The resource menu is a
+  labelled group rather than a menu, and its trigger has no `aria-haspopup`. Workspace's templates
+  are not linted with angular-eslint's accessibility rules, as CED's are.
+- **The Information panel's links (2.4.4).** Its Open location and Open in OpenView icon links
+  rely on the panel's heading alone to say which artifact they open.
+- **Menus that stay open (2.4.3).** Visible. The resource menu and the user, actions and New
+  menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
 - **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
   with no confirmation or undo. Decide whether it needs either.
 
-Extend `browser/tests/accessibility.spec.mjs` to the states these defects live in, such as an
-active filter chip, an open resource menu, a selected Information panel and the metadata editor, so
-that each fix stays fixed.
+Extend `browser/tests/accessibility.spec.mjs` to the Move, Copy and Publish dialogs and to a narrow
+window, which it never builds.
 
 <a id="cee"></a>
 
@@ -254,33 +250,28 @@ each project's lint, tests and build, and run `cedarcli publish baselines --refr
 
 ### 8. Fix CEE's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eleven WCAG 2.2
-criteria that CEE fails. Most of the fixes change nothing on screen. Agree the ones marked as
-visible before making them.
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found six WCAG 2.2
+criteria that CEE fails, two of them through causes it shares with the other components. Agree the
+fixes marked as visible before making them.
 
-- **Groups and names (1.3.1, 2.5.3).** A multiple-choice radio group has no name, and a checkbox
-  field's boxes have no group. Editable date controls are named "Select Date", and the timezone
-  select keeps the name "Timezone unspecified" after a choice, so neither carries the field's
-  label.
 - **Descriptions on hover only (1.1.1, 2.1.1).** A field's description and property IRI appear only
   while the pointer rests on an icon that cannot take focus (`cedar-component-header.component.html`).
   The section break's help icon is `aria-hidden`, so its description reaches neither a keyboard nor
   a screen reader. `render.spec.ts` asserts `aria-describedby` on that hidden icon as if it were the
   screen-reader route.
-- **Focus (2.4.3).** Clear buttons remove themselves without moving focus, in the text, numeric,
-  email, phone, link, select, controlled, authority and date-time inputs. Required-value errors
-  carry `tabindex="0"` and so become Tab stops.
-- **Messages (2.2.1, 3.3.1, 4.1.3).** Field problems, checkbox and temporal errors, and "No results
-  found" appear outside any live region and are not linked to their control. The notices that an
-  entry was cleared or reverted vanish after five seconds, and nothing keeps them.
-- **Names and roles (4.1.2).** The lookup spinner has no name, and a read-only term value puts
-  `aria-label` on a `div` with no role.
+- **Notices that vanish (2.2.1).** Visible. The notices that an entry was cleared or reverted
+  disappear after five seconds, and nothing keeps them.
 - **Severity by colour (1.4.1).** Visible. Range and quality warnings differ from errors only by
   amber against red.
+- **The link-out icon (2.5.8).** Visible. At 480px a read-only term's 20px link-out icon touches its
+  IRI link. It needs a 24px target or a 4px gap. `visual/tests/accessibility.spec.ts` records it as
+  a known violation.
+- **Changes nothing announces (4.1.3).** Adding or deleting an occurrence and turning a page change
+  the form without a word to a screen reader.
+- **Descriptions not tied to controls (1.3.1).** A field's description is not linked to the
+  controls it describes.
 
-Extend `visual/tests/accessibility.spec.ts` to read-only with an instance, an open calendar, menu
-and select, and a lookup in progress, none of which the gate builds today. Add angular-eslint's
-`templateAccessibility` preset, which CED already uses.
+Add angular-eslint's `templateAccessibility` preset, which CED already uses.
 
 ## Frontend Dependencies
 
@@ -341,12 +332,14 @@ cause lives.
   current release and picked tree term, Workspace's selected list row and pressed view switch, and
   the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
   hue alone. Agree one second cue, such as a bar, a weight or an icon, and apply it in each place.
-- **Unmarked language (3.1.2).** CED, CEE and the term picker take a UI language but never set
-  `lang`, so a screen reader reads Hungarian text with the host page's language. Set it on the root
-  each element renders. This changes nothing on screen.
-- **Untested layout (1.4.4, 1.4.10, 1.4.12).** No suite tests a component at 320 CSS pixels, at
-  200% text size or with WCAG's text spacing. Add one check for all three, run it in each browser
-  suite, and fix what it finds.
+- **Known languages left unmarked (3.1.2).** Each component marks its own text with its UI
+  language. Values typed into a field that declares a language, in CED and CEE, and messages a
+  server writes, which the term picker and Workspace show as they arrive, are not marked. Mark each
+  where its language is known. This changes nothing on screen.
+- **Untested layout and placeholders (1.4.3, 1.4.4, 1.4.10, 1.4.12).** No suite tests a component
+  at 320 CSS pixels, at 200% text size or with WCAG's text spacing, and axe does not measure
+  placeholder text. Add one check for all four, run it in each browser suite, and fix what it
+  finds.
 
 <a id="ced"></a>
 
@@ -410,19 +403,18 @@ CED beyond the ones it shares with the other components. Several need a design d
   that does not exist (`field-library-sidebar.component.ts`).
 - **Insertion pills (1.4.13).** The insertion pills that appear on hover between cards are 36px tall
   in an 8px gap. They overlap the neighbouring cards, and Escape does not dismiss them.
+- **Field settings toggles (2.5.8).** Visible. A field card's settings toggle is 36 by 14px, and the
+  field header beside it, which opens the same settings, is 23px tall, a pixel short of WCAG's 24.
+  The settings panel's last control also sits within 12px of the toggle's centre. Either the toggle
+  or the header needs 24px. `browser/tests/accessibility.spec.ts` records it under `EXCEPTIONS`.
 - **Semantics (1.1.1, 1.3.1, 4.1.2).** The child picker's Type column is an icon alone, and its
   result rows act on a click but are plain table rows. The Preferences radio group has no grouping,
   its preset buttons have no `aria-pressed`, and Define Presets labels its rows with `td` cells.
-  The sidebar and library toggles have no `aria-expanded`. None of these changes the screen.
-- **Error messages (4.1.3).** Name and description errors and the validation summary appear
-  without a role or a live region (`container-editor.component.html`, `field-card.component.html`,
-  `validation-summary.component.html`).
-- **Placeholder labels (2.5.3, 3.3.2).** The field-name and option inputs and the library search
-  have only placeholders. The field-name input shows "Enter field name" but is named "Field display
-  name". Naming it by what it shows changes nothing on screen. A visible label would.
-
-Extend `browser/tests/accessibility.spec.ts` to sidebar mode, the term dialogs and the property and
-types pickers, which it never scans.
+  The Add field palette's library dropdown has no `aria-expanded`. None of these changes the
+  screen.
+- **Labels that vanish (3.3.2).** Visible. The field-name and option boxes and the library search
+  are labelled only by placeholders, which disappear once the box holds text. They need labels
+  that stay.
 
 ### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 

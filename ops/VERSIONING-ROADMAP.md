@@ -1007,18 +1007,14 @@ These three items concern the component alone, and none waits on a host.
 
 - **24. Fix the picker's remaining WCAG failures.** The
    [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these beyond items 22
-   and 23, and none of them changes the screen. The picker never sets `lang`, though it can speak
-   Hungarian inside an English page and shows labels tagged with other languages. Search failures,
-   unavailable sources and the short-query notice render as plain paragraphs, and "No terms
-   match", result counts and "reading more" are never announced. Clearing the narrowed chip and
-   removing the last constraint drop focus. The narrowed chip shows its acronyms but is named
-   "Ontologies", and a property's release toggle shows "of N" but is named "Property ontology
-   releases". A property's detail puts `aria-label` on a `div` with no role. The hierarchy is a
-   flat list whose depth shows only as indentation, and "Selected term" looks like a heading
-   without being one. Enter on a row's release-count button also marks the row, which a click does
-   not. Extend `browser/tests/accessibility.spec.ts` to the tree, the release history and a
-   property's detail, where most of these live. The tint that alone marks the current release and
-   a picked tree term is part of "Fix the WCAG Failures the Components Share" on the
+   and 23. The hierarchy is a flat list whose depth shows only as indentation, and "Selected term"
+   looks like a heading without being one. Neither fix changes the screen. The tree's 16px twists,
+   its terms, 14px tall on a 16px pitch, and the history's 22px releases are under WCAG 2.2's 24px
+   minimum target, and `browser/tests/accessibility.spec.ts` records each as pending. At 375px the
+   history head's count column has no width, so "3 releases, newest first" overlaps "effective
+   date", and a release row overflows and clips its tag. The targets and the narrow history need
+   visible changes, so agree them first. The tint that alone marks the current release and a picked
+   tree term is part of "Fix the WCAG Failures the Components Share" on the
    [frontend roadmap](FRONTEND-ROADMAP.md).
 
 ### The Template Designer

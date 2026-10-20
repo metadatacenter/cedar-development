@@ -2685,18 +2685,24 @@ them:
   Add field. A closed dialog or menu returns focus to the control that opened it.
 - `announcements.spec.ts` reads the designer's one polite live region after each
   announced event: an applied constraint set, a cleared default, a chosen default
-  term, a new or cleared set of host findings, and a move in the Overview.
+  term, a new or cleared set of host findings, and a move in the Overview. The
+  validation summary speaks through the same region, but only for an issue that no
+  visible alert or host announcement has already said, and
+  `error-announcements.spec.ts` asserts that each error is said once.
 
 None of the three can say what a screen reader actually speaks, so a release that
 changes these surfaces also gets the [screen-reader protocol](#ced-screen-reader-protocol).
 
-Axe leaves two checks undecided, and both were settled by measurement on
-2026-10-19. It cannot compute contrast for the native dropdowns, because their
-chevron is drawn as a background gradient; their text is 87% black on white, about
-16:1. It cannot size the settings toggles, whose content overflows them; they are
-36 by 14px, under WCAG 2.2's 24px minimum, but the card header beside each opens
-the same settings and is the larger equivalent target that criterion 2.5.8 allows.
-A change to either control's colour, size or header behaviour reopens the question.
+Axe leaves some contrast and target-size checks undecided. The spec's `SETTLED`
+list names each one, with the value measured, and measures it again on every scan,
+so an undecided result the list does not name fails the gate. The native dropdowns
+draw their chevron as a background gradient, which hides their text's contrast from
+axe. The text is 87% black on white, about 16:1. The template and element settings
+toggles are 36 by 14px, under WCAG 2.2's 24px minimum, but the header beside each
+opens the same settings and is the larger equivalent target criterion 2.5.8 allows.
+A field card's toggle has no such equivalent. The field header is 23px tall, and the
+settings panel's last control sits within 12px of the toggle's centre. The spec
+records it under `EXCEPTIONS` as a failure that waits on a visible change.
 
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
 been through `npm run dist` is not the thing under test. That used to be a
@@ -2780,7 +2786,8 @@ step from the keyboard alone. Each step says what should be heard.
    field's own name in place of Disease.
 8. Open the constraint dialog again and press Escape. It closes and Edit is read.
 9. Open Edit default term and pick the term. After the Edit default term button,
-   "Default set to cancer." is heard.
+   "Default set to cancer." is heard, then "Validation issues (1)", because the
+   stub picker's term cannot be verified.
 10. In the browser console, set
     `document.querySelector('cedar-embeddable-designer').validationFindings` to
     `[{ location: '/schema:description', message: 'Explain this study', severity: 'error' }]`.
@@ -3796,10 +3803,11 @@ rules settle only part of WCAG, so a passing gate cannot say how accessible a co
 conformance report measures that instead. It takes every WCAG 2.2 success criterion at levels A
 and AA, 55 in all, and records for each component what evidence settles it.
 
-CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their source and tests
-at CED `d91d4ea`, CEE `879c2a1b`, the term picker `e39593e` and Workspace `59190f1a`. The
-assessment read code and tests only. Nobody ran a screen reader, zoomed a page or applied text
-spacing, and only the English text was judged, not the Hungarian translations.
+CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their source and tests,
+and reassessed on 2026-10-20 after a round of fixes, at CED `8520cd9`, CEE `1f834426`, the term
+picker `9485566` and Workspace `531ba38c`. The assessment read code and tests only. Nobody ran a
+screen reader, zoomed a page or applied text spacing, and only the English text was judged, not
+the Hungarian translations.
 
 A criterion counts as met only when every part of it is evidenced. Three kinds of evidence count:
 
@@ -3826,18 +3834,26 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 16 | 11 | 11 | 1 | 16 | 16 of 39, 41% |
-| CEE | 16 | 13 | 11 | 7 | 8 | 16 of 47, 34% |
-| Term picker | 20 | 8 | 9 | 2 | 16 | 20 of 39, 51% |
-| Workspace | 20 | 18 | 8 | 1 | 8 | 20 of 47, 43% |
+| CED | 17 | 11 | 10 | 1 | 16 | 17 of 39, 44% |
+| CEE | 18 | 16 | 6 | 7 | 8 | 18 of 47, 38% |
+| Term picker | 21 | 10 | 6 | 2 | 16 | 21 of 39, 54% |
+| Workspace | 21 | 21 | 4 | 1 | 8 | 21 of 47, 45% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
 
+On 2026-10-19 the four scored 41%, 34%, 51% and 43%, with 39 failures between them. They now have
+26. Most of the criteria the fixes touched moved from Fails to Partial rather than to Met, because
+a criterion is met only when every part of it is evidenced. The gates now also scan hover and focus
+states, open menus, overlays and dialogs, and they settle each of axe's undecided contrast and
+target-size results by measurement, so an undecided result nobody has measured fails the gate.
+Those scans found four failures the first assessment missed: CED's field settings toggle, CEE's
+read-only link-out icon at 480px, the term picker's tree and history targets, and the term
+picker's release history at 375px.
+
 ### Failures Several Components Share
 
-Most failures sit in states the gates never build, or in properties axe has no rule for. Five
-recur across components:
+Three failures recur across components:
 
 - **Control borders.** Text inputs draw their boundary in `control-border-default`,
   `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, where criterion 1.4.11 asks for 3:1. CED, CEE and
@@ -3846,19 +3862,18 @@ recur across components:
   a selected list row and the pressed view switch, and CEE the calendar's focused date, only by a
   tint of about 1.2:1 (1.4.1, 1.4.11). CED tells an errored settings tab from the selected one by
   hue alone.
-- **Unmarked language.** CED, CEE and the term picker can show Hungarian inside an English page,
-  and none sets `lang` on what it renders (3.1.2).
-- **Silent messages.** Some messages appear outside any live region, so a screen reader does not
-  announce them (4.1.3). They include result counts and empty results in Workspace and the term
-  picker, and field errors in CED and CEE.
-- **Names in unscanned states.** Controls in states the gates never build carry accessible names
-  that omit their visible text (2.5.3). Workspace's active filter chips, CEE's date inputs and the
-  term picker's narrowed ontology chip are examples.
+- **Targets under 24px.** CED's field settings toggle, CEE's read-only link-out icon and the term
+  picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum target
+  (2.5.8). Each needs a visible change.
 
-No suite tests a component at 320 CSS pixels, at 200% text size or with WCAG's text spacing, so
-criteria 1.4.4, 1.4.10 and 1.4.12 are partial or worse everywhere. The fixes are open work on the
-[frontend roadmap](FRONTEND-ROADMAP.md) and, for the term picker, the
-[versioning roadmap](VERSIONING-ROADMAP.md).
+Each component now marks its own text with its UI language. Two kinds of text whose language is
+known are not yet marked: values typed into a field that declares a language, in CED and CEE, and
+messages a server writes, which the term picker and Workspace show as they arrive (3.1.2).
+
+No suite tests a component at 320 CSS pixels, at 200% text size or with WCAG's text spacing, and
+axe does not measure placeholder text, so criteria 1.4.3, 1.4.4, 1.4.10 and 1.4.12 are partial or
+worse everywhere. The fixes are open work on the [frontend roadmap](FRONTEND-ROADMAP.md) and, for
+the term picker, the [versioning roadmap](VERSIONING-ROADMAP.md).
 
 ### By Criterion
 
@@ -3873,7 +3888,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | N/A | Unverified | N/A | N/A |
 | 1.2.4 Captions (Live) | AA | N/A | Unverified | N/A | N/A |
 | 1.2.5 Audio Description (Prerecorded) | AA | N/A | Unverified | N/A | N/A |
-| 1.3.1 Info and Relationships | A | Fails | Fails | Fails | Partial |
+| 1.3.1 Info and Relationships | A | Fails | Partial | Fails | Partial |
 | 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
@@ -3883,7 +3898,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.3 Contrast (Minimum) | AA | Partial | Partial | Partial | Partial |
 | 1.4.4 Resize Text | AA | Partial | Partial | Unverified | Partial |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
-| 1.4.10 Reflow | AA | Fails | Partial | Partial | Partial |
+| 1.4.10 Reflow | AA | Fails | Partial | Fails | Partial |
 | 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
 | 1.4.12 Text Spacing | AA | Unverified | Unverified | Unverified | Unverified |
 | 1.4.13 Content on Hover or Focus | AA | Fails | Partial | Met | Met |
@@ -3894,34 +3909,34 @@ that touches it, and update the assessment date and commits with it.
 | 2.2.2 Pause, Stop, Hide | A | Met | Met | Met | Partial |
 | 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
 | 2.4.1 Bypass Blocks | A | Host | Host | Host | Met |
-| 2.4.2 Page Titled | A | Host | Host | Host | Fails |
-| 2.4.3 Focus Order | A | Partial | Fails | Fails | Partial |
-| 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Fails |
+| 2.4.2 Page Titled | A | Host | Host | Host | Met |
+| 2.4.3 Focus Order | A | Partial | Partial | Partial | Partial |
+| 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Partial |
 | 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
 | 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
 | 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
 | 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
 | 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
 | 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
-| 2.5.3 Label in Name | A | Partial | Fails | Fails | Fails |
+| 2.5.3 Label in Name | A | Met | Met | Met | Partial |
 | 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
 | 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
-| 2.5.8 Target Size (Minimum) | AA | Partial | Partial | Fails | Partial |
+| 2.5.8 Target Size (Minimum) | AA | Fails | Fails | Fails | Partial |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
-| 3.1.2 Language of Parts | AA | Fails | Fails | Fails | Partial |
+| 3.1.2 Language of Parts | AA | Partial | Partial | Partial | Partial |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |
 | 3.2.2 On Input | A | Met | Met | Met | Met |
 | 3.2.3 Consistent Navigation | AA | Host | Host | Host | Met |
 | 3.2.4 Consistent Identification | AA | Met | Met | Partial | Partial |
 | 3.2.6 Consistent Help | A | Host | Host | Host | Met |
-| 3.3.1 Error Identification | A | Met | Partial | Met | Met |
+| 3.3.1 Error Identification | A | Met | Met | Met | Met |
 | 3.3.2 Labels or Instructions | A | Partial | Partial | Met | Met |
 | 3.3.3 Error Suggestion | AA | Partial | Partial | Partial | Partial |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Host | Host | Host | Partial |
 | 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
 | 3.3.8 Accessible Authentication (Minimum) | AA | Host | Host | Host | N/A |
-| 4.1.2 Name, Role, Value | A | Fails | Fails | Fails | Partial |
-| 4.1.3 Status Messages | AA | Fails | Fails | Fails | Fails |
+| 4.1.2 Name, Role, Value | A | Fails | Partial | Fails | Partial |
+| 4.1.3 Status Messages | AA | Partial | Partial | Partial | Partial |
 
 ## Surface inventory and token coverage
 
