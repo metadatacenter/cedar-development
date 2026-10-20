@@ -1005,6 +1005,12 @@ These two items concern the component alone, and neither waits on a host.
    WCAG 2.2's 24px minimum target, and growing them changes the row's layout, so agree that change
    first. Remove each exception from the spec as its finding is fixed.
 
+### The Template Designer
+
+Later work, and deliberately after the component stands on its own. Embedding turns every open
+question about the picker into a question about the Workbench as well, and none of the three items
+here can be finished without the component being finished first.
+
 - **24. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
    focus moves in when it opens, Tab and Shift+Tab cannot leave it, and Escape closes it and gives
    focus back to the button that opened it, all asserted against the real picker. What that leaves is

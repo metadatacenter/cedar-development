@@ -230,6 +230,8 @@ element under each combination of presentation settings, compact density in edit
 read-only modes, and an authority search under way. Add them to `visual/tests/accessibility.spec.ts`,
 fix the defects whose fix changes nothing on screen, and agree any visible change before making it.
 
+## Frontend Dependencies
+
 ### 8. Take the Frontend Dependency Upgrades That Need Code Changes
 
 Each dependency below has a newer major release that a lock update cannot take. Some wait on an
