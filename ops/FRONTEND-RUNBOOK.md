@@ -3807,8 +3807,8 @@ conformance report measures that instead. It takes every WCAG 2.2 success criter
 and AA, 55 in all, and records for each component what evidence settles it.
 
 CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their source and tests,
-and reassessed on 2026-10-20 after two rounds of fixes, at CED `4cc8a4e`, CEE `109a1946`, the
-term picker `4d942ff` and Workspace `bd60e383`. The assessment read code and tests. Nobody ran a
+and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE `313d7ceb`, the
+term picker `8ed2d81` and Workspace `0323655a`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -3837,19 +3837,19 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 20 | 9 | 10 | 0 | 16 | 20 of 39, 51% |
-| CEE | 22 | 14 | 5 | 6 | 8 | 22 of 47, 47% |
+| CED | 20 | 10 | 9 | 0 | 16 | 20 of 39, 51% |
+| CEE | 23 | 12 | 6 | 6 | 8 | 23 of 47, 49% |
 | Term picker | 24 | 8 | 7 | 0 | 16 | 24 of 39, 62% |
-| Workspace | 26 | 17 | 4 | 0 | 8 | 26 of 47, 55% |
+| Workspace | 28 | 14 | 5 | 0 | 8 | 28 of 47, 60% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
 
 On 2026-10-19 the four scored 41%, 34%, 51% and 43%, with 39 failures between them. The first round
 of fixes cut the failures to 26. Most of the criteria it touched moved from Fails to Partial rather
-than to Met, because a criterion is met only when every part of it is evidenced. The second round
-moved more to Met, but the failures stayed at 26, because the layout check it added found new ones
-as fast as others were fixed. Every failure it found needs a visible change.
+than to Met, because a criterion is met only when every part of it is evidenced. The second and
+third rounds moved more to Met, but the failures now stand at 27, because the layout check and the
+wider scans found new ones as fast as others were fixed. Most of those need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -3873,9 +3873,9 @@ Three failures recur across components:
   picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum target
   (2.5.8).
 
-The layout check's failures are each a component's own: CED's narrow layouts, the term picker's
-release history at 320 pixels and its truncated lines and narrowing panel at 200% zoom, and
-Workspace's grid card under text spacing. The fixes are open work on the
+The layout check's failures are each a component's own: CED's narrow layouts, CEE's PubMed and
+RRID instructions cut short at 320 pixels, the term picker's release history at 320 pixels and its
+truncated lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are open work on the
 [frontend roadmap](FRONTEND-ROADMAP.md) and, for the term picker, the
 [versioning roadmap](VERSIONING-ROADMAP.md).
 
@@ -3892,7 +3892,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | N/A | Unverified | N/A | N/A |
 | 1.2.4 Captions (Live) | AA | N/A | Unverified | N/A | N/A |
 | 1.2.5 Audio Description (Prerecorded) | AA | N/A | Unverified | N/A | N/A |
-| 1.3.1 Info and Relationships | A | Fails | Met | Fails | Partial |
+| 1.3.1 Info and Relationships | A | Partial | Met | Fails | Partial |
 | 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
@@ -3900,11 +3900,11 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.1 Use of Color | A | Fails | Fails | Fails | Fails |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
-| 1.4.4 Resize Text | AA | Fails | Partial | Fails | Partial |
+| 1.4.4 Resize Text | AA | Fails | Partial | Fails | Met |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
-| 1.4.10 Reflow | AA | Fails | Partial | Fails | Partial |
+| 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
 | 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
-| 1.4.12 Text Spacing | AA | Met | Partial | Met | Fails |
+| 1.4.12 Text Spacing | AA | Met | Met | Met | Fails |
 | 1.4.13 Content on Hover or Focus | AA | Fails | Partial | Met | Met |
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
@@ -3914,7 +3914,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
 | 2.4.1 Bypass Blocks | A | Host | Host | Host | Met |
 | 2.4.2 Page Titled | A | Host | Host | Host | Met |
-| 2.4.3 Focus Order | A | Partial | Partial | Partial | Partial |
+| 2.4.3 Focus Order | A | Partial | Partial | Partial | Fails |
 | 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Met |
 | 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
 | 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |

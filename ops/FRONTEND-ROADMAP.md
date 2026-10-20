@@ -163,14 +163,16 @@ current draft-retention contract and operator verification commands.
 
 ### 4. Fix Workspace's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found four WCAG 2.2
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
 criteria that Workspace fails, two of them through causes it shares with the other components.
 Agree the fixes marked as visible before making them.
 
-- **Help that only a pointer reaches (2.1.1).** The Permissions dialog's owner checkboxes and the
-  metadata editor's refused Save explain themselves only in hover tooltips on disabled controls.
-  The group administrator's controls show the pattern that fixes them: an `aria-disabled` control
-  that keeps focus and shows its tooltip on focus.
+- **Focus after group and description changes (2.4.3).** Focus falls to the page after creating a
+  group, adding or removing a member, and saving an artifact's description. Give it a defined
+  landing place in each case, as the listing's deletions and moves already have.
+- **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
+  running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
+  hover tooltip. Marking it `aria-disabled`, as Save is when errors refuse it, would dim it.
 - **Text spacing in grid cards (1.4.12).** Visible. Under WCAG's text spacing a grid card's type
   and date line, such as "Template · 1 day ago", ends in an ellipsis. The line needs to wrap and the
   card to grow, through the token package's resource-card recipe, which also changes cards that are
@@ -182,14 +184,12 @@ Agree the fixes marked as visible before making them.
   menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
 - **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
   with no confirmation or undo. Decide whether it needs either.
-- **What remains unmarked or unannounced (3.1.2, 4.1.3).** The joined list of failed moves, raw
-  unknown statuses and CEE's validation text carry no language, and outcomes on Groups and
-  description saves are not announced.
-
-Extend `browser/tests/layout-resilience.spec.mjs` to the dialogs, which it covers at neither 320
-pixels nor 200% zoom. The initial bundle stands 0.55 kB under its 1.03 MB budget, so the next
-change here needs budget. `focus-order.spec.mjs`'s test that a page button keeps focus fails now and
-then under load, which looks like a race in `restoreFocus`.
+- **Messages that arrive already written (4.1.3).** Most toasts, and the loading statuses, are
+  inserted together with their text, so a screen reader may not announce them. Give each a region
+  that is already present when the text arrives. A notice identical to the one before it shows and
+  says nothing, because the notice is never cleared, and fixing that is visible.
+- **Text with no language (3.1.2).** The joined list of failed moves, raw unknown statuses and
+  CEE's validation text carry no language.
 
 <a id="cee"></a>
 
@@ -219,12 +219,13 @@ data images.
 
 ### 7. Clear the Advisories Waiting on Upstream
 
-Two advisories remain in the frontend locks, and no release of either package fixes them. Both
-sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
-a denial of service that needs an attacker to supply the glob pattern or the format string, and
-here those come only from the projects' own configuration. Nothing waits on this item. The train's
-lock baselines record the current counts as reviewed, so trains and releases pass. Every other
-lock outside the legacy Template Editor audits clean.
+Five advisories remain in the frontend locks. All of them sit in build, lint, test or
+development-server tooling, and nothing the affected projects ship contains them. The train's lock
+baselines record the current counts as reviewed, so trains and releases pass, and nothing waits on
+this item.
+
+Two of them have no fixed release. Each is a denial of service that needs an attacker to supply the
+glob pattern or the format string, and here those come only from the projects' own configuration.
 
 - `braces` (GHSA-vfj7-8cjw-p6xm, high) affects every release up to 3.0.3, the latest. It reaches
   the Ember CEE demo only through `micromatch` 4.0.8. ember-cli, `@embroider/compat` by way of
@@ -235,16 +236,32 @@ lock outside the legacy Template Editor audits clean.
   require. It reaches the model library through `ts-jest`, `babel-plugin-istanbul` and
   `@istanbuljs/load-nyc-config`, which still loads `js-yaml` 3 and with it `argparse` 1.
 
-The likeliest way out is withdrawal rather than a fix. Both maintainers dispute their advisory,
-and neither has merged any of the fix pull requests opened since it was published. On 2026-10-05 a
-contributor asked the authority that issued the `braces` advisory to withdraw it. A withdrawn
-advisory drops out of `npm audit` with no change on CEDAR's side. stylelint's maintainers say its
-unreleased 18.0.0 drops its glob dependencies, which removes one route for `braces` and leaves the
-others.
+The likeliest way out for these two is withdrawal rather than a fix. Both maintainers dispute their
+advisory, and neither has merged any of the fix pull requests opened since it was published. On
+2026-10-05 a contributor asked the authority that issued the `braces` advisory to withdraw it. A
+withdrawn advisory drops out of `npm audit` with no change on CEDAR's side. stylelint's maintainers
+say its unreleased 18.0.0 drops its glob dependencies, which removes one route for `braces` and
+leaves the others.
 
 No override helps while no fixed version exists. Dropping stylelint and ember-template-lint would
 not help either, because ember-cli and Embroider would still bring `braces`, and moving
 ember-template-lint to 7 removes one route for each package without clearing either.
+
+Three more have fixed releases the locks have not taken. npm's audit began counting all three on
+2026-10-20.
+
+- `vite` (GHSA-698v-4r3x-3vcv, moderate) affects 8.3.0 to 8.3.2, whose development server's editor
+  launcher does not escape `%` on Windows. Every Angular project carries 8.3.0, because
+  `@angular/build` 22.2.3 pins it exactly. vite 8.3.4 fixes it. An npm override could take it before
+  Angular moves its pin, once each project's development server and build pass with it.
+- `follow-redirects` (GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c, high) affects 1.16.0, which can
+  carry credential headers to another origin. It reaches the Ember demo through ember-cli's
+  `http-proxy`. 1.16.1 fixes both, within the range ember-cli asks for.
+- `markdown-it` (GHSA-r7fv-28h4-cvq7, high) affects every release before 14.3.2, whose smart quotes
+  take quadratic time on unmatched closing quotes. It reaches the Ember demo through ember-cli. 14.3.2
+  fixes it, within the range ember-cli asks for.
+
+A lock update in the Ember demo takes the last two.
 
 When an advisory is withdrawn, lower the counts recorded for the affected locks in
 `ops/frontend-train.json` by hand. The locks themselves do not change, and
@@ -254,7 +271,7 @@ each project's lint, tests and build, and run `cedarcli publish baselines --refr
 
 ### 8. Fix CEE's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found six WCAG 2.2
 criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
 Agree the fixes marked as visible before making them.
 
@@ -269,10 +286,18 @@ Agree the fixes marked as visible before making them.
 - **The link-out icon (2.5.8).** Visible. At 480px a read-only term's 20px link-out icon touches its
   IRI link. It needs a 24px target or a 4px gap. `visual/tests/accessibility.spec.ts` records it as
   a known violation.
-- **A template's language (3.1.2).** A template's own `@language` does not mark its labels.
+- **Instructions cut short (1.4.10).** Visible. At 320px the PubMed and RRID boxes' placeholders
+  need about 271 and 276px and get 264px, so their last letters are cut. They need a shorter
+  instruction, or the instruction moved into hint text that wraps.
+  `visual/tests/layout-resilience.spec.ts` records it as an exception.
+- **A template's language, where it is lost (3.1.2).** The model library's JSON writer puts a
+  template's or element's `@language` in `properties['@context']`, where its own reader does not
+  look, so a template CED saves loses its declared language in CEE. Fix it in the model library.
+  CEE also leaves unmarked a select's panel, names that join a label to CEE's words, such as "Time
+  for" a label, and options that carry the default mark.
 
-Extend `visual/tests/layout-resilience.spec.ts` to the field element and to open overlays, and
-check clipped text at 320 pixels as well as horizontal scrolling.
+Extend `visual/tests/layout-resilience.spec.ts` to tooltips, the multi-select, time zone and
+terminology panels, and long values in read-only boxes.
 
 ## Frontend Dependencies
 
@@ -307,8 +332,8 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
   Angular project and CEE's harness use 6.0.
 - **The demos' tooling.** ESLint 10 in all three demos; zone.js 0.16 and jsdom 30 in the Angular
   demo; Babel 8, QUnit 3, ember-template-lint 7 and eslint-plugin-ember 13 in the Ember demo.
-  Moving ember-template-lint to 7 also removes one route for each advisory that "Clear the
-  Advisories Waiting on Upstream" tracks.
+  Moving ember-template-lint to 7 also removes one route each for the `braces` and `sprintf-js`
+  advisories that "Clear the Advisories Waiting on Upstream" tracks.
 
 **Needing a design decision.**
 
@@ -409,8 +434,6 @@ CED beyond the ones it shares with the other components. Several need a design d
   rows, whose selected state Chromium ignores. A grid needs an arrow-key model, a list of buttons is
   a redesign, and a visually hidden button in each row disturbs the scroller. Decide which. The
   smokes find a row by its name, Select and the artifact's name, which any choice must keep.
-- **Checkbox groups (1.3.1).** The Preferences checkbox groups rely on their headings alone, which
-  nothing ties to the boxes.
 - **Labels that vanish (3.3.2).** Visible. The field-name and option boxes and the library search
   are labelled only by placeholders, which disappear once the box holds text. They need labels
   that stay.
