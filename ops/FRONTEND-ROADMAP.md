@@ -222,17 +222,9 @@ When an advisory is withdrawn, lower the counts recorded for the affected locks 
 publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
 each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
 
-### 7. Extend CEE's Accessibility Gate to the Rest of Its States
-
-CEE's visual suite runs axe-core over every fixture, empty, filled with each of its instances and
-read only, at both widths. It does not yet cover states other specs already build: the field
-element under each combination of presentation settings, compact density in editable and
-read-only modes, and an authority search under way. Add them to `visual/tests/accessibility.spec.ts`,
-fix the defects whose fix changes nothing on screen, and agree any visible change before making it.
-
 ## Frontend Dependencies
 
-### 8. Take the Frontend Dependency Upgrades That Need Code Changes
+### 7. Take the Frontend Dependency Upgrades That Need Code Changes
 
 Each dependency below has a newer major release that a lock update cannot take. Some wait on an
 upstream release, most need code changes, and one needs a design decision. The versions are the
@@ -280,7 +272,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 8. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -294,14 +286,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 10. Keyboard and Screen-Reader Access
+### 9. Keyboard and Screen-Reader Access
 
 Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with
 VoiceOver and Safari and with NVDA and Firefox, and fix what it finds. The browser suite
 cannot tell whether a screen reader speaks the live region's messages, in what order, or
 whether one interrupts another.
 
-### 11. Give the Sidebar's Field List a Keyboard Route
+### 10. Give the Sidebar's Field List a Keyboard Route
 
 Each entry in the sidebar's list of the template's fields opens the container that holds its
 field, selects the field and scrolls to it. Only a click does this. The entry,
@@ -318,7 +310,7 @@ resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` 
 focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
 accessibility lint rules until this is done. Remove that exception in the same change.
 
-### 12. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 11. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
