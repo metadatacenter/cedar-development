@@ -1,12 +1,12 @@
 # CEDAR Docker Roadmap
 
 Open work for making the complete CEDAR container estate a repeatable, registry-backed deployment.
-The runtime is seven infrastructure, fifteen Java microservice, and seven frontend containers (29
-total). The build also produces two Java base images, for 31 core images; four optional
-administration images bring `cedarcli docker build all` to 35. Current deployment and operating
+The runtime is seven infrastructure, twelve Java microservice, and seven frontend containers (26
+total). The build also produces two Java base images, for 28 core images; four optional
+administration images bring `cedarcli docker build all` to 32. Current deployment and operating
 procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
-1. **Complete the Docker release, promotion, and rollback pipeline.** Run the 22-container backend
+1. **Complete the Docker release, promotion, and rollback pipeline.** Run the 19-container backend
    and all 19 REST suites on an 8-vCPU Linux runner with 32 GB of RAM and 300 GB of SSD storage, or
    equivalent self-hosted capacity; the current backend requires about 7.4 GB of compressed
    transfer, 19.1 GB unpacked, and 11.3 GiB of RAM while idle. Run the credential-free frontend

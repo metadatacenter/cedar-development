@@ -11,12 +11,9 @@ stoprepo
 stopgroup
 stopmessaging
 stopresource
-stopschema
 stopartifact
 stopterminology
 stopuser
-stopvaluerecommender
-stopsubmission
 stopworker
 stopopenview
 stopmonitor

@@ -746,7 +746,7 @@ jobs:
           printf '%s' "$BMIR_NEXUS_PASSWORD" | docker login "$CEDAR_DOCKER_REGISTRY_HOST" \
             --username "$BMIR_NEXUS_USERNAME" --password-stdin
 
-      - name: Pull and verify all 31 core images
+      - name: Pull and verify all 28 core images
         run: |
           python3 controller/ops/docker_train.py verify \
             --version "$TRAIN_VERSION" \

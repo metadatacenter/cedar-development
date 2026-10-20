@@ -316,8 +316,8 @@ def validate_configuration(
     for group in ("javaBase", "microserviceBase", "infrastructure", "microservices", "frontends"):
         images = _unique_strings(groups.get(group), f"Docker {group} images")
         ordered.extend(images)
-    if len(ordered) != 31 or len(ordered) != len(set(ordered)):
-        raise RuntimeError(f"Docker train must contain 31 unique core images, found {len(set(ordered))}")
+    if len(ordered) != 28 or len(ordered) != len(set(ordered)):
+        raise RuntimeError(f"Docker train must contain 28 unique core images, found {len(set(ordered))}")
     configured_frontends = {item["image"] for item in frontends}
     if configured_frontends != set(groups["frontends"]):
         raise RuntimeError("frontend and Docker train image sets differ")

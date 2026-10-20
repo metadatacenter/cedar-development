@@ -23,6 +23,91 @@ headroom while its consumer is unavailable.
 
 ## The Sequence
 
+### Decommission the Schema, Value Recommender and Submission Servers
+
+The first release without `cedar-schema-server`, `cedar-valuerecommender-server` and
+`cedar-submission-server` does not stop them. Its CLI no longer manages them, so once step 2 has
+pulled it, no `cedarcli native` command stops, starts or reports them, and they go on running the
+previous release's jars. Decommission them during that deploy. Each step names the point in the
+sequence where it runs.
+
+**Precondition: settle what `schema.metadatacenter.org` answers.** The hostname is also the CEDAR
+model's namespace. Artifacts name their types under `https://schema.metadatacenter.org/core/` and
+their child properties under `https://schema.metadatacenter.org/properties/`. Production nginx has
+no default vhost, so a hostname without a vhost of its own is answered by another CEDAR application
+rather than refused. Removing the schema server's vhost would therefore serve an unrelated page for
+every identifier under that host. Decide what the hostname should answer, and have that
+configuration ready, before the vhost is removed. Until then the vhost stays, and it answers 502
+once the server has stopped. The `valuerecommender` and `submission` hostnames fall through to
+another application in the same way for as long as DNS resolves them to the host.
+
+**Between steps 1 and 2, stop the three servers with the installed CLI,** which still manages them
+until the pull replaces it:
+
+```bash
+cedarcli native stop microservice schema
+cedarcli native stop microservice valuerecommender
+cedarcli native stop microservice submission
+cedarcli native status                 # all three read down
+```
+
+No browser application calls the three servers, so stopping them changes nothing users see. Until
+step 5 stops them, the running resource and worker servers go on
+queuing work for the value recommender. The worker cannot deliver it and dead-letters it, so the
+worker's health can read unhealthy until then. That work is discarded once the deploy passes
+[Verify](#verify). If the host starts any of the three servers outside `cedarcli`, remove that
+start as well.
+
+**In step 3, remove their variables from the host's own environment files.** `set-env-external.sh`
+and `set-env-internal.sh` in `$CEDAR_HOME` hold this installation's settings. Delete
+`CEDAR_NCBI_SRA_FTP_HOST`, `CEDAR_NCBI_SRA_FTP_USER`, `CEDAR_NCBI_SRA_FTP_PASSWORD`,
+`CEDAR_NCBI_SRA_FTP_DIRECTORY`, `CEDAR_IMMPORT_SUBMISSION_USER` and
+`CEDAR_IMMPORT_SUBMISSION_PASSWORD`, and every `CEDAR_SCHEMA_*`, `CEDAR_VALUERECOMMENDER_*` and
+`CEDAR_SUBMISSION_*` variable the files set. The versioned profile no longer defines the servers'
+hosts and ports. Keep a copy of the deleted lines until the deploy passes Verify, because a
+rollback runs the previous release, which needs them. The NCBI and ImmPort accounts behind those
+credentials then serve nothing in CEDAR. Retire them with their providers.
+
+**In step 8, remove their nginx vhosts between stopping and starting nginx.** As root, find each
+vhost by its hostname, keep a copy of the file for a rollback, delete it, and validate before
+starting nginx:
+
+```bash
+grep -l -E 'server_name[[:space:]]+(valuerecommender|submission)\.' /etc/nginx/sites-enabled/*
+nginx -t
+```
+
+Add `schema` to that pattern only once the precondition holds. If configuration management maintains
+these files, remove them there as well, or its next run restores them. Delete a certificate issued
+for one of the three hostnames alone with its vhost. A certificate shared with other hostnames drops
+them when it is next issued. After `cedarcli native start microservices`, confirm that nothing
+listens on the servers' application or admin ports:
+
+```bash
+ss -ltn | grep -E ':(9003|9006|9010|9103|9106|9110)\b'   # expect no output
+```
+
+**Once the deploy passes Verify, drop their data.** Do it no earlier, because a rollback to the
+previous release runs the value recommender again, and it recommends from the rules index. Through
+the production OpenSearch REST API, list the index the `cedar-rules` alias names with
+`GET _alias/cedar-rules`, then delete that index by name with `DELETE <index>`, which removes the
+alias with it. In the persistent Redis, record the depth of the value-recommender and NCBI
+submission queues and save their contents, then delete their keys. A message still in the NCBI queue
+is a submission that was never sent.
+
+```bash
+for key in CEDAR-QUEUE-valuerecommender CEDAR-QUEUE-valuerecommender-processing \
+           CEDAR-QUEUE-valuerecommender-dead-letter CEDAR-QUEUE-ncbi-submission \
+           CEDAR-QUEUE-ncbi-submission-processing CEDAR-QUEUE-ncbi-submission-dead-letter; do
+  echo "$key $(redis-cli LLEN "$key")"
+  redis-cli LRANGE "$key" 0 -1 > ~/"$key-$(date +%F).json"
+  redis-cli DEL "$key"
+done
+```
+
+The three repositories' checkouts under `$CEDAR_HOME` are then unused. Remove them once no rollback
+can need them.
+
 ### Search fixes: trusted proxy and possible-value data prerequisites
 
 Before deploying the search corrections following 2.9.25, install the forwarding-header rules from
@@ -140,8 +225,7 @@ inventory deployment-specific scripts that call it directly: ordinary artifact c
 resource. Internal service authentication does not configure a firewall or bind address.
 
 There is **no stored-artifact migration, reindex, or end-user API-key rotation for these changes**.
-Value-recommender is excluded pending retirement. Other migrations belonging to the release still
-follow the rest of this runbook.
+Other migrations belonging to the release still follow the rest of this runbook.
 
 **Prepare before restarting anything:**
 

@@ -15,17 +15,11 @@ startrepo
 sleepbetweenstarts
 startresource
 sleepbetweenstarts
-startschema
-sleepbetweenstarts
 startartifact
 sleepbetweenstarts
 startterminology
 sleepbetweenstarts
 startuser
-sleepbetweenstarts
-startvaluerecommender
-sleepbetweenstarts
-startsubmission
 sleepbetweenstarts
 startworker
 sleepbetweenstarts

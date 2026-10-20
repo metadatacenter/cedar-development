@@ -155,8 +155,8 @@ def core_images(config: dict) -> list[str]:
             if image in ordered:
                 raise RuntimeError(f"Docker train configuration repeats {image}")
             ordered.append(image)
-    if len(ordered) != 31:
-        raise RuntimeError(f"Docker train must contain 31 core images, found {len(ordered)}")
+    if len(ordered) != 28:
+        raise RuntimeError(f"Docker train must contain 28 core images, found {len(ordered)}")
     return ordered
 
 
@@ -324,7 +324,7 @@ def publish_image(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     images = core_images(config)
     if args.image not in images:
-        raise RuntimeError(f"{args.image} is not one of the 31 core images")
+        raise RuntimeError(f"{args.image} is not one of the 28 core images")
     source_hash_path = args.workspace / ".cedar-train-manifest-sha256"
     if not source_hash_path.exists():
         raise RuntimeError("Docker workspace has no source-manifest digest; run checkout first")
@@ -401,7 +401,7 @@ def verify(args: argparse.Namespace) -> None:
         raise RuntimeError("Docker plan and npm completion name different npm manifests")
     expected_images = core_images(config)
     if [entry.get("image") for entry in plan.get("images", [])] != expected_images:
-        raise RuntimeError("recorded Docker plan does not contain the configured 31 core images")
+        raise RuntimeError("recorded Docker plan does not contain the configured 28 core images")
 
     workers = getattr(args, "workers", 4)
     if not 1 <= workers <= 8:

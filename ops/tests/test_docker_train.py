@@ -63,7 +63,7 @@ class DockerTrainTest(unittest.TestCase):
         ) + "\n").encode()
         return hashlib.sha256(content).hexdigest()
 
-    def test_plan_records_exactly_two_internal_and_twenty_nine_runtime_images(self):
+    def test_plan_records_exactly_two_internal_and_twenty_six_runtime_images(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
             source_hash = self.make_state(state)
@@ -83,7 +83,7 @@ class DockerTrainTest(unittest.TestCase):
                 if image["prefix"].endswith("docker-cedar")
             ]
             self.assertEqual(2, len(internal))
-            self.assertEqual(29, len(public))
+            self.assertEqual(26, len(public))
             self.assertEqual(source_hash, plan["sourceManifestSha256"])
             self.assertFalse((state / "docker" / "current.json").exists())
 
@@ -140,10 +140,10 @@ class DockerTrainTest(unittest.TestCase):
             self.assertEqual(4, len(observed))
             self.assertEqual(docker_train.core_images(docker_train.load_json(docker_train.DEFAULT_CONFIG)),
                              [item["image"] for item in completion["images"]])
-            self.assertEqual(31, len(completion["images"]))
+            self.assertEqual(28, len(completion["images"]))
             self.assertEqual(VERSION, current["version"])
             pulls = [call for call in run.call_args_list if call.args[0][:2] == ["docker", "pull"]]
-            self.assertEqual(31, len(pulls))
+            self.assertEqual(28, len(pulls))
 
     @patch.object(docker_train, "inspect_image")
     @patch.object(docker_train, "run")

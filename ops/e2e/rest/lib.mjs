@@ -31,10 +31,6 @@ export const BRIDGE = env.CEDAR_BRIDGE_BASE ?? `https://bridge.${HOST}`;
 export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE
   ?? `http://${env.CEDAR_ARTIFACT_SERVER_HOST ?? 'localhost'}:${env.CEDAR_ARTIFACT_HTTP_PORT ?? '9001'}`;
 export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
-// Value Recommender has no public nginx vhost, but it does publish an OpenAPI document. As with
-// Artifact and OpenView, the REST suite reaches it through the internal address beside the stack.
-export const VALUERECOMMENDER = env.CEDAR_VALUERECOMMENDER_BASE
-  ?? `http://${env.CEDAR_VALUERECOMMENDER_SERVER_HOST ?? 'localhost'}:${env.CEDAR_VALUERECOMMENDER_HTTP_PORT ?? '9006'}`;
 // The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
 // has no vhost of its own, so it is addressed directly on its port.
 export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
@@ -327,12 +323,11 @@ export async function everybodyGroup(auth) {
  * What the worker says about itself, as a list of the checks that are failing.
  *
  * The worker is where every deferred effect happens — cloning a template's instances, propagating a
- * permission, reindexing for the value recommender, draining the application log. None of them
- * reports to the caller: the command that queues the work has already answered by the time the work
- * runs, so a consumer that has stopped, or an event that dead-lettered, is invisible to any test
- * that reads a response. The worker's own health check counts the dead letters on all four queues
- * and watches each consumer's liveness, which makes it the one place to ask whether the stack is
- * quiet.
+ * permission, draining the application log. None of them reports to the caller: the command that
+ * queues the work has already answered by the time the work runs, so a consumer that has stopped, or
+ * an event that dead-lettered, is invisible to any test that reads a response. The worker's own
+ * health check counts the dead letters on all three queues and watches each consumer's liveness,
+ * which makes it the one place to ask whether the stack is quiet.
  *
  * Unreachable is not unhealthy: a run against a stack with no worker should say so plainly rather
  * than report every queue as broken.
