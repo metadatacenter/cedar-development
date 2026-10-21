@@ -3323,11 +3323,19 @@ the Field Designer has no parent and so no Configuration tab. Its header edits i
 **Presentation** edits the child's own name and description, its `schema:name` and
 `schema:description`, under the labels Field name and Field description or Element name and
 Element description. CEE shows a field's own description as its help. Every profile offers
-both. While a child is a draft its parent shows as itself, the display name and description
-are its own as well, so an edit from the header, Configuration or Presentation writes both.
-A parent that already shows the child differently keeps doing so, and each side then edits
-its own value. A label repeating the child's name or key is the writers' filler, not a
-different display name, as CEE and the Java library read it. The designer does not write
+both. While the author first names a new child, its display name and its name are one value,
+so an edit from the header, Configuration or Presentation writes both. Once the name first
+loses focus, an edit to the display name changes only the display name, and the child's name
+and key stay as they are. Its display description and description are one value in the same
+way, until the description first loses focus. An imported or library child takes its display
+name and display description from its own once and keeps each pair apart from the start. A
+label repeating the child's name or key is the writers' filler, not a different display name,
+as CEE and the Java library read it. A parent that shows a child as itself therefore shows it
+by its own name, and an edit from Presentation changes what the parent shows too. A named
+child's display name cannot be cleared. While its input is blank, the header reports that a
+display name is required, as it reports a blank name, and the template keeps the previous
+display name. A parent that already shows the child differently keeps doing so, and each side
+then edits its own value. The designer does not write
 `skos:prefLabel`, except that one only repeating the name moves with a rename, so CEE does
 not go on showing the old name.
 
