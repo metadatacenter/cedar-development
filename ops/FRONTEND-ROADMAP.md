@@ -181,16 +181,11 @@ Agree the fixes marked as visible before making them.
   menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
 - **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
   with no confirmation or undo. Decide whether it needs either.
-- **Messages that arrive already written (4.1.3).** The group picker's "No matches found", the
-  resource dialog's inspect and recover notice, the preview's try-out notice, the metadata editor's
-  read-only and draft-available notices and the metadata save status's first text are inserted
-  together with their text, so a screen reader may not announce them. Give each a region that is
-  already present when the text arrives, as the toasts and loading statuses now have. The Move and
-  Copy folder list's Loading row has no status role at all. A notice identical to the one before it
-  shows and says nothing, because the notice is never cleared, and fixing that is visible.
-- **Text with no language (3.1.2).** The validation summary leaves a template's field label
-  unmarked when the template declares a language, and the deletion dialog's inventory error leaves
-  a server message unmarked.
+- **Messages that arrive already written (4.1.3).** The metadata editor's review panel is a live
+  region inserted together with its explanation and comparison table, so a screen reader may not
+  announce it. Decide what the panel should announce before giving it a region that is present
+  first. A notice identical to the one before it shows and says nothing, because the notice is
+  never cleared, and fixing that is visible.
 
 <a id="cee"></a>
 
@@ -293,11 +288,10 @@ Agree the fixes marked as visible before making them.
   all three are cut, and at 200% zoom and under text spacing the text value is. The value needs to
   wrap onto further lines, as a paragraph value does. `visual/tests/layout-resilience.spec.ts`
   records it as an exception.
-- **Text in the wrong language (3.1.2).** A field's or a section break's description tooltip sits
-  in the overlay container and takes CEE's language rather than the template's. The text, email,
-  phone, link, numeric, controlled-term and authority boxes, and the read-only temporal and select
-  boxes, take the field's label as their `aria-label`, so the label is read in the value's language
-  or CEE's. The term link group's name has the same fault. Naming each from a hidden label marked
+- **Box names in the wrong language (3.1.2).** The text, email, phone, link, numeric,
+  controlled-term and authority boxes, and the read-only temporal and select boxes, take the field's
+  label as their `aria-label`, so the label is read in the value's language or CEE's. The term link
+  group's name has the same fault. Naming each from a hidden label marked
   with the template's language, as the editable temporal boxes now are, changes nothing visible.
   Decide first whether that fits the rule that a box carries its value's language and never the
   template's.
@@ -430,10 +424,6 @@ CED beyond the ones it shares with the other components. Several need a design d
 - **Focus on a hidden action (2.4.7).** When Escape hides an insertion action that has keyboard
   focus, focus stays on a control nobody can see, as it already did when a keyboard press on one
   opened the palette. Decide where focus goes, or whether a focused action stays shown.
-- **Insertion actions on hover (1.4.13).** The actions between two cards are 32px tall in an 8px
-  gap, so they cover about 12px of each neighbouring card. Escape dismisses them, and
-  `browser/tests/child-picker.spec.ts` pins that. No test yet pins that they stay while the pointer
-  is on the part over a card, or that they persist until hover or focus leaves.
 - **Field settings toggles (2.5.8).** Visible. A field card's settings toggle is 36 by 14px, and the
   field header beside it, which opens the same settings, is 23px tall, a pixel short of WCAG's 24.
   The settings panel's last control also sits within 12px of the toggle's centre. Either the toggle

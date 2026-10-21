@@ -3890,8 +3890,8 @@ and AA, 55 in all, and records for each component what evidence settles it.
 CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their source and tests,
 and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE `313d7ceb`, the
 term picker `8ed2d81` and Workspace `0323655a`. On 2026-10-21 the criteria a fourth round touched
-were reassessed at CED `fdd70ff`, CEE `14923698`, the term picker `ef5fac9` and Workspace
-`24c91add`. The assessment read code and tests. Nobody ran a
+were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and Workspace
+`bc2401e8`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -3920,10 +3920,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 20 | 10 | 9 | 0 | 16 | 20 of 39, 51% |
+| CED | 21 | 9 | 9 | 0 | 16 | 21 of 39, 54% |
 | CEE | 22 | 11 | 8 | 6 | 8 | 22 of 47, 47% |
 | Term picker | 24 | 8 | 7 | 0 | 16 | 24 of 39, 62% |
-| Workspace | 28 | 14 | 5 | 0 | 8 | 28 of 47, 60% |
+| Workspace | 29 | 13 | 5 | 0 | 8 | 29 of 47, 62% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -3933,9 +3933,9 @@ of fixes cut the failures to 26. Most of the criteria it touched moved from Fail
 than to Met, because a criterion is met only when every part of it is evidenced. The second and
 third rounds moved more to Met, but the failures stood at 27 after them, because the layout check
 and the wider scans found new ones as fast as others were fixed. The fourth round moved CED's 1.4.13
-from Fails to Partial. CEE's wider layout check then found long read-only values cut short at 200%
-zoom and under text spacing, and CED was found to leave focus on a hidden control, so the failures
-now stand at 29. Most of them need a visible change.
+from Fails to Met and Workspace's 3.1.2 from Partial to Met. CEE's wider layout check then found
+long read-only values cut short at 200% zoom and under text spacing, and CED was found to leave
+focus on a hidden control, so the failures now stand at 29. Most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -3993,7 +3993,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
 | 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
 | 1.4.12 Text Spacing | AA | Met | Fails | Met | Fails |
-| 1.4.13 Content on Hover or Focus | AA | Partial | Partial | Met | Met |
+| 1.4.13 Content on Hover or Focus | AA | Met | Partial | Met | Met |
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
 | 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
@@ -4015,7 +4015,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
 | 2.5.8 Target Size (Minimum) | AA | Fails | Fails | Fails | Met |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
-| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Partial |
+| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Met |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |
 | 3.2.2 On Input | A | Met | Met | Met | Met |
 | 3.2.3 Consistent Navigation | AA | Host | Host | Host | Met |
