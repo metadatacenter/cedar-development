@@ -17,8 +17,6 @@
 //     would wipe the local index out from under the rest of the run.
 //   * load-valuesets-ontology and its status — long-running, and dependent on live BioPortal.
 //   * auth-user-callback — Keycloak's own callback, not a user-facing route.
-//   * templates/recommend — ranks every template the search index holds, so its answer depends on
-//     the deployment rather than on the run's fixtures.
 //
 // Requires the stack up: cedar-services.sh health.
 import { runSuites, workerCount, PARALLEL_SUITES } from './rest/scheduler.mjs';

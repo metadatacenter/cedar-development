@@ -4034,18 +4034,22 @@ Three properties of the reports matter when reading them.
   output, and `cedar-cadsr-tools` compiles xjc output. Each of those modules excludes them in its own
   declaration of the JaCoCo plugin.
 
-Because of the first property, `cedarcli build` reports two figures after a build that runs Java
+Because of the first property, `cedarcli build` reports three figures after a build that runs Java
 tests. It reads each module's own-test figure from its report. It then merges the execution data of
-every test JVM the build ran and credits each module's classes with any test that ran them. The
-console shows both figures in one line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds
-them per module and per repository, for lines and for branches. `cedarcli build diagnostics` removes
-records older than its `--days`, as it does failed-build bundles. cedar-project's CI job, which runs
-every server's suites against the develop libraries in one reactor, runs the same report through
+the test JVMs the build ran and credits each module's classes twice: once with the tests of the
+module's own repository, and once with any test that ran them. The repository figure is what the
+repository's CI tests before any consumer sees a change. It exceeds the module's own figure where one
+module is tested from another in the same repository. `cedar-microservice-libraries` tests its Neo4j
+persistence layer from `cedar-test-support-library`, which owns the embedded Neo4j, and the bridge
+server's application suites exercise its core module. The console shows the three figures in one
+line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds them per module and per
+repository, for lines and for branches. `cedarcli build diagnostics` removes records older than its
+`--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
+against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
-JSON as the `coverage-summary` artifact. On 2026-10-21 the estate stood at
-67.7% of 58,172 lines by each module's own tests and 83.5% by any test. The shared libraries differ
-most. `cedar-microservice-libraries` reached 86.5% by any test against 55.7% by its own. The figures
-are a report, not a gate. When cedarcli cannot compute the merged figure, for instance because the
+JSON as the `coverage-summary` artifact. On 2026-10-21 the estate stood at 74.1% of 57,265 lines by
+each module's own tests, 83.4% by each repository's own tests and 87.9% by any test. The figures are
+a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
 local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
 The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
@@ -6972,8 +6976,11 @@ without binary rounding. `ArtifactSourceParser` is the Java artifact JSON/YAML b
 with unique scalar string keys and YAML 1.2 core scalar interpretation: `yes`, `on` and dates remain
 strings, decimal leading zeroes are not YAML 1.1 octal, and explicit `0o`/`0x` integers are exact.
 Custom tags, nonfinite numbers, unsupported key structures, cyclic aliases and excessive expansion
-fail. Quoting preserves strings that otherwise resemble numbers, booleans or null. Readers and
-writers have separate acceptance and preservation assertions in the shared source-policy corpus.
+fail. Quoting preserves strings that otherwise resemble numbers, booleans or null. A template
+instance's field value is always a string, so the Java reader keeps the text an unquoted number or
+boolean was written with: `value: 007` stores `"007"`, and `value: 1e3` stores `"1e3"`. The
+TypeScript reader still reads such a value as a number. Readers and writers have separate
+acceptance and preservation assertions in the shared source-policy corpus.
 
 ### Regex evaluation and compatibility
 
