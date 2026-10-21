@@ -219,7 +219,7 @@ data images.
 
 ### 7. Clear the Advisories Waiting on Upstream
 
-Eight advisories remain in the frontend locks. All of them sit in build, lint, test or
+Five advisories remain in the frontend locks. All of them sit in build, lint, test or
 development-server tooling, and nothing the affected projects ship contains them. The train's lock
 baselines record the current counts as reviewed, so trains and releases pass, and nothing waits on
 this item.
@@ -247,27 +247,18 @@ No override helps while no fixed version exists. Dropping stylelint and ember-te
 not help either, because ember-cli and Embroider would still bring `braces`, and moving
 ember-template-lint to 7 removes one route for each package without clearing either.
 
-Three more packages have fixed releases the locks have not taken. npm's audit began counting them
-on 2026-10-20.
-
-- `vite` carries three advisories against every release before 8.3.3, all in the editor launcher
-  behind the `/__open-in-editor` endpoint every development server mounts. GHSA-587h-7wmj-h5pm
-  (high) and GHSA-698v-4r3x-3vcv (moderate) apply on Windows only. GHSA-r825-w8mm-5pxw (moderate)
-  applies only under WSL, with Vim, Emacs or a plugin-enabled Notepad++, and an attacker able to
-  create a file named `+…` or `-…` in the working folder. None of them applies on the macOS
-  workstation, the Linux runners or the images, which serve built files through nginx. The React
-  and Ember demos ask for vite `^8.2` and carry 8.3.4. The ten Angular projects carry 8.3.0,
-  because `@angular/build` 22.2.3 pins it exactly, and `@angular/build` 22.3.0-next.2 already pins
-  8.3.4. On 2026-10-20 the decision was to take the stable Angular release that moves the pin,
-  through the ordinary dependency update, rather than to override vite in each project.
-- `follow-redirects` (GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c, high) affects 1.16.0, which can
-  carry credential headers to another origin. It reaches the Ember demo through ember-cli's
-  `http-proxy`. 1.16.1 fixes both, within the range ember-cli asks for.
-- `markdown-it` (GHSA-r7fv-28h4-cvq7, high) affects every release before 14.3.2, whose smart quotes
-  take quadratic time on unmatched closing quotes. It reaches the Ember demo through ember-cli. 14.3.2
-  fixes it, within the range ember-cli asks for.
-
-A lock update in the Ember demo takes the last two.
+The other three are `vite`'s, which has a fixed release the Angular projects cannot yet take. npm's
+audit began counting them on 2026-10-20. All three affect every release before 8.3.3 and sit in the
+editor launcher behind the `/__open-in-editor` endpoint every development server mounts.
+GHSA-587h-7wmj-h5pm (high) and GHSA-698v-4r3x-3vcv (moderate) apply on Windows only.
+GHSA-r825-w8mm-5pxw (moderate) applies only under WSL, with Vim, Emacs or a plugin-enabled
+Notepad++, and an attacker able to create a file named `+…` or `-…` in the working folder. None of
+them applies on the macOS workstation, the Linux runners or the images, which serve built files
+through nginx. The React and Ember demos ask for vite `^8.2` and carry 8.3.4. The ten Angular
+projects carry 8.3.0, because `@angular/build` 22.2.3 pins it exactly, and `@angular/build`
+22.3.0-next.2 already pins 8.3.4. On 2026-10-20 the decision was to take the stable Angular release
+that moves the pin, through the ordinary dependency update, rather than to override vite in each
+project. The latest stable release on 2026-10-21 was still 22.2.3.
 
 When an advisory is withdrawn, lower the counts recorded for the affected locks in
 `ops/frontend-train.json` by hand. The locks themselves do not change, and

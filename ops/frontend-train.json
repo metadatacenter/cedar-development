@@ -515,11 +515,11 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-ember-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "a98c2ea607299fd9c32eeaac6aa12f7579506e45755da507ba4e22469254568e",
+      "sha256": "36deae1fcbd911ad49843d2e4a0223621c018f42fcd1bc7dc47105cc31288142",
       "vulnerabilities": {
         "low": 0,
         "moderate": 22,
-        "high": 17,
+        "high": 15,
         "critical": 0
       }
     },
