@@ -1554,9 +1554,10 @@ fixture verifier's command, naming `CorpusYamlTripVerifier` as the main class. T
 round-trip tests already compared JSON through YAML for the library's own templates, so this check
 extends that comparison to the shared corpus rather than adding a kind of test the library lacked.
 
-The two libraries' declarations differ in one respect. Java's completion fills a repeated child the
-instance holds to its template's lower bound, and TypeScript's fills only one the instance omits, so
-`instance-002` and `cee-instance-002` show instance completion in Java alone.
+Both libraries' completion fills a repeated child to its template's lower bound, whether the instance
+omits the child or holds fewer occurrences than the bound, so the two declare the same cases. The one
+exception is `cee-instance-004`, which the Java check excludes because the Java reader refuses its
+template.
 
 Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
 `literalFieldUIContent` and `iriFieldUIContent` declare `continuePreviousLine` and
