@@ -162,7 +162,7 @@ Read the depths on Monitor's **Queue Counts** page, or use these shell checks:
 ```bash
 curl -s http://127.0.0.1:9111/healthcheck | python3 -m json.tool | grep -A3 queue-dead-letter
 
-for q in app-log search-permission cloneInstances valuerecommender ncbi-submission; do
+for q in app-log search-permission cloneInstances; do
   printf '%-30s ' "$q"; redis-cli LLEN "CEDAR-QUEUE-$q-dead-letter"
 done
 ```
@@ -275,7 +275,6 @@ Investigate any renewed growth after recovery.
 | `acknowledge()`'s O(N) `LREM` | `-processing` was 1. Not the problem. |
 | silent 1 s `Thread.sleep` in `handleWithRetries` | 0 of 30 thread samples. Not firing. |
 | network latency | ICMP 1.07 ms. Innocent as raw RTT. |
-| valuerecommender rule generation | fails instantly on a dead OpenSearch client; 246 requests total. |
 | the log-table indexes added 2026-09-10 | ~20%. Real, marginal. |
 
 In that incident, database connections were sleeping, app-host I/O wait was zero, and the worker

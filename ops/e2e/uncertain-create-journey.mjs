@@ -139,9 +139,9 @@ export async function removeUsedField(page, designer, templateId) {
   await page.goto(designer + "/templates/edit/" + enc(templateId));
   await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
   await designerShows(page);
-  const name = page.getByRole("textbox", {name: "Field display name", exact: true});
+  const name = page.getByRole("textbox", {name: "Enter field name", exact: true});
   const field = page.locator("app-field-card").filter({has: name}).first();
-  assert.equal(await field.getByRole("textbox", {name: "Field display name", exact: true}).inputValue(), "Notes");
+  assert.equal(await field.getByRole("textbox", {name: "Enter field name", exact: true}).inputValue(), "Notes");
   await field.getByRole("button", {name: "Delete field", exact: true}).click();
 }
 
@@ -218,7 +218,7 @@ const DESIGNER_KINDS = {
   element: {route: "elements", collection: "template-elements", component: "cedar-embeddable-designer",
     name: page => page.getByRole("textbox", {name: "Element name", exact: true})},
   field: {route: "fields", collection: "template-fields", component: "cedar-embeddable-field-designer",
-    name: page => page.getByRole("textbox", {name: "Field display name", exact: true})},
+    name: page => page.getByRole("textbox", {name: "Enter field name", exact: true})},
 };
 
 /** A field's description is on its Presentation tab, which a reload or a restored draft leaves unselected. */

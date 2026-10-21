@@ -1,0 +1,5 @@
+# The production crontab entries for CEDAR's two scheduled jobs, as installed for the cedar user.
+# Both start from this directory in the host's cedar-development checkout.
+SHELL=/bin/bash
+0 2 * * * source /home/cedar/.bash_profile;export JAVA_HOME=/usr/lib/jvm/jdk-17-oracle-x64;/srv/cedar/cedar-development/ops/cron/cadsr-cde-update.sh
+*/10 * * * * source /home/cedar/.bash_profile;export JAVA_HOME=/usr/lib/jvm/jdk-17-oracle-x64;/srv/cedar/cedar-development/ops/cron/share-instances.sh

@@ -52,8 +52,8 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     await editorStatus(editor, /^Modified$/).waitFor();
     await page.goto(designer + "/templates/edit/" + enc(templateId));
     await page.locator("#state").filter({hasText: /^Unmodified$/}).waitFor();
-    const field = page.locator("app-field-card").filter({has: page.getByRole("textbox", {name: "Field display name", exact: true})}).first();
-    assert.equal(await field.getByRole("textbox", {name: "Field display name", exact: true}).inputValue(), "Notes");
+    const field = page.locator("app-field-card").filter({has: page.getByRole("textbox", {name: "Enter field name", exact: true})}).first();
+    assert.equal(await field.getByRole("textbox", {name: "Enter field name", exact: true}).inputValue(), "Notes");
     await field.getByRole("button", {name: "Delete field", exact: true}).click();
     await page.locator("#save").click();
     const dialog = page.locator("#version-dialog");

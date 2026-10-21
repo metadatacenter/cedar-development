@@ -982,27 +982,63 @@ The controls wait on the backend meaning of both actions, which item 7 settles.
 The numbered items continue here: the work that
 remains on the surface an author authors a versioned constraint through, on the server behind it,
 and on retiring what it replaces.
+
+### The Picker
+
+These three items concern the component alone, and none waits on a host.
+
+- **22. Make the result tabs one Tab stop.** The scopes above the results, which are Terms,
+   Branches, Ontologies and Value sets when an author chooses a constraint, form a `tablist` of
+   `tab` buttons. Each button is its own Tab stop, though, and no arrow key moves between them.
+   Nothing carries the `tabpanel` role, so the list a tab shows is not tied to it. Follow the ARIA
+   tabs pattern: the current tab is the only Tab stop, the arrow keys and Home and End move between
+   tabs, and the result list is labelled as the current tab's panel. Showing a tab can fetch more
+   results, so decide whether an arrow key shows its tab at once or only moves focus until Enter
+   or Space. Pin the order in the browser suite.
+
+- **23. Give the result list semantics a screen reader can follow.** The browser suite's axe gate,
+   `browser/tests/accessibility.spec.ts`, names two findings as its only exceptions. A result row
+   is an `option` outside any `listbox`, carries `aria-expanded`, which an option does not take, and
+   holds buttons of its own. Choose list semantics that fit rows with their own actions, such as a
+   grid or a list of rows whose actions are reached from the row, and decide how the arrow keys move
+   through them, since that changes the keyboard model. The release-history buttons are also under
+   WCAG 2.2's 24px minimum target, and growing them changes the row's layout, so agree that change
+   first. Remove each exception from the spec as its finding is fixed.
+
+- **24. Fix the picker's remaining WCAG failures.** The
+   [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these beyond items 22
+   and 23, and each needs a visible change, so agree them first. The tree's 16px twists, its terms,
+   14px tall on a 16px pitch, and the history's 22px releases are under WCAG 2.2's 24px minimum
+   target. At 375px the history head's count column has no width, so "3 releases, newest first"
+   overlaps "effective date", and a release row clips its tag. At 320px the release history scrolls
+   sideways, where each release could take two lines. At 200% zoom the selection's source line
+   loses its acronym to an ellipsis, a value set row cuts its matched terms, and the narrowing panel
+   opens with about 96px of room, clipping its list and its Clear all, Cancel and Apply buttons until
+   the page is scrolled. `browser/tests/accessibility.spec.ts` and `layout-resilience.spec.ts`
+   record each as an exception. The tint that alone marks the current release and a picked tree term
+   is part of "Fix the WCAG Failures the Components Share" on the
+   [frontend roadmap](FRONTEND-ROADMAP.md).
+
 ### The Template Designer
 
 Later work, and deliberately after the component stands on its own. Embedding turns every open
 question about the picker into a question about the Workbench as well, and none of the three items
-here can be finished without the component being finished first. The component itself has nothing
-left that does not need a host.
+here can be finished without the component being finished first.
 
-- **22. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
+- **25. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
    focus moves in when it opens, Tab and Shift+Tab cannot leave it, and Escape closes it and gives
    focus back to the button that opened it, all asserted against the real picker. What that leaves is
    the part only a host can answer: `z-index: 50` inside a shadow root is a bet about a page nobody
    has seen, and an embedder whose own layers sit above it gets a dialog behind its chrome. Escape
    also closes without asking, which is wrong for an author midway through choosing constraints.
 
-- **23. Show the pinned version in the field's configuration panel.** The panel already lists
+- **26. Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
    that job — the picker adds one constraint and closes, as it does today. What the panel does not
    show is the version, which becomes visible state the moment constraints can be pinned: a field
    constrained to two branches of DOID at different versions looks identical there to one pinned
    at neither.
-- **24. Order across ontologies.** Ranking on the match reason is in place, which is the field half
+- **27. Order across ontologies.** Ranking on the match reason is in place, which is the field half
    of what the term-ordering item in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) measures.
    The ontology half is not: BioPortal multiplies its field score by a per-ontology prior built
    from its own page visits and UMLS membership, and that measurement puts the prior at most of
@@ -1010,12 +1046,12 @@ left that does not need a host.
    ontology was considered and declined, so the head of a common query is ordered within an
    ontology and arbitrary between them — three ontologies calling a class "melanoma" tie, and the
    IRI breaks it. Deciding what, if anything, plays the prior's part is the open question.
-- **25. Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
+- **28. Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
     produces: a source not served locally is reported unavailable, including the UMLS-licensed
     ones — SNOMEDCT, MEDDRA, RCD, ICPC2P — that BioPortal could answer for at latest. Reporting
     them as proxied while returning none of their terms would be the silent wrong answer this
     endpoint exists to prevent, so the state waits until something fills it.
-- **26. Fill in the definitions the backfill could not reach.** *Built 2026-08-17:* definitions are
+- **29. Fill in the definitions the backfill could not reach.** *Built 2026-08-17:* definitions are
     captured at ingest under four standard properties and the two NCIT mints for itself, held in a
     table beside the labels and **outside content identity** — a test asserts that a snapshot with
     definitions and one without hash identically, which is what keeps 2,635 pins meaning what they
@@ -1032,12 +1068,12 @@ left that does not need a host.
     source-refetch path `--backfill-labels` already uses; without it, an ontology whose current
     snapshot has no retained raw stays undefined until its next ingest.
 
-- **27. Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
+- **30. Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
     not follow until `SearchIndexJob` runs again. It is incremental and takes seconds for a few
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
     rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
-- **28. One release, one identity — the remaining ways an extraction can diverge from itself.**
+- **31. One release, one identity — the remaining ways an extraction can diverge from itself.**
     *Fixed 2026-08-21:* a class asserting several `IAO:0100001` replacements had one of them chosen by
     axiom iteration order, so identical bytes extracted twice produced different `replaced_by` values
     and different content hashes. ICTV surfaced it — 19 of its retired virus names name more than one
@@ -1050,7 +1086,7 @@ left that does not need a host.
     the other single-valued fields chosen from a multi-valued annotation the same way — `label()` already
     ranks rather than takes the first, which is why it did not have this bug.
 
-- **29. Stop a harvest repainting a snapshot's origin.** A driver stamps its `--backend` on whatever it
+- **32. Stop a harvest repainting a snapshot's origin.** A driver stamps its `--backend` on whatever it
     ingests, and content-hash identity means an identical download merges into the snapshot already
     held — so the merge rewrites that snapshot's source label. The OLS harvest of 2026-08-20 relabelled
     123 BioPortal and OBO Foundry releases as `ols` across two runs, which is how `bioportal` came to
@@ -1059,7 +1095,7 @@ left that does not need a host.
     a first ingest should set it. Until then every driver has to record the labels and put them back,
     which `harvest-github-releases.sh` does and the other two do not.
 
-- **30. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
+- **33. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
     all list their versions, so what the catalog is missing is a question with an exact answer — and
     nothing asks it on a schedule. A weekly poll of a plan of repositories and acronyms, ingesting only
     what is absent, would keep the store current for the sources where currency is knowable, and would
@@ -1071,7 +1107,7 @@ left that does not need a host.
 
 ### Cutover
 
-- **31. Ship behind a flag for one release, then delete what it replaces.** The new component is the
+- **34. Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
@@ -2137,7 +2173,7 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 
   Two defects surfaced, both mine to have caused and both now recorded. Every driver **repainted the
   source label** of any snapshot its download merged into: 123 BioPortal and OBO Foundry releases were
-  relabelled `ols` across the two runs, restored from the pre-run catalog — item 29. And a sweep for
+  relabelled `ols` across the two runs, restored from the pre-run catalog — item 32. And a sweep for
   unlabelled ontologies flagged 11 of the 46 by comparing each label against its IRI's local name, which
   is **wrong for a whole family of vocabularies**: schema.org, OWL, PROV, SKOS and REPRODUCE-ME label
   their terms with the CamelCase local name on purpose, and DHBA, HBA, EC and LIPIDMAPS carry proper
@@ -2158,7 +2194,7 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   concept, every edge, every relation and all 300,922 labels, and still hashed differently — because 19
   retired virus names assert more than one `IAO:0100001` replacement and the extractor took whichever
   the axiom iteration reached first. Content identity was therefore not a function of content. Fixed
-  under item 28, with the finding worth keeping: the two ICTV snapshots are the evidence, and the same
+  under item 31, with the finding worth keeping: the two ICTV snapshots are the evidence, and the same
   bytes now extract to one identity.
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
@@ -2595,7 +2631,7 @@ being told which exist. Useful for filling in, unhelpful for noticing a change.
 The strategy follows from the split. For the enumerable sources, poll the version list on a schedule
 and ingest what the catalog lacks — cheap, exact, and the only ongoing work worth automating.
 `harvest-github-releases.sh` does the GitHub half of this and `backfill-tail.sh` the BioPortal half;
-neither runs on a timer yet, which is what item 30 is for. For the single-file sources, re-read on a
+neither runs on a timer yet, which is what item 33 is for. For the single-file sources, re-read on a
 much slower cadence and accept that the yield is a snapshot only where the file has changed since the
 last pass — the OLS re-ingest of 2026-08-20 measured that yield at **8 ontologies out of 120**, which
 sets the expectation for how often a re-read is worth its download.

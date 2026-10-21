@@ -163,8 +163,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
   ended at 22.0.5. On 2026-09-30 Dependabot reported 93 open advisories against the Keycloak
   artifacts `cedar-parent` manages, 25 of them high. No community 22 release fixes any of them, and
-  26.7.5, the current release, fixes all 93. The fixed 22.0.x versions some advisories name belong to
-  Red Hat's subscription build rather than to the community line.
+  every release from 26.7.5 fixes all 93. The current release is 26.8.1. The fixed 22.0.x versions
+  some advisories name belong to Red Hat's subscription build rather than to the community line.
 
   The advisories concern the server rather than CEDAR's code. The microservices ship only
   `keycloak-core`, `keycloak-common` and the adapter, to verify bearer tokens, and none of the
@@ -191,7 +191,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     into a `KeycloakDeployment`, `KeycloakUtils` makes a single
     `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
     `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
-    these in the shared bootstrap, so this is the bearer-token path for all fifteen.
+    these in the shared bootstrap, so this is the bearer-token path for all twelve.
 
     The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
     `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
@@ -287,7 +287,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the 22 line through 22.0.13, and it is the only way to patch Keycloak without leaving that line.
 
 - **7. Protect `main` in every repository, and give the release an identity of its own.** `main` is
-  unprotected in all forty-five repositories, so a commit can land there without ever reaching a
+  unprotected in all forty-two repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
   one reading of an advisory line of going that way. The release gate refuses such a source now, and
@@ -296,7 +296,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **The goal is that no ordinary push lands on `main`.** How the release lands its own commit is a
   second decision, and the two are worth keeping apart, because a protection rule written around
   whoever runs the release protects nothing against the case that prompted this. `cedarcli release
-  start` pushes to `main` in forty-two repositories as that person, so granting them the bypass
+  start` pushes to `main` in thirty-nine repositories as that person, so granting them the bypass
   reopens the hole the rule closes. Whichever route below is taken, the release needs credentials of
   its own: a GitHub App or a dedicated account, authenticated as itself rather than as an operator.
 
@@ -322,7 +322,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   operator who is already there for the twenty-five commands item 2 exists to remove. Automating
   that route puts the identity question back.
 
-  Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
+  Prove whichever ruleset is chosen against one repository before it reaches all forty-two. Until
   the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
   next morning rather than mid-release.
 
@@ -467,11 +467,23 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   (`cedar-main.yml:82` for messaging, `:104` for the log store). The first two together permit
   public-key substitution on an unencrypted authentication channel, which is the part to fix.
 
-  The timezone is a different matter and the comment beside it says why: the aggregator is
-  self-consistent under the connection timezone, and forcing UTC would make the connection misread
-  the years of existing rows in `log_request`, `log_cypher` and their `_pre284` predecessors.
-  Converting those rows is its own piece of work with its own evidence, so this item only moves the
-  value out of the constant and into the profile.
+  The timezone is a different matter. The comment beside it says that the aggregator is
+  self-consistent under the connection timezone, and that forcing UTC would make the connection
+  misread the years of existing rows in `log_request`, `log_cypher` and their `_pre284`
+  predecessors. The first claim no longer holds. Hibernate 6 writes each `Instant` as UTC wall-clock
+  time whatever the connection timezone is. On the local stack on 2026-10-20 the newest `log_request`
+  row read 04:24 while the server clock read 21:54 PDT. The logging library's native SQL reads and
+  binds `DATETIME` values in the connection timezone, so it places every row written since the
+  Hibernate 6 upgrade 7 or 8 hours after it happened. The aggregator still folds each row exactly
+  once, so its counts are right. But each day it settles runs from 17:00 to 17:00 UTC (16:00 in
+  winter), and the hourly rollups and the log explorer read 7 or 8 hours ahead.
+  `LogQueryDAO.normalize` records the shift in the explorer. An embedded MariaDB under the servers'
+  settings shows it in the aggregator, where a request logged at 10:01 UTC reads back as 17:01.
+
+  The second claim still holds for rows stored before the upgrade in Los Angeles time, so the tables
+  can hold both forms, and no single setting reads all of them correctly. Converting those rows is
+  its own piece of work with its own evidence, starting with where the UTC rows begin, so this item
+  only moves the value out of the constant and into the profile.
 
   Make all three profile-controlled, ship TLS on and public-key retrieval off everywhere but a
   developer machine, and record the developer exception where the profile is documented. Done when
@@ -590,6 +602,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   persistence migration tracked in the Docker roadmap. MySQL is the real decision left among the
   data stores.
 
+  For MySQL the choice is between the 8.4 LTS line the images pin, supported until about 2032, and
+  9.7, the first 9.x LTS, released in April 2026. Every 9.x release before it was an Innovation
+  release, supported only until the next one, and after 9.7 MySQL numbers releases by year and
+  month, so 26.7 is the July 2026 Innovation release. Keycloak settles it for now. Its realm lives
+  in this MySQL, and Keycloak's supported configurations list only MySQL 8.0 and 8.4, so stay on 8.4
+  until a Keycloak release CEDAR runs supports a 9.x LTS. The client is ready either way, since
+  Connector/J 9.7.0 supports MySQL 8.0 and later.
+
+  The development workstation is off the lock. Its native MySQL comes from Homebrew's unpinned
+  `mysql` formula and ran 9.6.0 on 2026-10-19, an Innovation release nothing deployed runs, so local
+  end-to-end runs have exercised 9.6 since April. Pin the formula, then move the workstation to
+  `mysql@8.4` by dump and restore, because an 8.4 server cannot open a 9.x data directory. These
+  documents do not record production's MySQL version. Confirm it with `SELECT VERSION()` before
+  planning its move.
+
   Production is the part this item owns for every store: each version rehearsed on a copy of
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
@@ -655,40 +682,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **16. Decide which of three narrowly used servers to retire.** Treat each as an explicit product
-  and operations decision: confirm its real callers and production state, preserve or move any
-  capability that remains required, then either retain it with a stated role or remove it completely.
-  Schema and value recommender are open questions, and submission is expected to go once its inventory
-  is done.
-
-  **Schema server.** Its entire HTTP surface is an index page, but it still inherits the full
-  microservice bootstrap: a Neo4j user service, Keycloak token verification, and the persistent Redis
-  application-log queue. Either retire it or record the role it is reserved for and give it a
-  deliberately minimal bootstrap that does not initialize dependencies its index page never uses.
-
-  **Value Recommender server.** It serves recommendation and rule-generation/status commands and
-  consumes the persistent value-recommender queue. Establish whether the Workbench or any external
-  client still uses recommendations, then either retain and own that product surface, move the needed
-  function to an active service, or retire it after draining or deliberately discarding its queue and
-  removing its producers. If retained, make `RulesGenerationStatusManager` safe for concurrent
-  generation and status reads: its shared `HashMap` is mutated while `getStatus()` copies the
-  values, producing `ArrayIndexOutOfBoundsException` and HTTP 500 from the status command during
-  sustained template writes. Cover the race and verify that the worker can poll status while rules
-  are generated without those failures.
-
-  **Submission server.** Retirement is the expected answer, and the inventory that has to precede it
-  is what remains. It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission paths
-  and consumes the persistent NCBI submission queue. Inventory actual production submissions,
-  credentials, pending and dead-letter work and external commitments. Should one path turn out to be
-  live, where that single adapter goes is the decision rather than whether the service stays.
-
-  Any retirement must remove the service from the native and Docker estates, nginx and DNS routing,
-  configuration, credentials, queues and producers, service inventory, health and smoke expectations,
-  build train, CI, Compose projects, deployment procedures and documentation. A retained service needs
-  the opposite evidence: a named owner, current caller, supported contract and meaningful health and
-  integration coverage.
-
-- **17. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **16. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -701,15 +695,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - the **build JVM**, `[17,18)` in `cedar-parent`'s enforcer — major only;
   - **CI**, `distribution: temurin` with `java-version: "17"` — major only, so whatever 17 the
     runner has that week;
-  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.8_7-jre-ubi9-minimal` — exact, to the build
+  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.20_8-jre-ubi9-minimal` — exact, to the build
     number, and the most precisely pinned thing in the estate;
   - **Keycloak's own JVM**, `dnf install java-17-openjdk-headless` in its image — major only, and a
     different vendor from everything else.
 
   So the thing that runs the servers is pinned harder than the thing that compiles them, which is
-  backwards. Measured 2026-08-09 while adding the Maven wrapper: the build JVM on this machine is
-  **Oracle 17.0.14** against a runtime image on **Temurin 17.0.8_7** — a different vendor, six
-  patches apart, and both are "17" as far as every check in the estate is concerned.
+  backwards. Measured 2026-10-19: the build JVM on the development workstation is **Oracle
+  17.0.14** against a runtime image on **Temurin 17.0.20_8** — a different vendor, six patches
+  apart, and both are "17" as far as every check in the estate is concerned.
 
   Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
   move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
@@ -717,7 +711,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **18. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **17. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -794,19 +788,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **19. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **18. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
-  Fifteen shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
+  Twelve shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
   `org.metadatacenter.config: DEBUG` beside it. Every console appender takes `threshold: ALL`, and
   every file appender archives by day with no size limit: `maxFileSize` and `totalSizeCap` appear in
   no configuration in the estate. A busy day therefore writes one file that nothing bounds, and
   request-path DEBUG buys I/O that nobody reads. Archive depth already disagrees, measured
-  2026-09-10: twelve services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
+  2026-09-10: nine services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 18. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 17. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -818,11 +812,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **20. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **19. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
-  thirty Maven roots divides them into three different problems, and blindly managing the newer side
-  in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
-  not provide.
+  twenty-seven Maven roots divides them into three different problems, and blindly managing the newer
+  side in `cedar-parent` would make the Keycloak event listener compile against libraries its server
+  does not provide.
 
   - **One is a real CEDAR classpath conflict:** `commons-collections4`. POI selects 4.5.0 on the
     application classpath while MariaDB4j's test tooling requests 4.4 through `ch.vorburger.exec`.
@@ -834,7 +828,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     the JSON provider, and `cedar-auth-operations-keycloak-library` already excludes the same two
     RESTEasy providers for that reason. Put those exclusions on the admin tool's direct dependency;
     Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin. No
-    admin-tool source uses multipart, JAXB or Mime4j.
+    admin-tool source uses multipart, JAXB or Mime4j. The two providers resolve at 6.0.0 beside a
+    6.2.19 RESTEasy core, because `cedar-parent` manages only `resteasy-client` and
+    `resteasy-jackson2-provider`, so removing them also ends a split RESTEasy.
   - **The rest belong to a different runtime:** `checker-qual`, `jaxb-core`, `txw2`,
     `jackson-dataformat-cbor`, `jakarta.transaction-api` and the event listener's copy of
     `commons-collections4` are all `provided` transitives of `keycloak-services:22.0.4`. They are
@@ -885,14 +881,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Gate the change at all three boundaries: dependency trees must show the managed CEDAR versions, the
   admin tool must contain none of the unused provider stack, and the event listener must match the
-  Keycloak platform. Run the whole estate's 7,814 tests, package the listener, boot Keycloak with it
+  Keycloak platform. Run the whole estate's tests, package the listener, boot Keycloak with it
   installed and trigger one event, then exercise one read-only admin-tool Keycloak operation. The
   last two remain integration gates even though the admin TLS construction and the listener's event
   selection, callback payload and authorization header now have focused tests: a unit test cannot
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **21. Finish converging on the body paging envelope.** Every route that pages by offset answers
+- **20. Finish converging on the body paging envelope.** Every route that pages by offset answers
   CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
   `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
   `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
@@ -939,7 +935,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
   that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
-- **22. Choose the response timeouts from the durations the request log now carries, and give a
+- **21. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -969,7 +965,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **23. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **22. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -1001,28 +997,44 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`, and
   no run is recorded against a service whose source the gate cannot establish.
 
-- **24. Take the dependency upgrades that need code changes.** The versions that could move without
-  consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
-  versions that follow something else, and versions whose newest release is not a final.
+- **23. Take the dependency upgrades that need code changes.** The versions that could move without
+  consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
+  What stayed behind stayed deliberately, and it separates into work to do, versions that follow
+  something else, and versions whose newest release is not a final.
 
   **The upgrades that need code or test changes.** Each of these is a change to make rather than a
   version to raise, which is why none of them rode along with a sweep.
 
-  - **json-schema-validator 1.5.9 to 3.0.7.** Two major lines on the library that decides which
+  - **json-schema-validator 1.5.9 to 3.0.8.** Two major lines on the library that decides which
     stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile. Even 4.5.29, the newest release on the current line, is more than a patch. It
     replaces the Sesame 2.7.16, Semargl and `jsonld-java-sesame` parsers under all three users with
     RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major.
+  - **Jedis 5.2.0 to 8.0.2.** Every release from 6.0 supports Redis 7.2 and later, so the deployed
+    server can stay. The majors since 5.x removed deprecated APIs, and 7.0 also dropped
+    `JedisSharding` and renamed the pipeline and transaction base classes. CEDAR uses only `Jedis`,
+    `JedisPool`, `JedisPoolConfig` and two exception types, in ten main source files across the
+    queue, logging, search, rate-limit and monitor code. On 2026-10-20 the four libraries holding
+    them and the monitor server compiled against 8.0.2 unchanged, main and test sources alike. The
+    embedded Redis the queue and quota suites start is 6.2, below what Jedis 6 and later
+    support, so those suites stop being evidence for this change and the real-stack smoke against
+    Redis 7.2 decides it.
 
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
-  6.3.0, MySQL Connector/J 9.7.0 to 26.7.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
-  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.09.0.
+  6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
+  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.10.0.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
-  Keycloak client stack, which items 6 and 20 own.
+  Keycloak client stack, which items 6 and 19 own.
+
+  Maven 3.9.14 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
+  own wrapper, so the move is one change across all of them, gated on the full build and a train
+  dry run and made just after a release. A Renovate pull request that moved only `cedar-parent`'s
+  wrapper was closed on 2026-10-19, because it would have split the estate across two Maven
+  versions.
 
   Embedded Mongo 4.22.0 to 4.33.0 and 5.0.0 belongs here too, and it is the deployed Mongo it
   follows rather than a framework. The obstacle is the binary. MongoDB published no macOS ARM build
@@ -1050,33 +1062,41 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   built against logback-core 1.5, and 2.0.14 is the first built against 1.6. Both wait on Dropwizard
   shipping a line built against 1.6.
 
-  **Versions that follow whatever pulls them in.** The transitive block exists so that every module
-  resolves one version of an artifact nothing here depends on directly, which makes these five
-  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.138 to
-  4.2.18, protobuf-java 4.31.1 to 4.36.2 and Reactor Core 3.7.19 to 3.8.7. Each belongs to a
-  framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
-  Raising one on its own would pin a version its owner does not expect.
+  Dropwizard also holds the Jakarta EE 11 generation. Hibernate 6.6.58 to 7.4.13 and Jersey 3.1.12
+  to 4.0.3 have finals, as do the Jakarta Persistence 3.2.0, Servlet 6.1.0, Validation 3.1.1,
+  RESTful Web Services 4.0.0 and Annotations 3.0.0 APIs, against the 3.1.0, 6.0.0, 3.0.2, 3.1.0 and
+  2.1.1 the parent manages. Dropwizard 5.0.2 pins the Jakarta EE 10 line of every one of them, so
+  they move together when Dropwizard ships a line built on EE 11. Raising one alone would put two
+  generations on one classpath.
 
-  Netty does not fit that rule. The Neo4j driver 5.28.15 is built against Netty 4.2.17, and the 4.1
-  pin exists for neo4j-harness 5.3.0, which declares 4.1.84 and runs its embedded Bolt server on it.
-  A test dependency therefore sets the Netty every production server runs the driver on. Ending the
-  hold needs the harness proved on 4.2, or replaced as the parent POM's harness note anticipates.
+  **Versions that follow whatever pulls them in.** The transitive block exists so that every module
+  resolves one version of an artifact nothing here depends on directly, which makes these four
+  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.3, which follows Jersey; Jandex 2.4.5 to 3.3.1,
+  which follows RESTEasy; protobuf-java 4.31.1 to 4.36.2, which follows Connector/J, the newer of
+  its two users; and Reactor Core 3.7.19 to 3.8.7, which follows OpenSearch with the Lucene pin.
+  Each moves to the version its owner's POM names when that owner moves. Raising one on its own
+  would pin a version its owner does not expect, and the Renovate config offers none of them.
+
+  Netty, 4.1.138 to 4.2.19, is held for a different reason. The Neo4j driver 5.28.15 is built
+  against Netty 4.2.17, and the 4.1 pin exists for neo4j-harness 5.3.0, which declares 4.1.84 and
+  runs its embedded Bolt server on it. A test dependency therefore sets the Netty every production
+  server runs the driver on. Ending the hold needs the harness proved on 4.2, or replaced as the
+  parent POM's harness note anticipates.
 
   **Versions whose newest release is not a final.** These have no final to move to: HttpCore
-  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J
-  2.1.0-alpha1, Log4j 3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, and the Jakarta
-  activation, persistence, servlet, validation and XML binding milestones. The old javax jaxb-api's
-  only newer version is a 2018 build that was never finalized, so it stays too.
+  5.5-beta4 and HttpClient 5.7-alpha1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta3, Angus Activation
+  2.1.0-M1, and the Jakarta activation and XML binding milestones. The old javax jaxb-api's only
+  newer version is a 2018 build that was never finalized, so it stays too.
 
   Read that list with suspicion, because the report it came from hides releases.
   `versions:display-property-updates` names only the newest version an artifact has, so a
   pre-release at the head conceals every stable release behind it. Seven Maven plugins sat in this
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
-  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every entry above was gathered the same
-  way and is unverified in the same way. Read an artifact's
-  `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest release a
-  given Maven version can actually use, before concluding that something cannot move.
+  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every version this item names was
+  rechecked against the published metadata on 2026-10-20, with pre-releases set aside. Read an
+  artifact's `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest
+  release a given Maven version can actually use, before concluding that something cannot move.
 
   Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
   blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
@@ -1090,7 +1110,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **25. Resolve the remaining production artifact defects and review semantic migrations.**
+- **24. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1452,26 +1472,48 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
 
-- **26. Retire `cedar-util`.** Nothing builds against `cedar-util`, and no CI job, Docker image or
-  other repository reads it. It is still in cedarcli's repository list, so every release versions
-  it, and its two Python requirements files carry 36 Dependabot alerts. Most of what it holds is
-  superseded or historical. `cedar_artifact_patch.py` and `repairs/cedar_artifact_repair.py`
-  replaced its Python artifact patcher, and its 2017 and 2018 evaluation scripts survive only as a
-  record. Only the two production cron jobs whose scripts it holds may still be live.
+- **25. Raise branch coverage where the branches decide what CEDAR stores, and gate branches as
+  lines are gated.** Each module sets `cedar.coverage.line.minimum` a little below its measured line
+  figure, and `cedar-parent`'s coverage check fails a build whose module falls under it by its own
+  tests. Nothing gates branches, so a change can stop exercising the decisions a module makes
+  without failing anything. The full build of 2026-10-20 measured 67.6% of lines and 61.2% of
+  branches by each module's own tests, and 83.5% and 71.4% by any test.
 
-  First establish what production runs. The recorded crontab starts both jobs from
-  `/srv/cedar/cedar-util`. A nightly caDSR update runs `cedar-cadsr-tools`, which does the work.
-  An instance-sharing job runs every ten minutes and applies 16 rules, each granting one of five
-  groups access to the instances of one of 14 templates. Its script calls
-  `scripts/python/group_permissions_to_instances.py`, which moved to `scripts/python/cedar/utils/`
-  in 2020, so either production runs an older checkout or the job has failed ever since. The
-  production crontab and the cron mail or logs settle which.
+  The libraries whose branches decide what a write stores and what it refuses carry the most risk.
+  `cedar-model-validation-library` reaches 72.4% of its branches by its own tests. Raise it to 80%.
+  Hold each server's application module to at least 70%. The bridge server (57.7%), the monitor
+  (61.0%), the terminology server (65.1%) and the resource server (68.1%) are below it.
 
-  Move each job that is live to `cedar-development/ops`, with requirements of its own, and ask the
-  owners of the five groups which sharing rules they still need. Then remove `cedar-util` from
-  cedarcli's repository list and the `goutil` alias, and point the cron and release-prerequisite
-  pages in `cedar-mkdocs-developer` at the new home. Keep the IntelliJ code style and the Insomnia
-  API collection only if someone still uses them, and archive the repository on GitHub.
+  `cedar-artifact-library` reaches 63.8% of its branches, but the figure mixes two kinds of code.
+  About a fifth of its lines are standalone exports and command-line tools that no other repository
+  uses: the Excel, TSV, UBKG and REDCap exporters, the spreadsheet utilities, the `Template2Excel`,
+  `Template2Tsv` and `Templates2Ubkg` tools, the reporters and `ArtifactConvertor`. They reach 34.0%
+  of their lines and 26.8% of their branches, and 24 of their classes run in no test. The rest of the
+  library, the path that reads, validates and renders artifacts, reaches 87.0% of its lines and
+  74.9% of its branches. The 80% target applies to that core path.
 
-  Done when production runs nothing from `cedar-util`, no release, tool or document names it, and
-  the repository is archived.
+  Most of the core path's missed branches are cheap to reach. The copy builders dispatch over about
+  25 field types and the tests copy a few of them, every `with…` method throws on a null argument
+  that no test passes, and the YAML reader and renderer miss 84 and 76 branches, mostly on error
+  paths. Running the copy-builder test over every field type and testing each argument guard would
+  close much of the gap.
+
+  Decide separately what happens to the standalone exports. Either test them, starting with the
+  Excel renderer, which misses 214 of its 268 branches, or move them out of the library, since
+  nothing else depends on them. The module's branch floor measures the whole module, so it reflects
+  the core path only once the exports are tested, moved or left out of the report.
+
+  Several shared libraries are covered mostly by other repositories' tests, which run their code
+  without asserting what it does. `cedar-workspace-operations-library` reaches 85.1% of its lines
+  by any test but 33.4% by its own, `cedar-core-library` 86.2% against 43.1%, and
+  `cedar-server-utils-core-library` 85.9% against 47.9%. Give each of them tests of its own where
+  its logic is more than wiring.
+
+  Add a branch counter beside the line counter in the coverage check, through a
+  `cedar.coverage.branch.minimum` property that defaults to zero and that each module sets a little
+  below its measured figure, as it sets the line floor. Measure every floor from a clean build,
+  because a figure read after an earlier run without `clean` overstates it.
+
+  Done when every module declares a branch floor, `cedar-model-validation-library` and the artifact
+  library's core path hold at least 80% of their branches by their own tests, the standalone exports
+  are either tested or moved, and no server's application module is below 70%.

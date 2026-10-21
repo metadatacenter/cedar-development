@@ -9,7 +9,8 @@ const ids = page => items(page).evaluateAll(nodes => nodes.map(node => node.data
 async function selected(page) {
   // Angular renders keyboard selection on the next frame, after focus has already moved.
   await rendered(page);
-  return page.locator('.explorer-item[aria-selected="true"]').evaluateAll(nodes => nodes.map(node => node.dataset.resourceId));
+  // A selected row carries the class "selected" and is described as Selected; it states no aria-selected.
+  return page.locator('.explorer-item.selected').evaluateAll(nodes => nodes.map(node => node.dataset.resourceId));
 }
 async function make(args, parent, suffix, kind = "template") {
   const title = args.name + " " + suffix;
@@ -107,7 +108,8 @@ export async function workspaceTypeFilterJourney(args) {
   const folder = await make(args, root, "Alpha folder", "folder"), template = await make(args, root, "Zeta template"),
     element = await make(args, root, "Middle element", "element"), field = await make(args, root, "Beta field", "field");
   await listing(page, base, root);
-  const type = page.getByRole("button", { name: "Type", exact: true });
+  // The chip is named "Type" until a filter applies, then by its choice, as "Folder, Template (type filter)".
+  const type = page.getByRole("button", { name: /^Type$|\(type filter\)$/ });
   await type.click();
   const filter = page.getByRole("dialog", { name: "Filter by type", exact: true });
   await filter.getByRole("checkbox", { name: "Folder", exact: true }).check();

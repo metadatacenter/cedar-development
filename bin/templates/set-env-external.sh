@@ -10,25 +10,6 @@ export CEDAR_BIOPORTAL_API_KEY="changeme-bbbb-cccc-dddd-eeeeeeeeeeee"
 export CEDAR_ANALYTICS_KEY="false"
 export CEDAR_GA4_TRACKING_ID="false"
 
-#CEDAR NCBI SRA FTP Data - place your own data here
-export CEDAR_NCBI_SRA_FTP_HOST="changeme"
-export CEDAR_NCBI_SRA_FTP_USER="changeme"
-export CEDAR_NCBI_SRA_FTP_PASSWORD="changeme"
-export CEDAR_NCBI_SRA_FTP_DIRECTORY="directory/subdirectory"
-
-#CEDAR ImmPort Submission User and Password - place your own data here
-export CEDAR_IMMPORT_SUBMISSION_USER="changeme"
-export CEDAR_IMMPORT_SUBMISSION_PASSWORD="changeme"
-
-#CEDAR DataMed Submission - place your own data here
-export CEDAR_DATAMED_TEMPLATE_ID="changeme"
-export CEDAR_DATAMED_GROUP_ID="changeme"
-export CEDAR_DATAMED_PERMISSION_TYPE="read"
-
-#Template ids which can be submitted
-export CEDAR_SUBMISSION_TEMPLATE_ID_1="changeme"
-export CEDAR_SUBMISSION_TEMPLATE_ID_2="changeme"
-
 #CEDAR NCI caDSR FTP Connection Settings - place your own data here
 export CEDAR_NCI_CADSR_FTP_HOST="changeme"
 export CEDAR_NCI_CADSR_FTP_USER="changeme"

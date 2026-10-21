@@ -13,8 +13,8 @@ block held 55 of the 118 entries, missing CEDAR_SALT_API_KEY, CEDAR_TRUSTED_FOLD
 test-user identifiers among sixty-three others.
 
 This is the same instinct as check_docker_env.py, pointed at the other set of copies: ask the code
-what it needs rather than reading the declaration by eye, and keep one block rather than
-twenty-two. ops/ci-env-block.yml is that block; each repository's ci.yml holds a copy of it, and
+what it needs rather than reading the declaration by eye, and keep one block rather than one per
+repository. ops/ci-env-block.yml is that block; each repository's ci.yml holds a copy of it, and
 this reports — or repairs — any copy that has drifted.
 
     ops/check_ci_env.py                # report

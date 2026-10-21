@@ -23,6 +23,7 @@ and the main browser applications. Shared design values belong in
 | Public npmjs releases | [Npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) |
 | Term-picker operation | [Versioning runbook](VERSIONING-RUNBOOK.md) |
 | What a host serves against its components | [Component staleness](#component-staleness) |
+| How each component measures against WCAG 2.2 | [Accessibility conformance](#accessibility-conformance) |
 
 ## Browser Metadata Editing
 
@@ -517,7 +518,13 @@ This contract does not require a release, a production deployment, or a Git comm
 Development package publication and development-pin updates are distinct from release-version
 changes. Commit/push remains subject to the user’s instruction.
 
-The command runs the component verification gates in the isolated build copies, records the
+Before it builds anything, the command runs `cedarcli check design-tokens --strict` over every
+token consumer's checkout, the check each consumer's "Design token adoption" workflow runs in CI,
+and stops on a finding. No consumer's own test gate includes it, so without this step a tree the
+reactor accepted could still fail that workflow on push. It takes seconds. `cedarcli build all`
+runs the same check unless `--skip-tests` is given.
+
+The command then runs the component verification gates in the isolated build copies, records the
 successful package selection, restarts all native frontends, verifies their installed reactor
 packages, and runs the whole-stack smoke tiers.
 
@@ -640,6 +647,35 @@ producers' immutable local artifacts. Other build commands remain exclusive barr
 deployment and the smoke tiers run after all frontend checks pass. A failed producer blocks
 its consumers, including in continue mode.
 
+Every frontend build on the machine shares one pool of workers, as many as the host has cores, so
+concurrent builds started by different sessions share it as well. `--workers` caps what one
+repository uses, and the pool caps what every build uses together, so a third job or a second
+build fills idle cores without oversubscribing busy ones. A command takes its workers from the pool
+when it starts and returns them when it ends. An npm script asks for the repository's whole budget,
+and an install or a browser download asks for one. The model library's, CEE's and CED's gate
+scripts take workers stage by stage instead. Requests are served in the order they arrive, and
+each starts once at least half of what it asked for is free, so a stage that needs several workers
+is never overtaken by smaller ones. The log names any command or stage that started with fewer
+workers than it asked for.
+
+The pool is the directory `$CEDAR_HOME/.cedar/worker-pool`, named to each command in
+`CEDAR_WORKER_POOL`. It holds a `size`, one `slot-<n>` subdirectory per worker in use and a `queue`
+of waiting requests. Each slot and request records its process and the boot that process started
+in. It is taken back once that process has exited, once the machine has restarted, or after twelve
+hours, longer than any command holds a slot. A pool found idle with another size, as after moving
+an estate to a new machine, takes the host's core count. Removing the directory while no build
+runs resets it.
+
+The pool leaves the length of a full rebuild where it was and removes the load that made browser
+suites time out. Measured on 2026-10-20 at `--jobs 3 --workers 12`, a full rebuild took 489 s.
+The run before the pool stopped at a CED failure after 450 s and would have taken about 475 s. The
+load's median fell from 43 to 17 on 16 cores, and CED's 980 browser tests ran with none flaky or
+failed, against seven flaky and one failed under the earlier load. A second holder that took five
+workers for two minutes in the middle of a later run waited 1.4 s for its turn, and the slots in
+use never exceeded 16 across 987 samples. Reports:
+`.cedar/build-reports/20261021T040607Z-72ccce31.json`, `20261021T022455Z-b31d00b5.json` and
+`20261021T044108Z-dd19accc.json`.
+
 A surface in `frontend-train.json` may declare a `package` phase between `setup` and
 `verify`: the commands that build and stage what it publishes. The model library and CEE
 declare one. When that phase passes, the reactor stores the artifact and starts the
@@ -692,7 +728,8 @@ Every actual CLI build writes command durations, task dependency edges and exit 
 `.cedar/build-reports/<timestamp>-<id>.json`, including failed/interrupted runs. Independent
 running jobs drain after a test failure; Ctrl-C cancels owned subprocess groups. Increase
 one concurrency setting at a time and compare elapsed times and failures before increasing
-both: `jobs × workers` is the intended frontend worker budget, not a memory limit.
+both. The shared pool bounds the workers running at once, so a larger `--jobs` no longer
+multiplies them.
 
 On a 16-core M4 with 64 GB RAM (2026-09-24), `--jobs 2 --workers 8` completed the
 full frontend build and test gates in 320.8 seconds, before deployment and whole-stack
@@ -2634,6 +2671,53 @@ colors come from CSS tokens, never from the document service.
 The shared package README describes design ownership and host styling. CED's
 native compact controls retain the API in CEE's `STYLING.md`.
 
+### Reused Artifact Versions
+
+CED's Version tab reports each field or element as local, linked to a published
+artifact, copied from an origin, or contained in a linked element. Publication status,
+version, derivation and previous-version metadata are on that tab; the template and
+element headers display versions read-only. Importing a draft creates an editable copy
+with a new identity. Upgrades and replacements select published releases only; a newer
+draft is never a replacement target. Parent placement survives replacement.
+
+The host supplies optional `childSource.versions`, `compatibility`, `save` and `open`
+methods; their contract and example are in the designer's README, **Versions of Reused
+Children**. Each compatibility assessment belongs to the complete document snapshot.
+Editing a child, sibling or placement retires it, and an active Version tab checks again.
+A refresh reloads the candidate, and replacement uses the exact assessed content. A
+breaking assessment needs an explicit nonnegative integer instance count; missing,
+malformed or contradictory answers cannot authorize replacement. An explicit zero
+permits a breaking replacement; a positive count requires a new template version.
+Hosts without a compatibility method can offer manual replacements without a verdict,
+but those replacements never enter Upgrade all compatible. Server writes must enforce
+the instance policy independently of these component checks.
+
+`browser/tests/version-upgrade-journeys.spec.ts` crosses field/element and linked/copy
+states with assessment outcomes, verifies parent and sibling preservation through
+replacement and reopen, and exercises draft exclusion, edited copies and late replies.
+The split Designer host supplies authenticated history, compatibility, reusable saves and
+opening originals. Compatibility receives the complete before/after parent and applies the
+same preservation rules as Save. Identical validation shapes prove compatibility conservatively;
+otherwise the result is unknown, and only an explicit zero stored-instance count permits manual
+replacement. Unknown changes with existing records are withheld, never labelled compatible or
+reported as an invented invalidated count. Unknown replacements never enter Upgrade all compatible.
+
+Reusable saves journal a stable identity before creation and track publication separately in
+the tab's account/deployment-scoped session storage. Retry reads that identity and resumes the
+same operation. A confirmed child survives a discarded parent edit; the parent still needs its
+own Save. Draft results are editable derived copies, and published results are links. No recovery
+control is added to ordinary screens. A failed operation uses the Version tab's existing error
+and action. Original versions open in another Designer tab.
+
+`npm run smoke:journey -- pull-versions reusable-publication` in `ops/e2e` exercises published
+selection, copied/linked fields and elements, nested/repeated placement, creation/publication,
+lost creation/publication replies and parent save/reopen against real REST. `npm run smoke:rest -- pull-versions`
+directly exercises the final write guard, skipped assessments, records arriving after assessment,
+unchanged revisions on refusal and published immutability. The artifact server's embedded race
+tests also pause actual instance creation across a replacement. Broader compatibility proofs,
+legacy provenance and remaining lifecycle work are in the
+[pull version-management work](FRONTEND-ROADMAP.md#pull-version-management).
+
 <a id="ced-testing"></a>
 
 ### Testing
@@ -2661,6 +2745,48 @@ It drives the built single-file bundle in a host page whose own CSS is chosen to
 be as intrusive as possible, and it is hermetic: no test reaches a terminology
 server, and the one covering `<cedar-embeddable-term-picker>` registers a stub element in
 the page.
+
+`accessibility.spec.ts` runs axe-core over each state the suite can reach: fresh,
+nested, published, read-only, narrow, showing host findings, both settings dialogs,
+and every field type's settings tabs. Any violation of axe's rules for WCAG 2.2
+levels A and AA fails it, and the same rules gate Workspace, the term picker and CEE.
+axe-core's rule for WCAG 2.1's Label in Name is experimental, and a tag selection leaves it
+out, so each of the four gates runs it by name. CED and CEE enable it beside the tags in a
+single scan and assert that it ran. Workspace and the term picker run it in a second scan. CEE
+checks every rule at desktop width and, at 480 px, only contrast, target size and scrollable
+regions, the rules that read the layout. Audited at both widths on 2026-10-20, 239 states
+agreed on every other rule.
+Axe cannot judge focus order, focus return or announcements, so three specs cover
+them:
+
+- `keyboard-order.spec.ts` pins the Tab order of each surface, naming every stop by
+  role and accessible name.
+- `focus-return.spec.ts` checks where focus lands after each action. A deleted
+  card gives focus to its next sibling, else its previous one, else its container's
+  Add field. A closed dialog or menu returns focus to the control that opened it.
+- `announcements.spec.ts` reads the designer's one polite live region after each
+  announced event: an applied constraint set, a cleared default, a chosen default
+  term, a new or cleared set of host findings, and a move in the Overview. The
+  validation summary speaks through the same region, but only for an issue that no
+  visible alert or host announcement has already said, and
+  `error-announcements.spec.ts` asserts that each error is said once.
+
+None of the three can say what a screen reader actually speaks, so a release that
+changes these surfaces also gets the [screen-reader protocol](#ced-screen-reader-protocol).
+`semantics.spec.ts` asserts the roles, names and states axe accepts without
+checking, such as the Preferences radio group and its pressed presets, and
+`layout-resilience.spec.ts` runs the layout check every component shares.
+
+Axe leaves some contrast and target-size checks undecided. The spec's `SETTLED`
+list names each one, with the value measured, and measures it again on every scan,
+so an undecided result the list does not name fails the gate. The native dropdowns
+draw their chevron as a background gradient, which hides their text's contrast from
+axe. The text is 87% black on white, about 16:1. The template and element settings
+toggles are 36 by 14px, under WCAG 2.2's 24px minimum, but the header beside each
+opens the same settings and is the larger equivalent target criterion 2.5.8 allows.
+A field card's toggle has no such equivalent. The field header is 23px tall, and the
+settings panel's last control sits within 12px of the toggle's centre. The spec
+records it under `EXCEPTIONS` as a failure that waits on a visible change.
 
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
 been through `npm run dist` is not the thing under test. That used to be a
@@ -2702,6 +2828,65 @@ and a box's width depends on the fonts available — so a row with no slack fits
 a developer's Mac and overflows on the runner. An option row's delete button sat
 31 pixels outside its card on CI and nowhere else, and the suite was red for three
 commits before anyone ran it where CI runs it.
+
+<a id="ced-screen-reader-protocol"></a>
+
+#### Screen-Reader Protocol
+
+The browser suite shows that focus lands where it should and that the live region
+holds the right text. It cannot show that a screen reader speaks either, or in what
+order. This protocol checks that by hand, with VoiceOver and Safari on macOS and with
+NVDA and Firefox on Windows.
+
+Build the distribution and serve the fixture pages:
+
+```sh
+cd "$CEDAR_HOME/cedar-embeddable-designer"
+npm run dist
+node browser/serve.mjs
+```
+
+Open `http://localhost:4598/host.html?picker=stub`. The stub term picker applies a
+fixed term, so the constraint steps need no terminology server. Start the screen
+reader (Command-F5 for VoiceOver, Control-Alt-N for NVDA) and work through each
+step from the keyboard alone. Each step says what should be heard.
+
+1. Tab into the designer. The toolbar, the Overview, the template header and each
+   field card follow in that order, and each card is read as a group named after
+   its field.
+2. On a card, press the down arrow. Focus moves to the next card, which is read by
+   name.
+3. Open a field's settings, move between its tabs with the arrow keys, and Tab
+   through a panel. Each control is read with its label.
+4. Delete a field with its Delete button. The next card is read, or the previous
+   one when the field was last.
+5. Press Add field, Tab into the palette and press Escape. The palette closes and
+   Add field is read again. Open it again and choose Text. The new field's name box
+   is read.
+6. Press Import fields and elements. The picker's search box is read. Press Escape,
+   and Import is read again.
+7. Add a Controlled Terms field, open its constraint dialog with Edit and pick the
+   term. After the Edit button, "Disease now has 1 constraint." is heard, with the
+   field's own name in place of Disease.
+8. Open the constraint dialog again and press Escape. It closes and Edit is read.
+9. Open Edit default term and pick the term. After the Edit default term button,
+   "Default set to cancer." is heard, then "Validation issues (1)", because the
+   stub picker's term cannot be verified.
+10. In the browser console, set
+    `document.querySelector('cedar-embeddable-designer').validationFindings` to
+    `[{ location: '/schema:description', message: 'Explain this study', severity: 'error' }]`.
+    "The host reported 1 error." is heard and focus does not move. Set it to `[]`,
+    and "The host's reported issues are cleared." is heard.
+11. In the Overview, focus a Reorder button and press the down arrow. "Title moved
+    to position 2 of 3." is heard.
+12. Open Preferences from the user menu. The dialog is read by its title, Tab stays
+    inside it, and Escape returns focus to User Menu, which is read.
+13. Open the user menu and press Escape. The menu closes and User Menu is read.
+14. Set `document.querySelector('cedar-embeddable-designer').language = 'hu'` and
+    repeat step 11. The message is read in Hungarian.
+
+Record the screen reader's and the browser's versions, the date and every step that
+fails. A failure becomes an item on the [frontend roadmap](FRONTEND-ROADMAP.md).
 
 <a id="ced-packaging-and-release"></a>
 
@@ -3417,11 +3602,15 @@ a mistake worth remembering.
 ### Shared Component Defaults and Configuration
 
 Every modern frontend consumes `cedar-design-tokens` at build time: CEE/CEF, CED/CEFD,
-CETP, Workspace, OpenView, Monitoring, Bridging and the Template Designer host. The package owns
-the whole vocabulary, 61 tokens: the font stack and embedded Roboto sources, five type
-sizes and two weights, the theme colour, three text colours, two rules, three surfaces,
-the status pairs, the two control densities, the 4/8/12/16/24px spacing scale, one
-corner radius and a pill, two shadows, motion and layers. Its README lists them, and
+CETP, Workspace, OpenView, Monitoring, Bridging and the Template Designer host. Two
+further consumers sit outside that set. The MCP session page in `mcp/cedar-cee-mcp`
+vendors compiled stylesheets under a checksum manifest, which the adoption check
+verifies. The legacy Template Editor loads compiled stylesheets and the icon sprite
+outside the adoption check. The package owns the whole vocabulary of 54 tokens. They
+cover the font stack, four type sizes and two weights, the theme colour, three text
+colours, two rules, three surfaces, the status pairs, the two control densities, the
+4/8/12/16/24px spacing scale, one corner radius and a pill, one shadow, motion and
+layers. The package also owns the embedded Roboto sources. Its README lists the tokens, and
 `tools/retired-tokens.json` names the replacement for every retired name. Material remains inside CEE's adapter; CED uses CSS
 properties and its native-control adapter. Geometry unique to one component stays
 local.
@@ -3547,7 +3736,7 @@ its tests exercise.
 #### Monitoring token adoption
 
 Run `cedarcli check design-tokens` for Workspace, CEE/CEF, CED/CEFD, CETP,
-OpenView, Monitoring, Bridging and the Template Designer host,
+OpenView, Monitoring, Bridging, the Template Designer host and the MCP session page,
 `--strict` to gate new color/typography, spacing, control geometry, layers and
 motion drift, `--json` for an archived report, and `--repo <name> --prune-baseline`
 after removing existing findings. Policy 2 includes Angular styles, inline templates,
@@ -3625,16 +3814,14 @@ real-CEE/CEF gate when `CEF_BUNDLE` is supplied.
 
 #### CED token coverage audit (2026-10-04)
 
-The source `cedarcli check design-tokens --strict --json` audit passes the
-new-drift gate, but that is not a claim that CED's presentation is centrally enforced.
-The scanner reports **23 existing findings**:
-20 geometry declarations, two dynamic styles and one utility style. These are
-source findings, including development surfaces, not 23 demonstrated visual
-defects. Resolved baseline
-allowances are pruned rather than retained as permission for drift to return.
+Passing the new-drift gate does not mean that CED's presentation is centrally
+enforced. `cedarcli check design-tokens --strict --all --repo cedar-embeddable-designer`
+lists the existing findings that remain. They are source findings, development
+surfaces included, not demonstrated visual defects. Resolved baseline allowances are
+pruned rather than retained as permission for drift to return.
 
-The registered CED inventory has 36 entries and 33 rendered contracts, with no
-recorded differences. The authoring label, control and table-cell contracts run at
+The same check counts CED's registered surfaces and rendered contracts, and reports
+any recorded difference. The authoring label, control and table-cell contracts run at
 desktop and 375px widths on representative surfaces: the annotation entry row, a
 field's metadata, a field's constraint select, an element's metadata, a nested
 field's constraints, a default-value label beside real CEF, and a field's metadata
@@ -3667,9 +3854,9 @@ empty/populated default-row alignment. A same-valued token substitution is not
 proof that the correct semantic role or shared recipe is used. Baselines must
 remain tied to approved presentation, not regenerated to accept unexpected output.
 
-CEE currently has **138 existing findings**: 57 spacing, 25 geometry,
-30 color and 26 typography declarations. These counts are legacy findings, not
-approved exceptions. CEE's `STYLING.md` records ownership by surface; CED's README
+CEE's existing findings are legacy debt, not approved exceptions.
+`cedarcli check design-tokens --strict --all --repo cedar-embeddable-editor` lists them.
+CEE's `STYLING.md` records ownership by surface; CED's README
 records the corresponding boundary. Read-only specification boxes, separators and
 links share central recipes, including standalone defaults and supported host
 overrides. The CED property, type and default-term dialogs use the central surface
@@ -3686,10 +3873,155 @@ work. Prune resolved baseline entries.
 Tokens also cannot enforce validation timing, save-state terminology or separation
 of selected values from defaults. Those require application-state tests. Finally,
 source adoption, installed package pins and served component bytes are separate
-checks: retain all three alongside the reactor and smoke evidence. CED's baseline
-holds one finding by decision: the field library's two section heights, which its
-divider sets as it is dragged. No stylesheet can name a value that exists only at
-runtime, so the finding stays as recorded debt.
+checks: retain all three alongside the reactor and smoke evidence. By decision, CED's
+baseline keeps the field library's two section heights, which its divider sets as it
+is dragged. No stylesheet can name a value that exists only at runtime, so both stay
+as recorded debt.
+
+<a id="accessibility-conformance"></a>
+
+## Accessibility Conformance
+
+Each component's axe gate reports whether axe's rules pass in the states its suite scans. Those
+rules settle only part of WCAG, so a passing gate cannot say how accessible a component is. A
+conformance report measures that instead. It takes every WCAG 2.2 success criterion at levels A
+and AA, 55 in all, and records for each component what evidence settles it.
+
+CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their source and tests,
+and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE `313d7ceb`, the
+term picker `8ed2d81` and Workspace `0323655a`. The assessment read code and tests. Nobody ran a
+screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
+and text spacing are measured by each suite's layout check rather than by a person.
+
+A criterion counts as met only when every part of it is evidenced. Three kinds of evidence count:
+
+- an automated gate that passes in CI;
+- a spec that asserts the behaviour;
+- a review of all the source the criterion concerns, used only where source can settle it, such as
+  the absence of time limits, flashing or an orientation lock.
+
+Each criterion takes one of six statuses:
+
+- **Met:** every part is evidenced.
+- **Partial:** some parts are evidenced, and the rest need a test or a person.
+- **Fails:** the component has a known failure, whether a gate exception, a roadmap finding or a
+  defect the assessment found.
+- **Unverified:** nothing in the tests or the source settles it.
+- **Host:** the criterion belongs to the page that embeds the component, such as its title, its
+  language or its sign-in.
+- **N/A:** the component has none of the content the criterion governs, such as audio or links.
+
+### Scores
+
+A component's score is the share of the criteria that apply to it which are met. Host and N/A
+criteria do not apply.
+
+| Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
+| --- | --- | --- | --- | --- | --- | --- |
+| CED | 20 | 10 | 9 | 0 | 16 | 20 of 39, 51% |
+| CEE | 23 | 12 | 6 | 6 | 8 | 23 of 47, 49% |
+| Term picker | 24 | 8 | 7 | 0 | 16 | 24 of 39, 62% |
+| Workspace | 28 | 14 | 5 | 0 | 8 | 28 of 47, 60% |
+
+CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
+its captions and descriptions are the template author's.
+
+On 2026-10-19 the four scored 41%, 34%, 51% and 43%, with 39 failures between them. The first round
+of fixes cut the failures to 26. Most of the criteria it touched moved from Fails to Partial rather
+than to Met, because a criterion is met only when every part of it is evidenced. The second and
+third rounds moved more to Met, but the failures now stand at 27, because the layout check and the
+wider scans found new ones as fast as others were fixed. Most of those need a visible change.
+
+The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
+of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
+has measured fails the gate. Each suite also runs `layout-resilience.spec`, one method in all four:
+reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text spacing at 1280 pixels,
+and the contrast of every placeholder. A finding that needs a visible change is recorded in the
+spec as a named exception, and an exception that stops occurring fails it.
+
+### Failures Several Components Share
+
+Three failures recur across components:
+
+- **Control borders.** Text inputs draw their boundary in `control-border-default`,
+  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, where criterion 1.4.11 asks for 3:1. CED, CEE and
+  Workspace take their borders from that token.
+- **Tint-only state.** The term picker marks the current release and a picked tree term, Workspace
+  a selected list row and the pressed view switch, and CEE the calendar's focused date, only by a
+  tint of about 1.2:1 (1.4.1, 1.4.11). CED tells an errored settings tab from the selected one by
+  hue alone.
+- **Targets under 24px.** CED's field settings toggle, CEE's read-only link-out icon and the term
+  picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum target
+  (2.5.8).
+
+The layout check's failures are each a component's own: CED's narrow layouts, CEE's PubMed and
+RRID instructions cut short at 320 pixels, the term picker's release history at 320 pixels and its
+truncated lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are open work on the
+[frontend roadmap](FRONTEND-ROADMAP.md) and, for the term picker, the
+[versioning roadmap](VERSIONING-ROADMAP.md).
+
+### By Criterion
+
+The table gives each component's status for every criterion. Reassess a criterion after a change
+that touches it, and update the assessment date and commits with it.
+
+| Criterion | Level | CED | CEE | Term picker | Workspace |
+| --- | --- | --- | --- | --- | --- |
+| 1.1.1 Non-text Content | A | Met | Met | Met | Met |
+| 1.2.1 Audio-only and Video-only (Prerecorded) | A | N/A | Unverified | N/A | N/A |
+| 1.2.2 Captions (Prerecorded) | A | N/A | Unverified | N/A | N/A |
+| 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | N/A | Unverified | N/A | N/A |
+| 1.2.4 Captions (Live) | AA | N/A | Unverified | N/A | N/A |
+| 1.2.5 Audio Description (Prerecorded) | AA | N/A | Unverified | N/A | N/A |
+| 1.3.1 Info and Relationships | A | Partial | Met | Fails | Partial |
+| 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
+| 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
+| 1.3.4 Orientation | AA | Met | Met | Met | Met |
+| 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
+| 1.4.1 Use of Color | A | Fails | Fails | Fails | Fails |
+| 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
+| 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
+| 1.4.4 Resize Text | AA | Fails | Partial | Fails | Met |
+| 1.4.5 Images of Text | AA | Met | Met | Met | Met |
+| 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
+| 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
+| 1.4.12 Text Spacing | AA | Met | Met | Met | Fails |
+| 1.4.13 Content on Hover or Focus | AA | Fails | Partial | Met | Met |
+| 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
+| 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
+| 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
+| 2.2.1 Timing Adjustable | A | Met | Fails | Met | Partial |
+| 2.2.2 Pause, Stop, Hide | A | Met | Met | Met | Partial |
+| 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
+| 2.4.1 Bypass Blocks | A | Host | Host | Host | Met |
+| 2.4.2 Page Titled | A | Host | Host | Host | Met |
+| 2.4.3 Focus Order | A | Partial | Partial | Partial | Fails |
+| 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Met |
+| 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
+| 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
+| 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
+| 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
+| 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
+| 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
+| 2.5.3 Label in Name | A | Met | Met | Met | Met |
+| 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
+| 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
+| 2.5.8 Target Size (Minimum) | AA | Fails | Fails | Fails | Met |
+| 3.1.1 Language of Page | A | Host | Host | Host | Met |
+| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Partial |
+| 3.2.1 On Focus | A | Partial | Met | Met | Met |
+| 3.2.2 On Input | A | Met | Met | Met | Met |
+| 3.2.3 Consistent Navigation | AA | Host | Host | Host | Met |
+| 3.2.4 Consistent Identification | AA | Met | Met | Partial | Partial |
+| 3.2.6 Consistent Help | A | Host | Host | Host | Met |
+| 3.3.1 Error Identification | A | Met | Met | Met | Met |
+| 3.3.2 Labels or Instructions | A | Partial | Partial | Met | Met |
+| 3.3.3 Error Suggestion | AA | Partial | Partial | Partial | Partial |
+| 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Host | Host | Host | Partial |
+| 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
+| 3.3.8 Accessible Authentication (Minimum) | AA | Host | Host | Host | N/A |
+| 4.1.2 Name, Role, Value | A | Fails | Partial | Fails | Partial |
+| 4.1.3 Status Messages | AA | Partial | Met | Partial | Partial |
 
 ## Surface inventory and token coverage
 

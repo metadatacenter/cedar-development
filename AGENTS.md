@@ -179,10 +179,15 @@ The browser applications and embeddable components — `cedar-workspace`,
   library and CEE releases, consumer pins, tarball verification, development channels,
   and adoption by a train-backed release.
 
-`cedar-design-tokens` owns the shared font stack, type scale, brand palettes and
-neutrals for CEE, CED and CETP. Its README is the reference. All three consume
-`@org.metadatacenter/cedar-design-tokens` at build time through the scoped Nexus
-registry; change shared values in that package and follow the consumer rules in
+`cedar-design-tokens` owns the design vocabulary every browser application and embeddable
+component shares: the font stack, type scale, colours, control metrics, spacing, motion and
+layers. It also owns the shared Sass recipes, the embedded fonts and the icon registry. Its
+README is the reference. CEE, CED, CETP, Workspace, OpenView, Monitoring, Bridging and the
+Template Designer host consume `@org.metadatacenter/cedar-design-tokens` at build time through
+the scoped Nexus registry, and `cedarcli check design-tokens --strict` gates all eight. The same
+check covers the MCP session page in `mcp/cedar-cee-mcp`, which vendors compiled stylesheets
+under a checksum manifest. The legacy Template Editor loads compiled stylesheets and the icon
+sprite outside the check. Change shared values in that package and follow the consumer rules in
 [FRONTEND-RUNBOOK.md](ops/FRONTEND-RUNBOOK.md) and the versioning runbook.
 
 Terminology versioning, the authoring surface included — `cedar-embeddable-term-picker`, the Web Component
@@ -209,7 +214,7 @@ resolve terms for and store CEDAR artifacts:
   the calling model ever reads.
 
 The rest:
-- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~48
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~43
   versioned repos, front and back. CEE, the TypeScript model library and three others are
   `skip_from_release` and publish themselves; their public procedure is in
   [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).

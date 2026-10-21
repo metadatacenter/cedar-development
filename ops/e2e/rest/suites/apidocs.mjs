@@ -5,10 +5,10 @@
 // blank doc page and go unnoticed. This checks each spec is present, valid OpenAPI 3, populated, and
 // actually reflects the API.
 //
-// Resource, Terminology, Value Recommender and User are the four servers that publish a generated
-// spec. The other API servers intentionally return 404 at this path.
+// Resource, Terminology and User are the three servers that publish a generated spec. The other API
+// servers intentionally return 404 at this path.
 import {
-  suite, check, checkStatus, call, RESOURCE, TERMINOLOGY, VALUERECOMMENDER, USER_SERVER,
+  suite, check, checkStatus, call, RESOURCE, TERMINOLOGY, USER_SERVER,
 } from '../lib.mjs';
 
 export const name = 'apidocs';
@@ -22,10 +22,6 @@ export const name = 'apidocs';
 const API_SERVERS = [
   { label: 'resource', base: RESOURCE, minPaths: 40, mustDocument: '/templates' },
   { label: 'terminology', base: TERMINOLOGY, minPaths: 20, mustDocument: '/search/hierarchy' },
-  {
-    label: 'valuerecommender', base: VALUERECOMMENDER, minPaths: 5,
-    mustDocument: '/command/recommend',
-  },
   { label: 'user', base: USER_SERVER, minPaths: 5, mustDocument: '/users/{id}/api-keys' },
 ];
 
@@ -141,16 +137,6 @@ export async function run() {
             `resource: DELETE ${artifactPath} distinguishes pending and complete cleanup`,
             `DELETE ${artifactPath} omitted 202 or 204`);
       }
-    }
-
-    if (s.label === 'valuerecommender') {
-      const unavailable = path => paths[path]?.post?.responses?.['503']?.description;
-      check(unavailable('/command/can-generate-recommendations') === 'OpenSearch unavailable',
-          'valuerecommender: capability checks document OpenSearch unavailability',
-          'the capability endpoint did not document its 503 response');
-      check(unavailable('/command/recommend') === 'OpenSearch unavailable',
-          'valuerecommender: recommendations document OpenSearch unavailability',
-          'the recommendation endpoint did not document its 503 response');
     }
   }
 

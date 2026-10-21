@@ -70,7 +70,16 @@ export async function converge(probe, { timeoutMs = 20000, intervalMs = 250, now
   throw new Error(`${describe} did not converge in ${now() - start} ms (${attempts} probes): ${last?.message}`, { cause: last });
 }
 
-export async function walkSearch(request, test, scope, expectedIds, { continuation = false, pageSize = 2 } = {}) {
+export function assertSearchLinks(response, test, scope) {
+  for (const link of Object.values(response.body.paging ?? {})) {
+    if (typeof link !== 'string' || !link) continue;
+    const params = new URL(link, 'https://resource.example').searchParams;
+    assert.equal(params.get('q'), scopedQuery(test.query, scope), 'Returned pagination link changed the expression');
+    if (params.has('offset')) assert.ok(Number(params.get('offset')) >= 0, 'Returned pagination offset is negative');
+  }
+}
+
+export async function walkSearch(request, test, scope, expectedIds, { continuation = false, pageSize = 1 } = {}) {
   const rows = [], seenTokens = new Set();
   let token = 'start';
   // The extra empty page is intentional for offset walks; limits bound buggy endless pagination.
@@ -81,11 +90,7 @@ export async function walkSearch(request, test, scope, expectedIds, { continuati
     assert.ok(Array.isArray(response.body?.resources), 'Missing paged resources');
     assert.equal(response.body.totalCount, expectedIds.length, 'Static paging total changed');
     assert.ok(response.body.resources.length <= pageSize, 'Page limit ignored');
-    for (const link of Object.values(response.body.paging ?? {})) {
-      if (typeof link !== 'string' || !link) continue;
-      assert.equal(new URL(link, 'https://resource.example').searchParams.get('q'),
-        scopedQuery(test.query, scope), 'Returned pagination link changed the expression');
-    }
+    assertSearchLinks(response, test, scope);
     rows.push(...response.body.resources);
     if (continuation) {
       token = response.body.continuation;
@@ -98,5 +103,7 @@ export async function walkSearch(request, test, scope, expectedIds, { continuati
   exactResults({ status: 200, body: { resources: rows, totalCount: expectedIds.length } }, expectedIds);
   const names = rows.map(row => row['schema:name']);
   assert.deepEqual(names, [...names].sort(), 'Name order changed across pages');
+  for (let i = 1; i < rows.length; i++) if (names[i] === names[i - 1])
+    assert.ok(rows[i - 1]['@id'] < rows[i]['@id'], 'Equal names must use the identifier tie-breaker');
   return rows;
 }

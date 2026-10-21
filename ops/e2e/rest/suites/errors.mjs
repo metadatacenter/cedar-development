@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { env } from 'node:process';
 import {
   suite, check, skip, call, enc, HOST, RESOURCE, USER_SERVER, GROUP_SERVER, MESSAGING, MONITOR, BRIDGE,
-  TERMINOLOGY, ARTIFACT_SERVER, VALUERECOMMENDER, OPENVIEW, WORKER,
+  TERMINOLOGY, ARTIFACT_SERVER, OPENVIEW, WORKER,
 } from '../lib.mjs';
 
 export const name = 'errors';
@@ -44,10 +44,8 @@ const SERVERS = [
   { server: 'repo', base: local('REPO', '9002') },
   { server: 'terminology', base: TERMINOLOGY },
   { server: 'user', base: USER_SERVER },
-  { server: 'valuerecommender', base: VALUERECOMMENDER },
   { server: 'impex', base: local('IMPEX', '9008') },
   { server: 'group', base: GROUP_SERVER },
-  { server: 'submission', base: local('SUBMISSION', '9010') },
   { server: 'worker', base: WORKER },
   { server: 'messaging', base: MESSAGING },
   { server: 'openview', base: OPENVIEW },

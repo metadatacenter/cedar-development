@@ -87,8 +87,12 @@ export async function reusableSourceFailureJourney({page, designer, user, folder
   const imported = await ced.evaluate(el => el.currentArtifact);
   assert.equal(imported["schema:description"], "Keep my unsaved description");
   const children = value => Object.values(value.properties).map(child => child.items ?? child)
-    .filter(child => [field["@id"], element["@id"]].includes(child["@id"]));
+    .filter(child => [field["@id"], element["@id"]].includes(child["pav:derivedFrom"]));
   assert.equal(children(imported).length, 2, "retry adds each selected definition exactly once");
+  for (const child of children(imported)) {
+    assert.notEqual(child["@id"], child["pav:derivedFrom"], "a draft import is an independent editable copy");
+    assert.equal(child["bibo:status"], "bibo:draft");
+  }
   await write(page, "PUT", "/templates/", () => page.locator("#save").click(), 200, true);
   await page.locator("#state").filter({hasText: /^Saved$/}).waitFor();
   const stored = await read();

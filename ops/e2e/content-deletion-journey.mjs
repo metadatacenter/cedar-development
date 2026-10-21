@@ -84,7 +84,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
   // element's has happened once its card, and the card's delete control with it, has gone.
   async function deleteChildren() {
     const field = page.locator("app-field-card").first();
-    assert.equal(await field.getByRole("textbox", {name: "Field display name", exact: true}).inputValue(), "Notes");
+    assert.equal(await field.getByRole("textbox", {name: "Enter field name", exact: true}).inputValue(), "Notes");
     await field.getByRole("button", {name: "Delete field", exact: true}).click();
     await page.locator("#state").filter({hasText: /^Modified$/}).waitFor();
     await deleteElement.click();
@@ -179,7 +179,7 @@ export async function contentDeletionJourney({page, base, designer, user, folder
     await remove.click();
     await remove.click();
     // An emptied pager says so in place of its occurrence numbers.
-    await pager.getByRole("option", {name: "No values yet", exact: true}).waitFor();
+    await pager.getByRole("option", {name: "No instances yet", exact: true}).waitFor();
     assert.equal(await remove.isDisabled(), true);
   }
   const emptied = await cee.evaluate(el => el.currentMetadata);

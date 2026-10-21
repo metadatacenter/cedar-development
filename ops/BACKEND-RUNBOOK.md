@@ -25,7 +25,7 @@ Three tiers:
   are host services managed by the native infrastructure scripts. Docker mode owns containerized
   infrastructure; hybrid mode owns the Docker backend and native frontends. The three supported
   modes deliberately do not include native JVMs over an independently assembled Docker data tier.
-- **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
+- **Microservices** — 12 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
 - **Frontends** — the AngularJS monolith (`cedar-template-editor`) is served locally by
   `gulp` on port 4200 and proxied by nginx to `https://cedar.metadatacenter.orgx`. During its
@@ -150,7 +150,7 @@ changes and confirm its startup log. Do not infer the active store from a health
 
 ## The Controller: `cedarcli native`
 
-Manages the 15 microservices and seven frontends as
+Manages the 12 microservices and seven frontends as
 background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
 systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/log/run/`. The
 controller resolves `JAVA_HOME` to a JDK 17 and refuses to start anything on another JDK, puts
@@ -315,17 +315,14 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 
 | Service | app | admin | | Service | app | admin |
 |---|---|---|---|---|---|---|
-| artifact | 9001 | 9101 | | submission | 9010 | 9110 |
-| repo | 9002 | 9102 | | worker | 9011 | 9111 |
-| schema | 9003 | 9103 | | messaging | 9012 | 9112 |
-| terminology | 9004 | 9104 | | openview | 9013 | 9113 |
-| user | 9005 | 9105 | | monitor | 9014 | 9114 |
-| valuerecommender | 9006 | 9106 | | bridge | 9015 | 9115 |
-| resource | 9007 | 9107 | | | | |
-| group | 9009 | 9109 | | frontend (gulp) | 4200 | — |
+| artifact | 9001 | 9101 | | messaging | 9012 | 9112 |
+| repo | 9002 | 9102 | | openview | 9013 | 9113 |
+| terminology | 9004 | 9104 | | monitor | 9014 | 9114 |
+| user | 9005 | 9105 | | bridge | 9015 | 9115 |
+| resource | 9007 | 9107 | | frontend (gulp) | 4200 | — |
 | impex | 9008 | 9108 | | workspace (Angular) | 4201 | — |
-| | | | | designer (Node preview) | 4202 | — |
-| | | | | Keycloak | 8080 / 8443 (https) | |
+| group | 9009 | 9109 | | designer (Node preview) | 4202 | — |
+| worker | 9011 | 9111 | | Keycloak | 8080 / 8443 (https) | |
 
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`. The same report
 is served on the application port at `/healthcheck`, where it requires the `monitorManager` role and
@@ -451,8 +448,7 @@ JSON shape is unchanged. The four collection counts are sequential, not an atomi
 Build the changed shared libraries and artifact, resource and monitor. Restart artifact and resource
 before monitor so both count endpoints exist, then verify the Counts page as a monitor-authorized
 user. No data migration is needed. Rolling monitor back requires its former document-store
-connectivity. Value-recommender's association-rule input is the accepted temporary direct-collection
-exception pending its planned retirement; it will not be migrated.
+connectivity.
 
 A local warm-loopback measurement on 2026-09-09 alternated 25 reads through each path after five
 warmup pairs. Resource's anonymous endpoint measured median 25.18 ms / p95 34.88 ms; OpenView measured
@@ -556,7 +552,7 @@ and `capabilities` combines the authority supplied by both. The array is specifi
 type: for example, an artifact never reports `listFolderContents`, `createInFolder` or
 `copyIntoFolder`. A separate `availableActions` array reports operations that are currently possible
 after resource type and state are considered, including `copyResource`, `publish`, `createDraft`,
-`submit`, `populate`, `enableOpenView` and `disableOpenView`. Current CEDAR frontends consume these
+`populate`, `enableOpenView` and `disableOpenView`. Current CEDAR frontends consume these
 two arrays.
 
 The former `currentUserRole` and flat `can...` response fields are not part of the REST contract.
@@ -677,8 +673,7 @@ timeouts from `terminology.bioPortal`, which are longer than any shared value sh
 taking the external class's pool, lease and retry policy. OpenSearch uses its own `opensearch:`
 settings: 30 connections total and per host, with a one-second lease timeout, one-second connect
 timeout and thirty-second socket timeout. Its single configured host can use the full bounded
-pool; a smaller per-host cap leaves capacity unavailable during concurrent indexing. The LINCS validator and the messaging
-notification from the submission server now take a shared class outright.
+pool; a smaller per-host cap leaves capacity unavailable during concurrent indexing.
 
 Defaults live in the packaged `cedar-config-library` resource `cedar-main.yml` under `http:`, and
 every value has an environment variable. Production may set these in
@@ -792,9 +787,9 @@ The request attempts its own artifact immediately; `VersionProjectionService` re
 every five seconds, including after restart. It re-reads the current graph and pending snapshot, so a
 late callback from an older request cannot replay that request's stale metadata or inclusion list.
 Publish, draft and deletion requests attempt their own affected version chain directly, so an older
-job awaiting a recommender notification cannot leave their search actions stale. Deletion captures
-the affected identifiers before removing the graph node. The background batch still stops after one
-failed attempt, limiting dependency timeouts per pass.
+pending job cannot leave their search actions stale. Deletion captures the affected identifiers
+before removing the graph node. The background batch still stops after one failed attempt, limiting
+dependency timeouts per pass.
 Graph updates, lifecycle transitions and these projections share the existing Neo4j lifecycle lock.
 This also serializes projection attempts across resource-server processes; a slow downstream call
 holds that lock until its configured timeout, so downstream latency can delay other graph writes.
@@ -802,9 +797,9 @@ Search replaces the document under its stable identifier without a delete-before
 removes legacy generated-ID copies. The durable path makes one index attempt per target instead of
 the interactive client's retry loop; a failed rebuild mirror also leaves the job pending.
 
-A successful content/graph save remains successful when inclusion, search or the value-recommender
-queue is temporarily unavailable. The job remains pending until every applicable operation has
-succeeded; the relay rotates failed jobs and stops that batch after one failure. Replays are
+A successful content/graph save remains successful when inclusion or search is temporarily
+unavailable. The job remains pending until every applicable operation has succeeded; the relay
+rotates failed jobs and stops that batch after one failure. Replays are
 idempotent and queue delivery is at least once: a lost acknowledgement can produce a duplicate
 notification. Deletion removes pending update work under the same lock. This is recovery of derived
 state after a graph commit; failed-create cleanup is described below.
@@ -884,35 +879,27 @@ multiple processes cannot race registration against cleanup. A slow artifact-ser
 lock until its configured timeout, as projection recovery does. Tests cover persisted restart,
 rollback, lost acknowledgements, delayed registration, later revisions, ownership transfer, a write
 stored after its lost answer was read back, and real resource HTTP failures across ordinary
-creation, copies and drafts. The cleanup change adds seventeen regression cases; two more cover an
-unavailable recommender notification in an unrelated artifact or the same version chain.
+creation, copies and drafts. The cleanup change adds seventeen regression cases.
 `ResourceStateRoundTripIT` also exercises publish/draft/delete transitions against a real OpenSearch
 index with Redis unavailable, requiring details, folder listings and search to offer the same
 actions immediately after each transition.
 
 ## The Redis Queues, and Where Failed Permission Events Go
 
-Five persistent queues carry work between services. Their names are set in
-`cedar-config-library/src/main/resources/cedar-main.yml` under `queueNames`, and all five live in
+Three persistent queues carry work between services. Their names are set in
+`cedar-config-library/src/main/resources/cedar-main.yml` under `queueNames`, and all three live in
 the persistent Redis on 6379:
 
 | Queue | Redis key | Carries |
 |---|---|---|
 | searchPermission | `CEDAR-QUEUE-search-permission` | permission and move events that the search index must follow |
-| ncbiSubmission | `CEDAR-QUEUE-ncbi-submission` | submissions bound for NCBI |
 | appLog | `CEDAR-QUEUE-app-log` | application log events |
-| valuerecommender | `CEDAR-QUEUE-valuerecommender` | templates whose recommender rules need regenerating |
 | cloneInstances | `CEDAR-QUEUE-cloneInstances` | bulk instance-clone requests |
 
-All five consumers use a claim/acknowledge protocol. A claim atomically moves the oldest message to
+All three consumers use a claim/acknowledge protocol. A claim atomically moves the oldest message to
 `<queue>-processing`; only successful handling removes it. On service restart, anything left in the
-processing list is restored ahead of newer messages in FIFO order. Clone, app-log and permission
-handlers retry three times before atomically moving the raw message to `<queue>-dead-letter`.
-Value-recommender polls claim at most 100 messages, rather than draining an unbounded backlog into
-memory, and a failed batch is retried before its messages are dead-lettered. The submission server's
-NCBI consumer acknowledges handled submissions, dead-letters malformed ones, and wakes for shutdown
-by interrupting its blocking connection; it does not enqueue the old JSON `null` sentinel or log an
-empty one-second blocking-pop timeout as an error.
+processing list is restored ahead of newer messages in FIFO order. Each handler retries three times
+before atomically moving the raw message to `<queue>-dead-letter`.
 
 Queue transfers check the types of all participating Redis keys before changing them and append to
 the destination before removing the source. Lua excludes other clients, but does not roll back an
@@ -934,14 +921,6 @@ or payload rewrite is needed: raw pending messages and pre-existing execution fe
 If an old clone handler is still running after the shutdown grace period, establish that it has
 terminated before starting the replacement or replaying its uncertain event.
 
-The value-recommender status endpoint returns synchronized snapshots across generation start,
-completion and restart. The worker defers an update when its template is already processing or
-the configured concurrency limit is reached. A failed or incomplete status response, refused
-generation request, or failed requeue propagates to the claim/acknowledge consumer for its existing
-retry/dead-letter handling; an unknown status never counts as idle capacity. REST smoke checks the
-status records after the concurrent artifact suites, since healthy queues alone cannot detect a
-corrupted status list. Deploy the recommender server before a worker using the stricter status reader.
-
 The search-permission queue is the most security-sensitive one, but every worker dead-letter queue
 is worth watching. For example:
 
@@ -950,8 +929,8 @@ redis-cli llen CEDAR-QUEUE-search-permission-dead-letter
 ```
 
 Zero is the expected reading. A nonzero search-permission value means the search index's permissions
-are behind the graph for the resources those events name; the other suffixes mean clone, application
-log or recommender work needs attention. Nothing retries dead-lettered work on its own.
+are behind the graph for the resources those events name; the other suffixes mean clone or application
+log work needs attention. Nothing retries dead-lettered work on its own.
 
 Resource and group producers first persist each permission event as a
 `CedarSearchPermissionOutbox` node in Neo4j, then signal their managed background relay and return.
@@ -1103,7 +1082,7 @@ command that takes the index back:
 curl -s -X POST http://localhost:9007/command/reset-search-index-job -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY"
 ```
 
-`reset-rules-index-job` and `reset-valuesets-import` are the same command for the other two claims.
+`reset-valuesets-import` is the same command for the value sets import's claim.
 A reset does not stop the abandoned job, so read the resource server log first and run it only once
 that job has stopped making progress; the job it abandons can no longer report, so it cannot say
 COMPLETE over the rebuild that follows it. A claim still within its deadline is left alone and
@@ -2126,12 +2105,8 @@ TypeScript, while both emit the same bytes for it.
   mvn -o -f $CEDAR_HOME/cedar-<name>-server/pom.xml install -DskipTests   # -o = offline; drop it if a dep is missing
   # or: cedarcli build java
   ```
-  (Seen unbuilt in this environment: schema, repo, submission, valuerecommender, openview, monitor.)
-  `resource`/`user`/`artifact`/`terminology`/`group` are the core for login + workspace. `schema` is
-  not needed by anything: it serves only its index page, and no service or frontend calls it — the
-  host in its name is the namespace under which property IRIs are minted, by string construction
-  alone. Whether it should exist at all is an open question on
-  [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
+  (Seen unbuilt in this environment: repo, openview, monitor.)
+  `resource`/`user`/`artifact`/`terminology`/`group` are the core for login + workspace.
 
 - **A service starts then dies with `no main manifest attribute, in …-application.jar`** → the jar is
   a thin jar (built without the shade/assembly step), so it has no runnable `Main-Class`. Rebuild that
@@ -2428,7 +2403,7 @@ Packaging is centrally managed. The shade plugin configuration lives once in `ce
 <cedar.shade.main.class>org.metadatacenter.cedar.<name>.<Name>ServerApplication</cedar.shade.main.class>
 ```
 
-A packaging change is therefore a one-line edit in `cedar-parent`, not fifteen edits. To verify a
+A packaging change is therefore a one-line edit in `cedar-parent`, not twelve edits. To verify a
 shaded jar is sound: it holds exactly one merged `META-INF/.../Log4j2Plugins.dat` (~22 KB, not the
 ~700-byte single-artifact version), a `Main-Class` in its manifest, and `java -jar <jar>` boots with
 no `StatusLogger` "Unrecognized format specifier" errors.
@@ -2716,6 +2691,16 @@ and in-flight instance references. The resource server also checks publication a
 body read with that ETag. An instance validated before an inclusion update cannot subsequently
 commit against the old template revision; it receives 412 and must be validated again.
 
+Ordinary template PUTs use the same fence when child identities or structure change and
+validation-shape equivalence cannot be proved. This covers pulled fields and elements without
+trusting a browser assessment. Metadata and known presentation changes do not require an empty
+instance set. Editing constraints on the same embedded identity retains the established advisory
+data-quality policy; administrative verbatim repairs retain their separate contract. A refused
+replacement leaves content and ETag unchanged. `check-update-template` includes an explicit
+`numberOfInstances: 0` when there are none; its update verdict is not a universal compatibility
+proof. `npm run smoke:rest -- pull-versions` exercises the public REST boundary, and
+`TemplateDeletionRaceTest` covers writes crossing actual in-flight instance creation.
+
 A write whose database outcome is uncertain retains its reservation and blocks deletion or structural
 inclusion updates of that template. Confirm the originating request/process has stopped and inspect
 the stored instance before repairing an unresolved reservation; do not remove a live reservation merely because it is old.
@@ -2861,10 +2846,8 @@ than failing the request that produced them. Every server therefore carries `neo
 Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
 the shared bootstrap registers it, so artifact carries `mongo`; repo, OpenView and monitor proxy document access and no longer register that store probe.
 Dropwizard's Hibernate bundle registers `hibernate` wherever a server opens MySQL, which is
-messaging, monitor and worker. Resource and valuerecommender gate on `opensearch`, both being
-unable to answer without their index. Submission gates on `ncbi-submission-queue`, whose contents,
-unlike the log queue's, cannot be dropped. Terminology's `ontology-catalogue` reports the size and
-name quality of the loaded catalogue. Bridge's `comp-tox` reports the EPA registry's condition and
+messaging, monitor and worker. Resource gates on `opensearch`, because it cannot answer without its
+index. Terminology's `ontology-catalogue` reports the size and name quality of the loaded catalogue. Bridge's `comp-tox` reports the EPA registry's condition and
 never fails on it.
 
 Each probe carries its own timeout, and the reason is specific: the Neo4j driver waits 30 seconds to
@@ -2882,7 +2865,7 @@ BioPortal client's own response timeout is 30 seconds.
 
 Worker health is also work-aware. Its `queue-consumers` check fails when a processor thread stops,
 its latest processing attempt remains failed, a dead-letter list is nonempty, or Redis cannot report
-dead-letter depth. A green worker means its datastores answer and all four consumers can still make
+dead-letter depth. A green worker means its datastores answer and all three consumers can still make
 clean progress.
 
 The report is served on both connectors. Dropwizard serves it on the admin connector, which is bound
@@ -3129,14 +3112,6 @@ failures and request-quota refusals use the common native envelope. A property r
 store fails answers 500 with a message and an `errorId`, and the database exception is logged under
 that `errorId` rather than returned.
 
-Dependency classification is declared per integration. LINCS retains its established gateway
-mapping for upstream 400/401/500 (and treats deployment-owned credential rejection 403 likewise);
-other statuses, including 429/504, are preserved. ImmPort workspace lookup relays client refusals
-except deployment-owned credential failures (401/403), which are 502; upstream 5xx and unusable
-successful bodies are also 502. Both paths report transport failure as 503 and preserve an
-upstream `Retry-After` on a refusal. This workspace policy does not change the older multipart
-ImmPort submission flows.
-
 Request logging initializes correlation before authentication and routing. An incoming global ID is
 retained and each request receives a fresh local ID. The response event uses the context that emitted
 START, even if another filter changes headers; OPTIONS emits neither START nor END. Both the response
@@ -3145,14 +3120,14 @@ paths. `RequestLoggingLifecycleTest` verifies reused workers and failure cleanup
 `RequestLoggingHttpMatrixTest` verifies authentication/routing errors, concurrent requests and paired
 IDs through real Jetty with the production registration.
 
-Chunked multipart uploads in impex and submission use the shared `ChunkUploadStore`. It validates
+Chunked multipart uploads in impex use the shared `ChunkUploadStore`. It validates
 Flow.js's fixed and merged-final-chunk layouts, the declared and actual byte counts, and the 5 GiB
 per-file ceiling before publishing a chunk. Identical retries are idempotent; conflicting metadata,
-bytes and filename aliases return 400. Completion counts distinct chunks and files, and impex/NCBI
-claim processing once. A consumed upload identifier cannot be reused until the process restarts.
+bytes and filename aliases return 400. Completion counts distinct chunks and files, and impex
+claims processing once. A consumed upload identifier cannot be reused until the process restarts.
 The ledger remains process-local: callers must resend all chunks after a restart. `ChunkUploadMatrixTest`
-covers ordering, retries, bounds, owner isolation and concurrent completion; both service adapters
-have adoption tests, and `ImpexUploadHttpTest` sends real authenticated multipart HTTP requests.
+covers ordering, retries, bounds, owner isolation and concurrent completion; the impex adapter
+has an adoption test, and `ImpexUploadHttpTest` sends real authenticated multipart HTTP requests.
 
 Application relays use `ResponseRelay` for buffered response bytes and metadata. Protocol headers
 (`Retry-After`, authentication challenges, `Allow`, `Location`) and repeated representation headers
@@ -3173,14 +3148,11 @@ Regression coverage runs in the normal backend-free Maven suites:
   quota errors, HEAD, creation headers and explicit operation responses.
 - `ArtifactServerAnswerMatrixTest` crosses command steps with upstream refusals through 429/504
   and lost connections, checking status/reason preservation and unchanged artifact/graph state.
-- `SubmissionAnswerMatrixTest` runs authenticated LINCS and ImmPort workspace routes against a
-  bound loopback stub, including malformed replies, dropped connections and bounded timeouts.
 - `LocalStoreResourceTest` checks property-error envelopes against its temporary SQLite fixtures.
   The existing `BioPortalAnswerMatrixTest` and `RegistryAnswerMatrixTest` retain their declared
   external-service policies.
 
-Tests use explicit expected policies rather than consulting production mapping code. Stub call
-counts in the submission matrix prove that authentication or routing did not short-circuit the case.
+Tests use explicit expected policies rather than consulting production mapping code.
 These contracts supplement the redeploy and whole-stack smoke gate; they do not replace it.
 
 ### Production search probe, 2026-10-19
@@ -3221,6 +3193,51 @@ contents or availability of production's ontology file. Evidence is in
 `.cedar/reports/search/production-api-20261019.jsonl`. The parser and URL corrections have real
 OpenSearch and HTTP regression coverage; the full-stack corpus includes the production quote,
 punctuation, escape and spacing cases, and checks that pagination links retain the expression.
+
+The deeper post-deployment audit uses `ops/cedar_search_matrix_audit.py`:
+
+```bash
+python3 ops/cedar_search_matrix_audit.py \
+  --api-key-file "$HOME/.cedar-admin-key" \
+  --out "$CEDAR_HOME/.cedar/reports/search/production-search-matrix.json"
+```
+
+It follows only same-origin HTTPS search links, reads sequentially with a delay, caps requests and
+complete-set sizes, and checkpoints each response as JSONL. It records identifiers and selected
+search metadata, plus constraints from a bounded field sample, not credentials, continuation tokens
+or full artifact documents. Use a fresh output path for every run. It refuses redirects and stops on
+authorization failure or repeated server failures. This is a functional audit, not a load test.
+
+On 2026-10-19, the post-deployment baseline, expanded matrix and targeted confirmations made 766
+GET requests. Both search endpoints agreed on counts across 108 filter combinations; 26 complete
+Boolean-set comparisons, 86 bounded complete walks, 21 sort-order checks and 20 returned-title
+phrase checks passed. The original quote/punctuation/spacing/HTTPS defects were corrected:
+`"Rad"`, `"rad"` and `"RAD"` each found 18 resources, while unquoted `Rad` found 5,217.
+
+The deeper checks exposed these additional defects:
+
+| Surface | Production observation | Regression contract |
+| --- | --- | --- |
+| Query data in URLs | `"C%2B%2B"` became `"C++"` in links; a `"Rad%22"` first link answered 400 when followed. `"{Rad}"` answered 500. | Treat decoded parameter values as URI-template substitutions so percent escapes and braces remain data. |
+| Empty last page | No matches with `limit=1` produced `offset=-1`; following it answered 400. | Empty-result first/last offsets are zero. |
+| Equal sort values | Ordinary and deep search ordered identical names differently. Repeated complete walks found no loss or duplicates in this sample. | Both paths use the identifier as the final tie-breaker. |
+| Conflicting selectors | A nonexistent template had zero instances, but adding `q=Sex:Male` returned 47,721 unrelated instances because `is_based_on` was ignored. | Refuse `q` together with `is_based_on` as HTTP 400. |
+| Identifier pagination | `id=...&offset=1` repeated the one resource. A deep identifier lookup accepted a garbage continuation. | Keep total 1, return an empty page past offset zero, and refuse a continuation the graph lookup cannot resume. |
+| Possible-value projections | `[pv]*` still found only three fields. Of 40 selected Indicator fields read from storage, all 13 with nonempty CADSR value sets were absent from that result. The known Yes/No witness also remained absent. | Check the deployed ontology and rebuild projections using the production runbook. Code deployment alone does not populate existing records. |
+
+Positive possible-value witnesses (`White`/`white`/`WHITE`, and the phrase `Stage II`) established
+that case folding and exact/phrase matching work for the few populated projections. The GET-only
+audit cannot establish whether the production ontology file is present, current or complete.
+
+Raw evidence lives under `.cedar/reports/search/production-postdeploy-baseline-20261019.json`,
+`production-hard-matrix-20261019-r2.json`, `production-hard-followup-20261019.json`,
+`production-encoding-20261019.json` and `production-hard-confirm-20261019.json`. Raw failed-check
+counts are not defect counts: the first pass also challenged empty optional parameters, compact
+identifier links, identifier-selector precedence and literal square brackets. These existing
+contracts were confirmed and the reusable audit now recognizes them. Empty optionals mean omission;
+identifier lookup takes precedence over a text query and does not apply version/publication filters;
+square brackets are escaped literal text, not supported range syntax. Admin scope does not establish
+ordinary-user permission isolation or exhaustive store/index parity.
 
 ### Default test environment
 
@@ -3278,11 +3295,13 @@ The corpus contains 13 standalone fields, two reusable elements, four templates 
 Field names, property keys, preferred labels and UI overrides intentionally differ. Contrasts include
 wrong-field values, same-name private twins, absent/null/empty values, literal/linked values, ontology
 labels with different URIs, nested/repeated values, typed values, and readable instances of private
-templates. The 87 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
-348 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
+templates. The 91 hand-authored queries expand across owner/reader and `/search`/`/search-deep` into
+364 exact-result checks. Permissions add 792 cells: direct/group/inherited grants at viewer/editor/
 manager, plus direct/inherited everybody viewer, crossed with private/granted/revoked, two actors,
-name/value queries, both endpoints and all three sharing views. Another 32 cells walk small pages
-by offset and continuation; 21 lifecycle
+name/value queries, both endpoints and all three sharing views. Another 48 cells walk single-row pages
+by offset and continuation, including literal percent/braces and empty-result links. Sixteen protocol
+cells cover malformed queries, conflicting template selectors, identifier offsets and unusable
+continuations; 21 lifecycle
 checks cover rename, value and ontology changes, overlapping grants, membership, moves, deletion
 and continuation revocation, caller binding and sharing-view binding. Seven browser scenarios cover
 entry, exact rows, reload/Back, type filtering, opening the intended identity and searching within
@@ -3405,8 +3424,8 @@ including error responses; HTTP/2 is untouched. The policy is conservative: star
 before consuming the body forfeits HTTP/1 reuse even when those bytes are already buffered.
 `UnreadRequestBodyFilterTest` holds request bodies back until the response arrives to exercise the
 failure deterministically, and also covers chunked bodies, servlet and asynchronous refusals,
-partial reads, `100 Continue`, and reuse after consumed bodies. A resource-server or submission-server
-failure reading the next response after an early refusal must be investigated at this boundary,
+partial reads, `100 Continue`, and reuse after consumed bodies. A resource-server failure reading
+the next response after an early refusal must be investigated at this boundary,
 not hidden by re-enabling write retries.
 
 The 2026-10-18 acceptance run passed the full Java build (8,653 tests reported, six skipped,
@@ -3429,10 +3448,9 @@ an outage made the suite flaky. Local dead ports still refuse immediately, and t
 carry five-second request deadlines. Normal JVMs have no property and retain the production
 timeouts.
 
-Worker processor tests inject short poll and retry intervals directly; the public constructors
-retain the production five-second value-recommender poll and one-second handling retry. This
-shortens the clock without skipping the queue state transitions or the retry/dead-letter assertions
-the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
+Worker processor tests inject short retry intervals directly; the public constructors retain the
+production one-second handling retry. This shortens the clock without skipping the queue state
+transitions or the retry/dead-letter assertions the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
 which is what a consumer spends between claims when its queue is empty.
 
 Test servers and in-process HTTP stubs bind to exact `127.0.0.1:0`, letting the OS allocate the
@@ -3779,7 +3797,7 @@ the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`,
 `contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
 `inclusion`, `negotiation`, `openness`, `pagination`, `search`, `sharing`, `validation` and
 `versioning`. The committed
-`rest/expected-checks.json` inventory holds 2,125 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 2,106 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
@@ -3957,6 +3975,67 @@ Anything younger than fifteen minutes is reported and skipped, because a run sti
 its working folder exactly as a dead one did and two sessions share this stack. `--min-age=0`
 includes it, which is what to pass when the run is known to be over.
 
+### Code Coverage
+
+JaCoCo measures which lines and branches of CEDAR's Java code the suites execute. `cedar-parent`
+attaches its agent to every Surefire and Failsafe JVM on every build that runs tests, so a local
+build runs its suites exactly as CI does. Each module that runs tests writes its own report:
+`target/site/jacoco/` for Surefire suites and `target/site/jacoco-it/` for Failsafe ones. CI
+uploads the reports as the `coverage-reports` artifact. `-Djacoco.skip=true` runs one Maven build
+without the agent:
+
+```bash
+./mvnw verify -Djacoco.skip=true
+```
+
+Three properties of the reports matter when reading them.
+
+- **A report credits a module only with its own tests.** JaCoCo reports on the classes a module
+  compiles, so library code that a server's suites run counts toward neither the server's report
+  nor the library's. A server's report does cover the server itself, because the suites start the
+  Dropwizard application inside the test JVM rather than calling a separate process.
+- **Only CEDAR's own classes are instrumented.** The embedded Neo4j, MongoDB, Dropwizard and Jersey
+  run in the same JVM. Measuring them would cost time and say nothing about CEDAR, so the agent
+  instruments only classes under `org.metadatacenter`.
+- **Generated classes are excluded.** `cedar-impex-server-core` compiles jsonschema2pojo and xjc
+  output, and `cedar-cadsr-tools` compiles xjc output. Each of those modules excludes them in its own
+  declaration of the JaCoCo plugin.
+
+Because of the first property, `cedarcli build` reports two figures after a build that runs Java
+tests. It reads each module's own-test figure from its report. It then merges the execution data of
+every test JVM the build ran and credits each module's classes with any test that ran them. The
+console shows both figures in one line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds
+them per module and per repository, for lines and for branches. `cedarcli build diagnostics` removes
+records older than its `--days`, as it does failed-build bundles. cedar-project's CI job, which runs
+every server's suites against the develop libraries in one reactor, runs the same report through
+`python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
+JSON as the `coverage-summary` artifact. On 2026-10-19 the estate stood at
+53.4% of 64,351 lines by each module's own tests and 68.7% by any test. The shared libraries differ
+most. `cedar-microservice-libraries` reached 80.2% by any test against 47.6% by its own. The figures
+are a report, not a gate. When cedarcli cannot compute the merged figure, for instance because the
+local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
+
+The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
+that configures Surefire's or Failsafe's `<argLine>` itself must begin it with `@{argLine}`.
+Otherwise its tests run without the agent, and its report reads zero with no error. No module sets
+one today.
+
+Measured on 2026-10-19, the agent's cost is within run-to-run variation. `cedarcli build java`
+took 230 seconds with it, against 217 and 227 seconds for the two full builds before it without.
+`cedarcli build this` in `cedar-resource-server` took 118 seconds without it and 116 with it.
+
+Each tested module has a floor, which JaCoCo's `check` goal enforces in the `verify` phase of every
+build that runs tests. The floor is the `cedar.coverage.line.minimum` property in the module's own
+POM: the share of its lines its Surefire suites must cover, set on 2026-10-19 two points below the
+figure it measured, rounded down. A comment beside each records that figure. `cedar-parent` defaults
+the property to zero, so a module without a floor of its own has none, and the check skips a module
+that ran no tests. The floor uses the module's own figure, not the any-test one, so it cannot be met
+by another repository's suites. To raise a floor after adding tests, set the property to the new
+figure less two points. Lowering one is a decision to accept less coverage, and the commit should say
+why.
+
+`cedar-monitor-server`'s CI stops at `test`, so its floor is checked by local builds and not by CI.
+
 ### REST Performance Testing
 
 `ops/e2e/rest-perf` is the k6 load harness for the real REST stack. It is deliberately separate from
@@ -4090,11 +4169,6 @@ the normal one-second index refresh: forcing a refresh per bulk or per durable b
 consumer under sustained load, despite passing idle freshness checks. The final Redis-outage
 smoke also passed, as did `cedarcli test e2e`: 1,063 REST checks and both browser tiers (source
 digest `0d287e8dee0a397a`). The run retains `permission-outage.log` and `whole-stack-smoke.log`.
-A separate log finding remains: the unchanged value-recommender `RulesGenerationStatusManager`
-uses a shared `HashMap`, and concurrent generation/status reads throw `ArrayIndexOutOfBoundsException`
-from `HashMap.valuesToArray` through `getStatus()`, returning HTTP 500 to the worker's status poll.
-The server-retention item in the backend roadmap tracks that follow-up; the passing smoke does not
-cover that concurrent status-map failure. The run retains `recommender-status-race.log`.
 
 The earlier soak failed on conditional artifact moves, artifact ACL updates and folder ACL updates,
 whose p95 was 3,625, 3,604 and 3,571 ms against a 1.5 s threshold, with maxima near 10 s. Every
@@ -4283,7 +4357,7 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
 - **Dependency coverage is partial but deliberate.**
   The shared proxy, exception mapper, worker queues and health checks are covered, with real HTTP
   dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
-  Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the
+  Neo4j reads, resource OpenSearch reads, the messaging SQL store and the
   Keycloak admin lookup, monitor Redis reads, bridge external-authority HTTP, the resource graph and
   OpenView's resource HTTP boundary. There is no HTTP application-log read: log persistence is an app-log
   worker concern and its retry/dead-letter path is covered. Resource index rebuilds are accepted
@@ -4294,10 +4368,9 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   controlled-term versions, but the resolver is fail-safe: it leaves that pin absent and increments
   `skippedResolutionCount` when terminology is unavailable. Monitor's Keycloak user detail is a
   diagnostic assembled from several stores, so it logs the Keycloak failure and returns that section
-  as unavailable without discarding the other sections. Submission notification and FTP traffic runs
-  after queue acceptance in background submission processing, not as a synchronous HTTP dependency.
-  DataCite is the exception still needing work: its minting client and recovery behavior belong to the
-  explicit DataCite lifecycle roadmap item rather than a dead-port-only degradation test.
+  as unavailable without discarding the other sections. DataCite is the exception still needing
+  work: its minting client and recovery behavior belong to the explicit DataCite lifecycle roadmap
+  item rather than a dead-port-only degradation test.
 
   Concurrent edits are covered both over HTTP and directly at the Mongo compare-and-swap boundary.
   Pagination is covered on a folder's contents and search (`pagination` suite); the other paged
@@ -4335,7 +4408,7 @@ cd $CEDAR_HOME/cedar-development/ops/e2e && npm run smoke
 ```
 
 Pass `restart` no service names. With no arguments it restarts everything the script manages,
-which includes the three gulp frontends and the four `ui-*` frontends, not only the 15 Dropwizard
+which includes the three gulp frontends and the four `ui-*` frontends, not only the 12 Dropwizard
 services. Naming services explicitly narrows that and is easy to get wrong: a list of the Java
 services alone leaves the frontend running whatever it started with, so the gate cannot catch a
 frontend regression at all. Gate on `health` rather than reading the status table. It no longer
@@ -4356,7 +4429,7 @@ Which integration baseline each CEDAR microservice meets. The baseline is one su
 module that boots the real service wiring, exercises a request over HTTP, and pins both a success and
 a meaningful failure path, without any external service.
 
-All fifteen microservices meet this baseline. Add a row when adding a service.
+All twelve microservices meet this baseline. Add a row when adding a service.
 
 A suite must run without shared developer infrastructure or a live external API. Use
 `cedar-test-support-library` for in-process stores and authentication, bind application and stub
@@ -4383,11 +4456,8 @@ and what it needs to run.
 | openview | `OpenViewProxyTest`, `OpenViewResourceOutageTest` | anonymous JSON/status parity, credential stripping, no fallback | resource HTTP stub + embedded Neo4j for bootstrap |
 | repo | `RepoRoutesRespondTest` | `RouteSurface` 401 | none |
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
-| schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
-| submission | `SubmissionRoutesRespondTest` | `RouteSurface` 401 | none |
 | terminology | `TerminologyServerApplicationSmokeTest`, `AnonymousBioPortalRoutesTest` | runtime-derived `RouteSurface` 401 with public-route exceptions, which the spec must mark as taking an optional credential, a separate property-search probe, and the four anonymous BioPortal routes answered without a credential | none; a BioPortal HTTP stub for the anonymous routes |
 | user | `UsersResourceTest`, `UsersResourceNeo4jTest` | runtime-derived route inventory with missing/invalid user 401 probes; profile and key-management behaviour | in-memory users / embedded Neo4j |
-| valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
 
 Artifact's count test inserts graphless documents in embedded Mongo and verifies each total rises;
@@ -4443,13 +4513,11 @@ proves an endpoint correct.
 
 ### Anonymous Service Contracts
 
-`openview` and `schema` accept anonymous requests; a blanket missing-credential 401 is therefore
-not their contract. OpenView strips caller credentials and proxies resource's anonymous artifact
-responses. `OpenViewProxyTest` covers success, 401, 404 and upstream failures without fallback;
+`openview` accepts anonymous requests, so a blanket missing-credential 401 is not its contract.
+OpenView strips caller credentials and proxies resource's anonymous artifact responses.
+`OpenViewProxyTest` covers success, 401, 404 and upstream failures without fallback;
 `OpenViewResourceOutageTest` covers unavailable resource service. `OpenViewFolderReadTest` covers
 inherited folder openness, public projection and 401 for a closed tree.
-
-Schema's index is public; its suite verifies 404 for an unrouted path.
 
 ### Known Gaps
 
@@ -4476,12 +4544,14 @@ authenticated surface, so excluding the tagged tests does not silently drop a ro
 Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
 temurin, a cache of the Maven repository, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME`
-and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the surefire
-reports uploaded whatever the outcome. The search-library and resource-server workflows also upload
-their Failsafe reports, add the `opensearch-it` profile and an OpenSearch service; other component
-workflows remain backend-free. Jobs carry a hard timeout: twenty minutes for a component, thirty for
-those two OpenSearch jobs, forty-five for `cedar-project`, which builds nineteen repositories in one
-reactor.
+and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the Surefire
+and JaCoCo reports uploaded whatever the outcome, as the `surefire-reports` and `coverage-reports`
+artifacts. `cedar-monitor-server` runs `test` rather than `verify`, so it names `jacoco:report` on
+its command line. [Code Coverage](#code-coverage) describes the reports. The search-library and
+resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and an
+OpenSearch service; other component workflows remain backend-free.
+Jobs carry a hard timeout: twenty minutes for a component, thirty for those two OpenSearch jobs,
+forty-five for `cedar-project`, which builds sixteen repositories in one reactor.
 
 Two repositories are aggregators over `../` sibling paths that a lone checkout cannot satisfy, so
 `cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
@@ -4691,7 +4761,7 @@ carry. Check `brew list --pinned` before upgrading Homebrew on a workstation.
 
 **Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.7.1, and
 the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
-25.0.3 in August 2024 — which the bearer-token path of all fifteen servers is built on. Everything
+25.0.3 in August 2024 — which the bearer-token path of all twelve servers is built on. Everything
 else that was thought to block it does not: the admin client, the event-listener SPI and the login
 theme are a coordinate change, no change at all, and two FreeMarker files respectively. The evidence
 and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
@@ -4750,8 +4820,8 @@ Draft-04 meta-schema to preserve the exact accept boundary. The java-json-tools 
 otherwise fully removed — no module depends on it.
 
 The **Jakarta EE 10 framework migration (Dropwizard 5) is complete.** `dropwizard-sundial` had no
-Dropwizard 4 release and remains retired rather than forked: the worker and value-recommender
-schedulers are plain `Managed` poll loops. Multipart upload uses
+Dropwizard 4 release and remains retired rather than forked: the worker's schedulers are plain
+`Managed` poll loops. Multipart upload uses
 `commons-fileupload2-jakarta-servlet6`, and CORS uses Jetty's EE10 servlet package.
 
 Two compatibility settings are deliberate. CEDAR artifact identifiers are IRIs encoded into path

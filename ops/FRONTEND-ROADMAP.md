@@ -161,11 +161,41 @@ Keep status checks, access checks, review and explicit discard distinct. A faile
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
 current draft-retention contract and operator verification commands.
 
+### 4. Fix Workspace's WCAG Failures
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
+criteria that Workspace fails, two of them through causes it shares with the other components.
+Agree the fixes marked as visible before making them.
+
+- **Focus after group and description changes (2.4.3).** Focus falls to the page after creating a
+  group, adding or removing a member, and saving an artifact's description. Give it a defined
+  landing place in each case, as the listing's deletions and moves already have.
+- **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
+  running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
+  hover tooltip. Marking it `aria-disabled`, as Save is when errors refuse it, would dim it.
+- **Text spacing in grid cards (1.4.12).** Visible. Under WCAG's text spacing a grid card's type
+  and date line, such as "Template · 1 day ago", ends in an ellipsis. The line needs to wrap and the
+  card to grow, through the token package's resource-card recipe, which also changes cards that are
+  cut today.
+- **Selection as a state (1.3.1, 4.1.2).** A selected row is described as Selected, because a plain
+  table's rows take no `aria-selected`. Stating it as a state needs a grid and its arrow-key model,
+  which is a keyboard design decision.
+- **Menus that stay open (2.4.3).** Visible. The resource menu and the user, actions and New
+  menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
+- **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
+  with no confirmation or undo. Decide whether it needs either.
+- **Messages that arrive already written (4.1.3).** Most toasts, and the loading statuses, are
+  inserted together with their text, so a screen reader may not announce them. Give each a region
+  that is already present when the text arrives. A notice identical to the one before it shows and
+  says nothing, because the notice is never cleared, and fixing that is visible.
+- **Text with no language (3.1.2).** The joined list of failed moves, raw unknown statuses and
+  CEE's validation text carry no language.
+
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 4. Whole-Component Runtime Theme Overrides
+### 5. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -174,7 +204,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 5. Authoring Feedback for Unsupported Markup
+### 6. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -187,14 +217,15 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 6. Clear the Advisories Waiting on Upstream
+### 7. Clear the Advisories Waiting on Upstream
 
-Two advisories remain in the frontend locks, and no release of either package fixes them. Both
-sit in build, lint and test tooling, and nothing the affected projects ship contains them. Each is
-a denial of service that needs an attacker to supply the glob pattern or the format string, and
-here those come only from the projects' own configuration. Nothing waits on this item. The train's
-lock baselines record the current counts as reviewed, so trains and releases pass. Every other
-lock outside the legacy Template Editor audits clean.
+Seven advisories remain in the frontend locks. All of them sit in build, lint, test or
+development-server tooling, and nothing the affected projects ship contains them. The train's lock
+baselines record the current counts as reviewed, so trains and releases pass, and nothing waits on
+this item.
+
+Two of them have no fixed release. Each is a denial of service that needs an attacker to supply the
+glob pattern or the format string, and here those come only from the projects' own configuration.
 
 - `braces` (GHSA-vfj7-8cjw-p6xm, high) affects every release up to 3.0.3, the latest. It reaches
   the Ember CEE demo only through `micromatch` 4.0.8. ember-cli, `@embroider/compat` by way of
@@ -205,22 +236,131 @@ lock outside the legacy Template Editor audits clean.
   require. It reaches the model library through `ts-jest`, `babel-plugin-istanbul` and
   `@istanbuljs/load-nyc-config`, which still loads `js-yaml` 3 and with it `argparse` 1.
 
-The likeliest way out is withdrawal rather than a fix. Both maintainers dispute their advisory,
-and neither has merged any of the fix pull requests opened since it was published. On 2026-10-05 a
-contributor asked the authority that issued the `braces` advisory to withdraw it. A withdrawn
-advisory drops out of `npm audit` with no change on CEDAR's side. stylelint's maintainers say its
-unreleased 18.0.0 drops its glob dependencies, which removes one route for `braces` and leaves the
-others.
+The likeliest way out for these two is withdrawal rather than a fix. Both maintainers dispute their
+advisory, and neither has merged any of the fix pull requests opened since it was published. On
+2026-10-05 a contributor asked the authority that issued the `braces` advisory to withdraw it. A
+withdrawn advisory drops out of `npm audit` with no change on CEDAR's side. stylelint's maintainers
+say its unreleased 18.0.0 drops its glob dependencies, which removes one route for `braces` and
+leaves the others.
 
 No override helps while no fixed version exists. Dropping stylelint and ember-template-lint would
 not help either, because ember-cli and Embroider would still bring `braces`, and moving
 ember-template-lint to 7 removes one route for each package without clearing either.
+
+Three more packages have fixed releases the locks have not taken. npm's audit began counting them
+on 2026-10-20.
+
+- `vite` carries three advisories against every release before 8.3.3, all in the editor launcher
+  behind the `/__open-in-editor` endpoint every development server mounts. GHSA-587h-7wmj-h5pm
+  (high) and GHSA-698v-4r3x-3vcv (moderate) apply on Windows only. GHSA-r825-w8mm-5pxw (moderate)
+  applies only under WSL, with Vim, Emacs or a plugin-enabled Notepad++, and an attacker able to
+  create a file named `+…` or `-…` in the working folder. None of them applies on the macOS
+  workstation, the Linux runners or the images, which serve built files through nginx. The React
+  and Ember demos ask for vite `^8.2` and carry 8.3.4. The ten Angular projects carry 8.3.0,
+  because `@angular/build` 22.2.3 pins it exactly, and `@angular/build` 22.3.0-next.2 already pins
+  8.3.4. On 2026-10-20 the decision was to take the stable Angular release that moves the pin,
+  through the ordinary dependency update, rather than to override vite in each project.
+- `follow-redirects` (GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c, high) affects 1.16.0, which can
+  carry credential headers to another origin. It reaches the Ember demo through ember-cli's
+  `http-proxy`. 1.16.1 fixes both, within the range ember-cli asks for.
+- `markdown-it` (GHSA-r7fv-28h4-cvq7, high) affects every release before 14.3.2, whose smart quotes
+  take quadratic time on unmatched closing quotes. It reaches the Ember demo through ember-cli. 14.3.2
+  fixes it, within the range ember-cli asks for.
+
+A lock update in the Ember demo takes the last two.
 
 When an advisory is withdrawn, lower the counts recorded for the affected locks in
 `ops/frontend-train.json` by hand. The locks themselves do not change, and
 `cedarcli publish baselines --refresh` refreshes only a lock whose digest has moved. When a package
 publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
 each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
+
+### 8. Fix CEE's WCAG Failures
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found six WCAG 2.2
+criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
+Agree the fixes marked as visible before making them.
+
+- **Element descriptions on hover only (2.1.1).** Visible. An element's description and property
+  IRI marks sit inside its panel header, which is a button, so they cannot take focus, and only a
+  pointer shows their tooltips. Either the marks move out of the header or the header shows the
+  tooltip when it takes focus.
+- **Notices that vanish (2.2.1).** Visible. The notices that an entry was cleared or reverted
+  disappear after five seconds, and nothing keeps them.
+- **Severity by colour (1.4.1).** Visible. Range and quality warnings differ from errors only by
+  amber against red.
+- **The link-out icon (2.5.8).** Visible. At 480px a read-only term's 20px link-out icon touches its
+  IRI link. It needs a 24px target or a 4px gap. `visual/tests/accessibility.spec.ts` records it as
+  a known violation.
+- **Instructions cut short (1.4.10).** Visible. At 320px the PubMed and RRID boxes' placeholders
+  need about 271 and 276px and get 264px, so their last letters are cut. They need a shorter
+  instruction, or the instruction moved into hint text that wraps.
+  `visual/tests/layout-resilience.spec.ts` records it as an exception.
+- **Text still unmarked (3.1.2).** CEE leaves unmarked a select's panel, names that join a label to
+  CEE's words, such as "Time for" a label, and options that carry the default mark.
+
+Extend `visual/tests/layout-resilience.spec.ts` to tooltips, the multi-select, time zone and
+terminology panels, and long values in read-only boxes.
+
+## Frontend Dependencies
+
+### 9. Take the Frontend Dependency Upgrades That Need Code Changes
+
+Each dependency below has a newer major release that a lock update cannot take. Some wait on an
+upstream release, most need code changes, and one needs a design decision. The versions are the
+newest that `npm outdated` reported on 2026-10-19, after every in-range update had been taken.
+
+**Waiting on upstream.**
+
+- **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
+  Angular release accepts 7.
+- **`@types/node` 26.** The types follow the runtime's major, and every project runs Node 24.
+
+**Needing code changes.**
+
+- **Vitest 5.** `@angular/build` 22.2.3 already accepts it. CEE's root and its domain harness must
+  move together, because the harness runs on the root's worker, and the harness's `oxc` transform
+  settings need checking against Vitest 5's Vite, since the previous major broke them. The other
+  Vitest projects are CED, CETP, Workspace, OpenView, Bridging, Monitoring and the Angular and
+  React demos. OpenView, Bridging and Monitoring also move `@vitest/browser-playwright` with it.
+- **ngx-translate 18** in OpenView, Bridging and Monitoring. It removes `TranslateModule`, so each
+  application's module-based setup moves to the provider functions.
+- **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring. The adapter's major
+  follows the Keycloak server, so these move with "Upgrade Keycloak to a supported release" in
+  [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
+- **ng-alt-snotify 17** in OpenView, Bridging and Monitoring, which run 16, 15 and 14. Each pins an
+  exact Angular major as a peer, which an npm `overrides` entry satisfies today. Check whether 17
+  changes the API the applications call before moving.
+- **TypeScript 6 in the model library.** The library builds with TypeScript 5.9, while every
+  Angular project and CEE's harness use 6.0.
+- **The demos' tooling.** ESLint 10 in all three demos; zone.js 0.16 and jsdom 30 in the Angular
+  demo; Babel 8, QUnit 3, ember-template-lint 7 and eslint-plugin-ember 13 in the Ember demo.
+  Moving ember-template-lint to 7 also removes one route each for the `braces` and `sprintf-js`
+  advisories that "Clear the Advisories Waiting on Upstream" tracks.
+
+**Needing a design decision.**
+
+- **lucide-static 1.59** in the design tokens, which pin 1.47.0 exactly. A newer release can
+  redraw icons that every consumer shows, so the move needs its rendered differences reviewed and
+  approved like any other visual change.
+
+## Accessibility Across Components
+
+### 10. Fix the WCAG Failures the Components Share
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found failures that recur
+across CED, CEE, the term picker and Workspace because they share a cause. Fix each once, where its
+cause lives.
+
+- **Control borders (1.4.11).** `control-border-default` in `cedar-design-tokens` is
+  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, and CED, CEE and Workspace draw text-input borders
+  with it. Criterion 1.4.11 asks for 3:1. A darker value changes every consumer's controls, so
+  agree it as a visual change, and extend the token package's contrast test from text pairs to
+  non-text pairs.
+- **Tint-only state (1.4.1, 1.4.11).** A tint of about 1.2:1 is the only mark of the term picker's
+  current release and picked tree term, Workspace's selected list row and pressed view switch, and
+  the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
+  hue alone. Agree one second cue, such as a bar, a weight or an icon, and apply it in each place.
 
 <a id="ced"></a>
 
@@ -230,7 +370,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 7. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -244,14 +384,64 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 8. Keyboard and Screen-Reader Access
+### 12. Keyboard and Screen-Reader Access
 
-Verify keyboard focus order across settings, palette actions and nested elements. Add
-live-region announcements for constraint changes, accepted or rejected local Apply actions and
-host-supplied validation results. Exercise those workflows with a screen reader and verify that
-focus returns to a useful control after each action.
+Two parts of CED's keyboard and screen-reader access remain open. One needs a person with a
+screen reader, and the other needs a design decision before it can be built.
 
-### 9. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+**Screen readers.** Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol)
+with VoiceOver and Safari and with NVDA and Firefox, and fix what it finds. The browser suite
+cannot tell whether a screen reader speaks the live region's messages, in what order, or
+whether one interrupts another.
+
+**The sidebar's field list.** Each entry in the sidebar's list of the template's fields opens
+the container that holds its field, selects the field and scrolls to it. Only a click does
+this. The entry, `.draggable-field-item` in `field-library-sidebar.component.html`, has no
+`tabindex` and no key handler, so a keyboard cannot reach it. Dragging an entry reorders the fields, and the Overview
+already offers that by keyboard. Going straight to a field has no keyboard route. A keyboard can
+reach each field on the canvas, but only by moving through the cards before it, which the list
+lets a pointer skip.
+
+Two designs fit. A button per entry adds one Tab stop per field, which in a long template puts
+the canvas many stops away. A listbox adds a single Tab stop, and the arrow keys move within
+it. Decide as well whether choosing an entry moves focus to the card it selects. Agree the
+resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` and pin where
+focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
+accessibility lint rules until this is done. Remove that exception in the same change.
+
+### 13. Fix CED's Remaining WCAG Failures
+
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these failures in
+CED beyond the ones it shares with the other components. Several need a design decision first.
+
+- **Narrow widths (1.4.4, 1.4.10, 2.1.1).** Visible. Below 768px of width the designer hides the
+  Overview (`app.component.scss`), and with it outline navigation, Expand all and Collapse all, and
+  the only keyboard route for reordering, so it is gone at 200% zoom as well. At 320px the
+  Preferences field-type list scrolls sideways by 8px, the Define Presets body scrolls sideways,
+  and a nested element's Element label overlaps its Version. The template's Types row pushes Enter
+  IRI manually past the card's edge and sets "No types selected." one letter to a line, already at
+  375px. `browser/tests/layout-resilience.spec.ts` records each as an exception. Decide how a
+  narrow host lays these out.
+- **Dragging (2.5.7).** Reordering on the canvas, in the Overview, in the child picker and in the
+  sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route
+  that needs only single clicks, such as Move up and Move down buttons, which is new UI to agree
+  first. The sidebar's divider never resizes anything, because it looks for a `.border-r` ancestor
+  that does not exist (`field-library-sidebar.component.ts`).
+- **Insertion pills (1.4.13).** The insertion pills that appear on hover between cards are 36px tall
+  in an 8px gap. They overlap the neighbouring cards, and Escape does not dismiss them.
+- **Field settings toggles (2.5.8).** Visible. A field card's settings toggle is 36 by 14px, and the
+  field header beside it, which opens the same settings, is 23px tall, a pixel short of WCAG's 24.
+  The settings panel's last control also sits within 12px of the toggle's centre. Either the toggle
+  or the header needs 24px. `browser/tests/accessibility.spec.ts` records it under `EXCEPTIONS`.
+- **The child picker's results (1.3.1, 4.1.2).** Its result rows act on a click but are plain table
+  rows, whose selected state Chromium ignores. A grid needs an arrow-key model, a list of buttons is
+  a redesign, and a visually hidden button in each row disturbs the scroller. Decide which. The
+  smokes find a row by its name, Select and the artifact's name, which any choice must keep.
+- **Labels that vanish (3.3.2).** Visible. The field-name and option boxes and the library search
+  are labelled only by placeholders, which disappear once the box holds text. They need labels
+  that stay.
+
+### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
@@ -271,3 +461,38 @@ Agree its interaction before implementation; this proposal does not authorize a 
 diagnostic or recovery button, banner or file picker on ordinary editing screens.
 Any confirmed defect should lead to a generation or validation fix and a regression test; verify
 that the fallback preserves work while the rejected write remains blocked.
+
+<a id="pull-version-management"></a>
+
+### 15. Complete Pull-Based Reusable Artifact Version Management
+
+- **Richer compatibility proofs and impact.** Recognize safe schema widenings beyond
+  validation-shape equality. Assess the actual invalidated record count when schemas
+  differ, including records the author cannot read, without exposing their content.
+  Keep universal compatibility, stored-instance impact and semantic changes distinct.
+  Extend final-write protection to permit proven safe widenings without weakening its
+  concurrency fence. The existing `check-update-template` delta is not a universal proof.
+- **Continuing reusable drafts and recovery across tabs.** Make continuing work on a
+  saved reusable draft possible without silently turning the embedded copy into a mutable
+  link. Define retrieval of confirmed but unattached results after the original tab closes,
+  and deliberate cleanup of reusable artifacts whose parent edits were discarded.
+- **Source revisions and descendant identity.** Record which revision of a mutable draft
+  was copied, with a retrievable baseline if future comparison requires it. Resolve the
+  identity scope of editable inline descendants before changing detachment: retaining
+  their identifiers can leave different definitions under the same identifier. Preserve
+  published descendant references and parent property IRIs. Do not rewrite stored
+  published artifacts or infer provenance for legacy copies.
+- **Version families and candidate choice.** Resolve a stable version family across
+  releases and deletion so duplicate uses at different versions can be recognized.
+  Distinguish the latest readable published release from a globally latest release. Agree
+  the interaction for selecting an older or latest compatible release, and for reviewing
+  meaningful changes and local divergence, before adding controls.
+- **Existing reuse and retirement of bubbling.** Inventory older embedded drafts with
+  shared stored identifiers and missing derivation. Agree an honest unknown-origin state
+  and a deliberate association workflow. Add a read-permission-filtered usage endpoint;
+  retire the legacy editor's bubbling UI and REST mutation/preview endpoints once the
+  replacement workflow and its existing-data path are usable.
+- **Further journey gates.** Extend real-host matrices to permission-filtered source
+  histories, source deletion during assessment, changed drafts during uncertain reusable
+  creation and cross-tab outcome retrieval. Verify untouched screens separately from
+  failure paths and keep exceptional controls absent without their triggering condition.

@@ -40,7 +40,7 @@ operator supplies is an existing one passed to `--resume` or `--train`.
 
 The Nexus hosted Maven repository must be named `cedar-maven-dev`, use the **Release** version
 policy, and have **Disable redeploy** selected. The two Docker hosted repositories are
-`docker-cedar`, for the 29 runtime images, and `docker-cedar-internal`, for the two Java base
+`docker-cedar`, for the 26 runtime images, and `docker-cedar-internal`, for the two Java base
 images. Both use HTTPS path-based routing and **Disable redeploy**. Anonymous read access is
 sufficient for deployments; the GitHub Actions account needs write and read access.
 
@@ -66,7 +66,7 @@ remote checks become available:
 
 | Phase | Required checks |
 | --- | --- |
-| Local (seconds) | Maven/npm/31-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
+| Local (seconds) | Maven/npm/28-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
 | Remote (roughly 90 seconds) | GitHub authentication and workflow; exact remote `develop` CI; matching local/remote heads; idle train slot and unused ID; anonymous source access; passing smoke record for those heads; publication-target availability. |
 
 The publication probe checks Nexus service/writable status, `cedar-maven-dev`, npm identity and
@@ -125,7 +125,7 @@ cedarcli publish train-status --watch
 
 Without an ID the command reports the newest dispatched train; an explicit ID selects an older
 one. It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
-counts for the 31-image matrix, and final verification. During a long unchanged stage it prints a
+counts for the 28-image matrix, and final verification. During a long unchanged stage it prints a
 quiet one-minute heartbeat with the active job/step and elapsed time. Without `--watch`, the same command is a
 one-shot status and recovery decision. For GitHub's full step log, the dispatch also prints the exact
 workflow run URL and `gh run watch` command using that run ID:
@@ -282,7 +282,7 @@ them under `retainedPackages`; a release refuses a train without that evidence.
 
 Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
-infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
+infrastructure, twelve microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
 the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
 defaults name development packages, which Nexus removes three days after upload, so left alone
@@ -295,7 +295,7 @@ tarball to that graph before extraction. The three source-package images install
 the vendored shrinkwrap; OpenView extracts the exact verified CEE and webcomponents tarballs
 directly, without resolving an npm dependency graph during the image build.
 
-The final job removes local copies and pulls each of the 31 images from Nexus with
+The final job removes local copies and pulls each of the 28 images from Nexus with
 four bounded verification workers (`docker_train.py verify --workers 1` provides serial diagnosis).
 Each worker owns a distinct image reference and records its elapsed time; completion is
 written in plan order only after all workers succeed. Failed runs drain active workers
@@ -380,12 +380,12 @@ one fixed commit set.
 day and on manual dispatch. A failure opens or updates the issue **Build-train publication preflight
 is failing**; recovery closes it. This is an early warning for expired credentials, an unavailable
 registry, or a repository-shape change. Pull-back verification remains part of every real train: npm
-tarballs are compared by integrity and SHA-256, existing Maven paths by content hash/bytes, and all 31
+tarballs are compared by integrity and SHA-256, existing Maven paths by content hash/bytes, and all 28
 Docker images by recorded registry digest and provenance labels. A green canary proves reachability
 and authentication, not artifact identity.
 
 Server jars are fetched in a pinned official Maven builder stage and only the resulting jar and
-configuration cross into the UBI runtime. The 15 server builds therefore do not install Maven with
+configuration cross into the UBI runtime. The 12 server builds therefore do not install Maven with
 `microdnf`. This also avoids repeating libdnf's RHEL 9.7 OpenPGP-v6 warning for Red Hat's retained
 post-quantum signing key; the two UBI base builds may still show the upstream warning while Red Hat's
 multisignature plugin is unavailable in the minimal UBI repositories. Do not remove that key.
@@ -403,7 +403,7 @@ The `build-trains` branch is machine-owned operational state, separate from norm
 - `npm/cee/completed/<TRAIN_ID>.json` records the verified CEE publication;
 - `npm/completed/<TRAIN_ID>.json` records registry integrities and downloaded tarball hashes;
 - `npm/current.json` points to the most recently completed npm graph;
-- `docker/trains/<TRAIN_ID>.json` records the exact 31-image publication plan;
+- `docker/trains/<TRAIN_ID>.json` records the exact 28-image publication plan;
 - `docker/completed/<TRAIN_ID>.json` records the verified image digests; and
 - `docker/current.json` points to the most recently completed Docker train.
 

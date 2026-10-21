@@ -31,7 +31,8 @@ export async function publicationJourney(args) {
   await page.getByRole("tab", { name: "Version", exact: true }).click();
   // The tab describes the selected version and names the other one: the draft
   // as the latest version, or the published template as a previous one.
-  const panel = page.getByRole("tabpanel");
+  // Details is a tab panel too, so the panel is found by the tab that labels it.
+  const panel = page.getByRole("tabpanel", { name: "Version", exact: true });
   const versionCell = panel.locator("dd").nth(1);
   await versionCell.waitFor();
   const shown = (await versionCell.textContent()).trim();

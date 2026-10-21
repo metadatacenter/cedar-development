@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { corpus, definitions, materialize, byAlias } from './corpus.mjs';
 import { queries, expectedAliases, journeyScenarios } from './queries.mjs';
-import { contentMatrix, accessMatrix, pagingMatrix, plan, validateInventory } from './matrix.mjs';
-import { exactResults, assertNoDisclosure, scopedQuery, searchPath, converge, walkSearch, resultMetadata, resultAuthority } from './assertions.mjs';
+import { contentMatrix, accessMatrix, pagingMatrix, protocolMatrix, plan, validateInventory } from './matrix.mjs';
+import { exactResults, assertNoDisclosure, assertSearchLinks, scopedQuery, searchPath, converge, walkSearch, resultMetadata, resultAuthority } from './assertions.mjs';
 import { parseOptions, main } from './runner.mjs';
 import { Fixtures } from './fixtures.mjs';
 import { completion, recorder, runRest } from './suite.mjs';
@@ -74,15 +74,16 @@ test('parallel matrices finish every read before the next permission mutation or
     scope: 'SearchCorpusabc', check, workers: 4 }), /lifecycle boundary/);
   assert.equal(peak, 4);
   assert.equal(active, 0);
-  assert.deepEqual(completed.sort(), [...contentMatrix, ...pagingMatrix, ...accessMatrix].map(row => row.id).sort());
+  assert.deepEqual(completed.sort(), [...contentMatrix, ...pagingMatrix, ...protocolMatrix, ...accessMatrix].map(row => row.id).sort());
 });
 
 test('matrix covers every declared query, identity and endpoint, with no absent oracle members', () => {
   assert.equal(validateInventory(), true);
-  assert.equal(queries.length, 87);
-  assert.equal(contentMatrix.length, 348);
+  assert.equal(queries.length, 91);
+  assert.equal(contentMatrix.length, 364);
   assert.equal(accessMatrix.length, 792);
-  assert.equal(pagingMatrix.length, 32);
+  assert.equal(pagingMatrix.length, 48);
+  assert.equal(protocolMatrix.length, 16);
   for (const query of queries) for (const actor of ['owner', 'reader']) for (const endpoint of ['search', 'search-deep'])
     assert.equal(contentMatrix.filter(row => row.test.id === query.id && row.actor === actor && row.endpoint === endpoint).length, 1);
   for (const source of ['direct', 'group', 'inherited']) for (const role of ['viewer', 'editor', 'manager'])
@@ -193,13 +194,21 @@ test('convergence proves readiness or fails within a fixed budget; it does not s
 test('paging walks small pages to an exact union and rejects repeats, omissions and stuck tokens', async () => {
   const query = queries[0];
   let pages = [response(['A', 'B'], 3), response(['C'], 3)];
-  await walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C']);
+  await walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C'], { pageSize: 2 });
   pages = [response(['A', 'B'], 3), response(['B'], 3)];
-  await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C']), /Duplicate/);
+  await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C'], { pageSize: 2 }), /Duplicate/);
   pages = [response(['A'], 3)];
-  await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C']), /Exact result set/);
+  await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C'], { pageSize: 2 }), /Exact result set/);
   await assert.rejects(walkSearch(async () => ({ ...response([], 3), body: { ...response([], 3).body, continuation: 'same' } }),
     query, '', ['A', 'B', 'C'], { continuation: true }), /Continuation repeated/);
+});
+
+test('paging rejects percent decoding and negative offsets before following a link', () => {
+  const test = { query: '"Rad%22"' };
+  const page = link => ({ body: { paging: { first: link } } });
+  assertSearchLinks(page('/search?q=%22Rad%2522%22&offset=0'), test, '');
+  assert.throws(() => assertSearchLinks(page('/search?q=%22Rad%22%22&offset=0'), test, ''), /changed the expression/);
+  assert.throws(() => assertSearchLinks(page('/search?q=%22Rad%2522%22&offset=-1'), test, ''), /offset is negative/);
 });
 
 test('missing, duplicated, failed or unplanned cells cannot certify an implementation', async () => {

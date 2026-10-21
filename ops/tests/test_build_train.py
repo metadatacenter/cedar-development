@@ -98,7 +98,7 @@ class BuildTrainTest(unittest.TestCase):
             "javaBase": ["java"],
             "microserviceBase": ["microservice"],
             "infrastructure": [f"infra-{index}" for index in range(7)],
-            "microservices": [f"server-{index}" for index in range(21)],
+            "microservices": [f"server-{index}" for index in range(18)],
             "frontends": ["frontend-image"],
         }
         for image in (item for values in groups.values() for item in values):
@@ -180,7 +180,7 @@ class BuildTrainTest(unittest.TestCase):
             summary = build_train.validate_configuration(
                 build, frontend, docker, workspace, "2.9.3-SNAPSHOT")
 
-        self.assertEqual(31, summary["images"])
+        self.assertEqual(28, summary["images"])
         self.assertEqual(1, summary["frontends"])
         self.assertEqual(1, summary["auditBaselines"])
 
@@ -389,7 +389,7 @@ class BuildTrainTest(unittest.TestCase):
             }, clear=False), \
                     patch.object(build_train, "validate_configuration", return_value={
                         "repositories": 1, "mavenRepositories": 1,
-                        "frontends": 1, "images": 31, "auditBaselines": 1,
+                        "frontends": 1, "images": 28, "auditBaselines": 1,
                     }), \
                     patch.object(build_train, "_github_ci_preflight"), \
                     patch.object(build_train, "publication_target_preflight") as targets:

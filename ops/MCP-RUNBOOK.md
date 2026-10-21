@@ -65,9 +65,9 @@ Point it at `https://resource.metadatacenter.orgx` for the local stack.
 ### Restart After Rebuilds or Configuration Changes
 
 Restart the client, or stop the server and let the client respawn it, after changing its
-configuration or rebuilding its jar. Builds overwrite `target/<server>.jar`; a running JVM may
-then load new classes through its old jar index. In `cedar-cee-mcp`, this can leave the first
-`show_template` or `fill_instance` hanging without a log message.
+configuration or rebuilding its jar. A build renames a new `target/<server>.jar` into place rather
+than writing over the old file, so a running server keeps the jar it opened and goes on running the
+earlier build until it restarts.
 
 Verify `CEDAR_BASE_URL` before writing: its default is production. `ping` reports only the MCP
 server's name/version and does not verify the destination deployment.
@@ -98,8 +98,8 @@ terminology and bridge services the fields themselves call.
 Two lines in `pom.xml` pin it:
 
 ```xml
-<cee.version>2.0.23</cee.version>
-<cee.sha256>97bfdc29582a5fab312ed578123ae3a8a10440c7bcb562f0e1ba263da181cfd3</cee.sha256>
+<cee.version>2.0.25</cee.version>
+<cee.sha256>0821ebe422cfde9db3c07a96c7e1a80e9edcaafb0774ec4d38b57e9f95f2bc8d</cee.sha256>
 ```
 
 The hash is the bundle's own, from the package's `bundle-manifest.json`, and the build refuses a
@@ -119,7 +119,7 @@ curl -s https://registry.npmjs.org/cedar-embeddable-editor \
 
 The session page that `cedar-cee-mcp` serves styles its bar, status line and Done button with the
 shared CEDAR design tokens. The Maven build has no npm, and the token package exists only as
-development builds on Nexus, which its cleanup removes. The two compiled stylesheets the page links
+development builds on Nexus, which its cleanup removes. The compiled stylesheets the page links
 are therefore vendored in `src/main/resources/web/vendor/cedar-design-tokens/`, beside a
 `manifest.json` that names their version and each file's SHA-256 digest.
 
@@ -128,14 +128,17 @@ fails when a file no longer matches its digest, when the copy's `custom-properti
 declare the tokens held at the commit the version names, and when the page reads a token the pinned
 version lacks. A pin that lags the token checkout does not fail. Advance it when the page needs a
 newer token or when a value it reads has changed. To advance it, take the version the `dev`
-dist-tag names, replace the two files from that tarball, and rewrite the manifest.
+dist-tag names, replace the vendored files from that tarball, and rewrite the manifest. The same
+check fails when the page links the vendored stylesheets without `focus.css`, which draws the
+shared focus ring.
 
 ```bash
 cd $CEDAR_HOME/mcp/cedar-cee-mcp/src/main/resources/web/vendor/cedar-design-tokens
 version=$(curl -s https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-design-tokens \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["dist-tags"]["dev"])')
 curl -sf "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-$version.tgz" \
-  | tar -xzf - --strip-components=2 package/dist/custom-properties.css package/dist/secondary-action.css
+  | tar -xzf - --strip-components=2 package/dist/custom-properties.css package/dist/focus.css \
+      package/dist/secondary-action.css
 python3 - "$version" <<'PY'
 import hashlib, json, pathlib, sys
 manifest = json.loads(pathlib.Path('manifest.json').read_text())

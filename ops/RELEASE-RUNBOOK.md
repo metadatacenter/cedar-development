@@ -58,7 +58,7 @@ cedarcli release plan \
 ```
 
 `plan` changes nothing. It validates the completed train, the exact source commits, the artifact
-inventories—including the complete 31-image Docker plan and immutable registry digests—the explicit
+inventories—including the complete 28-image Docker plan and immutable registry digests—the explicit
 versions, and the byte-equivalence proof between the train's development
 CEE and the public npmjs CEE, and then runs the complete release gate. It must finish with
 `No changes made.`

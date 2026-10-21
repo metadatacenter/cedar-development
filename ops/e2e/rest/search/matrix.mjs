@@ -26,9 +26,13 @@ export const accessMatrix = accessConfigurations.flatMap(config => accessStates.
       : actor === 'owner' || state === 'granted',
   })))))));
 export const pagingMatrix = ['field-literal', 'field-phrase', 'repeated-alpha', 'metadata-or-content', 'roles-read-content', 'metadata-nonmatch',
-  'public-view-with-term', 'shared-view-with-term']
+  'public-view-with-term', 'shared-view-with-term', 'literal-percent-quote', 'literal-percent-plus', 'literal-percent-nested', 'literal-braces']
   .flatMap(id => actors.flatMap(actor => ['offset', 'continuation'].map(mode => ({
     id: `paging/${id}/${actor}/${mode}`, test: queries.find(test => test.id === id), actor, mode,
+  }))));
+export const protocolMatrix = ['malformed-query', 'template-query-conflict', 'identifier-offset', 'identifier-continuation']
+  .flatMap(test => actors.flatMap(actor => endpoints.map(endpoint => ({
+    id: `protocol/${test}/${actor}/${endpoint}`, test, actor, endpoint,
   }))));
 export const lifecycleChecks = ['rename-new', 'rename-old-gone', 'value-new', 'value-old-gone',
   'term-uri-new', 'term-uri-old-gone', 'term-label-new', 'term-label-old-gone',
@@ -48,7 +52,7 @@ export function validateInventory() {
   const aliases = definitions.map(item => item.alias);
   assert.equal(new Set(aliases).size, aliases.length, 'Duplicate artifact alias');
   assert.equal(new Set(queries.map(test => test.id)).size, queries.length, 'Duplicate query case');
-  const ids = [...contentMatrix, ...accessMatrix, ...pagingMatrix].map(row => row.id).concat(lifecycleChecks);
+  const ids = [...contentMatrix, ...accessMatrix, ...pagingMatrix, ...protocolMatrix].map(row => row.id).concat(lifecycleChecks);
   assert.equal(new Set(ids).size, ids.length, 'Duplicate matrix cell');
   for (const test of queries) {
     assert.ok(test.query && test.family && test.matches && test.types.length, test.id);
@@ -72,7 +76,7 @@ export function plan({ isolated = false, tier = 'rest', workers = 4 } = {}) {
   return { status: 'OFFLINE_PLAN_NOT_EXECUTED', corpusDigest, harnessDigest, inputHashes, scope: isolated ? 'isolated-unwrapped' : 'unique-run-token', tier, workers,
     artifacts: Object.fromEntries(['field', 'element', 'template', 'instance'].map(kind => [kind, definitions.filter(item => item.kind === kind).length])),
     queries: queries.length, matrixCells: { content: contentMatrix.length, access: accessMatrix.length,
-      paging: pagingMatrix.length, lifecycle: lifecycleChecks.length, journey: journeyScenarios.length },
+      paging: pagingMatrix.length, protocol: protocolMatrix.length, lifecycle: lifecycleChecks.length, journey: journeyScenarios.length },
     plannedWrites: { coreArtifacts: definitions.length, transitionInstances: tier === 'journey' ? 0 : accessConfigurations.length + 4,
       folders: tier === 'journey' ? 3 : accessConfigurations.length * 2 + 3, groups: 1, newUsers: 0,
       cleanup: 'Delete only identities recorded by this run; preserve a ledger of unresolved creates and failed cleanup.' },
@@ -82,5 +86,5 @@ export function plan({ isolated = false, tier = 'rest', workers = 4 } = {}) {
     openContracts, exclusions,
     cells: { content: contentMatrix.map(({ test, ...row }) => ({ ...row, query: test.query, family: test.family, types: test.types, parameters: test.parameters ?? {} })),
       access: accessMatrix, paging: pagingMatrix.map(({ test, ...row }) => ({ ...row, query: test.query })),
-      lifecycle: lifecycleChecks, journey: journeyScenarios } };
+      protocol: protocolMatrix, lifecycle: lifecycleChecks, journey: journeyScenarios } };
 }

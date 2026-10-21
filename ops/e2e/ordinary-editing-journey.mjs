@@ -206,7 +206,7 @@ async function returned(page, id, view, tab, folderId) {
   await listingIdle(page);
   const item = page.locator(`[data-resource-id="${id}"]`);
   await item.locator(".resource-icon").waitFor();
-  assert.equal(await item.getAttribute("aria-selected"), "true");
+  assert.equal(await item.evaluate(node => node.classList.contains("selected")), true);
   assert.equal(await page.locator(".information").getByRole("tab", { name: tab, exact: true }).getAttribute("aria-selected"), "true");
   assert.equal(await page.getByRole("button", { name: view + " view", exact: true }).getAttribute("aria-pressed"), "true");
   assert.ok(decodeURIComponent(page.url()).includes(folderId.split("/").at(-1)), "Return keeps the original folder");

@@ -13,11 +13,12 @@
 // YAML negotiation over the wire.
 //
 // Deliberately not covered, so the absence is a decision rather than an oversight:
-//   * regenerate-search-index, generate-empty-search-index and the rules equivalents — destructive
-//     admin operations that would wipe the local index out from under the rest of the run.
+//   * regenerate-search-index and generate-empty-search-index — destructive admin operations that
+//     would wipe the local index out from under the rest of the run.
 //   * load-valuesets-ontology and its status — long-running, and dependent on live BioPortal.
 //   * auth-user-callback — Keycloak's own callback, not a user-facing route.
-//   * templates/recommend and /recommend — need a built rules index, which is its own fixture problem.
+//   * templates/recommend — ranks every template the search index holds, so its answer depends on
+//     the deployment rather than on the run's fixtures.
 //
 // Requires the stack up: cedar-services.sh health.
 import { runSuites, workerCount, PARALLEL_SUITES } from './rest/scheduler.mjs';
@@ -25,12 +26,13 @@ import { argv } from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite, VALUERECOMMENDER } from './rest/lib.mjs';
+import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as deletion from './rest/suites/deletion.mjs';
 import * as artifacts from './rest/suites/artifacts.mjs';
 import * as versioning from './rest/suites/versioning.mjs';
+import * as pullVersions from './rest/suites/pull-versions.mjs';
 import * as sharing from './rest/suites/sharing.mjs';
 import * as search from './rest/suites/search.mjs';
 import * as negotiation from './rest/suites/negotiation.mjs';
@@ -51,7 +53,7 @@ import * as addressing from './rest/suites/addressing.mjs';
 import * as bodies from './rest/suites/bodies.mjs';
 import * as errors from './rest/suites/errors.mjs';
 
-const ALL = [folders, deletion, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing, bodies, errors];
+const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing, bodies, errors];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
@@ -82,7 +84,6 @@ if (updateInventory && selected.length !== ALL.length) {
 
 const started = Date.now();
 let auth1;
-let adminAuth;
 let user1Profile;
 let phaseStarted = Date.now();
 
@@ -147,7 +148,6 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 try {
   const { user1, user2, admin } = await actors();
   auth1 = user1.auth;
-  adminAuth = admin?.auth;
   user1Profile = user1.profile;
   const homeFolderId = user1.profile.homeFolderId;
   if (!homeFolderId) throw new Error('the first user has no homeFolderId');
@@ -224,27 +224,6 @@ try {
     const complaintsAfter = await workerComplaints();
     check(complaintsAfter.length === 0, 'and the worker drained everything the run queued',
         complaintsAfter.map(c => `${c.name}: ${c.message}`).join('; '));
-
-    // Queue health alone missed a corrupted status map: the worker logged a null-pointer
-    // failure, treated the missing status as idle, and still acknowledged its messages.
-    let validStatus = false;
-    let statusDetail = 'The administrator key is required to inspect rules-generation status';
-    if (adminAuth) {
-      try {
-        const response = await call(adminAuth, 'GET', '/command/generate-rules/status', undefined,
-            { base: VALUERECOMMENDER });
-        const rows = response.body;
-        validStatus = response.status === 200 && Array.isArray(rows) && rows.every(row =>
-          row && typeof row.templateId === 'string' && row.templateId.length > 0 && row.startTime != null &&
-          (row.status === 'PROCESSING' ? row.finishTime == null && row.rulesIndexedCount == null
-            : row.status === 'COMPLETED' && row.finishTime != null && Number.isInteger(row.rulesIndexedCount))) &&
-          new Set(rows.map(row => row.templateId)).size === rows.length;
-        statusDetail = `HTTP ${response.status}; the status list must contain distinct, complete generation records`;
-      } catch (error) {
-        statusDetail = error.message;
-      }
-    }
-    check(validStatus, 'and rules-generation status contains complete, non-null entries', statusDetail);
   }
 }
 

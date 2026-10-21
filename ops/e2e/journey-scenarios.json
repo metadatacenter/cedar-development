@@ -966,5 +966,97 @@
       "id": "renamed-ancestor-path",
       "promise": "Renaming a populated parent updates nested breadcrumbs and reloads under the same identities, preserving the descendant artifact and navigation back to the renamed folder"
     }
+  ],
+  "pull-versions": [
+    {
+      "id": "field-linked-single",
+      "promise": "field linked single: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "field-linked-repeated",
+      "promise": "field linked repeated: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "field-linked-nested",
+      "promise": "field linked nested: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "field-copied-single",
+      "promise": "field copied single: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "field-copied-repeated",
+      "promise": "field copied repeated: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "field-copied-nested",
+      "promise": "field copied nested: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "element-linked-single",
+      "promise": "element linked single: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "element-linked-repeated",
+      "promise": "element linked repeated: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "element-linked-nested",
+      "promise": "element linked nested: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "element-copied-single",
+      "promise": "element copied single: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "element-copied-repeated",
+      "promise": "element copied repeated: published pull preserves placement and siblings through real parent save and reopen"
+    },
+    {
+      "id": "element-copied-nested",
+      "promise": "element copied nested: published pull preserves placement and siblings through real parent save and reopen"
+    }
+  ],
+  "reusable-publication": [
+    {
+      "id": "field-draft-normal",
+      "promise": "field reusable draft normal acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "field-draft-lost",
+      "promise": "field reusable draft lost acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "field-published-normal",
+      "promise": "field reusable published normal acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "field-published-lost",
+      "promise": "field reusable published lost acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "field-published-lost-publication",
+      "promise": "field reusable publication with a lost reply is recovered without creating or publishing twice"
+    },
+    {
+      "id": "element-draft-normal",
+      "promise": "element reusable draft normal acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "element-draft-lost",
+      "promise": "element reusable draft lost acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "element-published-normal",
+      "promise": "element reusable published normal acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "element-published-lost",
+      "promise": "element reusable published lost acknowledgement creates once and survives parent save and reopen"
+    },
+    {
+      "id": "element-published-lost-publication",
+      "promise": "element reusable publication with a lost reply is recovered without creating or publishing twice"
+    }
   ]
 }

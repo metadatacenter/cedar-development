@@ -125,7 +125,7 @@ async function constrainToDoidDiseaseBranch(p) {
   const field = p
     .locator("app-field-card")
     .filter({ has: p.locator("app-controlled-term-config") });
-  await field.getByRole("textbox", { name: "Field display name", exact: true }).fill("Disease");
+  await field.getByRole("textbox", { name: "Enter field name", exact: true }).fill("Disease");
   const settings = field.locator("app-field-settings");
   const toggle = settings.locator(".settings-toggle");
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
@@ -263,7 +263,7 @@ try {
     .getByRole("button", { name: "Text", exact: true })
     .click();
   await page
-    .getByRole("textbox", { name: "Field display name", exact: true })
+    .getByRole("textbox", { name: "Enter field name", exact: true })
     .fill("Notes");
   await constrainToDoidDiseaseBranch(page);
   artifacts.template = (await editorSave(page, "PUT", "templates", 201))["@id"];
@@ -320,11 +320,13 @@ try {
   const elementSourcePath = "/template-elements/" + enc(artifacts.element);
   const elementSource = (await call(user1.auth, "GET", elementSourcePath)).body;
   const embeddedElement = artifact => Object.values(artifact.properties).map(value => value.items ?? value)
-    .find(value => value["@id"] === artifacts.element);
+    .find(value => value["pav:derivedFrom"] === artifacts.element);
   await editorSave(page, "PUT", "templates");
   const importedTemplate = (await call(user1.auth, "GET", "/templates/" + enc(artifacts.template))).body;
   const importedElement = embeddedElement(importedTemplate);
-  assert.ok(importedElement, "reused element retains its source identity");
+  assert.ok(importedElement, "an imported draft records its source");
+  assert.notEqual(importedElement["@id"], artifacts.element, "an imported draft has an independent identity");
+  assert.equal(importedElement["bibo:status"], "bibo:draft");
   assert.equal(importedElement["schema:description"], elementSource["schema:description"]);
   assert.deepEqual(importedElement["_annotations"], elementSource["_annotations"]);
   const sourceUpdate = await mutate(user1.auth, "PUT", elementSourcePath,
@@ -342,7 +344,7 @@ try {
   assert.equal(embeddedElement(locallyEdited)["schema:description"], "Local reused element edit");
   assert.equal((await call(user1.auth, "GET", elementSourcePath)).body["schema:description"], "Later library source edit");
   await backToWorkspace(page);
-  pass("Reused elements retain source identity and annotations; library and embedded edits remain independent");
+  pass("Imported draft elements record their origin and retain annotations; library and embedded edits remain independent");
   // The second user may view the template, whose reused element's library source stays private to
   // its owner, and populates it from Shared with Me.
   step = enter("shared-template-population");

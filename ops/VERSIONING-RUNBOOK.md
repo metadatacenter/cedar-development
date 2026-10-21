@@ -616,6 +616,38 @@ corpus property index, or an unconfigured local store is 503. A snapshot that ca
 with a message and an `errorId` under which the database exception is logged. None of these paths
 calls BioPortal.
 
+## One-Time Catalog Conversions
+
+Two jobs in the ingest module bring a catalog built under older identity rules up to the current
+ones. Ingest has applied both rules itself since they were introduced, so a catalog built since then
+needs neither job. Both read only what is on disk and download nothing, and both run with the
+classpath built above.
+
+`ContentHashCutover` moves each snapshot's identifier from the hash of its downloaded file to the hash
+of its normalized content, the identity ingest has used since 2026-07-30. Two uploads whose bytes
+differ but whose content is the same, such as a same-day re-upload, then share one identifier, so the
+job keeps one of them, preferring the one `latest` points at, and removes the others' rows and files.
+The downloaded file's hash stays in `file_hash` as provenance. The job reports by default and writes
+only under `--apply`. Back up the catalog first, because a merge cannot be undone. The job computes the
+same hash ingest does, and that hash leaves a snapshot taken before property extraction exactly as it
+was, so on a converted catalog the report shows no identifier changing and no merge.
+
+```bash
+java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/prod/catalog.sqlite
+java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/prod/catalog.sqlite --apply
+```
+
+`DeriveOntologyIriBackfill` records each ontology's canonical IRI, its identity across sources, for a
+catalog built before ontologies had one. It takes the dominant namespace of the ontology's own
+concepts in its `latest` snapshot, settles IRIs that several ontologies would share, and falls back to
+the IRI the ontology file declares for any ontology still without one. Ingest applies the same rules
+to each ontology it ingests. The job writes as it runs and has no dry run. With acronyms it handles
+only those ontologies, and without them every ontology in the catalog.
+
+```bash
+java -cp "$CP" org.metadatacenter.terms.ingest.DeriveOntologyIriBackfill $CEDAR_HOME/cedar-term/prod/catalog.sqlite OBI RO
+```
+
 ## Running the Picker
 
 CETP is one `<cedar-embeddable-term-picker>` element with five selectable types:
