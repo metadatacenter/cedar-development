@@ -1,4 +1,5 @@
 import {journeyFolder, listedIn, listingIdle} from "./journey-fixtures.mjs";
+import {shown} from "./workspace-journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 
@@ -69,7 +70,7 @@ async function groupedMoveJourney({page, base, user, folderId, name, created, pa
   try {
     await drag(ids[0]);
     await page.getByRole("alert").filter({hasText: /Move refused by server/}).waitFor();
-    await page.getByText(mixed ? "Moved 1 item." : "Moved 2 items.", {exact: true}).waitFor();
+    await shown(page, mixed ? "Moved 1 item." : "Moved 2 items.").waitFor();
     assert.equal(routeError, undefined);
     assert.equal(attempts.length, ids.length);
     assert.deepEqual(attempts.filter(item => item.status === 403).map(item => item.id), [ids[1]]);
@@ -91,7 +92,7 @@ async function groupedMoveJourney({page, base, user, folderId, name, created, pa
     pass("partial-outcome", mixed ? "A grouped move survives a permission refusal, a network failure and a lost committed response; fresh listing retains only unmoved selections and all content" : "A refused grouped move reports two real successes, leaves the refused artifact selected and preserves all content");
     refusing = false;
     await drag(ids[1]);
-    await page.getByText(mixed ? "Moved 2 items." : "Moved 1 item.", {exact: true}).waitFor();
+    await shown(page, mixed ? "Moved 2 items." : "Moved 1 item.").waitFor();
     assert.deepEqual(attempts.slice(ids.length).map(item=>item.id).sort(), (mixed ? [ids[1],ids[3]] : [ids[1]]).sort());
     assert.equal(attempts.length, mixed ? 6 : 4, "recovery must not repeat successful or uncertain committed moves");
     const report = await call(user.auth, "GET", "/template-fields/" + enc(ids[1]) + "/report");

@@ -721,7 +721,11 @@ request spends the whole response timeout and holds a worker thread for it. Afte
 calls in a row that authority is not asked again for thirty seconds, and the route answers 503 with
 `Retry-After` — the same answer PFAS gives while its own registry is still loading. One request is
 then let through to look; if it fails the wait starts again. A registry that answers, including one
-answering 500, is never cut off, and the other six authorities are unaffected.
+answering 500, is never cut off, and the other six authorities are unaffected. A failure in the
+bridge itself, such as a request it cannot build or a RePORTER offset it refuses, neither counts
+toward the five nor resets the count, and as the probe it leaves the breaker half-open for the next
+request. An identifier that cannot be a DOI or an RRID is answered "not found" without asking the
+registry.
 
 Nothing guards a call to another CEDAR service. The artifact server is not optional, so a breaker in
 front of it would turn a timeout followed by 503 into an immediate 503 and nothing else, and it
@@ -6980,7 +6984,7 @@ Custom tags, nonfinite numbers, unsupported key structures, cyclic aliases and e
 fail. Quoting preserves strings that otherwise resemble numbers, booleans or null. A template
 instance's field value is always a string, so the Java reader keeps the text an unquoted number or
 boolean was written with: `value: 007` stores `"007"`, and `value: 1e3` stores `"1e3"`. The
-TypeScript reader still reads such a value as a number. Readers and writers have separate
+TypeScript reader keeps the same text. Readers and writers have separate
 acceptance and preservation assertions in the shared source-policy corpus.
 
 ### Regex evaluation and compatibility

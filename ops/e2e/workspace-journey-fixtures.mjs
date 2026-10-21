@@ -32,6 +32,13 @@ export function assertOnlyContentChanges(before, after, changes) {
 
 export const modal = p => p.locator("dialog[open]");
 
+/**
+ * The visible copy of a message in `scope`, a page or a locator. Workspace also says each message
+ * from a status region the page does not draw, so a plain text locator finds both.
+ */
+export const shown = (scope, text) => scope.getByText(text, {exact: true})
+  .and((typeof scope.page === "function" ? scope.page() : scope).locator(":not(cedar-status)"));
+
 /** A version is entered as three numbers, one per box of the dialog's picker. */
 export async function enterVersion(p, version) {
   const parts = version.split(".");

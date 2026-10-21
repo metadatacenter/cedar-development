@@ -97,9 +97,11 @@ export async function partialSelectionDeleteJourney(args) {
         attemptedDeletes.includes(pathId(id)) ? 404 : 200);
     }
     await modal(page).getByRole("button", {name: "Delete", exact: true}).dispatchEvent("click");
-    // A deletion the dialog started would show its progress once rendered, and a refused one changes nothing.
+    // A deletion the dialog started would show its progress once rendered, and a refused one changes
+    // nothing. The dialog keeps an empty status region throughout, so only one with text counts.
     await rendered(page);
-    assert.equal(await modal(page).getByRole("status").count(), 0, "the refused Delete started a deletion");
+    assert.equal(await modal(page).getByRole("status").filter({hasText: /\S/}).count(), 0,
+      "the refused Delete started a deletion");
     assert.equal(attemptedDeletes.length, 2);
   } finally {
     await page.unroute(deleteMatcher, loseSecondDelete);
