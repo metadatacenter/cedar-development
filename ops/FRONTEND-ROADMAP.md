@@ -219,7 +219,7 @@ data images.
 
 ### 7. Clear the Advisories Waiting on Upstream
 
-Seven advisories remain in the frontend locks. All of them sit in build, lint, test or
+Eight advisories remain in the frontend locks. All of them sit in build, lint, test or
 development-server tooling, and nothing the affected projects ship contains them. The train's lock
 baselines record the current counts as reviewed, so trains and releases pass, and nothing waits on
 this item.
