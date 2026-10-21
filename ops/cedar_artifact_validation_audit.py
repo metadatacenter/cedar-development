@@ -8,7 +8,7 @@ arbiter nothing enters production without; an instance is validated against the 
 the backend roadmap's production-data item lists, shapes a valid artifact may still have: an
 inherently multiple field deployed as an object, a title that does not follow its name, a zero
 standing in for "unbounded" or "unknown", a null annotation identifier, a child missing from
-``_ui.order``, an absent or stale model version, a controlled-term constraint that names no source
+``_ui.order`` or a field carrying one, an absent or stale model version, a controlled-term constraint that names no source
 system, and the identifier and mapping defects an ordinary save would repair. Every artifact is
 counted once per condition, and each condition is cross-tabulated against the validation verdict.
 
@@ -110,6 +110,7 @@ TOPICS = {
     "ui-order-missing-child": "ui order",
     "ui-order-orphan-entry": "ui order",
     "ui-order-duplicate-entry": "ui order",
+    "ui-order-on-field": "ui order",
     "schema-version-absent": "model version",
     "schema-version-unparsable": "model version",
     "schema-version-stale": "model version",
@@ -402,14 +403,20 @@ def check_annotations(artifact: Any) -> Iterator[Condition]:
 
 
 def check_ui_order(nodes: list[SchemaNode]) -> Iterator[Condition]:
-    """Children declared under properties but missing from _ui.order, and the inverse drift."""
+    """Children declared under properties but missing from _ui.order, and the inverse drift.
+
+    A field has no children, and the meta-schema forbids an order in its _ui. The legacy Field
+    Designer gave every standalone field an empty one until 2026-10-21, so a field is checked too.
+    """
     for node in nodes:
         definition = node.definition
-        if definition.get("@type") not in CONTAINER_TYPES:
-            continue
-        children = [name for name, _child, _multiple, _error in rest.direct_schema_children(definition)]
         ui = definition.get("_ui")
         order_path = f"{node.path}/_ui/order"
+        if definition.get("@type") not in CONTAINER_TYPES:
+            if KIND_WORD.get(definition.get("@type")) == "field" and isinstance(ui, dict) and "order" in ui:
+                yield Condition("ui-order-on-field", order_path, ui["order"])
+            continue
+        children = [name for name, _child, _multiple, _error in rest.direct_schema_children(definition)]
         order = ui.get("order") if isinstance(ui, dict) else None
         if not isinstance(order, list):
             if children:

@@ -5078,6 +5078,7 @@ The conditions, by the roadmap paragraph each measures:
 | `stray-cardinality-keys` | `minItems` or `maxItems` on an object deployment, where nothing reads them. |
 | `annotation-id-null`, `annotation-id-null-with-payload` | An annotation entry whose `@id` is an explicit null, alone or beside other payload. |
 | `ui-order-missing-child`, `ui-order-orphan-entry`, `ui-order-duplicate-entry`, `ui-order-absent` | A child under `properties` missing from `_ui.order`, an order entry with no child, a repeated entry, and a container with children but no order list. |
+| `ui-order-on-field` | A `_ui.order` on a field, standalone or embedded. A field has no children and the meta-schema forbids the key, so the validator refuses it. The legacy Field Designer added an empty one to every new standalone field until 2026-10-21. |
 | `schema-version-absent`, `schema-version-stale`, `schema-version-unparsable`, and their `-nested` forms | The root's `schema:schemaVersion` against the version the libraries write, and the same for embedded children. The summary also lists every version in use, by type. |
 | `static-field-required` | A static field named in `required`, `@context.required` or `@context.properties`, which describes an instance no editor will build, so no instance of that container can validate. |
 | `source-system-absent` | A controlled-term constraint entry with no `sourceSystem`; every entry counts, so the occurrence count is the size of the sweep. |
