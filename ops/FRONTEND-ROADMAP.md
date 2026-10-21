@@ -291,10 +291,9 @@ Agree the fixes marked as visible before making them.
 - **Box names in the wrong language (3.1.2).** The text, email, phone, link, numeric,
   controlled-term and authority boxes, and the read-only temporal and select boxes, take the field's
   label as their `aria-label`, so the label is read in the value's language or CEE's. The term link
-  group's name has the same fault. Naming each from a hidden label marked
-  with the template's language, as the editable temporal boxes now are, changes nothing visible.
-  Decide first whether that fits the rule that a box carries its value's language and never the
-  template's.
+  group's name has the same fault. Naming each from a hidden label marked with the template's
+  language, as the editable temporal boxes now are, changes nothing visible. Decide first whether
+  that fits the rule that a box carries its value's language and never the template's.
 
 ## Frontend Dependencies
 
@@ -339,6 +338,44 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
   approved like any other visual change.
 
 ## Accessibility Across Components
+
+Five items hold the open accessibility work: "Fix Workspace's WCAG Failures", "Fix CEE's WCAG
+Failures", "Fix the WCAG Failures the Components Share", and CED's "Keyboard and Screen-Reader
+Access" and "Fix CED's Remaining WCAG Failures". The term picker's three are on the
+[versioning roadmap](VERSIONING-ROADMAP.md). Every open piece waits on a decision about a visible
+change or a design, except the screen-reader runs, which wait on a person. In order of effort,
+least first, the pieces are:
+
+- where focus goes when Escape hides a focused insertion action in CED;
+- whether Workspace's menus close when focus leaves them;
+- marking Workspace's Save `aria-disabled` while CEE validates, which dims it;
+- clearing Workspace's notice, so that an identical one is seen and announced;
+- what Workspace's metadata review panel announces when it appears;
+- 24px targets for CEE's link-out icon and CED's field settings toggle;
+- shorter PubMed and RRID instructions in CEE, or hint text that wraps;
+- naming CEE's text-like boxes from a hidden label in the template's language;
+- keeping CEE's cleared and reverted notices until they are dismissed;
+- a cue beyond colour for CEE's warnings;
+- a darker `control-border-default`, published to every consumer with its new baselines;
+- labels that stay in CED's field-name, option and library-search boxes;
+- a keyboard route to CEE's element descriptions and property IRI marks;
+- wrapping CEE's long read-only values;
+- wrapping Workspace's grid card lines under text spacing, through the shared card recipe;
+- one second cue for the six tint-only states;
+- a confirmation or an undo for removing access in Workspace;
+- a keyboard route for CED's sidebar divider, after its Tab order is agreed;
+- CED's sidebar split, which fails no criterion but hides the library's last button;
+- the term picker's result tabs as one Tab stop;
+- a keyboard route for CED's sidebar field list, as buttons or a listbox;
+- CED's screen-reader runs with VoiceOver and NVDA;
+- selection in Workspace's listing as a state, through a grid;
+- semantics for CED's child picker results;
+- semantics for the term picker's result list, and larger release buttons;
+- the term picker's remaining target and layout failures;
+- CED's layout below 768px;
+- a click-only alternative to dragging in CED's canvas, Overview, child picker and sidebar.
+
+When a piece's work leaves the item that holds it, remove the piece from this list.
 
 ### 10. Fix the WCAG Failures the Components Share
 
