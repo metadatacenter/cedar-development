@@ -4009,9 +4009,9 @@ them per module and per repository, for lines and for branches. `cedarcli build 
 records older than its `--days`, as it does failed-build bundles. cedar-project's CI job, which runs
 every server's suites against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
-JSON as the `coverage-summary` artifact. On 2026-10-19 the estate stood at
-53.4% of 64,351 lines by each module's own tests and 68.7% by any test. The shared libraries differ
-most. `cedar-microservice-libraries` reached 80.2% by any test against 47.6% by its own. The figures
+JSON as the `coverage-summary` artifact. On 2026-10-21 the estate stood at
+67.7% of 58,172 lines by each module's own tests and 83.5% by any test. The shared libraries differ
+most. `cedar-microservice-libraries` reached 86.5% by any test against 55.7% by its own. The figures
 are a report, not a gate. When cedarcli cannot compute the merged figure, for instance because the
 local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
