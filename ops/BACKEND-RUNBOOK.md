@@ -1544,6 +1544,20 @@ undeclared family fails, and so does one that stops showing a declared one. An i
 template by `schema:isBasedOn`. A CEE suite instance that names none takes the template in its own
 case.
 
+The Java library makes the same comparison over the same corpus. `CorpusYamlTripVerifier` runs in its
+CI after the fixture check, with the families defined in `YamlTripComparison` and the cases that show
+each named in `src/test/resources/concordance/corpus-yaml-trip.json`. It compares 219 cases and
+excludes 7, among them the definitions `corpus-expected-rejections.json` pins. The Java reader requires
+an instance to name its template and itself, so each CEE suite instance that names neither is given
+its own case's template and a name first, as a host gives them before storing it. Run it with the
+fixture verifier's command, naming `CorpusYamlTripVerifier` as the main class. The template battery's
+round-trip tests already compared JSON through YAML for the library's own templates, so this check
+extends that comparison to the shared corpus rather than adding a kind of test the library lacked.
+
+The two libraries' declarations differ in one respect. Java's completion fills a repeated child the
+instance holds to its template's lower bound, and TypeScript's fills only one the instance omits, so
+`instance-002` and `cee-instance-002` show instance completion in Java alone.
+
 Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
 `literalFieldUIContent` and `iriFieldUIContent` declare `continuePreviousLine` and
 `valueRecommendationEnabled`; all three field UI definitions declare `hidden`; a requirement lives in
