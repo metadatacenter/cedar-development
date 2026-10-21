@@ -647,24 +647,34 @@ producers' immutable local artifacts. Other build commands remain exclusive barr
 deployment and the smoke tiers run after all frontend checks pass. A failed producer blocks
 its consumers, including in continue mode.
 
-The repositories a build runs at once share one pool of workers, as many as the host has cores
-or as `--workers` sets, whichever is larger. `--workers` caps what one repository uses, and the
-pool caps what all of them use together, so a third job fills idle cores without oversubscribing
-busy ones. A command takes its workers from the pool when it starts and returns them when it
-ends. An npm script asks for the repository's whole budget, and an install or a browser download
-asks for one. The model library's, CEE's and CED's gate scripts take workers stage by stage
-instead. Requests are served in the order they arrive, and each starts once at least half of what
-it asked for is free, so a stage that needs several workers is never overtaken by smaller ones.
-The log names any command or stage that started with fewer workers than it asked for. The pool
-is a directory under the build's scratch root, named in `CEDAR_WORKER_POOL`, with one
-subdirectory per worker in use and a `queue` of waiting requests.
+Every frontend build on the machine shares one pool of workers, as many as the host has cores, so
+concurrent builds started by different sessions share it as well. `--workers` caps what one
+repository uses, and the pool caps what every build uses together, so a third job or a second
+build fills idle cores without oversubscribing busy ones. A command takes its workers from the pool
+when it starts and returns them when it ends. An npm script asks for the repository's whole budget,
+and an install or a browser download asks for one. The model library's, CEE's and CED's gate
+scripts take workers stage by stage instead. Requests are served in the order they arrive, and
+each starts once at least half of what it asked for is free, so a stage that needs several workers
+is never overtaken by smaller ones. The log names any command or stage that started with fewer
+workers than it asked for.
+
+The pool is the directory `$CEDAR_HOME/.cedar/worker-pool`, named to each command in
+`CEDAR_WORKER_POOL`. It holds a `size`, one `slot-<n>` subdirectory per worker in use and a `queue`
+of waiting requests. Each slot and request records its process and the boot that process started
+in. It is taken back once that process has exited, once the machine has restarted, or after twelve
+hours, longer than any command holds a slot. A pool found idle with another size, as after moving
+an estate to a new machine, takes the host's core count. Removing the directory while no build
+runs resets it.
 
 The pool leaves the length of a full rebuild where it was and removes the load that made browser
 suites time out. Measured on 2026-10-20 at `--jobs 3 --workers 12`, a full rebuild took 489 s.
 The run before the pool stopped at a CED failure after 450 s and would have taken about 475 s. The
 load's median fell from 43 to 17 on 16 cores, and CED's 980 browser tests ran with none flaky or
-failed, against seven flaky and one failed under the earlier load. Reports:
-`.cedar/build-reports/20261021T040607Z-72ccce31.json` and `20261021T022455Z-b31d00b5.json`.
+failed, against seven flaky and one failed under the earlier load. A second holder that took five
+workers for two minutes in the middle of a later run waited 1.4 s for its turn, and the slots in
+use never exceeded 16 across 987 samples. Reports:
+`.cedar/build-reports/20261021T040607Z-72ccce31.json`, `20261021T022455Z-b31d00b5.json` and
+`20261021T044108Z-dd19accc.json`.
 
 A surface in `frontend-train.json` may declare a `package` phase between `setup` and
 `verify`: the commands that build and stage what it publishes. The model library and CEE
