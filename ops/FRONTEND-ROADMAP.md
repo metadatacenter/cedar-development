@@ -167,9 +167,12 @@ The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found fi
 criteria that Workspace fails, two of them through causes it shares with the other components.
 Agree the fixes marked as visible before making them.
 
-- **Focus after group and description changes (2.4.3).** Focus falls to the page after creating a
-  group, adding or removing a member, and saving an artifact's description. Give it a defined
-  landing place in each case, as the listing's deletions and moves already have.
+- **Focus after a pointer press (2.4.3).** Visible. Creating a group, adding or removing a member,
+  and saving or cancelling an artifact's description return focus to a defined place only when the
+  pressed control was reached by keyboard, because moving focus after a pointer press draws the
+  landing field's outline. A screen reader in browse mode may not count as a keyboard, so its user
+  can still lose focus to the page. Landing for every press shows that outline and changes two
+  visual baselines.
 - **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
   running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
   hover tooltip. Marking it `aria-disabled`, as Save is when errors refuse it, would dim it.
@@ -184,12 +187,16 @@ Agree the fixes marked as visible before making them.
   menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
 - **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
   with no confirmation or undo. Decide whether it needs either.
-- **Messages that arrive already written (4.1.3).** Most toasts, and the loading statuses, are
-  inserted together with their text, so a screen reader may not announce them. Give each a region
-  that is already present when the text arrives. A notice identical to the one before it shows and
-  says nothing, because the notice is never cleared, and fixing that is visible.
-- **Text with no language (3.1.2).** The joined list of failed moves, raw unknown statuses and
-  CEE's validation text carry no language.
+- **Messages that arrive already written (4.1.3).** The group picker's "No matches found", the
+  resource dialog's inspect and recover notice, the preview's try-out notice, the metadata editor's
+  read-only and draft-available notices and the metadata save status's first text are inserted
+  together with their text, so a screen reader may not announce them. Give each a region that is
+  already present when the text arrives, as the toasts and loading statuses now have. The Move and
+  Copy folder list's Loading row has no status role at all. A notice identical to the one before it
+  shows and says nothing, because the notice is never cleared, and fixing that is visible.
+- **Text with no language (3.1.2).** The validation summary leaves a template's field label
+  unmarked when the template declares a language, and the deletion dialog's inventory error leaves
+  a server message unmarked.
 
 <a id="cee"></a>
 
@@ -268,7 +275,7 @@ each project's lint, tests and build, and run `cedarcli publish baselines --refr
 
 ### 8. Fix CEE's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found six WCAG 2.2
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
 criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
 Agree the fixes marked as visible before making them.
 
@@ -287,11 +294,19 @@ Agree the fixes marked as visible before making them.
   need about 271 and 276px and get 264px, so their last letters are cut. They need a shorter
   instruction, or the instruction moved into hint text that wraps.
   `visual/tests/layout-resilience.spec.ts` records it as an exception.
-- **Text still unmarked (3.1.2).** CEE leaves unmarked a select's panel, names that join a label to
-  CEE's words, such as "Time for" a label, and options that carry the default mark.
-
-Extend `visual/tests/layout-resilience.spec.ts` to tooltips, the multi-select, time zone and
-terminology panels, and long values in read-only boxes.
+- **Read-only values cut short (1.4.4, 1.4.10, 1.4.12).** Visible. A long text, email or phone
+  value in a read-only box is cut at the box's edge with nothing to show that more follows. At 320px
+  all three are cut, and at 200% zoom and under text spacing the text value is. The value needs to
+  wrap onto further lines, as a paragraph value does. `visual/tests/layout-resilience.spec.ts`
+  records it as an exception.
+- **Text in the wrong language (3.1.2).** A field's or a section break's description tooltip sits
+  in the overlay container and takes CEE's language rather than the template's. The text, email,
+  phone, link, numeric, controlled-term and authority boxes, and the read-only temporal and select
+  boxes, take the field's label as their `aria-label`, so the label is read in the value's language
+  or CEE's. The term link group's name has the same fault. Naming each from a hidden label marked
+  with the template's language, as the editable temporal boxes now are, changes nothing visible.
+  Decide first whether that fits the rule that a box carries its value's language and never the
+  template's.
 
 ## Frontend Dependencies
 
@@ -346,8 +361,8 @@ cause lives.
 - **Control borders (1.4.11).** `control-border-default` in `cedar-design-tokens` is
   `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, and CED, CEE and Workspace draw text-input borders
   with it. Criterion 1.4.11 asks for 3:1. A darker value changes every consumer's controls, so
-  agree it as a visual change, and extend the token package's contrast test from text pairs to
-  non-text pairs.
+  agree it as a visual change. The token package's contrast test records the shortfall as a known
+  failure and fails once the token reaches 3:1, so remove that record with the change.
 - **Tint-only state (1.4.1, 1.4.11).** A tint of about 1.2:1 is the only mark of the term picker's
   current release and picked tree term, Workspace's selected list row and pressed view switch, and
   the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
@@ -412,13 +427,19 @@ CED beyond the ones it shares with the other components. Several need a design d
   The template's Types row pushes Enter IRI manually past the card's edge and sets "No types
   selected." one letter to a line, already at 375px. `browser/tests/layout-resilience.spec.ts`
   records each as an exception. Decide how a narrow host lays these out.
-- **Dragging (2.5.7).** Reordering on the canvas, in the Overview, in the child picker and in the
-  sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route
-  that needs only single clicks, such as Move up and Move down buttons, which is new UI to agree
-  first. The sidebar's divider never resizes anything, because it looks for a `.border-r` ancestor
-  that does not exist (`field-library-sidebar.component.ts`).
-- **Insertion pills (1.4.13).** The insertion pills that appear on hover between cards are 36px tall
-  in an 8px gap. They overlap the neighbouring cards, and Escape does not dismiss them.
+- **Dragging (2.1.1, 2.5.7).** Reordering on the canvas, in the Overview, in the child picker and
+  in the sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a
+  route that needs only single clicks, such as Move up and Move down buttons, which is new UI to
+  agree first. The sidebar's divider between its field list and the panel below needs a drag alone:
+  it has no keyboard route and no `separator` role. The Overview's resize separator is the pattern
+  to follow.
+- **Focus on a hidden action (2.4.7).** When Escape hides an insertion action that has keyboard
+  focus, focus stays on a control nobody can see, as it already did when a keyboard press on one
+  opened the palette. Decide where focus goes, or whether a focused action stays shown.
+- **Insertion actions on hover (1.4.13).** The actions between two cards are 32px tall in an 8px
+  gap, so they cover about 12px of each neighbouring card. Escape dismisses them, and
+  `browser/tests/child-picker.spec.ts` pins that. No test yet pins that they stay while the pointer
+  is on the part over a card, or that they persist until hover or focus leaves.
 - **Field settings toggles (2.5.8).** Visible. A field card's settings toggle is 36 by 14px, and the
   field header beside it, which opens the same settings, is 23px tall, a pixel short of WCAG's 24.
   The settings panel's last control also sits within 12px of the toggle's centre. Either the toggle
@@ -430,6 +451,13 @@ CED beyond the ones it shares with the other components. Several need a design d
 - **Labels that vanish (3.3.2).** Visible. The field-name and option boxes and the library search
   are labelled only by placeholders, which disappear once the box holds text. They need labels
   that stay.
+
+The sidebar's divider also shows a layout defect that fails no WCAG criterion. Its shares leave out
+the roughly 72px of insertion actions above the field list, so the sections below can overrun the
+sidebar by about 78px, which `.main-content` clips. A pointer then cannot reach the library's last
+button. Keyboard focus scrolls it into view, but that puts the Add field and Import row out of
+reach above. Adding fields from the sidebar causes this with 15 fields at the default share, before
+any drag. Fixing it changes the default layout, so agree it first.
 
 ### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
