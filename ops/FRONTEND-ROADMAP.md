@@ -250,13 +250,16 @@ ember-template-lint to 7 removes one route for each package without clearing eit
 Three more packages have fixed releases the locks have not taken. npm's audit began counting them
 on 2026-10-20.
 
-- `vite` carries three advisories against 8.3.0 to 8.3.2, all in the development server's editor
-  launcher: GHSA-587h-7wmj-h5pm (high), whose file existence check can be bypassed on Windows,
-  GHSA-r825-w8mm-5pxw (moderate), where some editors misread a command-line flag, and
-  GHSA-698v-4r3x-3vcv (moderate), which does not escape `%` on Windows. Every Angular project and
-  component carries 8.3.0, because `@angular/build` 22.2.3 pins it exactly. vite 8.3.4 fixes all
-  three. An npm override could take it before Angular moves its pin, once each project's
-  development server and build pass with it.
+- `vite` carries three advisories against every release before 8.3.3, all in the editor launcher
+  behind the `/__open-in-editor` endpoint every development server mounts. GHSA-587h-7wmj-h5pm
+  (high) and GHSA-698v-4r3x-3vcv (moderate) apply on Windows only. GHSA-r825-w8mm-5pxw (moderate)
+  applies only under WSL, with Vim, Emacs or a plugin-enabled Notepad++, and an attacker able to
+  create a file named `+…` or `-…` in the working folder. None of them applies on the macOS
+  workstation, the Linux runners or the images, which serve built files through nginx. The React
+  and Ember demos ask for vite `^8.2` and carry 8.3.4. The ten Angular projects carry 8.3.0,
+  because `@angular/build` 22.2.3 pins it exactly, and `@angular/build` 22.3.0-next.2 already pins
+  8.3.4. On 2026-10-20 the decision was to take the stable Angular release that moves the pin,
+  through the ordinary dependency update, rather than to override vite in each project.
 - `follow-redirects` (GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c, high) affects 1.16.0, which can
   carry credential headers to another origin. It reaches the Ember demo through ember-cli's
   `http-proxy`. 1.16.1 fixes both, within the range ember-cli asks for.
