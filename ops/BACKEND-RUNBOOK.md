@@ -1526,6 +1526,24 @@ Each reads as a summary — a case with output on only one side is counted and s
 thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 21 instances and 39 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
+A third comparison holds the TypeScript YAML readers to the JSON source rather than to their own
+writer. The YAML reader reference tests round-trip YAML to YAML, so a reader and a writer that agree
+on a wrong reading of an absent key pass them. `itest/resources/JsonThroughYaml-references.spec.ts`
+instead writes every corpus artifact as JSON twice: once from the model its JSON source yields, and
+once after that model has been through the library's own YAML. It runs with `npm test`, in about three
+seconds. With the defect of September 2026 restored, in which an absent `description` was read as
+null, it fails 119 cases while every YAML reader reference test passes.
+
+The YAML form is known to produce four families of difference, defined in `JsonThroughYaml.ts`. A
+schema artifact's JSON Schema text is regenerated. A BioPortal ontology address is rebuilt from its
+acronym. A `_ui.propertyLabels` or `_ui.propertyDescriptions` entry the source omits is filled from
+the child. An instance is completed against its template, as the server completes a YAML write, so it
+loses its empty content and takes its property IRIs and the datatypes of its empty values from the
+template. `yamlTripExpectations.ts` names the cases that show each family. A case that shows an
+undeclared family fails, and so does one that stops showing a declared one. An instance finds its
+template by `schema:isBasedOn`. A CEE suite instance that names none takes the template in its own
+case.
+
 Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
 `literalFieldUIContent` and `iriFieldUIContent` declare `continuePreviousLine` and
 `valueRecommendationEnabled`; all three field UI definitions declare `hidden`; a requirement lives in
