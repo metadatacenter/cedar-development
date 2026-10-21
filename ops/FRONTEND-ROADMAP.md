@@ -417,11 +417,10 @@ CED beyond the ones it shares with the other components. Several need a design d
 - **Narrow widths (1.4.4, 1.4.10, 2.1.1).** Visible. Below 768px of width the designer hides the
   Overview (`app.component.scss`), and with it outline navigation, Expand all and Collapse all, and
   the only keyboard route for reordering, so it is gone at 200% zoom as well. At 320px the
-  Preferences field-type list scrolls sideways by 8px, the Define Presets body scrolls sideways,
-  and a nested element's Element label overlaps its Version. The template's Types row pushes Enter
-  IRI manually past the card's edge and sets "No types selected." one letter to a line, already at
-  375px. `browser/tests/layout-resilience.spec.ts` records each as an exception. Decide how a
-  narrow host lays these out.
+  Preferences field-type list scrolls sideways by 8px, and the Define Presets body scrolls sideways.
+  The template's Types row pushes Enter IRI manually past the card's edge and sets "No types
+  selected." one letter to a line, already at 375px. `browser/tests/layout-resilience.spec.ts`
+  records each as an exception. Decide how a narrow host lays these out.
 - **Dragging (2.5.7).** Reordering on the canvas, in the Overview, in the child picker and in the
   sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route
   that needs only single clicks, such as Move up and Move down buttons, which is new UI to agree
