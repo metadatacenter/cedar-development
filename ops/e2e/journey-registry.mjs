@@ -1,6 +1,7 @@
 import { folderUiJourney } from "./folder-ui-journey.mjs";
 import { designerAuthoringJourney, designerConflictJourney } from "./designer-authoring-journey.mjs";
 import { reusableSourceFailureJourney } from "./reusable-source-failure-journey.mjs";
+import { pullVersionJourney, reusablePublicationJourney } from "./pull-version-journey.mjs";
 import { templateSharingJourney, ownershipTransferJourney } from "./template-sharing-journey.mjs";
 import { ceePermissionsJourney } from "./cee-permissions-journey.mjs";
 import { accessRecheckJourney } from "./access-recheck-journey.mjs";
@@ -62,6 +63,8 @@ export const JOURNEYS = [
   { key: "folder-ui", run: folderUiJourney },
   { key: "designer-authoring", run: designerAuthoringJourney },
   { key: "reusable-source-failure", run: reusableSourceFailureJourney },
+  { key: "pull-versions", run: pullVersionJourney },
+  { key: "reusable-publication", run: reusablePublicationJourney },
   { key: "designer-conflict", run: designerConflictJourney },
   { key: "template-sharing", run: templateSharingJourney, authentication: "signs in as another user" },
   { key: "ownership-transfer", run: ownershipTransferJourney, authentication: "signs in as another user" },

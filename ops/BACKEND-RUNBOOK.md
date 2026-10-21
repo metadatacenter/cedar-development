@@ -2691,6 +2691,16 @@ and in-flight instance references. The resource server also checks publication a
 body read with that ETag. An instance validated before an inclusion update cannot subsequently
 commit against the old template revision; it receives 412 and must be validated again.
 
+Ordinary template PUTs use the same fence when child identities or structure change and
+validation-shape equivalence cannot be proved. This covers pulled fields and elements without
+trusting a browser assessment. Metadata and known presentation changes do not require an empty
+instance set. Editing constraints on the same embedded identity retains the established advisory
+data-quality policy; administrative verbatim repairs retain their separate contract. A refused
+replacement leaves content and ETag unchanged. `check-update-template` includes an explicit
+`numberOfInstances: 0` when there are none; its update verdict is not a universal compatibility
+proof. `npm run smoke:rest -- pull-versions` exercises the public REST boundary, and
+`TemplateDeletionRaceTest` covers writes crossing actual in-flight instance creation.
+
 A write whose database outcome is uncertain retains its reservation and blocks deletion or structural
 inclusion updates of that template. Confirm the originating request/process has stopped and inspect
 the stored instance before repairing an unresolved reservation; do not remove a live reservation merely because it is old.

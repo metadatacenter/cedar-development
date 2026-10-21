@@ -32,6 +32,7 @@ import * as folders from './rest/suites/folders.mjs';
 import * as deletion from './rest/suites/deletion.mjs';
 import * as artifacts from './rest/suites/artifacts.mjs';
 import * as versioning from './rest/suites/versioning.mjs';
+import * as pullVersions from './rest/suites/pull-versions.mjs';
 import * as sharing from './rest/suites/sharing.mjs';
 import * as search from './rest/suites/search.mjs';
 import * as negotiation from './rest/suites/negotiation.mjs';
@@ -52,7 +53,7 @@ import * as addressing from './rest/suites/addressing.mjs';
 import * as bodies from './rest/suites/bodies.mjs';
 import * as errors from './rest/suites/errors.mjs';
 
-const ALL = [folders, deletion, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing, bodies, errors];
+const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, addressing, bodies, errors];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');

@@ -2641,6 +2641,53 @@ colors come from CSS tokens, never from the document service.
 The shared package README describes design ownership and host styling. CED's
 native compact controls retain the API in CEE's `STYLING.md`.
 
+### Reused Artifact Versions
+
+CED's Version tab reports each field or element as local, linked to a published
+artifact, copied from an origin, or contained in a linked element. Publication status,
+version, derivation and previous-version metadata are on that tab; the template and
+element headers display versions read-only. Importing a draft creates an editable copy
+with a new identity. Upgrades and replacements select published releases only; a newer
+draft is never a replacement target. Parent placement survives replacement.
+
+The host supplies optional `childSource.versions`, `compatibility`, `save` and `open`
+methods; their contract and example are in the designer's README, **Versions of Reused
+Children**. Each compatibility assessment belongs to the complete document snapshot.
+Editing a child, sibling or placement retires it, and an active Version tab checks again.
+A refresh reloads the candidate, and replacement uses the exact assessed content. A
+breaking assessment needs an explicit nonnegative integer instance count; missing,
+malformed or contradictory answers cannot authorize replacement. An explicit zero
+permits a breaking replacement; a positive count requires a new template version.
+Hosts without a compatibility method can offer manual replacements without a verdict,
+but those replacements never enter Upgrade all compatible. Server writes must enforce
+the instance policy independently of these component checks.
+
+`browser/tests/version-upgrade-journeys.spec.ts` crosses field/element and linked/copy
+states with assessment outcomes, verifies parent and sibling preservation through
+replacement and reopen, and exercises draft exclusion, edited copies and late replies.
+The split Designer host supplies authenticated history, compatibility, reusable saves and
+opening originals. Compatibility receives the complete before/after parent and applies the
+same preservation rules as Save. Identical validation shapes prove compatibility conservatively;
+otherwise the result is unknown, and only an explicit zero stored-instance count permits manual
+replacement. Unknown changes with existing records are withheld, never labelled compatible or
+reported as an invented invalidated count. Unknown replacements never enter Upgrade all compatible.
+
+Reusable saves journal a stable identity before creation and track publication separately in
+the tab's account/deployment-scoped session storage. Retry reads that identity and resumes the
+same operation. A confirmed child survives a discarded parent edit; the parent still needs its
+own Save. Draft results are editable derived copies, and published results are links. No recovery
+control is added to ordinary screens. A failed operation uses the Version tab's existing error
+and action. Original versions open in another Designer tab.
+
+`npm run smoke:journey -- pull-versions reusable-publication` in `ops/e2e` exercises published
+selection, copied/linked fields and elements, nested/repeated placement, creation/publication,
+lost creation/publication replies and parent save/reopen against real REST. `npm run smoke:rest -- pull-versions`
+directly exercises the final write guard, skipped assessments, records arriving after assessment,
+unchanged revisions on refusal and published immutability. The artifact server's embedded race
+tests also pause actual instance creation across a replacement. Broader compatibility proofs,
+legacy provenance and remaining lifecycle work are in the
+[pull version-management work](FRONTEND-ROADMAP.md#pull-version-management).
+
 <a id="ced-testing"></a>
 
 ### Testing

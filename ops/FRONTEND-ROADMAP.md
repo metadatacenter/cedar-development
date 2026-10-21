@@ -461,3 +461,38 @@ Agree its interaction before implementation; this proposal does not authorize a 
 diagnostic or recovery button, banner or file picker on ordinary editing screens.
 Any confirmed defect should lead to a generation or validation fix and a regression test; verify
 that the fallback preserves work while the rejected write remains blocked.
+
+<a id="pull-version-management"></a>
+
+### 15. Complete Pull-Based Reusable Artifact Version Management
+
+- **Richer compatibility proofs and impact.** Recognize safe schema widenings beyond
+  validation-shape equality. Assess the actual invalidated record count when schemas
+  differ, including records the author cannot read, without exposing their content.
+  Keep universal compatibility, stored-instance impact and semantic changes distinct.
+  Extend final-write protection to permit proven safe widenings without weakening its
+  concurrency fence. The existing `check-update-template` delta is not a universal proof.
+- **Continuing reusable drafts and recovery across tabs.** Make continuing work on a
+  saved reusable draft possible without silently turning the embedded copy into a mutable
+  link. Define retrieval of confirmed but unattached results after the original tab closes,
+  and deliberate cleanup of reusable artifacts whose parent edits were discarded.
+- **Source revisions and descendant identity.** Record which revision of a mutable draft
+  was copied, with a retrievable baseline if future comparison requires it. Resolve the
+  identity scope of editable inline descendants before changing detachment: retaining
+  their identifiers can leave different definitions under the same identifier. Preserve
+  published descendant references and parent property IRIs. Do not rewrite stored
+  published artifacts or infer provenance for legacy copies.
+- **Version families and candidate choice.** Resolve a stable version family across
+  releases and deletion so duplicate uses at different versions can be recognized.
+  Distinguish the latest readable published release from a globally latest release. Agree
+  the interaction for selecting an older or latest compatible release, and for reviewing
+  meaningful changes and local divergence, before adding controls.
+- **Existing reuse and retirement of bubbling.** Inventory older embedded drafts with
+  shared stored identifiers and missing derivation. Agree an honest unknown-origin state
+  and a deliberate association workflow. Add a read-permission-filtered usage endpoint;
+  retire the legacy editor's bubbling UI and REST mutation/preview endpoints once the
+  replacement workflow and its existing-data path are usable.
+- **Further journey gates.** Extend real-host matrices to permission-filtered source
+  histories, source deletion during assessment, changed drafts during uncertain reusable
+  creation and cross-tab outcome retrieval. Verify untouched screens separately from
+  failure paths and keep exceptional controls absent without their triggering condition.
