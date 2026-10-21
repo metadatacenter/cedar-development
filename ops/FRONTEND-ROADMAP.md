@@ -167,12 +167,6 @@ The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found fi
 criteria that Workspace fails, two of them through causes it shares with the other components.
 Agree the fixes marked as visible before making them.
 
-- **Focus after a pointer press (2.4.3).** Visible. Creating a group, adding or removing a member,
-  and saving or cancelling an artifact's description return focus to a defined place only when the
-  pressed control was reached by keyboard, because moving focus after a pointer press draws the
-  landing field's outline. A screen reader in browse mode may not count as a keyboard, so its user
-  can still lose focus to the page. Landing for every press shows that outline and changes two
-  visual baselines.
 - **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
   running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
   hover tooltip. Marking it `aria-disabled`, as Save is when errors refuse it, would dim it.

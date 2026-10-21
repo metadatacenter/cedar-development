@@ -3891,7 +3891,7 @@ CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their 
 and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE `313d7ceb`, the
 term picker `8ed2d81` and Workspace `0323655a`. On 2026-10-21 the criteria a fourth round touched
 were reassessed at CED `fdd70ff`, CEE `14923698`, the term picker `ef5fac9` and Workspace
-`8252e959`. The assessment read code and tests. Nobody ran a
+`24c91add`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
