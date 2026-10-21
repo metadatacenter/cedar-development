@@ -647,6 +647,25 @@ producers' immutable local artifacts. Other build commands remain exclusive barr
 deployment and the smoke tiers run after all frontend checks pass. A failed producer blocks
 its consumers, including in continue mode.
 
+The repositories a build runs at once share one pool of workers, as many as the host has cores
+or as `--workers` sets, whichever is larger. `--workers` caps what one repository uses, and the
+pool caps what all of them use together, so a third job fills idle cores without oversubscribing
+busy ones. A command takes its workers from the pool when it starts and returns them when it
+ends. An npm script asks for the repository's whole budget, and an install or a browser download
+asks for one. The model library's, CEE's and CED's gate scripts take workers stage by stage
+instead. Requests are served in the order they arrive, and each starts once at least half of what
+it asked for is free, so a stage that needs several workers is never overtaken by smaller ones.
+The log names any command or stage that started with fewer workers than it asked for. The pool
+is a directory under the build's scratch root, named in `CEDAR_WORKER_POOL`, with one
+subdirectory per worker in use and a `queue` of waiting requests.
+
+The pool leaves the length of a full rebuild where it was and removes the load that made browser
+suites time out. Measured on 2026-10-20 at `--jobs 3 --workers 12`, a full rebuild took 489 s.
+The run before the pool stopped at a CED failure after 450 s and would have taken about 475 s. The
+load's median fell from 43 to 17 on 16 cores, and CED's 980 browser tests ran with none flaky or
+failed, against seven flaky and one failed under the earlier load. Reports:
+`.cedar/build-reports/20261021T040607Z-72ccce31.json` and `20261021T022455Z-b31d00b5.json`.
+
 A surface in `frontend-train.json` may declare a `package` phase between `setup` and
 `verify`: the commands that build and stage what it publishes. The model library and CEE
 declare one. When that phase passes, the reactor stores the artifact and starts the
@@ -699,7 +718,8 @@ Every actual CLI build writes command durations, task dependency edges and exit 
 `.cedar/build-reports/<timestamp>-<id>.json`, including failed/interrupted runs. Independent
 running jobs drain after a test failure; Ctrl-C cancels owned subprocess groups. Increase
 one concurrency setting at a time and compare elapsed times and failures before increasing
-both: `jobs × workers` is the intended frontend worker budget, not a memory limit.
+both. The shared pool bounds the workers running at once, so a larger `--jobs` no longer
+multiplies them.
 
 On a 16-core M4 with 64 GB RAM (2026-09-24), `--jobs 2 --workers 8` completed the
 full frontend build and test gates in 320.8 seconds, before deployment and whole-stack
@@ -2721,7 +2741,11 @@ nested, published, read-only, narrow, showing host findings, both settings dialo
 and every field type's settings tabs. Any violation of axe's rules for WCAG 2.2
 levels A and AA fails it, and the same rules gate Workspace, the term picker and CEE.
 axe-core's rule for WCAG 2.1's Label in Name is experimental, and a tag selection leaves it
-out, so each of the four gates runs it by name.
+out, so each of the four gates runs it by name. CED and CEE enable it beside the tags in a
+single scan and assert that it ran. Workspace and the term picker run it in a second scan. CEE
+checks every rule at desktop width and, at 480 px, only contrast, target size and scrollable
+regions, the rules that read the layout. Audited at both widths on 2026-10-20, 239 states
+agreed on every other rule.
 Axe cannot judge focus order, focus return or announcements, so three specs cover
 them:
 
