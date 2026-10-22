@@ -6967,6 +6967,13 @@ artifact ownership and wire boundaries: native JSON and `structuredClone` cannot
 atoms. The JSON token stays a number, not a quoted string or an implementation object. Source
 lexical formatting can change; numerical value, string content, key spelling and array order cannot.
 
+The artifact store keeps a fractional number exactly, as a MongoDB `Decimal128`, beside the doubles that
+artifacts saved before release 2.9.25 hold. `GenericLDDaoMongoDB` writes either type back as a plain JSON
+number. Extended JSON, which a direct Mongo export and the driver's default rendering use, writes a
+`Decimal128` as `{"$numberDecimal": "1E-7"}`; that form is refused by the validator and must never reach a
+client. Releases 2.9.25 to 2.9.28 served it, so an artifact with a fractional bound saved under them reads
+back as an object wherever one of those releases still runs.
+
 `ProvenanceTimestamp` in `cedar-model-library` owns provenance parsing and formatting; core and
 validation delegate to it. It requires an explicit offset, checks the calendar, preserves the
 original offset and up to nine fractional-second digits, and accepts the historical colonless
