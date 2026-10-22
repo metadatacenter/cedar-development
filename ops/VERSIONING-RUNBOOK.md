@@ -213,6 +213,12 @@ one search-index transaction. Full-text postings are deleted in a batch before t
 are removed, then inserted in a batch after the new names exist. An interrupted update leaves the
 previously committed version usable; a retry replaces it. An older snapshot without property
 extraction clears the prior release's property results instead of serving them under the new release.
+
+The server opens every snapshot and the search index read-only. A job that writes one of them in
+place, `SearchIndexJob` or a property backfill, and dies mid-write leaves a hot journal beside the
+file, and a read-only connection cannot roll it back. Every lookup against that file then fails
+with `SQLITE_READONLY_ROLLBACK`. Rerun the interrupted job: opening the file to write rolls the
+journal back, and the run then finishes the write.
 Catalog and index writes roll back on unchecked failures as well as SQL failures. Bulk loading
 retains the 200 MB cache but uses rollback
 journaling and full synchronization. The large-corpus benchmark below measures the cost of the
@@ -394,6 +400,17 @@ snapshots, one of them `latest`, that were not on disk.
 cd <store>
 sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" |
   while read -r p; do [ -e "$p" ] || echo "missing: $p"; done
+```
+
+Confirm too that the host's search index is current, before a terminology server that opens it
+read-only first serves from it. That includes a host that already holds a store from an earlier
+copy. An index built before 2026-08-25 lacks two columns the server adds on startup, and a read-only
+open cannot add them, so corpus-wide search starts off. A current index prints 2:
+
+```bash
+sqlite3 -readonly search-index.sqlite \
+  "SELECT (SELECT count(*) FROM pragma_table_info('term') WHERE name = 'definition')
+        + (SELECT count(*) FROM pragma_table_info('name') WHERE name = 'ont')"
 ```
 
 Name the store in the host's `set-env-internal.sh`. `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` lists the
