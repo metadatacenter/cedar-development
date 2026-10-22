@@ -337,14 +337,37 @@ try {
   const reopenedTemplate = await page.locator("cedar-embeddable-designer").evaluate(el => el.currentArtifact);
   assert.deepEqual(embeddedElement(reopenedTemplate), importedElement,
     "a later source edit must not silently replace the reused snapshot");
-  const nestedDescription = page.locator("app-container-editor").nth(1).getByPlaceholder("Add description...", {exact: true});
-  await nestedDescription.fill("Local reused element edit");
+  const nestedEditor = page.locator("app-container-editor").nth(1);
+  const nestedDescription = nestedEditor.getByPlaceholder("Add description...", {exact: true});
+  const elementKey = Object.keys(importedTemplate.properties).find(key =>
+    (importedTemplate.properties[key].items ?? importedTemplate.properties[key])["pav:derivedFrom"] === artifacts.element);
+  assert.ok(elementKey, "the reused element has a key in its parent");
+  // The header edits how the parent displays its imported child. The child's own description
+  // is independent from the start and is edited in Presentation.
+  await nestedDescription.fill("Local reused element display");
+  await editorSave(page, "PUT", "templates");
+  const locallyDisplayed = (await call(user1.auth, "GET", "/templates/" + enc(artifacts.template))).body;
+  assert.equal(locallyDisplayed._ui.propertyDescriptions[elementKey], "Local reused element display");
+  assert.deepEqual(embeddedElement(locallyDisplayed), importedElement,
+    "editing the parent's display description leaves the reused definition unchanged");
+  const elementSettings = nestedEditor.locator("app-element-card").first();
+  const expandSettings = elementSettings.getByRole("button", {name: "Expand element settings", exact: true});
+  if (await expandSettings.count()) await expandSettings.click();
+  await elementSettings.getByRole("tab", {name: "Presentation", exact: true}).click();
+  await elementSettings.getByRole("tabpanel", {name: "Presentation", exact: true})
+    .getByLabel("Element description", {exact: true}).fill("Local reused element edit");
   await editorSave(page, "PUT", "templates");
   const locallyEdited = (await call(user1.auth, "GET", "/templates/" + enc(artifacts.template))).body;
   assert.equal(embeddedElement(locallyEdited)["schema:description"], "Local reused element edit");
+  assert.equal(locallyEdited._ui.propertyDescriptions[elementKey], "Local reused element display");
   assert.equal((await call(user1.auth, "GET", elementSourcePath)).body["schema:description"], "Later library source edit");
   await backToWorkspace(page);
-  pass("Imported draft elements record their origin and retain annotations; library and embedded edits remain independent");
+  await editor(page, names.template);
+  assert.equal(await nestedDescription.inputValue(), "Local reused element display");
+  const reopenedLocal = await page.locator("cedar-embeddable-designer").evaluate(el => el.currentArtifact);
+  assert.equal(embeddedElement(reopenedLocal)["schema:description"], "Local reused element edit");
+  await backToWorkspace(page);
+  pass("Imported draft elements retain origin and annotations; library, embedded and parent display descriptions remain independent after reopening");
   // The second user may view the template, whose reused element's library source stays private to
   // its owner, and populates it from Shared with Me.
   step = enter("shared-template-population");
