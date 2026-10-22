@@ -2645,6 +2645,22 @@ Asynchronous checks and recovery actions belong to the current node, editing int
 and editability revision. A newer rejected edit also invalidates an old recovery.
 Cancellation aborts the lookup, and terminology requests have a 30-second deadline.
 Pending-only edits count as dirty; read-only sessions cannot save.
+Saveable documents must also pass structural validation of the actual JSON emitted by the adapter,
+including standalone field roots. The shared TypeScript library compiles those rules from the six
+canonical Java meta-schemas; its vendored schema hashes identify the rules in use. Occurrence limits
+must fit Java's nonnegative 32-bit integer range. The settings probes retain their existing precise
+feedback, and structural findings use the same summary and nested setting paths.
+
+`npm run test:conformance`, included in CED's mandatory gate and CI, drives real coordinator edits,
+all field types, standalone roots, nested and repeated elements, and deterministic edit histories.
+Every saveable output must pass the real Java validator, Java artifact reader and TypeScript strict
+reader/value checks. Negative controls prove invalid inputs are refused. Java 17 and Maven are
+required, and the gate fails if Java's loaded schema hashes differ from the browser library's.
+CED and the host declare `cedarJavaConformance` in their manifests. Their reactor result keys include
+the Java runtime and every resolved oracle JAR, so a Java-only or transitive dependency change reruns
+their checks even if no frontend source or meta-schema changed. Missing dependency evidence permits
+no cached success.
+
 `TemplateService` coordinates commands and UI navigation;
 `core/model/document-validation.ts` validates a document snapshot and pending
 settings drafts without Angular state. Reconciliation compares structured validation
@@ -3003,6 +3019,20 @@ from the loaded representation; this preservation step does not reconcile concur
 field, comparing its full stored definition, annotations, identifiers, provenance and sibling
 content after save and reopen. The server also follows unambiguous child identities when
 preserving provenance, so changing a placement key does not turn an existing field into a new creation.
+
+The host validates the final merge, including untouched retained branches, with the shared raw-schema
+and value checker before enabling Save. Local blocking findings use the existing validation disclosure;
+advisory semantic findings remain with the component. Immediately before a create, update or new-version
+write, `saveArtifact` prepares storage metadata and identity, then sends that exact body to
+`POST /command/validate?resource_type=...`. The server's verdict includes its mandatory Java reader.
+Missing, malformed, negative, timed-out and stale responses cannot authorize a write. The immutable
+attempt binds both the CED projection and merged body; only a successful current verdict permits
+journaling and sending the write. A failed preflight has not sent a write and cannot create uncertain
+creation recovery. The write endpoint still validates again after its own normalization.
+
+The host's mandatory browser suite loads the real packaged designer and checks the final submitted
+bodies with the same Java oracle and TypeScript reader. Its partial-artifact orchestration fixtures
+explicitly stub those external verdicts; the payload and conformance suites exercise the real checks.
 
 Designer freezes editing and disables Save while a write is pending. Unlike Editor's
 continued-typing workflow, its controls cannot receive focus or keyboard input until the
