@@ -3323,11 +3323,19 @@ the Field Designer has no parent and so no Configuration tab. Its header edits i
 **Presentation** edits the child's own name and description, its `schema:name` and
 `schema:description`, under the labels Field name and Field description or Element name and
 Element description. CEE shows a field's own description as its help. Every profile offers
-both. While a child is a draft its parent shows as itself, the display name and description
-are its own as well, so an edit from the header, Configuration or Presentation writes both.
-A parent that already shows the child differently keeps doing so, and each side then edits
-its own value. A label repeating the child's name or key is the writers' filler, not a
-different display name, as CEE and the Java library read it. The designer does not write
+both. While the author first names a new child, its display name and its name are one value,
+so an edit from the header, Configuration or Presentation writes both. Once the name first
+loses focus, an edit to the display name changes only the display name, and the child's name
+and key stay as they are. Its display description and description are one value in the same
+way, until the description first loses focus. An imported or library child takes its display
+name and display description from its own once and keeps each pair apart from the start. A
+label repeating the child's name or key is the writers' filler, not a different display name,
+as CEE and the Java library read it. A parent that shows a child as itself therefore shows it
+by its own name, and an edit from Presentation changes what the parent shows too. A named
+child's display name cannot be cleared. While its input is blank, the header reports that a
+display name is required, as it reports a blank name, and the template keeps the previous
+display name. A parent that already shows the child differently keeps doing so, and each side
+then edits its own value. The designer does not write
 `skos:prefLabel`, except that one only repeating the name moves with a rename, so CEE does
 not go on showing the old name.
 
@@ -3889,7 +3897,9 @@ and AA, 55 in all, and records for each component what evidence settles it.
 
 CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their source and tests,
 and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE `313d7ceb`, the
-term picker `8ed2d81` and Workspace `0323655a`. The assessment read code and tests. Nobody ran a
+term picker `8ed2d81` and Workspace `0323655a`. On 2026-10-21 the criteria a fourth round touched
+were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and Workspace
+`bc2401e8`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -3918,10 +3928,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 20 | 10 | 9 | 0 | 16 | 20 of 39, 51% |
-| CEE | 23 | 12 | 6 | 6 | 8 | 23 of 47, 49% |
+| CED | 21 | 9 | 9 | 0 | 16 | 21 of 39, 54% |
+| CEE | 22 | 11 | 8 | 6 | 8 | 22 of 47, 47% |
 | Term picker | 24 | 8 | 7 | 0 | 16 | 24 of 39, 62% |
-| Workspace | 28 | 14 | 5 | 0 | 8 | 28 of 47, 60% |
+| Workspace | 29 | 13 | 5 | 0 | 8 | 29 of 47, 62% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -3929,8 +3939,11 @@ its captions and descriptions are the template author's.
 On 2026-10-19 the four scored 41%, 34%, 51% and 43%, with 39 failures between them. The first round
 of fixes cut the failures to 26. Most of the criteria it touched moved from Fails to Partial rather
 than to Met, because a criterion is met only when every part of it is evidenced. The second and
-third rounds moved more to Met, but the failures now stand at 27, because the layout check and the
-wider scans found new ones as fast as others were fixed. Most of those need a visible change.
+third rounds moved more to Met, but the failures stood at 27 after them, because the layout check
+and the wider scans found new ones as fast as others were fixed. The fourth round moved CED's 1.4.13
+from Fails to Met and Workspace's 3.1.2 from Partial to Met. CEE's wider layout check then found
+long read-only values cut short at 200% zoom and under text spacing, and CED was found to leave
+focus on a hidden control, so the failures now stand at 29. Most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -3955,8 +3968,10 @@ Three failures recur across components:
   (2.5.8).
 
 The layout check's failures are each a component's own: CED's narrow layouts, CEE's PubMed and
-RRID instructions cut short at 320 pixels, the term picker's release history at 320 pixels and its
-truncated lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are open work on the
+RRID instructions cut short at 320 pixels and its long read-only values cut short at 320 pixels, at
+200% zoom and under text spacing, the term picker's release history at 320 pixels and its truncated
+lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are
+open work on the
 [frontend roadmap](FRONTEND-ROADMAP.md) and, for the term picker, the
 [versioning roadmap](VERSIONING-ROADMAP.md).
 
@@ -3981,12 +3996,12 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.1 Use of Color | A | Fails | Fails | Fails | Fails |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
-| 1.4.4 Resize Text | AA | Fails | Partial | Fails | Met |
+| 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
 | 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
 | 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
-| 1.4.12 Text Spacing | AA | Met | Met | Met | Fails |
-| 1.4.13 Content on Hover or Focus | AA | Fails | Partial | Met | Met |
+| 1.4.12 Text Spacing | AA | Met | Fails | Met | Fails |
+| 1.4.13 Content on Hover or Focus | AA | Met | Partial | Met | Met |
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
 | 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
@@ -3999,7 +4014,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Met |
 | 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
 | 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
-| 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
+| 2.4.7 Focus Visible | AA | Fails | Partial | Partial | Partial |
 | 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
 | 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
 | 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
@@ -4008,7 +4023,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
 | 2.5.8 Target Size (Minimum) | AA | Fails | Fails | Fails | Met |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
-| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Partial |
+| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Met |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |
 | 3.2.2 On Input | A | Met | Met | Met | Met |
 | 3.2.3 Consistent Navigation | AA | Host | Host | Host | Met |

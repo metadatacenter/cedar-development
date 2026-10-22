@@ -1,4 +1,5 @@
 import {journeyFolder, listedIn, listingIdle, openListing} from "./journey-fixtures.mjs";
+import {shown} from "./workspace-journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 
@@ -59,7 +60,7 @@ export async function uncertainMoveJourney({page, base, user, folderId, name, cr
     await page.locator("body.explorer-can-drop").waitFor();
     await page.mouse.up();
     await page.getByRole("alert").waitFor();
-    await page.getByText("Moved 2 items.", {exact: true}).waitFor();
+    await shown(page, "Moved 2 items.").waitFor();
     assert.equal(routeError, undefined);
     assert.deepEqual([...attempts].sort(), [...ids].sort(), "each item is submitted once, including the response that was lost");
     for (const id of ids) await row(id).waitFor({state: "detached"});

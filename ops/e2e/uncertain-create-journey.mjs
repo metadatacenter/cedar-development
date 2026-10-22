@@ -2,6 +2,7 @@ import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
 import {fixtureAt, journeyFolder} from "./journey-fixtures.mjs";
+import {shown} from "./workspace-journey-fixtures.mjs";
 import {assertNoRecoveryFiles} from "./recovery-boundary-journey.mjs";
 
 // A client sends every create and new version under an identity it minted and journaled before
@@ -550,7 +551,7 @@ async function versionIn(dialog) {
 
 /** Asserts whether a dialog shows its uncertain state: the status naming Retry, and Retry itself. */
 async function dialogShows(dialog, uncertain) {
-  assert.equal(await dialog.getByText(INSPECT, {exact: true}).count(), uncertain ? 1 : 0, "the uncertain status");
+  assert.equal(await shown(dialog, INSPECT).count(), uncertain ? 1 : 0, "the uncertain status");
   assert.equal(await dialog.getByRole("button", {name: "Retry", exact: true}).count(), uncertain ? 1 : 0, "Retry");
 }
 
@@ -694,7 +695,7 @@ async function dialogCase(args, root, action, outcome, acrossReload = false) {
     await page.route(matcher, lose);
     try {
       await submit.click();
-      await dialog.getByText(INSPECT, {exact: true}).waitFor();
+      await shown(dialog, INSPECT).waitFor();
     } finally { await page.unroute(matcher, lose); }
     assert.equal(failure, undefined, failure?.stack);
     assert.ok(attempt, `${spec.label} was sent`);
@@ -706,7 +707,7 @@ async function dialogCase(args, root, action, outcome, acrossReload = false) {
       await page.reload();
       await page.getByRole("button", {name: "New", exact: true}).waitFor();
       await spec.open({page, base, folderId, source});
-      await dialog.getByText(INSPECT, {exact: true}).waitFor();
+      await shown(dialog, INSPECT).waitFor();
     }
     // While the outcome is unknown, the values stay, submit is blocked and Retry is offered.
     await dialogShows(dialog, true);

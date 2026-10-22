@@ -167,9 +167,6 @@ The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found fi
 criteria that Workspace fails, two of them through causes it shares with the other components.
 Agree the fixes marked as visible before making them.
 
-- **Focus after group and description changes (2.4.3).** Focus falls to the page after creating a
-  group, adding or removing a member, and saving an artifact's description. Give it a defined
-  landing place in each case, as the listing's deletions and moves already have.
 - **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
   running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
   hover tooltip. Marking it `aria-disabled`, as Save is when errors refuse it, would dim it.
@@ -184,12 +181,11 @@ Agree the fixes marked as visible before making them.
   menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
 - **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
   with no confirmation or undo. Decide whether it needs either.
-- **Messages that arrive already written (4.1.3).** Most toasts, and the loading statuses, are
-  inserted together with their text, so a screen reader may not announce them. Give each a region
-  that is already present when the text arrives. A notice identical to the one before it shows and
-  says nothing, because the notice is never cleared, and fixing that is visible.
-- **Text with no language (3.1.2).** The joined list of failed moves, raw unknown statuses and
-  CEE's validation text carry no language.
+- **Messages that arrive already written (4.1.3).** The metadata editor's review panel is a live
+  region inserted together with its explanation and comparison table, so a screen reader may not
+  announce it. Decide what the panel should announce before giving it a region that is present
+  first. A notice identical to the one before it shows and says nothing, because the notice is
+  never cleared, and fixing that is visible.
 
 <a id="cee"></a>
 
@@ -219,7 +215,7 @@ data images.
 
 ### 7. Clear the Advisories Waiting on Upstream
 
-Seven advisories remain in the frontend locks. All of them sit in build, lint, test or
+Five advisories remain in the frontend locks. All of them sit in build, lint, test or
 development-server tooling, and nothing the affected projects ship contains them. The train's lock
 baselines record the current counts as reviewed, so trains and releases pass, and nothing waits on
 this item.
@@ -247,27 +243,18 @@ No override helps while no fixed version exists. Dropping stylelint and ember-te
 not help either, because ember-cli and Embroider would still bring `braces`, and moving
 ember-template-lint to 7 removes one route for each package without clearing either.
 
-Three more packages have fixed releases the locks have not taken. npm's audit began counting them
-on 2026-10-20.
-
-- `vite` carries three advisories against every release before 8.3.3, all in the editor launcher
-  behind the `/__open-in-editor` endpoint every development server mounts. GHSA-587h-7wmj-h5pm
-  (high) and GHSA-698v-4r3x-3vcv (moderate) apply on Windows only. GHSA-r825-w8mm-5pxw (moderate)
-  applies only under WSL, with Vim, Emacs or a plugin-enabled Notepad++, and an attacker able to
-  create a file named `+…` or `-…` in the working folder. None of them applies on the macOS
-  workstation, the Linux runners or the images, which serve built files through nginx. The React
-  and Ember demos ask for vite `^8.2` and carry 8.3.4. The ten Angular projects carry 8.3.0,
-  because `@angular/build` 22.2.3 pins it exactly, and `@angular/build` 22.3.0-next.2 already pins
-  8.3.4. On 2026-10-20 the decision was to take the stable Angular release that moves the pin,
-  through the ordinary dependency update, rather than to override vite in each project.
-- `follow-redirects` (GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c, high) affects 1.16.0, which can
-  carry credential headers to another origin. It reaches the Ember demo through ember-cli's
-  `http-proxy`. 1.16.1 fixes both, within the range ember-cli asks for.
-- `markdown-it` (GHSA-r7fv-28h4-cvq7, high) affects every release before 14.3.2, whose smart quotes
-  take quadratic time on unmatched closing quotes. It reaches the Ember demo through ember-cli. 14.3.2
-  fixes it, within the range ember-cli asks for.
-
-A lock update in the Ember demo takes the last two.
+The other three are `vite`'s, which has a fixed release the Angular projects cannot yet take. npm's
+audit began counting them on 2026-10-20. All three affect every release before 8.3.3 and sit in the
+editor launcher behind the `/__open-in-editor` endpoint every development server mounts.
+GHSA-587h-7wmj-h5pm (high) and GHSA-698v-4r3x-3vcv (moderate) apply on Windows only.
+GHSA-r825-w8mm-5pxw (moderate) applies only under WSL, with Vim, Emacs or a plugin-enabled
+Notepad++, and an attacker able to create a file named `+…` or `-…` in the working folder. None of
+them applies on the macOS workstation, the Linux runners or the images, which serve built files
+through nginx. The React and Ember demos ask for vite `^8.2` and carry 8.3.4. The ten Angular
+projects carry 8.3.0, because `@angular/build` 22.2.3 pins it exactly, and `@angular/build`
+22.3.0-next.2 already pins 8.3.4. On 2026-10-20 the decision was to take the stable Angular release
+that moves the pin, through the ordinary dependency update, rather than to override vite in each
+project. The latest stable release on 2026-10-21 was still 22.2.3.
 
 When an advisory is withdrawn, lower the counts recorded for the affected locks in
 `ops/frontend-train.json` by hand. The locks themselves do not change, and
@@ -277,7 +264,7 @@ each project's lint, tests and build, and run `cedarcli publish baselines --refr
 
 ### 8. Fix CEE's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found six WCAG 2.2
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
 criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
 Agree the fixes marked as visible before making them.
 
@@ -296,11 +283,17 @@ Agree the fixes marked as visible before making them.
   need about 271 and 276px and get 264px, so their last letters are cut. They need a shorter
   instruction, or the instruction moved into hint text that wraps.
   `visual/tests/layout-resilience.spec.ts` records it as an exception.
-- **Text still unmarked (3.1.2).** CEE leaves unmarked a select's panel, names that join a label to
-  CEE's words, such as "Time for" a label, and options that carry the default mark.
-
-Extend `visual/tests/layout-resilience.spec.ts` to tooltips, the multi-select, time zone and
-terminology panels, and long values in read-only boxes.
+- **Read-only values cut short (1.4.4, 1.4.10, 1.4.12).** Visible. A long text, email or phone
+  value in a read-only box is cut at the box's edge with nothing to show that more follows. At 320px
+  all three are cut, and at 200% zoom and under text spacing the text value is. The value needs to
+  wrap onto further lines, as a paragraph value does. `visual/tests/layout-resilience.spec.ts`
+  records it as an exception.
+- **Box names in the wrong language (3.1.2).** The text, email, phone, link, numeric,
+  controlled-term and authority boxes, and the read-only temporal and select boxes, take the field's
+  label as their `aria-label`, so the label is read in the value's language or CEE's. The term link
+  group's name has the same fault. Naming each from a hidden label marked with the template's
+  language, as the editable temporal boxes now are, changes nothing visible. Decide first whether
+  that fits the rule that a box carries its value's language and never the template's.
 
 ## Frontend Dependencies
 
@@ -346,6 +339,44 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 
 ## Accessibility Across Components
 
+Five items hold the open accessibility work: "Fix Workspace's WCAG Failures", "Fix CEE's WCAG
+Failures", "Fix the WCAG Failures the Components Share", and CED's "Keyboard and Screen-Reader
+Access" and "Fix CED's Remaining WCAG Failures". The term picker's three are on the
+[versioning roadmap](VERSIONING-ROADMAP.md). Every open piece waits on a decision about a visible
+change or a design, except the screen-reader runs, which wait on a person. In order of effort,
+least first, the pieces are:
+
+- where focus goes when Escape hides a focused insertion action in CED;
+- whether Workspace's menus close when focus leaves them;
+- marking Workspace's Save `aria-disabled` while CEE validates, which dims it;
+- clearing Workspace's notice, so that an identical one is seen and announced;
+- what Workspace's metadata review panel announces when it appears;
+- 24px targets for CEE's link-out icon and CED's field settings toggle;
+- shorter PubMed and RRID instructions in CEE, or hint text that wraps;
+- naming CEE's text-like boxes from a hidden label in the template's language;
+- keeping CEE's cleared and reverted notices until they are dismissed;
+- a cue beyond colour for CEE's warnings;
+- a darker `control-border-default`, published to every consumer with its new baselines;
+- labels that stay in CED's field-name, option and library-search boxes;
+- a keyboard route to CEE's element descriptions and property IRI marks;
+- wrapping CEE's long read-only values;
+- wrapping Workspace's grid card lines under text spacing, through the shared card recipe;
+- one second cue for the six tint-only states;
+- a confirmation or an undo for removing access in Workspace;
+- a keyboard route for CED's sidebar divider, after its Tab order is agreed;
+- CED's sidebar split, which fails no criterion but hides the library's last button;
+- the term picker's result tabs as one Tab stop;
+- a keyboard route for CED's sidebar field list, as buttons or a listbox;
+- CED's screen-reader runs with VoiceOver and NVDA;
+- selection in Workspace's listing as a state, through a grid;
+- semantics for CED's child picker results;
+- semantics for the term picker's result list, and larger release buttons;
+- the term picker's remaining target and layout failures;
+- CED's layout below 768px;
+- a click-only alternative to dragging in CED's canvas, Overview, child picker and sidebar.
+
+When a piece's work leaves the item that holds it, remove the piece from this list.
+
 ### 10. Fix the WCAG Failures the Components Share
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found failures that recur
@@ -355,8 +386,8 @@ cause lives.
 - **Control borders (1.4.11).** `control-border-default` in `cedar-design-tokens` is
   `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, and CED, CEE and Workspace draw text-input borders
   with it. Criterion 1.4.11 asks for 3:1. A darker value changes every consumer's controls, so
-  agree it as a visual change, and extend the token package's contrast test from text pairs to
-  non-text pairs.
+  agree it as a visual change. The token package's contrast test records the shortfall as a known
+  failure and fails once the token reaches 3:1, so remove that record with the change.
 - **Tint-only state (1.4.1, 1.4.11).** A tint of about 1.2:1 is the only mark of the term picker's
   current release and picked tree term, Workspace's selected list row and pressed view switch, and
   the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
@@ -417,18 +448,19 @@ CED beyond the ones it shares with the other components. Several need a design d
 - **Narrow widths (1.4.4, 1.4.10, 2.1.1).** Visible. Below 768px of width the designer hides the
   Overview (`app.component.scss`), and with it outline navigation, Expand all and Collapse all, and
   the only keyboard route for reordering, so it is gone at 200% zoom as well. At 320px the
-  Preferences field-type list scrolls sideways by 8px, the Define Presets body scrolls sideways,
-  and a nested element's Element label overlaps its Version. The template's Types row pushes Enter
-  IRI manually past the card's edge and sets "No types selected." one letter to a line, already at
-  375px. `browser/tests/layout-resilience.spec.ts` records each as an exception. Decide how a
-  narrow host lays these out.
-- **Dragging (2.5.7).** Reordering on the canvas, in the Overview, in the child picker and in the
-  sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route
-  that needs only single clicks, such as Move up and Move down buttons, which is new UI to agree
-  first. The sidebar's divider never resizes anything, because it looks for a `.border-r` ancestor
-  that does not exist (`field-library-sidebar.component.ts`).
-- **Insertion pills (1.4.13).** The insertion pills that appear on hover between cards are 36px tall
-  in an 8px gap. They overlap the neighbouring cards, and Escape does not dismiss them.
+  Preferences field-type list scrolls sideways by 8px, and the Define Presets body scrolls sideways.
+  The template's Types row pushes Enter IRI manually past the card's edge and sets "No types
+  selected." one letter to a line, already at 375px. `browser/tests/layout-resilience.spec.ts`
+  records each as an exception. Decide how a narrow host lays these out.
+- **Dragging (2.1.1, 2.5.7).** Reordering on the canvas, in the Overview, in the child picker and
+  in the sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a
+  route that needs only single clicks, such as Move up and Move down buttons, which is new UI to
+  agree first. The sidebar's divider between its field list and the panel below needs a drag alone:
+  it has no keyboard route and no `separator` role. The Overview's resize separator is the pattern
+  to follow.
+- **Focus on a hidden action (2.4.7).** When Escape hides an insertion action that has keyboard
+  focus, focus stays on a control nobody can see, as it already did when a keyboard press on one
+  opened the palette. Decide where focus goes, or whether a focused action stays shown.
 - **Field settings toggles (2.5.8).** Visible. A field card's settings toggle is 36 by 14px, and the
   field header beside it, which opens the same settings, is 23px tall, a pixel short of WCAG's 24.
   The settings panel's last control also sits within 12px of the toggle's centre. Either the toggle
@@ -440,6 +472,13 @@ CED beyond the ones it shares with the other components. Several need a design d
 - **Labels that vanish (3.3.2).** Visible. The field-name and option boxes and the library search
   are labelled only by placeholders, which disappear once the box holds text. They need labels
   that stay.
+
+The sidebar's divider also shows a layout defect that fails no WCAG criterion. Its shares leave out
+the roughly 72px of insertion actions above the field list, so the sections below can overrun the
+sidebar by about 78px, which `.main-content` clips. A pointer then cannot reach the library's last
+button. Keyboard focus scrolls it into view, but that puts the Add field and Import row out of
+reach above. Adding fields from the sidebar causes this with 15 fields at the default share, before
+any drag. Fixing it changes the default layout, so agree it first.
 
 ### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 

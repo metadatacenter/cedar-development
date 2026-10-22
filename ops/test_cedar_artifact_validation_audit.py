@@ -236,6 +236,23 @@ class UiOrderRuleTest(unittest.TestCase):
         self.assertEqual(found["ui-order-missing-child"][0].path, "/properties/Address/_ui/order")
         self.assertEqual(found["ui-order-missing-child"][0].value, "Street")
 
+    def test_an_order_on_a_standalone_field(self):
+        doc = field_definition("Name")
+        doc["_ui"]["order"] = []
+        found = rules(doc, "field")
+        self.assertEqual(found["ui-order-on-field"][0].path, "/_ui/order")
+        self.assertEqual(found["ui-order-on-field"][0].value, [])
+
+    def test_an_order_on_an_embedded_field_is_found_at_its_own_path(self):
+        child = field_definition("Name")
+        child["_ui"]["order"] = []
+        found = rules(template({"Name": child}))
+        self.assertEqual(found["ui-order-on-field"][0].path, "/properties/Name/_ui/order")
+
+    def test_a_field_without_an_order_and_a_container_with_one_raise_nothing(self):
+        self.assertNotIn("ui-order-on-field", rules(field_definition("Name"), "field"))
+        self.assertNotIn("ui-order-on-field", rules(template({"Name": field_definition("Name")})))
+
 
 class ModelVersionRuleTest(unittest.TestCase):
 

@@ -721,7 +721,11 @@ request spends the whole response timeout and holds a worker thread for it. Afte
 calls in a row that authority is not asked again for thirty seconds, and the route answers 503 with
 `Retry-After` — the same answer PFAS gives while its own registry is still loading. One request is
 then let through to look; if it fails the wait starts again. A registry that answers, including one
-answering 500, is never cut off, and the other six authorities are unaffected.
+answering 500, is never cut off, and the other six authorities are unaffected. A failure in the
+bridge itself, such as a request it cannot build or a RePORTER offset it refuses, neither counts
+toward the five nor resets the count, and as the probe it leaves the breaker half-open for the next
+request. An identifier that cannot be a DOI or an RRID is answered "not found" without asking the
+registry.
 
 Nothing guards a call to another CEDAR service. The artifact server is not optional, so a breaker in
 front of it would turn a timeout followed by 503 into an immediate 503 and nothing else, and it
@@ -1525,6 +1529,39 @@ npm run parity:json
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
 thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 21 instances and 39 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
+
+A third comparison holds the TypeScript YAML readers to the JSON source rather than to their own
+writer. The YAML reader reference tests round-trip YAML to YAML, so a reader and a writer that agree
+on a wrong reading of an absent key pass them. `itest/resources/JsonThroughYaml-references.spec.ts`
+instead writes every corpus artifact as JSON twice: once from the model its JSON source yields, and
+once after that model has been through the library's own YAML. It runs with `npm test`, in about three
+seconds. With the defect of September 2026 restored, in which an absent `description` was read as
+null, it fails 119 cases while every YAML reader reference test passes.
+
+The YAML form is known to produce four families of difference, defined in `JsonThroughYaml.ts`. A
+schema artifact's JSON Schema text is regenerated. A BioPortal ontology address is rebuilt from its
+acronym. A `_ui.propertyLabels` or `_ui.propertyDescriptions` entry the source omits is filled from
+the child. An instance is completed against its template, as the server completes a YAML write, so it
+loses its empty content and takes its property IRIs and the datatypes of its empty values from the
+template. `yamlTripExpectations.ts` names the cases that show each family. A case that shows an
+undeclared family fails, and so does one that stops showing a declared one. An instance finds its
+template by `schema:isBasedOn`. A CEE suite instance that names none takes the template in its own
+case.
+
+The Java library makes the same comparison over the same corpus. `CorpusYamlTripVerifier` runs in its
+CI after the fixture check, with the families defined in `YamlTripComparison` and the cases that show
+each named in `src/test/resources/concordance/corpus-yaml-trip.json`. It compares 219 cases and
+excludes 7, among them the definitions `corpus-expected-rejections.json` pins. The Java reader requires
+an instance to name its template and itself, so each CEE suite instance that names neither is given
+its own case's template and a name first, as a host gives them before storing it. Run it with the
+fixture verifier's command, naming `CorpusYamlTripVerifier` as the main class. The template battery's
+round-trip tests already compared JSON through YAML for the library's own templates, so this check
+extends that comparison to the shared corpus rather than adding a kind of test the library lacked.
+
+Both libraries' completion fills a repeated child to its template's lower bound, whether the instance
+omits the child or holds fewer occurrences than the bound, so the two declare the same cases. The one
+exception is `cee-instance-004`, which the Java check excludes because the Java reader refuses its
+template.
 
 Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
 `literalFieldUIContent` and `iriFieldUIContent` declare `continuePreviousLine` and
@@ -4001,18 +4038,22 @@ Three properties of the reports matter when reading them.
   output, and `cedar-cadsr-tools` compiles xjc output. Each of those modules excludes them in its own
   declaration of the JaCoCo plugin.
 
-Because of the first property, `cedarcli build` reports two figures after a build that runs Java
+Because of the first property, `cedarcli build` reports three figures after a build that runs Java
 tests. It reads each module's own-test figure from its report. It then merges the execution data of
-every test JVM the build ran and credits each module's classes with any test that ran them. The
-console shows both figures in one line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds
-them per module and per repository, for lines and for branches. `cedarcli build diagnostics` removes
-records older than its `--days`, as it does failed-build bundles. cedar-project's CI job, which runs
-every server's suites against the develop libraries in one reactor, runs the same report through
+the test JVMs the build ran and credits each module's classes twice: once with the tests of the
+module's own repository, and once with any test that ran them. The repository figure is what the
+repository's CI tests before any consumer sees a change. It exceeds the module's own figure where one
+module is tested from another in the same repository. `cedar-microservice-libraries` tests its Neo4j
+persistence layer from `cedar-test-support-library`, which owns the embedded Neo4j, and the bridge
+server's application suites exercise its core module. The console shows the three figures in one
+line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds them per module and per
+repository, for lines and for branches. `cedarcli build diagnostics` removes records older than its
+`--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
+against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
-JSON as the `coverage-summary` artifact. On 2026-10-19 the estate stood at
-53.4% of 64,351 lines by each module's own tests and 68.7% by any test. The shared libraries differ
-most. `cedar-microservice-libraries` reached 80.2% by any test against 47.6% by its own. The figures
-are a report, not a gate. When cedarcli cannot compute the merged figure, for instance because the
+JSON as the `coverage-summary` artifact. On 2026-10-21 the estate stood at 74.1% of 57,265 lines by
+each module's own tests, 83.4% by each repository's own tests and 87.9% by any test. The figures are
+a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
 local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
 The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
@@ -5041,6 +5082,7 @@ The conditions, by the roadmap paragraph each measures:
 | `stray-cardinality-keys` | `minItems` or `maxItems` on an object deployment, where nothing reads them. |
 | `annotation-id-null`, `annotation-id-null-with-payload` | An annotation entry whose `@id` is an explicit null, alone or beside other payload. |
 | `ui-order-missing-child`, `ui-order-orphan-entry`, `ui-order-duplicate-entry`, `ui-order-absent` | A child under `properties` missing from `_ui.order`, an order entry with no child, a repeated entry, and a container with children but no order list. |
+| `ui-order-on-field` | A `_ui.order` on a field, standalone or embedded. A field has no children and the meta-schema forbids the key, so the validator refuses it. The legacy Field Designer added an empty one to every new standalone field until 2026-10-21. |
 | `schema-version-absent`, `schema-version-stale`, `schema-version-unparsable`, and their `-nested` forms | The root's `schema:schemaVersion` against the version the libraries write, and the same for embedded children. The summary also lists every version in use, by type. |
 | `static-field-required` | A static field named in `required`, `@context.required` or `@context.properties`, which describes an instance no editor will build, so no instance of that container can validate. |
 | `source-system-absent` | A controlled-term constraint entry with no `sourceSystem`; every entry counts, so the occurrence count is the size of the sweep. |
@@ -6939,8 +6981,11 @@ without binary rounding. `ArtifactSourceParser` is the Java artifact JSON/YAML b
 with unique scalar string keys and YAML 1.2 core scalar interpretation: `yes`, `on` and dates remain
 strings, decimal leading zeroes are not YAML 1.1 octal, and explicit `0o`/`0x` integers are exact.
 Custom tags, nonfinite numbers, unsupported key structures, cyclic aliases and excessive expansion
-fail. Quoting preserves strings that otherwise resemble numbers, booleans or null. Readers and
-writers have separate acceptance and preservation assertions in the shared source-policy corpus.
+fail. Quoting preserves strings that otherwise resemble numbers, booleans or null. A template
+instance's field value is always a string, so the Java reader keeps the text an unquoted number or
+boolean was written with: `value: 007` stores `"007"`, and `value: 1e3` stores `"1e3"`. The
+TypeScript reader keeps the same text. Readers and writers have separate
+acceptance and preservation assertions in the shared source-policy corpus.
 
 ### Regex evaluation and compatibility
 
