@@ -35,7 +35,7 @@ by name in commits.
   - Decide whether they join the train-backed release or stay outside it, as CEE and the
     TypeScript model library do. Dependency resolution no longer decides that question:
     `cedar-artifact-rest-mcp` resolves from Maven Central alone, while `cedar-artifact-mcp` and
-    `cedar-cee-mcp` resolve released `cedar-artifact-library` 2.9.27 from the BMIR Nexus.
+    `cedar-cee-mcp` resolve released `cedar-artifact-library` 2.9.28 from the BMIR Nexus.
   - Make a running server state which CEDAR it talks to. `ping` reports the build and deliberately
     contacts nothing, so the target is invisible — and it is fixed when the process spawns, so
     editing a client's configuration changes nothing until the server restarts. That combination let
@@ -44,7 +44,7 @@ by name in commits.
 
   Two obstacles this item used to carry are gone. The artifact and CEE MCPs once pinned a local
   `cedar-artifact-library:2.8.4-SNAPSHOT` while Maven attempted an obsolete Sonatype repository;
-  both now pin released 2.9.27 from the BMIR Nexus, and the REST MCP has no artifact-library
+  both now pin released 2.9.28 from the BMIR Nexus, and the REST MCP has no artifact-library
   dependency. Separately, a rebuild produced a jar that would not start at all, from a
   `json-schema-validator` conflict between the MCP SDK and `CedarValidator`; that is resolved per
   server and written up in the runbook.
@@ -143,9 +143,9 @@ by name in commits.
   timestamps, which `compact: true` can.
 
 - **10. Render an instance through the renderer overloads that take its schema.**
-  `cedar-artifact-library` 2.9.27, which both servers now pin, adds
+  Since 2.9.27, `cedar-artifact-library`'s `JsonArtifactRenderer` has
   `renderTemplateInstanceArtifact(template, instance)` and
-  `renderElementInstanceArtifact(element, instance)` to `JsonArtifactRenderer`. Each completes a
+  `renderElementInstanceArtifact(element, instance)`, and both servers pin 2.9.28. Each completes a
   sparse instance against its schema and renders it in one call. `ValidateInstanceArtifactTool`
   still calls `InstanceInflater` and then the one-argument renderer, for template and element
   instances alike, and so does the JSON branch of `RenderInstanceArtifactTool` when a template is
