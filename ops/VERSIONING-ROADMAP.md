@@ -1462,7 +1462,8 @@ once and copied by a client when it writes the constraint.
 often as across them: ACESO merges three vocabularies and labels a class "Disease" in each, under
 "Clinical finding", "disposition" and "Disease, Disorder or Finding". A hit from the index carries
 the one step above it, which is what the index holds; a hit resolved against a snapshot carries the
-chain from a root.
+chain from a root. The step is the one the release's own path takes, the first parent by IRI less a
+genus edge another parent implies, so the chain a hit names is the chain its tree draws.
 
 `matchType` is `termLabel` or `synonym`, and `matchedLabels` carries what actually matched, in
 the language it matched. Together they are what stops a synonym hit reading as a defect: a row

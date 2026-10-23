@@ -102,6 +102,21 @@ sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
   "CREATE INDEX IF NOT EXISTS term_by_iri ON term(iri);"
 ```
 
+Each indexed term records one parent: the one its release's own path runs through, which is the
+first of its direct parents by IRI, leaving out a genus edge another parent implies. A search row
+names the chain that parent starts, and the tree the row opens draws the same chain. An index built
+before 2026-10-23 recorded whichever parent a scan of the snapshot reached first, which follows
+internal row ids, so some of its rows name a chain their tree does not draw. In the workstation's
+index, 225,153 of 15,333,667 terms in 250 ontologies carried such a parent, 346 of them in DOID and
+3,823 in UBERON. A full rebuild took eleven minutes on 2026-10-23. Rebuild an older index whole,
+with a classpath built for the current version (see [Ingesting](#ingesting)), and copy it to any
+host that serves it:
+
+```bash
+java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
+    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite --force
+```
+
 A snapshot's identity is a content hash over its own concepts, labels and edges, so correcting a
 snapshot in place changes the release's identity rather than repairing it. Re-ingesting is the
 repair, and it mints a new version id. **The file name is not the identity** — 219 of the 5,400
