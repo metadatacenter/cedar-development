@@ -1259,22 +1259,32 @@ GET /search/hierarchy?sourceAcronym=DOID&termIri=http://purl.obolibrary.org/obo/
 }
 ```
 
-`versionId` is optional and changes where the answer comes from. Given one, the hierarchy is read
-from that release's snapshot; without one, from the cross-snapshot index, which holds each
-ontology's current version and no other. That distinction is not cosmetic: NCIT's Melanoma has 20
-children at 26.06e and 14 at 26.07d, so answering a pinned request from the index would draw an
-author the shape of a release they did not choose.
+`versionId` is optional and names the release to read. Without it, the release read is the one an
+unpinned search of the source reads: the release the index holds, or the catalog's current release
+where the index holds none. Either way the answer comes from that release's snapshot, because a
+hierarchy belongs to a release. NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d.
 
 `sourceAcronym` and `termIri` are required: an IRI addresses a term only within a source, and OBO
 terms are imported across ontologies. `path` runs root first and is absent where the term is a root of its
 ontology — 1.8 million of the index's 13.9 million terms are. `children` is alphabetical and capped
 at fifty, with `childCount` saying how many there are in all.
 
-The unpinned answer comes from the index, which holds one parent a term: the ancestors walk in one
-recursive query, bounded at thirty-two steps because a broader/narrower cycle would otherwise
-recurse without end. A pinned one opens the snapshot and walks the same chain the branch results
-walk. Either way a term the store does not hold — a proxied source, an unheld one, a release that
-never contained it — is a 404 rather than an empty hierarchy.
+The index is never read for a tree. It holds one parent a term, which is enough for the step a
+search row names, and a tree drawn from it left a term with several parents out of every parent but
+one. In DOID's 2026-06-30 release "disease of anatomical entity" has 9,161 descendants and 13
+children, and the index gave it none. The path is the chain the branch results walk, bounded at
+thirty-two steps because a broader/narrower cycle would otherwise never end. A term the store does
+not hold, whether in a proxied source, an unheld one or a release that never contained it, is a 404
+rather than an empty hierarchy.
+
+The children are the release's direct subclasses, less one kind of edge. The extractor draws an
+edge to the named genus of every `owl:equivalentClass` definition, which is the only parent OBI's
+defined assays have. Most defined classes also assert where they belong, and then the genus edge
+repeats an ancestor: DOID defines 189 classes as "disease and has_location some X" and files each
+under its organ system, so "disease" listed 197 children where DOID asserts 8. A genus edge is left
+out of every read of direct edges when another parent of the class sits below the genus. It stays in
+the snapshot, because edges enter the content hash, and leaving it out at extraction would change
+the identifier of every release that has one.
 
 ### Sources Are Described Once
 
@@ -1685,7 +1695,9 @@ term, which every release of the ontology has.
 it, because that is the order of the two decisions: a release, and then a shape within it. Stepping
 an ontology back re-asks rather than redrawing what the current release happens to look like — the
 picker keys a held hierarchy by release as well as by term, and passes `versionId`. The difference
-is real: NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d.
+is real: NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d. The descendant count beside a
+branch row is the pinned release's too. The search read the current release, so a row of a pinned
+source reads its own release as its group opens.
 
 Nodes read their children as they open, from `GET /search/hierarchy`, one node at a time: a
 hierarchy is a tree, SNOMED's clinical findings run to hundreds of thousands of concepts, and an
@@ -1700,8 +1712,8 @@ have been.
 
 Many chains are one step or none: AD-CDO labels a class Disease and declares it a root, with no
 parent edge in its snapshot, and 1.8 million of the index's 13.9 million terms are roots of their
-ontology. The index records one parent a term, so a term with several parents is drawn under the
-one the ingest kept — a real limit, and the reason a chain is "a" path rather than "the" path.
+ontology. A term with several parents appears under each of them as they open, but its own chain
+follows one of them, the first by IRI. That is why a chain is "a" path rather than "the" path.
 
 **The other names come from the index, in one query for the page.** They are what says whether a
 concept is the one an author meant, and they are worth nothing at a round trip a row. Shown eight
