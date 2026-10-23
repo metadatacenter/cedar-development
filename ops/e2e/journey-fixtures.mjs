@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {call, enc} from "./rest/lib.mjs";
+import {call, enc, USER_SERVER} from "./rest/lib.mjs";
 import {noteFixture} from "./split-steps.mjs";
 
 // Listing and drag/drop scenarios must not depend on how many fixtures earlier journeys kept.
@@ -16,6 +16,36 @@ export async function journeyFolder({user, folderId, name, created}, suffix) {
 // A journey asserts what a page shows, and above all what it does not show, only once the page has
 // settled: the answer it was waiting for has arrived and been rendered. A helper that waits for such
 // a state fails with a message that says what it waited for.
+
+/**
+ * A Workspace dashboard address that names the default sort. An address naming no listing
+ * preference opens with the filters, sort and view the user's profile keeps, which every journey
+ * that chooses one rewrites, and every lane signs in as the same users. Naming the sort keeps another
+ * lane's choices out of the listing a journey opens.
+ */
+export const dashboardAddress = (base, parameters = {}) =>
+  base + "/dashboard?" + new URLSearchParams({...parameters, sort: "name"});
+
+/**
+ * Runs a journey that chooses listing preferences in Workspace, and puts back the ones the user's
+ * profile kept before it, so the account leaves the journey as it entered it.
+ */
+export async function keepingListingPreferences(user, journey) {
+  const path = "/users/" + enc(user.profile["@id"].split("/").at(-1));
+  const read = await call(user.auth, "GET", path, undefined, {base: USER_SERVER});
+  assert.equal(read.status, 200, read.text);
+  const kept = read.body.uiPreferences.workspace;
+  let finished = false;
+  try {
+    const result = await journey();
+    finished = true;
+    return result;
+  } finally {
+    const restored = await call(user.auth, "PUT", path, {"uiPreferences.workspace": kept}, {base: USER_SERVER});
+    // A failed journey keeps its own error; a restore that fails after a passing one fails it.
+    if (finished) assert.equal(restored.status, 200, restored.text);
+  }
+}
 
 /** Whether a response answers Workspace's listing of a folder. The graph serves it, so it reflects a write at once. */
 export const listingOf = folderId => response => {
@@ -36,7 +66,7 @@ export const listingIdle = page =>
 export async function openListing(page, base, folderId) {
   await Promise.all([
     page.waitForResponse(listingOf(folderId)),
-    page.goto(base + "/dashboard?folderId=" + enc(folderId)),
+    page.goto(dashboardAddress(base, {folderId})),
   ]);
   await page.getByRole("button", {name: "New", exact: true}).waitFor();
   const list = page.getByRole("button", {name: "List view", exact: true});

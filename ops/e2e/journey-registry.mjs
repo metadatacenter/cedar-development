@@ -45,7 +45,8 @@ import { designerOrderJourney, largeDesignerJourney, designerKeyboardJourney, de
   nestedDesignerJourney, designerNavigationJourney } from "./designer-editing-journey.mjs";
 
 import { workspaceKeyboardFoldersJourney, workspaceKeyboardSelectionJourney, workspaceTypeFilterJourney,
-  workspacePaginationJourney, workspaceSearchReturnJourney, workspaceRenamedBreadcrumbJourney } from "./workspace-navigation-journey.mjs";
+  workspaceListingPreferencesJourney, workspacePaginationJourney, workspaceSearchReturnJourney,
+  workspaceRenamedBreadcrumbJourney } from "./workspace-navigation-journey.mjs";
 
 // JOURNEYS lists every self-contained journey under the key the runners know it by. Each journey
 // makes its fixtures in a folder of its own under the folder it is given and reads nothing another
@@ -133,6 +134,7 @@ export const JOURNEYS = [
   { key: "workspace-keyboard-folders", run: workspaceKeyboardFoldersJourney },
   { key: "workspace-keyboard-selection", run: workspaceKeyboardSelectionJourney },
   { key: "workspace-type-filter", run: workspaceTypeFilterJourney },
+  { key: "workspace-listing-preferences", run: workspaceListingPreferencesJourney },
   { key: "workspace-pagination", run: workspacePaginationJourney },
   { key: "workspace-search-return", run: workspaceSearchReturnJourney },
   { key: "workspace-renamed-breadcrumb", run: workspaceRenamedBreadcrumbJourney },

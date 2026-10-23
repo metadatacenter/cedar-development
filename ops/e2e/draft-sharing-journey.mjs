@@ -1,6 +1,6 @@
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
-import {journeyFolder} from "./journey-fixtures.mjs";
+import {dashboardAddress, journeyFolder} from "./journey-fixtures.mjs";
 import {actors, artifactBody, call, enc, mutate} from "./rest/lib.mjs";
 
 // A draft is shared as the version it is drafted from. Workspace's Create Draft and the Designer's
@@ -114,7 +114,7 @@ async function checkAccess({reader, designer, user, user2, sourceId, sourceAcl, 
 // drafted first, so by then it would be listed too if it were shared.
 async function checkSharedWithMe(reader, base, drafts) {
   const listed = async () => {
-    await reader.goto(base + "/dashboard?sharing=shared-with-me");
+    await reader.goto(dashboardAddress(base, {sharing: "shared-with-me"}));
     await reader.getByRole("button", {name: "New", exact: true}).waitFor();
     const list = reader.getByRole("button", {name: "List view", exact: true});
     if (await list.count()) await list.click();
@@ -155,7 +155,7 @@ export async function workspaceDraftSharingJourney(args) {
     // the index has caught up with its publication.
     let offered = false;
     for (let attempt = 0; attempt < 15 && !offered; attempt++) {
-      await page.goto(base + "/dashboard?folderId=" + enc(folderId));
+      await page.goto(dashboardAddress(base, {folderId}));
       await page.getByRole("button", {name: "New", exact: true}).waitFor();
       const list = page.getByRole("button", {name: "List view", exact: true});
       if (await list.count()) await list.click();

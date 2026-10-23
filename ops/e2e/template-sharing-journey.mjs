@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { actors, call, enc, mutate } from "./rest/lib.mjs";
-import { journeyFolder } from "./journey-fixtures.mjs";
+import { dashboardAddress, journeyFolder } from "./journey-fixtures.mjs";
 import { diseaseTemplate } from "./metadata-journey-fixtures.mjs";
 import {
   listed, menu, modal, openSharedWithMe, pathId, permissionAppearance, permissionDone, removePermission,
@@ -95,7 +95,7 @@ export async function templateSharingJourney(args) {
     pass("revoked-designer", "Designer loses edit permission while open: save refused, draft retained, server content unchanged");
 
     await grant(page, "manager");
-    await openSharedWithMe(reader, () => reader.goto(base + "/dashboard?sharing=shared-with-me"));
+    await openSharedWithMe(reader, () => reader.goto(dashboardAddress(base, { sharing: "shared-with-me" })));
     assert.ok(await sharedWithMeLists(reader, templateName), "Shared with Me does not list the template");
     await menu(reader, templateName, "Permissions…");
     await modal(reader).getByRole("combobox", { name: "User or group", exact: true }).waitFor();

@@ -1,8 +1,8 @@
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { enc, poll } from "./rest/lib.mjs";
-import { listingIdle, listingOf } from "./journey-fixtures.mjs";
+import { poll } from "./rest/lib.mjs";
+import { dashboardAddress, listingIdle, listingOf } from "./journey-fixtures.mjs";
 
 // These helpers drive Workspace's own controls for the full smoke and its journeys: the listing and
 // its rows, a row's action menu, the dialogs those actions open, the Permissions dialog and the
@@ -98,7 +98,7 @@ export const signInSecondUser = (page, base) => signIn(page.context().browser(),
 export async function listing(p, base, id) {
   await Promise.all([
     p.waitForResponse(listingOf(id)),
-    p.goto(base + "/dashboard?folderId=" + enc(selector(id)), { waitUntil: "domcontentloaded" }),
+    p.goto(dashboardAddress(base, { folderId: selector(id) }), { waitUntil: "domcontentloaded" }),
   ]);
   await ready(p);
 }

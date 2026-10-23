@@ -3660,12 +3660,20 @@ large-designer designer-keyboard designer-default nested-designer designer-navig
 
 The Workspace navigation journeys in `workspace-navigation-journey.mjs` cover nested keyboard
 folder traversal, range selection with deletion cancellation and menu focus return, composed type
-filters and sorting across reload, a fifty-five-resource folder with real paging and editor return,
-search-result editing with query/selection/tab restoration, and renamed-ancestor breadcrumbs.
-They use the real listing and search APIs; the paging fixture spans the fifty-item boundary and
-asserts every identity on both pages. Keyboard selection checks wait for Angular's rendered frame.
-Run them with `npm run smoke:journey -- workspace-keyboard-folders workspace-keyboard-selection
-workspace-type-filter workspace-pagination workspace-search-return workspace-renamed-breadcrumb`.
+filters and sorting across reload, listing preferences that follow a folder link and come back
+from an account page through the user profile, a fifty-five-resource folder with real paging and
+editor return, search-result editing with query/selection/tab restoration, and renamed-ancestor
+breadcrumbs. They use the real listing and search APIs; the paging fixture spans the fifty-item
+boundary and asserts every identity on both pages. Keyboard selection checks wait for Angular's
+rendered frame. Run them with `npm run smoke:journey -- workspace-keyboard-folders
+workspace-keyboard-selection workspace-type-filter workspace-listing-preferences
+workspace-pagination workspace-search-return workspace-renamed-breadcrumb`.
+
+Workspace opens an address that names no listing preference with the filters, sort and view the
+user's profile keeps, and every lane signs in as the same users. The harness therefore opens the
+dashboard through `dashboardAddress` in `journey-fixtures.mjs`, which names the default sort, so
+another lane's choices never reach a journey's listing. A journey that chooses preferences runs
+inside `keepingListingPreferences`, which puts back the ones the profile held before it.
 
 #### Journey contracts, diagnostics and reliability
 

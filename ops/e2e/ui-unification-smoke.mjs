@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import {chromium} from 'playwright';
 import * as S from './selectors.mjs';
+import { dashboardAddress } from './journey-fixtures.mjs';
 const browser = await chromium.launch({headless: true});
 const context = await browser.newContext({ignoreHTTPSErrors: true});
 const page = await context.newPage();
@@ -81,7 +82,7 @@ try {
     await noPageOverflow();
     await page.setViewportSize({width: 1440, height: 1000});
   }
-  await page.goto(base + '/dashboard');
+  await page.goto(dashboardAddress(base));
   await page.getByRole('button', {name: 'New', exact: true}).waitFor();
   await page.waitForFunction(() => document.querySelector('.table-scroll')?.getAttribute('aria-busy') === 'false');
   await flat(page.locator('.topbar'));
