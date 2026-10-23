@@ -1697,8 +1697,9 @@ it, because that is the order of the two decisions: a release, and then a shape 
 an ontology back re-asks rather than redrawing what the current release happens to look like — the
 picker keys a held hierarchy by release as well as by term, and passes `versionId`. The difference
 is real: NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d. The descendant count beside a
-branch row is the pinned release's too. The search read the current release, so a row of a pinned
-source reads its own release as its group opens.
+branch row is the pinned release's too, and so is the parent that tells a row from a same-labelled
+twin in its own ontology. The search read the current release, so a row of a pinned source that
+shows either reads its own release as its group opens.
 
 Nodes read their children as they open, from `GET /search/hierarchy`, one node at a time: a
 hierarchy is a tree, SNOMED's clinical findings run to hundreds of thousands of concepts, and an
