@@ -56,7 +56,10 @@ try {
   assert.notEqual(hovered, resting, 'enabled primary action exposes hover feedback');
   await page.mouse.down();
   const pressed = await css(action, 'background-color');
-  assert.notEqual(pressed, hovered, 'pressed state differs from hover');
+  // The shared tokens give a filled action one interaction fill, color-primary-strong, for both
+  // hover and press; a separate pressed shade left the vocabulary when it was reduced to 61 tokens.
+  assert.equal(pressed, hovered, 'a pressed primary action keeps the filled-action interaction fill');
+  assert.notEqual(pressed, resting, 'a pressed primary action does not fall back to its resting fill');
   await input.hover();
   await page.mouse.up(); // release away from the action: never submit the form
   await input.fill('');
@@ -86,7 +89,9 @@ try {
   await page.getByRole('button', {name: 'New', exact: true}).waitFor();
   await page.waitForFunction(() => document.querySelector('.table-scroll')?.getAttribute('aria-busy') === 'false');
   await flat(page.locator('.topbar'));
-  assert.equal(await css(page.locator('.search'), 'border-radius'), '4px');
+  // The top search is a pill, drawn with the shared radius-pill role since Workspace adopted the
+  // reduced vocabulary; the fields inside forms keep the 4px control radius checked above.
+  assert.equal(await css(page.locator('.search'), 'border-radius'), '9999px');
   const logo = page.locator('.brand img');
   assert.equal(await logo.evaluate(img => img.complete && img.naturalWidth > 0), true);
   await capture('workspace-desktop');
