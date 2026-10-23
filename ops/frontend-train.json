@@ -371,10 +371,10 @@
       "repository": "cedar-model-typescript-library",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "202dd7c12bf6bfb6ed5576023a7c40e7e85deb95161ad6555825b8acd0002874",
+      "sha256": "89321f12e7a9433343e852be29bb1779d95ccae08bcf3057ad7cff9c1bf15065",
       "vulnerabilities": {
         "low": 0,
-        "moderate": 20,
+        "moderate": 0,
         "high": 0,
         "critical": 0
       }
@@ -383,7 +383,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "3cb6fe0ea270bcb440946baf5ee1ae96c3f370f48b4479132cbda3d3607b5777",
+      "sha256": "eb387c453b0a8ffc34e228a06d9b8a270b63bc1da2e9e3df1f9d933a26f7165a",
       "vulnerabilities": {
         "low": 1,
         "moderate": 0,
@@ -407,7 +407,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "visual/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "06c4d5c502908ba772b11071f75d837b7d3e4cd7f089d328f138792793b02441",
+      "sha256": "a26328633526c27d8d777cb6efe05d59ec5b05b0c03755465bee20c4bbfb691c",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -443,7 +443,7 @@
       "repository": "cedar-template-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "7196db6e4e5600e97dfc5d7d34924211210f0b9b009647ac966f0cb10fc92857",
+      "sha256": "e22126431a824e922b93bfd86c9ee423d6abd04c1adbb15fc45adadadf27c2fc",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -563,10 +563,10 @@
       "repository": "cedar-embeddable-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "9a35952928d8909731da2fd19536524fcc2ab59d4d125652af58538d8247a561",
+      "sha256": "ef6c7db40081e8b6d54dd957d6f8ab4d2c301c09000d9c3ff4bb5e37b311e7a5",
       "vulnerabilities": {
-        "low": 0,
-        "moderate": 1,
+        "low": 1,
+        "moderate": 0,
         "high": 1,
         "critical": 0
       }
