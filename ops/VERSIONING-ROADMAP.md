@@ -490,18 +490,19 @@ an open question, not a settled one — see item 4, whether the content-identity
    two CEE model POJOs, preserve it through `template-representation.factory.ts`, and map the template's
    VersionSpec `{id,…}` to the request's plain `version` string (send `version.id`). One call site, no
    fan-out. The single highest-value piece — it closes the reproducibility loop.
-   *Backend caveat (not CEE's job):* integrated-search honours the pin only for locally-served,
-   single-source constraints. For a non-local source, a multi-source/mixed shape, or a missing snapshot,
-   a pinned request **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422) rather than
-   silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by design).
+   *Backend caveat (not CEE's job):* integrated-search honours the pin only where every constraint's
+   source is served locally; a field with several constraints is then answered as the union of each
+   one's local answer, at its own release and branch depth. For a non-local source or a missing
+   snapshot, a pinned request **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422)
+   rather than silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by design).
    A non-BioPortal source that is not served locally is reported unavailable, not proxied to BioPortal.
 ## Testing
 
 - **3. End-to-end frozen read (after CEE sends the pin, item 2).** Verify the full loop on the live stack:
    publish a frozen template → fill an instance via CEE → confirm terms resolve against the pinned
    snapshot, not latest. The terminology and publish sides are tested; this cross-service e2e becomes
-   runnable once item 2 lands. Use a locally-served single-source constraint (the path where the backend
-   honours the pin).
+   runnable once item 2 lands. Use constraints whose sources are all served locally (the path where the
+   backend honours the pin).
 
 ## Future
 
