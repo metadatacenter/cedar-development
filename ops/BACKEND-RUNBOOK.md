@@ -3996,7 +3996,10 @@ than it reads, which is enough to credit one run's mess to another.
 `ops/e2e/cleanup-smoke-leftovers.mjs` finds and removes them. Run with no arguments it reports what
 it found and deletes nothing; `--apply` deletes. It keys on that same run stamp, and a stamped folder
 carries its whole subtree, so an artifact the suites created inside a working folder without stamping
-its own name goes with it. Deletion follows dependency order: instances before the templates they
+its own name goes with it. The split tier and the focused journeys name their working folders
+`Focused journey <epoch milliseconds> <lane>` instead, and the tool keys on that number too. Until it
+did, a run that died before its teardown left its lane folders behind for good, and they filled the
+searches of later runs. Deletion follows dependency order: instances before the templates they
 populate, elements and fields after the templates that embed them, folders last and deepest first,
 since a folder still holding anything cannot be removed. A JSON list of `[type, name, id]` triples
 still deletes exactly those, for when a run has already named its casualties.

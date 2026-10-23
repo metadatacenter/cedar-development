@@ -164,10 +164,14 @@ export async function workspacePaginationJourney(args) {
 export async function workspaceSearchReturnJourney(args) {
   const { page, base, pass, write } = args;
   const root = await journeyFolder(args, "search return");
-  const fixture = await make(args, root, "searchable template");
+  // A word only this template carries, so the search lists it alone. Searching for its whole title
+  // also listed every artifact sharing a word with it, which other lanes and dead runs supply, and the
+  // page Workspace returned to after the edit could then hold another template instead of this one.
+  const word = "searchable" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const fixture = await make(args, root, word);
   const before = await fixture.read();
   await listing(page, base, root);
-  const found = await searchUntilListed(page, fixture.title);
+  const found = await searchUntilListed(page, fixture.title, { query: word });
   assert.equal(found.done, true, "The created template becomes searchable");
   await row(page, fixture.title).locator("td").nth(1).click();
   await page.locator(".information").getByRole("tab", { name: "Version", exact: true }).click();
@@ -179,7 +183,7 @@ export async function workspaceSearchReturnJourney(args) {
   await page.locator("#back").click();
   await returned(page);
   assert.equal(new URL(page.url()).searchParams.get("search"), returnUrl.searchParams.get("search"));
-  assert.equal(await page.getByRole("textbox", { name: "Search workspace", exact: true }).inputValue(), fixture.title);
+  assert.equal(await page.getByRole("textbox", { name: "Search workspace", exact: true }).inputValue(), word);
   assert.deepEqual(await selected(page), [fixture.id]);
   assert.equal(await page.locator(".information").getByRole("tab", { name: "Version", exact: true }).getAttribute("aria-selected"), "true");
   assertOnlyContentChanges(before, await fixture.read(), { "schema:description": "Saved from search results" });

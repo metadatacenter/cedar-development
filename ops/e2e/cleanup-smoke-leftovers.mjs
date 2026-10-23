@@ -34,6 +34,11 @@ const PATHS = {
 // are independent of all of it and go at the end.
 const ORDER = ['instance', 'template', 'element', 'field', 'folder', 'category', 'group'];
 const STAMP = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/;
+// The split tier and the focused journeys name a working folder "Focused journey <epoch milliseconds>",
+// with a lane after it (split-lanes.mjs), and carry no stamp of the other form. Their leftovers went
+// unfound until this matched them too.
+const JOURNEY_STAMP = /^Focused journey (\d{13})(?: |$)/;
+const stampOf = name => name.match(STAMP)?.[0] ?? name.match(JOURNEY_STAMP)?.[1] ?? null;
 
 const argv = process.argv.slice(2);
 const apply = argv.includes('--apply');
@@ -58,6 +63,7 @@ const kindOf = n => {
 /** Minutes since the stamp in a name, or null when it carries none. */
 function ageMinutes(stamp) {
   if (!stamp) return null;
+  if (/^\d{13}$/.test(stamp)) return (Date.now() - Number(stamp)) / 60000;
   const [date, time] = stamp.split('T');
   const at = Date.parse(`${date}T${time.replace(/-/g, ':')}Z`);
   return Number.isNaN(at) ? null : (Date.now() - at) / 60000;
@@ -121,14 +127,14 @@ async function walk(folderId, depth, inheritedStamp) {
   for (const node of listed.body?.resources ?? []) {
     const name = nameOf(node);
     const kind = kindOf(node);
-    const stamp = inheritedStamp ?? name.match(STAMP)?.[0] ?? null;
+    const stamp = inheritedStamp ?? stampOf(name) ?? null;
     if (stamp) found.push({ kind, name, id: node['@id'], stamp, depth, auth: user1.auth });
     if (kind === 'folder') await walk(node['@id'], depth + 1, stamp);
   }
 }
 
 function walkCategories(node, depth, inheritedStamp) {
-  const stamp = inheritedStamp ?? nameOf(node).match(STAMP)?.[0] ?? null;
+  const stamp = inheritedStamp ?? stampOf(nameOf(node)) ?? null;
   // The root and the vocabularies beside it carry no stamp, and a stamped category's children belong
   // to the same run even when renamed — one of the two strays had its identifier nulled by the
   // suite that renames it, so the identifier is not what to match on.
@@ -147,7 +153,7 @@ const groups = await call(user1.auth, 'GET', '/groups', undefined, { base: GROUP
 if (groups.status === 200) {
   for (const node of groups.body?.groups ?? []) {
     const name = nameOf(node);
-    const stamp = name.match(STAMP)?.[0] ?? null;
+    const stamp = stampOf(name) ?? null;
     if (stamp) found.push({ kind: 'group', name, id: node['@id'], stamp, depth: 0, auth: user1.auth });
   }
 } else {

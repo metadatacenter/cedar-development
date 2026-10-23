@@ -253,11 +253,12 @@ const searchAnswer = query => response => {
  * outcome. Indexing is eventual, so a search that does not list the name is repeated. Every artifact
  * whose name shares a word with the query is a result, and the results page by fifty rows sorted by
  * name, so the fixtures of a run in another lane can fill the first page. Each search is therefore
- * read to its last page.
+ * read to its last page. `query` is what is typed, when a word only this artifact carries makes a
+ * search that lists it alone.
  */
-export async function searchUntilListed(p, name, { tries = 21, delayMs = 1000 } = {}) {
-  const answered = searchAnswer(name);
-  await p.getByRole("textbox", { name: "Search workspace", exact: true }).fill(name);
+export async function searchUntilListed(p, name, { tries = 21, delayMs = 1000, query = name } = {}) {
+  const answered = searchAnswer(query);
+  await p.getByRole("textbox", { name: "Search workspace", exact: true }).fill(query);
   let paged = false;
   return poll(async attempt => {
     // Searching again from a later page returns to the first one. Searching again on the first page
