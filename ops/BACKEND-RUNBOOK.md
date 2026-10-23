@@ -1663,7 +1663,8 @@ eight an IRI, and one each a number, a temporal literal and a term with its labe
 every corresponding builder here accepts one and writes it in the shape Java writes. Attribute value
 and the five static types take none, and a `withDefaultValue` appearing on any of them fails the run
 too. Corpus template 038 carries one field of every shape, so the parity gates above compare the two
-libraries on all nineteen at once.
+libraries on all nineteen at once. CI runs the check against a clone of the Java commit the lock
+records. A local run reads whatever the sibling has checked out.
 
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
