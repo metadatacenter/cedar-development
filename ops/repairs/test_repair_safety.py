@@ -1,6 +1,7 @@
 """Regressions from independent review of the production repair campaign."""
 import argparse
 import copy
+import io
 import json
 import pathlib
 import tempfile
@@ -93,7 +94,8 @@ class WriteSafetyTest(unittest.TestCase):
                                lambda ref, result: recorded.append(result['id']))
         self.assertEqual(sorted(recorded), list(range(50)))
 
-    def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None):
+    def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None,
+                   replace_graph_provenance=False):
         """Run one repair against a fake deployment whose graph details are ``graph_before`` until
         the write and ``graph`` after it, each defaulting to the provenance of the stored body."""
         class Client:
@@ -116,7 +118,8 @@ class WriteSafetyTest(unittest.TestCase):
                 return {'status': 'valid' if valid else 'invalid',
                         'errors': [] if valid else [{'message': 'invalid'}]}
         with tempfile.TemporaryDirectory() as folder:
-            return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder),
+            return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder,
+                                                   replace_graph_provenance=replace_graph_provenance),
                                 [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
                                 r.rest.ArtifactRef('template', 'urn:test', 'test'))
 
@@ -147,6 +150,18 @@ class WriteSafetyTest(unittest.TestCase):
         agreeing = dict(graph, **{'oslc:modifiedBy': stored['oslc:modifiedBy']})
         self.assertEqual(self.run_repair(body=stored, graph_before=agreeing, graph=agreeing)['outcome'],
                          'repaired')
+
+        replaced = self.run_repair(body=stored, graph_before=graph, graph=agreeing,
+                                   replace_graph_provenance=True)
+        self.assertEqual((replaced['outcome'], replaced['verified']), ('repaired', True))
+        self.assertEqual(replaced['graphProvenanceReplaced'], 'oslc:modifiedBy')
+        self.assertEqual(replaced['graphProvenanceBefore']['oslc:modifiedBy'], graph['oslc:modifiedBy'])
+
+    def test_replacing_graph_provenance_requires_an_explicit_scope(self):
+        with patch('sys.stderr', new_callable=io.StringIO) as error, self.assertRaises(SystemExit):
+            r.main(['--apply', '--repair', 'drop-keyword-value-type', '--replace-graph-provenance',
+                    '--from-records', 'unused.jsonl'])
+        self.assertIn('--replace-graph-provenance', error.getvalue())
 
     def test_graph_date_offsets_match_but_sort_timestamp_must_be_numeric(self):
         document = {'oslc:modifiedBy': 'author', 'pav:lastUpdatedOn': '2017-12-29T08:48:17.987-08:00'}

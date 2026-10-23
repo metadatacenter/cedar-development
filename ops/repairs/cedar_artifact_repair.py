@@ -8859,10 +8859,13 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
         ("oslc:modifiedBy", "pav:lastUpdatedOn", "lastUpdatedOnTS")} if isinstance(details, dict) else None
     graph_difference = modification_provenance_difference(stored, details)
     if graph_difference is not None:
-        record.update(outcome="graph-provenance-held",
-                      detail=f"the graph's {graph_difference} differs from the document's, and a verbatim "
-                             "write would replace it")
-        return record
+        if not arguments.replace_graph_provenance:
+            record.update(outcome="graph-provenance-held",
+                          detail=f"the graph's {graph_difference} differs from the document's, and a "
+                                 "verbatim write would replace it")
+            return record
+        # The values replaced stay in the record, so a later restoration can find them.
+        record["graphProvenanceReplaced"] = graph_difference
 
     if not arguments.apply:
         record.update(outcome="would-repair")
@@ -8993,6 +8996,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--apply", action="store_true", help="write; otherwise report what would change")
     parser.add_argument("--allow-context-migration", action="store_true",
                         help="approve property-IRI migration for the explicit --only-ids scope")
+    parser.add_argument("--replace-graph-provenance", action="store_true",
+                        help="write the explicit --only-ids scope even where the graph's modification "
+                             "provenance differs from the document's, which the write replaces")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts")
     parser.add_argument("--types", help="restrict to these artifact types, comma separated")
     parser.add_argument("--exclude-ids",
@@ -9094,6 +9100,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             and not (arguments.allow_context_migration and arguments.only_ids):
         parser.error("context alignment changes meaning; applying it requires "
                      "--allow-context-migration and an explicit --only-ids scope")
+    if arguments.replace_graph_provenance and not arguments.only_ids:
+        parser.error("--replace-graph-provenance replaces what the graph records, so it needs an explicit "
+                     "--only-ids scope")
     conditions = [arguments.condition] if arguments.condition \
         else [c for r in repairs for c in r.conditions]
     patterns = [] if arguments.condition else [r.error_pattern for r in repairs if r.error_pattern]
