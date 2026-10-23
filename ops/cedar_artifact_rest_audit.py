@@ -1205,6 +1205,28 @@ def audit_value_ids(ref: ArtifactRef, node: Any, path: str = "", root: bool = Tr
                 yield from audit_value_ids(ref, value, f"{path}/{index}", False)
 
 
+def audit_value_type_keywords(ref: ArtifactRef, node: Any, path: str = "", root: bool = True) -> Iterator[Finding]:
+    """Link and controlled-term values whose @type is the keyword @id rather than a class.
+
+    In a context, ``"@type": "@id"`` declares that a term's values are IRIs. In a value, @type names
+    the value's class, and a keyword names none: JSON-LD processing drops the statement, and a
+    processor in safe mode refuses the document.
+    """
+    if isinstance(node, dict):
+        if not root and is_value_node(node) and node.get("@type") == "@id":
+            yield finding(
+                ref, "value-type-keyword", "manual-review", f"{path}/@type",
+                "a link or controlled-term value's @type names a class, and the keyword @id names none",
+                node["@type"],
+            )
+        for key, value in node.items():
+            if key != "@context":
+                yield from audit_value_type_keywords(ref, value, f"{path}/{json_pointer_component(key)}", False)
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from audit_value_type_keywords(ref, value, f"{path}/{index}", False)
+
+
 def audit_structural_occurrence_ids(ref: ArtifactRef, node: Any, path: str = "",
                                     root: bool = True) -> Iterator[Finding]:
     """Mirror the server's safe structural fallback when a template cannot be resolved.
@@ -1349,6 +1371,7 @@ def audit_instance(ref: ArtifactRef, artifact: Any,
         yield finding(ref, "instance-context-missing", "save-rejected", "/@context",
                       "template instance root has no @context object")
     yield from audit_value_ids(ref, artifact)
+    yield from audit_value_type_keywords(ref, artifact)
     yield from audit_structural_occurrence_ids(ref, artifact)
     yield from audit_instance_decisions(ref, artifact)
     if template_shape is None:

@@ -82,7 +82,7 @@ ROOT_SEGMENTS = ("templates/", "template-elements/", "template-fields/", "templa
 PROPERTY_IRI_PREFIX = "https://schema.metadatacenter.org/properties/"
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 OUTCOMES = ("repaired", "would-repair", "already-clean", "still-invalid", "invariant-failed",
-            "transform-refused", "fetch-failed", "write-failed")
+            "transform-refused", "graph-provenance-held", "fetch-failed", "write-failed")
 DEFAULT_PROGRESS_EVERY = 100
 DEFAULT_PROGRESS_SECONDS = 30
 DEFAULT_WORKERS = 4
@@ -5729,6 +5729,46 @@ def json_equal(before: Any, after: Any) -> bool:
     return next(differences(before, after), None) is None
 
 
+KEYWORD_VALUE_TYPE = "@id"
+
+
+def drop_keyword_value_types(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Delete ``"@type": "@id"`` from every link and controlled-term value, and say where each was.
+
+    A value's @type names its class. The keyword states that a term's values are IRIs, which is what
+    it means in a context, and inside a value it names no class: JSON-LD processing drops it. The
+    value keeps its identifier and label, and a value typed with a real class is left as stored.
+    """
+    removed: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str, root: bool) -> Any:
+        if isinstance(node, dict):
+            if not root and rest.is_value_node(node) and node.get(AT_TYPE) == KEYWORD_VALUE_TYPE:
+                removed.append({"path": f"{path}/{rest.json_pointer_component(AT_TYPE)}",
+                                "replaced": KEYWORD_VALUE_TYPE, "wrote": None})
+                return {name: value for name, value in node.items() if name != AT_TYPE}
+            return {name: value if name == "@context"
+                    else walk(value, f"{path}/{rest.json_pointer_component(name)}", False)
+                    for name, value in node.items()}
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}", False) for index, value in enumerate(node)]
+        return node
+
+    return walk(copy.deepcopy(artifact), "", True), removed
+
+
+def only_dropped_keyword_value_types(before: Any, after: Any) -> Optional[str]:
+    """The pointer of the first difference that is not a keyword @type leaving a value, or None."""
+    for pointer, was, now in differences(before, after):
+        steps = pointer.split("/")
+        holder = node_at(before, pointer.rsplit("/", 1)[0])
+        # A context's term definitions can take the same shape as a value, and are not values.
+        if not (steps[-1] == AT_TYPE and was == KEYWORD_VALUE_TYPE and now is ABSENT
+                and len(steps) > 2 and "@context" not in steps and rest.is_value_node(holder)):
+            return pointer or "/"
+    return None
+
+
 def declaration_at(template: Any, pointer: str) -> Optional[dict]:
     """The declaration governing an instance location, or ``None`` where the path leaves the schema.
 
@@ -8024,6 +8064,13 @@ REPAIRS = {
         needs_template=True,
         error_pattern=VALUE_SHAPE_ERROR,
     ),
+    "drop-keyword-value-type": Repair(
+        name="drop-keyword-value-type",
+        condition="value-type-keyword",
+        summary='delete "@type": "@id" from link and controlled-term values, where it names no class',
+        transform=drop_keyword_value_types,
+        invariant=only_dropped_keyword_value_types,
+    ),
     "settle-instance-empty-shape": Repair(
         name="settle-instance-empty-shape",
         condition="",
@@ -8798,6 +8845,25 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
         record.update(outcome="still-invalid", detail=explanation)
         return record
 
+    # A verbatim write sets the graph's modification provenance from the document. Where the two
+    # already disagree, such as a legacy user IRI in the document and the current one in the graph,
+    # the write would replace what the graph holds, so the artifact is held rather than written.
+    try:
+        details = client.get_json(path + "/details")
+    except rest.AuthenticationError:
+        raise
+    except Exception as error:  # noqa: BLE001
+        record.update(outcome="fetch-failed", detail=f"details could not be read: {error}")
+        return record
+    record["graphProvenanceBefore"] = {key: details.get(key) for key in
+        ("oslc:modifiedBy", "pav:lastUpdatedOn", "lastUpdatedOnTS")} if isinstance(details, dict) else None
+    graph_difference = modification_provenance_difference(stored, details)
+    if graph_difference is not None:
+        record.update(outcome="graph-provenance-held",
+                      detail=f"the graph's {graph_difference} differs from the document's, and a verbatim "
+                             "write would replace it")
+        return record
+
     if not arguments.apply:
         record.update(outcome="would-repair")
         return record
@@ -9148,8 +9214,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     status = "COMPLETE"
     details: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     bookkeeping = threading.Lock()
-    REPORTABLE = {"still-invalid", "invariant-failed", "transform-refused", "fetch-failed",
-                  "write-failed"}
+    REPORTABLE = {"still-invalid", "invariant-failed", "transform-refused", "graph-provenance-held",
+                  "fetch-failed", "write-failed"}
 
     def book(record: dict[str, Any]) -> None:
         progress.note(record["outcome"], len(record.get("pathsRemoved") or []))

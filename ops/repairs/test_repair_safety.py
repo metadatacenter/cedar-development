@@ -93,15 +93,20 @@ class WriteSafetyTest(unittest.TestCase):
                                lambda ref, result: recorded.append(result['id']))
         self.assertEqual(sorted(recorded), list(range(50)))
 
-    def run_repair(self, mutate=None, body=None, valid=True, graph=None):
+    def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None):
+        """Run one repair against a fake deployment whose graph details are ``graph_before`` until
+        the write and ``graph`` after it, each defaulting to the provenance of the stored body."""
         class Client:
             def __init__(self):
                 self.body = body or {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old'}
+                self.written = False
             def get_with_etag(self, path):
                 return copy.deepcopy(self.body), '"1"'
             def get_json(self, path):
-                return graph if graph is not None else copy.deepcopy(self.body)
+                stated = graph if self.written else graph_before
+                return stated if stated is not None else copy.deepcopy(self.body)
             def put_verbatim(self, path, candidate, etag):
+                self.written = True
                 self.body = copy.deepcopy(candidate)
                 if mutate:
                     mutate(self.body)
@@ -128,6 +133,20 @@ class WriteSafetyTest(unittest.TestCase):
                                        'pav:lastUpdatedOn': '2026-09-25T20:02:23-07:00'})
         self.assertFalse(result['verified'])
         self.assertIn('graph modification provenance differs', result['detail'])
+
+    def test_a_graph_that_already_disagrees_with_the_document_is_held_unwritten(self):
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old',
+                  'oslc:modifiedBy': 'https://repo.metadatacenter.net/users/u1',
+                  'pav:lastUpdatedOn': '2017-02-01T10:00:00-08:00'}
+        graph = {'oslc:modifiedBy': 'https://metadatacenter.org/users/u1',
+                 'pav:lastUpdatedOn': '2017-02-01T18:00:00Z', 'lastUpdatedOnTS': 1485972000}
+        result = self.run_repair(body=stored, graph_before=graph)
+        self.assertEqual(result['outcome'], 'graph-provenance-held')
+        self.assertIn('oslc:modifiedBy', result['detail'])
+        self.assertNotIn('preimage', result)
+        agreeing = dict(graph, **{'oslc:modifiedBy': stored['oslc:modifiedBy']})
+        self.assertEqual(self.run_repair(body=stored, graph_before=agreeing, graph=agreeing)['outcome'],
+                         'repaired')
 
     def test_graph_date_offsets_match_but_sort_timestamp_must_be_numeric(self):
         document = {'oslc:modifiedBy': 'author', 'pav:lastUpdatedOn': '2017-12-29T08:48:17.987-08:00'}

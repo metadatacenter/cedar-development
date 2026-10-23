@@ -6210,6 +6210,11 @@ current strong ETag in `If-Match` with `PUT ?verbatim=true`, and compare the ent
 with the submitted candidate. Also GET the typed `/details` endpoint and verify `oslc:modifiedBy`,
 `pav:lastUpdatedOn` (the same instant at graph seconds precision), and numeric `lastUpdatedOnTS`
 against the candidate. JSON equality alone does not verify the graph or the browser's metadata.
+A verbatim write sets the graph's modification provenance from the document, so the same check
+runs before the write as well. Where the graph already disagrees with the document, the artifact
+is held as `graph-provenance-held` and not written. The usual cause is a legacy
+`https://repo.metadatacenter.net/users/<UUID>` modifier in the document where the graph holds the
+current `https://metadatacenter.org/users/<UUID>` for the same user.
 An unverified write stops the run; at most one artifact per worker is in flight, and already-running
 workers finish and record their outcomes exactly once.
 Idempotence is not read-back verification. An artifact for which no transform proposes a change
@@ -6276,6 +6281,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `stamp-instance-value-type` | Supply the declared literal datatype, using model defaults where applicable (`xsd:decimal`, `xsd:dateTime`). |
 | `wrap-instance-occurrence` / `unwrap-instance-occurrence` | Match declared cardinality; never choose one value from a list of two or more. |
 | `settle-instance-empty-shape` | Normalize only an already-empty value to its declared literal/IRI shape. |
+| `drop-keyword-value-type` | Delete `"@type": "@id"` from link and controlled-term values, where the keyword names no class; keep the identifier and label. The audit reports the shape as `value-type-keyword`. |
 | `complete-instance-context` | Add template-required context definitions; review changes to existing predicates as semantic migrations. |
 | `restate-instance-literal` | Change JSON type only if the original spelling round-trips: `826` / `"826"`, but not `"007"`. |
 | `drop-static-field-from-instance` | Remove a static heading/break slot that holds no value. |
