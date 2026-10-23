@@ -100,7 +100,7 @@ async function checkAccess({reader, designer, user, user2, sourceId, sourceAcl, 
     assert.equal((await call(user.auth, "GET", draft)).body["schema:description"], "Edited by the editor of the draft");
   } else if (role === "viewer") {
     await state.filter({hasText: /^Read only$/}).waitFor();
-    await reader.locator("#message").filter({hasText: "This artifact is read only."}).waitFor();
+    await reader.locator("#message").filter({hasText: "You do not have permission to edit this artifact."}).waitFor();
     const save = reader.locator("#save");
     assert.ok(!(await save.count()) || await save.isDisabled(), "Save offered to a viewer");
   } else {
