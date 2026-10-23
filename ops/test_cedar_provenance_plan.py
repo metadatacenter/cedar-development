@@ -98,6 +98,57 @@ class RestorationClassificationTest(unittest.TestCase):
         event['changes'][1]['replaced'] = 'wrong'
         self.assertIsNone(plan.recorded_scalar_postimage(source, event))
 
+    def legacy_fixture(self):
+        uuid = 'f58ef265-1d78-4687-b1f5-73c932024d68'
+        legacy, current = plan.LEGACY + uuid, 'https://metadatacenter.org/users/' + uuid
+        doc = {'pav:createdBy': legacy, 'pav:lastUpdatedOn': '2017-02-13T21:52:42.123-08:00', 'oslc:modifiedBy': legacy}
+        graph = {'pav:createdBy': current, 'pav:lastUpdatedOn': '2017-02-13T21:52:42-08:00', 'oslc:modifiedBy': legacy,
+                 'lastUpdatedOnTS': 1487051562}
+        row = {'id': 'urn:item', 'kind': 'template', 'complete': True, 'document': doc, 'graph': graph,
+               'documentGraphMismatch': ['pav:createdBy'], 'listingGraphMismatch': [],
+               'documentSha256': 'hash', 'documentEtag': '"3"', 'graphEtag': '"2"'}
+        return row, legacy, current
+
+    def test_graph_naming_the_documents_legacy_modifier_becomes_a_candidate(self):
+        row, legacy, current = self.legacy_fixture()
+        for differences in (['pav:createdBy'], []):
+            with self.subTest(differences=differences):
+                row['documentGraphMismatch'] = differences
+                category, proof = plan.classify(row, [], 'urn:admin', [current, 'urn:someone-else'])
+                self.assertEqual(category, plan.LEGACY_GRAPH_CLASSIFICATION)
+                self.assertEqual(proof['modifierAlias']['canonical'], current)
+        item = plan.candidate_item(row, category, proof)
+        self.assertEqual(item['changes'], [{'property': 'oslc:modifiedBy', 'before': legacy, 'after': current}])
+        self.assertEqual((item['expectedDocumentEtag'], item['expectedGraphEtag']), ('"3"', '"2"'))
+
+    def test_legacy_graph_modifier_with_other_dates_or_document_modifier_is_review_only(self):
+        _, legacy, current = self.legacy_fixture()
+        cases = [('graph', 'pav:lastUpdatedOn', '2026-10-21T10:00:00-07:00', ['pav:lastUpdatedOn']),
+                 ('graph', 'lastUpdatedOnTS', 1790000000, ['pav:createdBy']),
+                 ('document', 'oslc:modifiedBy', current, ['oslc:modifiedBy']),
+                 ('document', 'oslc:modifiedBy', plan.LEGACY + '5278408e-231a-414c-8f6b-4c29656a9bde', ['oslc:modifiedBy'])]
+        for side, key, value, differences in cases:
+            with self.subTest(side=side, key=key, value=value):
+                row, _, _ = self.legacy_fixture()
+                row[side][key] = value; row['documentGraphMismatch'] = differences
+                category, _ = plan.classify(row, [], 'urn:admin', [current])
+                self.assertNotEqual(category, plan.LEGACY_GRAPH_CLASSIFICATION)
+                self.assertTrue(category.endswith('-review'), category)
+
+    def test_legacy_graph_modifier_without_one_live_canonical_user_is_review_only(self):
+        row, legacy, current = self.legacy_fixture()
+        for users in (None, [], [current, current], [legacy], ['https://another.example/users/' + current[-36:]]):
+            with self.subTest(users=users):
+                self.assertEqual(plan.classify(row, [], 'urn:admin', users)[0],
+                                 'legacy-graph-modifier-unresolved-user-review')
+
+    def test_current_form_modifiers_keep_their_existing_classes(self):
+        row, legacy, current = self.legacy_fixture()
+        row['document']['oslc:modifiedBy'] = row['graph']['oslc:modifiedBy'] = current
+        self.assertEqual(plan.classify(row, [], 'urn:admin', [current])[0], 'creation-only-difference')
+        row['documentGraphMismatch'] = []
+        self.assertEqual(plan.classify(row, [], 'urn:admin', [current])[0], 'consistent')
+
     def test_array_or_unrecorded_or_unknown_edits_are_not_reconstructed(self):
         event = {'repair': 'complete-context-required', 'changes': [
             {'path': '/required', 'replaced': None, 'wrote': 'a'}]}

@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 
 from cedar_provenance_audit import atomic, digest, now
+from cedar_provenance_user_alias import LEGACY, LEGACY_GRAPH_CLASSIFICATION, alias_for, legacy_graph_modifier
 
 MODIFICATION = ('pav:lastUpdatedOn', 'oslc:modifiedBy')
 
@@ -132,7 +133,27 @@ def evidence_index(repairs, legacy_root=None):
     return evidence, problems
 
 
-def classify(row, events, repair_user):
+def legacy_graph_class(row, users):
+    """Classify a graph that names the document's own modifier in the legacy user form.
+
+    A verbatim write copies the document's modifier into the graph, so such a graph agrees with its
+    document and still names a user IRI no live User carries. Returns None for any other graph.
+    """
+    document, graph = row.get('document') or {}, row.get('graph') or {}
+    modifier = graph.get('oslc:modifiedBy')
+    if not isinstance(modifier, str) or not modifier.startswith(LEGACY): return None
+    try:
+        legacy_graph_modifier(document, graph)
+    except ValueError:
+        return 'legacy-graph-modifier-review', None
+    try:
+        alias = alias_for(modifier, users)
+    except ValueError:
+        return 'legacy-graph-modifier-unresolved-user-review', None
+    return LEGACY_GRAPH_CLASSIFICATION, {'basis': 'graph-and-document-name-one-legacy-modifier', 'modifierAlias': alias}
+
+
+def classify(row, events, repair_user, users=None):
     if row.get('notObserved'):
         listed = row.get('listing', {})
         stamp = epoch(listed.get('pav:lastUpdatedOn'))
@@ -145,6 +166,10 @@ def classify(row, events, repair_user):
     if not row.get('complete'): return 'unreadable', None
     if row.get('identityMismatch'): return 'identity-disagreement-review', None
     differences = row.get('documentGraphMismatch', [])
+    if not set(differences).intersection(MODIFICATION):
+        # Creation provenance may still differ; the restoration leaves it as it is.
+        legacy = legacy_graph_class(row, users)
+        if legacy: return legacy
     if not differences:
         return ('listing-drift' if row.get('listingGraphMismatch') else 'consistent'), None
     if not set(differences).intersection(MODIFICATION): return 'creation-only-difference', None
@@ -169,6 +194,26 @@ def classify(row, events, repair_user):
     return 'no-retained-repair-evidence', None
 
 
+def candidate_item(row, category, proof):
+    item = {'id': row['id'], 'kind': row['kind'], 'name': row.get('name'), 'classification': category,
+            'observedAt': row.get('observedAt'), 'document': row.get('document'), 'graph': row.get('graph'),
+            'listing': row.get('listing'),
+            'documentGraphMismatch': row.get('documentGraphMismatch'),
+            'expectedDocumentEtag': row.get('documentEtag'),
+            'expectedDocumentSha256': row.get('documentSha256'),
+            'expectedGraphEtag': row.get('graphEtag'), 'evidence': proof}
+    if category == 'eligible-unchanged-repair':
+        item['changes'] = [{'property': k, 'before': row['graph'].get(k), 'after': row['document'].get(k)}
+                           for k in MODIFICATION if row['graph'].get(k) != row['document'].get(k)]
+        item['changes'].append({'property': 'lastUpdatedOnTS', 'before': row['graph'].get('lastUpdatedOnTS'),
+                                'after': int(epoch(row['document']['pav:lastUpdatedOn']))})
+    if category == LEGACY_GRAPH_CLASSIFICATION:
+        item['modifierAlias'] = proof['modifierAlias']
+        item['changes'] = [{'property': 'oslc:modifiedBy', 'before': row['graph']['oslc:modifiedBy'],
+                            'after': proof['modifierAlias']['canonical']}]
+    return item
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--audit', type=Path, required=True)
@@ -176,8 +221,11 @@ def main():
     parser.add_argument('--repair-user', required=True)
     parser.add_argument('--legacy-root', type=Path, help='also inspect root-level historical repair JSONL records')
     parser.add_argument('--evidence-index', type=Path, help='reuse a previously prepared evidence JSONL index')
+    parser.add_argument('--live-users', type=Path,
+        help='JSON list of live User IRIs; without it, a graph modifier in the legacy form stays under review')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
+    users = load(args.live_users) if args.live_users else None
     os.umask(0o077); args.out.mkdir(parents=True, exist_ok=True)
     if args.evidence_index:
         evidence = defaultdict(list)
@@ -197,27 +245,19 @@ def main():
         for line in stream:
             row = json.loads(line); records[row['id']] = row
     counts, by_kind, campaigns = Counter(), defaultdict(Counter), Counter()
-    proposed = []; reviews = []
+    proposed = []; reviews = []; legacy_graph = []
     for row in records.values():
-        category, proof = classify(row, evidence.get(row['id'], []), args.repair_user)
+        category, proof = classify(row, evidence.get(row['id'], []), args.repair_user, users)
         counts[category] += 1; by_kind[row['kind']][category] += 1
         if category in ('consistent',): continue
-        item = {'id': row['id'], 'kind': row['kind'], 'name': row.get('name'), 'classification': category,
-                'observedAt': row.get('observedAt'), 'document': row.get('document'), 'graph': row.get('graph'),
-                'listing': row.get('listing'),
-                'documentGraphMismatch': row.get('documentGraphMismatch'),
-                'expectedDocumentEtag': row.get('documentEtag'),
-                'expectedDocumentSha256': row.get('documentSha256'),
-                'expectedGraphEtag': row.get('graphEtag'), 'evidence': proof}
-        if proof: campaigns[proof['campaign']] += 1
-        if category == 'eligible-unchanged-repair':
-            item['changes'] = [{'property': k, 'before': row['graph'].get(k), 'after': row['document'].get(k)}
-                               for k in MODIFICATION if row['graph'].get(k) != row['document'].get(k)]
-            item['changes'].append({'property': 'lastUpdatedOnTS', 'before': row['graph'].get('lastUpdatedOnTS'),
-                                    'after': int(epoch(row['document']['pav:lastUpdatedOn']))})
-            proposed.append(item)
+        item = candidate_item(row, category, proof)
+        if proof and proof.get('campaign'): campaigns[proof['campaign']] += 1
+        if category == 'eligible-unchanged-repair': proposed.append(item)
+        # Kept apart: the default executor refuses a plan holding any candidate its policy does not admit.
+        elif category == LEGACY_GRAPH_CLASSIFICATION: legacy_graph.append(item)
         else: reviews.append(item)
-    for name, rows in [('restoration-candidates.jsonl', proposed), ('review.jsonl', reviews)]:
+    for name, rows in [('restoration-candidates.jsonl', proposed), ('review.jsonl', reviews),
+                       ('legacy-graph-modifier-candidates.jsonl', legacy_graph)]:
         with (args.out / name).open('w') as stream:
             for row in rows: stream.write(json.dumps(row, ensure_ascii=False) + '\n')
     with (args.out / 'repair-evidence.jsonl').open('w') as stream:

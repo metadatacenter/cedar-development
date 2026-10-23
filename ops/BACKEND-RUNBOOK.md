@@ -6031,6 +6031,26 @@ user accounts. All 231 passed live preflight; 53 provenance tests passed locally
 apply/metadata/alias tests passed with the production Python runtime. The sealed launcher in
 `legacy-user-alias-plan/` refuses to run until `metadata-evidence-run-2` has fully verified.
 
+**Legacy graph modifiers, candidates prepared but not sealed:** a verbatim write sets the graph's
+modification provenance from the document. A repair of a document that records its modifier in the
+legacy form therefore copies that form into the graph, and no User node carries it. The repairs of
+2026-10-21 left 15 templates and 14 elements in this state, and those of 2026-10-23 left six
+instances. Together they record 15 distinct users. On each of the 35, the graph and the document
+record the same legacy modifier, and their dates agree. The planner classifies them as
+`eligible-legacy-graph-modifier`. That classification requires the graph's modifier and both of its
+dates to agree with the document's, and exactly one live User to carry the same UUID in the current
+form. The restoration sets only the graph's `oslc:modifiedBy` to the current form. It keeps
+`pav:lastUpdatedOn` and `lastUpdatedOnTS`, writes no Mongo document and needs no repair evidence,
+because it restores no date. The executor admits the class only under
+`--allow-legacy-user-aliases`, and the alias preflight checks its graph against the document rather
+than against the repair account. The GET-only observations, the candidates and a summary are in
+`$CEDAR_HOME/.cedar/audits/2026-10-23-legacy-graph-modifiers/`. The 29 templates and elements are
+already in the sealed 231-artifact plan, whose rows for them still expect the CEDAR Admin modifier
+and an earlier document revision. Its executor would skip them as changed. Prepare and seal the
+production plan package again before the alias job runs, with these 35 candidates in place of those
+29 rows. Its operator script checks for 231 ready candidates, so that count changes with the
+package.
+
 **Remaining Admin-modified artifacts, read-only follow-up:** all 7,419 unresolved records were
 re-read with unchanged original provenance. They include 6,802 filled instances, 552 elements,
 50 fields and 15 templates. The largest instance families are Genetic Construct (3,172), Mouse

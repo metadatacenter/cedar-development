@@ -17,7 +17,8 @@ import time
 from cedar_provenance_audit import atomic, digest, now
 from cedar_provenance_store import COLLECTIONS, Stores, public_document
 from cedar_provenance_metadata import CLASSIFICATION as METADATA_CLASSIFICATION, validate_metadata_evidence
-from cedar_provenance_user_alias import resolved_modifier
+from cedar_provenance_user_alias import (LEGACY_GRAPH_CLASSIFICATION, legacy_graph_modifier, resolved_modifier,
+                                         stored_graph)
 from cedar_provenance_log_plan import CLASSIFICATION as LOG_CLASSIFICATION, validate_log_evidence
 
 CHANGED = {'oslc_modifiedBy', 'pav_lastUpdatedOn', 'lastUpdatedOnTS', '_cedarRevision'}
@@ -58,8 +59,13 @@ def prepare(candidate, stored, graph, repair_user=None, *, user_ids=None, allow_
             allow_log_evidence=False):
     metadata_policy = candidate.get('classification') == METADATA_CLASSIFICATION and bool(repair_user) and not allow_log_evidence
     log_policy = candidate.get('classification') == LOG_CLASSIFICATION and bool(repair_user) and allow_log_evidence
-    if candidate.get('classification') != 'eligible-unchanged-repair' and not metadata_policy and not log_policy:
+    # A legacy graph modifier needs no repair evidence: its dates already agree and stay as they are.
+    legacy_graph_policy = candidate.get('classification') == LEGACY_GRAPH_CLASSIFICATION
+    if (candidate.get('classification') != 'eligible-unchanged-repair' and not metadata_policy and not log_policy
+            and not legacy_graph_policy):
         raise ValueError('candidate lacks eligible classification')
+    if legacy_graph_policy and not allow_legacy_user_aliases:
+        raise ValueError('legacy user aliases require explicit opt-in')
     if stored is None or graph is None: raise ValueError('missing document or graph')
     if '_cedarDeletionToken' in stored: raise ValueError('pending deletion')
     body = public_document(stored)
@@ -84,16 +90,23 @@ def prepare(candidate, stored, graph, repair_user=None, *, user_ids=None, allow_
         validate_metadata_evidence(candidate, body, {
             'oslc:modifiedBy': graph.get('oslc_modifiedBy'), 'pav:lastUpdatedOn': graph.get('pav_lastUpdatedOn'),
             'lastUpdatedOnTS': graph.get('lastUpdatedOnTS')}, repair_user)
+    elif legacy_graph_policy:
+        legacy_graph_modifier(body, stored_graph(graph))
+        if candidate.get('modifierAlias') is None:
+            raise ValueError('legacy graph modifier requires a sealed alias')
     elif (evidence.get('postimageSha256') != digest(body)
             or evidence.get('documentEtag') != candidate['expectedDocumentEtag']
             or evidence.get('beforeModification') != {k: body.get(k) for k in ('pav:lastUpdatedOn', 'oslc:modifiedBy')}):
         raise ValueError('retained evidence does not match document')
     modifier = resolved_modifier(candidate, body, user_ids, allow_legacy_user_aliases)
+    if legacy_graph_policy:
+        restored_on, restored_ts = graph['pav_lastUpdatedOn'], graph['lastUpdatedOnTS']
+    else:
+        restored_on, restored_ts = original.isoformat(timespec='seconds'), int(original.timestamp())
     params = {'id': candidate['id'], 'expectedModifiedBy': graph['oslc_modifiedBy'],
               'expectedLastUpdatedOnTS': graph['lastUpdatedOnTS'],
               'expectedGraphRevision': graph.get('_cedarRevision', 1),
-              'modifiedBy': modifier, 'lastUpdatedOn': original.isoformat(timespec='seconds'),
-              'lastUpdatedOnTS': int(original.timestamp())}
+              'modifiedBy': modifier, 'lastUpdatedOn': restored_on, 'lastUpdatedOnTS': restored_ts}
     return {'id': candidate['id'], 'kind': candidate['kind'], 'parameters': params,
             'graphPreimage': graph, 'documentSha256': digest(body),
             'documentRevision': stored.get('_cedarRevision', 0),
@@ -164,6 +177,7 @@ def apply(stores, plan, query_path, backup, out, repair_user=None, allow_legacy_
         raise ValueError('empty plan or duplicate identities')
     allowed = {'eligible-unchanged-repair'} | ({METADATA_CLASSIFICATION} if repair_user and not allow_log_evidence else set())
     if repair_user and allow_log_evidence: allowed.add(LOG_CLASSIFICATION)
+    if allow_legacy_user_aliases: allowed.add(LEGACY_GRAPH_CLASSIFICATION)
     if any(c.get('classification') not in allowed for c in candidates):
         raise ValueError('plan includes unproven candidates')
     users = [row[0] for row in stores.query('MATCH (u:User) RETURN u._id')]
@@ -228,7 +242,8 @@ def main():
     parser.add_argument('--allow-log-evidence', action='store_true',
         help='Opt into sealed verbatim warning plus exact successful request evidence')
     parser.add_argument('--allow-legacy-user-aliases', action='store_true',
-        help='Allow sealed legacy repo.metadatacenter.net user aliases with one live canonical UUID match')
+        help='Allow sealed legacy repo.metadatacenter.net user aliases with one live canonical UUID match, '
+             'including graph modifiers left in the legacy form, whose dates are kept')
     args = parser.parse_args()
     if not args.apply: parser.error('writes require --apply')
     if args.allow_repair_metadata and args.allow_log_evidence:
