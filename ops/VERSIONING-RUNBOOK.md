@@ -728,8 +728,10 @@ on Done; `constraintsChanged` invalidates a host's pending validation, and Cance
 leaves the original intact. Branch depth is editable in each branch's details.
 A bin icon removes an individual constraint or saved action. Exclusion and reordering controls are
 deferred to the roadmap; retained actions are preserved unchanged. `selectionMode = 'term'` retains single-term output
-for defaults. Multiple fixed `sources` appear in a vocabulary/release selector so
-two pins of the same acronym are searched and browsed separately.
+for defaults. CED's default dialog assigns the field's set to `fieldConstraints`, and the picker then
+searches only within it, through `bioportal/integrated-search`, showing one chip for each constraint.
+Without `fieldConstraints`, multiple fixed `sources` appear in a vocabulary/release selector so two
+pins of the same acronym are searched and browsed separately.
 
 The picker validates the supplied draft as well as edits before Done. Its central
 report identifies invalid identifiers, releases, depths, actions, duplicate entries,
