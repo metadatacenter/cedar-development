@@ -525,8 +525,9 @@ reactor accepted could still fail that workflow on push. It takes seconds. `ceda
 runs the same check unless `--skip-tests` is given.
 
 The command then runs the component verification gates in the isolated build copies, records the
-successful package selection, restarts all native frontends, verifies their installed reactor
-packages, and runs the whole-stack smoke tiers.
+successful package selection, restarts all native frontends, waits until each serves its page and
+everything the page loads through nginx, verifies their installed reactor packages, and runs the
+whole-stack smoke tiers.
 
 A repository whose inputs match an earlier passing result is not verified again. Each passing
 task leaves a record in `.reactor/results/`, named by a fingerprint of everything it read: the

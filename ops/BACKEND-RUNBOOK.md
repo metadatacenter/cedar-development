@@ -117,6 +117,22 @@ Start waits for infrastructure, then launches and polls applications together. I
 `CEDAR_START_READY_TIMEOUT` bounds the group wait (default 240 seconds), and
 `CEDAR_HEALTH_PROBE_TIMEOUT` bounds one probe (default 5 seconds).
 
+A microservice is ready when its admin health check passes. A frontend is ready only when it serves a
+page a browser can load, because every development server opens its port before then. Gulp answers
+while its own tasks are still writing the files the page names, and Vite answers the index while its
+dependency optimizer still holds the modules the page imports. The wait therefore runs
+`ops/frontend_ready.py`, which requests each page and, with it, every same-origin script, module
+preload and stylesheet the page names and the modules those scripts import statically. A start or
+restart asks each development server on its own port, because the hybrid topology starts the
+frontends before the Docker nginx in front of them. `cedarcli build frontends` asks through nginx
+instead, at `https://<name>.$CEDAR_HOST` with the certificate verified against
+`$CEDAR_CA_HOME/ca.crt`, because its smoke loads every page that way next. `ui-content` is asked on
+its own port either way, because native nginx serves `content.$CEDAR_HOST` from the checkout rather
+than from the development server. `CEDAR_FRONTEND_READY_REQUEST_TIMEOUT` bounds one request, read in
+full (default 10 seconds). A request still waiting on a compiler or an optimizer runs out, and the
+next poll asks again. A frontend that answers its root but never serves its page is reported with the
+request that failed and left running for inspection, and the start still fails.
+
 A listening service still booting is `starting`; a health probe that exceeds its deadline is `slow`.
 Both fail `cedarcli native health`, and smoke waits for them before refusing. A slow dependency can
 cause a probe timeout. Terminology samples `ontology-catalogue` off the request thread to keep
@@ -250,7 +266,9 @@ and **reports any service whose jar or configuration is not built/present**. An 
 treated as proof of ownership: if the listener is not the expected CEDAR jar or frontend process in
 the expected source directory, start and stop both fail without signalling it. Backend health uses
 the Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy); frontend health
-requires a successful response from the served root.
+requires a successful response from the served root. That probe stays cheap because status and
+`watch` repeat it. The wait after a start asks for the whole page, as
+[Bring-Up Sequence](#bring-up-sequence) explains.
 
 Two columns exist so a green table cannot hide a stale one. Each microservice runs a copy of its jar,
 which the controller takes from `target/` as the process starts and keeps in
