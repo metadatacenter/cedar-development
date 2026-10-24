@@ -19,8 +19,16 @@ export function failureCategory(message, outcome = "fail") {
 export function sourceIdentity(cwd) {
   const git = args => { try { return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }).trim(); } catch { return "unavailable"; } };
   const hash = createHash("sha256");
-  for (const name of readdirSync(cwd).filter(name => /\.(mjs|json)$/.test(name)).sort())
-    hash.update(name).update(readFileSync(join(cwd, name)));
+  // Imported REST helpers and nested fixtures are inputs too. Generated evidence, dependencies and
+  // saved credentials are not: a run must not invalidate its own fingerprint by recording a report.
+  const excluded = new Set(["node_modules", "reports", "failures", ".auth", ".git"]);
+  const inputs = directory => readdirSync(join(cwd, directory), {withFileTypes: true}).flatMap(entry => {
+    if (excluded.has(entry.name)) return [];
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? inputs(path) : /\.(mjs|cjs|js|json|html|ya?ml)$/.test(entry.name) ? [path] : [];
+  });
+  for (const name of inputs("").sort())
+    hash.update(name).update("\0").update(readFileSync(join(cwd, name))).update("\0");
   const runtime = join(process.env.CEDAR_HOME ?? join(cwd, "..", "..", ".."), ".reactor", "runtime.json");
   const runtimeDigest = existsSync(runtime) ? createHash("sha256").update(readFileSync(runtime)).digest("hex") : null;
   return { head: git(["rev-parse", "HEAD"]), dirty: Boolean(git(["status", "--porcelain"])), testDigest: hash.digest("hex"), runtimeDigest };

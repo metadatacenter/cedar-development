@@ -83,7 +83,7 @@ export async function runLive({ isolated = false, tier = 'rest', reportPath, wor
         page.on('pageerror', error => errors.push(error.message));
         // The journey's type filter is saved to the reader's profile, which every lane signs in as, so
         // the preferences the profile held before it are put back.
-        await keepingListingPreferences(user2, () => searchJourney({ page, base, fixtures, scope, check }));
+        await keepingListingPreferences(user2, () => searchJourney({ page, base, fixtures, scope, check }), {as: "user2"});
         report.browserErrors = errors;
         if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
         await browser.close();

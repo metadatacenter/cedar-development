@@ -2,7 +2,7 @@ import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { poll } from "./rest/lib.mjs";
-import { dashboardAddress, listingIdle, listingOf } from "./journey-fixtures.mjs";
+import { dashboardAddress, listingIdle, listingOf, listView } from "./journey-fixtures.mjs";
 
 // These helpers drive Workspace's own controls for the full smoke and its journeys: the listing and
 // its rows, a row's action menu, the dialogs those actions open, the Permissions dialog and the
@@ -53,16 +53,9 @@ export const row = (p, name) =>
 export const showInformation = (p, name) => row(p, name).locator("td").nth(1).click();
 
 /**
- * Waits until Workspace has rendered its listing in the list view. Workspace defaults to the grid,
- * so the table is selected after every full navigation rather than taken from an old default.
+ * Waits until Workspace has rendered its listing in list view, without writing shared preferences.
  */
-export async function ready(p) {
-  await p.getByRole("button", { name: "New", exact: true }).waitFor();
-  await p.getByRole("button", { name: "List view", exact: true }).click();
-  // Switching views fetches nothing, so only the pressed view control says the switch is done.
-  await p.getByRole("button", { name: "List view", exact: true, pressed: true }).waitFor();
-  await p.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
-}
+export const ready = listView;
 
 /**
  * Signs a user in to Workspace through the Keycloak form, in a browser context of its own, and
@@ -77,7 +70,7 @@ export async function signIn(browser, base, login, password) {
     const errors = [];
     page.on("dialog", dialog => dialog.accept());
     page.on("pageerror", error => errors.push(error.message));
-    await page.goto(base + "/dashboard", { waitUntil: "domcontentloaded" });
+    await page.goto(dashboardAddress(base), { waitUntil: "domcontentloaded" });
     await page.locator("#username, cedar-workspace-page .destinations").first().waitFor({ state: "visible" });
     if (await page.locator("#username").isVisible()) {
       await page.locator("#username").fill(login);

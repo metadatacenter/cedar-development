@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { artifactBody, call, enc } from "./rest/lib.mjs";
 import { metadataFixture, numericField, comparable, editorStatus } from "./metadata-journey-fixtures.mjs";
-import { focused, listingIdle } from "./journey-fixtures.mjs";
+import { focused, listingIdle, keepingListingPreferences } from "./journey-fixtures.mjs";
 import { listed, row, editorSave, assertOnlyContentChanges } from "./workspace-journey-fixtures.mjs";
 
 export const textField = (name, type = "textfield") => {
@@ -237,6 +237,9 @@ export async function designerReturnContextJourney(args) {
 }
 
 export async function metadataReturnContextJourney(args) {
+  await keepingListingPreferences(args.user, () => metadataReturnContext(args));
+}
+async function metadataReturnContext(args) {
   const { page, base, name, pass } = args;
   const title = name + " return-context metadata";
   const fixture = await metadataFixture(args, "metadata return context", { Notes: textField("Notes") },

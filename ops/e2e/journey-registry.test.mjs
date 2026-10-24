@@ -91,5 +91,5 @@ test("a journey that puts listing preferences back declares that it shares them"
     .map(entry => entry.key);
   assert.deepEqual(undeclared, []);
   assert.deepEqual(JOURNEYS.filter(entry => entry.shares === LISTING_PREFERENCES).map(entry => entry.key).sort(),
-    ["workspace-listing-preferences", "workspace-type-filter"]);
+    ["metadata-return-context", "workspace-keyboard-folders", "workspace-listing-preferences", "workspace-type-filter"]);
 });

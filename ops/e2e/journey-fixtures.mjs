@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {call, enc, USER_SERVER} from "./rest/lib.mjs";
-import {noteFixture} from "./split-steps.mjs";
+import {noteFixture, noteRestore, noteRestored} from "./split-steps.mjs";
+import {listingPreferencesRestore, restore} from "./user-state.mjs";
 
 // Listing and drag/drop scenarios must not depend on how many fixtures earlier journeys kept.
 export async function journeyFolder({user, folderId, name, created}, suffix) {
@@ -18,32 +19,39 @@ export async function journeyFolder({user, folderId, name, created}, suffix) {
 // a state fails with a message that says what it waited for.
 
 /**
- * A Workspace dashboard address that names the default sort. An address naming no listing
+ * A Workspace dashboard address that names the default sort and list view. An address naming no listing
  * preference opens with the filters, sort and view the user's profile keeps, which every journey
- * that chooses one rewrites, and every lane signs in as the same users. Naming the sort keeps another
- * lane's choices out of the listing a journey opens.
+ * that chooses one rewrites, and every lane signs in as the same users. Naming the preferences keeps
+ * another lane's choices out of the listing without writing the account's preferences during setup.
  */
 export const dashboardAddress = (base, parameters = {}) =>
-  base + "/dashboard?" + new URLSearchParams({...parameters, sort: "name"});
+  base + "/dashboard?" + new URLSearchParams({...parameters, sort: "name", view: "list"});
 
 /**
  * Runs a journey that chooses listing preferences in Workspace, and puts back the ones the user's
  * profile kept before it, so the account leaves the journey as it entered it.
  */
-export async function keepingListingPreferences(user, journey) {
+export async function keepingListingPreferences(user, journey, {as = "user1"} = {}) {
   const path = "/users/" + enc(user.profile["@id"].split("/").at(-1));
   const read = await call(user.auth, "GET", path, undefined, {base: USER_SERVER});
   assert.equal(read.status, 200, read.text);
-  const kept = read.body.uiPreferences.workspace;
-  let finished = false;
+  const entry = listingPreferencesRestore({as, userPath: path, preferences: read.body.uiPreferences.workspace});
+  noteRestore(entry);
+  let failure;
   try {
-    const result = await journey();
-    finished = true;
-    return result;
+    return await journey();
+  } catch (error) {
+    failure = error;
+    throw error;
   } finally {
-    const restored = await call(user.auth, "PUT", path, {"uiPreferences.workspace": kept}, {base: USER_SERVER});
-    // A failed journey keeps its own error; a restore that fails after a passing one fails it.
-    if (finished) assert.equal(restored.status, 200, restored.text);
+    try {
+      const restored = await restore(entry, {call, auth: user.auth});
+      assert.ok(restored.ok, `Workspace preference cleanup failed (${restored.status}): ${restored.text}`);
+      noteRestored(entry);
+    } catch (error) {
+      if (failure) throw new AggregateError([failure, error], `${failure.message}; ${error.message}`);
+      throw error;
+    }
   }
 }
 
@@ -58,23 +66,30 @@ export const listingOf = folderId => response => {
 export const listingIdle = page =>
   page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
 
+/** Selects list view for fixture setup through the address, without saving account preferences. */
+export async function listView(page) {
+  await page.getByRole("button", {name: "New", exact: true}).waitFor();
+  const list = page.getByRole("button", {name: "List view", exact: true});
+  if (await list.getAttribute("aria-pressed") !== "true") {
+    const address = new URL(page.url());
+    address.searchParams.set("view", "list");
+    await page.goto(address.href);
+  }
+  await page.getByRole("button", {name: "List view", exact: true, pressed: true}).waitFor();
+  await listingIdle(page);
+}
+
 /**
  * Opens a folder in Workspace's list view. The listing is settled once the request this navigation
  * made has been answered, the list view is the one shown, and the table no longer reports itself
- * busy. Switching views fetches nothing, so only the pressed view control says the switch is done.
+ * busy. Setup names the view in the address rather than saving a view choice on the account.
  */
 export async function openListing(page, base, folderId) {
   await Promise.all([
     page.waitForResponse(listingOf(folderId)),
     page.goto(dashboardAddress(base, {folderId})),
   ]);
-  await page.getByRole("button", {name: "New", exact: true}).waitFor();
-  const list = page.getByRole("button", {name: "List view", exact: true});
-  if (await list.count()) {
-    await list.click();
-    await page.getByRole("button", {name: "List view", exact: true, pressed: true}).waitFor();
-  }
-  await listingIdle(page);
+  await listView(page);
 }
 
 /**

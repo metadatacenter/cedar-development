@@ -10,9 +10,20 @@
 // A restorer reads the account first and writes only what still differs from the original, so a
 // restoration that runs after the script's own, or twice, changes nothing.
 import { USER_SERVER, enc } from "./rest/lib.mjs";
+import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 /** How to put back each kind of change, given `call` (the REST helper's), a credential and the entry. */
 export const RESTORERS = Object.freeze({
+  "workspace-preferences": async (call, auth, entry) => {
+    const account = await call(auth, "GET", entry.userPath, undefined, {base: USER_SERVER});
+    if (account.status !== 200) return {ok: false, status: account.status, text: account.text};
+    if (isDeepStrictEqual(account.body?.uiPreferences?.workspace, entry.preferences)) return {ok: true, changed: 0};
+    const written = await call(auth, "PUT", entry.userPath,
+      {"uiPreferences.workspace": entry.preferences}, {base: USER_SERVER});
+    return written.status === 200 ? {ok: true, changed: 1}
+      : {ok: false, status: written.status, text: written.text};
+  },
   /**
    * An API key added to an account, identified by the description it was given, which no other run
    * uses. The account had no key with that description before, so putting it back deletes every key
@@ -30,6 +41,18 @@ export const RESTORERS = Object.freeze({
     return { ok: true, changed: keys.length };
   },
 });
+
+/** Each visit has its own key: an earlier completed restoration must not hide a later killed visit. */
+export function listingPreferencesRestore({as, userPath, preferences}) {
+  return {
+    restore: "workspace-preferences",
+    key: `workspace-preferences ${userPath} ${randomUUID()}`,
+    label: `Workspace listing preferences on ${as}'s account`,
+    as,
+    userPath,
+    preferences: structuredClone(preferences),
+  };
+}
 
 /**
  * The restore entry for an API key a script is about to add to an account. `as` identifies the test

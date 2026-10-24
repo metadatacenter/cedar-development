@@ -1,6 +1,6 @@
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
-import {dashboardAddress, journeyFolder} from "./journey-fixtures.mjs";
+import {dashboardAddress, journeyFolder, listView} from "./journey-fixtures.mjs";
 import {actors, artifactBody, call, enc, mutate} from "./rest/lib.mjs";
 
 // A draft is shared as the version it is drafted from. Workspace's Create Draft and the Designer's
@@ -115,9 +115,7 @@ async function checkAccess({reader, designer, user, user2, sourceId, sourceAcl, 
 async function checkSharedWithMe(reader, base, drafts) {
   const listed = async () => {
     await reader.goto(dashboardAddress(base, {sharing: "shared-with-me"}));
-    await reader.getByRole("button", {name: "New", exact: true}).waitFor();
-    const list = reader.getByRole("button", {name: "List view", exact: true});
-    if (await list.count()) await list.click();
+    await listView(reader);
     const found = new Set();
     for (;;) {
       await reader.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
@@ -156,10 +154,7 @@ export async function workspaceDraftSharingJourney(args) {
     let offered = false;
     for (let attempt = 0; attempt < 15 && !offered; attempt++) {
       await page.goto(dashboardAddress(base, {folderId}));
-      await page.getByRole("button", {name: "New", exact: true}).waitFor();
-      const list = page.getByRole("button", {name: "List view", exact: true});
-      if (await list.count()) await list.click();
-      await page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+      await listView(page);
       const row = page.locator("tbody tr").filter({has: page.locator(`a[href*="${uuid(sourceId)}"]`)}).first();
       if (!(await row.count())) continue;
       await row.getByRole("button", {name: "Actions for " + sourceName, exact: true}).click();

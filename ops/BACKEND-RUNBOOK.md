@@ -3689,9 +3689,12 @@ workspace-pagination workspace-search-return workspace-renamed-breadcrumb`.
 
 Workspace opens an address that names no listing preference with the filters, sort and view the
 user's profile keeps, and every lane signs in as the same users. The harness therefore opens the
-dashboard through `dashboardAddress` in `journey-fixtures.mjs`, which names the default sort, so
-another lane's choices never reach a journey's listing. A journey that chooses preferences runs
-inside `keepingListingPreferences`, which puts back the ones the profile held before it.
+dashboard through `dashboardAddress` in `journey-fixtures.mjs`, which names the default sort and list
+view. Listing setup selects its view through the address without writing the account's preferences.
+A journey that deliberately chooses a view, filter or sort runs inside `keepingListingPreferences`
+and declares `shares: LISTING_PREFERENCES` in the registry, so those journeys run one at a time.
+The wrapper records the original preferences before the journey and restores them afterward; the
+split runner's sweep restores them if the process is killed first.
 
 #### Journey contracts, diagnostics and reliability
 
@@ -3749,7 +3752,9 @@ Every completed focused or split run keeps an immutable record under `ops/e2e/re
 including source identity, runtime-selection digest, scenario outcomes, evidence, durations and
 failure categories. Reports distinguish first attempts from explicit reruns: pass `--retry-of=<run-id>`
 with the same selection and sources to link a retry to the failed attempt. A changed source or runtime
-selection is a new observation. The summary reports first-attempt pass rates, recoveries on retry,
+selection is a new observation. The test digest includes nested helpers and fixtures under `ops/e2e`,
+including `rest/`, and excludes generated reports, failures, dependencies and saved browser sessions.
+The summary reports first-attempt pass rates, recoveries on retry,
 successful-run median/p95/max durations, sample counts and failure categories. These categories describe
 observed symptoms, not a proven root cause. `--source=<commit-or-test-digest>` filters the summary;
 without it the summary spans the retained source versions. Candidate-inventory runs are excluded.
@@ -3811,8 +3816,10 @@ sweep applies each unmarked entry through the restoration the smoke itself uses,
 account and deletes only the keys with that description. It never applies a marked entry, so it
 never writes over what the smoke put back, and a restoration that finds the key already gone
 changes nothing. The sweep's line in the runner's output and its entry in the report list what it
-restored, what it found already as it was and what it could not restore. No other script in the
-tier changes an account. The Settings page writes nothing. Each group the tier creates is a fixture
+restored, what it found already as it was and what it could not restore. Journeys that change Workspace
+listing preferences use the same ledger and restoration mechanism. Each visit has a unique restore
+key, so an earlier completed visit cannot hide a later interrupted one. Restoration writes only
+`uiPreferences.workspace`, preserving other profile fields. The Settings page writes nothing. Each group the tier creates is a fixture
 in the ledger, and each permission and OpenView setting it changes is on a fixture, so the sweep's
 deletions remove them.
 

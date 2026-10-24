@@ -41,6 +41,9 @@ async function returned(page) {
 
 // Each journey creates an isolated tree and uses only the runner's first account.
 export async function workspaceKeyboardFoldersJourney(args) {
+  await keepingListingPreferences(args.user, () => keyboardFolders(args));
+}
+async function keyboardFolders(args) {
   const { page, base, pass } = args;
   const root = await journeyFolder(args, "keyboard folder traversal");
   const a = await make(args, root, "Alpha folder", "folder"), b = await make(args, root, "Beta folder", "folder");

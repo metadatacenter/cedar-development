@@ -6,6 +6,52 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { journeyBrowser } from "./journey-browser.mjs";
+import { dashboardAddress, openListing } from "./journey-fixtures.mjs";
+import { ready, listing } from "./workspace-journey-fixtures.mjs";
+
+test("listing setup in independent contexts never writes another journey's saved preferences", async () => {
+  let preferences = {viewMode: "grid", resourceTypes: ["folder"], sortDirection: "desc"};
+  const original = structuredClone(preferences), writes = [];
+  const server = createServer(async (request, response) => {
+    if (request.method === "PUT") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      preferences = JSON.parse(body);
+      writes.push(preferences);
+      response.end("{}");
+    } else if (request.url.startsWith("/folders/")) response.end("{}");
+    else response.end(`<button>New</button><button id="list" aria-pressed="false">List view</button>
+      <div class="table-scroll" aria-busy="true"></div><script>
+      const list = document.querySelector('#list');
+      const choose = () => list.setAttribute('aria-pressed', 'true');
+      if (new URL(location.href).searchParams.get('view') === 'list') choose();
+      list.onclick = async () => {
+        await fetch('/users/u1', {method: 'PUT', body: JSON.stringify({viewMode: 'list', resourceTypes: [], sortDirection: 'asc'})});
+        choose();
+      };
+      fetch('/folders/root/contents').then(() => document.querySelector('.table-scroll').setAttribute('aria-busy', 'false'));
+      </script>`);
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`, browser = await chromium.launch();
+  try {
+    const first = await (await browser.newContext()).newPage(), second = await (await browser.newContext()).newPage();
+    await Promise.all([openListing(first, base, "root"), listing(second, base, "root")]);
+    await first.goto(base + "/dashboard?folderId=root&sort=-name&resource_types=folder");
+    await ready(first); // Also exercise setup after a navigation that has no view parameter.
+    assert.equal(new URL(first.url()).searchParams.get("sort"), "-name");
+    assert.equal(new URL(first.url()).searchParams.get("resource_types"), "folder");
+    await ready(first); // Already in list view: the old helper still clicked and wrote.
+    assert.deepEqual(writes, []);
+    assert.deepEqual(preferences, original);
+    assert.equal(new URL(dashboardAddress(base)).searchParams.get("view"), "list");
+    // Prove the stand-in detects the actual regression: a control click overwrites all preferences.
+    await Promise.all([first.waitForResponse(answer => answer.request().method() === "PUT"),
+      first.getByRole("button", {name: "List view", exact: true}).click()]);
+    assert.equal(writes.length, 1);
+    assert.notDeepEqual(preferences, original);
+  } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
+});
 
 test("success closes all journey contexts and isolates routes, storage, cookies and pages", async () => {
   const directory = mkdtempSync(join(tmpdir(), "journey-isolation-test-"));

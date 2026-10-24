@@ -18,6 +18,7 @@ import {USER_SERVER} from "./rest/lib.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const steps = pathToFileURL(join(here, "split-steps.mjs")).href;
 const userState = pathToFileURL(join(here, "user-state.mjs")).href;
+const fixtures = pathToFileURL(join(here, "journey-fixtures.mjs")).href;
 let scratch;
 
 const WORKER = `
@@ -84,6 +85,22 @@ if (mode.startsWith("restore-")) {
   const entry = apiKeyRestore({as: "user1", userPath: "/users/u1", description: name});
   noteRestore(entry);
   if (mode === "restore-pass") noteRestored(entry);
+}
+if (mode === "preferences-hang") {
+  const {keepingListingPreferences} = await import(${JSON.stringify(fixtures)});
+  let workspace = {viewMode: "grid", resourceTypes: ["folder"], sortDirection: "desc"};
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "PUT") workspace = JSON.parse(options.body)["uiPreferences.workspace"];
+    return new Response(JSON.stringify({uiPreferences: {workspace}}), {status: 200});
+  };
+  const user = {profile: {"@id": "https://repo.example/users/u2"}};
+  // One completed visit and one killed visit in the same process: their restore keys must differ.
+  await keepingListingPreferences(user, async () => { workspace = {viewMode: "list"}; }, {as: "user2"});
+  await keepingListingPreferences(user, async () => {
+    workspace = {viewMode: "list"};
+    appendFileSync(process.env.STANDIN_LOG, JSON.stringify({lane: name, event: "script", mode, at: Date.now()}) + "\\n");
+    await new Promise(() => setInterval(() => {}, 1000));
+  }, {as: "user2"});
 }
 // Announced only once everything above is recorded, so a test that signals the run as soon as the
 // script appears finds its fixture already noted, however slowly the machine is running.
@@ -409,14 +426,18 @@ function restStandIn(items, {accounts = {}} = {}) {
   const calls = [];
   const accountStore = new Map(Object.entries(accounts).map(([path, account]) =>
     [path, {...account, apiKeys: [...(account.apiKeys ?? [])]}]));
-  const account = (auth, method, path, opts) => {
+  const account = (auth, method, path, body, opts) => {
     assert.equal(opts?.base, USER_SERVER, `${method} ${path} goes to the user server`);
     const [, userPath, keyId] = /^(\/users\/[^/]+)(?:\/api-keys\/([^/]+))?$/.exec(path);
     const stored = accountStore.get(userPath);
     if (!stored) return {status: 404};
     if (stored.status) return {status: stored.status, text: "unavailable"};
     if (stored.owner !== userOf[auth]) return {status: 403};
-    if (method === "GET" && !keyId) return {status: 200, body: {apiKeys: stored.apiKeys}};
+    if (method === "GET" && !keyId) return {status: 200, body: {apiKeys: stored.apiKeys, uiPreferences: stored.uiPreferences}};
+    if (method === "PUT" && !keyId) {
+      stored.uiPreferences = {...stored.uiPreferences, workspace: body["uiPreferences.workspace"]};
+      return {status: 200, body: stored};
+    }
     const index = stored.apiKeys.findIndex(key => key.id === decodeURIComponent(keyId ?? ""));
     if (method !== "DELETE" || index < 0) return {status: 404};
     stored.apiKeys.splice(index, 1);
@@ -426,7 +447,7 @@ function restStandIn(items, {accounts = {}} = {}) {
     users: async () => ({user1: {auth: "u1", profile: {homeFolderId: "home1"}}, user2: {auth: "u2", profile: {homeFolderId: "home2"}}}),
     call: async (auth, method, path, body, opts) => {
       calls.push(`${userOf[auth]} ${method} ${path}`);
-      if (path.startsWith("/users/")) return account(auth, method, path, opts);
+      if (path.startsWith("/users/")) return account(auth, method, path, body, opts);
       const [, collection, encoded, tail] = /^\/([^/]+)\/([^/?]+)(\/[^?]*)?/.exec(path);
       const id = decodeURIComponent(encoded);
       if (tail === "/contents")
@@ -519,6 +540,36 @@ test("a killed script's API key is removed by its sweep, and a script that remov
     label: 'API key "account-killed" on user1\'s account', as: "user1", changed: 1}]);
   assert.deepEqual([entry.alreadyRestored, entry.notRestored], [[], []]);
   assert.match(lines.join(""), /sweep of account-killed: .*restored API key "account-killed" on user1's account/);
+});
+
+test("a killed preference journey is restored even after a completed visit in the same process", async () => {
+  const run = workspace();
+  const {sweep} = await import("./split-sweep.mjs");
+  const {rest, accounts, calls} = restStandIn([], {accounts: {"/users/u2": {
+    owner: "user2", uiPreferences: {workspace: {viewMode: "list"}, unrelated: "kept"},
+  }}});
+  const layout = standInPlan({journeys: [["a-pass-10"]], lanes: 1,
+    scripts: [["preferences-killed", "preferences-hang", 0]],
+    deadline: {factor: 1, marginSeconds: 0, floorSeconds: 1, capSeconds: 1}});
+  let pending;
+  const {exitCode, report} = await runTier({layout, reportPath: run.report, cwd: scratch, lockFile: run.lock,
+    sweep: args => { pending = args; return sweep({...args, rest}); },
+    out: quiet, err: quiet, sampleMs: 50});
+  assert.equal(exitCode, TIMED_OUT);
+  assert.ok(run.log().some(entry => entry.mode === "preferences-hang"));
+  const entries = pending.restores.filter(entry => entry.restore);
+  assert.equal(entries.length, 2);
+  assert.notEqual(entries[0].key, entries[1].key);
+  assert.ok(pending.restores.some(entry => entry.restored === entries[0].key));
+  assert.deepEqual(calls.filter(call => call.includes("/users/")), ["user2 GET /users/u2", "user2 PUT /users/u2"]);
+  assert.deepEqual(accounts.get("/users/u2").uiPreferences, {
+    workspace: {viewMode: "grid", resourceTypes: ["folder"], sortDirection: "desc"}, unrelated: "kept",
+  });
+  assert.deepEqual(report.sweeps[0].restored.map(entry => entry.key), [entries[1].key]);
+  const again = await sweep({...pending, rest});
+  assert.equal(again.restored.length, 0);
+  assert.equal(again.alreadyRestored.length, 1, "a second cleanup performs no write");
+  assert.equal(calls.filter(call => call.includes("PUT /users/")).length, 1);
 });
 
 test("a sweep applies only the restore entries a process left unmarked, and reports each outcome", async () => {
