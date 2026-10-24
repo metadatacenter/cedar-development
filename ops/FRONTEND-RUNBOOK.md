@@ -3807,7 +3807,16 @@ consumers. Each job records both source SHAs and the packed candidate hash, inst
 the consumer's locked graph, and replaces only the dependency-free token package.
 Every packed file is compared byte for byte. All eight consumers build; CEE, CED,
 CETP and Workspace run their existing pinned Linux ARM64 visual suites without
-updating baselines. This complements each consumer's own CI and catches shared
+updating baselines. OpenView, Monitoring, Bridging and the Template Designer host
+run their browser contracts against the candidate as well. Monitoring and
+Bridging's reactor verification installs their locked browser test packages and
+Chromium, builds the application before the browser suite, and honors
+`CEDAR_TEST_WORKERS`. Their final build step remains in place for release output
+recording. Isolated nested applications retain their repository layout, including
+the sibling `browser/` package and surface registry; the source fingerprint covers
+that whole repository so changes to those checks invalidate reused results.
+Failed-build diagnostics retain the sibling browser reports before cleanup.
+This complements each consumer's own CI and catches shared
 changes before publication. It does not install repository approval rules.
 
 Workspace imports the token package's scoped `native-choices.css` at its application
@@ -3916,6 +3925,82 @@ checks: retain all three alongside the reactor and smoke evidence. By decision, 
 baseline keeps the field library's two section heights, which its divider sets as it
 is dragged. No stylesheet can name a value that exists only at runtime, so both stay
 as recorded debt.
+
+#### Cross-consumer token audit (2026-10-23)
+
+The local audit found no new source-adoption violations or rendered-contract drift
+in the eight modern frontends. `cedarcli check design-tokens --strict --all --json`
+passed across those frontends and the MCP session page: 853 source files, 105
+existing findings, no stale allowances, missing token references or unused tokens.
+The eight modern consumers pin `0.1.0-dev.20261021.c0dd06d3`. Their installed
+Sass, compiled assets and icon files match the central checkout byte for byte,
+including installations whose package version labels are older reactor labels.
+
+| Consumer | Existing source findings | Passing browser checks |
+| --- | ---: | ---: |
+| CED / CEFD | 2 | 83 |
+| CEE / CEF | 33 | 8 |
+| CETP | 14 | 12 |
+| Workspace | 18 | 125 |
+| OpenView | 6 | 26 |
+| Monitoring | 31 | 40 |
+| Bridging | 1 | 10 |
+| Template Designer host | 0 | 11 |
+| MCP session page | 0 | Not run |
+
+All **315 browser checks passed**, including registered surfaces at 1440px and
+375px, CED authoring under host overrides and its default-value surface with real
+CEF. The runs used the existing `surfaces.spec` suites, plus CED's
+`shared-surfaces.spec`; no screenshot or allowance was updated. CED, CETP,
+Workspace and Monitoring test outputs were rebuilt. This is computed-style and
+fixture evidence, not a production audit, a complete pixel-baseline run or a
+whole-stack smoke run. Legacy AngularJS Template Editor remains outside these
+adoption and rendered-contract gates.
+
+The findings distinguish existing local values from new drift. CED's two are the
+runtime-resized library sections retained by decision. CEE keeps comfortable-mode
+Material sizing/outline values, a local time-picker line height and other geometry;
+CETP keeps its host-derived selection tint, local line heights, a 22px constraint
+action height and 0.4 disabled opacity. Workspace and the other applications also
+retain layout or categorical-color debt. Comparing recorded source allowances
+with the end of 2026-10-04 found no increases in the eight modern frontends; CED
+fell from 23 to 2 and the Template Designer host from 1 to 0. These counts do not
+justify substituting same-valued tokens with different meanings or changing
+approved geometry.
+
+The audit also exposed limits in the evidence:
+
+- Monitoring's old local `dist` failed 20 checks for a retired monospace font and
+  two for an outdated health-check fixture state. Rebuilding current source made
+  all 40 pass without a source change. A passing source scan cannot certify an
+  arbitrary existing build directory.
+- The original adoption report counted only contract `debt`, omitting
+  `scaleDebt`. The report now counts both and shows their breakdown: two CETP
+  selection-tint allowances and five Monitoring categorical-color/toast
+  allowances. The retained audit JSON predates this reporting correction; browser
+  enforcement and the registries are unchanged.
+- The audit found Monitoring and Bridging browser suites missing from the central
+  token workflow and reactor verification. Both now install and run those suites
+  against built output, as their own CI already did. A new build precedes the
+  browser checks so an old local distribution cannot stand in for current source.
+- The MCP manifest is nine token commits behind, but all three vendored
+  stylesheets match current compiled bytes. This is version lag without observed
+  stylesheet drift. `check components --all --strict` separately reports the
+  Template Designer host's CED and CETP pins one commit behind, both for a model
+  library pin update; that is not a token-style difference.
+
+The follow-up fixes passed both exact verification recipes in isolated repository
+copies: dependency installation, unit tests, fresh application builds and all 191
+Monitoring / 42 Bridging browser tests. The strict adoption check still passes and
+now reports the seven recorded color allowances. Checker, inventory, isolation,
+cache-invalidation and diagnostic-retention regressions pass. These targeted runs
+do not constitute a full frontend reactor or a GitHub Actions run.
+
+Local raw evidence is retained under
+`$CEDAR_HOME/.cedar/audits/2026-10-23-design-tokens/`: `summary.json`,
+`source-adoption.json`, `component-freshness.txt`, build logs and browser logs,
+including both Monitoring runs. Source styling, shared values, package pins and
+baselines were unchanged by this audit.
 
 <a id="accessibility-conformance"></a>
 

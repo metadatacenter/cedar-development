@@ -61,6 +61,15 @@ class FrontendInventoryTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'invalid package commands'):
                 frontend_inventory.validate(self.config)
 
+    def test_monitoring_and_bridging_build_before_their_browser_checks(self):
+        for repository in ('cedar-monitoring', 'cedar-bridging'):
+            with self.subTest(repository=repository):
+                commands = frontend_inventory.commands(self.config, repository, repository + '-src')
+                built = commands.index(['npm', 'run', 'build'])
+                self.assertLess(commands.index(['npm', '--prefix', '../browser', 'ci']), built)
+                self.assertLess(commands.index(['../browser/node_modules/.bin/playwright', 'install', '--with-deps', 'chromium']), built)
+                self.assertLess(built, commands.index(['npm', '--prefix', '../browser', 'test']))
+
     def test_all_three_framework_demos_have_lint_and_tests(self):
         for directory in ('cedar-cee-demo-angular-src','cedar-cee-demo-ember-src','cedar-cee-demo-react'):
             commands = frontend_inventory.commands(self.config,'cedar-component-demo',directory)
