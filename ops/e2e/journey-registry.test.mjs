@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readdirSync, readFileSync} from "node:fs";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
-import {BOUND, JOURNEYS, journey} from "./journey-registry.mjs";
+import {BOUND, JOURNEYS, LISTING_PREFERENCES, journey} from "./journey-registry.mjs";
 
 // The runners and the split tier's lanes know a journey only through the registry, so a journey it
 // does not list is one that no run executes.
@@ -80,4 +80,16 @@ test("every selectable journey has a complete, unique scenario inventory", async
     assert.equal(new Set(cases.map(item => item.id)).size, cases.length, key);
     assert.ok(cases.every(item => item.id === scenarioKey(item.id) && item.promise.length > 10), key);
   }
+});
+
+test("a journey that puts listing preferences back declares that it shares them", () => {
+  // keepingListingPreferences restores the account's preferences when the journey ends, which would
+  // undo what another journey changing them is in the middle of checking.
+  const undeclared = JOURNEYS
+    .filter(entry => entry.run.toString().includes("keepingListingPreferences"))
+    .filter(entry => entry.shares !== LISTING_PREFERENCES)
+    .map(entry => entry.key);
+  assert.deepEqual(undeclared, []);
+  assert.deepEqual(JOURNEYS.filter(entry => entry.shares === LISTING_PREFERENCES).map(entry => entry.key).sort(),
+    ["workspace-listing-preferences", "workspace-type-filter"]);
 });
