@@ -6246,6 +6246,84 @@ def only_emptied_placeholders(before: Any, after: Any, template: Any) -> Optiona
     return None
 
 
+# Templates whose instances an import filled with the names of the DataCite locations it read from,
+# keyed by template IRI. Supplied through --placeholder-templates, never inferred: a value that looks
+# like such a name is a placeholder only where the import that wrote it is known to have left them.
+PLACEHOLDER_TEMPLATES: set[str] = set()
+
+# The name a DataCite-to-CEDAR import wrote where a record had no value: the JSON location it read
+# from, flattened with underscores, as in data_attributes_relatedIdentifiers_0_resourceTypeGeneral.
+IMPORT_PLACEHOLDER = re.compile(r"data_attributes_[A-Za-z0-9_]+")
+PLACEHOLDER_KEYS = ("@value", "@id", "rdfs:label")
+
+
+def is_import_placeholder(text: Any) -> bool:
+    return isinstance(text, str) and bool(IMPORT_PLACEHOLDER.fullmatch(text))
+
+
+def emptied_of_placeholders(value: dict, definition: Any) -> dict:
+    """A field value with every import placeholder it holds written as the field's empty value.
+
+    A literal field keeps its ``@value`` key and its ``@type``, as ``{"@value": null}``; an IRI field
+    loses each key that held a placeholder, so an IRI field holding nothing but placeholders is ``{}``.
+    """
+    settled = dict(value)
+    for key in PLACEHOLDER_KEYS:
+        if not is_import_placeholder(settled.get(key)):
+            continue
+        if key == "@value" and holds_a_literal(definition):
+            settled[key] = None
+        else:
+            del settled[key]
+    return settled
+
+
+def empty_import_placeholders(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write every unfilled import placeholder in a listed template's instances as an empty value.
+
+    An import that converted DataCite records into instances wrote, wherever a record had no value,
+    the name of the location it read from. The name says nothing about the dataset: it is the same
+    in every instance, and it is not a value any field was meant to hold. The model has a form for a
+    field with no value, and that form is what the import should have written.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    if instance.get("schema:isBasedOn") not in PLACEHOLDER_TEMPLATES:
+        return copy.deepcopy(instance), []
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or not any(is_import_placeholder(value.get(key)) for key in PLACEHOLDER_KEYS):
+            return value
+        settled = emptied_of_placeholders(value, definition)
+        for key in PLACEHOLDER_KEYS:
+            if is_import_placeholder(value.get(key)):
+                changes.append({"path": f"{path}/{key}", "replaced": value[key], "wrote": settled.get(key)})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_emptied_import_placeholders(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change empties an import placeholder in a listed template's instance."""
+    if not isinstance(template, dict) or not isinstance(before, dict):
+        return "/"
+    listed = before.get("schema:isBasedOn") in PLACEHOLDER_TEMPLATES
+    for path, was, now in differences(before, after):
+        key = path.rsplit("/", 1)[-1]
+        if not listed or key not in PLACEHOLDER_KEYS or not is_import_placeholder(was):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if definition is None or is_element(definition):
+            return path
+        literal = key == "@value" and holds_a_literal(definition)
+        if (literal and now is not None) or (not literal and now is not ABSENT):
+            return path
+    return None
+
+
 def declaration_for_value(template: Any, pointer: str) -> tuple[Optional[dict], str]:
     """The declaration governing an instance value, and the pointer to the value itself.
 
@@ -8354,6 +8432,15 @@ REPAIRS = {
         needs_template=True,
         error_pattern=MISSING_CHILD_ERROR,
     ),
+    "empty-import-placeholders": Repair(
+        name="empty-import-placeholders",
+        condition="",
+        summary="write the DataCite locations an import left in place of values as empty values",
+        transform=empty_import_placeholders,
+        invariant=only_emptied_import_placeholders,
+        needs_template=True,
+        error_pattern=None,
+    ),
     "write-date-as-iso": Repair(
         name="write-date-as-iso",
         condition="",
@@ -9361,6 +9448,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON of confirmed narrowings, {artifactId: {entryPath: branchEntry}}, "
                              "which narrow-ontology-constraint-to-branch applies; nothing is "
                              "narrowed without it")
+    parser.add_argument("--placeholder-templates",
+                        help="JSON list of the templates whose instances an import filled with the "
+                             "DataCite locations it read from, which empty-import-placeholders empties; "
+                             "nothing is emptied without it")
     parser.add_argument("--date-orders",
                         help="JSON of the order each template's numeric dates are written in, "
                              "{templateId: \"day-first\" | \"month-first\"}, which write-date-as-iso "
@@ -9570,6 +9661,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
                                  ("--date-orders", arguments.date_orders, DATE_ORDERS),
+                                 ("--placeholder-templates", arguments.placeholder_templates, PLACEHOLDER_TEMPLATES),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--term-fields", arguments.term_fields, TERM_FIELDS),
                                  ("--term-input-fields", arguments.term_input_fields, TERM_INPUT_FIELDS),

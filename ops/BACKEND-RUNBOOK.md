@@ -5147,6 +5147,10 @@ four transforms for them, and two existing ones learned a further case:
 - `empty-placeholder-value` writes a listed placeholder word, such as "NA" or "unknown", as the empty
   value of a date, number or link field. "none" counts only in a date, since in a number it can mean
   zero.
+- `empty-import-placeholders` empties, in the templates `--placeholder-templates` lists, every value
+  a DataCite import left as the name of the location it read from, such as
+  `data_attributes_relatedIdentifiers_0_resourceTypeGeneral`. The import wrote one wherever a record
+  had no value, so the name says nothing about the dataset.
 - `stamp-instance-value-type` now also stamps a value whose field names its datatype, where the
   validator demands a type although the schema does not list one as required, and
   `settle-instance-term-label` also settles a label stored without its IRI.
@@ -5170,6 +5174,10 @@ written. Every one reads back identical to its candidate, keeps the modification
 graph node and search-index entry held, validates, and reads in both libraries. Pre-images and records
 are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-value-spellings/`, and the owner sheets for what no
 rule settles are in its `sheets/` folder.
+
+The same day `empty-import-placeholders` emptied 11,440 such names in the 404 instances one November
+2021 import wrote, under the same checks. All 404 kept their modification dates and now validate; the
+records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-import-placeholders/`.
 
 ## Validating Every Stored Artifact with the Library
 

@@ -65,12 +65,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repair", required=True, help="the chain, comma separated, in the order it runs")
     parser.add_argument("--date-orders", help="the --date-orders table write-date-as-iso reads")
     parser.add_argument("--terms", help="the --terms table settle-instance-term-label reads")
+    parser.add_argument("--placeholder-templates", help="the --placeholder-templates list empty-import-placeholders reads")
     parser.add_argument("--java-classpath", required=True)
     parser.add_argument("--ts-library", required=True)
     parser.add_argument("--out", required=True, help="output directory")
     arguments = parser.parse_args(argv)
 
-    for supplied, into in ((arguments.date_orders, repair.DATE_ORDERS), (arguments.terms, repair.TERMS)):
+    for supplied, into in ((arguments.date_orders, repair.DATE_ORDERS), (arguments.terms, repair.TERMS),
+                           (arguments.placeholder_templates, repair.PLACEHOLDER_TEMPLATES)):
         if supplied:
             into.update(json.loads(Path(supplied).read_text()))
     chain = [repair.REPAIRS[name] for name in arguments.repair.split(",")]

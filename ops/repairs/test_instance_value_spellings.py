@@ -220,6 +220,48 @@ class StampDemandedTypeTest(unittest.TestCase):
         self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
 
 
+class EmptyImportPlaceholdersTest(unittest.TestCase):
+    PLACEHOLDER = "data_attributes_relatedIdentifiers_0_resourceTypeGeneral"
+
+    def tearDown(self):
+        r.PLACEHOLDER_TEMPLATES.clear()
+
+    def test_every_placeholder_in_a_listed_template_becomes_its_field_empty_value(self):
+        r.PLACEHOLDER_TEMPLATES.add(TEMPLATE_ID)
+        before = instance(Note={"@value": "data_attributes_creators_0_nameType"}, Term={"rdfs:label": self.PLACEHOLDER},
+                          Page={"@id": "data_attributes_url"}, Weight={"@value": "data_attributes_size", "@type": "xsd:decimal"},
+                          Sample={"Taken": {"@value": "2019-04-03", "@type": "xsd:date"}})
+        after, changes = r.empty_import_placeholders(before, template())
+        self.assertEqual(after["Note"], {"@value": None})
+        self.assertEqual(after["Term"], {})
+        self.assertEqual(after["Page"], {})
+        self.assertEqual(after["Weight"], {"@value": None, "@type": "xsd:decimal"})
+        self.assertEqual(after["Sample"], before["Sample"])
+        self.assertEqual(sorted(c["path"] for c in changes), ["/Note/@value", "/Page/@id", "/Term/rdfs:label", "/Weight/@value"])
+        self.assertIsNone(r.only_emptied_import_placeholders(before, after, template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+        self.assertEqual(r.empty_import_placeholders(after, template()), (after, []))
+
+    def test_an_unlisted_template_and_text_that_only_resembles_a_placeholder_are_left(self):
+        before = instance(Note={"@value": "data_attributes_creators_0_nameType"})
+        self.assertEqual(r.empty_import_placeholders(before, template()), (before, []))
+        r.PLACEHOLDER_TEMPLATES.add(TEMPLATE_ID)
+        resembling = instance(Note={"@value": "see data_attributes_x"}, Term={"@id": "http://example.org/t", "rdfs:label": "data_attributes"})
+        self.assertEqual(r.empty_import_placeholders(resembling, template()), (resembling, []))
+
+    def test_invariant_refuses_any_other_difference(self):
+        r.PLACEHOLDER_TEMPLATES.add(TEMPLATE_ID)
+        before = instance(Note={"@value": "data_attributes_x"}, Count={"@value": "3", "@type": "xsd:int"})
+        after, _ = r.empty_import_placeholders(before, template())
+        for pointer, mutate in (("/pav:lastUpdatedOn", lambda x: x.update(**{"pav:lastUpdatedOn": "2026-10-24T00:00:00Z"})),
+                                ("/Count/@value", lambda x: x["Count"].update(**{"@value": None})),
+                                ("/Note/@value", lambda x: x["Note"].pop("@value"))):
+            with self.subTest(pointer=pointer):
+                changed = copy.deepcopy(after)
+                mutate(changed)
+                self.assertEqual(r.only_emptied_import_placeholders(before, changed, template()), pointer)
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]
