@@ -629,10 +629,11 @@ The controls wait on the backend meaning of both actions, which item 7 settles.
    `sourceSystem` onto what is already stored.** One item because they are one change seen from two
    ends — what a constraint should carry, and what the constraints already written carry.
 
-   *The code half.* The YAML no longer authors `sourceUri` and reconstructs it from the acronym; its
-   "non-derivable" premise was overturned, since every ontology URL is BioPortal with the acronym as
-   its path. What remains is the model marking `uri` required and the JSON Schema still carrying it.
-   Retiring it needs the model field made optional — or the JSON side deriving it too — and the
+   *The code half.* YAML names a BioPortal ontology by its acronym and states `sourceUri` only for an
+   address outside BioPortal. Not every stored address is derivable. Two production templates address
+   an ontology by its OBO PURL, which no acronym gives. What remains is the model marking `uri`
+   required and the JSON Schema still carrying it. Retiring it needs those addresses given a home of
+   their own or repaired, the model field made optional or the JSON side deriving it too, and the
    editor to stop writing it.
 
    *The data half.* A migration over published templates rather than a code change, and not required

@@ -1494,13 +1494,17 @@ with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
 model. JSON and both full and compact YAML match over all 84 corpus artifacts.
-Template 029 uses the canonical ontology service URI
-`https://data.bioontology.org/ontologies/MESH`, which both YAML readers reconstruct
-from the MESH acronym. Both YAML writers omit an ontology's service URI; both readers derive
-`https://data.bioontology.org/ontologies/{ACRONYM}`, even if the input YAML carries
-an explicit legacy `sourceUri`. This also applies to noncanonical service addresses
-and entries naming another `sourceSystem`. JSON retains the supplied service URI;
-YAML preserves `sourceIri` as the separate canonical ontology identity.
+Both YAML writers name a BioPortal ontology by its acronym and leave its service address out, and
+both readers derive `https://data.bioontology.org/ontologies/{ACRONYM}` for an entry that states
+none. A stored BioPortal address may take another form, over `http://` or at
+`bioportal.bioontology.org`. It comes back through YAML as the derived address, and the comparison
+of JSON written directly and through YAML counts that as its `ontologyAddress` family. The CEE
+suite's templates 021, 042, 043, 045 and 071 show it. An address outside BioPortal, such as an
+OBO PURL under `purl.obolibrary.org`, is written as `sourceUri` and read back unchanged, and so is
+a BioPortal address that names another acronym. Two production templates store an OBO PURL.
+Template 029 stores the derived MESH address, so its YAML carries no `sourceUri`. JSON carries the
+stored address unchanged. YAML keeps `sourceIri`, the ontology's canonical identity, as a separate
+key.
 The parity gate permits no current differences and also verifies that the committed
 TypeScript fixtures match freshly generated output.
 
