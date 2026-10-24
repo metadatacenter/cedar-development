@@ -5179,6 +5179,20 @@ The same day `empty-import-placeholders` emptied 11,440 such names in the 404 in
 2021 import wrote, under the same checks. All 404 kept their modification dates and now validate; the
 records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-import-placeholders/`.
 
+The 91 held instances were then written with `--replace-graph-provenance` on the user's decision. In
+each, the graph's date moved back exactly one second to the document's, and the tool recorded the date
+it replaced. A second snapshot taken that afternoon counts 1,527 invalid instances against the
+morning's 2,681: exactly the morning's set without the 1,154 repaired, none of which still fails.
+
+Of what remained, 33 instances break their template's JSON Schema in ways CEE's own validator does not
+check, mostly an `@context` that maps names the template does not declare or lacks ones it requires.
+CEE shows no problem with them, and a save from CEE writes only 7 of them in a valid form, so the server
+would refuse the rest. The existing `drop-unused-instance-context`, `complete-instance-context` and
+`complete-instance` repairs finished 14, with every value outside `@context` and every modification
+date unchanged; records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-context-repairs/`. Three
+more were held: two whose graph provenance differs from the document's, and one that needs
+`align-instance-context-iris`, which changes a property IRI and so what the data means.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
