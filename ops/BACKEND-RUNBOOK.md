@@ -5230,8 +5230,13 @@ Before either was written, every instance of the eight templates was checked aga
 new template; none was valid before, so none could be broken. All eight kept their modification dates.
 Their instances were then repaired: eight finished and were written, and four were held because their
 documents name the modifier in the legacy `repo.metadatacenter.net/users/` form. The same two template
-defects remain in templates nobody asked about: 806 choice fields across the corpus still type their
-value as a list, and 134 `@context` requirements in draft templates name no child.
+defects remained in templates nobody had asked about, and the user then asked for those too. The two
+rules, run over every template and element in the snapshot, changed 506. Every one validated and read
+in both libraries afterwards and none read worse than before. No instance of the 320 templates among
+them went from valid to invalid: 48 were valid against both versions and 83 invalid against both. 465
+were written with their modification dates unchanged; 41 were held, every one because its document
+names the modifier in the legacy `repo.metadatacenter.net/users/` form. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-24-legacy-templates/`.
 
 ## Validating Every Stored Artifact with the Library
 
