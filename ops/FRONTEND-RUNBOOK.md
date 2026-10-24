@@ -716,6 +716,13 @@ its domain/unit tiers two workers each when the budget permits, and fixture
 opening waits for finite animations instead of an unconditional 300 ms delay.
 No screenshot tolerance, baseline, browser project or integration input is removed.
 
+The designer's complete gate enables its WebKit interaction project alongside Chromium;
+both engines are installed by the shared recipe. Workspace builds before running its
+whole browser suite (including WebKit and visual baselines) in the pinned container.
+OpenView builds before its hermetic Chromium surface checks. These checks run in the
+reactor and train as well as each application's CI. CED, CETP and Workspace use the
+same 0.02 per-pixel colour threshold as CEE, with zero differing pixels allowed.
+
 The CLI passes the worker budget into Angular builds and the component browser suites.
 CEE's Vitest suites also honor it. The component gates pass `VITEST_MAX_WORKERS`
 explicitly into Angular's Vitest runner as well as bounding Angular build workers.
@@ -2150,7 +2157,10 @@ npm run test:unit:ci
 This is the headless, single-run form included in `npm run test:ci`. The root
 `npm test` runs the same specs through Vitest, and `test:watch` is the
 interactive form. It enforces the focused artifact/config/wrapper thresholds named
-under domain coverage above. The unit layer is small; do not treat it as a substitute
+under domain coverage above, plus the input-widget floors, per source file. A widget
+with no covered code fails even when other widgets keep the pooled total high.
+The coverage-policy tests exercise that refusal through the installed provider.
+The unit layer is small; do not treat it as a substitute
 for the domain and browser stages.
 
 The coordination layer has a separate Angular-aware tier:

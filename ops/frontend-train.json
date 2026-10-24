@@ -640,6 +640,16 @@
         [
           "npm",
           "test"
+        ],
+        [
+          "npm",
+          "run",
+          "build"
+        ],
+        [
+          "npm",
+          "run",
+          "test:visual"
         ]
       ],
       "setup": [
@@ -718,12 +728,35 @@
           "test",
           "--",
           "--watch=false"
+        ],
+        [
+          "npm",
+          "run",
+          "build"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "../browser",
+          "test"
         ]
       ],
       "setup": [
         [
           "npm",
           "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "../browser",
+          "ci"
+        ],
+        [
+          "../browser/node_modules/.bin/playwright",
+          "install",
+          "--with-deps",
+          "chromium"
         ]
       ],
       "packageDirectories": [
@@ -1093,7 +1126,8 @@
           "./browser/node_modules/.bin/playwright",
           "install",
           "--with-deps",
-          "chromium"
+          "chromium",
+          "webkit"
         ]
       ],
       "verify": [
