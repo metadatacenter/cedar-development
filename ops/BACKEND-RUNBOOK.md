@@ -3870,14 +3870,21 @@ embedded one cannot. It authenticates through Keycloak's password grant using th
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
 `contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
-`inclusion`, `negotiation`, `openness`, `pagination`, `search`, `sharing`, `validation` and
+`inclusion`, `negotiation`, `openness`, `pagination`, `pull-versions`, `search`, `sharing`, `validation` and
 `versioning`. The committed
-`rest/expected-checks.json` inventory holds 2,106 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory records exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
-them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
-artifact kinds.
+them. Only HTTP 404 from version discovery permits that skip; authentication errors, server errors
+and malformed successful replies fail. Cleanup verifies HTTP 404 after deletion; an unsuccessful
+read is not evidence of absence. `download` includes JSON / YAML / compact-YAML export and
+read-negotiation across all four artifact kinds.
+
+`npm run test:rest-harness` runs every `rest/*.test.mjs` file without a running stack. Release tooling
+CI runs that same command after installing its dependencies and checking out the twelve servers'
+committed OpenAPI schemas. It covers error and success contracts, runner safeguards, freeze
+capability checks, cleanup and scheduling.
 
 `pagination` checks fractional, overflowing and nonnumeric paging values, invalid sort and typed
 filter values, and the shared error envelope on those refusals. Empty optional string filters are
@@ -3976,10 +3983,13 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
-`search-smoke-<digest>-<uuid>.json`. Search evidence has a unique path per attempt so a refused or
-killed run cannot inherit a previous pass. The gate checks every planned search cell against the
-actual checks, requires all five families (content, access, paging, lifecycle and browser), and fails
+`rest-smoke-<digest>-<uuid>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
+`search-smoke-<digest>-<uuid>.json`. REST and search evidence have unique paths per attempt so a
+refused or killed run cannot inherit a previous pass. The REST gate independently compares every
+check with the committed inventory and requires all suites, consistent counts, completed timestamps
+and a passing verdict, even when the process exits zero. Records without validated REST evidence
+require a fresh run. The search gate checks every planned cell against the actual checks, requires
+all six families (content, access, paging, protocol, lifecycle and browser), and fails
 on missing, duplicate, skipped or failing cells, incomplete execution, browser errors or cleanup
 errors even if the process exits zero. Older three-tier records cannot satisfy the gate. The split tier's
 report says how long each lane and each process took and how it exited, how long each step of the
@@ -4115,8 +4125,6 @@ that ran no tests. The floor uses the module's own figure, not the any-test one,
 by another repository's suites. To raise a floor after adding tests, set the property to the new
 figure less two points. Lowering one is a decision to accept less coverage, and the commit should say
 why.
-
-`cedar-monitor-server`'s CI stops at `test`, so its floor is checked by local builds and not by CI.
 
 ### REST Performance Testing
 
@@ -4628,8 +4636,8 @@ pull request to `develop` and on manual dispatch. The workflow is the same every
 temurin, a cache of the Maven repository, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME`
 and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the Surefire
 and JaCoCo reports uploaded whatever the outcome, as the `surefire-reports` and `coverage-reports`
-artifacts. `cedar-monitor-server` runs `test` rather than `verify`, so it names `jacoco:report` on
-its command line. [Code Coverage](#code-coverage) describes the reports. The search-library and
+artifacts. [Code Coverage](#code-coverage) describes the reports and the floors enforced at
+`verify`, including Monitor. The search-library and
 resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and an
 OpenSearch service; other component workflows remain backend-free.
 Jobs carry a hard timeout: twenty minutes for a component, thirty for those two OpenSearch jobs,

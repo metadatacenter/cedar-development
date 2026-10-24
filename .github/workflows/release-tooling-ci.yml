@@ -63,6 +63,112 @@ jobs:
         with:
           node-version: 24.22.0
 
+      # REST contracts are checked against each service's committed OpenAPI, as on a workstation.
+      # Sparse checkouts supply the schemas without building or starting the services.
+      - name: Check out resource REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-resource-server
+          ref: develop
+          path: cedar-resource-server
+          sparse-checkout: cedar-resource-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out artifact REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-artifact-server
+          ref: develop
+          path: cedar-artifact-server
+          sparse-checkout: cedar-artifact-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out repo REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-repo-server
+          ref: develop
+          path: cedar-repo-server
+          sparse-checkout: cedar-repo-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out terminology REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-terminology-server
+          ref: develop
+          path: cedar-terminology-server
+          sparse-checkout: cedar-terminology-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out user REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-user-server
+          ref: develop
+          path: cedar-user-server
+          sparse-checkout: cedar-user-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out impex REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-impex-server
+          ref: develop
+          path: cedar-impex-server
+          sparse-checkout: cedar-impex-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out group REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-group-server
+          ref: develop
+          path: cedar-group-server
+          sparse-checkout: cedar-group-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out worker REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-worker-server
+          ref: develop
+          path: cedar-worker-server
+          sparse-checkout: cedar-worker-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out messaging REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-messaging-server
+          ref: develop
+          path: cedar-messaging-server
+          sparse-checkout: cedar-messaging-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out openview REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-openview-server
+          ref: develop
+          path: cedar-openview-server
+          sparse-checkout: cedar-openview-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out monitor REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-monitor-server
+          ref: develop
+          path: cedar-monitor-server
+          sparse-checkout: cedar-monitor-server-application/src/main/resources/assets/swagger-api
+
+      - name: Check out bridge REST contracts
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-bridge-server
+          ref: develop
+          path: cedar-bridge-server
+          sparse-checkout: cedar-bridge-server-application/src/main/resources/assets/swagger-api
+
+      - name: Install REST harness dependencies
+        working-directory: cedar-development/ops/e2e
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Check every REST harness test without a stack
+        working-directory: cedar-development/ops/e2e
+        run: npm run test:rest-harness
+
       - name: Check the search matrix harness without a stack
         working-directory: cedar-development/ops/e2e
         run: npm run test:search-harness
@@ -71,11 +177,11 @@ jobs:
         working-directory: cedar-development/ops/e2e
         run: npm run test:journey-runner
 
-      # Ops utilities, REST scheduling and performance harness logic use built-ins, temporary
+      # Ops utilities and performance harness logic use built-ins, temporary
       # trees and stubbed requests; no npm packages, running stack or sibling servers are needed.
-      - name: Run the Node ops, REST scheduler and performance harness suites
+      - name: Run the Node ops and performance harness suites
         working-directory: cedar-development
-        run: node --test ops/test-*.mjs ops/e2e/rest/scheduler.test.mjs ops/e2e/rest-perf/test/*.test.mjs
+        run: node --test ops/test-*.mjs ops/e2e/rest-perf/test/*.test.mjs
 
       # Python suites under ops/, ops/tests and ops/repairs. They mock publication and service
       # operations, stand in for the deployment and the library bridges, and never start a CEDAR
