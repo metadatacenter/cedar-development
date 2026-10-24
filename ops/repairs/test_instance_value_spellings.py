@@ -262,6 +262,70 @@ class EmptyImportPlaceholdersTest(unittest.TestCase):
                 self.assertEqual(r.only_emptied_import_placeholders(before, changed, template()), pointer)
 
 
+def legacy_template():
+    """A template shaped as 2017 wrote them: a choice typed as a list, a label every value must carry."""
+    choice = field("radio", ("@value",))
+    choice["properties"]["@value"] = {"type": ["array", "null"]}
+    labelled = field("textfield", ("@value", "rdfs:label"))
+    labelled["properties"]["rdfs:label"] = {"type": ["string", "null"]}
+    inner = {"@type": r.ELEMENT_AT_TYPE, "type": "object", "properties": {"Kept": field("textfield")}}
+    return {"@id": TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+        "Choice": choice, "Labelled": labelled, "Term": field("textfield", (), IRI_PROPERTIES, classes=[{"uri": "http://x/c"}]),
+        "Block": inner, "@type": {"oneOf": [{"type": "string"}, {"type": "array"}]}}}
+
+
+class LegacyShapeTest(unittest.TestCase):
+    def test_a_required_nullable_label_is_stated_as_null(self):
+        before = instance(Labelled={"@value": "x"}, Choice={"@value": None})
+        after, changes = r.complete_required_label(before, legacy_template())
+        self.assertEqual(after["Labelled"], {"@value": "x", "rdfs:label": None})
+        self.assertNotIn("rdfs:label", after["Choice"])
+        self.assertEqual(changes, [{"path": "/Labelled/rdfs:label", "replaced": None, "wrote": None}])
+        self.assertIsNone(r.only_completed_required_labels(before, after, legacy_template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+
+    def test_a_null_iri_goes_and_the_class_beside_it_stays(self):
+        before = instance(Term={"@id": None, "@type": "http://x/c"}, Labelled={"@value": None, "rdfs:label": None})
+        after, changes = r.drop_null_iri(before, legacy_template())
+        self.assertEqual(after["Term"], {"@type": "http://x/c"})
+        self.assertEqual(after["Labelled"], before["Labelled"])
+        self.assertIsNone(r.only_dropped_null_iris(before, after, legacy_template()))
+        kept = instance(Term={"@id": "http://x/t", "@type": "http://x/c"})
+        self.assertEqual(r.drop_null_iri(kept, legacy_template()), (kept, []))
+
+    def test_a_null_root_type_is_removed_and_a_stated_one_is_kept(self):
+        before = instance(**{"@type": None})
+        after, changes = r.drop_null_instance_type(before)
+        self.assertNotIn("@type", after)
+        self.assertIsNone(r.only_dropped_null_instance_type(before, after))
+        typed = instance(**{"@type": "http://x/class"})
+        self.assertEqual(r.drop_null_instance_type(typed), (typed, []))
+
+    def test_unfilled_undeclared_keys_go_at_every_depth_and_entered_ones_stay(self):
+        minted = "https://repo.metadatacenter.org/template-element-instances/0b5c2a54-8b7e-4c55-9f3e-3c2a1e0f9d11"
+        before = instance(**{
+            "@context": {"Old": "http://x/old", "Choice": "http://x/choice"},
+            "Old": {"@value": None},
+            "Kept old": {"@value": "someone typed this"},
+            "Block": {"@id": minted, "@context": {"Gone": "http://x/gone", "Kept": "http://x/kept"},
+                      "Kept": {"@value": "k"},
+                      "Gone": [{"@id": minted, "@context": {}, "Inner": {"@value": None, "@type": "xsd:string"}}]},
+        })
+        after, changes = r.drop_unfilled_undeclared_keys(before, legacy_template())
+        self.assertNotIn("Old", after)
+        self.assertNotIn("Old", after["@context"])
+        self.assertEqual(after["Kept old"], before["Kept old"])
+        self.assertNotIn("Gone", after["Block"])
+        self.assertEqual(after["Block"]["@context"], {"Kept": "http://x/kept"})
+        self.assertEqual(after["Block"]["Kept"], {"@value": "k"})
+        self.assertIsNone(r.only_dropped_unfilled_undeclared_keys(before, after, legacy_template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+        changed = copy.deepcopy(after); del changed["Kept old"]
+        self.assertEqual(r.only_dropped_unfilled_undeclared_keys(before, changed, legacy_template()), "/Kept old")
+        changed = copy.deepcopy(after); del changed["@context"]["Choice"]
+        self.assertEqual(r.only_dropped_unfilled_undeclared_keys(before, changed, legacy_template()), "/@context/Choice")
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]

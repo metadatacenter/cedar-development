@@ -5196,6 +5196,20 @@ the data means, and runs only with `--allow-context-migration`. One was left alo
 names its modifier in the legacy `repo.metadatacenter.net/users/` form, which a verbatim write would
 copy into the graph.
 
+The 34 instances left after that, 18 that CEE cannot open and 16 it does not flag, mostly follow an
+earlier version of their template. Four narrow repairs were added for the shapes that have one answer.
+`complete-required-label` states a null `rdfs:label` where a field requires the key and admits null.
+`drop-null-iri` takes a null or empty `@id` out of an IRI field's value and keeps the class beside it.
+`drop-null-instance-type` removes a root `@type` stated as null. `drop-unfilled-undeclared-keys` removes,
+at every depth, a key its container does not declare that holds nothing anyone entered, together with
+its mapping. With the existing repairs they finished 4 of the 34: 3 were written, and one is held for
+a one-second date gap. A rule wrapping a single choice in the list a 2017 template's schema declares
+was tried and dropped, because its result validates but the Java reader refuses a list there; that
+template's schema is what needs repairing. The other 30 need owners: values under keys the template no
+longer declares, more than one class as a value's type, annotation blocks carrying an identifier, and
+property IRIs the template has since changed. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-24-legacy-shapes/`.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only

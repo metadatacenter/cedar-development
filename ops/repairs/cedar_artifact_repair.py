@@ -6324,6 +6324,202 @@ def only_emptied_import_placeholders(before: Any, after: Any, template: Any) -> 
     return None
 
 
+def label_required_and_nullable(definition: Any) -> bool:
+    if not isinstance(definition, dict):
+        return False
+    required = definition.get("required")
+    declared = (definition.get("properties") or {}).get("rdfs:label")
+    kinds = declared.get("type") if isinstance(declared, dict) else None
+    kinds = [kinds] if isinstance(kinds, str) else kinds
+    return isinstance(required, list) and "rdfs:label" in required and isinstance(kinds, list) and "null" in kinds
+
+
+def complete_required_label(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """State ``"rdfs:label": null`` in a literal value whose field requires the key and admits null.
+
+    Some fields list ``rdfs:label`` among the keys every value must carry, and admit null for it. A
+    value written without the key says it has no label; null is how the field asks for that to be
+    said, so stating it changes nothing the value claims.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or "rdfs:label" in value or not label_required_and_nullable(definition):
+            return value
+        settled = dict(value)
+        settled["rdfs:label"] = None
+        changes.append({"path": f"{path}/rdfs:label", "replaced": None, "wrote": None})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_completed_required_labels(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change adds a null label a field requires and admits."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/rdfs:label") or was is not ABSENT or now is not None:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not label_required_and_nullable(definition):
+            return path
+    return None
+
+
+def drop_null_iri(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take a null or empty ``@id`` out of a value in a field that holds an IRI.
+
+    ``@id: null`` is not JSON-LD, and an IRI field is empty when its value states no ``@id`` at all.
+    ``settle-instance-empty-shape`` settles a value holding nothing else; this repair also reaches one
+    that carries a class beside it as ``@type``, which stays exactly as it is.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or "@id" not in value \
+                or value["@id"] not in (None, ""):
+            return value
+        settled = {key: inner for key, inner in value.items() if key != "@id"}
+        changes.append({"path": f"{path}/@id", "replaced": value["@id"], "wrote": None})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_null_iris(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes a null or empty ``@id`` from an IRI field's value."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or was not in (None, "") or now is not ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if definition is None or is_element(definition) or holds_a_literal(definition):
+            return path
+    return None
+
+
+def drop_null_instance_type(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove an instance's root ``@type`` stated as null, which says no type and is not JSON-LD."""
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    if "@type" not in instance or instance["@type"] is not None:
+        return copy.deepcopy(instance), []
+    result = {key: value for key, value in copy.deepcopy(instance).items() if key != "@type"}
+    return result, [{"path": "/@type", "replaced": None, "wrote": None}]
+
+
+def only_dropped_null_instance_type(before: Any, after: Any) -> Optional[str]:
+    for path, was, now in differences(before, after):
+        if path != "/@type" or was is not None or now is not ABSENT:
+            return path or "/"
+    return None
+
+
+# An identifier CEDAR mints for an element occurrence when an instance is saved, which says nothing
+# anyone entered.
+MINTED_OCCURRENCE = re.compile(r"https?://repo\.metadatacenter\.(?:org|net)/template-element-instances/[^/\s]+")
+
+
+def holds_nothing_entered(value: Any) -> bool:
+    """Whether a value holds nothing a person entered: only empty values, types, mappings and minted ids."""
+    if value is None or value == "" or value == [] or value == {}:
+        return True
+    if isinstance(value, list):
+        return all(holds_nothing_entered(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    for key, inner in value.items():
+        if key in ("@context", "@type"):
+            continue
+        if key == "@id":
+            if inner in (None, "") or (isinstance(inner, str) and MINTED_OCCURRENCE.fullmatch(inner)):
+                continue
+            return False
+        if not holds_nothing_entered(inner):
+            return False
+    return True
+
+
+def drop_unfilled_undeclared_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove, at every depth, a key its container does not declare and that holds nothing entered.
+
+    ``drop-empty-undeclared-instance-keys`` reaches only the top level, and only a value that is
+    explicitly empty. An instance written against an earlier version of its template also keeps the
+    children the template has since dropped inside its elements, often as whole element occurrences
+    whose only content is the identifier CEDAR minted and empty fields. Such a key, and the mapping
+    its container's ``@context`` holds for it, is removed; a key holding anything a person entered is
+    left for an owner.
+    """
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes: list[dict[str, Any]] = []
+
+    def visit(node: Any, container: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [visit(item, container, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict) or not isinstance(container, dict):
+            return node
+        result = copy.deepcopy(node)
+        children = {name: child for name, child, _multiple in container_children(container)}
+        declared = set((container.get("properties") or {}))
+        referenced = {name for value in node.values() if isinstance(value, list)
+                      for name in value if isinstance(name, str)}
+        for key, value in node.items():
+            if key in children:
+                if is_element(children[key]):
+                    result[key] = visit(value, children[key], f"{path}/{rest.json_pointer_component(key)}")
+                continue
+            if key in declared or key in referenced or key.startswith("@") or ":" in key \
+                    or key in RESERVED_INSTANCE_KEYS or not holds_nothing_entered(value):
+                continue
+            del result[key]
+            changes.append({"path": f"{path}/{rest.json_pointer_component(key)}", "replaced": value, "wrote": None})
+            context = result.get("@context")
+            if isinstance(context, dict) and key in context:
+                changes.append({"path": f"{path}/@context/{rest.json_pointer_component(key)}",
+                                "replaced": context[key], "wrote": None})
+                del context[key]
+        return result
+
+    return visit(instance, template, ""), changes
+
+
+def only_dropped_unfilled_undeclared_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes an undeclared, unfilled key or its own context mapping."""
+    if not isinstance(template, dict):
+        return "/"
+    removed: set[str] = set()
+    for path, was, now in differences(before, after):
+        if now is not ABSENT:
+            return path or "/"
+        head, _sep, key = path.rpartition("/")
+        if head.endswith("/@context") or head == "/@context":
+            continue
+        container_path = head
+        container = declaration_at(template, container_path) if container_path else template
+        if not isinstance(container, dict) or key.replace("~1", "/").replace("~0", "~") in (container.get("properties") or {}):
+            return path
+        if not holds_nothing_entered(was):
+            return path
+        removed.add(path)
+    for path, was, now in differences(before, after):
+        head, _sep, key = path.rpartition("/")
+        if (head.endswith("/@context") or head == "/@context") and \
+                f"{head[:-len('/@context')]}/{key}" not in removed:
+            return path
+    return None
+
+
 def declaration_for_value(template: Any, pointer: str) -> tuple[Optional[dict], str]:
     """The declaration governing an instance value, and the pointer to the value itself.
 
@@ -8431,6 +8627,37 @@ REPAIRS = {
         invariant=only_stamped_value_types,
         needs_template=True,
         error_pattern=MISSING_CHILD_ERROR,
+    ),
+    "complete-required-label": Repair(
+        name="complete-required-label",
+        condition="",
+        summary='state "rdfs:label": null where a field requires the key and admits null',
+        transform=complete_required_label,
+        invariant=only_completed_required_labels,
+        needs_template=True,
+    ),
+    "drop-null-iri": Repair(
+        name="drop-null-iri",
+        condition="",
+        summary="take a null or empty @id out of an IRI field's value, keeping anything beside it",
+        transform=drop_null_iri,
+        invariant=only_dropped_null_iris,
+        needs_template=True,
+    ),
+    "drop-null-instance-type": Repair(
+        name="drop-null-instance-type",
+        condition="",
+        summary="remove an instance's root @type stated as null",
+        transform=drop_null_instance_type,
+        invariant=only_dropped_null_instance_type,
+    ),
+    "drop-unfilled-undeclared-keys": Repair(
+        name="drop-unfilled-undeclared-keys",
+        condition="",
+        summary="remove, at every depth, an undeclared key that holds nothing entered, with its mapping",
+        transform=drop_unfilled_undeclared_keys,
+        invariant=only_dropped_unfilled_undeclared_keys,
+        needs_template=True,
     ),
     "empty-import-placeholders": Repair(
         name="empty-import-placeholders",
