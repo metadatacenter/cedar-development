@@ -6645,6 +6645,50 @@ def only_restated_modifier(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+USER_KEYS = ("pav:createdBy", "oslc:modifiedBy")
+
+
+def restate_user_iris_in_current_form(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write every legacy creator and modifier IRI in a document in the current user-IRI form.
+
+    The document's own ``pav:createdBy`` and ``oslc:modifiedBy`` are reached, and so are those of every
+    element and field a template or element embeds. Each becomes the ``https://metadatacenter.org/users/``
+    IRI of the same user. A verbatim write copies only the document's own modifier into the graph,
+    and the repair tool holds any write that would change what the graph records, so a graph still
+    holding the legacy form is written only with ``--replace-graph-provenance``.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for key, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            current = current_form_of(value) if key in USER_KEYS else None
+            if current is not None:
+                result[key] = current
+                changes.append({"path": here, "replaced": value, "wrote": current})
+            else:
+                result[key] = walk(value, here)
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_restated_user_iris(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a creator or modifier IRI written in its current form."""
+    for path, was, now in differences(before, after):
+        key = path.rsplit("/", 1)[-1]
+        if key not in USER_KEYS or now is None or now != current_form_of(was):
+            return path or "/"
+    return None
+
+
 def declaration_for_value(template: Any, pointer: str) -> tuple[Optional[dict], str]:
     """The declaration governing an instance value, and the pointer to the value itself.
 
@@ -8783,6 +8827,13 @@ REPAIRS = {
         summary="type a legacy choice field's @value as the text or null the model reads",
         transform=type_choice_value_as_text,
         invariant=only_typed_choice_values_as_text,
+    ),
+    "restate-user-iris-in-current-form": Repair(
+        name="restate-user-iris-in-current-form",
+        condition="",
+        summary="write every legacy .net creator and modifier IRI, at every depth, in the current form",
+        transform=restate_user_iris_in_current_form,
+        invariant=only_restated_user_iris,
     ),
     "restate-modifier-in-current-form": Repair(
         name="restate-modifier-in-current-form",

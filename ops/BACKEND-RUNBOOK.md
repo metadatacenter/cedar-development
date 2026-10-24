@@ -5245,9 +5245,17 @@ only the modifier and the modification date from the document into the graph, ne
 `--modifier-forms`. The graph check now compares the graph with the document about to be written
 rather than the stored one, so such an artifact agrees and is written. All 46 held artifacts, 5
 instances and 41 templates and elements, were repaired with their dates, creators and graph modifiers
-unchanged. Across the snapshot the legacy form still appears in 346 documents' `oslc:modifiedBy` and
-428 documents' `pav:createdBy`; the documents can be restated the same way, but a creator held in the
-legacy form by the graph itself is out of a verbatim write's reach.
+unchanged.
+
+The user then asked for every remaining legacy user IRI to be restated. `restate-user-iris-in-current-form`
+writes each `pav:createdBy` and `oslc:modifiedBy` in the current form, at the document's root and in
+every element and field it embeds. 495 artifacts held 10,672 of them, naming 62 users, every one of
+whom the graph already knew in the current form. No production script was needed: every graph node
+already held its creator in the current form, and the 35 that held a legacy modifier took the current
+one from the write, through `--replace-graph-provenance`, with their dates equal before and after. 441
+artifacts were written with their document, graph and search-index dates unchanged. The other 54 are
+instances that are invalid for other reasons, which the tool does not write; their legacy IRIs go with
+whatever repair makes them valid. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-user-iris/`.
 
 ## Validating Every Stored Artifact with the Library
 

@@ -411,6 +411,33 @@ class RestateModifierTest(unittest.TestCase):
         self.assertEqual(r.only_restated_modifier(before, changed), "/pav:createdBy")
 
 
+class RestateUserIrisTest(unittest.TestCase):
+    LEGACY = "https://repo.metadatacenter.net/users/u1"
+    CURRENT = "https://metadatacenter.org/users/u1"
+
+    def test_creators_and_modifiers_at_every_depth_take_the_current_form(self):
+        before = {"@id": "urn:t", "pav:createdBy": self.LEGACY, "oslc:modifiedBy": "https://metadatacenter.org/users/u2",
+                  "pav:lastUpdatedOn": "2017-01-01T00:00:00Z",
+                  "properties": {"Block": {"pav:createdBy": self.LEGACY, "oslc:modifiedBy": self.LEGACY,
+                                           "items": [{"pav:createdBy": self.LEGACY}]},
+                                 "Note": {"description": self.LEGACY}}}
+        after, changes = r.restate_user_iris_in_current_form(before)
+        self.assertEqual(after["pav:createdBy"], self.CURRENT)
+        self.assertEqual(after["oslc:modifiedBy"], "https://metadatacenter.org/users/u2")
+        self.assertEqual(after["properties"]["Block"]["oslc:modifiedBy"], self.CURRENT)
+        self.assertEqual(after["properties"]["Block"]["items"][0]["pav:createdBy"], self.CURRENT)
+        self.assertEqual(after["properties"]["Note"], before["properties"]["Note"])
+        self.assertEqual(after["pav:lastUpdatedOn"], before["pav:lastUpdatedOn"])
+        self.assertEqual(len(changes), 4)
+        self.assertIsNone(r.only_restated_user_iris(before, after))
+        self.assertEqual(r.restate_user_iris_in_current_form(after), (after, []))
+
+    def test_invariant_refuses_another_user_or_another_key(self):
+        before = {"pav:createdBy": self.LEGACY, "rdfs:label": self.LEGACY}
+        self.assertEqual(r.only_restated_user_iris(before, dict(before, **{"pav:createdBy": "https://metadatacenter.org/users/u9"})), "/pav:createdBy")
+        self.assertEqual(r.only_restated_user_iris(before, dict(before, **{"rdfs:label": self.CURRENT})), "/rdfs:label")
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]
