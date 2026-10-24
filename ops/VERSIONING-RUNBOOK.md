@@ -874,6 +874,10 @@ what a name already means before reusing it.
 
 ## Releasing the Picker
 
+To build current picker sources into the local frontends, run `cedarcli build frontends`.
+The local SNAPSHOT workflow includes uncommitted changes and needs no publication, pin update
+or follow-up approval. The procedure here publishes registry dependencies for other installs.
+
 The picker publishes development packages to CEDAR Nexus as
 `@org.metadatacenter/cedar-embeddable-term-picker`; the split Designer consumes an exact npm alias.
 Run its gate, then use the CLI's declared `cetp` component to plan and apply publication:

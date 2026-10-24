@@ -9,6 +9,11 @@ For development and test gates, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#
 For the platform release that consumes a public
 CEE package, see [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
 
+Publication is not a prerequisite for a development frontend build. Use `cedarcli build frontends`
+for the complete local SNAPSHOT workflow or `cedarcli test frontends` for source checks. Both
+include uncommitted sources and resolve component packages automatically. The explicit versions,
+clean trees, commits and registry waits here apply only to the requested publication or release.
+
 ## Release Contract
 
 The model library and CEE have independent public versions. Do not infer one from the other and do

@@ -1046,7 +1046,7 @@
         [
           "npm",
           "run",
-          "test:ci"
+          "test:ci:prebuilt"
         ]
       ]
     },

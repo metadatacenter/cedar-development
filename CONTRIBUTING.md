@@ -58,6 +58,13 @@ its remote is reported as that, with `cedarcli git pull` as the fix, rather than
 
 ## Testing
 
+For development frontend work, `cedarcli build frontends` builds the current component sources,
+including uncommitted edits, supplies them to consumers, runs checks, redeploys and smokes the
+local stack. This is the normal Maven-like SNAPSHOT workflow. It needs no publication, manual
+pin update, commit, push or CI wait. `cedarcli test frontends` runs the source build and checks
+without deployment. Narrow development selectors also include required local producers;
+registry and old-artifact fallback are refused. Release and train procedures remain separate.
+
 Every server suite runs without a backend. `cedar-test-support-library` supplies an in-memory authorization
 service and embedded Neo4j, Mongo and MariaDB on random ports, and the suites bind their HTTP ports in the
 19xxx range — the development ports plus ten thousand — so a running development stack never collides with a
@@ -96,7 +103,7 @@ describes what those exercise.
 ## Continuous Integration
 
 GitHub Actions builds every Java repository on push and on pull request to `develop`, and a merge to
-`develop` publishes that repository's snapshot to Nexus. Downstream builds and the Docker images resolve
+`develop` publishes that repository's snapshot to Nexus. Downstream CI builds and the Docker images resolve
 CEDAR artifacts from Nexus rather than from a checkout, so an unpublished snapshot breaks a consumer that did
 not change.
 

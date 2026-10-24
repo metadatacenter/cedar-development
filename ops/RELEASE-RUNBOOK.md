@@ -5,6 +5,10 @@ Cut a CEDAR release from a completed [build train](BUILD-RUNBOOK.md). For deploy
 [BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md). The optional
 [release monitor](cedar-release-monitor.html) opens directly in a browser.
 
+These are release requirements. An ordinary development frontend build uses
+`cedarcli build frontends` with current-source SNAPSHOT packages, including uncommitted edits.
+It needs no release preparation, registry publication, pin update or additional authorization.
+
 > Replace `<VER>` and `<NEXT>` with the release version and the next development version, for
 > example `2.9.4` and `2.9.5-SNAPSHOT`.
 

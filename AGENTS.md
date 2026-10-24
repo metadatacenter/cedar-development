@@ -31,7 +31,7 @@ cedarcli check ci              # CI at every develop head a train would capture
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
 cedarcli build frontends       # full frontend reactor; `build --jobs 3 --workers 12 frontends` on the 16-core workstation; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
-cedarcli publish components    # publish each component's current source and advance the pins that follow it
+cedarcli publish components    # separate registry publication/pin update; never a local build prerequisite
 cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require; --rest-workers 4 on the 16-core workstation
 cedarcli test cee-demos        # force all three framework consumer gates; --cee-package <path> tests a staged CEE release candidate
 ```
@@ -290,12 +290,30 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
 
 ### Frontend reactor completion contract
 
+**Development frontend builds have Java/Maven-like SNAPSHOT semantics. No follow-up questions.**
+“Build the frontends” or “do a development frontend build” authorizes the complete local build,
+dependency resolution, required checks, redeployment and smoke. Handle routine build and dependency
+work within that request; do not ask for separate approval of its steps. Use `cedarcli build frontends`
+directly: it builds current working-tree sources, including uncommitted edits, and supplies the
+resulting packages to consumers automatically. Use `cedarcli test frontends` for the same source
+build and checks without deployment or whole-stack smoke. Do not route either request through
+`publish components`, ask the user to move pins, or wait for a commit, push, CI publication or
+release. Those are requirements of separate registry workflows. If local snapshot resolution
+fails, fix or report that concrete build failure; an old checked-in registry pin is not itself
+a blocker. Report the built source and artifact identity, not just the package's version label.
+Uncommitted edits are valid build inputs. Do not require a clean tree, commit or stash before a
+development build; preserve the edits and let the build guard detect inputs changing during the run.
+Narrow development selectors also build their required local producers. Earlier local references
+and registry packages cannot substitute for a producer in the current source build.
+Release/train capture and explicit server-payload builds retain their separate reproducibility
+requirements; do not apply those requirements to local SNAPSHOT builds.
+
 “Full frontend reactor” means `cedarcli build frontends`: current local library and component
 sources flow into every frontend, followed by applicable integration/visual checks, local
-redeployment, served-bundle verification and whole-stack smoke. Fresh dev package publication
-to Nexus and consumer development-pin/lockfile updates are allowed when needed; npm pins must
-not be presented as a blocker to using the sources just built. Release-version changes and
-Git commit/push are separate from this contract.
+redeployment, served-bundle verification and whole-stack smoke. The CLI supplies local packages
+automatically; registry publication and tracked pin updates are not prerequisites. Do not
+present npm pins as a blocker to using the sources just built. Registry delivery, release-version
+changes and Git commit/push are separate from this contract.
 
 The command runs component verification, records the immutable build graph and runtime selection,
 restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.

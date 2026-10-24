@@ -12,7 +12,13 @@ unchanged. `cedarcli build frontends` also runs component gates, restarts the na
 verifies the selected installations and runs whole-stack smoke. See
 [the frontend reactor](FRONTEND-RUNBOOK.md#the-reactor) for its completion and failure contract.
 
-Build guards reject changes to their tracked source inputs during compilation. The frontend-only
+A development frontend build request authorizes this complete local SNAPSHOT workflow without
+follow-up questions. Uncommitted source is valid. Publication, consumer pin updates, clean trees,
+commits, pushes and CI waits are not prerequisites. The train requirements in this runbook apply
+to publishing captured artifacts, not to that development build. Narrow development builds also
+include their required local producers and refuse registry or stale-artifact fallback.
+
+Build guards accept existing edits and reject changes to their tracked source inputs during compilation. The frontend-only
 guard excludes unrelated backend work and runbook edits. Publishing owns tracked distributions;
 `split-frontends --server-payload` remains an explicit in-place build and refuses to run while a
 runtime owns the checkout.

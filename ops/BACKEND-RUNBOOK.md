@@ -3961,13 +3961,15 @@ eight seconds to the recorded time. A gate record is named by the digest of the 
 so a second run against unchanged sources replaces the first run's record, which is how the third
 run's breakdown was lost.
 
-Development E2E requires the **latest development pins of ALL components**, including every
+Development E2E requires **packages from the current development sources of ALL components**, including every
 frontend library and embedded component in every host. Follow the
 [mandatory reactor freshness contract](FRONTEND-RUNBOOK.md#the-reactor) before running this gate.
 `cedarcli test e2e` does not rebuild the frontend graph: a green result against old pins is not
 acceptable latest-development evidence. Use `cedarcli build frontends` to build, deploy and
 verify the complete current-source selection and run smoke; a standalone rerun may reuse that
-selection only while its sources, dependency pins and served bytes remain verified and unchanged.
+selection only while its sources, resolved package hashes and served bytes remain verified and unchanged.
+The reactor supplies local SNAPSHOT packages automatically, including uncommitted edits. Do not
+require registry publication, pin updates, commits or CI waits before this development workflow.
 Never restore an older component or runtime selection to make smoke pass. Backend binaries must
 likewise be built from the development sources under test and redeployed before acceptance.
 
@@ -4692,8 +4694,9 @@ testing against a different engine than production runs.
 
 ### Snapshot Freshness
 
-A merge to `develop` publishes that repository's snapshot to Nexus, and every downstream build
-resolves CEDAR artifacts from Nexus rather than from a checkout. A repository whose commit is on
+A merge to `develop` publishes that repository's snapshot to Nexus, and downstream CI and Docker
+builds resolve CEDAR artifacts from Nexus rather than from a checkout. Local source reactors build
+their sibling dependencies directly. A repository whose commit is on
 `develop` but whose snapshot never published is therefore invisible in the place anyone looks: its
 branch is green and its source is right, while every consumer builds against the artifact it
 replaced.
@@ -6700,7 +6703,7 @@ Do not delete snapshot rows or files merely because the `latest` tag moved.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
-**Prerequisite for every development E2E run: latest development pins of ALL components,
+**Prerequisite for every development E2E run: current-source packages of ALL components,
 verified in every consumer.** Follow [the reactor contract](FRONTEND-RUNBOOK.md#the-reactor):
 `cedarcli build frontends` builds the complete current-source dependency graph, redeploys it,
 verifies the selected components and runs all smoke tiers. After backend changes, also build
@@ -6708,6 +6711,8 @@ and redeploy the current Java sources. Use `cedarcli test e2e --rest-workers 4` 
 smoke rerun only while that verified build is still current. Neither a passing smoke result nor
 matching displayed CEE versions establishes freshness by itself. Missing, stale or unverified
 components block acceptance; falling back to old pins is forbidden.
+The build request authorizes local SNAPSHOT resolution and deployment without follow-up questions.
+Registry pin maintenance and release preparation are separate workflows.
 
 One command that proves the whole stack works from the outside, the way users would exercise it.
 The Playwright script logs in through the real Keycloak form, uses Workspace and Designer to create
@@ -6890,8 +6895,9 @@ all three trees with the same checks. The monolith's build runs `npm ci` and Gul
 modification time of `app/config/version.js` so that a browser holding the old file fetches the new
 one, and writes its own `build-info.json`.
 
-Without `--server-payload`, `cedarcli build split-frontends` builds Workspace and installs Template
-Designer's locked dependencies in an isolated checkout, leaving both working trees as they are.
+Without `--server-payload`, `cedarcli build split-frontends` builds Workspace and Template Designer
+with their transitive current-source component packages in isolated copies. This local SNAPSHOT
+path includes uncommitted edits and needs no publication, pin updates or follow-up approval.
 `cedarcli native start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
 4202, not for a staging static payload.
 
