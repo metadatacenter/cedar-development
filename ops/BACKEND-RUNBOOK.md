@@ -5189,9 +5189,12 @@ check, mostly an `@context` that maps names the template does not declare or lac
 CEE shows no problem with them, and a save from CEE writes only 7 of them in a valid form, so the server
 would refuse the rest. The existing `drop-unused-instance-context`, `complete-instance-context` and
 `complete-instance` repairs finished 14, with every value outside `@context` and every modification
-date unchanged; records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-context-repairs/`. Three
-more were held: two whose graph provenance differs from the document's, and one that needs
-`align-instance-context-iris`, which changes a property IRI and so what the data means.
+date unchanged; records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-context-repairs/`. Two more
+were written on the user's decision: one whose graph date moved back a second to the document's, and
+one whose empty element needed `align-instance-context-iris`, which changes a property IRI and so what
+the data means, and runs only with `--allow-context-migration`. One was left alone: its document
+names its modifier in the legacy `repo.metadatacenter.net/users/` form, which a verbatim write would
+copy into the graph.
 
 ## Validating Every Stored Artifact with the Library
 
