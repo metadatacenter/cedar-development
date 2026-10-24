@@ -599,6 +599,10 @@ CEE and Workspace trace only the first existing retry, instead of recording ever
 test. The retry count and test matrix are unchanged. For first-attempt diagnosis, run
 `CEDAR_TEST_TRACE=on cedarcli test frontends` or set that variable on the owning npm visual command.
 Screenshots retain zero allowed differing pixels and a 0.02 color threshold.
+Workspace's Chromium project disables partial rasterization (`--disable-partial-raster`): each
+changed tile is painted completely. Reusing partially painted tiles can retain stray pixels after
+selection clears the information panel, even when the DOM and consecutive screenshots are stable.
+Keep this browser setting when updating Playwright; it requires no application CSS or baseline change.
 
 Whole-command timing reports live under `.cedar/build-reports/frontend-runs/`, separately from
 the dependency graph reports. They record preflight, build/checks, consumer demos, deployment,
@@ -726,8 +730,12 @@ every probe completed in 20.9 s (`20261024T085733Z-50fd8d2b.json`), reusing all 
 results. A Workspace version-selector test now
 waits for fonts and the rendered selected label before measuring geometry. The selector and bin-drop
 cases passed 120 repeated Chromium/WebKit tests with retries disabled. A later cold run nevertheless
-exposed an intermittent one-pixel bin-drop screenshot failure under combined load; the cause remains
-unresolved. The failed result was not cached, and the full resume and all controlled probes passed.
+exposed an intermittent one-pixel bin-drop screenshot failure under combined load. The failed result
+was not cached, and the full resume and all controlled probes passed. The CI follow-up isolated this
+to Chromium's partial rasterization: with sixfold CPU throttling through the DevTools protocol,
+the exact CI pixel reproduced in 20 of 20 Chromium runs. Disabling partial rasterization passed all
+20 under the same throttling, with all 20 WebKit controls passing in both runs. The full 1,052-case
+browser suite also passed with the unchanged baselines and retries disabled (1.5 minutes, six workers).
 No cases, browser projects, screenshot thresholds or baselines were removed or relaxed.
 
 Earlier measurements, with the then-current verification inventory:
