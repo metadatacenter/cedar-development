@@ -4545,6 +4545,10 @@ SCHEMA_ONLY_KEY_ERROR = (r"^(?:object instance has properties which are not allo
 ARRAY_EXPECTED_ERROR = r".*array expected"
 OBJECT_EXPECTED_ERROR = r".*object expected"
 VALUE_SHAPE_ERROR = r".*@value"
+NOT_A_DATE_ERROR = r"^Not a valid xsd:date\.$"
+DATATYPE_MISMATCH_ERROR = r"^The literal datatype does not match "
+NOT_AN_ABSOLUTE_IRI_ERROR = r"^Not a valid absolute IRI\.$"
+NOT_A_VALUE_ERROR = r"^Not a valid (?:xsd:|absolute IRI)"
 TYPE_EXPECTED_ERROR = r".*expected"
 
 
@@ -5833,6 +5837,23 @@ def demands_value_type(definition: Any) -> bool:
     return isinstance(required, list) and "@type" in required
 
 
+def value_type_demanded(definition: Any, value: Any) -> bool:
+    """Whether an instance value must state a datatype, by the field's schema or by the validator.
+
+    The schema demands one where it lists ``@type`` as required. The validator demands one as well
+    wherever the field names its ``temporalType`` or ``numberType`` and the value holds something,
+    because it compares the stated type with the declared one, and an absent type matches nothing.
+    """
+    if demands_value_type(definition):
+        return True
+    if not isinstance(definition, dict) or not isinstance(value, dict):
+        return False
+    constraints = definition.get("_valueConstraints") or {}
+    named = constraints.get("temporalType") or constraints.get("numberType")
+    held = value.get("@value")
+    return isinstance(named, str) and bool(named) and held is not None and held != ""
+
+
 def instance_field_children(container: Any) -> Iterator[tuple[str, dict, bool]]:
     """The children a container declares that hold a value rather than another container."""
     for name, child, multiple in container_children(container):
@@ -5880,9 +5901,10 @@ def stamp_instance_value_type(instance: Any, template: Any) -> tuple[Any, list[d
     was enforced states only ``@value``, and the library reads it as a missing required property
     however complete the field is.
 
-    Only an absent ``@type`` is written. One already stated is left alone even where it disagrees
-    with the declaration: that is a value someone chose, and correcting it is not this repair's to
-    decide.
+    Only an absent ``@type`` is written, and only where it is demanded: by the field's schema, or by
+    the validator for a field that names its datatype and a value that holds something. One already
+    stated is left alone even where it disagrees with the declaration: that is a value someone chose,
+    and narrowing it is ``restamp-declared-value-type``'s to decide.
     """
     if not isinstance(template, dict):
         raise TransformRefused("the template this instance names could not be read")
@@ -5892,7 +5914,7 @@ def stamp_instance_value_type(instance: Any, template: Any) -> tuple[Any, list[d
 
     def visit(value: Any, definition: Any, path: str) -> Any:
         wanted = declared_value_type(definition)
-        if wanted is None or not demands_value_type(definition):
+        if wanted is None or not value_type_demanded(definition, value):
             return value
         if not isinstance(value, dict) or "@type" in value:
             return value
@@ -5912,10 +5934,315 @@ def only_stamped_value_types(before: Any, after: Any, template: Any) -> Optional
         if not path.endswith("/@type") or was is not ABSENT:
             return path or "/"
         definition, _where = declaration_for_value(template, path)
-        if definition is None or not demands_value_type(definition):
+        if definition is None or not value_type_demanded(definition, value_at(after, path[:-len("/@type")])):
             return path
         if now != declared_value_type(definition) or not isinstance(now, str):
             return path
+    return None
+
+
+# The order each template's slash dates are written in, "day-first" or "month-first", keyed by
+# template IRI. Supplied through --date-orders, never inferred here: one date such as 03/04/2019 cannot
+# say which order it was written in, and the table is built from every unambiguous date the template's
+# instances hold, admitting a template only where they all agree.
+DATE_ORDERS: dict[str, str] = {}
+
+MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september",
+          "october", "november", "december")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def month_number(word: str) -> Optional[int]:
+    """The month a word names, written whole or shortened to at least its first three letters."""
+    word = word.lower().rstrip(".")
+    if len(word) < 3:
+        return None
+    for number, name in enumerate(MONTHS, 1):
+        if name.startswith(word):
+            return number
+    return None
+
+
+def date_spelled_as_iso(text: str, order: Optional[str] = None) -> Optional[str]:
+    """The ISO date a stored spelling names, or None where it names none, or none unambiguously.
+
+    The spellings read are an ISO date missing its zero padding, an ISO date-time at midnight, a date
+    with its month written as a word, and a numeric date with slashes, dots or hyphens. A numeric date
+    is read only when its parts settle which is the day: one of them exceeds 12, or ``order`` says
+    which order the template writes them in. Anything else, and anything naming no calendar day, is
+    left for an owner to answer.
+    """
+    s = text.strip()
+    year = month = day = None
+    if match := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", s):
+        year, month, day = (int(part) for part in match.groups())
+    elif match := re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]\d{2}:?\d{2})?", s):
+        year, month, day = (int(part) for part in match.groups())
+    elif match := re.fullmatch(r"(\d{1,2})([/.-])(\d{1,2})\2(\d{4})", s):
+        first, second, year = int(match.group(1)), int(match.group(3)), int(match.group(4))
+        if first > 12 >= second or (first <= 12 and second <= 12 and order == "day-first"):
+            day, month = first, second
+        elif second > 12 >= first or (first <= 12 and second <= 12 and order == "month-first"):
+            month, day = first, second
+    elif match := re.fullmatch(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+\.?),?\s+(\d{4})", s):
+        day, month, year = int(match.group(1)), month_number(match.group(2)), int(match.group(3))
+    elif match := re.fullmatch(r"([A-Za-z]+\.?)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})", s):
+        month, day, year = month_number(match.group(1)), int(match.group(2)), int(match.group(3))
+    if year is None or month is None or day is None:
+        return None
+    try:
+        return datetime(year, month, day).date().isoformat()
+    except ValueError:
+        return None
+
+
+def write_date_as_iso(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a date-valued field's spelling of a date as the ISO date it names.
+
+    A field declaring ``xsd:date`` holds an ISO date, and the validator refuses every other spelling
+    of one. Instances written before that was enforced hold dates the way people write them. Where
+    the spelling settles the date, the ISO form says exactly what the stored one did; where it does
+    not, the value stays as it is.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    order = DATE_ORDERS.get(instance.get("schema:isBasedOn"))
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if declared_value_type(definition) != "xsd:date" or not isinstance(value, dict):
+            return value
+        held = value.get("@value")
+        if not isinstance(held, str):
+            return value
+        written = date_spelled_as_iso(held, order)
+        if written is None or written == held:
+            return value
+        settled = dict(value)
+        settled["@value"] = written
+        changes.append({"path": f"{path}/@value", "replaced": held, "wrote": written})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dates_written_as_iso(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is a date-valued field's spelling replaced by the date it names."""
+    if not isinstance(template, dict) or not isinstance(before, dict):
+        return "/"
+    order = DATE_ORDERS.get(before.get("schema:isBasedOn"))
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or not isinstance(was, str):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if declared_value_type(definition) != "xsd:date" or now != date_spelled_as_iso(was, order):
+            return path
+    return None
+
+
+# A stated datatype the declared one replaces, and what the value must be for the replacement to say
+# nothing new. Only a narrowing is listed: a date-time field's value that is a plain date, and a
+# decimal that is a whole number or a number of the declared kind.
+RESTAMPABLE = {
+    ("xsd:dateTime", "xsd:date"): lambda value: value is None or (
+        isinstance(value, str) and bool(ISO_DATE.fullmatch(value)) and date_spelled_as_iso(value) == value),
+    ("xsd:decimal", "xsd:int"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?\d{1,9}", value))),
+    ("xsd:decimal", "xsd:long"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?\d{1,18}", value))),
+    ("xsd:decimal", "xsd:float"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?", value))),
+    ("xsd:decimal", "xsd:double"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?", value))),
+}
+
+
+def restamp_declared_value_type(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Replace a stated datatype with the one the field declares, where the value already is one.
+
+    ``stamp-instance-value-type`` writes a datatype only where none is stated, because a stated one is
+    a value someone chose. This repair speaks for the cases where that choice is a wider type than the
+    field's and the value is already of the narrower one: a plain date stamped ``xsd:dateTime`` in a
+    field declaring ``xsd:date``, a whole number stamped ``xsd:decimal`` in one declaring ``xsd:int``.
+    Restamping changes what the value claims to be, never what it is.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        wanted = declared_value_type(definition)
+        if wanted is None or not isinstance(value, dict):
+            return value
+        stated = value.get("@type")
+        fits = RESTAMPABLE.get((stated, wanted))
+        if fits is None or not fits(value.get("@value")):
+            return value
+        settled = dict(value)
+        settled["@type"] = wanted
+        changes.append({"path": f"{path}/@type", "replaced": stated, "wrote": wanted})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_restamped_value_types(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is a listed widening narrowed to the declared type, value unchanged."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@type"):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        fits = RESTAMPABLE.get((was, now))
+        if fits is None or now != declared_value_type(definition) \
+                or not fits((value_at(after, path[:-len("/@type")]) or {}).get("@value")):
+            return path
+    return None
+
+
+def orcid_checksum_holds(identifier: str) -> bool:
+    """Whether a bare ORCID's last character is the ISO 7064 MOD 11-2 check of the rest."""
+    digits = identifier.replace("-", "")
+    total = 0
+    for character in digits[:-1]:
+        total = (total + int(character)) * 2
+    check = (12 - total % 11) % 11
+    return digits[-1] == ("X" if check == 10 else str(check))
+
+
+def link_written_as_iri(text: str) -> Optional[str]:
+    """The IRI a link field's bare identifier or address names, where its form settles which.
+
+    Four forms are read, and each has exactly one IRI: an ORCID whose check digit holds, a web address
+    beginning ``www.``, a DOI, and an e-mail address. Anything else is left for an owner.
+    """
+    s = text.strip()
+    if re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]", s):
+        written = f"https://orcid.org/{s}" if orcid_checksum_holds(s) else None
+    elif re.fullmatch(r"www\.[^\s<>\"{}|\\^`]+", s):
+        written = f"https://{s}"
+    elif re.fullmatch(r"10\.\d{4,9}/[^\s<>\"{}|\\^`]+", s):
+        written = f"https://doi.org/{s}"
+    elif re.fullmatch(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", s):
+        written = f"mailto:{s}"
+    else:
+        written = None
+    return written if written is not None and rest.is_absolute_iri(written) else None
+
+
+def is_link_field(definition: Any) -> bool:
+    return isinstance(definition, dict) and (definition.get("_ui") or {}).get("inputType") == "link"
+
+
+def write_link_as_iri(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a link field's bare ORCID, DOI, ``www.`` address or e-mail address as the IRI it names.
+
+    A link field holds an absolute IRI, and these are the forms people paste instead. Each names one
+    IRI, so writing it changes the spelling and not the reference. A value that is already an absolute
+    IRI, or is any other text, is left alone.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not is_link_field(definition) or not isinstance(value, dict):
+            return value
+        held = value.get("@id")
+        if not isinstance(held, str) or rest.is_absolute_iri(held):
+            return value
+        written = link_written_as_iri(held)
+        if written is None:
+            return value
+        settled = dict(value)
+        settled["@id"] = written
+        changes.append({"path": f"{path}/@id", "replaced": held, "wrote": written})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_links_written_as_iris(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is a link field's bare identifier replaced by the IRI it names."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or not isinstance(was, str) or rest.is_absolute_iri(was):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not is_link_field(definition) or now != link_written_as_iri(was):
+            return path
+    return None
+
+
+# Words people write in a field to say it has no value. Matched whole, ignoring case and surrounding
+# space. "none" counts only in a date: in a number it can mean zero.
+PLACEHOLDER_WORDS = frozenset({
+    "na", "n/a", "n.a.", "nd", "n.d.", "unknown", "unk", "not known", "not applicable", "not available",
+    "not provided", "not collected", "missing", "tbd", "null", "nan", "-", "--", "?",
+})
+DATE_PLACEHOLDER_WORDS = PLACEHOLDER_WORDS | {"none"}
+
+
+def is_placeholder(text: Any, definition: Any) -> bool:
+    if not isinstance(text, str):
+        return False
+    words = DATE_PLACEHOLDER_WORDS if (definition.get("_ui") or {}).get("inputType") == "temporal" \
+        else PLACEHOLDER_WORDS
+    return text.strip().lower() in words
+
+
+def empty_placeholder_value(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a placeholder word in a date, number or link field as the empty value it stands for.
+
+    "NA" in a date field is not a date, and it is not text the field can hold: it says the field has
+    no value, which the model already has a form for. A date or number keeps its ``@type`` and takes a
+    null ``@value``; a link loses its ``@id``, since an empty IRI is written by leaving it out. Only
+    the listed words are read this way.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or not isinstance(definition, dict):
+            return value
+        if declared_value_type(definition) is not None and is_placeholder(value.get("@value"), definition):
+            settled = dict(value)
+            settled["@value"] = None
+            changes.append({"path": f"{path}/@value", "replaced": value["@value"], "wrote": None})
+            return settled
+        if is_link_field(definition) and is_placeholder(value.get("@id"), definition):
+            settled = {key: inner for key, inner in value.items() if key != "@id"}
+            changes.append({"path": f"{path}/@id", "replaced": value["@id"], "wrote": None})
+            return settled
+        return value
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_emptied_placeholders(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change empties a listed placeholder word in a date, number or link field."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        definition, _where = declaration_for_value(template, path)
+        if not isinstance(definition, dict) or not is_placeholder(was, definition):
+            return path or "/"
+        if path.endswith("/@value") and declared_value_type(definition) is not None and now is None:
+            continue
+        if path.endswith("/@id") and is_link_field(definition) and now is ABSENT:
+            continue
+        return path
     return None
 
 
@@ -6514,11 +6841,38 @@ def only_settled_iri_values(before: Any, after: Any, template: Any) -> Optional[
 TERMS: dict[str, dict[str, dict[str, Any]]] = {}
 
 
+def term_label_held(value: Any) -> Optional[str]:
+    """The label a controlled field's value names a term by, where it does not point at the term.
+
+    The label sits either under ``@value``, where the schema admits none, or under ``rdfs:label``
+    with no ``@id`` beside it, which is a label in the right place with the term it labels missing.
+    """
+    if not isinstance(value, dict) or value.get("@id"):
+        return None
+    held = value.get("@value") if "@value" in value else value.get("rdfs:label")
+    return held if isinstance(held, str) else None
+
+
+def settled_term_value(value: dict, term: Optional[dict]) -> dict:
+    """A controlled field's value once its label is put behind ``term``, or emptied where it is None."""
+    from_label = "@value" not in value
+    settled = {key: inner for key, inner in value.items() if key != "@value"}
+    if term is not None:
+        settled["@id"] = term["@id"]
+        settled["rdfs:label"] = term["rdfs:label"]
+    elif from_label:
+        settled.pop("rdfs:label", None)
+        if not settled.get("@id"):
+            settled.pop("@id", None)
+    return settled
+
+
 def settle_instance_term_label(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Put a controlled field's value behind the term its label names.
 
     A controlled-term field holds ``@id`` and a label, and an instance that carries the label alone —
-    under ``@value``, where the schema admits none — names a term without pointing at it. The term is
+    under ``@value``, where the schema admits none, or under ``rdfs:label`` with no ``@id`` — names a
+    term without pointing at it. The term is
     supplied rather than inferred: which IRI a label names is a fact about the ontology the field is
     constrained to, and the table is built by asking it.
 
@@ -6538,10 +6892,8 @@ def settle_instance_term_label(instance: Any, template: Any) -> tuple[Any, list[
     def visit(value: Any, definition: Any, path: str) -> Any:
         if not isinstance(value, dict) or holds_a_literal(definition):
             return value
-        if "@value" not in value or value.get("@id"):
-            return value
-        label = value.get("@value")
-        if not isinstance(label, str):
+        label = term_label_held(value)
+        if label is None:
             return value
         # The walk numbers a repeating field's occurrences; the table speaks about the field.
         route = re.sub(r"/\d+(?=/|$)", "", path)
@@ -6549,13 +6901,8 @@ def settle_instance_term_label(instance: Any, template: Any) -> tuple[Any, list[
         if not known or label.strip() not in known:
             return value
         term = known[label.strip()]
-        settled = {key: inner for key, inner in value.items() if key != "@value"}
-        if term is None:
-            wrote = "nothing; the label stated no value"
-        else:
-            settled["@id"] = term["@id"]
-            settled["rdfs:label"] = term["rdfs:label"]
-            wrote = term["@id"]
+        settled = settled_term_value(value, term)
+        wrote = "nothing; the label stated no value" if term is None else term["@id"]
         changes.append({"path": path, "replaced": label, "wrote": wrote})
         return settled
 
@@ -6578,17 +6925,12 @@ def only_settled_term_labels(before: Any, after: Any, template: Any) -> Optional
         old, new = value_at(before, here), value_at(after, here)
         if not isinstance(old, dict) or not isinstance(new, dict):
             return path or "/"
-        label = old.get("@value")
+        label = term_label_held(old)
         route = re.sub(r"/\d+(?=/|$)", "", here)
         known = (fields or {}).get(route) or {}
-        if not isinstance(label, str) or label.strip() not in known:
+        if label is None or label.strip() not in known:
             return path or "/"
-        term = known[label.strip()]
-        expected = {key: inner for key, inner in old.items() if key != "@value"}
-        if term is not None:
-            expected["@id"] = term["@id"]
-            expected["rdfs:label"] = term["rdfs:label"]
-        if new != expected:
+        if new != settled_term_value(old, known[label.strip()]):
             return path or "/"
         seen.add(here)
     return None
@@ -8012,6 +8354,42 @@ REPAIRS = {
         needs_template=True,
         error_pattern=MISSING_CHILD_ERROR,
     ),
+    "write-date-as-iso": Repair(
+        name="write-date-as-iso",
+        condition="",
+        summary="write a date field's spelling of a date as the ISO date it names",
+        transform=write_date_as_iso,
+        invariant=only_dates_written_as_iso,
+        needs_template=True,
+        error_pattern=NOT_A_DATE_ERROR,
+    ),
+    "restamp-declared-value-type": Repair(
+        name="restamp-declared-value-type",
+        condition="",
+        summary="narrow a stated datatype to the declared one, where the value already is one",
+        transform=restamp_declared_value_type,
+        invariant=only_restamped_value_types,
+        needs_template=True,
+        error_pattern=DATATYPE_MISMATCH_ERROR,
+    ),
+    "write-link-as-iri": Repair(
+        name="write-link-as-iri",
+        condition="",
+        summary="write a link's bare ORCID, DOI, www. address or e-mail address as the IRI it names",
+        transform=write_link_as_iri,
+        invariant=only_links_written_as_iris,
+        needs_template=True,
+        error_pattern=NOT_AN_ABSOLUTE_IRI_ERROR,
+    ),
+    "empty-placeholder-value": Repair(
+        name="empty-placeholder-value",
+        condition="",
+        summary="write a placeholder word in a date, number or link field as the empty value it stands for",
+        transform=empty_placeholder_value,
+        invariant=only_emptied_placeholders,
+        needs_template=True,
+        error_pattern=NOT_A_VALUE_ERROR,
+    ),
     "wrap-instance-occurrence": Repair(
         name="wrap-instance-occurrence",
         condition="",
@@ -8983,6 +9361,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON of confirmed narrowings, {artifactId: {entryPath: branchEntry}}, "
                              "which narrow-ontology-constraint-to-branch applies; nothing is "
                              "narrowed without it")
+    parser.add_argument("--date-orders",
+                        help="JSON of the order each template's numeric dates are written in, "
+                             "{templateId: \"day-first\" | \"month-first\"}, which write-date-as-iso "
+                             "uses for a date whose parts cannot settle it; such dates are left without it")
     parser.add_argument("--terms",
                         help="JSON of resolved terms, {templateId: {fieldRoute: {label: term}}}, which "
                              "settle-instance-term-label applies; a term of null empties the field")
@@ -9187,6 +9569,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
+                                 ("--date-orders", arguments.date_orders, DATE_ORDERS),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--term-fields", arguments.term_fields, TERM_FIELDS),
                                  ("--term-input-fields", arguments.term_input_fields, TERM_INPUT_FIELDS),

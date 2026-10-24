@@ -134,8 +134,9 @@ below have no CLI front end yet, so call them directly:
   by default, writes only under `--apply`. Targets come from the audit's records. Its suite and the
   tools that plan a repair sit beside it under `ops/repairs/`: `ctxreq_at_risk.py` weighs which
   templates can take a tightened `@context.required` without invalidating an instance they already
-  have, and `rename_sheet.py` drafts the field renames a template's instances imply, for an owner to
-  confirm.
+  have, `rename_sheet.py` drafts the field renames a template's instances imply, for an owner to
+  confirm, and `plan_from_snapshot.py` runs a chain of instance repairs over a snapshot and lists the
+  instances it would finish, with the files an `--apply` run takes.
 
 - `cedar_term_bench.py` — times the terminology server's lookup paths against whatever it is
   serving, drawing query strings from the served index so every lookup matches something. Reports

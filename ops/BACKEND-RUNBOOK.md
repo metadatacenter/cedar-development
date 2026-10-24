@@ -5125,6 +5125,49 @@ The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `
   are not `xsd:date`, IRI fields holding a literal, controlled-term labels without an IRI, and
   malformed decimals. Both libraries read them.
 
+### Repairing Instance Values the 2.9.25 Rules Refuse
+
+`cedar-model-validation-library` `dbe0da5` (release 2.9.25) added rules about the values an instance
+holds, not only its shape, and 2,119 production instances that validated in September fail them. Most
+of them break one rule, and most of those breaks have exactly one right answer. The repair tool gained
+four transforms for them, and two existing ones learned a further case:
+
+- `write-date-as-iso` writes a date field's spelling of a date as the ISO date it names: a date
+  missing its zero padding, a date-time at midnight, a month written as a word, and a numeric date
+  whose parts settle which is the day. Where they do not, as in 03/04/2019, `--date-orders` can name
+  the order a template writes its dates in. The 2026-10-24 table admits a template only where at
+  least five of its instances' dates are unambiguous and all of them agree.
+- `restamp-declared-value-type` narrows a stated datatype to the declared one where the value already
+  is one: a plain date stamped `xsd:dateTime`, a whole number stamped `xsd:decimal`.
+- `write-link-as-iri` writes a link's bare ORCID, only when its check digit holds, and a bare DOI,
+  `www.` address or e-mail address, as the IRI each names.
+- `empty-placeholder-value` writes a listed placeholder word, such as "NA" or "unknown", as the empty
+  value of a date, number or link field. "none" counts only in a date, since in a number it can mean
+  zero.
+- `stamp-instance-value-type` now also stamps a value whose field names its datatype, where the
+  validator demands a type although the schema does not list one as required, and
+  `settle-instance-term-label` also settles a label stored without its IRI.
+
+`ops/repairs/plan_from_snapshot.py` runs a chain against a snapshot rather than the deployment. A
+candidate counts as finished only when it validates, reads in both libraries and keeps its provenance
+exactly, and the planner writes the `--only-ids` list and `--from-records` file the apply run takes:
+
+```bash
+python3 ops/repairs/plan_from_snapshot.py --ids newly-invalid-ids.json \
+  --repair write-link-as-iri,empty-placeholder-value,write-date-as-iso,restamp-declared-value-type,stamp-instance-value-type,complete-empty-literal \
+  --date-orders date-orders.json --java-classpath <jar with dependencies> --ts-library <dist/index.js> --out plan/
+python3 ops/repairs/cedar_artifact_repair.py --from-records plan/targets.jsonl --condition snapshot-plan \
+  --only-ids plan/finished-ids.json --types instance --repair <the same chain> --date-orders date-orders.json --apply
+```
+
+On 2026-10-24 the plan finished 750 of the 2,119. The apply run's dry pass held 91 of them, whose graph
+records a modification date under a minute later than the document's: a verbatim write copies the
+document's date into the graph, so writing them would move the date Workspace shows. The other 659 were
+written. Every one reads back identical to its candidate, keeps the modification date and modifier its
+graph node and search-index entry held, validates, and reads in both libraries. Pre-images and records
+are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-value-spellings/`, and the owner sheets for what no
+rule settles are in its `sheets/` folder.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
