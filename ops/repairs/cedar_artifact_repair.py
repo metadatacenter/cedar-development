@@ -6600,6 +6600,51 @@ def only_typed_choice_values_as_text(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# The modifier each artifact's graph node records, keyed by artifact IRI, as its /details answer
+# states it. Supplied through --modifier-forms, read from a dry run's records: restating a document's
+# modifier is right only where the graph already holds that same user in the current form.
+MODIFIER_FORMS: dict[str, str] = {}
+LEGACY_USER = re.compile(r"https://repo\.metadatacenter\.net/users/([^/\s]+)")
+CURRENT_USER = "https://metadatacenter.org/users/{}"
+
+
+def current_form_of(modifier: Any) -> Optional[str]:
+    match = LEGACY_USER.fullmatch(modifier) if isinstance(modifier, str) else None
+    return CURRENT_USER.format(match.group(1)) if match else None
+
+
+def restate_modifier_in_current_form(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a document's ``oslc:modifiedBy`` in the current user-IRI form its graph node already holds.
+
+    Users were once identified under ``https://repo.metadatacenter.net/users/``; they are identified
+    under ``https://metadatacenter.org/users/`` now, and the graph that Workspace reads states the
+    current form even where a document still states the old one. A verbatim write copies the
+    document's modifier into the graph, so such a document cannot be repaired without moving the graph
+    back to the old form. Restating the document's modifier as the one the graph holds, for the same
+    user, makes the two agree. Only an artifact listed in ``MODIFIER_FORMS`` is changed, and only to
+    the value listed for it.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    stated = artifact.get("oslc:modifiedBy")
+    current = current_form_of(stated)
+    if current is None or MODIFIER_FORMS.get(artifact.get("@id")) != current:
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    result["oslc:modifiedBy"] = current
+    return result, [{"path": "/oslc:modifiedBy", "replaced": stated, "wrote": current}]
+
+
+def only_restated_modifier(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the one change is the modifier, to its current form, as the graph holds it."""
+    if not isinstance(before, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if path != "/oslc:modifiedBy" or now != current_form_of(was) or MODIFIER_FORMS.get(before.get("@id")) != now:
+            return path or "/"
+    return None
+
+
 def declaration_for_value(template: Any, pointer: str) -> tuple[Optional[dict], str]:
     """The declaration governing an instance value, and the pointer to the value itself.
 
@@ -8739,6 +8784,13 @@ REPAIRS = {
         transform=type_choice_value_as_text,
         invariant=only_typed_choice_values_as_text,
     ),
+    "restate-modifier-in-current-form": Repair(
+        name="restate-modifier-in-current-form",
+        condition="",
+        summary="write a legacy .net modifier IRI in the current form the graph already holds",
+        transform=restate_modifier_in_current_form,
+        invariant=only_restated_modifier,
+    ),
     "drop-null-instance-type": Repair(
         name="drop-null-instance-type",
         condition="",
@@ -9632,9 +9684,11 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
         record.update(outcome="still-invalid", detail=explanation)
         return record
 
-    # A verbatim write sets the graph's modification provenance from the document. Where the two
-    # already disagree, such as a legacy user IRI in the document and the current one in the graph,
-    # the write would replace what the graph holds, so the artifact is held rather than written.
+    # A verbatim write sets the graph's modification provenance from the document it writes. Where
+    # that document and the graph disagree, such as a legacy user IRI in the document and the current
+    # one in the graph, the write would replace what the graph holds, so the artifact is held rather
+    # than written. The comparison is with the candidate, not the stored body, because the candidate is
+    # what the graph receives: a repair that restates the modifier the graph already holds agrees.
     try:
         details = client.get_json(path + "/details")
     except rest.AuthenticationError:
@@ -9644,7 +9698,7 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
         return record
     record["graphProvenanceBefore"] = {key: details.get(key) for key in
         ("oslc:modifiedBy", "pav:lastUpdatedOn", "lastUpdatedOnTS")} if isinstance(details, dict) else None
-    graph_difference = modification_provenance_difference(stored, details)
+    graph_difference = modification_provenance_difference(repaired, details)
     if graph_difference is not None:
         if not arguments.replace_graph_provenance:
             record.update(outcome="graph-provenance-held",
@@ -9774,6 +9828,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON list of the templates whose instances an import filled with the "
                              "DataCite locations it read from, which empty-import-placeholders empties; "
                              "nothing is emptied without it")
+    parser.add_argument("--modifier-forms",
+                        help="JSON of the modifier each artifact's graph holds, {artifactId: userIri}, which "
+                             "restate-modifier-in-current-form writes where the document states the same "
+                             "user in the legacy repo.metadatacenter.net form")
     parser.add_argument("--date-orders",
                         help="JSON of the order each template's numeric dates are written in, "
                              "{templateId: \"day-first\" | \"month-first\"}, which write-date-as-iso "
@@ -9989,6 +10047,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
                                  ("--date-orders", arguments.date_orders, DATE_ORDERS),
+                                 ("--modifier-forms", arguments.modifier_forms, MODIFIER_FORMS),
                                  ("--placeholder-templates", arguments.placeholder_templates, PLACEHOLDER_TEMPLATES),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--term-fields", arguments.term_fields, TERM_FIELDS),

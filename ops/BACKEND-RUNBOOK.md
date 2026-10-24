@@ -5238,6 +5238,17 @@ were written with their modification dates unchanged; 41 were held, every one be
 names the modifier in the legacy `repo.metadatacenter.net/users/` form. Records are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-24-legacy-templates/`.
 
+The user then decided that such modifier IRIs should take the current form. A verbatim write projects
+only the modifier and the modification date from the document into the graph, never the creator, so
+`restate-modifier-in-current-form` writes a document's `oslc:modifiedBy` as the
+`https://metadatacenter.org/users/` IRI its graph node already holds for the same user, read from
+`--modifier-forms`. The graph check now compares the graph with the document about to be written
+rather than the stored one, so such an artifact agrees and is written. All 46 held artifacts, 5
+instances and 41 templates and elements, were repaired with their dates, creators and graph modifiers
+unchanged. Across the snapshot the legacy form still appears in 346 documents' `oslc:modifiedBy` and
+428 documents' `pav:createdBy`; the documents can be restated the same way, but a creator held in the
+legacy form by the graph itself is out of a verbatim write's reach.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only

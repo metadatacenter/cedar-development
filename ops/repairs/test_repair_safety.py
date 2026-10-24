@@ -95,7 +95,7 @@ class WriteSafetyTest(unittest.TestCase):
         self.assertEqual(sorted(recorded), list(range(50)))
 
     def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None,
-                   replace_graph_provenance=False):
+                   replace_graph_provenance=False, repairs=None):
         """Run one repair against a fake deployment whose graph details are ``graph_before`` until
         the write and ``graph`` after it, each defaulting to the provenance of the stored body."""
         class Client:
@@ -120,7 +120,7 @@ class WriteSafetyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder,
                                                    replace_graph_provenance=replace_graph_provenance),
-                                [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
+                                repairs or [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
                                 r.rest.ArtifactRef('template', 'urn:test', 'test'))
 
     def test_readback_detects_unrelated_server_change(self):
@@ -136,6 +136,21 @@ class WriteSafetyTest(unittest.TestCase):
                                        'pav:lastUpdatedOn': '2026-09-25T20:02:23-07:00'})
         self.assertFalse(result['verified'])
         self.assertIn('graph modification provenance differs', result['detail'])
+
+    def test_a_restated_modifier_the_graph_already_holds_is_written(self):
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old',
+                  'oslc:modifiedBy': 'https://repo.metadatacenter.net/users/u1',
+                  'pav:lastUpdatedOn': '2017-02-01T10:00:00-08:00'}
+        graph = {'oslc:modifiedBy': 'https://metadatacenter.org/users/u1',
+                 'pav:lastUpdatedOn': '2017-02-01T18:00:00Z', 'lastUpdatedOnTS': 1485972000}
+        r.MODIFIER_FORMS['urn:test'] = graph['oslc:modifiedBy']
+        try:
+            result = self.run_repair(body=stored, graph_before=graph, graph=graph,
+                                     repairs=[r.REPAIRS['restate-modifier-in-current-form'], r.REPAIRS['empty-derived-from']])
+        finally:
+            r.MODIFIER_FORMS.clear()
+        self.assertEqual(result['outcome'], 'repaired')
+        self.assertTrue(result['verified'])
 
     def test_a_graph_that_already_disagrees_with_the_document_is_held_unwritten(self):
         stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old',

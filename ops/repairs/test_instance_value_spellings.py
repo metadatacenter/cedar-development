@@ -380,6 +380,37 @@ class TypeChoiceValueAsTextTest(unittest.TestCase):
                                                                     "replaced": ["array", "null"], "wrote": ["string", "null"]}])
 
 
+class RestateModifierTest(unittest.TestCase):
+    LEGACY = "https://repo.metadatacenter.net/users/184ce0be-2fe8-400c-925c-788d56ff1202"
+    CURRENT = "https://metadatacenter.org/users/184ce0be-2fe8-400c-925c-788d56ff1202"
+
+    def tearDown(self):
+        r.MODIFIER_FORMS.clear()
+
+    def test_a_listed_legacy_modifier_becomes_the_form_the_graph_holds(self):
+        before = instance(**{"oslc:modifiedBy": self.LEGACY})
+        r.MODIFIER_FORMS[before["@id"]] = self.CURRENT
+        after, changes = r.restate_modifier_in_current_form(before)
+        self.assertEqual(after["oslc:modifiedBy"], self.CURRENT)
+        self.assertEqual(changes, [{"path": "/oslc:modifiedBy", "replaced": self.LEGACY, "wrote": self.CURRENT}])
+        self.assertEqual({k: after[k] for k in PROVENANCE if k != "oslc:modifiedBy"},
+                         {k: before[k] for k in PROVENANCE if k != "oslc:modifiedBy"})
+        self.assertIsNone(r.only_restated_modifier(before, after))
+
+    def test_an_unlisted_artifact_or_another_user_is_left(self):
+        before = instance(**{"oslc:modifiedBy": self.LEGACY})
+        self.assertEqual(r.restate_modifier_in_current_form(before), (before, []))
+        r.MODIFIER_FORMS[before["@id"]] = "https://metadatacenter.org/users/someone-else"
+        self.assertEqual(r.restate_modifier_in_current_form(before), (before, []))
+
+    def test_invariant_refuses_any_other_change(self):
+        before = instance(**{"oslc:modifiedBy": self.LEGACY})
+        r.MODIFIER_FORMS[before["@id"]] = self.CURRENT
+        after, _ = r.restate_modifier_in_current_form(before)
+        changed = dict(after, **{"pav:createdBy": self.CURRENT})
+        self.assertEqual(r.only_restated_modifier(before, changed), "/pav:createdBy")
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]
