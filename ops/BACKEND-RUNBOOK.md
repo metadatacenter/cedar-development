@@ -5210,6 +5210,29 @@ longer declares, more than one class as a value's type, annotation blocks carryi
 property IRIs the template has since changed. Records are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-24-legacy-shapes/`.
 
+The user then decided that values under keys a template no longer declares should go, and that changed
+property IRIs should be aligned. `drop-undeclared-keys` removes every undeclared key at every depth,
+entered values included, and applies only with `--allow-value-deletion` and an explicit `--only-ids`
+scope; `align-instance-context-iris` ran with `--allow-context-migration`. Together they finished 5 of
+the remaining 31, all written with every other entered value kept under its field; for four of them,
+on the user's decision, the graph date moved back one second to the document's. What still blocks the
+rest is not theirs to settle: annotation
+blocks carrying an identifier, values as strings where 2017 templates' schemas declare lists, a value
+with two classes as its type, and a template whose `@context` requires a mapping for a child it no
+longer has.
+
+Two of those blockers were template defects, and the user asked for the templates to be repaired.
+`type-choice-value-as-text` retypes a radio, list or checkbox field's `@value` from `["array", "null"]`,
+the shape of 2016 and 2017, to the `["string", "null"]` that some 45,000 later choice fields and the
+model use. Seven draft templates were retyped. "Work (with Activity)" stopped demanding an `@context`
+mapping for a child it no longer has, through the existing `drop-noncanonical-context-demands`.
+Before either was written, every instance of the eight templates was checked against the old and the
+new template; none was valid before, so none could be broken. All eight kept their modification dates.
+Their instances were then repaired: eight finished and were written, and four were held because their
+documents name the modifier in the legacy `repo.metadatacenter.net/users/` form. The same two template
+defects remain in templates nobody asked about: 806 choice fields across the corpus still type their
+value as a list, and 134 `@context` requirements in draft templates name no child.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only

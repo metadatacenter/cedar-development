@@ -6458,8 +6458,22 @@ def drop_unfilled_undeclared_keys(instance: Any, template: Any) -> tuple[Any, li
     children the template has since dropped inside its elements, often as whole element occurrences
     whose only content is the identifier CEDAR minted and empty fields. Such a key, and the mapping
     its container's ``@context`` holds for it, is removed; a key holding anything a person entered is
-    left for an owner.
+    left for an owner, or for ``drop-undeclared-keys`` once one has decided.
     """
+    return drop_undeclared(instance, template, keep_entered=True)
+
+
+def drop_undeclared_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove, at every depth, every key its container does not declare, whatever it holds.
+
+    This deletes values someone entered under a name the template no longer has. It exists for a
+    decision that they are not wanted, and it is applied only with ``--allow-value-deletion`` and an
+    explicit ``--only-ids`` scope; the pre-image the tool saves before every write keeps them.
+    """
+    return drop_undeclared(instance, template, keep_entered=False)
+
+
+def drop_undeclared(instance: Any, template: Any, keep_entered: bool) -> tuple[Any, list[dict[str, Any]]]:
     if not isinstance(instance, dict) or not isinstance(template, dict):
         raise TransformRefused("instance and template must be objects")
     changes: list[dict[str, Any]] = []
@@ -6480,7 +6494,7 @@ def drop_unfilled_undeclared_keys(instance: Any, template: Any) -> tuple[Any, li
                     result[key] = visit(value, children[key], f"{path}/{rest.json_pointer_component(key)}")
                 continue
             if key in declared or key in referenced or key.startswith("@") or ":" in key \
-                    or key in RESERVED_INSTANCE_KEYS or not holds_nothing_entered(value):
+                    or key in RESERVED_INSTANCE_KEYS or (keep_entered and not holds_nothing_entered(value)):
                 continue
             del result[key]
             changes.append({"path": f"{path}/{rest.json_pointer_component(key)}", "replaced": value, "wrote": None})
@@ -6496,6 +6510,15 @@ def drop_unfilled_undeclared_keys(instance: Any, template: Any) -> tuple[Any, li
 
 def only_dropped_unfilled_undeclared_keys(before: Any, after: Any, template: Any) -> Optional[str]:
     """The invariant: every change removes an undeclared, unfilled key or its own context mapping."""
+    return only_dropped_undeclared(before, after, template, keep_entered=True)
+
+
+def only_dropped_undeclared_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes an undeclared key or its own context mapping."""
+    return only_dropped_undeclared(before, after, template, keep_entered=False)
+
+
+def only_dropped_undeclared(before: Any, after: Any, template: Any, keep_entered: bool) -> Optional[str]:
     if not isinstance(template, dict):
         return "/"
     removed: set[str] = set()
@@ -6509,13 +6532,70 @@ def only_dropped_unfilled_undeclared_keys(before: Any, after: Any, template: Any
         container = declaration_at(template, container_path) if container_path else template
         if not isinstance(container, dict) or key.replace("~1", "/").replace("~0", "~") in (container.get("properties") or {}):
             return path
-        if not holds_nothing_entered(was):
+        if keep_entered and not holds_nothing_entered(was):
+            return path
+        if key.startswith("@") or ":" in key or key.replace("~1", "/").replace("~0", "~") in RESERVED_INSTANCE_KEYS:
             return path
         removed.add(path)
     for path, was, now in differences(before, after):
         head, _sep, key = path.rpartition("/")
         if (head.endswith("/@context") or head == "/@context") and \
                 f"{head[:-len('/@context')]}/{key}" not in removed:
+            return path
+    return None
+
+
+CHOICE_INPUT_TYPES = ("list", "radio", "checkbox")
+LEGACY_CHOICE_VALUE_TYPE = ["array", "null"]
+CHOICE_VALUE_TYPE = ["string", "null"]
+
+
+def is_legacy_choice_field(node: Any) -> bool:
+    if not isinstance(node, dict) or not isinstance(node.get("_ui"), dict) \
+            or node["_ui"].get("inputType") not in CHOICE_INPUT_TYPES:
+        return False
+    declared = (node.get("properties") or {}).get("@value")
+    return isinstance(declared, dict) and declared.get("type") == LEGACY_CHOICE_VALUE_TYPE
+
+
+def type_choice_value_as_text(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Type a choice field's ``@value`` as the text or null every other choice field declares.
+
+    Radio, list and checkbox fields written in 2016 and 2017 type ``@value`` as a list or null. Every
+    later choice field, some 45,000 of them, types it as a string or null, and so does the model: the
+    readers read a chosen value as text. An instance of the older shape is therefore either refused
+    by the schema, holding the text, or by the reader, holding a list. Typing the value as text makes
+    the template agree with the model and with the instances that state their choice as text.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f"{path}/{rest.json_pointer_component(key)}") for key, value in node.items()}
+        if is_legacy_choice_field(node):
+            result["properties"] = dict(result["properties"])
+            result["properties"]["@value"] = dict(result["properties"]["@value"], type=list(CHOICE_VALUE_TYPE))
+            changes.append({"path": f"{path}/properties/@value/type", "replaced": LEGACY_CHOICE_VALUE_TYPE,
+                            "wrote": CHOICE_VALUE_TYPE})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_typed_choice_values_as_text(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change retypes a legacy choice field's ``@value`` from list to text."""
+    suffix = "/properties/@value/type/0"
+    for path, was, now in differences(before, after):
+        if not path.endswith(suffix) or was != "array" or now != "string":
+            return path or "/"
+        field_path = path[:-len(suffix)]
+        if not is_legacy_choice_field(value_at(before, field_path)) \
+                or ((value_at(after, field_path) or {}).get("properties") or {}).get("@value", {}).get("type") != CHOICE_VALUE_TYPE:
             return path
     return None
 
@@ -8644,6 +8724,21 @@ REPAIRS = {
         invariant=only_dropped_null_iris,
         needs_template=True,
     ),
+    "drop-undeclared-keys": Repair(
+        name="drop-undeclared-keys",
+        condition="",
+        summary="remove, at every depth, every undeclared key and its mapping, entered values included",
+        transform=drop_undeclared_keys,
+        invariant=only_dropped_undeclared_keys,
+        needs_template=True,
+    ),
+    "type-choice-value-as-text": Repair(
+        name="type-choice-value-as-text",
+        condition="",
+        summary="type a legacy choice field's @value as the text or null the model reads",
+        transform=type_choice_value_as_text,
+        invariant=only_typed_choice_values_as_text,
+    ),
     "drop-null-instance-type": Repair(
         name="drop-null-instance-type",
         condition="",
@@ -9696,6 +9791,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--apply", action="store_true", help="write; otherwise report what would change")
     parser.add_argument("--allow-context-migration", action="store_true",
                         help="approve property-IRI migration for the explicit --only-ids scope")
+    parser.add_argument("--allow-value-deletion", action="store_true",
+                        help="approve drop-undeclared-keys deleting entered values, for the explicit --only-ids scope")
     parser.add_argument("--replace-graph-provenance", action="store_true",
                         help="write the explicit --only-ids scope even where the graph's modification "
                              "provenance differs from the document's, which the write replaces")
@@ -9800,6 +9897,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             and not (arguments.allow_context_migration and arguments.only_ids):
         parser.error("context alignment changes meaning; applying it requires "
                      "--allow-context-migration and an explicit --only-ids scope")
+    if arguments.apply and "drop-undeclared-keys" in names \
+            and not (arguments.allow_value_deletion and arguments.only_ids):
+        parser.error("drop-undeclared-keys deletes entered values; applying it requires "
+                     "--allow-value-deletion and an explicit --only-ids scope")
     if arguments.replace_graph_provenance and not arguments.only_ids:
         parser.error("--replace-graph-provenance replaces what the graph records, so it needs an explicit "
                      "--only-ids scope")

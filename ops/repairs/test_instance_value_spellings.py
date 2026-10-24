@@ -326,6 +326,60 @@ class LegacyShapeTest(unittest.TestCase):
         self.assertEqual(r.only_dropped_unfilled_undeclared_keys(before, changed, legacy_template()), "/@context/Choice")
 
 
+class DropUndeclaredKeysTest(unittest.TestCase):
+    def test_every_undeclared_key_goes_with_its_mapping_and_declared_ones_stay(self):
+        before = instance(**{"@context": {"Old": "http://x/old", "Labelled": "http://x/l"},
+                             "Old": {"@value": "someone typed this"}, "Labelled": {"@value": "x", "rdfs:label": None},
+                             "Block": {"Kept": {"@value": "k"}, "Renamed": {"@value": "v"}}})
+        after, changes = r.drop_undeclared_keys(before, legacy_template())
+        self.assertNotIn("Old", after)
+        self.assertEqual(after["@context"], {"Labelled": "http://x/l"})
+        self.assertEqual(after["Block"], {"Kept": {"@value": "k"}})
+        self.assertEqual(after["Labelled"], before["Labelled"])
+        self.assertIsNone(r.only_dropped_undeclared_keys(before, after, legacy_template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+        # The unfilled-only rule leaves the entered values alone.
+        kept, _ = r.drop_unfilled_undeclared_keys(before, legacy_template())
+        self.assertEqual(kept["Old"], before["Old"])
+        changed = copy.deepcopy(after); del changed["Labelled"]
+        self.assertEqual(r.only_dropped_undeclared_keys(before, changed, legacy_template()), "/Labelled")
+
+    def test_applying_it_needs_an_explicit_approval(self):
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl") as records:
+            records.write('{"artifactType": "instance", "artifactId": "urn:i", "conditionRules": {"c": 1}}\n')
+            records.flush()
+            message = io.StringIO()
+            with contextlib.redirect_stderr(message), self.assertRaises(SystemExit):
+                r.main(["--from-records", records.name, "--condition", "c", "--repair", "drop-undeclared-keys",
+                        "--apply", "--api-key-file", records.name])
+        self.assertIn("deletes entered values", message.getvalue())
+
+
+class TypeChoiceValueAsTextTest(unittest.TestCase):
+    def test_a_legacy_choice_field_types_its_value_as_text_at_every_depth(self):
+        legacy = legacy_template()
+        legacy["properties"]["Block"]["properties"]["Pick"] = field("list", ("@value",))
+        legacy["properties"]["Block"]["properties"]["Pick"]["properties"]["@value"] = {"type": ["array", "null"]}
+        legacy["properties"]["Choice"]["properties"]["@value"] = {"type": ["array", "null"]}
+        after, changes = r.type_choice_value_as_text(legacy)
+        self.assertEqual(after["properties"]["Choice"]["properties"]["@value"], {"type": ["string", "null"]})
+        self.assertEqual(after["properties"]["Block"]["properties"]["Pick"]["properties"]["@value"], {"type": ["string", "null"]})
+        self.assertEqual(len(changes), 2)
+        self.assertIsNone(r.only_typed_choice_values_as_text(legacy, after))
+        self.assertEqual(r.type_choice_value_as_text(after), (after, []))
+        changed = copy.deepcopy(after); changed["properties"]["Labelled"]["properties"]["@value"] = {"type": ["integer"]}
+        self.assertIsNotNone(r.only_typed_choice_values_as_text(legacy, changed))
+
+    def test_a_text_field_typed_as_a_list_is_not_a_choice_and_is_left(self):
+        legacy = legacy_template()
+        legacy["properties"]["Labelled"]["properties"]["@value"] = {"type": ["array", "null"]}
+        self.assertEqual(r.type_choice_value_as_text(legacy)[1], [{"path": "/properties/Choice/properties/@value/type",
+                                                                    "replaced": ["array", "null"], "wrote": ["string", "null"]}])
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]
