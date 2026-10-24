@@ -108,6 +108,18 @@ below have no CLI front end yet, so call them directly:
   this path. One JVM, `cedar_instance_roundtrip_bridge.java`, stays up for the pass. It re-reads
   every failed read at the end, because a share of reads fail as a socket timeout rather than an
   answer and asking again settles them. Streams one record per instance, resumes, never writes.
+- `cedar_snapshot.py` — the same GET-only walk over all four artifact types, keeping every body
+  exactly as the deployment served it in one zstd-compressed tar archive under
+  `$CEDAR_HOME/.cedar/snapshots/<deployment>/`, with `latest.tar.zst` linking to the newest. A test
+  that needs production data reads the archive offline, as a stream, through the module's `Snapshot`
+  class rather than fetching a cache of its own. Resumes an interrupted download, and verifies the
+  archive against the index it carries before keeping it.
+- `cedar_snapshot_read_audit.py` — read every artifact in a snapshot with `cedar-artifact-library`
+  and with `cedar-model-typescript-library`, and validate each with `cedar-model-validation-library`,
+  instances against their templates. A refusal of an artifact the validator accepts is a reader
+  defect; a refusal of one the validator rejects is the data's. Several bridges of each kind,
+  `cedar_snapshot_read_bridge.java` and `cedar_snapshot_read_bridge.cjs`, take a production snapshot
+  in minutes. Contacts no deployment.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data

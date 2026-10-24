@@ -162,7 +162,14 @@ class AuthenticationError(AuditError):
 
 
 class ResponseError(AuditError):
-    """A REST response could not be used."""
+    """A REST response could not be used.
+
+    ``status`` is the HTTP status the server answered with, and None when no answer arrived.
+    """
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -1444,6 +1451,19 @@ class GetOnlyClient:
 
         return self._get(path, query, accept, read)
 
+    def get_bytes(self, path: str, accept: str = "application/json",
+                  query: Optional[dict[str, Any]] = None) -> tuple[bytes, dict[str, str]]:
+        """The response body exactly as served, with the response headers.
+
+        Parsing a body loses what JSON leaves to the writer, such as a duplicated key or the
+        spelling of a number. A caller that keeps a deployment's data for later reading needs the
+        bytes themselves.
+        """
+        def read(response) -> tuple[bytes, dict[str, str]]:
+            return response.read(), {name.lower(): value for name, value in response.headers.items()}
+
+        return self._get(path, query, accept, read)
+
     def _get(self, path: str, query: Optional[dict[str, Any]], accept: str, read) -> Any:
         if not path.startswith("/"):
             raise ValueError("request path must start with /")
@@ -1483,7 +1503,7 @@ class GetOnlyClient:
                         wait = min(30.0, 2 ** attempt)
                     time.sleep(wait)
                     continue
-                raise ResponseError(f"GET {url} returned {error.code}: {body[:300]}") from None
+                raise ResponseError(f"GET {url} returned {error.code}: {body[:300]}", error.code) from None
             except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead, json.JSONDecodeError,
                     UnicodeDecodeError) as error:
                 if attempt < self.retries - 1:

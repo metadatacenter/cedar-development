@@ -5036,6 +5036,95 @@ one snapshot, so artifacts created or deleted while it runs no longer move a lat
 earlier one already returned; a changed total is then a fact about the deployment rather than about
 the walk.
 
+## Keeping a Snapshot of Production
+
+Each audit in this runbook reads production over the network, and each used to keep a cache of its
+own shape. `ops/cedar_snapshot.py` keeps one complete copy that any test can read offline: every
+template, element, field and instance the key can enumerate, each body exactly as the resource server
+served it. A re-encoded copy would lose duplicated keys and the spelling of numbers, which are among
+the defects these audits look for.
+
+```bash
+python3 ops/cedar_snapshot.py download
+python3 ops/cedar_snapshot.py list
+python3 ops/cedar_snapshot.py verify
+```
+
+`download` uses the REST audit's GET-only client and its `/search-deep` enumeration, so a snapshot is
+complete in the same qualified sense, for what the key can read. The key comes from `CEDAR_API_KEY`,
+`--api-key-file` or `~/.cedar-admin-key`. Each body goes into a staging database as it arrives, so an
+interrupted download continues with `--resume <staging directory>`. A read that gets no answer is
+asked again in up to two further passes. A definite answer, such as the 404 for a row the search
+index lists and the store no longer holds, is recorded once and kept in the index without a body.
+
+Reads are handed back as they complete rather than in enumeration order. The REST audit's ordered
+pool stops reading ahead while one read waits out its retries, and against production that held 24
+workers to 25 reads a second; the unordered pool reads about 80 a second with the same workers. On
+2026-10-24 enumeration took 46 minutes and reading 55, for 302,424 artifacts: 4,826 templates, 5,310
+elements, 141,699 fields and 150,589 instances. Ten rows answered 404, and nothing stayed unread.
+
+Snapshots live in `$CEDAR_HOME/.cedar/snapshots/production/`, readable only by their owner. Each run
+leaves `<UTC time>.tar.zst` and a `<UTC time>.json` sidecar that records the counts, the archive's
+digest and the tool's commit, and `latest.tar.zst` and `latest.json` link to the newest. The archive
+is a tar stream compressed with zstd at level 19 and a 128 MiB window, the largest a decoder accepts
+without being told to allow more, so a plain `zstd -d` opens it. The command skips a symbolic link
+unless given `-f`, so decompress the dated archive rather than `latest.tar.zst`. The archive begins with `manifest.json` and
+`index.jsonl`, which lists every enumerated artifact with its status, digest, ETag and member name,
+and continues with one member per body. Instances are ordered by the template they are based on,
+which places documents of one shape together. The 1.33 GB of bodies in the 2026-10-24 snapshot pack
+into 70 MB in 45 seconds. Stronger settings were measured on the same archive and gain little: level 22
+with a 2 GiB window saves a further 12% in seven times as long, and every reader then has to pass
+`--long=31`; `xz -9e` saves 4%.
+
+A test reads an archive as a stream, without extracting it:
+
+```python
+from cedar_snapshot import Snapshot
+for entry, body in Snapshot.latest("production").artifacts(types={"instance"}):
+    ...
+```
+
+### Reading Every Artifact with Both Libraries
+
+`ops/cedar_snapshot_read_audit.py` asks `cedar-artifact-library` and `cedar-model-typescript-library`
+to read every artifact in a snapshot, and asks `cedar-model-validation-library` to judge each one,
+instances against the template they name. A refusal of an artifact the validator rejects is the
+data's defect. A refusal of an artifact the validator accepts is a reader defect, and finding those
+is the purpose of the audit.
+
+```bash
+python3 ops/cedar_snapshot_read_audit.py \
+  --java-classpath <cedar-artifact-library>/target/cedar-artifact-library-<version>-jar-with-dependencies.jar \
+  --ts-library <cedar-model-typescript-library>/dist/index.js \
+  --out "$CEDAR_HOME/.cedar/audits/<date>-snapshot-read" \
+  --known <an earlier list of invalid artifacts, as JSONL>
+```
+
+Four Java bridges (`cedar_snapshot_read_bridge.java`) and four Node bridges
+(`cedar_snapshot_read_bridge.cjs`) receive each body as served. The Java bridge parses it once with
+`ArtifactSourceParser`, validates it, and reads it with `JsonArtifactReader`; templates reach it
+ahead of the instances based on them. The Node bridge reads with the strict readers, and again with
+the `FEBRUARY_2024` behavior whenever the strict readers refuse, because the embeddable editor opens
+stored templates with that behavior. A production snapshot takes under a minute. `records.jsonl`
+holds one verdict per artifact, and `summary.json` counts outcomes by type and groups refusals and
+validation failures by cause, with quoted values masked.
+
+The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `02aadf5`), found:
+
+- Every element and field reads in both libraries and validates.
+- The 3 templates damaged by the Decimal128 write defect are refused by both libraries. The Java
+  reader refuses no other template.
+- The strict TypeScript reader refuses 46 templates the validator accepts. Forty-two hold a nested
+  element whose `@context` allows URI-valued entries although the element has no attribute-value
+  child, a variation the library lists as known. Four leave their children out of `required`; they
+  are the templates the child-presence repair left blocked. Under `FEBRUARY_2024` all 46 read.
+- 36 instances are refused by one library or both. All of them are invalid, and all were on the
+  2026-09-24 list of invalid instances.
+- The validator rejects 2,681 instances, 562 of which were on that list. Most of the others fail the
+  value rules `cedar-model-validation-library` gained in `dbe0da5`, released in 2.9.25: dates that
+  are not `xsd:date`, IRI fields holding a literal, controlled-term labels without an IRI, and
+  malformed decimals. Both libraries read them.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
