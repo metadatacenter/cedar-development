@@ -5365,8 +5365,9 @@ re-aligned and one graph date moved back one second, each on the user's word. CE
 only the optional dates left empty, which it expects to carry `@type` and the library does not. In the
 FAIR-EuMon instance, `drop-text-beside-term` takes out a typed text standing beside a chosen term and
 differing from its label, under `--allow-value-deletion`, and `encode-link-spaces` writes the spaces
-inside a link's address as `%20`. The instance validates and CEE opens it with nothing to correct, but
-it is held for a one-second graph date gap. Records are under
+inside a link's address as `%20`. Its graph date was one second ahead, so it was written with
+`--replace-graph-provenance` on the user's word, and CEE opens it with nothing to correct. All thirteen
+instances CEE could not open now validate and open. Records are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-25-last-four/`.
 
 ## Validating Every Stored Artifact with the Library
