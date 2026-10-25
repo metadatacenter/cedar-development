@@ -525,7 +525,7 @@ gh api \
   --jq '.package.version'
 ```
 
-Pin that recorded version in both dependency surfaces and regenerate both locks with Node 24.22.0:
+Pin that recorded version in both dependency surfaces and regenerate both locks with Node 24.22.1:
 
 ```bash
 cd $CEDAR_HOME/cedar-embeddable-editor

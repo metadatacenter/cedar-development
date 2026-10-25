@@ -74,10 +74,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up Node 24.22.0
+      - name: Set up Node 24.22.1
         uses: actions/setup-node@v6
         with:
-          node-version: 24.22.0
+          node-version: 24.22.1
           cache: npm
           cache-dependency-path: CEDAR/cedar-monitoring/cedar-monitoring-src/package-lock.json
 

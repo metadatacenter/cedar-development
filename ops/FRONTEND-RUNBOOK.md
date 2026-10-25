@@ -544,6 +544,11 @@ successful package selection, restarts all native frontends, waits until each se
 everything the page loads through nginx, verifies their installed reactor packages, and runs the
 whole-stack smoke tiers.
 
+Deployment refreshes a live frontend's dependencies when they are absent or older than its
+lockfile, then installs the selected local reactor components. Isolated verification does not
+populate those live `node_modules` trees, so this also handles a first deployment without a
+separate npm command or approval. Unchanged installed dependencies are retained.
+
 A repository whose inputs match an earlier passing result is not verified again. Each passing
 repository leaves a record in `.reactor/results/`, keyed by source contents, exact commands,
 resolved CEDAR package bytes, integration bundles, Node/npm/platform, installed Playwright
@@ -1181,8 +1186,8 @@ is the source of truth for which.
 
 | What | Node | Why |
 |---|---|---|
-| Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.22.0** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
-| `cedar-model-typescript-library` | 24.22.0 | Uses the same Node version as CEE. |
+| Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.22.1** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
+| `cedar-model-typescript-library` | 24.22.1 | Uses the same Node version as CEE. |
 
 CEE and the model library use the same Node version for development, builds and tests.
 
@@ -1350,8 +1355,8 @@ bytes on every run — the redirection emptied the staged file before `cat` fail
 on the missing inputs. The CLI has no separate copy of the packaging rules now,
 so that class of drift cannot recur.
 
-Note that `cedarcli` builds CEE on whatever Node the login shell offers, which is
-not necessarily the 24.22.0 this repo declares.
+`cedarcli` selects the shared Node toolchain and verifies the actual interpreter against
+the repository requirement before installing or compiling. The current baseline is 24.22.1.
 
 `resolve-build-output.mjs` decides between two operations, and the difference is
 scope rather than filenames. Webpack wraps each chunk in an IIFE, so joining them
@@ -1660,14 +1665,30 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-A root `npm audit` reports **0**, and so does `npm run audit:prod`. It reported 11
-until `@angular-devkit/build-angular` was dropped — the webpack toolchain no build
-target had named since the move to `@angular/build` — which took every `high` with
-it, along with 427 packages. The three moderates that survived that, against
-`@angular/cli` and the two packages reached through it, `@hono/node-server` and
-`@modelcontextprotocol/sdk`, closed when the Angular toolchain moved to 22.1.8.
-Expect the root number to move again on the next disclosure; `npm run audit:prod`
-is the one that describes what ships.
+The supported frontend toolchain uses Node **24.22.1**, Angular CLI/build/CDK/Material
+**22.2.4**, and Angular core **22.2.3**. The Angular projects and CEE's domain harness
+explicitly override Vite to **8.3.4**: Angular's 22.2.4 builder still selects 8.3.0,
+which has development-server advisories affecting non-Windows hosts as well as Windows/WSL.
+The old Windows-only assessment is insufficient. Remove this temporary override only when
+Angular selects a patched Vite and the complete frontend gates pass without it.
+
+A full npm audit on 2026-10-24 reports zero findings in all 16 registered modern frontend
+locks and the E2E tooling lock, including development dependencies. The legacy Template
+Editor is separate from that result.
+
+This toolchain passed the full frontend reactor, all three framework consumer demos,
+local deployment, served-bundle verification and whole-stack smoke on 2026-10-24.
+The existing visual baselines, test skips and declared search-coverage gaps were unchanged.
+
+The security lock refresh selects `fast-uri` 3.1.9 throughout the modern frontend and
+E2E tooling, `body-parser` 2.4.0 in the Ember demo, and a patched Zod 4.6.x in the React
+demo. Review fresh audit details, including advisory identifiers and affected paths; a
+matching severity count does not prove that the same advisories were reviewed. After
+changing locks, run `cedarcli publish baselines --refresh` and review the resulting
+`ops/frontend-train.json` diff. This updates train evidence; it does not publish packages.
+
+The legacy Template Editor's npm tooling and vendored Bower assets need a separate
+assessment. An npm production-only audit does not cover those Bower assets.
 
 **Never run `npm audit fix --force` here.** npm's idea of fixing the Angular
 tooling is to walk it backwards: it proposed `@angular/cli@21.0.4` and
@@ -1738,7 +1759,7 @@ unimplemented there and every `newPage()` in the webkit-smoke project failed.
 Linux builds are current, so that constraint left with the runner. macOS runners
 cannot host a Linux container either way.
 
-**One Node version, 24.22.0, for the whole job.** It used to change midway —
+**One Node version, 24.22.1, for the whole job.** It used to change midway —
 build on 16.20.2, switch to 20.20.2, reinstall, then test the already-built
 `dist` — because Angular 14's toolchain and the Playwright the suite needs did
 not accept the same version. Angular 15 onwards do, so the split went at that
@@ -2417,7 +2438,7 @@ every kind, and a new code belongs in it.
 ### Troubleshooting
 
 **`ng` refuses to run, or `npm install` fails with engine errors**
-Check your Node version first — CEE is on 24.22.0 throughout, and a version
+Check your Node version first — CEE is on 24.22.1 throughout, and a version
 outside Angular 22's range fails in ways that look like something else.
 
 **Harness: `SyntaxError: Invalid or unexpected token` pointing at line 1 of a
@@ -2491,7 +2512,7 @@ Those assert what CEE *does*, deliberately. [FRONTEND-ROADMAP.md](./FRONTEND-ROA
 CEE consumes `@org.metadatacenter/cedar-model-typescript-library` as a published
 package, so this is only needed when working on the library itself.
 
-The library builds on **Node 24.22.0**, the same version CEE uses: `.nvmrc` names
+The library builds on **Node 24.22.1**, the same version CEE uses: `.nvmrc` names
 it, `engines` declares `^24.15.0`, and CI pins it. It sat on Node 20 until
 2026-08-16 — declared `>=20.19.0`, CI pinned 20.20.2, and the runbook called the
 split deliberate on the grounds that the library is a separate build with its own
@@ -2705,7 +2726,7 @@ seam where that met a component at CEE's 14px showed.
 
 ### Requirements
 
-Node 24.22.0, which `.nvmrc` pins and CI runs — the same version CEE and
+Node 24.22.1, which `.nvmrc` pins and CI runs — the same version CEE and
 `cedar-embeddable-term-picker` use. Nothing here needs Java or a running CEDAR stack, except
 controlled-term search, which needs a terminology server.
 
