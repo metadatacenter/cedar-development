@@ -5152,6 +5152,20 @@ dependencies. The snapshot holds the same 302,424 artifacts. It found:
   all of them and shows each a blocking error, so their owners can correct and save them. Eighteen
   are still refused by one library or both.
 
+Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
+`@context` open to further IRIs without an attribute-value child, and one held an element closed
+that has one. Both writers render the `@context` open exactly when the container has an
+attribute-value child, and the strict reader compares against that rendering. `settle-context-openness`
+sets each container's openness from its children, moving only between `false` and
+`{"type": "string", "format": "uri"}`. Every instance of the 42 templates was validated against
+each template before and after. 32 templates broke none of their instances, and were written with
+their dates unchanged; the strict reader now reads them. The other 10 were held. Their root
+`@context` and body are both open, and 61 of their instances, all valid, hold values under keys the
+template no longer declares, mapped in the root `@context`. They look like answers to an
+attribute-value field the template has since dropped, and closing the template would make the 61
+invalid, so they are left for their owners. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-context-openness/`.
+
 ### Repairing Instance Values the 2.9.25 Rules Refuse
 
 `cedar-model-validation-library` `dbe0da5` (release 2.9.25) added rules about the values an instance

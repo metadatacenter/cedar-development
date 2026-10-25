@@ -7104,6 +7104,61 @@ def only_allowed_term_notations(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# What a template's or element's @context schema says of entries it does not name: an attribute-value
+# child adds an entry per attribute its instance holds, so a container with one admits further IRIs and
+# a container without one admits none. Both libraries' writers render exactly these two forms.
+OPEN_CONTEXT = {"type": "string", "format": "uri"}
+
+
+def has_attribute_value_child(container: Any) -> bool:
+    return any((child.get("_ui") or {}).get("inputType") == "attribute-value"
+               for _name, child, _multiple in container_children(container))
+
+
+def settle_context_openness(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make each container's ``@context`` admit further IRIs exactly when it has an attribute-value child.
+
+    A template or element that once held an attribute-value field and lost it keeps an ``@context``
+    open to entries no child can now add, and one that gained a field the other way keeps it closed.
+    The validator accepts either, but the strict TypeScript reader compares the schema with the one its
+    writer renders from the children and refuses the artifact. Only the two canonical forms are
+    exchanged; any other ``additionalProperties`` is left for an owner.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+
+    def settle(container: dict, path: str) -> None:
+        context = (container.get("properties") or {}).get("@context")
+        if isinstance(context, dict) and "additionalProperties" in context:
+            stated = context["additionalProperties"]
+            wanted = copy.deepcopy(OPEN_CONTEXT) if has_attribute_value_child(container) else False
+            if (stated is False or stated == OPEN_CONTEXT) and not json_equal(stated, wanted):
+                context["additionalProperties"] = wanted
+                changes.append({"path": f"{path}/properties/@context/additionalProperties",
+                                "replaced": stated, "wrote": wanted})
+        for name, child, multiple in container_children(container):
+            if is_element(child):
+                settle(child, f"{path}/properties/{rest.json_pointer_component(name)}{'/items' if multiple else ''}")
+
+    settle(result, "")
+    return result, changes
+
+
+def only_settled_context_openness(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the result is exactly each container's @context openness settled by its children."""
+    expected, _changes = settle_context_openness(before)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/properties/@context/additionalProperties") \
+                or not (was is False or json_equal(was, OPEN_CONTEXT)) \
+                or not (now is False or json_equal(now, OPEN_CONTEXT)):
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
 USER_KEYS = ("pav:createdBy", "oslc:modifiedBy")
 
 
@@ -9335,6 +9390,13 @@ REPAIRS = {
         transform=drop_term_field_text,
         invariant=only_dropped_term_field_text,
         needs_template=True,
+    ),
+    "settle-context-openness": Repair(
+        name="settle-context-openness",
+        condition="",
+        summary="make each container's @context admit further IRIs exactly when it has an attribute-value child",
+        transform=settle_context_openness,
+        invariant=only_settled_context_openness,
     ),
     "write-date-at-midnight": Repair(
         name="write-date-at-midnight",

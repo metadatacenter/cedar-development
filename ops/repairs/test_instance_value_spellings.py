@@ -453,6 +453,41 @@ class AllowTermNotationTest(unittest.TestCase):
         self.assertEqual(r.only_allowed_term_notations(document, changed), "/properties/Page/properties/skos:notation")
 
 
+class ContextOpennessTest(unittest.TestCase):
+    def document(self, sample_context, with_attribute_value=False):
+        document = template()
+        document["properties"]["@context"] = {"type": "object", "properties": {}, "additionalProperties": False}
+        sample = document["properties"]["Sample"]
+        sample["properties"]["@context"] = {"type": "object", "properties": {}, "additionalProperties": sample_context}
+        if with_attribute_value:
+            sample["properties"]["Extra"] = {"type": "array", "items": field("attribute-value", (), ("@value", "@type"))}
+        return document
+
+    def test_an_element_without_an_attribute_value_child_closes_its_context(self):
+        before = self.document(copy.deepcopy(r.OPEN_CONTEXT))
+        after, changes = r.settle_context_openness(before)
+        self.assertIs(after["properties"]["Sample"]["properties"]["@context"]["additionalProperties"], False)
+        self.assertIs(after["properties"]["@context"]["additionalProperties"], False)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Sample/properties/@context/additionalProperties"])
+        self.assertIsNone(r.only_settled_context_openness(before, after))
+
+    def test_an_element_with_an_attribute_value_child_opens_its_context(self):
+        before = self.document(False, with_attribute_value=True)
+        after, changes = r.settle_context_openness(before)
+        self.assertEqual(after["properties"]["Sample"]["properties"]["@context"]["additionalProperties"], r.OPEN_CONTEXT)
+        self.assertEqual(len(changes), 1)
+        self.assertIsNone(r.only_settled_context_openness(before, after))
+
+    def test_a_settled_or_unrecognised_context_is_left_and_tampering_is_caught(self):
+        for settled in (self.document(False), self.document(copy.deepcopy(r.OPEN_CONTEXT), with_attribute_value=True),
+                        self.document({"type": "string"})):
+            self.assertEqual(r.settle_context_openness(settled)[1], [])
+        before = self.document(copy.deepcopy(r.OPEN_CONTEXT))
+        tampered, _changes = r.settle_context_openness(before)
+        tampered["properties"]["@context"]["additionalProperties"] = copy.deepcopy(r.OPEN_CONTEXT)
+        self.assertEqual(r.only_settled_context_openness(before, tampered), "/properties/@context/additionalProperties")
+
+
 class ShadowedContextAndCreatorTest(unittest.TestCase):
     def tearDown(self):
         r.CREATORS.clear()
