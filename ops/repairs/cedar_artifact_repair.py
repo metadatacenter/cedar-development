@@ -4780,6 +4780,37 @@ def only_dropped_shadowed_context(before: Any, after: Any, template: Any) -> Opt
     return None
 
 
+def drop_minted_annotation_id(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of an instance's ``_annotations`` the element-occurrence identifier the server minted there.
+
+    Until cedar-config-library bea2911 (2024-08-27), ``LinkedDataUtil.addElementInstanceIds`` took
+    every object holding neither ``@value`` nor ``@id`` for an element occurrence and gave it a new
+    ``template-element-instances/`` identifier. ``_annotations`` is such an object once a DataCite DOI
+    annotation is attached, so an instance saved then carries an ``@id`` among its annotations. An
+    annotation's value must be an object, so both libraries and CEE refuse to read the instance at
+    all. The identifier names nothing and was entered by no one; any other ``@id`` is left alone.
+    """
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(instance)
+    annotations = result.get("_annotations")
+    if not isinstance(annotations, dict):
+        return result, []
+    minted = annotations.get("@id")
+    if not (isinstance(minted, str) and MINTED_OCCURRENCE.fullmatch(minted)):
+        return result, []
+    del annotations["@id"]
+    return result, [{"path": "/_annotations/@id", "replaced": minted, "wrote": None}]
+
+
+def only_dropped_minted_annotation_id(before: Any, after: Any) -> Optional[str]:
+    for path, was, now in differences(before, after):
+        if path != "/_annotations/@id" or not (isinstance(was, str) and MINTED_OCCURRENCE.fullmatch(was)) \
+                or now is not ABSENT:
+            return path or "/"
+    return None
+
+
 # The creator each artifact's graph node records, keyed by artifact IRI, as its /details answer states
 # it. Supplied through --creators: a document that names no creator says nothing the graph does not
 # already know, and the graph's answer is the fact rather than an inference from the last modifier.
@@ -9027,6 +9058,13 @@ REPAIRS = {
         summary="write a legacy .net modifier IRI in the current form the graph already holds",
         transform=restate_modifier_in_current_form,
         invariant=only_restated_modifier,
+    ),
+    "drop-minted-annotation-id": Repair(
+        name="drop-minted-annotation-id",
+        condition="",
+        summary="take out of _annotations the element-occurrence @id the server minted there before 2024-08-27",
+        transform=drop_minted_annotation_id,
+        invariant=only_dropped_minted_annotation_id,
     ),
     "drop-null-instance-type": Repair(
         name="drop-null-instance-type",

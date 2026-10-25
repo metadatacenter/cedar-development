@@ -188,6 +188,24 @@ class WriteSafetyTest(unittest.TestCase):
         allowed = self.run_repair(body=stored, allow_fractional_numbers=True)
         self.assertEqual((allowed['outcome'], allowed['verified']), ('repaired', True))
 
+    def test_the_minted_annotation_identifier_alone_is_dropped(self):
+        minted = 'https://repo.metadatacenter.org/template-element-instances/9d1e2f3a-0000-4000-8000-000000000001'
+        doi = {'@id': 'https://doi.org/10.1234/x'}
+        before = {'@id': 'urn:i', '_annotations': {'@id': minted, 'https://datacite.com/doi': doi}}
+        after, changes = r.drop_minted_annotation_id(before)
+        self.assertEqual(after['_annotations'], {'https://datacite.com/doi': doi})
+        self.assertEqual(changes, [{'path': '/_annotations/@id', 'replaced': minted, 'wrote': None}])
+        self.assertIsNone(r.only_dropped_minted_annotation_id(before, after))
+        self.assertEqual(after['@id'], 'urn:i')
+
+        other = {'_annotations': {'@id': 'https://example.org/chosen'}}
+        self.assertEqual(r.drop_minted_annotation_id(other), (other, []))
+        self.assertEqual(r.drop_minted_annotation_id({'@id': 'urn:i'})[1], [])
+        tampered = copy.deepcopy(after)
+        tampered['_annotations']['https://datacite.com/doi'] = {}
+        self.assertEqual(r.only_dropped_minted_annotation_id(before, tampered),
+                         '/_annotations/https:~1~1datacite.com~1doi/@id')
+
     def test_fractional_numbers_are_the_parser_floats(self):
         found = list(r.fractional_numbers(json.loads('{"a": 1, "b": 1.0, "c": [2e3, true], "d/e": 0.5}')))
         self.assertEqual(found, [('/b', 1.0), ('/c/0', 2000.0), ('/d~1e', 0.5)])

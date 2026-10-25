@@ -5299,6 +5299,22 @@ unless `--allow-fractional-numbers` is given, which is meant for a deployment ca
 more element was held that way. Records are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-24-term-notation-corpus/`.
 
+Thirteen invalid instances could not be opened in CEE at all, and neither library read them. Seven
+were saved in June and July 2024 with a DataCite DOI annotation. Until cedar-config-library `bea2911`
+(2024-08-27), `LinkedDataUtil.addElementInstanceIds` took every object holding neither `@value` nor
+`@id` for an element occurrence and minted an identifier into it, and `_annotations` is such an
+object once a DOI annotation is attached. An annotation's value must be an object, so the stray `@id`
+made each instance unreadable. `drop-minted-annotation-id` removes it. Production refuses an invalid
+instance even on a verbatim PUT, with `invalidData`, and refuses a verbatim write that holds an
+element occurrence with a null `@id`, with `verbatimWriteRefused`; an instance therefore becomes
+openable only by becoming valid. Two of the seven did, with `restate-instance-literal` writing their
+integers in text fields as the same numbers in text. Both were written on the user's word with
+`--replace-graph-provenance`, since their graph dates were one second ahead, and CEE now opens them
+with nothing to correct. The other eleven keep values only an owner can settle: dateTime fields
+holding no dateTime, missing required properties, two `@type` classes on one value, a field holding
+both a term and a text value, and values under keys their templates no longer declare. Records are
+under `$CEDAR_HOME/.cedar/repairs/2026-10-25-cee-unopenable/`.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
