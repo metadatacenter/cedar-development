@@ -5184,31 +5184,30 @@ property, as Java judges it. The missing-property finding's message no longer re
 `[object Object]`. Thirteen further probes cover these rules, each patching a corpus case's template
 as well as its instance.
 
-The model keeps a null `rdfs:label`, `skos:notation`, `skos:prefLabel` or `@language` as no value and
-writes nothing for it, so a slot written from the model cannot show whether the stored slot carried
-the key. A schema that requires one of them is therefore not held against a written slot. Two
-production instances hold a required label as null, which Java accepts. The cost is the reverse case.
-A slot that leaves out a label its schema requires reads the same, and Java refuses it while
-TypeScript would save it. Production holds none, and the corpus probe
-`cee-suite/017#label-absent-required` is listed as an open defect so that the gap stays visible.
+The model keeps a null `rdfs:label`, `skos:notation`, `skos:prefLabel` or `@language` as no value, and
+both libraries' writers leave it out, as eleven probes confirm. The reader records which of them each
+value held as null, and the validator judges the value as stored. A field that requires one is then
+satisfied by a stored null and refused where the key is missing, as Java judges it.
 
 After that round, four instances of two templates went the other way. Java refused them for their
 `@context`, which TypeScript did not compare with the template's, and earlier refusals had hidden
-them. Where the stored template is given, `InstanceValidator` now judges each container's property
-IRIs against its stored `@context` schema. A declared key must map to the IRI the template gives it,
-an undeclared one must be admitted by `additionalProperties`, and every required key must be there.
-The model keeps those IRIs as stored, but it writes the standard prefixes and term definitions
-itself, so those are not judged. Judging the written ones would refuse instances of older templates
-that declare fewer prefixes. The cost is that a stored instance whose only fault is a missing prefix
-is refused by Java and accepted here. Saving it writes the prefix, and production holds none. The
-corpus probe `cee-suite/021#context-prefix-missing` is listed as an open defect for it, beside
-`cee-suite/017#label-absent-required` and case `cee-suite/046`, which lists an object in an
-attribute-value field.
+them. Where the stored template is given, `InstanceValidator` now judges each container's `@context`
+against its stored `@context` schema. A declared key must take a value the template admits, an
+undeclared one must be admitted by `additionalProperties`, and every required key must be there. The
+model keeps the child mappings as stored. The standard prefixes and term definitions are the
+writer's, the same for every instance, and the reader records the stored ones on each container, so
+those are judged as stored too, and a missing or misstated prefix is refused as Java refuses it. No
+production template refuses the standard terms the writer gives an instance.
 
-CEE writes an instance through `InstanceInflater`, which maps every child to the template's property
-IRI, so a missing or wrong child mapping is repaired by its save. It passes `childIrisFromTemplate`,
-and its Save is held only to the terms the save keeps, such as one the template does not declare.
-The gates leave the option unset and judge the stored document.
+An attribute-value field's list holds attribute names alone, and an entry holding a value is
+refused. Corpus case `cee-suite/046` lists `{"@value": null}` there, which Java refuses too.
+
+CEE saves through `InstanceInflater` and the library's JSON writer. The write maps every child to the
+template's property IRI, gives the root the standard terms and leaves out a null optional property,
+so the save settles a missing or wrong child mapping and a missing prefix. CEE passes `asWritten`,
+and its Save is held to the document that write produces, including any term the template does not
+declare, which the write keeps. The gates leave the option unset and judge the stored document. The
+corpus gate lists no open defect.
 
 Corpus case `cee-suite/016`, which maps a field to a property IRI its template does not name, already
 agreed before the check: its template requires a key that differs from its child's name only in
@@ -5243,6 +5242,19 @@ Every write was read back and every artifact rechecks as valid. Provenance, vers
 graph dates are unchanged. Each template and element differs from its pre-image only in `required`,
 and each instance only in the null labels removed. Both instances now validate as the editor saves
 them.
+
+The same 2017 demand sat on IRI fields, where an unanswered value is `{}` and a label cannot be
+asked of it. Both libraries write no `required` for an IRI field. `drop-iri-label-demand` removes an
+IRI field's `required` where it demands `rdfs:label`, together with any `@id` demand beside it, which
+would refuse `{}` as well. `drop-mixed-field-label-demand` takes only the label out of a field that
+declares both `@value` and `@id`, since nothing says which shape such a field holds. On 2026-10-25
+they removed the 32 label demands in 19 templates and 1 element: 28 IRI-field lists went altogether,
+15 of them demanding `@id` too, and 4 mixed fields lost the label alone. All 20 were read back and
+recheck as valid, each differs from its pre-image only in `required`, and their 12 instances
+validate. Seven IRI fields in the same artifacts demanded `@id` alone, which also refuses `{}`, and
+`canonicalise-iri-field-required` removed those lists the same day, from 4 templates and the element.
+All 5 were read back, recheck as valid, and differ from their pre-images only in `required`; none of
+the 4 templates has an instance.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed

@@ -307,6 +307,36 @@ class LegacyShapeTest(unittest.TestCase):
         self.assertEqual(r.only_dropped_literal_label_demands(before, overreach), "/properties/Labelled/required")
         self.assertEqual(r.drop_literal_label_demand(after), (after, []))
 
+    def test_an_iri_field_stops_demanding_a_label_and_one_demanding_only_its_iri_is_left(self):
+        labelled = field("textfield", ("@id", "rdfs:label"), IRI_PROPERTIES)
+        bare = field("textfield", ("rdfs:label",), IRI_PROPERTIES)
+        identified = field("link", ("@id",), IRI_PROPERTIES)
+        before = {"@id": TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+            "Labelled": labelled, "Bare": bare, "Identified": identified}}
+        after, changes = r.drop_iri_label_demand(before)
+        self.assertNotIn("required", after["properties"]["Labelled"])
+        self.assertNotIn("required", after["properties"]["Bare"])
+        self.assertEqual(after["properties"]["Identified"], identified)
+        self.assertEqual(len(changes), 2)
+        self.assertIsNone(r.only_dropped_iri_label_demands(before, after))
+        overreach, _ = r.canonicalise_iri_field_required(before)
+        self.assertEqual(r.only_dropped_iri_label_demands(before, overreach), "/properties/Identified/required")
+
+    def test_a_field_declaring_both_shapes_stops_demanding_a_label_and_keeps_its_other_demands(self):
+        mixed = field("textfield", ("@id", "rdfs:label"), ("@id", "@value", "rdfs:label"))
+        alone = field("textfield", ("rdfs:label",), ("@id", "@value", "rdfs:label"))
+        before = {"@id": TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE, "properties": {
+            "Mixed": mixed, "Alone": alone, "Labelled": legacy_template()["properties"]["Labelled"]}}
+        after, changes = r.drop_mixed_field_label_demand(before)
+        self.assertEqual(after["properties"]["Mixed"]["required"], ["@id"])
+        self.assertNotIn("required", after["properties"]["Alone"])
+        self.assertEqual(after["properties"]["Labelled"], before["properties"]["Labelled"])
+        self.assertEqual(len(changes), 2)
+        self.assertIsNone(r.only_dropped_mixed_field_label_demands(before, after))
+        emptied = copy.deepcopy(after)
+        emptied["properties"]["Alone"]["required"] = []
+        self.assertEqual(r.only_dropped_mixed_field_label_demands(before, emptied), "/properties/Alone/required")
+
     def test_a_null_label_leaves_a_literal_once_its_field_stops_demanding_one(self):
         loosened, _ = r.drop_literal_label_demand(legacy_template())
         before = instance(Labelled={"@value": None, "rdfs:label": None})

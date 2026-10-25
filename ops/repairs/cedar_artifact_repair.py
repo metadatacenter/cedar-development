@@ -6523,15 +6523,16 @@ def literal_field(definition: Any) -> bool:
     return isinstance(properties, dict) and "@value" in properties and "@id" not in properties
 
 
-def drop_literal_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
-    """Take ``rdfs:label`` out of the keys a literal field's value must carry.
+def mixed_field(definition: Any) -> bool:
+    """Whether a field schema declares both ``@value`` and ``@id``, so that nothing says which it holds."""
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    return isinstance(properties, dict) and "@value" in properties and "@id" in properties
 
-    A literal value has no label. Templates of 2017 listed ``rdfs:label`` among the keys every value
-    of a text or number field must carry anyway, and no writer produces one: an instance satisfies
-    the demand only by holding the label as null, which ``complete-required-label`` stated, and a
-    save through either library's model drops it again. The property stays declared, as both
-    libraries declare it; only the demand goes. Every change relaxes a field, so nothing that
-    validates today stops doing so.
+
+def drop_label_demand(artifact: Any, applies: Callable[[Any], bool]) -> tuple[Any, list[dict[str, Any]]]:
+    """Take ``rdfs:label`` out of the ``required`` of every field schema ``applies`` picks.
+
+    A list left empty goes altogether, since JSON Schema draft 4 admits no empty ``required``.
     """
     if not isinstance(artifact, dict):
         raise TransformRefused("artifact is not a JSON object")
@@ -6545,10 +6546,11 @@ def drop_literal_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]
         result = {}
         for name, value in node.items():
             here = f"{path}/{rest.json_pointer_component(name)}"
-            if name == REQUIRED_KEY and literal_field(node) and isinstance(value, list) and "rdfs:label" in value:
+            if name == REQUIRED_KEY and applies(node) and isinstance(value, list) and "rdfs:label" in value:
                 wanted = [key for key in value if key != "rdfs:label"]
-                changes.append({"path": here, "replaced": list(value), "wrote": wanted})
-                result[name] = wanted
+                changes.append({"path": here, "replaced": list(value), "wrote": wanted or None})
+                if wanted:
+                    result[name] = wanted
                 continue
             result[name] = walk(value, here)
         return result
@@ -6556,14 +6558,89 @@ def drop_literal_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]
     return walk(artifact, ""), changes
 
 
+def only_dropped_label_demands(before: Any, after: Any, applies: Callable[[Any], bool]) -> Optional[str]:
+    """The invariant: every change is a picked field's ``required`` losing ``rdfs:label``, and only that."""
+    for path, was, now in differences(before, after):
+        if not path.endswith(f"/{REQUIRED_KEY}") or not isinstance(was, list) or "rdfs:label" not in was:
+            return path or "/"
+        if not applies(value_at(before, path[: -len(f"/{REQUIRED_KEY}")])):
+            return path
+        wanted = [key for key in was if key != "rdfs:label"]
+        # A list left empty goes altogether, so the only removal is of a list holding the label alone.
+        if (now is ABSENT) != (not wanted) or (now is not ABSENT and now != wanted):
+            return path
+    return None
+
+
+def drop_literal_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take ``rdfs:label`` out of the keys a literal field's value must carry.
+
+    A literal value has no label. Templates of 2017 listed ``rdfs:label`` among the keys every value
+    of a text or number field must carry anyway, and no writer produces one: an instance satisfies
+    the demand only by holding the label as null, which ``complete-required-label`` stated, and a
+    save through either library's model drops it again. The property stays declared, as both
+    libraries declare it; only the demand goes. Every change relaxes a field, so nothing that
+    validates today stops doing so.
+    """
+    return drop_label_demand(artifact, literal_field)
+
+
 def only_dropped_literal_label_demands(before: Any, after: Any) -> Optional[str]:
     """The invariant: every change is a literal field's ``required`` losing ``rdfs:label`` and nothing else."""
-    for path, was, now in differences(before, after):
-        if not path.endswith(f"/{REQUIRED_KEY}") or not isinstance(was, list) or not isinstance(now, list):
-            return path or "/"
-        if not literal_field(value_at(before, path[: -len(f"/{REQUIRED_KEY}")])):
-            return path
-        if now != [key for key in was if key != "rdfs:label"]:
+    return only_dropped_label_demands(before, after, literal_field)
+
+
+def drop_mixed_field_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take ``rdfs:label`` out of the keys a field declaring both ``@value`` and ``@id`` demands.
+
+    Such a field says neither which shape its value takes nor what either library would write for
+    it, so ``canonicalise-iri-field-required`` leaves it alone. Its demand on a label is the same
+    2017 demand as a literal field's, though, and it goes the same way; any other demand stays.
+    """
+    return drop_label_demand(artifact, mixed_field)
+
+
+def only_dropped_mixed_field_label_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a mixed field's ``required`` losing ``rdfs:label`` and nothing else."""
+    return only_dropped_label_demands(before, after, mixed_field)
+
+
+def drop_iri_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove the ``required`` of an IRI field that demands ``rdfs:label``.
+
+    An unanswered IRI field is ``{}``, and a list demanding a label refuses it, as does one demanding
+    ``@id`` beside the label. Both libraries write no ``required`` for an IRI field, so the list goes
+    altogether, as ``canonicalise-iri-field-required`` would remove it; this rule reaches only the
+    lists that demand a label.
+    """
+    stripped, changes = canonicalise_iri_field_required(artifact)
+    kept = [change for change in changes if "rdfs:label" in (change.get("replaced") or [])]
+    if len(kept) == len(changes):
+        return stripped, changes
+    undone = {change["path"] for change in changes} - {change["path"] for change in kept}
+
+    def restore(node: Any, original: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [restore(item, original[index], f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {name: restore(value, original[name], f"{path}/{rest.json_pointer_component(name)}")
+                  for name, value in node.items()}
+        here = f"{path}/{REQUIRED_KEY}"
+        if here in undone:
+            result = {name: (result[name] if name in result else original[name]) for name in original}
+        return result
+
+    return restore(stripped, artifact, ""), kept
+
+
+def only_dropped_iri_label_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change removes an IRI field's ``required`` that demanded ``rdfs:label``."""
+    fault = only_canonicalised_iri_field_required(before, after)
+    if fault is not None:
+        return fault
+    for path, was, _now in differences(before, after):
+        if "rdfs:label" not in was:
             return path
     return None
 
@@ -9421,6 +9498,20 @@ REPAIRS = {
         summary="take rdfs:label out of the keys a literal field's value must carry",
         transform=drop_literal_label_demand,
         invariant=only_dropped_literal_label_demands,
+    ),
+    "drop-iri-label-demand": Repair(
+        name="drop-iri-label-demand",
+        condition="",
+        summary="remove the required of an IRI field that demands rdfs:label, so an unanswered {} is accepted",
+        transform=drop_iri_label_demand,
+        invariant=only_dropped_iri_label_demands,
+    ),
+    "drop-mixed-field-label-demand": Repair(
+        name="drop-mixed-field-label-demand",
+        condition="",
+        summary="take rdfs:label out of the keys a field declaring both @value and @id demands",
+        transform=drop_mixed_field_label_demand,
+        invariant=only_dropped_mixed_field_label_demands,
     ),
     "drop-null-literal-label": Repair(
         name="drop-null-literal-label",
