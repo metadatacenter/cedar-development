@@ -532,8 +532,28 @@ class TermFieldDeletionsTest(unittest.TestCase):
         self.assertEqual(r.drop_unlisted_term_class(unlisted, self.classed_template(required=("@type",))), (unlisted, []))
         self.assertEqual(r.drop_unlisted_term_class(instance(Term={"@id": "http://t/1", "@type": "http://c/X"}), template())[1], [])
 
+    def test_a_stamped_list_of_classes_is_dropped_from_term_and_text_values(self):
+        stamped = ["http://purl.bioontology.org/ontology/LNC/LA17713-1", "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#C3671"]
+        before = instance(Term={"@id": "http://t/burn", "@type": stamped, "rdfs:label": "Burn"},
+                          Note={"@value": "Ada", "@type": stamped})
+        after, changes = r.drop_stamped_class_list(before, template())
+        self.assertEqual(after["Term"], {"@id": "http://t/burn", "rdfs:label": "Burn"})
+        self.assertEqual(after["Note"], {"@value": "Ada"})
+        self.assertEqual(sorted(c["path"] for c in changes), ["/Note/@type", "/Term/@type"])
+        self.assertIsNone(r.only_dropped_stamped_class_lists(before, after, template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+
+    def test_a_single_type_or_a_list_naming_a_datatype_is_left(self):
+        for stated in ("http://c/Animals", ["http://c/Animals"], ["xsd:string", "http://c/Animals"],
+                       ["http://www.w3.org/2001/XMLSchema#date", "http://c/Day"], ["http://c/A", "not an iri"]):
+            with self.subTest(stated=stated):
+                before = instance(Term={"@id": "http://t/1", "@type": stated})
+                self.assertEqual(r.drop_stamped_class_list(before, template()), (before, []))
+        before = instance(Term={"@id": "http://t/1", "@type": ["http://c/A", "http://c/B"]})
+        self.assertEqual(r.only_dropped_stamped_class_lists(before, dict(before, Term={}), template()), "/Term/@id")
+
     def test_both_deletions_need_the_value_deletion_approval_and_a_scope(self):
-        for name in ("drop-term-field-text", "drop-unlisted-term-class"):
+        for name in ("drop-term-field-text", "drop-unlisted-term-class", "drop-stamped-class-list"):
             with self.subTest(name=name):
                 self.assertIn(name, r.VALUE_DELETING_REPAIRS)
                 with self.assertRaises(SystemExit):

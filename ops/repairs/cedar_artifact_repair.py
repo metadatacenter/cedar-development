@@ -6644,6 +6644,53 @@ def only_dropped_unlisted_term_classes(before: Any, after: Any, template: Any) -
     return None
 
 
+DATATYPE_PREFIXES = ("http://www.w3.org/2001/XMLSchema#", "xsd:")
+
+
+def is_stamped_class_list(stated: Any) -> bool:
+    """Whether a value's ``@type`` is a list of two or more classes, none of them a datatype."""
+    return isinstance(stated, list) and len(stated) > 1 and all(
+        isinstance(item, str) and rest.is_absolute_iri(item) and not item.startswith(DATATYPE_PREFIXES)
+        for item in stated)
+
+
+def drop_stamped_class_list(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of a field value the list of classes the 2017 editor stamped as its ``@type``.
+
+    Early in 2017 a template author could type a field with ontology classes, and the template editor
+    then wrote every one of them into the ``@type`` of each value it saved. A value takes one ``@type``
+    in the model, so both libraries and CEE refuse the instance whole. The classes say what the
+    template said about the field rather than anything chosen for this value, and the template keeps
+    whatever it still lists. A single ``@type``, or a list naming a datatype, is left alone. The
+    removal still deletes what the editor wrote, so it runs only with ``--allow-value-deletion`` and
+    an explicit ``--only-ids`` scope.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or not is_stamped_class_list(value.get("@type")):
+            return value
+        changes.append({"path": f"{path}/@type", "replaced": value["@type"], "wrote": None})
+        return {key: inner for key, inner in value.items() if key != "@type"}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_stamped_class_lists(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of stamped class lists."""
+    expected, _changes = drop_stamped_class_list(before, template)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@type") or not is_stamped_class_list(was) or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
 def drop_null_instance_type(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Remove an instance's root ``@type`` stated as null, which says no type and is not JSON-LD."""
     if not isinstance(instance, dict):
@@ -8959,7 +9006,8 @@ def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[
 
 # The repairs that delete something a person entered, and so apply only under --allow-value-deletion
 # with an explicit --only-ids scope.
-VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class"}
+VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class",
+                          "drop-stamped-class-list"}
 
 REPAIRS = {
     "remove-reviewed-extra-schema-context": Repair(
@@ -9160,6 +9208,14 @@ REPAIRS = {
         summary="empty a term field holding only typed text, deleting the text",
         transform=drop_term_field_text,
         invariant=only_dropped_term_field_text,
+        needs_template=True,
+    ),
+    "drop-stamped-class-list": Repair(
+        name="drop-stamped-class-list",
+        condition="",
+        summary="take out of a field value the list of classes the 2017 editor stamped as its @type",
+        transform=drop_stamped_class_list,
+        invariant=only_dropped_stamped_class_lists,
         needs_template=True,
     ),
     "drop-unlisted-term-class": Repair(
@@ -10250,8 +10306,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-context-migration", action="store_true",
                         help="approve property-IRI migration for the explicit --only-ids scope")
     parser.add_argument("--allow-value-deletion", action="store_true",
-                        help="approve drop-undeclared-keys, drop-term-field-text and drop-unlisted-term-class "
-                             "deleting entered values, for the explicit --only-ids scope")
+                        help="approve the repairs that delete what was entered (drop-undeclared-keys, "
+                             "drop-term-field-text, drop-unlisted-term-class, drop-stamped-class-list), for "
+                             "the explicit --only-ids scope")
     parser.add_argument("--replace-graph-provenance", action="store_true",
                         help="write the explicit --only-ids scope even where the graph's modification "
                              "provenance differs from the document's, which the write replaces")

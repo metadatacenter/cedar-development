@@ -5328,6 +5328,16 @@ Migrant-Interviews instance, with `City` and the typed text removed, had its gra
 ahead, so it was written with `--replace-graph-provenance` on the user's word; CEE opens it with
 nothing to correct. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-last-two-unopenable/`.
 
+Four 2017 instances carried a list of two ontology classes as one value's `@type`. Early in 2017 a
+template author could type a field with classes, and the editor stamped all of them into every value
+it saved; the model now gives a value one `@type`, so both libraries and CEE refused the instances.
+`drop-stamped-class-list` takes such a list out, leaving the value's term or text, and runs under
+`--allow-value-deletion` like the other deletions. Two instances of New RDA Demonstration Data Source
+Test were written with their dates unchanged, and CEE opens both; one still shows an empty term field
+holding a class. A MyFirstTemplate instance was then written on the user's word with its `@context`
+re-aligned under `--allow-context-migration`. CEE opens it with the same two flags as its sibling. The
+fourth, on MyFirstTest, also holds a date that is not a valid date. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-stamped-classes/`.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
