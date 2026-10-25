@@ -2129,20 +2129,11 @@ TypeScript, while both emit the same bytes for it.
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 with `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`. Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
 
-- **`startinfra.sh` seems to hang for minutes, and Keycloak is dead once it returns** → the script
-  was piped. `startkeycloak.sh` runs `kc.sh start &`, and that backgrounded Keycloak inherits the
-  script's stdout, so a reader on the other end of a pipe never sees end-of-file however long ago the
-  script itself finished. Whatever eventually gives up sends SIGTERM to the process group, which
-  includes the Keycloak that started perfectly well. The symptom is therefore a long stall followed
-  by an infra tier missing one service, which reads as a Keycloak failure and is not one. Redirect
-  instead of piping, and read the file afterwards:
-
-  ```bash
-  bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh > /tmp/startinfra.log 2>&1
-  ```
-
-  The same applies to anything else that leaves a child holding stdout. `cedar-services.sh` is safe
-  either way: it detaches what it starts.
+- **Keycloak startup diagnostics** → `cedarcli native start keycloak` launches it with detached
+  input and redirects its console output to `$CEDAR_KEYCLOAK_HOME/log/cedar-console.log`. Read
+  that file if port 8080 does not come up. The background JVM must not inherit the CLI's captured
+  output pipe: that would keep the command waiting for EOF after the launcher exits and let CLI
+  cancellation kill the otherwise healthy service.
 
 - **OpenSearch (Homebrew) stuck in `error`, port 9200 closed** → Homebrew upgraded its `openjdk` to
   25, which OpenSearch 2.19 cannot run on (`JvmErgonomics` parse failure, `jdk.incubator.vector`
@@ -2299,7 +2290,7 @@ stack in dependency order: parent, libraries, project, and clients. Inside a sin
 `cedarcli build this --wd "$PWD"` builds just that repo. The CLI loads the selected profile and pins
 JDK 17 for these child processes.
 
-**Use the Maven wrapper.** Java repositories pin `mvnw` to 3.9.14; CI and `cedarcli` use it.
+**Use the Maven wrapper.** All 26 Java repository wrappers pin `mvnw` to 3.9.16; CI and `cedarcli` use it.
 The script downloads Maven into `~/.m2/wrapper` on first use. Use `./mvnw` for direct commands
 inside a repository; external `-f` invocations may require `mvn`. Container jar-fetch stages use
 `MAVEN_BUILDER_VERSION` from `cedar-images-base.sh`; the build toolchain stays outside runtime images.
@@ -4861,7 +4852,7 @@ and the two routes forward are on the roadmap under upgrading the persistence an
 servers; do not restate them here.
 
 Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.14, Jersey
-3.1.12, Hibernate 6.6.58.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.3. Jetty, Jersey,
+3.1.12, Hibernate 6.6.59.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.4. Jetty, Jersey,
 Hibernate and Jackson run ahead of the versions the Dropwizard 5.0.2 bundle names, each within the
 same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are
 the OpenSearch low-level REST client and the Keycloak event listener, which stay on HttpClient 4
@@ -4889,6 +4880,27 @@ any resolved Jersey module at another version. Until 2026-10-19 the parent manag
 `jersey-container-servlet` and `jersey-hk2`, so `jersey-common`, `jersey-server`, `jersey-client`
 and every other Jersey module ran the 3.1.11 that the Dropwizard bundle names, beside those two at
 3.1.12.
+
+**The Keycloak event listener follows its host platform.** The service registration file
+`META-INF/services/org.keycloak.events.EventListenerProviderFactory` activates the parent's
+`keycloak-provider` profile only in provider modules. That profile imports `keycloak-parent` at
+`keycloak.version` and overrides the CEDAR properties whose explicit management would otherwise
+take precedence. It also preserves Keycloak's Guava exclusions and Jandex relocation. These are
+provided libraries: the listener jar contains only its own classes, while Keycloak supplies the
+runtime. JUnit, Mockito and build tools retain the estate's versions.
+
+The listener's `scripts/check_keycloak_platform.py` compares its complete provided dependency graph
+with a standalone Keycloak platform import. CI runs it after verification and fails on any added,
+missing or differently versioned library. Run it locally after installing the parent; evidence is
+retained under the listener's `target/keycloak-platform/`. At a Keycloak upgrade, change the
+platform version and use this comparison to identify which provider-only overrides must move.
+
+Ordinary CEDAR applications manage `commons-collections4` at 4.5.0, including MariaDB4j's test
+tooling; the provider profile uses Keycloak's 4.4. The admin tool and authentication library both
+exclude the unused RESTEasy JAXB and multipart providers from the Jakarta admin client, keeping
+the older providers and Mime4j out of the application's managed RESTEasy stack. The admin tool's
+`enforce-json-only-keycloak-client` Maven rule rejects their reintroduction, including through a
+transitive dependency.
 
 `maven-dependency-plugin:analyze-only` lists every declared dependency that no compiled class
 references, which makes it the starting point for finding declarations nothing uses. Read that list

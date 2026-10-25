@@ -812,83 +812,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **19. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
-  apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
-  twenty-seven Maven roots divides them into three different problems, and blindly managing the newer
-  side in `cedar-parent` would make the Keycloak event listener compile against libraries its server
-  does not provide.
-
-  - **One is a real CEDAR classpath conflict:** `commons-collections4`. POI selects 4.5.0 on the
-    application classpath while MariaDB4j's test tooling requests 4.4 through `ch.vorburger.exec`.
-    The applications already run and test with 4.5.0 winning, so manage 4.5.0 for the ordinary CEDAR
-    runtime once the event-listener exception below is in place.
-  - **Five are unused admin-tool baggage:** `resteasy-jaxb-provider`,
-    `resteasy-multipart-provider` and the three `apache-mime4j` artifacts. They reach
-    `cedar-admin-tool` only through its direct `keycloak-admin-client-jakarta` dependency. CEDAR uses
-    the JSON provider, and `cedar-auth-operations-keycloak-library` already excludes the same two
-    RESTEasy providers for that reason. Put those exclusions on the admin tool's direct dependency;
-    Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin. No
-    admin-tool source uses multipart, JAXB or Mime4j. The two providers resolve at 6.0.0 beside a
-    6.2.19 RESTEasy core, because `cedar-parent` manages only `resteasy-client` and
-    `resteasy-jackson2-provider`, so removing them also ends a split RESTEasy.
-  - **The rest belong to a different runtime:** `checker-qual`, `jaxb-core`, `txw2`,
-    `jackson-dataformat-cbor`, `jakarta.transaction-api` and the event listener's copy of
-    `commons-collections4` are all `provided` transitives of `keycloak-services:22.0.4`. They are
-    supplied by the Keycloak process and must follow its platform, not Dropwizard, Hibernate,
-    OpenSearch or POI. The same is true of Keycloak's RESTEasy and Mime4j versions after their unused
-    admin-tool path is removed.
-
-  **The listener compiles against CEDAR's platform rather than Keycloak's.** It inherits
-  `cedar-parent` and does not import Keycloak's dependency management, although Keycloak's
-  server-extension guide requires an import of `keycloak-parent` at the server version. Measured
-  2026-09-30, 28 libraries on its compile classpath differ from the versions Keycloak 22.0.4
-  manages, Jackson 2.22.3 against Keycloak's 2.15.2 among them. All 28 are `provided` and the
-  packaged jar bundles none of them, so Keycloak supplies its own versions at runtime, and the gap
-  lies in what the listener compiles and tests against. Its code calls only the Keycloak SPI, Apache
-  HttpClient, SLF4J and three Jackson classes that Keycloak's 2.15.2 also provides, so the runtime
-  risk today is small. Closing the gap makes the listener's tests run against the libraries Keycloak
-  loads, and makes a future mismatch fail a check rather than a deployment.
-
-  **Hold the exception in a `cedar-parent` profile, not in the listener's POM.** Overriding versions
-  in the listener would break the rule that every version lives in `cedar-parent`. A
-  `keycloak-provider` profile there can carry them instead, activated by the presence of
-  `src/main/resources/META-INF/services/org.keycloak.events.EventListenerProviderFactory`. Only a
-  Keycloak provider registers that file, so the profile reaches no other project and the listener's
-  POM does not change. Nothing in the listener's POM shows that the profile applies, so a comment in
-  both POMs should say why the listener resolves differently.
-
-  The profile imports `keycloak-parent` at `${keycloak.version}`, which settles the eight libraries
-  `cedar-parent` does not manage, among them JAXB core, txw2 and `checker-qual`. It also sets
-  fifteen of `cedar-parent`'s version properties to Keycloak 22.0.4's values. Fourteen cover the
-  libraries `cedar-parent` manages directly, among them Guava, SLF4J, SnakeYAML and the Jakarta XML
-  Binding and Annotation APIs. The fifteenth, `jackson.core.version`, covers six Jackson artifacts.
-  Jackson needs the property although `keycloak-parent` manages it, because the profile's import is
-  processed after `cedar-parent`'s own Jackson BOM import, and an artifact keeps the version of the
-  first import that manages it. A trial on a scratch copy on 2026-09-30 left no library differing
-  from Keycloak 22.0.4. JUnit and Mockito stayed at the estate's versions, the listener's four tests
-  passed, and the packaged jar held only the listener's own classes.
-
-  Manage `commons-collections4` at 4.5.0 only once the profile is in place, and set the profile's
-  value to the 4.4 that Keycloak ships. Managing it earlier would move the listener off Keycloak's
-  version.
-
-  **Check the profile against Keycloak rather than trusting it.** Its values are copies of
-  Keycloak's, and they go stale when the server moves, as item 6 plans. Compare the listener's
-  dependency tree with a standalone project that has no parent and imports only `keycloak-parent`,
-  and fail on any difference. Run the comparison in the listener's CI or as a `cedarcli check`. At
-  a Keycloak upgrade the import follows `keycloak.version` without help, and the check names each
-  property that has to be measured again.
-
-  Gate the change at all three boundaries: dependency trees must show the managed CEDAR versions, the
-  admin tool must contain none of the unused provider stack, and the event listener must match the
-  Keycloak platform. Run the whole estate's tests, package the listener, boot Keycloak with it
-  installed and trigger one event, then exercise one read-only admin-tool Keycloak operation. The
-  last two remain integration gates even though the admin TLS construction and the listener's event
-  selection, callback payload and authorization header now have focused tests: a unit test cannot
-  prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
-  configured realm.
-
-- **20. Finish converging on the body paging envelope.** Every route that pages by offset answers
+- **19. Finish converging on the body paging envelope.** Every route that pages by offset answers
   CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
   `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
   `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
@@ -935,7 +859,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
   that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
-- **21. Choose the response timeouts from the durations the request log now carries, and give a
+- **20. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -965,7 +889,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **22. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **21. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -997,7 +921,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`, and
   no run is recorded against a service whose source the gate cannot establish.
 
-- **23. Take the dependency upgrades that need code changes.** The versions that could move without
+- **22. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
   What stayed behind stayed deliberately, and it separates into work to do, versions that follow
   something else, and versions whose newest release is not a final.
@@ -1022,19 +946,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     support, so those suites stop being evidence for this change and the real-stack smoke against
     Redis 7.2 decides it.
 
+  - **Apache POI 5.5.1 to 6.0.0.** The Java 17 minimum fits the estate, but removed APIs and
+    changed formula-cell formatting defaults need the Excel and TSV renderers checked against
+    representative workbooks before the major moves.
+
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
-  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.10.0.
+  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.10.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
-  Keycloak client stack, which items 6 and 19 own.
+  Keycloak client stack, which item 6 owns.
 
-  Maven 3.9.14 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
+  Maven 3.9.16 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
   own wrapper, so the move is one change across all of them, gated on the full build and a train
-  dry run and made just after a release. A Renovate pull request that moved only `cedar-parent`'s
-  wrapper was closed on 2026-10-19, because it would have split the estate across two Maven
-  versions.
+  dry run and made just after a release.
 
   Embedded Mongo 4.22.0 to 4.33.0 and 5.0.0 belongs here too, and it is the deployed Mongo it
   follows rather than a framework. The obstacle is the binary. MongoDB published no macOS ARM build
@@ -1056,13 +982,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   enforcer rule in `cedar-parent` now fails the build there rather than inside a test JVM, where
   the error names a logback-access class for a field that lives in logback-classic.
 
-  What the hold costs is only what 1.6 itself carries, because the 1.5 maintenance line is still
-  open and `cedar-parent` runs on it, ahead of the 1.5.33 that Dropwizard 5.0.2 pins.
+  Upstream now calls the 1.5 line legacy. Track the fixes arriving on 1.6 while resolving the
+  Dropwizard API incompatibility; raising the version ceiling alone does not resolve it.
   logback-access is held by its own builds rather than by that rule. Its 2.0.13 release is the last
   built against logback-core 1.5, and 2.0.14 is the first built against 1.6. Both wait on Dropwizard
   shipping a line built against 1.6.
 
-  Dropwizard also holds the Jakarta EE 11 generation. Hibernate 6.6.58 to 7.4.13 and Jersey 3.1.12
+  Dropwizard also holds the Jakarta EE 11 generation. Hibernate 6.6.59 to 7.4.14 and Jersey 3.1.12
   to 4.0.3 have finals, as do the Jakarta Persistence 3.2.0, Servlet 6.1.0, Validation 3.1.1,
   RESTful Web Services 4.0.0 and Annotations 3.0.0 APIs, against the 3.1.0, 6.0.0, 3.0.2, 3.1.0 and
   2.1.1 the parent manages. Dropwizard 5.0.2 pins the Jakarta EE 10 line of every one of them, so
@@ -1077,7 +1003,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Each moves to the version its owner's POM names when that owner moves. Raising one on its own
   would pin a version its owner does not expect, and the Renovate config offers none of them.
 
-  Netty, 4.1.138 to 4.2.19, is held for a different reason. The Neo4j driver 5.28.15 is built
+  Netty, 4.1.139 to 4.2.19, is held for a different reason. The Neo4j driver 5.28.15 is built
   against Netty 4.2.17, and the 4.1 pin exists for neo4j-harness 5.3.0, which declares 4.1.84 and
   runs its embedded Bolt server on it. A test dependency therefore sets the Netty every production
   server runs the driver on. Ending the hold needs the harness proved on 4.2, or replaced as the
@@ -1094,7 +1020,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
   plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every version this item names was
-  rechecked against the published metadata on 2026-10-20, with pre-releases set aside. Read an
+  rechecked against the published metadata on 2026-10-24, with pre-releases set aside. Read an
   artifact's `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest
   release a given Maven version can actually use, before concluding that something cannot move.
 
@@ -1110,7 +1036,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **24. Resolve the remaining production artifact defects and review semantic migrations.**
+- **23. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1472,7 +1398,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
   could have written.
 
-- **25. Raise branch coverage where the branches decide what CEDAR stores, and gate branches as
+- **24. Raise branch coverage where the branches decide what CEDAR stores, and gate branches as
   lines are gated.** Each module sets `cedar.coverage.line.minimum` a little below its measured line
   figure, and `cedar-parent`'s coverage check fails a build whose module falls under it by its own
   tests. Nothing gates branches, so a change can stop exercising the decisions a module makes
