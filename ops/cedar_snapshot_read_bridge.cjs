@@ -2,11 +2,10 @@
 // stdin and stdout.
 //
 // The framing is that of ops/cedar_snapshot_read_bridge.java: one JSON header line, then exactly
-// "length" bytes of artifact source as the deployment served it. Only "read" requests carry
-// meaning here, because the TypeScript readers need no template; a "template" request is answered
-// and otherwise ignored, so one stream can feed both bridges.
+// "length" bytes of artifact source as the deployment served it, so one stream can feed both bridges.
 //
-//     {"seq": 2, "op": "read", "kind": "template" | "element" | "field" | "instance", "length": N}
+//     {"seq": 1, "op": "template", "id": "<template IRI>", "length": N}
+//     {"seq": 2, "op": "read", "kind": "template" | "element" | "field" | "instance", "templateId": "…", "length": N}
 //
 // Each request is answered with one JSON line echoing its "seq". A read answer carries a "reader"
 // verdict from the strict readers: "read" when the reader reports success; "refused" when it reports
@@ -18,6 +17,12 @@
 // the FEBRUARY_2024 behavior, which records the production variations the library knows of as
 // warnings, so an artifact the strict reader refuses also carries a "lenient" verdict of the same
 // shape from that behavior.
+//
+// A "template" request keeps that template, read the way the embeddable editor reads one, and is
+// answered "kept". An instance read naming a kept template in "templateId" also carries the library's
+// save decision as "validation": the instance as the reader built it, judged by InstanceValidator and
+// summarised by ValidationPolicy, which is what the editor's Save follows. Its "canSave" is the answer
+// the Java validator's verdict must equal, and the findings that block saving come with it.
 //
 //     node ops/cedar_snapshot_read_bridge.cjs <cedar-model-typescript-library>/dist/index.js
 
@@ -42,6 +47,8 @@ const strict = readersFor('getStrict');
 const lenient = readersFor('getFebruary2024');
 const ERROR_LIMIT = 5;
 const MESSAGE_LIMIT = 400;
+const TEMPLATE_CACHE = 256;
+const templates = new Map();
 
 function truncate(value) {
   const text = String(value);
@@ -56,10 +63,49 @@ function describe(error) {
   };
 }
 
-function read(kind, source) {
+function read(kind, source, templateId) {
   const verdict = readWith(strict, kind, source);
   if (verdict.status === 'refused' || verdict.status === 'threw') verdict.lenient = readWith(lenient, kind, source);
+  if (kind === 'instance' && templateId) {
+    const template = templates.get(templateId);
+    const instance = verdict.instance ?? verdict.lenient?.instance;
+    if (!template) verdict.validation = { status: 'no-template' };
+    else if (!instance) verdict.validation = { status: 'unreadable', canSave: false };
+    else {
+      try {
+        const summary = library.InstanceValidator.validateReport(instance, template);
+        const blocking = summary.findings.filter((finding) => library.ValidationPolicy.blocksSave(finding, 'instance'));
+        verdict.validation = {
+          status: 'judged',
+          canSave: summary.canSave,
+          blocking: blocking.slice(0, ERROR_LIMIT).map((finding) => ({
+            code: finding.code,
+            category: finding.category,
+            path: truncate(finding.path),
+            message: truncate(finding.message),
+          })),
+          blockingCount: blocking.length,
+        };
+      } catch (error) {
+        verdict.validation = { status: 'threw', canSave: false, message: truncate(error && error.message) };
+      }
+    }
+  }
+  delete verdict.instance;
+  if (verdict.lenient) delete verdict.lenient.instance;
   return verdict;
+}
+
+function keepTemplate(id, source) {
+  try {
+    const template = lenient.template.readFromObject(JsonSourcePolicy.parse(source)).template;
+    templates.delete(id);
+    templates.set(id, template);
+    if (templates.size > TEMPLATE_CACHE) templates.delete(templates.keys().next().value);
+    return 'kept';
+  } catch (error) {
+    return `unreadable: ${truncate(error && error.message)}`;
+  }
 }
 
 function readWith(readers, kind, source) {
@@ -75,9 +121,10 @@ function readWith(readers, kind, source) {
     const result = reader.readFromObject(parsed);
     const parsing = result.parsingResult;
     const warningCount = parsing.getBlueprintComparisonWarningCount();
-    if (parsing.wasSuccessful()) return { status: 'read', warningCount };
+    const instance = kind === 'instance' ? result.instance : undefined;
+    if (parsing.wasSuccessful()) return { status: 'read', warningCount, instance };
     const errors = parsing.getBlueprintComparisonErrors();
-    return { status: 'refused', errorCount: errors.length, warningCount, errors: errors.slice(0, ERROR_LIMIT).map(describe) };
+    return { status: 'refused', errorCount: errors.length, warningCount, errors: errors.slice(0, ERROR_LIMIT).map(describe), instance };
   } catch (error) {
     return { status: 'threw', exception: error && error.name, message: truncate(error && error.message) };
   }
@@ -96,8 +143,8 @@ function drain() {
     const source = buffered.subarray(newline + 1, newline + 1 + length).toString('utf8');
     buffered = buffered.subarray(newline + 1 + length);
     const answer = { seq: request.seq };
-    if (request.op === 'read') answer.reader = read(request.kind, source);
-    else answer.status = request.op === 'template' ? 'ignored' : 'error';
+    if (request.op === 'read') answer.reader = read(request.kind, source, request.templateId);
+    else answer.status = request.op === 'template' ? keepTemplate(request.id, source) : 'error';
     answers.push(JSON.stringify(answer));
   }
 }

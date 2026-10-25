@@ -117,9 +117,15 @@ below have no CLI front end yet, so call them directly:
 - `cedar_snapshot_read_audit.py` — read every artifact in a snapshot with `cedar-artifact-library`
   and with `cedar-model-typescript-library`, and validate each with `cedar-model-validation-library`,
   instances against their templates. A refusal of an artifact the validator accepts is a reader
-  defect; a refusal of one the validator rejects is the data's. Several bridges of each kind,
+  defect; a refusal of one the validator rejects is the data's. It also compares the two libraries'
+  verdict on every instance, the Java validator's against the TypeScript library's save decision,
+  and `--fail-on-disagreement` fails the run on any difference. Several bridges of each kind,
   `cedar_snapshot_read_bridge.java` and `cedar_snapshot_read_bridge.cjs`, take a production snapshot
   in minutes. Contacts no deployment.
+- `cedar_corpus_instance_verdicts.py` — record the Java validator's verdict on every shared-corpus
+  instance that has its template beside it, as the server would store it, into the TypeScript
+  library's `itest/resources/concordance/`, where `InstanceVerdictConcordance.spec.ts` holds the
+  TypeScript save decision to it in CI.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data
@@ -332,6 +338,22 @@ See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and fa
   OpenSearch, Keycloak). Client libraries may move; those servers may not.
 - Current framework baseline (Dropwizard version, namespace, what's migrated) lives in the runbook —
   `cedar-development/ops/BACKEND-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
+
+## The TypeScript and Java libraries always agree
+
+`cedar-model-typescript-library` and the Java libraries must never differ. For every artifact they read
+the same model, write the same document, and reach the same validation verdict. The arbiter is
+`cedar-model-validation-library`, which the server applies to every write, so an instance is valid
+exactly when it would be stored. CEE decides whether an instance can be saved with the TypeScript
+library's `InstanceValidator` and `ValidationPolicy`, so that decision must equal the Java verdict: a
+valid instance can always be saved, and an invalid one never can. A difference is a defect to fix, never
+a variation to record, and it is fixed in whichever library is wrong rather than by changing the stored
+data to suit one of them.
+
+Two gates hold this. The TypeScript library's CI compares both libraries' reading, writing and
+instance verdicts over the shared corpus, and `ops/cedar_snapshot_read_audit.py --fail-on-disagreement`
+compares the instance verdicts over a production snapshot. A change to either library's validation
+passes both before it lands.
 
 ## Preserve the agreed product design
 

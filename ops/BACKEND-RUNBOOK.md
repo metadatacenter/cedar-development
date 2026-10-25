@@ -5152,6 +5152,29 @@ dependencies. The snapshot holds the same 302,424 artifacts. It found:
   all of them and shows each a blocking error, so their owners can correct and save them. Eighteen
   are still refused by one library or both.
 
+The two libraries must agree on every instance's verdict, and on that pass they did not. The Java
+validator accepts 9,120 instances that the TypeScript library's `InstanceValidator`, and so the
+embeddable editor's Save, refuses; they agree on the other 141,465, and no instance is accepted by
+TypeScript alone. Every disagreement is TypeScript refusing a shape the arbiter accepts, so each is a
+defect in the TypeScript library, in six kinds:
+
+| What the stored instance holds | Instances | Templates | TypeScript's finding |
+|---|---|---|---|
+| An empty controlled-term value with no `@id`: `{"rdfs:label": null}`, `{"rdfs:label": ""}` or only a class as `@type` | 7,022 | 15 | an unrecognized value shape, or an IRI field without `@id` |
+| No key at all for a field its container does not require | 1,190 | 2 | a missing property, reported as `Invalid structure: [object Object]` |
+| `{}` for a static field | 674 | 71 | a literal slot without `@value` |
+| An empty date or number with no `@type` | 180 | 34 | a slot without `@type` |
+| A key the template does not declare, on a template whose schema admits further properties | 98 | 14 | a property the template does not declare |
+| Another unrecognized shape | 2 | 1 | an unrecognized value shape |
+
+Forty-six instances show two kinds. The second row's message is itself a defect: the finding's text
+is built from an object it does not render. The shared corpus shows the other direction twice. Its
+case `cee-suite/016` maps a field to a property IRI the template does not name, and `cee-suite/046`
+lists an object in an attribute-value field; Java refuses both and TypeScript would save them.
+`InstanceVerdictConcordance.spec.ts` lists those two as open defects, and the audit's
+`--fail-on-disagreement` fails on production's 9,120 until they are fixed. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity/`.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an

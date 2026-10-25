@@ -16,6 +16,12 @@ kind, so a whole production snapshot takes minutes:
       --ts-library <cedar-model-typescript-library>/dist/index.js \\
       --out "$CEDAR_HOME/.cedar/audits/<date>-snapshot-read"
 
+The two libraries must also agree on every instance's verdict. The Java validator decides what the
+server stores; the TypeScript library's InstanceValidator and ValidationPolicy decide whether the
+embeddable editor lets an owner save. The summary's ``validationParity`` counts the instances on
+which they disagree, in both directions, with their causes, and ``--fail-on-disagreement`` makes any
+disagreement fail the run, which is the gate over production data.
+
 The output directory receives ``records.jsonl``, one verdict per artifact, and ``summary.json``,
 which counts outcomes by artifact type and groups refusals by cause. Refusal messages can quote
 stored values, so both files are written with owner-only permissions, and the summary's causes have
@@ -47,8 +53,9 @@ JAVA_BRIDGE = OPS / "cedar_snapshot_read_bridge.java"
 TS_BRIDGE = OPS / "cedar_snapshot_read_bridge.cjs"
 DEFAULT_JAVA_BRIDGES = 4
 DEFAULT_TS_BRIDGES = 4
-# The Java bridge keeps twice as many templates as this side assumes it keeps. Least-recently-used
-# caches fed the same references nest, so every template this side believes is cached really is.
+# Each bridge keeps twice as many templates as this side assumes it keeps; the TypeScript bridge's
+# TEMPLATE_CACHE is the same number. Least-recently-used caches fed the same references nest, so
+# every template this side believes is cached really is.
 TEMPLATE_MIRROR = 128
 JAVA_TEMPLATE_CACHE = 2 * TEMPLATE_MIRROR
 WINDOW = 64
@@ -140,6 +147,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--jvm-heap", default="3g")
     parser.add_argument("--known", action="append", default=[], help="JSONL of artifacts known to be invalid")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts, for a trial")
+    parser.add_argument("--fail-on-disagreement", action="store_true",
+                        help="exit non-zero when the libraries disagree on any instance's verdict")
     arguments = parser.parse_args(argv)
 
     os.umask(0o077)
@@ -153,8 +162,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     java = [Bridge(f"java{n}", ["java", f"-Xmx{arguments.jvm_heap}", "-cp", arguments.java_classpath,
                                 str(JAVA_BRIDGE), "--template-cache", str(JAVA_TEMPLATE_CACHE)],
                    out / f"java{n}.log", answers) for n in range(arguments.java_bridges)]
-    ts = [Bridge(f"ts{n}", ["node", str(TS_BRIDGE), arguments.ts_library], out / f"ts{n}.log", answers)
-          for n in range(arguments.ts_bridges)]
+    ts = [Bridge(f"ts{n}", ["node", "--max-old-space-size=6144", str(TS_BRIDGE), arguments.ts_library],
+                 out / f"ts{n}.log", answers) for n in range(arguments.ts_bridges)]
 
     records_path = out / "records.jsonl"
     partial: dict[tuple[str, str], dict[str, Any]] = {}
@@ -163,6 +172,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     refused_known: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     invalid_known: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     invalid_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    parity: collections.Counter = collections.Counter()
+    parity_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    disagreements: list[dict[str, Any]] = []
     unexpected: list[dict[str, Any]] = []
     problems: list[str] = []
     ended = 0
@@ -190,6 +202,24 @@ def main(argv: Optional[list[str]] = None) -> int:
             for name, members in known.items():
                 if (kind, record["id"]) in members:
                     invalid_known[name][kind] += 1
+        if kind == "instance":
+            judged = record["ts"].get("validation", {})
+            if "canSave" not in judged or validation not in ("valid", "invalid"):
+                parity["unjudged"] += 1
+            elif (validation == "valid") == judged["canSave"]:
+                parity["agree"] += 1
+            else:
+                direction = "javaValid-tsBlocks" if validation == "valid" else "javaInvalid-tsSaves"
+                parity[direction] += 1
+                if direction == "javaValid-tsBlocks":
+                    first = (judged.get("blocking") or [{}])[0]
+                    reason = f"{first.get('code', judged.get('status'))}: {cause(first.get('message'))}"
+                else:
+                    reason = cause(((record["validation"].get("errors") or [{}])[0]).get("message"))
+                parity_causes[direction][reason] += 1
+                if len(disagreements) < 500:
+                    disagreements.append({"id": record["id"], "template": record.get("template"),
+                                          "direction": direction, "cause": reason})
         both_read = java_status == "read" and ts_status == "read"
         tally["bothRead" if both_read else "notBothRead"] += 1
         if ts_status == "read" and record["ts"].get("warningCount"):
@@ -282,7 +312,20 @@ def main(argv: Optional[list[str]] = None) -> int:
                         if len(bridge.templates) > TEMPLATE_MIRROR:
                             bridge.templates.popitem(last=False)
             bridge.send(header, body, key)
-            ts[position % len(ts)].send({"op": "read", "kind": kind}, body, key)
+            ts_bridge = ts[position % len(ts)]
+            ts_header: dict[str, Any] = {"op": "read", "kind": kind}
+            template_id = entry.get("template") if kind == "instance" else None
+            if template_id and template_id in templates:
+                ts_header["templateId"] = template_id
+                if template_id in ts_bridge.templates:
+                    ts_bridge.templates.move_to_end(template_id)
+                else:
+                    ts_bridge.send({"op": "template", "id": template_id}, templates[template_id],
+                                   ("cache", template_id))
+                    ts_bridge.templates[template_id] = None
+                    if len(ts_bridge.templates) > TEMPLATE_MIRROR:
+                        ts_bridge.templates.popitem(last=False)
+            ts_bridge.send(ts_header, body, key)
             submitted += 1
             consume(block=False)
         for bridge in java + ts:
@@ -312,13 +355,20 @@ def main(argv: Optional[list[str]] = None) -> int:
         "invalidCauses": {kind: dict(counter.most_common(40)) for kind, counter in sorted(invalid_causes.items())},
         "knownLists": {name: len(members) for name, members in known.items()},
         "validatorAcceptsButNotBothRead": unexpected[:500],
+        "validationParity": {"counts": dict(parity),
+                             "causes": {d: dict(c.most_common(40)) for d, c in sorted(parity_causes.items())},
+                             "disagreements": disagreements},
         "problems": problems,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps({key: summary[key] for key in ("artifacts", "seconds", "byType", "problems")}, indent=2))
     print(f"[read] {len(unexpected)} artifact(s) the validator accepts were not read by both libraries; "
           f"see {out / 'summary.json'}")
-    return 0 if not problems else 1
+    disagreeing = parity["javaValid-tsBlocks"] + parity["javaInvalid-tsSaves"]
+    print(f"[parity] instance verdicts: {dict(parity)}")
+    if problems:
+        return 1
+    return 1 if arguments.fail_on_disagreement and disagreeing else 0
 
 
 if __name__ == "__main__":
