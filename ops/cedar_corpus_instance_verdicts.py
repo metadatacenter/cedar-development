@@ -170,6 +170,9 @@ def probes(case: str, template: dict) -> list[tuple[str, list[dict[str, Any]], l
                 ("extra-iri-admitted", [put(key("Probe"), {"@id": PROBE_CLASS})],
                  [put("/additionalProperties", OPEN_LITERALS)]),
                 ("context-property-mismatch", [put("/@context" + key(field), "https://example.org/properties/Probe")], []),
+                ("context-term-undeclared", [put("/@context" + key("Probe"), "https://example.org/properties/Probe")], []),
+                ("context-term-missing", [drop("/@context" + key(field))], []),
+                ("context-prefix-missing", [drop("/@context/xsd")], []),
             ]
         return found
     if case == "cee-suite/015":

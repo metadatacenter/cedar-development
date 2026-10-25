@@ -5192,16 +5192,34 @@ A slot that leaves out a label its schema requires reads the same, and Java refu
 TypeScript would save it. Production holds none, and the corpus probe
 `cee-suite/017#label-absent-required` is listed as an open defect so that the gap stays visible.
 
-On the same snapshot the two libraries now agree on 150,581 instances, and Java accepts none that
-TypeScript refuses. Four instances, of two templates, go the other way. Java refuses them for their
-`@context`, which TypeScript does not compare with the template's. Earlier refusals had blocked them,
-so the fixes exposed this gap rather than opened it. The corpus shows it with the probe
-`cee-suite/021#context-property-mismatch`, which maps a field to a property IRI the template does not
-name. Corpus case `cee-suite/016` does the same, and now agrees for another reason: its template
-requires a key that differs from its child's name only in case, and the stored `required` is now
-honoured. Case `cee-suite/046`, which lists an object in an attribute-value field, is the other open
-defect. The audit's `--fail-on-disagreement` fails on production's four until the `@context` check
-lands. Records are under `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-stored/`.
+After that round, four instances of two templates went the other way. Java refused them for their
+`@context`, which TypeScript did not compare with the template's, and earlier refusals had hidden
+them. Where the stored template is given, `InstanceValidator` now judges each container's property
+IRIs against its stored `@context` schema. A declared key must map to the IRI the template gives it,
+an undeclared one must be admitted by `additionalProperties`, and every required key must be there.
+The model keeps those IRIs as stored, but it writes the standard prefixes and term definitions
+itself, so those are not judged. Judging the written ones would refuse instances of older templates
+that declare fewer prefixes. The cost is that a stored instance whose only fault is a missing prefix
+is refused by Java and accepted here. Saving it writes the prefix, and production holds none. The
+corpus probe `cee-suite/021#context-prefix-missing` is listed as an open defect for it, beside
+`cee-suite/017#label-absent-required` and case `cee-suite/046`, which lists an object in an
+attribute-value field.
+
+CEE writes an instance through `InstanceInflater`, which maps every child to the template's property
+IRI, so a missing or wrong child mapping is repaired by its save. It passes `childIrisFromTemplate`,
+and its Save is held only to the terms the save keeps, such as one the template does not declare.
+The gates leave the option unset and judge the stored document.
+
+Corpus case `cee-suite/016`, which maps a field to a property IRI its template does not name, already
+agreed before the check: its template requires a key that differs from its child's name only in
+case, and the stored `required` is honoured. Four probes cover the check.
+
+On the same snapshot the two libraries now agree on every one of the 150,585 instances both read,
+and `--fail-on-disagreement` passes. The four instances are invalid in both. The form cannot edit an
+instance's `@context`, so their owners cannot clear the error themselves. The repair tool's
+`drop-unused-instance-context`, `complete-instance-context` and `align-instance-context-iris` rules
+address these faults, and have not yet been planned against the four. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-context/`.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
