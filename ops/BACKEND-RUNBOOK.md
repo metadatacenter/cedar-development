@@ -5140,6 +5140,18 @@ The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `
   are not `xsd:date`, IRI fields holding a literal, controlled-term labels without an IRI, and
   malformed decimals. Both libraries read them.
 
+The 2026-10-25 pass ran on a snapshot taken after the repairs below, with the same libraries; the
+TypeScript library's head had moved to `75a1346`, which changes neither its source nor its runtime
+dependencies. The snapshot holds the same 302,424 artifacts. It found:
+
+- Every element and field still reads in both libraries and validates.
+- Four templates are invalid and refused by both libraries: the three the Decimal128 defect damaged
+  and metaBUS-partial, damaged the same way by the notation round. The strict TypeScript reader still
+  refuses the same 46 valid templates, and all of them read under `FEBRUARY_2024`.
+- 1,471 instances are invalid, every one of them on the 2026-10-24 lists and none newly so. CEE opens
+  all of them and shows each a blocking error, so their owners can correct and save them. Eighteen
+  are still refused by one library or both.
+
 ### Repairing Instance Values the 2.9.25 Rules Refuse
 
 `cedar-model-validation-library` `dbe0da5` (release 2.9.25) added rules about the values an instance
@@ -5299,6 +5311,14 @@ second boundary leaves the graph one second ahead, as it did for about 2% of the
 the search index holds the graph's date. On the user's word the 131 were then written with
 `--replace-graph-provenance`. In every one the graph's date moved back to the document's, the search
 index followed it, and the modifier stayed the same in both.
+
+The resource server now gives the graph the stamp the artifact server wrote rather than reading the
+clock again. An ordinary update, a publication and a DOI annotation pass the stored document's
+`oslc:modifiedBy` and `pav:lastUpdatedOn`, as a verbatim write already did. A create, a new draft, a
+copy and a background clone pass its `pav:createdOn` and `pav:lastUpdatedOn` as an
+`ArtifactCreationProvenance`. A document that states neither leaves the node to stamp its own. The fix
+takes effect once a release carrying it is deployed. Nodes already a second ahead stay so until their
+artifact is next written.
 
 One write damaged a template. Since release 2.9.25 the server stores a fractional number as `Decimal128`
 and serves it back as `{"$numberDecimal": ...}`, as
