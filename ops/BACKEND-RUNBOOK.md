@@ -5348,7 +5348,12 @@ it saved; the model now gives a value one `@type`, so both libraries and CEE ref
 Test were written with their dates unchanged, and CEE opens both; one still shows an empty term field
 holding a class. A MyFirstTemplate instance was then written on the user's word with its `@context`
 re-aligned under `--allow-context-migration`. CEE opens it with the same two flags as its sibling. The
-fourth, on MyFirstTest, also holds a date that is not a valid date. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-stamped-classes/`.
+fourth, on MyFirstTest, also held a date spelled other than as an ISO date. It was written once
+`write-date-as-iso` had rewritten the date and `restamp-declared-value-type` had restated its datatype,
+and CEE opens it with nothing to correct. A Citation instance whose only defects were the minted
+identifier and absent fields also validates with existing rules, but is held for a one-second graph
+date gap. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-stamped-classes/` and
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-two-more/`.
 
 ## Validating Every Stored Artifact with the Library
 
