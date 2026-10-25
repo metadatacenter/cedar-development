@@ -5280,6 +5280,14 @@ refused before. 136 were held because the graph's date differs from the document
 one second later. In five draft elements it is earlier, by between 37 seconds and 88 days. The three
 templates the Decimal128 defect damaged were left alone.
 
+The one-second gap comes from an ordinary save, which reads the clock twice. `ProvenanceUtil` stamps
+the document's `pav:lastUpdatedOn`, and `updateResourceById` in the workspace operations library
+stamps the graph node a few milliseconds later, each to the whole second. A save that straddles a
+second boundary leaves the graph one second ahead, as it did for about 2% of the artifacts here, and
+the search index holds the graph's date. On the user's word the 131 were then written with
+`--replace-graph-provenance`. In every one the graph's date moved back to the document's, the search
+index followed it, and the modifier stayed the same in both.
+
 One write damaged a template. Since release 2.9.25 the server stores a fractional number as `Decimal128`
 and serves it back as `{"$numberDecimal": ...}`, as
 [Numbers, timestamps and source parsing](#numbers-timestamps-and-source-parsing) describes, and
