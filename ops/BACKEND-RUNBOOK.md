@@ -5315,6 +5315,19 @@ holding no dateTime, missing required properties, two `@type` classes on one val
 both a term and a text value, and values under keys their templates no longer declare. Records are
 under `$CEDAR_HOME/.cedar/repairs/2026-10-25-cee-unopenable/`.
 
+The user then had two of the eleven made valid by deleting what blocked them. Both instances predate
+revisions of their templates. `drop-term-field-text` empties a term field holding only typed text,
+and `drop-unlisted-term-class` takes out of a term value an `@type` naming a class its field's schema
+does not list, where the schema does not require one. Each deletes something entered, so each runs
+only under `--allow-value-deletion` with an explicit `--only-ids` scope, as `drop-undeclared-keys`
+does. The MyFirstTemplate instance was written with its `@context` re-aligned under
+`--allow-context-migration`. Its template's choice fields had already been retyped in the
+legacy-template round. Both libraries read it, and CEE opens it but flags two shapes the library
+accepts: an empty date with no `@type`, and an empty term field that still names a class. The
+Migrant-Interviews instance, with `City` and the typed text removed, had its graph date one second
+ahead, so it was written with `--replace-graph-provenance` on the user's word; CEE opens it with
+nothing to correct. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-last-two-unopenable/`.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only

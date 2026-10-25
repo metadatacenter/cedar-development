@@ -490,6 +490,56 @@ class ShadowedContextAndCreatorTest(unittest.TestCase):
         self.assertEqual(r.only_stated_graph_creator(before, dict(after, **{"pav:createdBy": "https://metadatacenter.org/users/other"})), "/pav:createdBy")
 
 
+class TermFieldDeletionsTest(unittest.TestCase):
+    def classed_template(self, required=()):
+        document = template()
+        term = field("textfield", required, ("@id", "@type", "rdfs:label"), branches=[{"uri": "http://example.org/branch"}])
+        term["properties"]["@type"] = {"oneOf": [{"type": "string", "enum": ["http://c/Animals"]},
+                                                 {"type": "array", "items": {"enum": ["http://c/Animals"]}}]}
+        document["properties"]["Classed"] = term
+        return document
+
+    def test_typed_text_in_a_term_field_is_emptied_and_nothing_else(self):
+        before = instance(Term={"@value": "typed by hand"}, Note={"@value": "kept"})
+        after, changes = r.drop_term_field_text(before, template())
+        self.assertEqual(after["Term"], {})
+        self.assertEqual(after["Note"], {"@value": "kept"})
+        self.assertEqual(changes, [{"path": "/Term", "replaced": {"@value": "typed by hand"}, "wrote": {}}])
+        self.assertIsNone(r.only_dropped_term_field_text(before, after, template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+
+    def test_a_term_value_with_anything_beside_its_text_is_left(self):
+        for value in ({"@value": "text", "@id": "http://t/1"}, {"@value": "text", "rdfs:label": "text"}, {"@value": ""},
+                      {"@id": "http://t/1", "rdfs:label": "One"}):
+            with self.subTest(value=value):
+                before = instance(Term=value)
+                self.assertEqual(r.drop_term_field_text(before, template()), (before, []))
+        before = instance(Term={"@value": "typed"}, Note={"@value": "kept"})
+        tampered = dict(before, Term={}, Note={})
+        self.assertEqual(r.only_dropped_term_field_text(before, tampered, template()), "/Note/@value")
+
+    def test_a_class_the_schema_does_not_list_is_dropped_and_the_term_kept(self):
+        before = instance(Classed={"@id": "http://t/alligator", "@type": "http://c/Reptiles", "rdfs:label": "Alligator"})
+        after, changes = r.drop_unlisted_term_class(before, self.classed_template())
+        self.assertEqual(after["Classed"], {"@id": "http://t/alligator", "rdfs:label": "Alligator"})
+        self.assertEqual(changes, [{"path": "/Classed/@type", "replaced": "http://c/Reptiles", "wrote": None}])
+        self.assertIsNone(r.only_dropped_unlisted_term_classes(before, after, self.classed_template()))
+
+    def test_a_listed_class_or_a_required_type_is_left(self):
+        listed = instance(Classed={"@id": "http://t/dog", "@type": ["http://c/Animals"]})
+        self.assertEqual(r.drop_unlisted_term_class(listed, self.classed_template()), (listed, []))
+        unlisted = instance(Classed={"@id": "http://t/alligator", "@type": "http://c/Reptiles"})
+        self.assertEqual(r.drop_unlisted_term_class(unlisted, self.classed_template(required=("@type",))), (unlisted, []))
+        self.assertEqual(r.drop_unlisted_term_class(instance(Term={"@id": "http://t/1", "@type": "http://c/X"}), template())[1], [])
+
+    def test_both_deletions_need_the_value_deletion_approval_and_a_scope(self):
+        for name in ("drop-term-field-text", "drop-unlisted-term-class"):
+            with self.subTest(name=name):
+                self.assertIn(name, r.VALUE_DELETING_REPAIRS)
+                with self.assertRaises(SystemExit):
+                    r.main(["--apply", "--repair", name, "--from-records", "unused.jsonl"])
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]

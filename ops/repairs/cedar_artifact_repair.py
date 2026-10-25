@@ -6553,6 +6553,97 @@ def only_dropped_null_iris(before: Any, after: Any, template: Any) -> Optional[s
     return None
 
 
+def drop_term_field_text(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Empty a term field whose value is typed text rather than a term, writing ``{}``.
+
+    A field that once held text and now holds terms keeps the text entered before the change, and
+    the field's schema admits only ``@id`` and a label. The text names no term, and resolving it would
+    mean choosing one for the owner, so the value is emptied instead. It deletes what someone entered,
+    which is why it runs only with ``--allow-value-deletion`` and an explicit ``--only-ids`` scope; a
+    value holding anything beside its text is left alone.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or set(value) != {"@value"}:
+            return value
+        text = value["@value"]
+        if not isinstance(text, str) or not text.strip():
+            return value
+        changes.append({"path": path, "replaced": value, "wrote": {}})
+        return {}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_term_field_text(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the emptying of term fields holding only text."""
+    expected, _changes = drop_term_field_text(before, template)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or not isinstance(was, str) or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def enumerated_classes(schema: Any) -> set[str]:
+    """Every class a ``@type`` schema enumerates, in its string or its list form."""
+    found: set[str] = set()
+    if isinstance(schema, dict):
+        found.update(value for value in schema.get("enum") or [] if isinstance(value, str))
+        found |= enumerated_classes(schema.get("items"))
+        for alternative in schema.get("oneOf") or []:
+            found |= enumerated_classes(alternative)
+    return found
+
+
+def drop_unlisted_term_class(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of a term value a ``@type`` naming a class its field's schema does not list.
+
+    A 2016 or 2017 template enumerates in its schema the class a chosen term's ``@type`` must name.
+    A template whose constraint later moved elsewhere can keep enumerating the old class, so a term
+    chosen under the new constraint is refused for the class it records. Where the schema does not
+    require ``@type``, removing it settles the value while keeping the term itself. It deletes what
+    the editor recorded, so it runs only with ``--allow-value-deletion`` and an explicit ``--only-ids``
+    scope.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or "@type" not in value:
+            return value
+        allowed = enumerated_classes((definition.get("properties") or {}).get("@type"))
+        if not allowed or "@type" in (definition.get("required") or []):
+            return value
+        stated = value["@type"] if isinstance(value["@type"], list) else [value["@type"]]
+        if all(item in allowed for item in stated):
+            return value
+        changes.append({"path": f"{path}/@type", "replaced": value["@type"], "wrote": None})
+        return {key: inner for key, inner in value.items() if key != "@type"}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_unlisted_term_classes(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of unlisted term classes."""
+    expected, _changes = drop_unlisted_term_class(before, template)
+    for path, _was, now in differences(before, after):
+        if not path.endswith("/@type") or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
 def drop_null_instance_type(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Remove an instance's root ``@type`` stated as null, which says no type and is not JSON-LD."""
     if not isinstance(instance, dict):
@@ -8866,6 +8957,10 @@ def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[
     return result, copy.deepcopy(plan.get("changes", []))
 
 
+# The repairs that delete something a person entered, and so apply only under --allow-value-deletion
+# with an explicit --only-ids scope.
+VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class"}
+
 REPAIRS = {
     "remove-reviewed-extra-schema-context": Repair(
         name="remove-reviewed-extra-schema-context", condition="extra-schema-context",
@@ -9058,6 +9153,22 @@ REPAIRS = {
         summary="write a legacy .net modifier IRI in the current form the graph already holds",
         transform=restate_modifier_in_current_form,
         invariant=only_restated_modifier,
+    ),
+    "drop-term-field-text": Repair(
+        name="drop-term-field-text",
+        condition="",
+        summary="empty a term field holding only typed text, deleting the text",
+        transform=drop_term_field_text,
+        invariant=only_dropped_term_field_text,
+        needs_template=True,
+    ),
+    "drop-unlisted-term-class": Repair(
+        name="drop-unlisted-term-class",
+        condition="",
+        summary="take out of a term value an @type naming a class its field's schema does not list",
+        transform=drop_unlisted_term_class,
+        invariant=only_dropped_unlisted_term_classes,
+        needs_template=True,
     ),
     "drop-minted-annotation-id": Repair(
         name="drop-minted-annotation-id",
@@ -10139,7 +10250,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-context-migration", action="store_true",
                         help="approve property-IRI migration for the explicit --only-ids scope")
     parser.add_argument("--allow-value-deletion", action="store_true",
-                        help="approve drop-undeclared-keys deleting entered values, for the explicit --only-ids scope")
+                        help="approve drop-undeclared-keys, drop-term-field-text and drop-unlisted-term-class "
+                             "deleting entered values, for the explicit --only-ids scope")
     parser.add_argument("--replace-graph-provenance", action="store_true",
                         help="write the explicit --only-ids scope even where the graph's modification "
                              "provenance differs from the document's, which the write replaces")
@@ -10248,9 +10360,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             and not (arguments.allow_context_migration and arguments.only_ids):
         parser.error("context alignment changes meaning; applying it requires "
                      "--allow-context-migration and an explicit --only-ids scope")
-    if arguments.apply and "drop-undeclared-keys" in names \
-            and not (arguments.allow_value_deletion and arguments.only_ids):
-        parser.error("drop-undeclared-keys deletes entered values; applying it requires "
+    deleting = sorted(set(names) & VALUE_DELETING_REPAIRS)
+    if arguments.apply and deleting and not (arguments.allow_value_deletion and arguments.only_ids):
+        parser.error(f"{', '.join(deleting)} deletes entered values; applying it requires "
                      "--allow-value-deletion and an explicit --only-ids scope")
     if arguments.replace_graph_provenance and not arguments.only_ids:
         parser.error("--replace-graph-provenance replaces what the graph records, so it needs an explicit "
