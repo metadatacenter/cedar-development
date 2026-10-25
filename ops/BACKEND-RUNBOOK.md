@@ -5153,27 +5153,40 @@ dependencies. The snapshot holds the same 302,424 artifacts. It found:
   are still refused by one library or both.
 
 The two libraries must agree on every instance's verdict, and on that pass they did not. The Java
-validator accepts 9,120 instances that the TypeScript library's `InstanceValidator`, and so the
-embeddable editor's Save, refuses; they agree on the other 141,465, and no instance is accepted by
-TypeScript alone. Every disagreement is TypeScript refusing a shape the arbiter accepts, so each is a
-defect in the TypeScript library, in six kinds:
+validator accepted 9,120 instances that the TypeScript library's `InstanceValidator`, and so the
+embeddable editor's Save, refused. The largest kind, 7,022 instances on 15 templates, held an
+unfilled controlled-term value written as `{"rdfs:label": null}`, `{"rdfs:label": ""}` or a class
+alone in `@type`. TypeScript refused those as an unrecognized value shape or as an IRI field without
+`@id`.
+
+TypeScript now judges an IRI field's value as Java does. A value without `@id` is unfilled, whatever
+else it holds, and only a controlled term's label without the IRI of its term is refused. A link
+field's label without an IRI is accepted, as Java accepts it. A key the field's closed schema does not
+declare is refused, as JSON Schema refuses it, so `{"@value": null}` in an IRI field is now refused
+where TypeScript had accepted it. The verdict fixture holds twenty probes for these shapes: ten
+values, each judged in place of a controlled-term value and of a link value in two corpus cases.
+The editor's Save follows the fix once the editor is built against the fixed library.
+
+Measured again on the same snapshot with the fixed library, the two agree on 148,482 instances. Java
+accepts 2,100 that TypeScript refuses, in four kinds, each a defect in the TypeScript library:
 
 | What the stored instance holds | Instances | Templates | TypeScript's finding |
 |---|---|---|---|
-| An empty controlled-term value with no `@id`: `{"rdfs:label": null}`, `{"rdfs:label": ""}` or only a class as `@type` | 7,022 | 15 | an unrecognized value shape, or an IRI field without `@id` |
 | No key at all for a field its container does not require | 1,190 | 2 | a missing property, reported as `Invalid structure: [object Object]` |
 | `{}` for a static field | 674 | 71 | a literal slot without `@value` |
 | An empty date or number with no `@type` | 180 | 34 | a slot without `@type` |
 | A key the template does not declare, on a template whose schema admits further properties | 98 | 14 | a property the template does not declare |
-| Another unrecognized shape | 2 | 1 | an unrecognized value shape |
 
-Forty-six instances show two kinds. The second row's message is itself a defect: the finding's text
-is built from an object it does not render. The shared corpus shows the other direction twice. Its
+Forty-two instances show two kinds. The first row's message is itself a defect: the finding's text
+is built from an object it does not render. Three instances, all of one template, go the other way.
+Java refuses them for their `@context` alone, and TypeScript, which does not compare an instance's
+`@context` with its template's, would save them. The empty-term refusal had blocked all three, so the
+fix exposed this gap rather than opened it. The shared corpus shows the same direction twice. Its
 case `cee-suite/016` maps a field to a property IRI the template does not name, and `cee-suite/046`
-lists an object in an attribute-value field; Java refuses both and TypeScript would save them.
+lists an object in an attribute-value field. Java refuses both and TypeScript would save them.
 `InstanceVerdictConcordance.spec.ts` lists those two as open defects, and the audit's
-`--fail-on-disagreement` fails on production's 9,120 until they are fixed. Records are under
-`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity/`.
+`--fail-on-disagreement` fails on production's 2,103 until they are fixed. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-empty-iri/`.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed

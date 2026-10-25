@@ -12,8 +12,10 @@ commit they came from and the fixture's digest.
       --corpus "$CEDAR_HOME/cedar-test-artifacts/artifacts" \\
       --out "$CEDAR_HOME/cedar-model-typescript-library/itest/resources/concordance"
 
-Every instance whose template the corpus holds is a case. The verdict comes from the validation
-library ``ops/cedar_validate.sh`` builds from its sibling checkout, which must be committed unless
+Every instance whose template the corpus holds is a case. So is each probe: a corpus case with one
+field's value replaced by a shape the corpus holds no example of, which the spec applies the same
+way before reading the instance. The verdict comes from the validation library
+``ops/cedar_validate.sh`` builds from its sibling checkout, which must be committed unless
 ``--working-tree`` records that it is not.
 """
 
@@ -115,6 +117,26 @@ def pairs(corpus: Path) -> list[tuple[str, Path, Path]]:
     return found
 
 
+# A field value in each shape an IRI field can hold, judged in place of one value of a corpus case the
+# validator accepts. The corpus holds few unfilled or half-filled controlled terms, while production
+# holds thousands, and the two libraries had disagreed about them without any case showing it.
+PROBE_CLASS = "https://example.org/classes/Probe"
+PROBES: dict[str, dict[str, Any]] = {
+    "empty": {},
+    "label-null": {"rdfs:label": None},
+    "label-empty": {"rdfs:label": ""},
+    "label-text": {"rdfs:label": "Probe"},
+    "class-only": {"@type": PROBE_CLASS},
+    "class-and-label-null": {"@type": PROBE_CLASS, "rdfs:label": None},
+    "class-and-label-text": {"@type": PROBE_CLASS, "rdfs:label": "Probe"},
+    "value-null": {"@value": None},
+    "id-empty": {"@id": ""},
+    "undeclared-key": {"rdfs:label": None, "probe": "Probe"},
+}
+# The corpus case and field each probe replaces a value of: a controlled-term field and a link field.
+PROBED_FIELDS = {"cee-suite/021": "Untitled", "cee-suite/027": "Link here"}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--corpus", required=True, help="the shared corpus's artifacts directory")
@@ -134,21 +156,31 @@ def main(argv: list[str] | None = None) -> int:
     hello = bridge.start()
     print(f"Validator: {hello.get('validator')} on Java {hello.get('java')}")
     cases: list[dict[str, Any]] = []
+
+    def judge(case: str, instance: dict, template: dict, entry: dict[str, Any]) -> dict[str, Any]:
+        answer = bridge.validate("instance", as_the_server_stores(instance, template), template["@id"])
+        if answer.get("status") not in ("valid", "invalid"):
+            raise RuntimeError(f"{case}: the validator gave no verdict: {answer}")
+        return {"id": case, **entry, "javaValid": answer["status"] == "valid",
+                "javaErrors": [error.get("message", "") for error in (answer.get("errors") or [])[:3]]}
+
     try:
         for case, instance_path, template_path in pairs(corpus):
             template = json.loads(template_path.read_text())
             bridge.cache_template(template["@id"], template)
-            stored = as_the_server_stores(json.loads(instance_path.read_text()), template)
-            answer = bridge.validate("instance", stored, template["@id"])
-            if answer.get("status") not in ("valid", "invalid"):
-                raise RuntimeError(f"{case}: the validator gave no verdict: {answer}")
-            cases.append({
-                "id": case,
-                "instance": instance_path.relative_to(corpus).as_posix(),
-                "template": template_path.relative_to(corpus).as_posix(),
-                "javaValid": answer["status"] == "valid",
-                "javaErrors": [error.get("message", "") for error in (answer.get("errors") or [])[:3]],
-            })
+            instance = json.loads(instance_path.read_text())
+            entry = {"instance": instance_path.relative_to(corpus).as_posix(),
+                     "template": template_path.relative_to(corpus).as_posix()}
+            cases.append(judge(case, instance, template, entry))
+            field = PROBED_FIELDS.get(case)
+            if field is None:
+                continue
+            if not cases[-1]["javaValid"] or not isinstance(instance.get(field), dict):
+                raise RuntimeError(f"{case}: no valid single value of {field!r} to probe")
+            for probe, value in PROBES.items():
+                variant = {**instance, field: value}
+                cases.append(judge(f"{case}#{probe}", variant, template,
+                                   {**entry, "replace": {"field": field, "value": value}}))
     finally:
         bridge.close()
     (out / "instance-verdicts-bridge.log").unlink(missing_ok=True)

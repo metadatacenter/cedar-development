@@ -125,7 +125,8 @@ below have no CLI front end yet, so call them directly:
 - `cedar_corpus_instance_verdicts.py` — record the Java validator's verdict on every shared-corpus
   instance that has its template beside it, as the server would store it, into the TypeScript
   library's `itest/resources/concordance/`, where `InstanceVerdictConcordance.spec.ts` holds the
-  TypeScript save decision to it in CI.
+  TypeScript save decision to it in CI. It also records probes: corpus instances with one field's
+  value replaced by a shape the corpus holds no example of, such as an unfilled controlled term.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data
