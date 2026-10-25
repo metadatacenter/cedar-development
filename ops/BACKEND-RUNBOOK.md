@@ -5215,11 +5215,19 @@ agreed before the check: its template requires a key that differs from its child
 case, and the stored `required` is honoured. Four probes cover the check.
 
 On the same snapshot the two libraries now agree on every one of the 150,585 instances both read,
-and `--fail-on-disagreement` passes. The four instances are invalid in both. The form cannot edit an
-instance's `@context`, so their owners cannot clear the error themselves. The repair tool's
-`drop-unused-instance-context`, `complete-instance-context` and `align-instance-context-iris` rules
-address these faults, and have not yet been planned against the four. Records are under
+and `--fail-on-disagreement` passes. Records are under
 `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-context/`.
+
+The four instances were invalid in both, and the form cannot edit an instance's `@context`, so their
+owners could not clear the error themselves. They were repaired on 2026-10-25 in one write each, with
+`drop-unused-instance-context`, `drop-shadowed-instance-context`, `complete-instance-context` and
+`align-instance-context-iris` under `--allow-context-migration`. The chain dropped 24 undeclared
+terms, added `skos` and `skos:notation` to each, and remapped five child terms to the property IRIs
+their template now names. Two of the dropped terms were left by the unused-term rule alone: it judges
+an element's `@context` before the nested elements whose same-named terms it then drops, and the
+shadowed-term rule removes them. Every write was read back, the Java validator rechecks all four as
+valid, their provenance stamps and graph dates are unchanged, and nothing outside their `@context`
+blocks moved.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
