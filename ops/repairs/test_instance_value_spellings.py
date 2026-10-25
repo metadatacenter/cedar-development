@@ -560,6 +560,56 @@ class TermFieldDeletionsTest(unittest.TestCase):
                     r.main(["--apply", "--repair", name, "--from-records", "unused.jsonl"])
 
 
+class OwnerChoicesTest(unittest.TestCase):
+    def test_a_bare_date_in_a_datetime_field_becomes_that_days_midnight_utc(self):
+        before = instance(Stamp={"@value": "2024-06-22", "@type": "xsd:date"}, Visit={"@value": "2024-06-22", "@type": "xsd:date"})
+        after, changes = r.write_date_at_midnight(before, template())
+        self.assertEqual(after["Stamp"], {"@value": "2024-06-22T00:00:00Z", "@type": "xsd:dateTime"})
+        self.assertEqual(after["Visit"], before["Visit"])
+        self.assertEqual([c["path"] for c in changes], ["/Stamp"])
+        self.assertIsNone(r.only_wrote_dates_at_midnight(before, after, template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+        tampered = dict(after, Stamp={"@value": "2024-06-22T09:00:00Z", "@type": "xsd:dateTime"})
+        self.assertEqual(r.only_wrote_dates_at_midnight(before, tampered, template()), "/Stamp/@value")
+
+    def test_only_a_real_calendar_date_without_a_time_is_given_midnight(self):
+        for value in ({"@value": "2024-02-30", "@type": "xsd:date"}, {"@value": "2024-06-22T10:00:00Z", "@type": "xsd:dateTime"},
+                      {"@value": "22/06/2024"}, {"@value": None, "@type": "xsd:dateTime"}, {"@value": "2024-06-22", "@type": "xsd:time"}):
+            with self.subTest(value=value):
+                before = instance(Stamp=value)
+                self.assertEqual(r.write_date_at_midnight(before, template()), (before, []))
+
+    def test_a_text_beside_a_chosen_term_goes_and_the_term_stays(self):
+        before = instance(Term={"@id": "http://t/1", "rdfs:label": "One", "@value": "Something else"})
+        after, changes = r.drop_text_beside_term(before, template())
+        self.assertEqual(after["Term"], {"@id": "http://t/1", "rdfs:label": "One"})
+        self.assertEqual(changes, [{"path": "/Term/@value", "replaced": "Something else", "wrote": None}])
+        self.assertIsNone(r.only_dropped_text_beside_terms(before, after, template()))
+        for value in ({"@id": "http://t/1", "rdfs:label": "One", "@value": "One"}, {"@id": "http://t/1", "@value": ""},
+                      {"@value": "text only"}, {"@id": "not an iri", "@value": "text"}):
+            with self.subTest(value=value):
+                kept = instance(Term=value)
+                self.assertEqual(r.drop_text_beside_term(kept, template()), (kept, []))
+
+    def test_spaces_inside_a_link_are_encoded_and_nothing_else_changes(self):
+        before = instance(Page={"@id": "https://example.org/species/Lynx lynx page "})
+        after, changes = r.encode_link_spaces(before, template())
+        self.assertEqual(after["Page"], {"@id": "https://example.org/species/Lynx%20lynx%20page"})
+        self.assertEqual(changes[0]["path"], "/Page/@id")
+        self.assertIsNone(r.only_encoded_link_spaces(before, after, template()))
+        for name, value in (("Page", {"@id": "https://example.org/fine"}), ("Page", {"@id": "no scheme here"}),
+                            ("Term", {"@id": "https://example.org/a b"})):
+            with self.subTest(name=name, value=value):
+                kept = instance(**{name: value})
+                self.assertEqual(r.encode_link_spaces(kept, template()), (kept, []))
+
+    def test_assuming_a_time_and_dropping_a_text_each_need_their_approval(self):
+        with self.assertRaises(SystemExit):
+            r.main(["--apply", "--repair", "write-date-at-midnight", "--from-records", "unused.jsonl", "--only-ids", "ids.json"])
+        self.assertIn("drop-text-beside-term", r.VALUE_DELETING_REPAIRS)
+        self.assertNotIn("encode-link-spaces", r.VALUE_DELETING_REPAIRS)
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]

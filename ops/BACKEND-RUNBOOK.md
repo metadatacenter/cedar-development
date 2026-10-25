@@ -5356,6 +5356,19 @@ was written with `--replace-graph-provenance` on the user's word, and CEE opens 
 correct. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-stamped-classes/` and
 `$CEDAR_HOME/.cedar/repairs/2026-10-25-two-more/`.
 
+The last four needed a value chosen, and the user chose each. Three Citation instances held a bare
+date in the template's `date` field, which is declared as a dateTime to the second.
+`write-date-at-midnight` writes such a date as that day's midnight UTC, spelled with `Z` as the
+template's other dated instances are. It assumes a time nobody entered, so it runs only under its own
+`--allow-assumed-time` with an explicit `--only-ids` scope. All three were written, their `@context`
+re-aligned and one graph date moved back one second, each on the user's word. CEE opens them and flags
+only the optional dates left empty, which it expects to carry `@type` and the library does not. In the
+FAIR-EuMon instance, `drop-text-beside-term` takes out a typed text standing beside a chosen term and
+differing from its label, under `--allow-value-deletion`, and `encode-link-spaces` writes the spaces
+inside a link's address as `%20`. The instance validates and CEE opens it with nothing to correct, but
+it is held for a one-second graph date gap. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-last-four/`.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only

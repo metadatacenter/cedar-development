@@ -6691,6 +6691,132 @@ def only_dropped_stamped_class_lists(before: Any, after: Any, template: Any) -> 
     return None
 
 
+DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def is_calendar_date(text: Any) -> bool:
+    if not isinstance(text, str) or not DATE_ONLY.fullmatch(text):
+        return False
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
+
+
+def write_date_at_midnight(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a date entered without a time, in a field declared ``xsd:dateTime``, as that day's midnight UTC.
+
+    A dateTime field refuses a bare date, and the owner who entered one gave no time. Midnight UTC is
+    an assumption rather than a reading of the value, which is why the repair runs only with
+    ``--allow-assumed-time`` and an explicit ``--only-ids`` scope. The date itself is kept, the owner
+    can correct the time once the instance opens, and ``Z`` is the spelling CEDAR's own editor writes.
+    Any other spelling is left for ``write-date-as-iso`` or an owner.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        declared = (definition.get("_valueConstraints") or {}).get("temporalType") if isinstance(definition, dict) else None
+        if declared != "xsd:dateTime" or not holds_a_literal(definition) or not isinstance(value, dict) \
+                or not is_calendar_date(value.get("@value")) or value.get("@type") not in (None, "xsd:date", "xsd:dateTime"):
+            return value
+        written = dict(value, **{"@value": value["@value"] + "T00:00:00Z", "@type": "xsd:dateTime"})
+        changes.append({"path": path, "replaced": value, "wrote": written})
+        return written
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_wrote_dates_at_midnight(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the midnight spelling of bare dates in dateTime fields."""
+    expected, _changes = write_date_at_midnight(before, template)
+    for path, _was, _now in differences(before, after):
+        if not path.endswith(("/@value", "/@type")):
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def drop_text_beside_term(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of a term value a typed ``@value`` that differs from the label of the term chosen.
+
+    A term field's schema admits ``@id`` and a label and no ``@value``. A value holding all three says
+    two things, the term and a text, and only one can stay. Keeping the term keeps what the field is for;
+    the text is deleted, so the repair runs only with ``--allow-value-deletion`` and an explicit
+    ``--only-ids`` scope. A text equal to the label, or an empty one, is ``settle-instance-iri-value``'s.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or not rest.is_absolute_iri(value.get("@id")):
+            return value
+        text = value.get("@value")
+        if not isinstance(text, str) or not text.strip() or text == value.get("rdfs:label"):
+            return value
+        changes.append({"path": f"{path}/@value", "replaced": text, "wrote": None})
+        return {key: inner for key, inner in value.items() if key != "@value"}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_text_beside_terms(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of texts standing beside chosen terms."""
+    expected, _changes = drop_text_beside_term(before, template)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or not isinstance(was, str) or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def encode_link_spaces(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the spaces inside a link field's address as ``%20``, the form an IRI spells them in.
+
+    An IRI cannot hold a space, so an address pasted with one is refused although it names a page; a
+    browser following it sends ``%20``. Spaces at either end are dropped and those inside are encoded,
+    and only where the result is an absolute IRI. Nothing else in the address changes.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict) or (definition.get("_ui") or {}).get("inputType") != "link" \
+                or not isinstance(value, dict) or not isinstance(value.get("@id"), str):
+            return value
+        address = value["@id"]
+        encoded = address.strip(" ").replace(" ", "%20")
+        if " " not in address or rest.is_absolute_iri(address) or not rest.is_absolute_iri(encoded):
+            return value
+        changes.append({"path": f"{path}/@id", "replaced": address, "wrote": encoded})
+        return dict(value, **{"@id": encoded})
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_encoded_link_spaces(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change writes a link's spaces as ``%20`` and nothing else."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or not isinstance(was, str) or now != was.strip(" ").replace(" ", "%20"):
+            return path or "/"
+    expected, _changes = encode_link_spaces(before, template)
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
 def drop_null_instance_type(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Remove an instance's root ``@type`` stated as null, which says no type and is not JSON-LD."""
     if not isinstance(instance, dict):
@@ -9007,7 +9133,7 @@ def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[
 # The repairs that delete something a person entered, and so apply only under --allow-value-deletion
 # with an explicit --only-ids scope.
 VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class",
-                          "drop-stamped-class-list"}
+                          "drop-stamped-class-list", "drop-text-beside-term"}
 
 REPAIRS = {
     "remove-reviewed-extra-schema-context": Repair(
@@ -9208,6 +9334,30 @@ REPAIRS = {
         summary="empty a term field holding only typed text, deleting the text",
         transform=drop_term_field_text,
         invariant=only_dropped_term_field_text,
+        needs_template=True,
+    ),
+    "write-date-at-midnight": Repair(
+        name="write-date-at-midnight",
+        condition="",
+        summary="write a bare date in a dateTime field as that day's midnight UTC, assuming the time",
+        transform=write_date_at_midnight,
+        invariant=only_wrote_dates_at_midnight,
+        needs_template=True,
+    ),
+    "drop-text-beside-term": Repair(
+        name="drop-text-beside-term",
+        condition="",
+        summary="take out of a term value a typed text that differs from the chosen term's label",
+        transform=drop_text_beside_term,
+        invariant=only_dropped_text_beside_terms,
+        needs_template=True,
+    ),
+    "encode-link-spaces": Repair(
+        name="encode-link-spaces",
+        condition="",
+        summary="write the spaces inside a link field's address as %20",
+        transform=encode_link_spaces,
+        invariant=only_encoded_link_spaces,
         needs_template=True,
     ),
     "drop-stamped-class-list": Repair(
@@ -10307,8 +10457,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="approve property-IRI migration for the explicit --only-ids scope")
     parser.add_argument("--allow-value-deletion", action="store_true",
                         help="approve the repairs that delete what was entered (drop-undeclared-keys, "
-                             "drop-term-field-text, drop-unlisted-term-class, drop-stamped-class-list), for "
-                             "the explicit --only-ids scope")
+                             "drop-term-field-text, drop-unlisted-term-class, drop-stamped-class-list, "
+                             "drop-text-beside-term), for the explicit --only-ids scope")
+    parser.add_argument("--allow-assumed-time", action="store_true",
+                        help="approve write-date-at-midnight assuming a time the owner did not enter, for the "
+                             "explicit --only-ids scope")
     parser.add_argument("--replace-graph-provenance", action="store_true",
                         help="write the explicit --only-ids scope even where the graph's modification "
                              "provenance differs from the document's, which the write replaces")
@@ -10417,6 +10570,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             and not (arguments.allow_context_migration and arguments.only_ids):
         parser.error("context alignment changes meaning; applying it requires "
                      "--allow-context-migration and an explicit --only-ids scope")
+    if arguments.apply and "write-date-at-midnight" in names \
+            and not (arguments.allow_assumed_time and arguments.only_ids):
+        parser.error("write-date-at-midnight assumes a time nobody entered; applying it requires "
+                     "--allow-assumed-time and an explicit --only-ids scope")
     deleting = sorted(set(names) & VALUE_DELETING_REPAIRS)
     if arguments.apply and deleting and not (arguments.allow_value_deletion and arguments.only_ids):
         parser.error(f"{', '.join(deleting)} deletes entered values; applying it requires "
