@@ -5161,10 +5161,22 @@ sets each container's openness from its children, moving only between `false` an
 each template before and after. 32 templates broke none of their instances, and were written with
 their dates unchanged; the strict reader now reads them. The other 10 were held. Their root
 `@context` and body are both open, and 61 of their instances, all valid, hold values under keys the
-template no longer declares, mapped in the root `@context`. They look like answers to an
-attribute-value field the template has since dropped, and closing the template would make the 61
-invalid, so they are left for their owners. Records are under
+template no longer declares, mapped in the root `@context`. They are fields renamed or removed after
+the instances were saved. 87 of the values sit under an old name whose property IRI a current field
+still carries, with that field empty: the same property under a new name. The other 72 belong to
+fields the template no longer has. Closing a template while its instances hold either would make
+them invalid, so the 10 are left until those values are moved or their owners decide. Records are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-25-context-openness/`.
+
+On the user's word, 83 of the renamed values were then moved with `rename-instance-keys` and
+`drop-unused-instance-context`. The rename table was built from the property IRIs and keeps a `/` in an
+old name escaped as `~1`. The four under `name` in the email message template were left out, since an
+instance also holds a value under its new name, `Name`. 41 instances were written with their dates
+unchanged, every value intact under its current name. TGCOVID then held no old keys in any of its 998
+instances, which all validated against the closed template, so it was closed. The other nine still
+hold values under removed fields. CEE blocks saving those instances, which are valid, because it
+does not recognise the undeclared keys, so the owners' decision on the removed fields is also what
+lets them be saved in CEE. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-renamed-fields/`.
 
 ### Repairing Instance Values the 2.9.25 Rules Refuse
 
