@@ -5167,26 +5167,41 @@ where TypeScript had accepted it. The verdict fixture holds twenty probes for th
 values, each judged in place of a controlled-term value and of a link value in two corpus cases.
 The editor's Save follows the fix once the editor is built against the fixed library.
 
-Measured again on the same snapshot with the fixed library, the two agree on 148,482 instances. Java
-accepts 2,100 that TypeScript refuses, in four kinds, each a defect in the TypeScript library:
+Measured again with that fix, Java accepted 2,100 instances that TypeScript refused, in four kinds. A
+container's stored `required` omitted a field the instance left out, on 1,190 instances of 2
+templates. A static field held `{}`, on 674 instances of 71 templates. An empty date or number had no
+`@type` where its stored field requires only `@value`, on 180 instances of 34 templates. A container's
+stored `additionalProperties` admitted a literal the template does not declare, on 98 instances of 14
+templates.
 
-| What the stored instance holds | Instances | Templates | TypeScript's finding |
-|---|---|---|---|
-| No key at all for a field its container does not require | 1,190 | 2 | a missing property, reported as `Invalid structure: [object Object]` |
-| `{}` for a static field | 674 | 71 | a literal slot without `@value` |
-| An empty date or number with no `@type` | 180 | 34 | a slot without `@type` |
-| A key the template does not declare, on a template whose schema admits further properties | 98 | 14 | a property the template does not declare |
+Three of the four kinds come from the stored template, which states these facts differently from how
+either library's model writes them, and neither model keeps them. `InstanceValidator.validate` and
+`validateReport` therefore take the stored template document as an optional third argument. From it
+they read which children a container requires, which further keys a container admits and which
+properties a field's value must carry. CEE passes the JSON template its host hands over, and both
+gates pass the stored body. A static field's slot is judged by its schema alone, which declares no
+property, as Java judges it. The missing-property finding's message no longer renders as
+`[object Object]`. Thirteen further probes cover these rules, each patching a corpus case's template
+as well as its instance.
 
-Forty-two instances show two kinds. The first row's message is itself a defect: the finding's text
-is built from an object it does not render. Three instances, all of one template, go the other way.
-Java refuses them for their `@context` alone, and TypeScript, which does not compare an instance's
-`@context` with its template's, would save them. The empty-term refusal had blocked all three, so the
-fix exposed this gap rather than opened it. The shared corpus shows the same direction twice. Its
-case `cee-suite/016` maps a field to a property IRI the template does not name, and `cee-suite/046`
-lists an object in an attribute-value field. Java refuses both and TypeScript would save them.
-`InstanceVerdictConcordance.spec.ts` lists those two as open defects, and the audit's
-`--fail-on-disagreement` fails on production's 2,103 until they are fixed. Records are under
-`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-empty-iri/`.
+The model keeps a null `rdfs:label`, `skos:notation`, `skos:prefLabel` or `@language` as no value and
+writes nothing for it, so a slot written from the model cannot show whether the stored slot carried
+the key. A schema that requires one of them is therefore not held against a written slot. Two
+production instances hold a required label as null, which Java accepts. The cost is the reverse case.
+A slot that leaves out a label its schema requires reads the same, and Java refuses it while
+TypeScript would save it. Production holds none, and the corpus probe
+`cee-suite/017#label-absent-required` is listed as an open defect so that the gap stays visible.
+
+On the same snapshot the two libraries now agree on 150,581 instances, and Java accepts none that
+TypeScript refuses. Four instances, of two templates, go the other way. Java refuses them for their
+`@context`, which TypeScript does not compare with the template's. Earlier refusals had blocked them,
+so the fixes exposed this gap rather than opened it. The corpus shows it with the probe
+`cee-suite/021#context-property-mismatch`, which maps a field to a property IRI the template does not
+name. Corpus case `cee-suite/016` does the same, and now agrees for another reason: its template
+requires a key that differs from its child's name only in case, and the stored `required` is now
+honoured. Case `cee-suite/046`, which lists an object in an attribute-value field, is the other open
+defect. The audit's `--fail-on-disagreement` fails on production's four until the `@context` check
+lands. Records are under `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-stored/`.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed

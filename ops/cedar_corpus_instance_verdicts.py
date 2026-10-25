@@ -12,9 +12,9 @@ commit they came from and the fixture's digest.
       --corpus "$CEDAR_HOME/cedar-test-artifacts/artifacts" \\
       --out "$CEDAR_HOME/cedar-model-typescript-library/itest/resources/concordance"
 
-Every instance whose template the corpus holds is a case. So is each probe: a corpus case with one
-field's value replaced by a shape the corpus holds no example of, which the spec applies the same
-way before reading the instance. The verdict comes from the validation library
+Every instance whose template the corpus holds is a case. So is each probe: a corpus case changed by
+JSON Patch operations on its instance and its template into a shape the corpus holds no example of,
+which the spec applies the same way before reading either document. The verdict comes from the validation library
 ``ops/cedar_validate.sh`` builds from its sibling checkout, which must be committed unless
 ``--working-tree`` records that it is not.
 """
@@ -117,11 +117,13 @@ def pairs(corpus: Path) -> list[tuple[str, Path, Path]]:
     return found
 
 
-# A field value in each shape an IRI field can hold, judged in place of one value of a corpus case the
-# validator accepts. The corpus holds few unfilled or half-filled controlled terms, while production
-# holds thousands, and the two libraries had disagreed about them without any case showing it.
+# A probe is a corpus case the validator accepts, changed by a few JSON Patch operations on its instance
+# and on its template into a shape the corpus holds no example of. Production holds thousands of such
+# shapes, and the two libraries had disagreed about them without any case showing it: unfilled or
+# half-filled controlled terms, a template that requires fewer children than either model writes, a
+# date that requires only @value, a static field holding `{}`, a container admitting further literals.
 PROBE_CLASS = "https://example.org/classes/Probe"
-PROBES: dict[str, dict[str, Any]] = {
+IRI_VALUES: dict[str, dict[str, Any]] = {
     "empty": {},
     "label-null": {"rdfs:label": None},
     "label-empty": {"rdfs:label": ""},
@@ -133,8 +135,72 @@ PROBES: dict[str, dict[str, Any]] = {
     "id-empty": {"@id": ""},
     "undeclared-key": {"rdfs:label": None, "probe": "Probe"},
 }
-# The corpus case and field each probe replaces a value of: a controlled-term field and a link field.
-PROBED_FIELDS = {"cee-suite/021": "Untitled", "cee-suite/027": "Link here"}
+# The schema older templates give `additionalProperties` to admit further literal values.
+OPEN_LITERALS = {"type": "object",
+                 "properties": {"@value": {"type": ["string", "null"]}, "@type": {"type": "string", "format": "uri"}},
+                 "required": ["@value"], "additionalProperties": False}
+
+
+def put(path: str, value: Any) -> dict[str, Any]:
+    return {"op": "add", "path": path, "value": value}
+
+
+def drop(path: str) -> dict[str, Any]:
+    return {"op": "remove", "path": path}
+
+
+def key(name: str) -> str:
+    """A JSON Pointer to one member of an object."""
+    return "/" + name.replace("~", "~0").replace("/", "~1")
+
+
+def probes(case: str, template: dict) -> list[tuple[str, list[dict[str, Any]], list[dict[str, Any]]]]:
+    """A corpus case's probes: each one's name and the operations it applies to the instance and the template."""
+    if case in ("cee-suite/021", "cee-suite/027"):
+        field = "Untitled" if case == "cee-suite/021" else "Link here"
+        found = [(name, [put(key(field), value)], []) for name, value in IRI_VALUES.items()]
+        if case == "cee-suite/021":
+            unrequired = [name for name in template["required"] if name != field]
+            found += [
+                ("absent", [drop(key(field))], []),
+                ("absent-unrequired", [drop(key(field))], [put("/required", unrequired)]),
+                ("extra-literal", [put(key("Probe"), {"@value": "Probe"})], []),
+                ("extra-literal-admitted", [put(key("Probe"), {"@value": "Probe"})],
+                 [put("/additionalProperties", OPEN_LITERALS)]),
+                ("extra-iri-admitted", [put(key("Probe"), {"@id": PROBE_CLASS})],
+                 [put("/additionalProperties", OPEN_LITERALS)]),
+                ("context-property-mismatch", [put("/@context" + key(field), "https://example.org/properties/Probe")], []),
+            ]
+        return found
+    if case == "cee-suite/015":
+        field = key("Rich Text Standalone")
+        return [("static-empty", [put(field, {})], []), ("static-value-null", [put(field, {"@value": None})], [])]
+    if case == "cee-suite/017":
+        field = key("Datetime Field 1 (month/year)")
+        date = {"@value": "2023-08-31", "@type": "xsd:date"}
+        label_required = [put("/properties" + field + "/required", ["@value", "rdfs:label"])]
+        return [("date-unfilled-untyped", [put(field, {"@value": None})], []),
+                ("date-filled-untyped", [put(field, {"@value": "2023-08-31"})], []),
+                ("label-null-required", [put(field, {**date, "rdfs:label": None})], label_required),
+                ("label-absent-required", [put(field, date)], label_required)]
+    if case == "cee-suite/032":
+        return [("number-unfilled-untyped", [put(key("Numeric"), {"@value": None})], [])]
+    return []
+
+
+def patched(document: dict, operations: list[dict[str, Any]]) -> dict:
+    """The document with JSON Patch `add` and `remove` operations applied, as the spec applies them."""
+    copy = json.loads(json.dumps(document))
+    for operation in operations:
+        keys = [part.replace("~1", "/").replace("~0", "~") for part in operation["path"].split("/")[1:]]
+        parent = copy
+        for part in keys[:-1]:
+            parent = parent[part]
+        if operation["op"] == "remove":
+            del parent[keys[-1]]
+        else:
+            parent[keys[-1]] = operation["value"]
+    return copy
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -158,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     cases: list[dict[str, Any]] = []
 
     def judge(case: str, instance: dict, template: dict, entry: dict[str, Any]) -> dict[str, Any]:
+        bridge.cache_template(template["@id"], template)
         answer = bridge.validate("instance", as_the_server_stores(instance, template), template["@id"])
         if answer.get("status") not in ("valid", "invalid"):
             raise RuntimeError(f"{case}: the validator gave no verdict: {answer}")
@@ -167,20 +234,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for case, instance_path, template_path in pairs(corpus):
             template = json.loads(template_path.read_text())
-            bridge.cache_template(template["@id"], template)
             instance = json.loads(instance_path.read_text())
             entry = {"instance": instance_path.relative_to(corpus).as_posix(),
                      "template": template_path.relative_to(corpus).as_posix()}
             cases.append(judge(case, instance, template, entry))
-            field = PROBED_FIELDS.get(case)
-            if field is None:
-                continue
-            if not cases[-1]["javaValid"] or not isinstance(instance.get(field), dict):
-                raise RuntimeError(f"{case}: no valid single value of {field!r} to probe")
-            for probe, value in PROBES.items():
-                variant = {**instance, field: value}
-                cases.append(judge(f"{case}#{probe}", variant, template,
-                                   {**entry, "replace": {"field": field, "value": value}}))
+            found = probes(case, template)
+            if found and not cases[-1]["javaValid"]:
+                raise RuntimeError(f"{case}: only a case the validator accepts can be probed")
+            for probe, on_instance, on_template in found:
+                patch = {name: operations for name, operations in (("instance", on_instance), ("template", on_template))
+                         if operations}
+                cases.append(judge(f"{case}#{probe}", patched(instance, on_instance), patched(template, on_template),
+                                   {**entry, "patch": patch}))
     finally:
         bridge.close()
     (out / "instance-verdicts-bridge.log").unlink(missing_ok=True)

@@ -67,13 +67,15 @@ function read(kind, source, templateId) {
   const verdict = readWith(strict, kind, source);
   if (verdict.status === 'refused' || verdict.status === 'threw') verdict.lenient = readWith(lenient, kind, source);
   if (kind === 'instance' && templateId) {
-    const template = templates.get(templateId);
+    const kept = templates.get(templateId);
+    const template = kept?.model;
     const instance = verdict.instance ?? verdict.lenient?.instance;
     if (!template) verdict.validation = { status: 'no-template' };
     else if (!instance) verdict.validation = { status: 'unreadable', canSave: false };
     else {
       try {
-        const summary = library.InstanceValidator.validateReport(instance, template);
+        // Judged against the stored template, as the server judges it.
+        const summary = library.InstanceValidator.validateReport(instance, template, kept.stored);
         const blocking = summary.findings.filter((finding) => library.ValidationPolicy.blocksSave(finding, 'instance'));
         verdict.validation = {
           status: 'judged',
@@ -98,9 +100,10 @@ function read(kind, source, templateId) {
 
 function keepTemplate(id, source) {
   try {
-    const template = lenient.template.readFromObject(JsonSourcePolicy.parse(source)).template;
+    const stored = JsonSourcePolicy.parse(source);
+    const model = lenient.template.readFromObject(stored).template;
     templates.delete(id);
-    templates.set(id, template);
+    templates.set(id, { model, stored });
     if (templates.size > TEMPLATE_CACHE) templates.delete(templates.keys().next().value);
     return 'kept';
   } catch (error) {
