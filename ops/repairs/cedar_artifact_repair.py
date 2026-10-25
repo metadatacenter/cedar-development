@@ -82,7 +82,8 @@ ROOT_SEGMENTS = ("templates/", "template-elements/", "template-fields/", "templa
 PROPERTY_IRI_PREFIX = "https://schema.metadatacenter.org/properties/"
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 OUTCOMES = ("repaired", "would-repair", "already-clean", "still-invalid", "invariant-failed",
-            "transform-refused", "graph-provenance-held", "fetch-failed", "write-failed")
+            "transform-refused", "graph-provenance-held", "fractional-number-held", "fetch-failed",
+            "write-failed")
 DEFAULT_PROGRESS_EVERY = 100
 DEFAULT_PROGRESS_SECONDS = 30
 DEFAULT_WORKERS = 4
@@ -4711,6 +4712,102 @@ def drop_unused_instance_context(instance: Any, template: Any) -> tuple[Any, lis
     return walk(instance, template, ''), changes
 
 
+def without_shadowing_subtrees(node: Any, name: str, top: bool = True) -> Any:
+    """A copy of ``node`` without the objects below it whose own ``@context`` maps ``name``.
+
+    Inside such an object the name is that object's own mapping, so a use there says nothing about
+    whether a mapping further out is needed.
+    """
+    if isinstance(node, list):
+        return [without_shadowing_subtrees(item, name, False) for item in node]
+    if not isinstance(node, dict):
+        return node
+    if not top and isinstance(node.get("@context"), dict) and name in node["@context"]:
+        return None
+    return {key: without_shadowing_subtrees(value, name, False) for key, value in node.items()}
+
+
+def drop_shadowed_instance_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove an undeclared context term whose only uses sit inside objects that map it themselves.
+
+    ``drop-unused-instance-context`` keeps a term that anything in its scope uses, which is right
+    until the user is an element mapping the same name in its own ``@context``: there the inner
+    mapping applies, and the outer one is used by nothing.
+    """
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+
+    def walk(node: Any, schema: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        context = node.get("@context")
+        declared = schema.get("properties", {}).get("@context", {}).get("properties", {})
+        if isinstance(context, dict) and isinstance(declared, dict):
+            for name, value in context.items():
+                if name in declared or name.startswith("@") or ":" in name or not rest.is_absolute_iri(value):
+                    continue
+                scope = copy.deepcopy(node)
+                del scope["@context"][name]
+                if context_name_used(without_shadowing_subtrees(scope, name), name):
+                    continue
+                del result["@context"][name]
+                changes.append({"path": f"{path}/@context/{rest.json_pointer_component(name)}",
+                                "replaced": value, "wrote": None})
+        for name, child, multiple in container_children(schema):
+            if not is_element(child) or name not in result:
+                continue
+            value = result[name]
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if multiple and isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}") for index, item in enumerate(value)]
+            elif not multiple and isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_dropped_shadowed_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of shadowed, undeclared context terms."""
+    expected, _changes = drop_shadowed_instance_context(before, template)
+    for path, was, now in differences(before, after):
+        if "/@context/" not in f"{path}" or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+# The creator each artifact's graph node records, keyed by artifact IRI, as its /details answer states
+# it. Supplied through --creators: a document that names no creator says nothing the graph does not
+# already know, and the graph's answer is the fact rather than an inference from the last modifier.
+CREATORS: dict[str, str] = {}
+
+
+def state_creator_from_graph(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write ``pav:createdBy`` in a document that states none, as the creator its graph node records."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    creator = CREATORS.get(artifact.get("@id"))
+    if creator is None or artifact.get("pav:createdBy") is not None or not CURRENT_USER_IRI.fullmatch(creator):
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    result["pav:createdBy"] = creator
+    return result, [{"path": "/pav:createdBy", "replaced": artifact.get("pav:createdBy"), "wrote": creator}]
+
+
+def only_stated_graph_creator(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the one change states the creator the graph records where none was stated."""
+    if not isinstance(before, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if path != "/pav:createdBy" or was not in (ABSENT, None) or now != CREATORS.get(before.get("@id")):
+            return path or "/"
+    return None
+
+
 def only_dropped_unused_context(before: Any, after: Any, template: Any) -> Optional[str]:
     for path, old, new in differences(before, after):
         context_path, _, encoded = path.rpartition('/')
@@ -5733,6 +5830,23 @@ def json_equal(before: Any, after: Any) -> bool:
     return next(differences(before, after), None) is None
 
 
+def fractional_numbers(node: Any, path: str = "") -> Iterator[tuple[str, float]]:
+    """Every JSON number written with a fraction or an exponent, as a pointer and the value.
+
+    Python's parser reads exactly those as ``float``, and they are the numbers the server's
+    ``USE_BIG_DECIMAL_FOR_FLOATS`` mapper turns into ``BigDecimal``; ``1.0`` is one of them and ``1``
+    is not.
+    """
+    if isinstance(node, float):
+        yield path, node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from fractional_numbers(value, f"{path}/{rest.json_pointer_component(key)}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from fractional_numbers(value, f"{path}/{index}")
+
+
 KEYWORD_VALUE_TYPE = "@id"
 
 
@@ -6605,6 +6719,7 @@ def only_typed_choice_values_as_text(before: Any, after: Any) -> Optional[str]:
 # modifier is right only where the graph already holds that same user in the current form.
 MODIFIER_FORMS: dict[str, str] = {}
 LEGACY_USER = re.compile(r"https://repo\.metadatacenter\.net/users/([^/\s]+)")
+CURRENT_USER_IRI = re.compile(r"https://metadatacenter\.org/users/[^/\s]+")
 CURRENT_USER = "https://metadatacenter.org/users/{}"
 
 
@@ -6642,6 +6757,55 @@ def only_restated_modifier(before: Any, after: Any) -> Optional[str]:
     for path, was, now in differences(before, after):
         if path != "/oslc:modifiedBy" or now != current_form_of(was) or MODIFIER_FORMS.get(before.get("@id")) != now:
             return path or "/"
+    return None
+
+
+TERM_NOTATION = {"type": ["string", "null"]}
+
+
+def is_term_field_without_notation(node: Any) -> bool:
+    """A controlled-term field whose value schema names ``@id`` and a label but no ``skos:notation``."""
+    if not isinstance(node, dict) or not isinstance(node.get("_ui"), dict):
+        return False
+    constraints = node.get("_valueConstraints") or {}
+    properties = node.get("properties")
+    return isinstance(properties, dict) and "@id" in properties and "rdfs:label" in properties \
+        and "skos:notation" not in properties and any(constraints.get(k) for k in TERM_CONSTRAINT_KEYS)
+
+
+def allow_term_notation(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Let a controlled-term field's value carry the term's ``skos:notation``, as the model writes it.
+
+    Both libraries render a controlled-term field's value schema with ``skos:notation``, text or null,
+    beside ``@id`` and ``rdfs:label``. Templates written before that, 2018's caDSR ones among them, name
+    no notation, and since the value schema admits nothing undeclared, an instance carrying the code of
+    the term it chose is refused. Declaring the notation only widens what a value may carry.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f"{path}/{rest.json_pointer_component(key)}") for key, value in node.items()}
+        if is_term_field_without_notation(node):
+            result["properties"] = dict(result["properties"], **{"skos:notation": dict(TERM_NOTATION)})
+            changes.append({"path": f"{path}/properties/skos:notation", "replaced": None, "wrote": TERM_NOTATION})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_allowed_term_notations(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change declares ``skos:notation`` in a controlled-term field lacking it."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/properties/skos:notation") or was is not ABSENT or now != TERM_NOTATION:
+            return path or "/"
+        if not is_term_field_without_notation(value_at(before, path[:-len("/properties/skos:notation")])):
+            return path
     return None
 
 
@@ -8828,6 +8992,28 @@ REPAIRS = {
         transform=type_choice_value_as_text,
         invariant=only_typed_choice_values_as_text,
     ),
+    "drop-shadowed-instance-context": Repair(
+        name="drop-shadowed-instance-context",
+        condition="",
+        summary="remove an undeclared context term whose only uses are mapped again where they occur",
+        transform=drop_shadowed_instance_context,
+        invariant=only_dropped_shadowed_context,
+        needs_template=True,
+    ),
+    "state-creator-from-graph": Repair(
+        name="state-creator-from-graph",
+        condition="",
+        summary="state the creator the graph records in a document that names none",
+        transform=state_creator_from_graph,
+        invariant=only_stated_graph_creator,
+    ),
+    "allow-term-notation": Repair(
+        name="allow-term-notation",
+        condition="",
+        summary="declare skos:notation in a controlled-term field's value schema, as the model writes it",
+        transform=allow_term_notation,
+        invariant=only_allowed_term_notations,
+    ),
     "restate-user-iris-in-current-form": Repair(
         name="restate-user-iris-in-current-form",
         condition="",
@@ -9735,6 +9921,17 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
         record.update(outcome="still-invalid", detail=explanation)
         return record
 
+    # Since release 2.9.25 the server stores a fractional JSON number as Mongo Decimal128 and serves it
+    # back as {"$numberDecimal": ...}, which the validator refuses, so a write would damage the artifact.
+    # cedar-microservice-libraries fe3fd3ce renders it as the number again; until production carries
+    # that fix, such an artifact is held unwritten.
+    fraction = next(fractional_numbers(repaired), None)
+    if fraction is not None and not arguments.allow_fractional_numbers:
+        record.update(outcome="fractional-number-held",
+                      detail=f"holds the fractional number {fraction[1]!r} at {fraction[0]}, which the "
+                             "server would store and serve back as $numberDecimal")
+        return record
+
     # A verbatim write sets the graph's modification provenance from the document it writes. Where
     # that document and the graph disagree, such as a legacy user IRI in the document and the current
     # one in the graph, the write would replace what the graph holds, so the artifact is held rather
@@ -9883,6 +10080,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON of the modifier each artifact's graph holds, {artifactId: userIri}, which "
                              "restate-modifier-in-current-form writes where the document states the same "
                              "user in the legacy repo.metadatacenter.net form")
+    parser.add_argument("--creators",
+                        help="JSON of the creator each artifact's graph records, {artifactId: userIri}, which "
+                             "state-creator-from-graph writes where the document names none")
     parser.add_argument("--date-orders",
                         help="JSON of the order each template's numeric dates are written in, "
                              "{templateId: \"day-first\" | \"month-first\"}, which write-date-as-iso "
@@ -9905,6 +10105,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--replace-graph-provenance", action="store_true",
                         help="write the explicit --only-ids scope even where the graph's modification "
                              "provenance differs from the document's, which the write replaces")
+    parser.add_argument("--allow-fractional-numbers", action="store_true",
+                        help="write artifacts holding a fractional number; only once the deployment "
+                             "carries cedar-microservice-libraries fe3fd3ce, which serves Decimal128 "
+                             "back as a number")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts")
     parser.add_argument("--types", help="restrict to these artifact types, comma separated")
     parser.add_argument("--exclude-ids",
@@ -10098,6 +10302,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
                                  ("--date-orders", arguments.date_orders, DATE_ORDERS),
+                                 ("--creators", arguments.creators, CREATORS),
                                  ("--modifier-forms", arguments.modifier_forms, MODIFIER_FORMS),
                                  ("--placeholder-templates", arguments.placeholder_templates, PLACEHOLDER_TEMPLATES),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
@@ -10137,7 +10342,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     details: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     bookkeeping = threading.Lock()
     REPORTABLE = {"still-invalid", "invariant-failed", "transform-refused", "graph-provenance-held",
-                  "fetch-failed", "write-failed"}
+                  "fractional-number-held", "fetch-failed", "write-failed"}
 
     def book(record: dict[str, Any]) -> None:
         progress.note(record["outcome"], len(record.get("pathsRemoved") or []))

@@ -438,6 +438,58 @@ class RestateUserIrisTest(unittest.TestCase):
         self.assertEqual(r.only_restated_user_iris(before, dict(before, **{"rdfs:label": self.CURRENT})), "/rdfs:label")
 
 
+class AllowTermNotationTest(unittest.TestCase):
+    def test_a_term_field_without_a_notation_gains_one_and_nothing_else_changes(self):
+        document = template()
+        document["properties"]["Visits"]["items"]["properties"]["@value"] = {"type": ["string", "null"]}
+        after, changes = r.allow_term_notation(document)
+        self.assertEqual(after["properties"]["Term"]["properties"]["skos:notation"], {"type": ["string", "null"]})
+        self.assertNotIn("skos:notation", after["properties"]["Page"]["properties"])
+        self.assertEqual(changes, [{"path": "/properties/Term/properties/skos:notation", "replaced": None,
+                                    "wrote": {"type": ["string", "null"]}}])
+        self.assertIsNone(r.only_allowed_term_notations(document, after))
+        self.assertEqual(r.allow_term_notation(after), (after, []))
+        changed = copy.deepcopy(after); changed["properties"]["Page"]["properties"]["skos:notation"] = {"type": ["string", "null"]}
+        self.assertEqual(r.only_allowed_term_notations(document, changed), "/properties/Page/properties/skos:notation")
+
+
+class ShadowedContextAndCreatorTest(unittest.TestCase):
+    def tearDown(self):
+        r.CREATORS.clear()
+
+    def shadowing_template(self):
+        inner = {"@type": r.ELEMENT_AT_TYPE, "type": "object",
+                 "properties": {"@context": {"properties": {"untitled": {}}}, "untitled": field("textfield")}}
+        return {"@id": TEMPLATE_ID, "@type": TEMPLATE_AT_TYPE,
+                "properties": {"@context": {"properties": {"License": {}}}, "License": inner}}
+
+    def test_a_term_only_its_own_mapping_uses_inside_an_element_goes(self):
+        before = instance(**{"@context": {"License": "http://x/license", "untitled": "http://x/outer"},
+                             "License": {"@context": {"untitled": "http://x/inner"}, "untitled": {"@value": None}}})
+        after, changes = r.drop_shadowed_instance_context(before, self.shadowing_template())
+        self.assertEqual(after["@context"], {"License": "http://x/license"})
+        self.assertEqual(after["License"], before["License"])
+        self.assertEqual(changes[0]["path"], "/@context/untitled")
+        self.assertIsNone(r.only_dropped_shadowed_context(before, after, self.shadowing_template()))
+
+    def test_a_term_used_outside_any_shadowing_element_stays(self):
+        before = instance(**{"@context": {"License": "http://x/license", "untitled": "http://x/outer"},
+                             "License": {"@context": {}, "untitled": {"@value": None}}})
+        self.assertEqual(r.drop_shadowed_instance_context(before, self.shadowing_template()), (before, []))
+
+    def test_the_graph_creator_is_stated_only_where_none_is(self):
+        creator = "https://metadatacenter.org/users/u1"
+        before = {k: v for k, v in instance().items() if k != "pav:createdBy"}
+        r.CREATORS[before["@id"]] = creator
+        after, changes = r.state_creator_from_graph(before)
+        self.assertEqual(after["pav:createdBy"], creator)
+        self.assertIsNone(r.only_stated_graph_creator(before, after))
+        stated = instance()
+        r.CREATORS[stated["@id"]] = creator
+        self.assertEqual(r.state_creator_from_graph(stated), (stated, []))
+        self.assertEqual(r.only_stated_graph_creator(before, dict(after, **{"pav:createdBy": "https://metadatacenter.org/users/other"})), "/pav:createdBy")
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]

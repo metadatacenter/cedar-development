@@ -95,7 +95,7 @@ class WriteSafetyTest(unittest.TestCase):
         self.assertEqual(sorted(recorded), list(range(50)))
 
     def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None,
-                   replace_graph_provenance=False, repairs=None):
+                   replace_graph_provenance=False, repairs=None, allow_fractional_numbers=False):
         """Run one repair against a fake deployment whose graph details are ``graph_before`` until
         the write and ``graph`` after it, each defaulting to the provenance of the stored body."""
         class Client:
@@ -119,7 +119,8 @@ class WriteSafetyTest(unittest.TestCase):
                         'errors': [] if valid else [{'message': 'invalid'}]}
         with tempfile.TemporaryDirectory() as folder:
             return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder,
-                                                   replace_graph_provenance=replace_graph_provenance),
+                                                   replace_graph_provenance=replace_graph_provenance,
+                                                   allow_fractional_numbers=allow_fractional_numbers),
                                 repairs or [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
                                 r.rest.ArtifactRef('template', 'urn:test', 'test'))
 
@@ -171,6 +172,25 @@ class WriteSafetyTest(unittest.TestCase):
         self.assertEqual((replaced['outcome'], replaced['verified']), ('repaired', True))
         self.assertEqual(replaced['graphProvenanceReplaced'], 'oslc:modifiedBy')
         self.assertEqual(replaced['graphProvenanceBefore']['oslc:modifiedBy'], graph['oslc:modifiedBy'])
+
+    def test_a_fractional_number_is_held_unwritten(self):
+        # The server stores 1e-06 as Decimal128 and serves {"$numberDecimal": "0.000001"} back.
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old',
+                  '_valueConstraints': {'minValue': 1e-06, 'maxValue': 10}}
+        def decimal128(body):
+            body['_valueConstraints']['minValue'] = {'$numberDecimal': '0.000001'}
+        result = self.run_repair(body=stored, mutate=decimal128)
+        self.assertEqual(result['outcome'], 'fractional-number-held')
+        self.assertIn('/_valueConstraints/minValue', result['detail'])
+        self.assertNotIn('preimage', result)
+        self.assertEqual(self.run_repair(body=dict(stored, _valueConstraints={'maxValue': 10}))['outcome'],
+                         'repaired')
+        allowed = self.run_repair(body=stored, allow_fractional_numbers=True)
+        self.assertEqual((allowed['outcome'], allowed['verified']), ('repaired', True))
+
+    def test_fractional_numbers_are_the_parser_floats(self):
+        found = list(r.fractional_numbers(json.loads('{"a": 1, "b": 1.0, "c": [2e3, true], "d/e": 0.5}')))
+        self.assertEqual(found, [('/b', 1.0), ('/c/0', 2000.0), ('/d~1e', 0.5)])
 
     def test_replacing_graph_provenance_requires_an_explicit_scope(self):
         with patch('sys.stderr', new_callable=io.StringIO) as error, self.assertRaises(SystemExit):

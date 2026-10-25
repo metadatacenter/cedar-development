@@ -5257,6 +5257,40 @@ artifacts were written with their document, graph and search-index dates unchang
 instances that are invalid for other reasons, which the tool does not write; their legacy IRIs go with
 whatever repair makes them valid. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-user-iris/`.
 
+Six instances that CEE opened without complaint still failed the Java validator. For four of them the
+template was at fault. Both libraries write a controlled-term field's value schema with
+`skos:notation`, text or null, beside `@id` and `rdfs:label`; these 2018 templates name no notation,
+so an instance carrying the code of the term it chose was refused. `allow-term-notation` declares the
+notation in such fields. It only widens what a value may carry, and it was written to four templates,
+one of them published, with their dates, versions and statuses unchanged; all four instances then
+validated without a change of their own. Thousands more controlled-term fields across the corpus named
+no notation, which matters only where an instance carries one. The other two were instance defects, and
+both were repaired. `state-creator-from-graph` wrote into one the `pav:createdBy` its graph node
+records, read through `--creators`, rather than inferring a creator from the last modifier.
+`drop-shadowed-instance-context` removed from the other a root `@context` mapping whose only use sits
+inside an element that maps the same name in its own `@context`.
+
+The user then asked for the notation to be declared across the corpus. 5,905 templates, elements and
+fields held 21,574 controlled-term fields without it. Planned against the snapshot, every one of them
+validated and read at least as well with the notation declared, and none of the 146,371 instances of
+the changed templates went from valid to invalid. 5,765 were written, declaring the notation in 21,369
+fields, with their document, graph and search-index dates unchanged. All of them validate, and both
+libraries read them as before; the strict TypeScript reader still refuses the 38 among them that it
+refused before. 136 were held because the graph's date differs from the document's. In 131 the graph is
+one second later. In five draft elements it is earlier, by between 37 seconds and 88 days. The three
+templates the Decimal128 defect damaged were left alone.
+
+One write damaged a template. Since release 2.9.25 the server stores a fractional number as `Decimal128`
+and serves it back as `{"$numberDecimal": ...}`, as
+[Numbers, timestamps and source parsing](#numbers-timestamps-and-source-parsing) describes, and
+metaBUS-partial, a draft, holds two fractional `minValue` bounds. The read-back caught the difference
+and stopped the run. Rewriting the template would convert the bounds again. The stored values are
+exact, so a release carrying the rendering fix serves the template correctly without a write. The
+repair tool now holds every candidate containing a fractional number, as `fractional-number-held`,
+unless `--allow-fractional-numbers` is given, which is meant for a deployment carrying the fix. One
+more element was held that way. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-24-term-notation-corpus/`.
+
 ## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
