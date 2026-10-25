@@ -6516,6 +6516,97 @@ def only_completed_required_labels(before: Any, after: Any, template: Any) -> Op
     return None
 
 
+
+def literal_field(definition: Any) -> bool:
+    """Whether a field schema gives its value a ``@value`` and no ``@id``, which is to say a literal."""
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    return isinstance(properties, dict) and "@value" in properties and "@id" not in properties
+
+
+def drop_literal_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take ``rdfs:label`` out of the keys a literal field's value must carry.
+
+    A literal value has no label. Templates of 2017 listed ``rdfs:label`` among the keys every value
+    of a text or number field must carry anyway, and no writer produces one: an instance satisfies
+    the demand only by holding the label as null, which ``complete-required-label`` stated, and a
+    save through either library's model drops it again. The property stays declared, as both
+    libraries declare it; only the demand goes. Every change relaxes a field, so nothing that
+    validates today stops doing so.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == REQUIRED_KEY and literal_field(node) and isinstance(value, list) and "rdfs:label" in value:
+                wanted = [key for key in value if key != "rdfs:label"]
+                changes.append({"path": here, "replaced": list(value), "wrote": wanted})
+                result[name] = wanted
+                continue
+            result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_dropped_literal_label_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a literal field's ``required`` losing ``rdfs:label`` and nothing else."""
+    for path, was, now in differences(before, after):
+        if not path.endswith(f"/{REQUIRED_KEY}") or not isinstance(was, list) or not isinstance(now, list):
+            return path or "/"
+        if not literal_field(value_at(before, path[: -len(f"/{REQUIRED_KEY}")])):
+            return path
+        if now != [key for key in was if key != "rdfs:label"]:
+            return path
+    return None
+
+
+def drop_null_literal_label(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a null ``rdfs:label`` from a literal value whose field does not demand one.
+
+    The label is there only because a template demanded it of a literal, which has none, and
+    ``complete-required-label`` stated it as null to satisfy the demand. Once
+    ``drop-literal-label-demand`` has lifted the demand from the template, the null says nothing, and
+    a value without it is the one every writer produces. A label holding text is left alone: that is
+    something somebody wrote.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not (isinstance(value, dict) and "rdfs:label" in value and value["rdfs:label"] is None
+                and "@id" not in value and literal_field(definition)
+                and "rdfs:label" not in (definition.get(REQUIRED_KEY) or [])):
+            return value
+        settled = {key: item for key, item in value.items() if key != "rdfs:label"}
+        changes.append({"path": f"{path}/rdfs:label", "replaced": None, "wrote": None})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_null_literal_labels(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes a null label from a literal value its field does not ask one of."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/rdfs:label") or was is not None or now is not ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not literal_field(definition) or "rdfs:label" in (definition.get(REQUIRED_KEY) or []):
+            return path
+    return None
+
 def drop_null_iri(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Take a null or empty ``@id`` out of a value in a field that holds an IRI.
 
@@ -9322,6 +9413,21 @@ REPAIRS = {
         summary='state "rdfs:label": null where a field requires the key and admits null',
         transform=complete_required_label,
         invariant=only_completed_required_labels,
+        needs_template=True,
+    ),
+    "drop-literal-label-demand": Repair(
+        name="drop-literal-label-demand",
+        condition="",
+        summary="take rdfs:label out of the keys a literal field's value must carry",
+        transform=drop_literal_label_demand,
+        invariant=only_dropped_literal_label_demands,
+    ),
+    "drop-null-literal-label": Repair(
+        name="drop-null-literal-label",
+        condition="",
+        summary="remove a null rdfs:label from a literal value whose field does not demand one",
+        transform=drop_null_literal_label,
+        invariant=only_dropped_null_literal_labels,
         needs_template=True,
     ),
     "drop-null-iri": Repair(

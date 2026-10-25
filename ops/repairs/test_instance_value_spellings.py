@@ -293,6 +293,33 @@ class LegacyShapeTest(unittest.TestCase):
         kept = instance(Term={"@id": "http://x/t", "@type": "http://x/c"})
         self.assertEqual(r.drop_null_iri(kept, legacy_template()), (kept, []))
 
+    def test_a_literal_field_stops_demanding_a_label_and_still_declares_one(self):
+        before = legacy_template()
+        after, changes = r.drop_literal_label_demand(before)
+        self.assertEqual(after["properties"]["Labelled"]["required"], ["@value"])
+        self.assertIn("rdfs:label", after["properties"]["Labelled"]["properties"])
+        self.assertEqual(after["properties"]["Term"], before["properties"]["Term"])
+        self.assertEqual(changes, [{"path": "/properties/Labelled/required",
+                                    "replaced": ["@value", "rdfs:label"], "wrote": ["@value"]}])
+        self.assertIsNone(r.only_dropped_literal_label_demands(before, after))
+        overreach = copy.deepcopy(after)
+        overreach["properties"]["Labelled"]["required"] = []
+        self.assertEqual(r.only_dropped_literal_label_demands(before, overreach), "/properties/Labelled/required")
+        self.assertEqual(r.drop_literal_label_demand(after), (after, []))
+
+    def test_a_null_label_leaves_a_literal_once_its_field_stops_demanding_one(self):
+        loosened, _ = r.drop_literal_label_demand(legacy_template())
+        before = instance(Labelled={"@value": None, "rdfs:label": None})
+        after, changes = r.drop_null_literal_label(before, loosened)
+        self.assertEqual(after["Labelled"], {"@value": None})
+        self.assertEqual(changes, [{"path": "/Labelled/rdfs:label", "replaced": None, "wrote": None}])
+        self.assertIsNone(r.only_dropped_null_literal_labels(before, after, loosened))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+        # Still demanded, or holding text: left as it stands.
+        self.assertEqual(r.drop_null_literal_label(before, legacy_template()), (before, []))
+        written = instance(Labelled={"@value": "x", "rdfs:label": "a label"})
+        self.assertEqual(r.drop_null_literal_label(written, loosened), (written, []))
+
     def test_a_null_root_type_is_removed_and_a_stated_one_is_kept(self):
         before = instance(**{"@type": None})
         after, changes = r.drop_null_instance_type(before)

@@ -5229,6 +5229,21 @@ shadowed-term rule removes them. Every write was read back, the Java validator r
 valid, their provenance stamps and graph dates are unchanged, and nothing outside their `@context`
 blocks moved.
 
+A literal value has no label, yet 2017 templates made text and number fields demand one: `rdfs:label`
+sat among the keys every value must carry, which no writer produces. `complete-required-label` had
+satisfied the demand in two production instances by stating the label as null. Both libraries' models
+keep a null label as no label, so a save through the embeddable editor dropped all nine and the server
+refused the result. Two rules undo both halves. `drop-literal-label-demand` takes `rdfs:label` out of
+a literal field's `required` and leaves the property declared, as both libraries declare it.
+`drop-null-literal-label` then removes a null label from a literal value whose field no longer demands
+one, and leaves a label holding text alone. On 2026-10-25 the first rule loosened 115 field schemas in
+15 templates and 9 elements, and the second removed the 9 null labels from the 2 instances, the only
+instances any of those templates has. A field declaring both `@value` and `@id` was left as it stands.
+Every write was read back and every artifact rechecks as valid. Provenance, version, status and
+graph dates are unchanged. Each template and element differs from its pre-image only in `required`,
+and each instance only in the null labels removed. Both instances now validate as the editor saves
+them.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
