@@ -5341,6 +5341,16 @@ back, rechecks as valid, keeps its stamps, its graph agrees with its document, a
 saves in CEE. The record and pre-image are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-25-geoexposure-link/`.
 
+A 2017 instance of the draft Gene Expression template could not be opened at all. The template was
+edited in 2018 and its five children renamed, from `donorID` to `Donor Id` and the like, each
+keeping its property IRI. On 2026-10-25 `rename-instance-keys`, with a reviewed `--mapping` taken
+from those IRIs, moved the five values to their current names. `drop-null-iri` emptied the
+unfilled term field, `drop-unused-instance-context` removed two terms naming children that no
+longer exist, and `complete-instance-context` added `skos` and `skos:notation`. The graph already
+agreed with the document, so no override was needed. The instance was read back, rechecks as
+valid, keeps its stamps, and opens and saves in CEE. The mapping, record and pre-image are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-gene-expression-rename/`.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
