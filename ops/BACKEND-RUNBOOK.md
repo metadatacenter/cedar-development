@@ -5471,6 +5471,18 @@ hold values under removed fields. CEE blocks saving those instances, which are v
 does not recognise the undeclared keys, so the owners' decision on the removed fields is also what
 lets them be saved in CEE. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-renamed-fields/`.
 
+The other four the strict reader refused leave children out of `required`. Both writers list every
+child an instance carries there, leaving out static and attribute-value fields, in `_ui.order`'s
+order, and `complete-child-required` appends the missing names the same way. On all four its
+candidate equals the template rendered by the Java library. On 2026-10-26 every instance of the four
+was validated against each template before and after. Chemical Tool's 427 kept their verdicts, 425
+valid and 2 invalid with no new error, so it was written with its dates unchanged, and the strict
+reader now reads it. Cell, Expression and SWATH-DIA Experimental Specifications each have instances,
+4, 14 and 3, already invalid for other reasons and lacking the children the closure would require.
+Production refuses to store an invalid instance, so they cannot be completed first, and the three
+templates wait for their owners. The nine open-context templates, rechecked the same day, still
+break 64 instances. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-26-close-templates/`.
+
 ### Repairing Instance Values the 2.9.25 Rules Refuse
 
 `cedar-model-validation-library` `dbe0da5` (release 2.9.25) added rules about the values an instance
@@ -7017,6 +7029,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 
 | Repair | Permitted change and boundary |
 | --- | --- |
+| `complete-child-required` | Append to a template's or element's `required` every child an instance carries that it omits, in `_ui.order`'s order, leaving out static and attribute-value fields, as both writers list them. A `required` that is absent or not an array is left alone. Every instance must then carry each child, so validate every dependent instance against the candidate before writing; an instance missing a child it cannot be given blocks the template. |
 | `complete-schema-bibo-context` | Add `"bibo": "http://purl.org/ontology/bibo/"`, matching Java's model prefix mappings, only to existing schema-owned contexts that omit it. Traverse declared templates, elements and fields (including array items and static fields); preserve existing mappings, annotations, instance-context schemas and required arrays. |
 | `drop-reviewed-required-entries` | Remove only Java-confirmed unexpected entries from template/element `required` arrays, using `--required-removals`. Each artifact's plan pins the entire source and candidate SHA-256 and exact before/after arrays. Source drift refuses the write. The independent invariant preserves Java's fixed requirements, every declared child, list order, all properties, instance-context constraints and field values. Removing only parent presence demands cannot invalidate an already-valid instance. |
 | `apply-reviewed-schema-shapes` | Use `--schema-shape-plan` with Java-confirmed changes and complete before/after document SHA-256. Only expand schema-owned `properties.@id.type` from `"string"` to `["string", "null"]`, or remove UI-order entries naming no declared property. Preserve surviving order, labels, descriptions, required arrays, values and all other constraints. Source drift refuses the write. |

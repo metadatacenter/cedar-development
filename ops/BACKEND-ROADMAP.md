@@ -1065,20 +1065,42 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 46: 42 context additional-properties declarations and 4 missing-child requirements; full audit on 2026-09-25, targeted rechecks through 2026-09-27 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 12 templates: 9 open `@context` declarations and 3 missing-child requirements, rechecked on production 2026-10-26 |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
   returns 404 under the corresponding `.org` ID.
 
-  Reconcile instance-context `additionalProperties` declarations in 42 remaining templates.
-  Their 195 dependent instances block tightening:
-  62 currently valid instances contain populated undeclared fields, while 133 already fail
-  validation. Keep the 62 extra-field cases unresolved; do not delete values or mappings, invent
-  declarations, or infer renames to satisfy the canonical rule.
-  Missing child names in `required` remain in four templates: SWATH-DIA Experimental
-  Specifications, Cell, Chemical Tool and Expression. Resolve their 24 blocking instances before
-  tightening the templates; their errors include undeclared fields, conflicting property mappings
-  and ontology values in text fields. Keep these source diagnostics separate from failed conversions.
+  **Close the twelve templates the strict TypeScript reader still refuses.** The validator accepts
+  each and the Java reader reads it, so the two libraries disagree about all twelve. Nine leave a
+  container's `@context` open to further IRIs without an attribute-value child, which
+  `settle-context-openness` closes. Three leave children out of `required`, which
+  `complete-child-required` lists as both writers do. A template is closed only when no instance
+  becomes invalid or gains an error, and in each of the twelve some instance would. In the nine,
+  every blocking instance holds entered values under names the template no longer declares, and 60
+  of them are among the 93 instances item 3 counts. Each owner decides whether to declare those fields,
+  which `declare-instance-field` can do from a reviewed plan, or to move or drop the values. In the
+  three, the blocking instances are already invalid for other reasons and lack the children the
+  closure would require. Production refuses to store an invalid instance, so they cannot be
+  completed until their owners fix the other errors. Do not delete values or mappings, invent
+  declarations or infer renames to make a template closable. All twelve are drafts. Each blocking
+  instance and the errors closing would add are under
+  `$CEDAR_HOME/.cedar/repairs/2026-10-26-close-templates/`.
+
+  | Template | Shape | Instances | Would turn invalid | Already invalid, would gain errors |
+  | --- | --- | ---: | ---: | ---: |
+  | Nigeria HMIS Out-Patient Register (`f41c7e34…`) | open `@context` | 39 | 39 | 0 |
+  | email message template (`72c8818b…`) | open `@context` | 12 | 8 | 4 |
+  | message template (`707d3573…`) | open `@context` | 112 | 5 | 0 |
+  | test2 (`f2050007…`) | open `@context` | 36 | 3 | 0 |
+  | Template dementia care (`60977e4d…`) | open `@context` | 4 | 1 | 1 |
+  | RNASeq (`0c1d3813…`) | open `@context` | 1 | 1 | 0 |
+  | HLINK Metada (Social/Behavioral Sciences) (`14e11f2b…`) | open `@context` | 2 | 1 | 0 |
+  | ROSS_TEST_TEMPLATE (`537589f6…`) | open `@context` | 3 | 1 | 0 |
+  | Electrophysiology Metadata (`7258beb9…`) | open `@context` | 1 | 1 | 0 |
+  | Expression (`ef0c9760…`) | children missing from `required` | 16 | 0 | 14 |
+  | Cell (`4531fee7…`) | children missing from `required` | 893 | 0 | 4 |
+  | SWATH-DIA Experimental Specifications (`f9b77a2e…`) | children missing from `required` | 7 | 0 | 3 |
+
   Require property IRIs for ordinary child fields and elements in both Java and TypeScript JSON
   and YAML readers. First complete [MCP property-IRI authoring](./MCP-ROADMAP.md#property-iri-authoring)
   so exchange artifacts have their mappings before another tool reads them, and recheck production

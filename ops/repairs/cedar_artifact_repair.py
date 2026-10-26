@@ -591,6 +591,81 @@ def only_completed_context_required(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "")
 
 
+CHILD_CONTAINER_TYPES = ("https://schema.metadatacenter.org/core/Template", ELEMENT_AT_TYPE)
+
+
+def instance_carried_children(container: Any) -> list[str]:
+    """The children an instance of a container carries under their own names, in presentation order.
+
+    A static field holds nothing, and an attribute-value field's values sit under names an instance
+    chooses, so neither is listed. The order is ``_ui.order``'s, which is how the Java writer lists
+    children, with any child the order leaves out after it in declaration order.
+    """
+    names = [name for name, child, _multiple in container_children(container)
+             if child.get(AT_TYPE) != STATIC_AT_TYPE
+             and (child.get("_ui") or {}).get("inputType") != "attribute-value"]
+    ui = container.get("_ui") if isinstance(container, dict) else None
+    order = ui.get("order") if isinstance(ui, dict) and isinstance(ui.get("order"), list) else []
+    ordered = [name for name in order if name in names]
+    return list(dict.fromkeys(ordered + names))
+
+
+def complete_child_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """List in a container's ``required`` every child an instance carries, as both libraries write it.
+
+    A template or element written before that rule can leave some children out, and the strict
+    TypeScript reader refuses it although the Java reader reads it. Adding the names is what any save
+    through either library does, and it means every instance must then carry each child, so an
+    instance missing one becomes invalid. Check every dependent instance against the candidate before
+    writing a template.
+
+    Names are appended after the ones already listed, which keep their order. A ``required`` that is
+    absent or not an array is left alone, since every writer states one and its absence is a
+    different defect.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict) or container.get(AT_TYPE) not in CHILD_CONTAINER_TYPES:
+            return container
+        result = copy.deepcopy(container)
+        stated = result.get("required")
+        if isinstance(stated, list):
+            omitted = [name for name in instance_carried_children(result) if name not in stated]
+            if omitted:
+                result["required"] = list(stated) + omitted
+                changes.extend({"path": f"{path}/required", "replaced": None, "wrote": name}
+                               for name in omitted)
+        for name, child, multiple in container_children(container):
+            if not is_element(child):
+                continue
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_completed_child_required(before: Any, after: Any) -> Optional[str]:
+    """The invariant: each changed ``required`` only gained, at its end, children an instance carries."""
+    for path, old, new in differences(before, after):
+        if not path.endswith("/required") or not isinstance(old, list) or not isinstance(new, list):
+            return path or "/"
+        container = value_at(before, path[:-len("/required")])
+        if not isinstance(container, dict) or container.get(AT_TYPE) not in CHILD_CONTAINER_TYPES:
+            return path
+        appended = new[len(old):]
+        carried = instance_carried_children(container)
+        if (new[:len(old)] != old or not appended or len(set(appended)) != len(appended)
+                or any(name not in carried or name in old for name in appended)):
+            return path
+    return None
+
+
 def inherently_multiple(field: Any) -> bool:
     """Whether a field takes several answers because of what it is, not because an author said so.
 
@@ -10552,6 +10627,13 @@ REPAIRS = {
         summary="list in @context.required every child the container already maps",
         transform=complete_context_required,
         invariant=only_completed_context_required,
+    ),
+    "complete-child-required": Repair(
+        name="complete-child-required",
+        condition="",
+        summary="list in required every child an instance carries, as both libraries write it",
+        transform=complete_child_required,
+        invariant=only_completed_child_required,
     ),
     "wrap-inherently-multiple": Repair(
         name="wrap-inherently-multiple",
