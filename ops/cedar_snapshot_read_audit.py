@@ -22,6 +22,13 @@ embeddable editor lets an owner save. The summary's ``validationParity`` counts 
 which they disagree, in both directions, with their causes, and ``--fail-on-disagreement`` makes any
 disagreement fail the run, which is the gate over production data.
 
+Every artifact the Java library reads is also rendered as the deployment serves it, as JSON and as
+full-form YAML, and timed. The summary's ``rendering`` counts the renderings that fail, names every
+artifact the validator accepts that a renderer cannot write, and gives the time a read and both
+renderings take per artifact type, with the slowest artifacts and their sizes. That is what a write
+would cost, and what a write would be refused for, were the server to read and render every
+artifact before storing it.
+
 The output directory receives ``records.jsonl``, one verdict per artifact, and ``summary.json``,
 which counts outcomes by artifact type and groups refusals by cause. Refusal messages can quote
 stored values, so both files are written with owner-only permissions, and the summary's causes have
@@ -130,6 +137,16 @@ def load_known(paths: list[str]) -> dict[str, set[tuple[str, str]]]:
     return known
 
 
+def timing(times: list[tuple[int, int, str]]) -> dict[str, Any]:
+    """Percentiles of the read-and-render time, in milliseconds, and the slowest artifacts."""
+    ordered = sorted(times)
+    def at(share: float) -> float:
+        return round(ordered[min(len(ordered) - 1, int(share * len(ordered)))][0] / 1e6, 3) if ordered else 0.0
+    return {"artifacts": len(ordered), "p50Ms": at(0.50), "p95Ms": at(0.95), "p99Ms": at(0.99),
+            "maxMs": round(ordered[-1][0] / 1e6, 3) if ordered else 0.0,
+            "slowest": [{"id": i, "bytes": b, "ms": round(n / 1e6, 3)} for n, b, i in ordered[-10:][::-1]]}
+
+
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -176,6 +193,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parity_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     disagreements: list[dict[str, Any]] = []
     unexpected: list[dict[str, Any]] = []
+    render_counts: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    render_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    unrendered: list[dict[str, Any]] = []
+    render_times: dict[str, list[tuple[int, int, str]]] = collections.defaultdict(list)
     problems: list[str] = []
     ended = 0
     submitted = 0
@@ -220,6 +241,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if len(disagreements) < 500:
                     disagreements.append({"id": record["id"], "template": record.get("template"),
                                           "direction": direction, "cause": reason})
+        rendering = record.get("render")
+        if rendering is not None:
+            render_times[kind].append((rendering.get("nanos", 0), record.get("bytes", 0), record["id"]))
+            failed = [fmt for fmt in ("json", "yaml") if rendering.get(fmt) != "rendered"]
+            for fmt in ("json", "yaml"):
+                render_counts[kind][f"{fmt}:{rendering.get(fmt, 'no-answer')}"] += 1
+            for fmt in failed:
+                render_causes[f"{kind} {fmt} {'accepted' if validation == 'valid' else 'rejected'}"][
+                    f"{rendering.get(fmt + 'Exception', '?').rsplit('.', 1)[-1]}: "
+                    f"{cause(rendering.get(fmt + 'Message'))}"] += 1
+            if failed and validation == "valid":
+                unrendered.append({"type": kind, "id": record["id"], "failed": failed})
         both_read = java_status == "read" and ts_status == "read"
         tally["bothRead" if both_read else "notBothRead"] += 1
         if ts_status == "read" and record["ts"].get("warningCount"):
@@ -274,6 +307,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             if name.startswith("java"):
                 record["java"] = answer.get("reader", {"status": "no-answer"})
                 record["validation"] = answer.get("validation", {"status": "no-answer"})
+                if "renderer" in answer:
+                    record["render"] = answer["renderer"]
             else:
                 record["ts"] = answer.get("reader", {"status": "no-answer"})
             if "java" in record and "ts" in record:
@@ -290,7 +325,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             key = (kind, entry["id"])
             if kind == "template":
                 templates[entry["id"]] = body
-            record: dict[str, Any] = {"type": kind, "id": entry["id"]}
+            record: dict[str, Any] = {"type": kind, "id": entry["id"], "bytes": len(body)}
             try:
                 body.decode("utf-8")
             except UnicodeDecodeError:
@@ -358,12 +393,22 @@ def main(argv: Optional[list[str]] = None) -> int:
         "validationParity": {"counts": dict(parity),
                              "causes": {d: dict(c.most_common(40)) for d, c in sorted(parity_causes.items())},
                              "disagreements": disagreements},
+        "rendering": {
+            "byType": {kind: dict(sorted(counter.items())) for kind, counter in sorted(render_counts.items())},
+            "causes": {group: dict(counter.most_common(40)) for group, counter in sorted(render_causes.items())},
+            "validatorAcceptsButNotRendered": unrendered[:500],
+            "validatorAcceptsButNotRenderedCount": len(unrendered),
+            "timing": {kind: timing(times) for kind, times in sorted(render_times.items())},
+        },
         "problems": problems,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps({key: summary[key] for key in ("artifacts", "seconds", "byType", "problems")}, indent=2))
     print(f"[read] {len(unexpected)} artifact(s) the validator accepts were not read by both libraries; "
           f"see {out / 'summary.json'}")
+    print(f"[render] {len(unrendered)} artifact(s) the validator accepts could not be rendered; "
+          f"read and render times by type: "
+          + json.dumps({k: {m: v for m, v in t.items() if m != "slowest"} for k, t in summary["rendering"]["timing"].items()}))
     disagreeing = parity["javaValid-tsBlocks"] + parity["javaInvalid-tsSaves"]
     print(f"[parity] instance verdicts: {dict(parity)}")
     if problems:

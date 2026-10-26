@@ -18,6 +18,9 @@
 //                  one JSON object under the source policy the library's readers apply
 //     validation:  "valid"; "invalid"; "template-missing", when no template was sent for the
 //                  instance; "error", when the validator throws
+//     renderer:    for an artifact the reader read, "rendered" or "failed" for each of "json" and
+//                  "yaml", the renderings a client is served: JsonArtifactRenderer's, and the full
+//                  YAML form YamlSerializer writes. "nanos" times the read and both renderings.
 //
 // The source is parsed once with ArtifactSourceParser, the boundary the library's own readers use.
 // Every verdict is the library's. Nothing but answers goes to stdout, and the libraries' logging
@@ -29,7 +32,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.metadatacenter.artifacts.model.core.Artifact;
+import org.metadatacenter.artifacts.model.core.ElementSchemaArtifact;
+import org.metadatacenter.artifacts.model.core.FieldSchemaArtifact;
+import org.metadatacenter.artifacts.model.core.TemplateInstanceArtifact;
+import org.metadatacenter.artifacts.model.core.TemplateSchemaArtifact;
 import org.metadatacenter.artifacts.model.reader.ArtifactParseException;
+import org.metadatacenter.artifacts.model.renderer.JsonArtifactRenderer;
+import org.metadatacenter.artifacts.model.tools.YamlSerializer;
 import org.metadatacenter.artifacts.model.reader.ArtifactSourceParser;
 import org.metadatacenter.artifacts.model.reader.JsonArtifactReader;
 import org.metadatacenter.model.validation.CedarValidator;
@@ -57,6 +67,7 @@ public class CedarSnapshotReadBridge {
 
   private final ModelValidator validator = new CedarValidator();
   private final JsonArtifactReader reader = new JsonArtifactReader();
+  private final JsonArtifactRenderer renderer = new JsonArtifactRenderer();
   private final Map<String, ObjectNode> templates;
 
   private CedarSnapshotReadBridge(int templateCapacity) {
@@ -139,20 +150,25 @@ public class CedarSnapshotReadBridge {
       return answer;
     }
     answer.set("validation", validate(kind, node.deepCopy(), request.path("templateId").asText()));
-    answer.set("reader", read(kind, node));
+    long started = System.nanoTime();
+    Artifact[] model = new Artifact[1];
+    answer.set("reader", read(kind, node, model));
+    if (model[0] != null) {
+      answer.set("renderer", render(model[0], started));
+    }
     return answer;
   }
 
-  private ObjectNode read(String kind, ObjectNode node) {
+  private ObjectNode read(String kind, ObjectNode node, Artifact[] model) {
     ObjectNode verdict = MAPPER.createObjectNode();
     try {
-      switch (kind) {
+      model[0] = switch (kind) {
         case "template" -> reader.readTemplateSchemaArtifact(node);
         case "element" -> reader.readElementSchemaArtifact(node);
         case "field" -> reader.readFieldSchemaArtifact(node);
         case "instance" -> reader.readTemplateInstanceArtifact(node);
         default -> throw new IllegalArgumentException("unknown kind: " + kind);
-      }
+      };
       verdict.put("status", "read");
     } catch (Throwable t) {
       verdict.put("status", "refused");
@@ -165,6 +181,32 @@ public class CedarSnapshotReadBridge {
       }
     }
     return verdict;
+  }
+
+  /** Render a model the way the deployment serves it, as JSON and as full-form YAML. */
+  private ObjectNode render(Artifact model, long started) {
+    ObjectNode verdict = MAPPER.createObjectNode();
+    renderOne(verdict, "json", () -> {
+      if (model instanceof TemplateSchemaArtifact template) return renderer.renderTemplateSchemaArtifact(template);
+      if (model instanceof ElementSchemaArtifact element) return renderer.renderElementSchemaArtifact(element);
+      if (model instanceof FieldSchemaArtifact field) return renderer.renderFieldSchemaArtifact(field);
+      if (model instanceof TemplateInstanceArtifact instance) return renderer.renderTemplateInstanceArtifact(instance);
+      throw new IllegalArgumentException("no renderer for " + model.getClass().getName());
+    });
+    renderOne(verdict, "yaml", () -> YamlSerializer.getYAML(model, false, true));
+    verdict.put("nanos", System.nanoTime() - started);
+    return verdict;
+  }
+
+  private static void renderOne(ObjectNode verdict, String format, java.util.concurrent.Callable<?> rendering) {
+    try {
+      rendering.call();
+      verdict.put(format, "rendered");
+    } catch (Throwable t) {
+      verdict.put(format, "failed");
+      verdict.put(format + "Exception", t.getClass().getName());
+      verdict.put(format + "Message", truncate(t.getMessage()));
+    }
   }
 
   private ObjectNode validate(String kind, ObjectNode node, String templateId) {
