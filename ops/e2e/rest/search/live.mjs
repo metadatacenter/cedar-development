@@ -67,6 +67,7 @@ export async function runLive({ isolated = false, tier = 'rest', reportPath, wor
         // The browser uses a separate context and only this synthetic corpus. No UI is changed.
         const { chromium } = await import('playwright');
         const { searchJourney } = await import('./journey.mjs');
+        const { keepingListingPreferences } = await import('../../journey-fixtures.mjs');
         browser = await chromium.launch({ headless: true });
         const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 } });
         const page = await context.newPage();
@@ -80,7 +81,9 @@ export async function runLive({ isolated = false, tier = 'rest', reportPath, wor
         await page.getByRole('button', { name: 'New', exact: true }).waitFor();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
-        await searchJourney({ page, base, fixtures, scope, check });
+        // The journey's type filter is saved to the reader's profile, which every lane signs in as, so
+        // the preferences the profile held before it are put back.
+        await keepingListingPreferences(user2, () => searchJourney({ page, base, fixtures, scope, check }), {as: "user2"});
         report.browserErrors = errors;
         if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
         await browser.close();

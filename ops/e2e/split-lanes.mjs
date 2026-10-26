@@ -162,14 +162,16 @@ export const longestFirst = (a, b) => a.shuffleRank !== undefined && b.shuffleRa
 /**
  * The queue the lanes share. `next(lane)` hands the lane the longest unit it may run, or undefined
  * when none is left for it. The identity lane takes identity units while any remain, and never while
- * another is in flight; every other lane takes only general units. `finish(unit)` marks a unit done,
- * and `requeue(unit)` returns one a lane took but could not start.
+ * another is in flight; every other lane takes only general units. A unit that `shares` state waits
+ * while another sharing the same state is in flight. `finish(unit)` marks a unit done, and
+ * `requeue(unit)` returns one a lane took but could not start.
  */
 export function createQueue(units) {
   const pending = [...units].sort(longestFirst);
   const inFlight = new Set();
+  const free = candidate => !candidate.shares || ![...inFlight].some(unit => unit.shares === candidate.shares);
   const take = predicate => {
-    const index = pending.findIndex(predicate);
+    const index = pending.findIndex(candidate => predicate(candidate) && free(candidate));
     if (index < 0) return undefined;
     const [unit] = pending.splice(index, 1);
     inFlight.add(unit);
@@ -248,7 +250,7 @@ export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Dat
   };
   const units = [
     ...journeys.map((entry, order) => unit({ kind: "journey", name: entry.key, identity: Boolean(entry.authentication), authentication: entry.authentication ?? null,
-      fallback: journeyDefault, order })),
+      shares: entry.shares ?? null, fallback: journeyDefault, order })),
     ...scripts.map((script, order) => unit({ kind: "script", name: script.name, args: [...script.args],
       identity: Boolean(script.identity), fallback: scriptDefault, order: journeys.length + order })),
   ];

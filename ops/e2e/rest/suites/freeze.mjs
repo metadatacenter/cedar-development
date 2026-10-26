@@ -10,7 +10,7 @@
 // The freeze is inert when the terminology local store is off (the production default), so this suite
 // probes resolve-current first and SKIPS when DOID/CEDARVS are not served locally — asserting a pin
 // there would be wrong.
-import { suite, check, checkStatus, skip, call, artifact, cleanup, enc, RUN, TERMINOLOGY, authHeader } from '../lib.mjs';
+import { suite, check, checkStatus, skip, call, artifact, cleanup, enc, RUN, TERMINOLOGY } from '../lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,8 +21,13 @@ const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 /** The terminology triple for a resolve-current path, or null when it 404s / is not served locally. */
 async function resolveCurrent(auth, query) {
-  const res = await fetch(`${TERMINOLOGY}/bioportal/${query}`, { headers: { Authorization: authHeader(auth) } });
-  return res.ok ? res.json() : null;
+  const res = await call(auth, 'GET', `/bioportal/${query}`, undefined, { base: TERMINOLOGY });
+  if (res.status === 404) return null;
+  if (res.status !== 200) throw new Error(`Cannot resolve ${query}: HTTP ${res.status}`);
+  if (typeof res.body?.id !== 'string' || !res.body.id.trim()) {
+    throw new Error(`Cannot resolve ${query}: no version id in the HTTP 200 response`);
+  }
+  return res.body;
 }
 
 /** Every controlled-term entry in a template, flattened: its kind, a key, and the pinned version id. */

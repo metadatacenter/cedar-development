@@ -5,7 +5,7 @@
   "type": "module",
   "description": "End-to-end smoke tests for CEDAR authentication, conditional mutations, artifact authoring, population, serialization, and OpenView",
   "scripts": {
-    "test:journey-runner": "node --test auth-activity.test.mjs journey-fixtures.test.mjs journey-registry.test.mjs split-lanes.test.mjs split-tier.test.mjs journey-contract.test.mjs",
+    "test:journey-runner": "node --test auth-activity.test.mjs journey-fixtures.test.mjs journey-registry.test.mjs split-lanes.test.mjs split-tier.test.mjs journey-contract.test.mjs journey-history.test.mjs token-refresh.test.mjs",
     "test:journey-harness": "npm run test:journey-runner && node --test journey-browser.test.mjs",
     "presmoke:journey": "npm run test:journey-harness",
     "smoke:journey": "node focused-journey-smoke.mjs",
@@ -22,7 +22,7 @@
     "test:search-harness": "node rest/search/runner.mjs --check",
     "presmoke:search": "npm run test:search-harness",
     "smoke:search": "node rest/search/runner.mjs --live --tier=all",
-    "test:rest-harness": "node --test --test-isolation=none rest/scheduler.test.mjs rest/errors.test.mjs rest/runner.test.mjs rest/response-contract.test.mjs",
+    "test:rest-harness": "node --test --test-isolation=none rest/*.test.mjs",
     "presmoke:rest": "npm run test:rest-harness",
     "smoke:rest": "node rest-smoke.mjs",
     "perf:rest:provision": "node rest-perf/provision-users.mjs",

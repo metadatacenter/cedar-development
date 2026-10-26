@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { artifactBody, call, enc } from "./rest/lib.mjs";
-import { journeyFolder, listingIdle, listingOf, focused, rendered } from "./journey-fixtures.mjs";
+import { artifactBody, call, enc, poll, USER_SERVER } from "./rest/lib.mjs";
+import { journeyFolder, keepingListingPreferences, listingIdle, listingOf, focused, rendered } from "./journey-fixtures.mjs";
 import { listing, row, modal, menu, save, editorSave, searchUntilListed, assertOnlyContentChanges } from "./workspace-journey-fixtures.mjs";
 
 const items = page => page.locator(".explorer-item");
@@ -41,6 +41,9 @@ async function returned(page) {
 
 // Each journey creates an isolated tree and uses only the runner's first account.
 export async function workspaceKeyboardFoldersJourney(args) {
+  await keepingListingPreferences(args.user, () => keyboardFolders(args));
+}
+async function keyboardFolders(args) {
   const { page, base, pass } = args;
   const root = await journeyFolder(args, "keyboard folder traversal");
   const a = await make(args, root, "Alpha folder", "folder"), b = await make(args, root, "Beta folder", "folder");
@@ -103,6 +106,9 @@ export async function workspaceKeyboardSelectionJourney(args) {
 }
 
 export async function workspaceTypeFilterJourney(args) {
+  await keepingListingPreferences(args.user, () => typeFilters(args));
+}
+async function typeFilters(args) {
   const { page, base, pass } = args;
   const root = await journeyFolder(args, "type filters and ordering");
   const folder = await make(args, root, "Alpha folder", "folder"), template = await make(args, root, "Zeta template"),
@@ -129,6 +135,48 @@ export async function workspaceTypeFilterJourney(args) {
   await change(page, root, () => page.getByRole("button", { name: "Clear type filter", exact: true }).click());
   assert.deepEqual(await ids(page), [folder.id, template.id, element.id, field.id]);
   pass("live-filter-sort-reload", "Multiple type filters constrain the real listing, descending order and folders-first compose correctly, and refresh/reload preserve those choices until the type filter is explicitly cleared");
+}
+
+export async function workspaceListingPreferencesJourney(args) {
+  await keepingListingPreferences(args.user, () => listingPreferences(args));
+}
+async function listingPreferences(args) {
+  const { page, base, pass, user } = args;
+  const root = await journeyFolder(args, "listing preferences");
+  const folder = await make(args, root, "Inner folder", "folder"), template = await make(args, root, "Outer template");
+  await make(args, root, "Outer element", "element");
+  const inner = await make(args, folder.id, "Inner template");
+  await make(args, folder.id, "Inner field", "field");
+  await listing(page, base, root);
+  const type = page.getByRole("button", { name: /^Type$|\(type filter\)$/ });
+  await type.click();
+  const filter = page.getByRole("dialog", { name: "Filter by type", exact: true });
+  await filter.getByRole("checkbox", { name: "Folder", exact: true }).check();
+  await filter.getByRole("checkbox", { name: "Template", exact: true }).check();
+  await change(page, root, () => filter.getByRole("button", { name: "Apply", exact: true }).click());
+  await sort(page, root, "Z to A");
+  assert.deepEqual(await ids(page), [template.id, folder.id]);
+  // Opening a folder keeps the filter and the order.
+  await change(page, folder.id, () => row(page, folder.title).getByRole("link", { name: folder.title, exact: true }).click());
+  assert.deepEqual(await ids(page), [inner.id]);
+  assert.equal((await type.innerText()).trim(), "Folder, Template");
+  // The profile keeps the choices, and the way back from an account page, which names none, opens with them.
+  const profile = "/users/" + enc(user.profile["@id"].split("/").at(-1));
+  const saved = await poll(async () => {
+    const read = await call(user.auth, "GET", profile, undefined, { base: USER_SERVER });
+    const kept = read.body?.uiPreferences?.workspace;
+    return { done: kept?.sortDirection === "desc" && kept?.resourceTypes?.join() === "folder,template", value: kept };
+  });
+  assert.equal(saved.done, true, "The profile keeps the filter and the sort: " + JSON.stringify(saved.value));
+  await page.goto(base + "/profile");
+  await Promise.all([page.waitForResponse(listingOf(user.profile.homeFolderId)),
+    page.getByRole("link", { name: "Back to Workspace", exact: true }).click()]);
+  await returned(page);
+  const address = new URL(page.url()).searchParams;
+  assert.equal(address.get("resource_types"), "folder,template");
+  assert.equal(address.get("sort"), "-name");
+  assert.equal((await type.innerText()).trim(), "Folder, Template");
+  pass("listing-preferences-persist", "A type filter and a sort follow a folder link, the user profile keeps them, and the way back from an account page opens the Workspace with them");
 }
 
 export async function workspacePaginationJourney(args) {
@@ -164,10 +212,14 @@ export async function workspacePaginationJourney(args) {
 export async function workspaceSearchReturnJourney(args) {
   const { page, base, pass, write } = args;
   const root = await journeyFolder(args, "search return");
-  const fixture = await make(args, root, "searchable template");
+  // A word only this template carries, so the search lists it alone. Searching for its whole title
+  // also listed every artifact sharing a word with it, which other lanes and dead runs supply, and the
+  // page Workspace returned to after the edit could then hold another template instead of this one.
+  const word = "searchable" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const fixture = await make(args, root, word);
   const before = await fixture.read();
   await listing(page, base, root);
-  const found = await searchUntilListed(page, fixture.title);
+  const found = await searchUntilListed(page, fixture.title, { query: word });
   assert.equal(found.done, true, "The created template becomes searchable");
   await row(page, fixture.title).locator("td").nth(1).click();
   await page.locator(".information").getByRole("tab", { name: "Version", exact: true }).click();
@@ -179,7 +231,7 @@ export async function workspaceSearchReturnJourney(args) {
   await page.locator("#back").click();
   await returned(page);
   assert.equal(new URL(page.url()).searchParams.get("search"), returnUrl.searchParams.get("search"));
-  assert.equal(await page.getByRole("textbox", { name: "Search workspace", exact: true }).inputValue(), fixture.title);
+  assert.equal(await page.getByRole("textbox", { name: "Search workspace", exact: true }).inputValue(), word);
   assert.deepEqual(await selected(page), [fixture.id]);
   assert.equal(await page.locator(".information").getByRole("tab", { name: "Version", exact: true }).getAttribute("aria-selected"), "true");
   assertOnlyContentChanges(before, await fixture.read(), { "schema:description": "Saved from search results" });

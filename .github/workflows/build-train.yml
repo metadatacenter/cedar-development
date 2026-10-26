@@ -227,10 +227,10 @@ jobs:
           ref: ${{ github.sha }}
           path: controller
 
-      - name: Set up Node 24.22.0
+      - name: Set up Node 24.22.1
         uses: actions/setup-node@v6
         with:
-          node-version: 24.22.0
+          node-version: 24.22.1
 
       - name: Check out the build-train state branch
         env:
@@ -316,10 +316,10 @@ jobs:
           ref: ${{ github.sha }}
           path: controller
 
-      - name: Set up Node 24.22.0
+      - name: Set up Node 24.22.1
         uses: actions/setup-node@v6
         with:
-          node-version: 24.22.0
+          node-version: 24.22.1
 
       - name: Check out the build-train state branch
         env:
@@ -393,10 +393,10 @@ jobs:
           ref: ${{ github.sha }}
           path: controller
 
-      - name: Set up Node 24.22.0
+      - name: Set up Node 24.22.1
         uses: actions/setup-node@v6
         with:
-          node-version: 24.22.0
+          node-version: 24.22.1
 
       - name: Check out the build-train state branch
         env:
@@ -470,10 +470,10 @@ jobs:
           ref: ${{ github.sha }}
           path: controller
 
-      - name: Set up Node 24.22.0
+      - name: Set up Node 24.22.1
         uses: actions/setup-node@v6
         with:
-          node-version: 24.22.0
+          node-version: 24.22.1
 
       - name: Check out the build-train state branch
         env:

@@ -480,17 +480,30 @@ async function sweepUnregistered(auth) {
     // Newest first within a kind: a nested folder is created after the folder holding it, and a
     // folder still holding anything cannot be deleted.
     for (const item of suspects.filter(s => s.kind === kind).reverse()) {
-      const path = `${COLLECTION_PATH[kind]}/${enc(item.id)}`;
-      const probe = await call(auth, 'GET', path);
-      if (probe.status >= 400) continue;   // the suite deleted it itself, so nothing leaked
-      bad(`teardown: ${kind} "${item.name}" is left behind by the "${item.suite}" suite`,
-          `created but never registered with cleanup(); ${item.id}`);
-      const del = await mutate(auth, 'DELETE', path);
-      if (del.status !== 204 && del.status !== 200) {
-        bad(`teardown: ${kind} "${item.name}" could not be swept`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
-        continue;
+      try {
+        const path = `${COLLECTION_PATH[kind]}/${enc(item.id)}`;
+        const probe = await call(auth, 'GET', path);
+        if (probe.status === 404) continue;   // the suite deleted it itself, so nothing leaked
+        if (probe.status !== 200) {
+          bad(`teardown: cannot verify unregistered ${kind} "${item.name}"`, `GET returned ${probe.status}`);
+          continue;
+        }
+        bad(`teardown: ${kind} "${item.name}" is left behind by the "${item.suite}" suite`,
+            `created but never registered with cleanup(); ${item.id}`);
+        const del = await mutate(auth, 'DELETE', path);
+        if (del.status !== 204 && del.status !== 200) {
+          bad(`teardown: ${kind} "${item.name}" could not be swept`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
+          continue;
+        }
+        const after = await call(auth, 'GET', path);
+        if (after.status !== 404) {
+          bad(`teardown: swept ${kind} "${item.name}" is not confirmed absent`, `GET returned ${after.status}`);
+          continue;
+        }
+        swept++;
+      } catch (error) {
+        bad(`teardown: unregistered ${kind} "${item.name}" could not be verified`, error.message);
       }
-      swept++;
     }
   }
   return swept;
@@ -503,23 +516,27 @@ async function sweepUnregistered(auth) {
 async function teardownCurrent(auth) {
   let removed = 0;
   for (const item of state().registry) {
-    const as = item.auth ?? auth;
-    const where = { base: item.base };
-    const del = await mutate(as, 'DELETE', item.path, undefined, where);
-    // 404 means it is already gone, which is exactly the end state teardown is verifying — a suite
-    // that deletes what it created (the contract suite deletes an artifact to prove the delete reaches
-    // both stores) registered cleanup as a safety net that is simply not needed this run.
-    if (del.status === 404) { removed++; continue; }
-    if (del.status !== 204 && del.status !== 200) {
-      bad(`teardown: ${item.kind} "${item.name}" not deleted`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
-      continue;
+    try {
+      const as = item.auth ?? auth;
+      const where = { base: item.base };
+      const del = await mutate(as, 'DELETE', item.path, undefined, where);
+      // 404 means it is already gone, which is exactly the end state teardown is verifying — a suite
+      // that deletes what it created (the contract suite deletes an artifact to prove the delete reaches
+      // both stores) registered cleanup as a safety net that is simply not needed this run.
+      if (del.status === 404) { removed++; continue; }
+      if (del.status !== 204 && del.status !== 200) {
+        bad(`teardown: ${item.kind} "${item.name}" not deleted`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
+        continue;
+      }
+      const after = await call(as, 'GET', item.path, undefined, where);
+      if (after.status !== 404) {
+        bad(`teardown: ${item.kind} "${item.name}" is not confirmed absent after deletion`, `GET returned ${after.status}`);
+        continue;
+      }
+      removed++;
+    } catch (error) {
+      bad(`teardown: ${item.kind} "${item.name}" could not be verified`, error.message);
     }
-    const after = await call(as, 'GET', item.path, undefined, where);
-    if (after.status < 400) {
-      bad(`teardown: ${item.kind} "${item.name}" still readable after deletion`, `GET returned ${after.status}`);
-      continue;
-    }
-    removed++;
   }
   const swept = await sweepUnregistered(auth);
   if (removed) console.log(`\n  cleaned up ${removed} resource(s)`);

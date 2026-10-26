@@ -117,6 +117,22 @@ Start waits for infrastructure, then launches and polls applications together. I
 `CEDAR_START_READY_TIMEOUT` bounds the group wait (default 240 seconds), and
 `CEDAR_HEALTH_PROBE_TIMEOUT` bounds one probe (default 5 seconds).
 
+A microservice is ready when its admin health check passes. A frontend is ready only when it serves a
+page a browser can load, because every development server opens its port before then. Gulp answers
+while its own tasks are still writing the files the page names, and Vite answers the index while its
+dependency optimizer still holds the modules the page imports. The wait therefore runs
+`ops/frontend_ready.py`, which requests each page and, with it, every same-origin script, module
+preload and stylesheet the page names and the modules those scripts import statically. A start or
+restart asks each development server on its own port, because the hybrid topology starts the
+frontends before the Docker nginx in front of them. `cedarcli build frontends` asks through nginx
+instead, at `https://<name>.$CEDAR_HOST` with the certificate verified against
+`$CEDAR_CA_HOME/ca.crt`, because its smoke loads every page that way next. `ui-content` is asked on
+its own port either way, because native nginx serves `content.$CEDAR_HOST` from the checkout rather
+than from the development server. `CEDAR_FRONTEND_READY_REQUEST_TIMEOUT` bounds one request, read in
+full (default 10 seconds). A request still waiting on a compiler or an optimizer runs out, and the
+next poll asks again. A frontend that answers its root but never serves its page is reported with the
+request that failed and left running for inspection, and the start still fails.
+
 A listening service still booting is `starting`; a health probe that exceeds its deadline is `slow`.
 Both fail `cedarcli native health`, and smoke waits for them before refusing. A slow dependency can
 cause a probe timeout. Terminology samples `ontology-catalogue` off the request thread to keep
@@ -250,7 +266,9 @@ and **reports any service whose jar or configuration is not built/present**. An 
 treated as proof of ownership: if the listener is not the expected CEDAR jar or frontend process in
 the expected source directory, start and stop both fail without signalling it. Backend health uses
 the Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy); frontend health
-requires a successful response from the served root.
+requires a successful response from the served root. That probe stays cheap because status and
+`watch` repeat it. The wait after a start asks for the whole page, as
+[Bring-Up Sequence](#bring-up-sequence) explains.
 
 Two columns exist so a green table cannot hide a stale one. Each microservice runs a copy of its jar,
 which the controller takes from `target/` as the process starts and keeps in
@@ -1476,13 +1494,17 @@ with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
 model. JSON and both full and compact YAML match over all 84 corpus artifacts.
-Template 029 uses the canonical ontology service URI
-`https://data.bioontology.org/ontologies/MESH`, which both YAML readers reconstruct
-from the MESH acronym. Both YAML writers omit an ontology's service URI; both readers derive
-`https://data.bioontology.org/ontologies/{ACRONYM}`, even if the input YAML carries
-an explicit legacy `sourceUri`. This also applies to noncanonical service addresses
-and entries naming another `sourceSystem`. JSON retains the supplied service URI;
-YAML preserves `sourceIri` as the separate canonical ontology identity.
+Both YAML writers name a BioPortal ontology by its acronym and leave its service address out, and
+both readers derive `https://data.bioontology.org/ontologies/{ACRONYM}` for an entry that states
+none. A stored BioPortal address may take another form, over `http://` or at
+`bioportal.bioontology.org`. It comes back through YAML as the derived address, and the comparison
+of JSON written directly and through YAML counts that as its `ontologyAddress` family. The CEE
+suite's templates 021, 042, 043, 045 and 071 show it. An address outside BioPortal, such as an
+OBO PURL under `purl.obolibrary.org`, is written as `sourceUri` and read back unchanged, and so is
+a BioPortal address that names another acronym. Two production templates store an OBO PURL.
+Template 029 stores the derived MESH address, so its YAML carries no `sourceUri`. JSON carries the
+stored address unchanged. YAML keeps `sourceIri`, the ontology's canonical identity, as a separate
+key.
 The parity gate permits no current differences and also verifies that the committed
 TypeScript fixtures match freshly generated output.
 
@@ -1663,7 +1685,8 @@ eight an IRI, and one each a number, a temporal literal and a term with its labe
 every corresponding builder here accepts one and writes it in the shape Java writes. Attribute value
 and the five static types take none, and a `withDefaultValue` appearing on any of them fails the run
 too. Corpus template 038 carries one field of every shape, so the parity gates above compare the two
-libraries on all nineteen at once.
+libraries on all nineteen at once. CI runs the check against a clone of the Java commit the lock
+records. A local run reads whatever the sibling has checked out.
 
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
@@ -2106,20 +2129,11 @@ TypeScript, while both emit the same bytes for it.
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 with `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`. Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
 
-- **`startinfra.sh` seems to hang for minutes, and Keycloak is dead once it returns** → the script
-  was piped. `startkeycloak.sh` runs `kc.sh start &`, and that backgrounded Keycloak inherits the
-  script's stdout, so a reader on the other end of a pipe never sees end-of-file however long ago the
-  script itself finished. Whatever eventually gives up sends SIGTERM to the process group, which
-  includes the Keycloak that started perfectly well. The symptom is therefore a long stall followed
-  by an infra tier missing one service, which reads as a Keycloak failure and is not one. Redirect
-  instead of piping, and read the file afterwards:
-
-  ```bash
-  bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh > /tmp/startinfra.log 2>&1
-  ```
-
-  The same applies to anything else that leaves a child holding stdout. `cedar-services.sh` is safe
-  either way: it detaches what it starts.
+- **Keycloak startup diagnostics** → `cedarcli native start keycloak` launches it with detached
+  input and redirects its console output to `$CEDAR_KEYCLOAK_HOME/log/cedar-console.log`. Read
+  that file if port 8080 does not come up. The background JVM must not inherit the CLI's captured
+  output pipe: that would keep the command waiting for EOF after the launcher exits and let CLI
+  cancellation kill the otherwise healthy service.
 
 - **OpenSearch (Homebrew) stuck in `error`, port 9200 closed** → Homebrew upgraded its `openjdk` to
   25, which OpenSearch 2.19 cannot run on (`JvmErgonomics` parse failure, `jdk.incubator.vector`
@@ -2276,7 +2290,7 @@ stack in dependency order: parent, libraries, project, and clients. Inside a sin
 `cedarcli build this --wd "$PWD"` builds just that repo. The CLI loads the selected profile and pins
 JDK 17 for these child processes.
 
-**Use the Maven wrapper.** Java repositories pin `mvnw` to 3.9.14; CI and `cedarcli` use it.
+**Use the Maven wrapper.** All 26 Java repository wrappers pin `mvnw` to 3.9.16; CI and `cedarcli` use it.
 The script downloads Maven into `~/.m2/wrapper` on first use. Use `./mvnw` for direct commands
 inside a repository; external `-f` invocations may require `mvn`. Container jar-fetch stages use
 `MAVEN_BUILDER_VERSION` from `cedar-images-base.sh`; the build toolchain stays outside runtime images.
@@ -3659,12 +3673,23 @@ large-designer designer-keyboard designer-default nested-designer designer-navig
 
 The Workspace navigation journeys in `workspace-navigation-journey.mjs` cover nested keyboard
 folder traversal, range selection with deletion cancellation and menu focus return, composed type
-filters and sorting across reload, a fifty-five-resource folder with real paging and editor return,
-search-result editing with query/selection/tab restoration, and renamed-ancestor breadcrumbs.
-They use the real listing and search APIs; the paging fixture spans the fifty-item boundary and
-asserts every identity on both pages. Keyboard selection checks wait for Angular's rendered frame.
-Run them with `npm run smoke:journey -- workspace-keyboard-folders workspace-keyboard-selection
-workspace-type-filter workspace-pagination workspace-search-return workspace-renamed-breadcrumb`.
+filters and sorting across reload, listing preferences that follow a folder link and come back
+from an account page through the user profile, a fifty-five-resource folder with real paging and
+editor return, search-result editing with query/selection/tab restoration, and renamed-ancestor
+breadcrumbs. They use the real listing and search APIs; the paging fixture spans the fifty-item
+boundary and asserts every identity on both pages. Keyboard selection checks wait for Angular's
+rendered frame. Run them with `npm run smoke:journey -- workspace-keyboard-folders
+workspace-keyboard-selection workspace-type-filter workspace-listing-preferences
+workspace-pagination workspace-search-return workspace-renamed-breadcrumb`.
+
+Workspace opens an address that names no listing preference with the filters, sort and view the
+user's profile keeps, and every lane signs in as the same users. The harness therefore opens the
+dashboard through `dashboardAddress` in `journey-fixtures.mjs`, which names the default sort and list
+view. Listing setup selects its view through the address without writing the account's preferences.
+A journey that deliberately chooses a view, filter or sort runs inside `keepingListingPreferences`
+and declares `shares: LISTING_PREFERENCES` in the registry, so those journeys run one at a time.
+The wrapper records the original preferences before the journey and restores them afterward; the
+split runner's sweep restores them if the process is killed first.
 
 #### Journey contracts, diagnostics and reliability
 
@@ -3722,7 +3747,9 @@ Every completed focused or split run keeps an immutable record under `ops/e2e/re
 including source identity, runtime-selection digest, scenario outcomes, evidence, durations and
 failure categories. Reports distinguish first attempts from explicit reruns: pass `--retry-of=<run-id>`
 with the same selection and sources to link a retry to the failed attempt. A changed source or runtime
-selection is a new observation. The summary reports first-attempt pass rates, recoveries on retry,
+selection is a new observation. The test digest includes nested helpers and fixtures under `ops/e2e`,
+including `rest/`, and excludes generated reports, failures, dependencies and saved browser sessions.
+The summary reports first-attempt pass rates, recoveries on retry,
 successful-run median/p95/max durations, sample counts and failure categories. These categories describe
 observed symptoms, not a proven root cause. `--source=<commit-or-test-digest>` filters the summary;
 without it the summary spans the retained source versions. Candidate-inventory runs are excluded.
@@ -3784,8 +3811,10 @@ sweep applies each unmarked entry through the restoration the smoke itself uses,
 account and deletes only the keys with that description. It never applies a marked entry, so it
 never writes over what the smoke put back, and a restoration that finds the key already gone
 changes nothing. The sweep's line in the runner's output and its entry in the report list what it
-restored, what it found already as it was and what it could not restore. No other script in the
-tier changes an account. The Settings page writes nothing. Each group the tier creates is a fixture
+restored, what it found already as it was and what it could not restore. Journeys that change Workspace
+listing preferences use the same ledger and restoration mechanism. Each visit has a unique restore
+key, so an earlier completed visit cannot hide a later interrupted one. Restoration writes only
+`uiPreferences.workspace`, preserving other profile fields. The Settings page writes nothing. Each group the tier creates is a fixture
 in the ledger, and each permission and OpenView setting it changes is on a fixture, so the sweep's
 deletions remove them.
 
@@ -3832,14 +3861,21 @@ embedded one cannot. It authenticates through Keycloak's password grant using th
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
 `contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
-`inclusion`, `negotiation`, `openness`, `pagination`, `search`, `sharing`, `validation` and
+`inclusion`, `negotiation`, `openness`, `pagination`, `pull-versions`, `search`, `sharing`, `validation` and
 `versioning`. The committed
-`rest/expected-checks.json` inventory holds 2,106 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory records exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
-them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
-artifact kinds.
+them. Only HTTP 404 from version discovery permits that skip; authentication errors, server errors
+and malformed successful replies fail. Cleanup verifies HTTP 404 after deletion; an unsuccessful
+read is not evidence of absence. `download` includes JSON / YAML / compact-YAML export and
+read-negotiation across all four artifact kinds.
+
+`npm run test:rest-harness` runs every `rest/*.test.mjs` file without a running stack. Release tooling
+CI runs that same command after installing its dependencies and checking out the twelve servers'
+committed OpenAPI schemas. It covers error and success contracts, runner safeguards, freeze
+capability checks, cleanup and scheduling.
 
 `pagination` checks fractional, overflowing and nonnumeric paging values, invalid sort and typed
 filter values, and the shared error envelope on those refusals. Empty optional string filters are
@@ -3916,13 +3952,15 @@ eight seconds to the recorded time. A gate record is named by the digest of the 
 so a second run against unchanged sources replaces the first run's record, which is how the third
 run's breakdown was lost.
 
-Development E2E requires the **latest development pins of ALL components**, including every
+Development E2E requires **packages from the current development sources of ALL components**, including every
 frontend library and embedded component in every host. Follow the
 [mandatory reactor freshness contract](FRONTEND-RUNBOOK.md#the-reactor) before running this gate.
 `cedarcli test e2e` does not rebuild the frontend graph: a green result against old pins is not
 acceptable latest-development evidence. Use `cedarcli build frontends` to build, deploy and
 verify the complete current-source selection and run smoke; a standalone rerun may reuse that
-selection only while its sources, dependency pins and served bytes remain verified and unchanged.
+selection only while its sources, resolved package hashes and served bytes remain verified and unchanged.
+The reactor supplies local SNAPSHOT packages automatically, including uncommitted edits. Do not
+require registry publication, pin updates, commits or CI waits before this development workflow.
 Never restore an older component or runtime selection to make smoke pass. Backend binaries must
 likewise be built from the development sources under test and redeployed before acceptance.
 
@@ -3938,10 +3976,13 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
-`search-smoke-<digest>-<uuid>.json`. Search evidence has a unique path per attempt so a refused or
-killed run cannot inherit a previous pass. The gate checks every planned search cell against the
-actual checks, requires all five families (content, access, paging, lifecycle and browser), and fails
+`rest-smoke-<digest>-<uuid>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
+`search-smoke-<digest>-<uuid>.json`. REST and search evidence have unique paths per attempt so a
+refused or killed run cannot inherit a previous pass. The REST gate independently compares every
+check with the committed inventory and requires all suites, consistent counts, completed timestamps
+and a passing verdict, even when the process exits zero. Records without validated REST evidence
+require a fresh run. The search gate checks every planned cell against the actual checks, requires
+all six families (content, access, paging, protocol, lifecycle and browser), and fails
 on missing, duplicate, skipped or failing cells, incomplete execution, browser errors or cleanup
 errors even if the process exits zero. Older three-tier records cannot satisfy the gate. The split tier's
 report says how long each lane and each process took and how it exited, how long each step of the
@@ -3995,7 +4036,10 @@ than it reads, which is enough to credit one run's mess to another.
 `ops/e2e/cleanup-smoke-leftovers.mjs` finds and removes them. Run with no arguments it reports what
 it found and deletes nothing; `--apply` deletes. It keys on that same run stamp, and a stamped folder
 carries its whole subtree, so an artifact the suites created inside a working folder without stamping
-its own name goes with it. Deletion follows dependency order: instances before the templates they
+its own name goes with it. The split tier and the focused journeys name their working folders
+`Focused journey <epoch milliseconds> <lane>` instead, and the tool keys on that number too. Until it
+did, a run that died before its teardown left its lane folders behind for good, and they filled the
+searches of later runs. Deletion follows dependency order: instances before the templates they
 populate, elements and fields after the templates that embed them, folders last and deepest first,
 since a folder still holding anything cannot be removed. A JSON list of `[type, name, id]` triples
 still deletes exactly those, for when a run has already named its casualties.
@@ -4074,8 +4118,6 @@ that ran no tests. The floor uses the module's own figure, not the any-test one,
 by another repository's suites. To raise a floor after adding tests, set the property to the new
 figure less two points. Lowering one is a decision to accept less coverage, and the commit should say
 why.
-
-`cedar-monitor-server`'s CI stops at `test`, so its floor is checked by local builds and not by CI.
 
 ### REST Performance Testing
 
@@ -4587,8 +4629,8 @@ pull request to `develop` and on manual dispatch. The workflow is the same every
 temurin, a cache of the Maven repository, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME`
 and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the Surefire
 and JaCoCo reports uploaded whatever the outcome, as the `surefire-reports` and `coverage-reports`
-artifacts. `cedar-monitor-server` runs `test` rather than `verify`, so it names `jacoco:report` on
-its command line. [Code Coverage](#code-coverage) describes the reports. The search-library and
+artifacts. [Code Coverage](#code-coverage) describes the reports and the floors enforced at
+`verify`, including Monitor. The search-library and
 resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and an
 OpenSearch service; other component workflows remain backend-free.
 Jobs carry a hard timeout: twenty minutes for a component, thirty for those two OpenSearch jobs,
@@ -4643,8 +4685,9 @@ testing against a different engine than production runs.
 
 ### Snapshot Freshness
 
-A merge to `develop` publishes that repository's snapshot to Nexus, and every downstream build
-resolves CEDAR artifacts from Nexus rather than from a checkout. A repository whose commit is on
+A merge to `develop` publishes that repository's snapshot to Nexus, and downstream CI and Docker
+builds resolve CEDAR artifacts from Nexus rather than from a checkout. Local source reactors build
+their sibling dependencies directly. A repository whose commit is on
 `develop` but whose snapshot never published is therefore invisible in the place anyone looks: its
 branch is green and its source is right, while every consumer builds against the artifact it
 replaced.
@@ -4809,7 +4852,7 @@ and the two routes forward are on the roadmap under upgrading the persistence an
 servers; do not restate them here.
 
 Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.14, Jersey
-3.1.12, Hibernate 6.6.58.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.3. Jetty, Jersey,
+3.1.12, Hibernate 6.6.59.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.4. Jetty, Jersey,
 Hibernate and Jackson run ahead of the versions the Dropwizard 5.0.2 bundle names, each within the
 same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are
 the OpenSearch low-level REST client and the Keycloak event listener, which stay on HttpClient 4
@@ -4837,6 +4880,27 @@ any resolved Jersey module at another version. Until 2026-10-19 the parent manag
 `jersey-container-servlet` and `jersey-hk2`, so `jersey-common`, `jersey-server`, `jersey-client`
 and every other Jersey module ran the 3.1.11 that the Dropwizard bundle names, beside those two at
 3.1.12.
+
+**The Keycloak event listener follows its host platform.** The service registration file
+`META-INF/services/org.keycloak.events.EventListenerProviderFactory` activates the parent's
+`keycloak-provider` profile only in provider modules. That profile imports `keycloak-parent` at
+`keycloak.version` and overrides the CEDAR properties whose explicit management would otherwise
+take precedence. It also preserves Keycloak's Guava exclusions and Jandex relocation. These are
+provided libraries: the listener jar contains only its own classes, while Keycloak supplies the
+runtime. JUnit, Mockito and build tools retain the estate's versions.
+
+The listener's `scripts/check_keycloak_platform.py` compares its complete provided dependency graph
+with a standalone Keycloak platform import. CI runs it after verification and fails on any added,
+missing or differently versioned library. Run it locally after installing the parent; evidence is
+retained under the listener's `target/keycloak-platform/`. At a Keycloak upgrade, change the
+platform version and use this comparison to identify which provider-only overrides must move.
+
+Ordinary CEDAR applications manage `commons-collections4` at 4.5.0, including MariaDB4j's test
+tooling; the provider profile uses Keycloak's 4.4. The admin tool and authentication library both
+exclude the unused RESTEasy JAXB and multipart providers from the Jakarta admin client, keeping
+the older providers and Mime4j out of the application's managed RESTEasy stack. The admin tool's
+`enforce-json-only-keycloak-client` Maven rule rejects their reintroduction, including through a
+transitive dependency.
 
 `maven-dependency-plugin:analyze-only` lists every declared dependency that no compiled class
 references, which makes it the starting point for finding declarations nothing uses. Read that list
@@ -4986,6 +5050,669 @@ claiming a stable snapshot. Against a server that serves continuations the enume
 one snapshot, so artifacts created or deleted while it runs no longer move a later page onto rows an
 earlier one already returned; a changed total is then a fact about the deployment rather than about
 the walk.
+
+## Keeping a Snapshot of Production
+
+Each audit in this runbook reads production over the network, and each used to keep a cache of its
+own shape. `ops/cedar_snapshot.py` keeps one complete copy that any test can read offline: every
+template, element, field and instance the key can enumerate, each body exactly as the resource server
+served it. A re-encoded copy would lose duplicated keys and the spelling of numbers, which are among
+the defects these audits look for.
+
+```bash
+python3 ops/cedar_snapshot.py download
+python3 ops/cedar_snapshot.py list
+python3 ops/cedar_snapshot.py verify
+```
+
+`download` uses the REST audit's GET-only client and its `/search-deep` enumeration, so a snapshot is
+complete in the same qualified sense, for what the key can read. The key comes from `CEDAR_API_KEY`,
+`--api-key-file` or `~/.cedar-admin-key`. Each body goes into a staging database as it arrives, so an
+interrupted download continues with `--resume <staging directory>`. A read that gets no answer is
+asked again in up to two further passes. A definite answer, such as the 404 for a row the search
+index lists and the store no longer holds, is recorded once and kept in the index without a body.
+
+Reads are handed back as they complete rather than in enumeration order. The REST audit's ordered
+pool stops reading ahead while one read waits out its retries, and against production that held 24
+workers to 25 reads a second; the unordered pool reads about 80 a second with the same workers. On
+2026-10-24 enumeration took 46 minutes and reading 55, for 302,424 artifacts: 4,826 templates, 5,310
+elements, 141,699 fields and 150,589 instances. Ten rows answered 404, and nothing stayed unread.
+
+Snapshots live in `$CEDAR_HOME/.cedar/snapshots/production/`, readable only by their owner. Each run
+leaves `<UTC time>.tar.zst` and a `<UTC time>.json` sidecar that records the counts, the archive's
+digest and the tool's commit, and `latest.tar.zst` and `latest.json` link to the newest. The archive
+is a tar stream compressed with zstd at level 19 and a 128 MiB window, the largest a decoder accepts
+without being told to allow more, so a plain `zstd -d` opens it. The command skips a symbolic link
+unless given `-f`, so decompress the dated archive rather than `latest.tar.zst`. The archive begins with `manifest.json` and
+`index.jsonl`, which lists every enumerated artifact with its status, digest, ETag and member name,
+and continues with one member per body. Instances are ordered by the template they are based on,
+which places documents of one shape together. The 1.33 GB of bodies in the 2026-10-24 snapshot pack
+into 70 MB in 45 seconds. Stronger settings were measured on the same archive and gain little: level 22
+with a 2 GiB window saves a further 12% in seven times as long, and every reader then has to pass
+`--long=31`; `xz -9e` saves 4%.
+
+A test reads an archive as a stream, without extracting it:
+
+```python
+from cedar_snapshot import Snapshot
+for entry, body in Snapshot.latest("production").artifacts(types={"instance"}):
+    ...
+```
+
+### Reading Every Artifact with Both Libraries
+
+`ops/cedar_snapshot_read_audit.py` asks `cedar-artifact-library` and `cedar-model-typescript-library`
+to read every artifact in a snapshot, and asks `cedar-model-validation-library` to judge each one,
+instances against the template they name. A refusal of an artifact the validator rejects is the
+data's defect. A refusal of an artifact the validator accepts is a reader defect, and finding those
+is the purpose of the audit.
+
+```bash
+python3 ops/cedar_snapshot_read_audit.py \
+  --java-classpath <cedar-artifact-library>/target/cedar-artifact-library-<version>-jar-with-dependencies.jar \
+  --ts-library <cedar-model-typescript-library>/dist/index.js \
+  --out "$CEDAR_HOME/.cedar/audits/<date>-snapshot-read" \
+  --known <an earlier list of invalid artifacts, as JSONL>
+```
+
+Four Java bridges (`cedar_snapshot_read_bridge.java`) and four Node bridges
+(`cedar_snapshot_read_bridge.cjs`) receive each body as served. The Java bridge parses it once with
+`ArtifactSourceParser`, validates it, and reads it with `JsonArtifactReader`; templates reach it
+ahead of the instances based on them. The Node bridge reads with the strict readers, and again with
+the `FEBRUARY_2024` behavior whenever the strict readers refuse, because the embeddable editor opens
+stored templates with that behavior. A production snapshot takes under a minute. `records.jsonl`
+holds one verdict per artifact, and `summary.json` counts outcomes by type and groups refusals and
+validation failures by cause, with quoted values masked.
+
+The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `02aadf5`), found:
+
+- Every element and field reads in both libraries and validates.
+- The 3 templates damaged by the Decimal128 write defect are refused by both libraries. The Java
+  reader refuses no other template.
+- The strict TypeScript reader refuses 46 templates the validator accepts. Forty-two hold a nested
+  element whose `@context` allows URI-valued entries although the element has no attribute-value
+  child, a variation the library lists as known. Four leave their children out of `required`; they
+  are the templates the child-presence repair left blocked. Under `FEBRUARY_2024` all 46 read.
+- 36 instances are refused by one library or both. All of them are invalid, and all were on the
+  2026-09-24 list of invalid instances.
+- The validator rejects 2,681 instances, 562 of which were on that list. Most of the others fail the
+  value rules `cedar-model-validation-library` gained in `dbe0da5`, released in 2.9.25: dates that
+  are not `xsd:date`, IRI fields holding a literal, controlled-term labels without an IRI, and
+  malformed decimals. Both libraries read them.
+
+The 2026-10-25 pass ran on a snapshot taken after the repairs below, with the same libraries; the
+TypeScript library's head had moved to `75a1346`, which changes neither its source nor its runtime
+dependencies. The snapshot holds the same 302,424 artifacts. It found:
+
+- Every element and field still reads in both libraries and validates.
+- Four templates are invalid and refused by both libraries: the three the Decimal128 defect damaged
+  and metaBUS-partial, damaged the same way by the notation round. The strict TypeScript reader still
+  refuses the same 46 valid templates, and all of them read under `FEBRUARY_2024`.
+- 1,471 instances are invalid, every one of them on the 2026-10-24 lists and none newly so. CEE opens
+  all of them and shows each a blocking error, so their owners can correct and save them. Eighteen
+  are still refused by one library or both.
+
+The two libraries must agree on every instance's verdict, and on that pass they did not. The Java
+validator accepted 9,120 instances that the TypeScript library's `InstanceValidator`, and so the
+embeddable editor's Save, refused. The largest kind, 7,022 instances on 15 templates, held an
+unfilled controlled-term value written as `{"rdfs:label": null}`, `{"rdfs:label": ""}` or a class
+alone in `@type`. TypeScript refused those as an unrecognized value shape or as an IRI field without
+`@id`.
+
+TypeScript now judges an IRI field's value as Java does. A value without `@id` is unfilled, whatever
+else it holds, and only a controlled term's label without the IRI of its term is refused. A link
+field's label without an IRI is accepted, as Java accepts it. A key the field's closed schema does not
+declare is refused, as JSON Schema refuses it, so `{"@value": null}` in an IRI field is now refused
+where TypeScript had accepted it. The verdict fixture holds twenty probes for these shapes: ten
+values, each judged in place of a controlled-term value and of a link value in two corpus cases.
+The editor's Save follows the fix once the editor is built against the fixed library.
+
+Measured again with that fix, Java accepted 2,100 instances that TypeScript refused, in four kinds. A
+container's stored `required` omitted a field the instance left out, on 1,190 instances of 2
+templates. A static field held `{}`, on 674 instances of 71 templates. An empty date or number had no
+`@type` where its stored field requires only `@value`, on 180 instances of 34 templates. A container's
+stored `additionalProperties` admitted a literal the template does not declare, on 98 instances of 14
+templates.
+
+Three of the four kinds come from the stored template, which states these facts differently from how
+either library's model writes them, and neither model keeps them. `InstanceValidator.validate` and
+`validateReport` therefore take the stored template document as an optional third argument. From it
+they read which children a container requires, which further keys a container admits and which
+properties a field's value must carry. CEE passes the JSON template its host hands over, and both
+gates pass the stored body. A static field's slot is judged by its schema alone, which declares no
+property, as Java judges it. The missing-property finding's message no longer renders as
+`[object Object]`. Thirteen further probes cover these rules, each patching a corpus case's template
+as well as its instance.
+
+The model keeps a null `rdfs:label`, `skos:notation`, `skos:prefLabel` or `@language` as no value, and
+both libraries' writers leave it out, as eleven probes confirm. The reader records which of them each
+value held as null, and the validator judges the value as stored. A field that requires one is then
+satisfied by a stored null and refused where the key is missing, as Java judges it.
+
+After that round, four instances of two templates went the other way. Java refused them for their
+`@context`, which TypeScript did not compare with the template's, and earlier refusals had hidden
+them. Where the stored template is given, `InstanceValidator` now judges each container's `@context`
+against its stored `@context` schema. A declared key must take a value the template admits, an
+undeclared one must be admitted by `additionalProperties`, and every required key must be there. The
+model keeps the child mappings as stored. The standard prefixes and term definitions are the
+writer's, the same for every instance, and the reader records the stored ones on each container, so
+those are judged as stored too, and a missing or misstated prefix is refused as Java refuses it. No
+production template refuses the standard terms the writer gives an instance.
+
+An attribute-value field's list holds attribute names alone, and an entry holding a value is
+refused. Corpus case `cee-suite/046` lists `{"@value": null}` there, which Java refuses too.
+
+CEE saves through `InstanceInflater` and the library's JSON writer. The write maps every child to the
+template's property IRI, gives the root the standard terms and leaves out a null optional property,
+so the save settles a missing or wrong child mapping and a missing prefix. CEE passes `asWritten`,
+and its Save is held to the document that write produces, including any term the template does not
+declare, which the write keeps. The gates leave the option unset and judge the stored document. The
+corpus gate lists no open defect.
+
+Corpus case `cee-suite/016`, which maps a field to a property IRI its template does not name, already
+agreed before the check: its template requires a key that differs from its child's name only in
+case, and the stored `required` is honoured. Four probes cover the check.
+
+On the same snapshot the two libraries now agree on every one of the 150,585 instances both read,
+and `--fail-on-disagreement` passes. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-context/`.
+
+An editor's save leaves an instance's identity, its provenance and each element occurrence's `@id`
+to the host and the server, which write them before validating, so `InstanceValidator` never asked
+them of an instance. A stored document lacking them disagreed: Java refused an element occurrence
+whose `@id` was absent or blank, and a root without its `@id`, template, name or provenance, and
+TypeScript let them through. Production held none on its own, since every such instance had a
+further fault both refused. `InstanceValidator` now takes `{ verbatim: true }` for a document judged
+exactly as it stands, as a verbatim write stores it. Each container's own keys are then held to the
+stored template: required ones must be there, and each must take a value the template admits. The
+reader records them as stored, since the model keeps an absent identifier and a null one alike.
+
+Each gate now judges the same document on both sides. The corpus gate gives Java each instance as
+the server stores it from an editor's save, and records the identifiers and stamps that completion
+adds. The spec judges the editor's instance in the default mode, and the completed document
+verbatim. Twenty stored probes change the completed document, the shape only a verbatim write
+stores, and are judged verbatim alone. The snapshot gate judges each stored body verbatim.
+
+The timestamp probes found a fault in Java rather than TypeScript. The meta-schemas' `date-time`
+format resolves a value leniently. It admits the 30th of February and `24:00:00`, which
+`TimestampPolicy`, the Java model's reader and the TypeScript reader all refuse. The format also
+refuses some values the model reads, such as a time without seconds. The Java validator now reads
+every provenance timestamp the format admits with `TimestampPolicy`, so a stored timestamp must
+satisfy both. `TimestampPolicy.matchesFormat` checks the format in TypeScript exactly as Java does.
+The two libraries agreed on 145 edge cases and on all 281,810 distinct provenance timestamps in the
+production snapshot, every one of which passes both, so no stored artifact changed verdict.
+Judged verbatim, the two libraries agree on every one of the snapshot's 150,585 instances, and
+`--fail-on-disagreement` passes. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-verbatim/`.
+
+An instance's `@type`, at the root and on an element occurrence, and its `_annotations` are its own,
+not the host's or the server's, so every save writes them as the instance holds them. TypeScript did
+not judge either, and 22 probes showed ten disagreements. It also dropped `@type` on reading, so a
+save through CEE would have removed it from the 2,147 production instances and 4,252 element
+occurrences that state one. Java's model kept it, but its JSON renderer wrote neither. Both libraries
+now keep and write it, one class as a string and several as a list. `InstanceValidator` holds `@type`
+and `_annotations` to the stored template in every mode, as stored or as the writer writes them. Its
+schema check gained `oneOf`, `items`, `minItems`, `uniqueItems` and `patternProperties`. Its `uri`
+format is now Java's, `IdentifierPolicy.matchesUriFormat`: a relative reference passes, and an
+identifier Java requires to be absolute is checked separately. A literal annotation is read as
+Java's model reads it, `@value` before `@id`. On the production snapshot the two libraries still
+agree on all 150,585 instances. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-types/`.
+
+The template's annotation schema admits more than either model reads: a relative reference as an
+annotation's `@id`, and a number, a boolean or null as a literal's `@value`. The `uri` format also
+admits a relative reference as an instance's `@type`. The model is the rule. The Java validator now
+refuses an annotation `@id` or a class that is not an absolute IRI, and a literal that is not a
+string. Both libraries' readers refuse the same, and the TypeScript validator holds a model it did
+not read to those rules too. Production holds none, so no stored artifact changed verdict. The
+corpus gate has no open defect, and the snapshot still agrees on all 150,585 instances. Records are
+under `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-absolute/`.
+
+Neither library's YAML form carried an instance's `@type`, so a trip through YAML dropped it. Both
+now write it under `instanceType`, the key a template uses for the classes its instances take: one
+class as a string, several as a list, after the identifier, on the instance and on each element
+occurrence. An occurrence's classes survive a compact document, and an occurrence stating classes
+and nothing else is still written with `type: element-instance`. `instanceType` is reserved among
+the instance YAML keys, so no attribute-value field may take it; no production artifact contains the
+name. Shared-corpus case `instance-023` states classes on the instance and an element, and both
+libraries render it byte for byte alike in JSON, YAML and compact YAML. Three verdict probes cover
+an element occurrence's `@type`.
+
+The four instances were invalid in both, and the form cannot edit an instance's `@context`, so their
+owners could not clear the error themselves. They were repaired on 2026-10-25 in one write each, with
+`drop-unused-instance-context`, `drop-shadowed-instance-context`, `complete-instance-context` and
+`align-instance-context-iris` under `--allow-context-migration`. The chain dropped 24 undeclared
+terms, added `skos` and `skos:notation` to each, and remapped five child terms to the property IRIs
+their template now names. Two of the dropped terms were left by the unused-term rule alone: it judges
+an element's `@context` before the nested elements whose same-named terms it then drops, and the
+shadowed-term rule removes them. Every write was read back, the Java validator rechecks all four as
+valid, their provenance stamps and graph dates are unchanged, and nothing outside their `@context`
+blocks moved.
+
+A literal value has no label, yet 2017 templates made text and number fields demand one: `rdfs:label`
+sat among the keys every value must carry, which no writer produces. `complete-required-label` had
+satisfied the demand in two production instances by stating the label as null. Both libraries' models
+keep a null label as no label, so a save through the embeddable editor dropped all nine and the server
+refused the result. Two rules undo both halves. `drop-literal-label-demand` takes `rdfs:label` out of
+a literal field's `required` and leaves the property declared, as both libraries declare it.
+`drop-null-literal-label` then removes a null label from a literal value whose field no longer demands
+one, and leaves a label holding text alone. On 2026-10-25 the first rule loosened 115 field schemas in
+15 templates and 9 elements, and the second removed the 9 null labels from the 2 instances, the only
+instances any of those templates has. A field declaring both `@value` and `@id` was left as it stands.
+Every write was read back and every artifact rechecks as valid. Provenance, version, status and
+graph dates are unchanged. Each template and element differs from its pre-image only in `required`,
+and each instance only in the null labels removed. Both instances now validate as the editor saves
+them.
+
+The same 2017 demand sat on IRI fields, where an unanswered value is `{}` and a label cannot be
+asked of it. Both libraries write no `required` for an IRI field. `drop-iri-label-demand` removes an
+IRI field's `required` where it demands `rdfs:label`, together with any `@id` demand beside it, which
+would refuse `{}` as well. `drop-mixed-field-label-demand` takes only the label out of a field that
+declares both `@value` and `@id`, since nothing says which shape such a field holds. On 2026-10-25
+they removed the 32 label demands in 19 templates and 1 element: 28 IRI-field lists went altogether,
+15 of them demanding `@id` too, and 4 mixed fields lost the label alone. All 20 were read back and
+recheck as valid, each differs from its pre-image only in `required`, and their 12 instances
+validate. Seven IRI fields in the same artifacts demanded `@id` alone, which also refuses `{}`, and
+`canonicalise-iri-field-required` removed those lists the same day, from 4 templates and the element.
+All 5 were read back, recheck as valid, and differ from their pre-images only in `required`; none of
+the 4 templates has an instance.
+
+Three instances of one template could not be opened at all. Inside an element each held a key named
+`description`, a reserved instance property, holding an attribute-value list, and the TypeScript
+reader refuses such a key. The key sat in two copies of a temporal-coverage element the template has
+since replaced by `temporalCoverage - dataset`, whose property IRI and children differ, so nothing
+shows a rename and no value could be moved. On 2026-10-25 two of the three were made valid in one
+write each. `rename-instance-keys`, with a reviewed mapping to `null`, removed the two old elements
+and an undeclared `variableMeasured/name`, eight entered values in each. `wrap-instance-occurrence`
+and `unwrap-instance-occurrence` settled list shapes, `complete-instance` added the new element
+empty, `restamp-declared-value-type` restated a plain date stored as `xsd:dateTime`, and
+`align-instance-context-iris` remapped five or six child terms, under `--allow-context-migration`.
+One of the two was written with `--replace-graph-provenance`, its graph date being ahead of its
+document's. Both were read back, recheck as valid, keep their provenance stamps, and now open. The
+third holds three filled occurrences of `funder`, which the template now declares once. The same
+day the template, a draft, was made to let `funder` repeat again: `repeat-template-child`, under a
+reviewed `--repeat-children` plan, wrapped the child's schema in a list with `minItems` 1, the form
+the template's other repeating children take, and `wrap-instance-occurrence` put the single funder
+of the two repaired instances in a list seconds later, since the new template refuses it otherwise.
+All three were read back, recheck as valid, keep their stamps, and the instances still open. The
+third instance was then written with the planned chain, its three funders kept, and with
+`--replace-graph-provenance`, since its graph date was one second ahead of its document's. It was
+read back, rechecks as valid, keeps its stamps, its graph now agrees with its document, and it
+opens, so all three instances of the template are valid.
+
+A template rebuilt in place can leave instances in a structure no rename reaches. The rebuild mints
+new property IRIs, splits one old field into several and drops whole sections, so no key shows
+where a value went. `apply-reviewed-instance-mapping` rebuilds such an instance in the template's
+current structure, as a reviewed `--instance-mapping-plan` keyed by instance IRI places each value.
+Each plan has this form:
+
+```json
+{"<instance IRI>": {"template": "<template IRI>",
+  "moves": [{"from": "/Data/0/Derivation", "to": "/Dataset/Status"},
+            {"from": "/Data/0/Size", "to": "/Dataset/Subject/Count", "write": {"@value": "12", "@type": "xsd:int"}}],
+  "drop": ["/Person/Name"],
+  "elements": [{"from": "/Data/0", "to": "/Dataset"}]}}
+```
+
+A `from` pointer names an entered value in the stored instance, and a `to` pointer names a field of
+the rebuilt one. The plan must move or drop every entered value exactly once, or the transform
+refuses. A value moves exactly as stored unless `write` gives the rewritten form its owner agreed,
+and moves into a repeating field fill it in plan order. Each `elements` pair carries an old
+occurrence's identifier to the one current occurrence that continues it, and every other occurrence
+gets a fresh identifier. The invariant checks that each destination holds exactly its planned
+values and that no other field holds anything. It also checks that carried identifiers match and
+that every other identifier is fresh and new. With the values and identifiers set aside, the result
+must be the template's empty structure, with the instance's identity, provenance, annotations and
+standard `@context` terms unchanged. Because a plan can drop entered values, the rule applies only
+under `--allow-value-deletion` with an explicit `--only-ids` scope.
+
+On 2026-10-25 it was applied to the three instances of a template rebuilt in place, which kept 3 of
+the 40 property IRIs those instances used. The reviewed plan moved 30 entered values, 3 by property
+IRI and the rest by name and meaning, and carried 8 element identifiers in each instance. It dropped
+32 values the user agreed to drop: 29 for which the current template has no field, a fractional
+subject count its whole-number field cannot hold, and two placeholder words stored as links. One
+instance was written with `--replace-graph-provenance`, since its graph date was one second ahead
+of its document's. All three were read back, recheck as valid, keep their stamps, have graphs that
+agree with their documents, and open and save in CEE. The plan, pre-images and records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-fair-workflows-mapping/`.
+
+The same day five instances of two Project-Admin templates were written with
+`normalize-instance-orcid-spacing`, `prefix-bare-orcid` and `complete-instance`. They held ORCIDs
+pasted with a space or a line break, one principal investigator's bare iD, and populated element
+entries with no `@id`, which `complete-instance` gave fresh identifiers. Four were written with
+`--replace-graph-provenance`, since each graph date was one second ahead of its document's. All
+five were read back, recheck as valid, keep their stamps, have graphs that agree with their
+documents, and open and save in CEE. A sixth, on the Collection-Admin template, holds two IRIs
+joined by "; " in three link fields and was left unwritten. The records and pre-images are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-orcid-and-entry-ids/`.
+
+The Data Catalogs instance `94f400a2-4d26-480a-855d-0fa299a243cc` is left invalid by decision, for
+its owner. Its first `datasetIdentifier` links to GENASIS with a second `#` inside the fragment,
+where GENASIS keeps a project filter, so the link is not a valid IRI. No valid spelling shows the
+same view: GENASIS answers the `%23` form with a 404 page, and the link without the project part
+opens every project. On 2026-10-25 the user decided to keep the stored link rather than store the
+unfiltered one, so no repair should rewrite it.
+
+A GeoExposure instance held a resource URL with the end of a sentence pasted after it, from a
+closing quotation mark on, and two links stored as `{"@id": ""}`. On 2026-10-25 it was written with
+`cut-link-at-quotation-mark` and `drop-null-iri`, under `--allow-value-deletion`, after the user
+read the text and agreed to the cut. The URL before the mark answers with HTTP 200. The graph date
+was one second ahead of the document's, so the write used `--replace-graph-provenance`. It was read
+back, rechecks as valid, keeps its stamps, its graph agrees with its document, and it opens and
+saves in CEE. The record and pre-image are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-geoexposure-link/`.
+
+A 2017 instance of the draft Gene Expression template could not be opened at all. The template was
+edited in 2018 and its five children renamed, from `donorID` to `Donor Id` and the like, each
+keeping its property IRI. On 2026-10-25 `rename-instance-keys`, with a reviewed `--mapping` taken
+from those IRIs, moved the five values to their current names. `drop-null-iri` emptied the
+unfilled term field, `drop-unused-instance-context` removed two terms naming children that no
+longer exist, and `complete-instance-context` added `skos` and `skos:notation`. The graph already
+agreed with the document, so no override was needed. The instance was read back, rechecks as
+valid, keeps its stamps, and opens and saves in CEE. The mapping, record and pre-image are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-gene-expression-rename/`.
+
+An instance of the Collection-Admin template held two IRIs joined by "; " in three link fields: two
+ORCIDs in a project leader's entry, the same two among its custodians, and two RORs among its
+owners. On 2026-10-25 `split-joined-links` gave the custodians and owners one entry each.
+`choose-reviewed-joined-link` kept the leader's own iD, the one no other participant entry holds,
+as the user chose. `normalize-instance-orcid-spacing` removed pasted spaces from six ORCIDs, and
+`complete-instance` gave four participant entries the identifiers they lacked. The write ran under
+`--allow-value-deletion`, and under `--replace-graph-provenance`, since the graph date was one
+second ahead of the document's. The instance was read back, rechecks as valid, keeps its stamps,
+its graph agrees with its document, and it opens and saves in CEE. The choice, record and pre-image
+are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-collection-admin-split/`.
+
+Saving a template stored in an older shape can invalidate its instances although nothing was
+edited, because the library writes the template as the current model renders it. Over the
+2026-10-25 production snapshot, writing each of the 1,532 templates that have instances through the
+strict TypeScript writer, as the designer does, would have invalidated 1,824 instances on 74
+templates. On 2026-10-26, 1,731 of them were written with `complete-instance`,
+`stamp-empty-value-type` and `drop-orphan-instance-context`. 1,222 gained the children the written
+template requires, 142 gave their empty numeric or temporal values the declared datatype, and 368
+lost a context term that names no child and that nothing in them uses. `plan_from_snapshot.py`
+selected them, and a live dry run repeated its checks before the write. 25 graph dates were one
+second ahead of their documents, with the same modifier, and those instances were written under
+`--replace-graph-provenance`. Every instance was read back, rechecks as valid against its stored
+template, and validates against the template as the library writes it. The remaining 93 need their
+owners, as the roadmap's item on template changes records. The plan, records and pre-images are
+under `$CEDAR_HOME/.cedar/repairs/2026-10-25-resave-risk/`.
+
+Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
+`@context` open to further IRIs without an attribute-value child, and one held an element closed
+that has one. Both writers render the `@context` open exactly when the container has an
+attribute-value child, and the strict reader compares against that rendering. `settle-context-openness`
+sets each container's openness from its children, moving only between `false` and
+`{"type": "string", "format": "uri"}`. Every instance of the 42 templates was validated against
+each template before and after. 32 templates broke none of their instances, and were written with
+their dates unchanged; the strict reader now reads them. The other 10 were held. Their root
+`@context` and body are both open, and 61 of their instances, all valid, hold values under keys the
+template no longer declares, mapped in the root `@context`. They are fields renamed or removed after
+the instances were saved. 87 of the values sit under an old name whose property IRI a current field
+still carries, with that field empty: the same property under a new name. The other 72 belong to
+fields the template no longer has. Closing a template while its instances hold either would make
+them invalid, so the 10 are left until those values are moved or their owners decide. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-context-openness/`.
+
+On the user's word, 83 of the renamed values were then moved with `rename-instance-keys` and
+`drop-unused-instance-context`. The rename table was built from the property IRIs and keeps a `/` in an
+old name escaped as `~1`. The four under `name` in the email message template were left out, since an
+instance also holds a value under its new name, `Name`. 41 instances were written with their dates
+unchanged, every value intact under its current name. TGCOVID then held no old keys in any of its 998
+instances, which all validated against the closed template, so it was closed. The other nine still
+hold values under removed fields. CEE blocks saving those instances, which are valid, because it
+does not recognise the undeclared keys, so the owners' decision on the removed fields is also what
+lets them be saved in CEE. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-renamed-fields/`.
+
+### Repairing Instance Values the 2.9.25 Rules Refuse
+
+`cedar-model-validation-library` `dbe0da5` (release 2.9.25) added rules about the values an instance
+holds, not only its shape, and 2,119 production instances that validated in September fail them. Most
+of them break one rule, and most of those breaks have exactly one right answer. The repair tool gained
+four transforms for them, and two existing ones learned a further case:
+
+- `write-date-as-iso` writes a date field's spelling of a date as the ISO date it names: a date
+  missing its zero padding, a date-time at midnight, a month written as a word, and a numeric date
+  whose parts settle which is the day. Where they do not, as in 03/04/2019, `--date-orders` can name
+  the order a template writes its dates in. The 2026-10-24 table admits a template only where at
+  least five of its instances' dates are unambiguous and all of them agree.
+- `restamp-declared-value-type` narrows a stated datatype to the declared one where the value already
+  is one: a plain date stamped `xsd:dateTime`, a whole number stamped `xsd:decimal`.
+- `write-link-as-iri` writes a link's bare ORCID, only when its check digit holds, and a bare DOI,
+  `www.` address or e-mail address, as the IRI each names.
+- `empty-placeholder-value` writes a listed placeholder word, such as "NA" or "unknown", as the empty
+  value of a date, number or link field. "none" counts only in a date, since in a number it can mean
+  zero.
+- `empty-import-placeholders` empties, in the templates `--placeholder-templates` lists, every value
+  a DataCite import left as the name of the location it read from, such as
+  `data_attributes_relatedIdentifiers_0_resourceTypeGeneral`. The import wrote one wherever a record
+  had no value, so the name says nothing about the dataset.
+- `stamp-instance-value-type` now also stamps a value whose field names its datatype, where the
+  validator demands a type although the schema does not list one as required, and
+  `settle-instance-term-label` also settles a label stored without its IRI.
+
+`ops/repairs/plan_from_snapshot.py` runs a chain against a snapshot rather than the deployment. A
+candidate counts as finished only when it validates, reads in both libraries and keeps its provenance
+exactly, and the planner writes the `--only-ids` list and `--from-records` file the apply run takes:
+
+```bash
+python3 ops/repairs/plan_from_snapshot.py --ids newly-invalid-ids.json \
+  --repair write-link-as-iri,empty-placeholder-value,write-date-as-iso,restamp-declared-value-type,stamp-instance-value-type,complete-empty-literal \
+  --date-orders date-orders.json --java-classpath <jar with dependencies> --ts-library <dist/index.js> --out plan/
+python3 ops/repairs/cedar_artifact_repair.py --from-records plan/targets.jsonl --condition snapshot-plan \
+  --only-ids plan/finished-ids.json --types instance --repair <the same chain> --date-orders date-orders.json --apply
+```
+
+On 2026-10-24 the plan finished 750 of the 2,119. The apply run's dry pass held 91 of them, whose graph
+records a modification date under a minute later than the document's: a verbatim write copies the
+document's date into the graph, so writing them would move the date Workspace shows. The other 659 were
+written. Every one reads back identical to its candidate, keeps the modification date and modifier its
+graph node and search-index entry held, validates, and reads in both libraries. Pre-images and records
+are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-value-spellings/`, and the owner sheets for what no
+rule settles are in its `sheets/` folder.
+
+The same day `empty-import-placeholders` emptied 11,440 such names in the 404 instances one November
+2021 import wrote, under the same checks. All 404 kept their modification dates and now validate; the
+records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-import-placeholders/`.
+
+The 91 held instances were then written with `--replace-graph-provenance` on the user's decision. In
+each, the graph's date moved back exactly one second to the document's, and the tool recorded the date
+it replaced. A second snapshot taken that afternoon counts 1,527 invalid instances against the
+morning's 2,681: exactly the morning's set without the 1,154 repaired, none of which still fails.
+
+Of what remained, 33 instances break their template's JSON Schema in ways CEE's own validator does not
+check, mostly an `@context` that maps names the template does not declare or lacks ones it requires.
+CEE shows no problem with them, and a save from CEE writes only 7 of them in a valid form, so the server
+would refuse the rest. The existing `drop-unused-instance-context`, `complete-instance-context` and
+`complete-instance` repairs finished 14, with every value outside `@context` and every modification
+date unchanged; records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-context-repairs/`. Two more
+were written on the user's decision: one whose graph date moved back a second to the document's, and
+one whose empty element needed `align-instance-context-iris`, which changes a property IRI and so what
+the data means, and runs only with `--allow-context-migration`. One was left alone: its document
+names its modifier in the legacy `repo.metadatacenter.net/users/` form, which a verbatim write would
+copy into the graph.
+
+The 34 instances left after that, 18 that CEE cannot open and 16 it does not flag, mostly follow an
+earlier version of their template. Four narrow repairs were added for the shapes that have one answer.
+`complete-required-label` states a null `rdfs:label` where a field requires the key and admits null.
+`drop-null-iri` takes a null or empty `@id` out of an IRI field's value and keeps the class beside it.
+`drop-null-instance-type` removes a root `@type` stated as null. `drop-unfilled-undeclared-keys` removes,
+at every depth, a key its container does not declare that holds nothing anyone entered, together with
+its mapping. With the existing repairs they finished 4 of the 34: 3 were written, and one is held for
+a one-second date gap. A rule wrapping a single choice in the list a 2017 template's schema declares
+was tried and dropped, because its result validates but the Java reader refuses a list there; that
+template's schema is what needs repairing. The other 30 need owners: values under keys the template no
+longer declares, more than one class as a value's type, annotation blocks carrying an identifier, and
+property IRIs the template has since changed. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-24-legacy-shapes/`.
+
+The user then decided that values under keys a template no longer declares should go, and that changed
+property IRIs should be aligned. `drop-undeclared-keys` removes every undeclared key at every depth,
+entered values included, and applies only with `--allow-value-deletion` and an explicit `--only-ids`
+scope; `align-instance-context-iris` ran with `--allow-context-migration`. Together they finished 5 of
+the remaining 31, all written with every other entered value kept under its field; for four of them,
+on the user's decision, the graph date moved back one second to the document's. What still blocks the
+rest is not theirs to settle: annotation
+blocks carrying an identifier, values as strings where 2017 templates' schemas declare lists, a value
+with two classes as its type, and a template whose `@context` requires a mapping for a child it no
+longer has.
+
+Two of those blockers were template defects, and the user asked for the templates to be repaired.
+`type-choice-value-as-text` retypes a radio, list or checkbox field's `@value` from `["array", "null"]`,
+the shape of 2016 and 2017, to the `["string", "null"]` that some 45,000 later choice fields and the
+model use. Seven draft templates were retyped. "Work (with Activity)" stopped demanding an `@context`
+mapping for a child it no longer has, through the existing `drop-noncanonical-context-demands`.
+Before either was written, every instance of the eight templates was checked against the old and the
+new template; none was valid before, so none could be broken. All eight kept their modification dates.
+Their instances were then repaired: eight finished and were written, and four were held because their
+documents name the modifier in the legacy `repo.metadatacenter.net/users/` form. The same two template
+defects remained in templates nobody had asked about, and the user then asked for those too. The two
+rules, run over every template and element in the snapshot, changed 506. Every one validated and read
+in both libraries afterwards and none read worse than before. No instance of the 320 templates among
+them went from valid to invalid: 48 were valid against both versions and 83 invalid against both. 465
+were written with their modification dates unchanged; 41 were held, every one because its document
+names the modifier in the legacy `repo.metadatacenter.net/users/` form. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-24-legacy-templates/`.
+
+The user then decided that such modifier IRIs should take the current form. A verbatim write projects
+only the modifier and the modification date from the document into the graph, never the creator, so
+`restate-modifier-in-current-form` writes a document's `oslc:modifiedBy` as the
+`https://metadatacenter.org/users/` IRI its graph node already holds for the same user, read from
+`--modifier-forms`. The graph check now compares the graph with the document about to be written
+rather than the stored one, so such an artifact agrees and is written. All 46 held artifacts, 5
+instances and 41 templates and elements, were repaired with their dates, creators and graph modifiers
+unchanged.
+
+The user then asked for every remaining legacy user IRI to be restated. `restate-user-iris-in-current-form`
+writes each `pav:createdBy` and `oslc:modifiedBy` in the current form, at the document's root and in
+every element and field it embeds. 495 artifacts held 10,672 of them, naming 62 users, every one of
+whom the graph already knew in the current form. No production script was needed: every graph node
+already held its creator in the current form, and the 35 that held a legacy modifier took the current
+one from the write, through `--replace-graph-provenance`, with their dates equal before and after. 441
+artifacts were written with their document, graph and search-index dates unchanged. The other 54 are
+instances that are invalid for other reasons, which the tool does not write; their legacy IRIs go with
+whatever repair makes them valid. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-24-user-iris/`.
+
+Six instances that CEE opened without complaint still failed the Java validator. For four of them the
+template was at fault. Both libraries write a controlled-term field's value schema with
+`skos:notation`, text or null, beside `@id` and `rdfs:label`; these 2018 templates name no notation,
+so an instance carrying the code of the term it chose was refused. `allow-term-notation` declares the
+notation in such fields. It only widens what a value may carry, and it was written to four templates,
+one of them published, with their dates, versions and statuses unchanged; all four instances then
+validated without a change of their own. Thousands more controlled-term fields across the corpus named
+no notation, which matters only where an instance carries one. Both libraries' strict writers give every IRI field,
+link and external identifier as well as controlled term, the same value schema with `skos:notation`.
+`allow-iri-notation` declares it in any IRI field that lacks it, and on 2026-10-25 it was written to
+2,440 artifacts, 977 templates, 833 elements and 630 fields, declaring it in 5,325 field schemas.
+Every write was read back, every artifact rechecks as valid, and each differs from its pre-image only
+in the notations declared, with stamps, version and status unchanged. Sixteen were held: twelve whose
+graph dates differ from their documents', one holding a fractional number until the Decimal128 fix
+is deployed, and three templates invalid for other reasons. The twelve were written the same day
+with `--replace-graph-provenance`: six graphs were one second ahead and six were behind, by 37
+seconds to 88 days, one naming another modifier. Each graph now agrees with its document, and the
+documents' stamps are unchanged. A first pass stopped after 1,292 writes
+when a read-back timed out; the write it could not confirm had landed, and a second pass wrote the
+remaining 1,148. The other two were instance defects, and
+both were repaired. `state-creator-from-graph` wrote into one the `pav:createdBy` its graph node
+records, read through `--creators`, rather than inferring a creator from the last modifier.
+`drop-shadowed-instance-context` removed from the other a root `@context` mapping whose only use sits
+inside an element that maps the same name in its own `@context`.
+
+The user then asked for the notation to be declared across the corpus. 5,905 templates, elements and
+fields held 21,574 controlled-term fields without it. Planned against the snapshot, every one of them
+validated and read at least as well with the notation declared, and none of the 146,371 instances of
+the changed templates went from valid to invalid. 5,765 were written, declaring the notation in 21,369
+fields, with their document, graph and search-index dates unchanged. All of them validate, and both
+libraries read them as before; the strict TypeScript reader still refuses the 38 among them that it
+refused before. 136 were held because the graph's date differs from the document's. In 131 the graph is
+one second later. In five draft elements it is earlier, by between 37 seconds and 88 days. The three
+templates the Decimal128 defect damaged were left alone.
+
+The one-second gap comes from an ordinary save, which reads the clock twice. `ProvenanceUtil` stamps
+the document's `pav:lastUpdatedOn`, and `updateResourceById` in the workspace operations library
+stamps the graph node a few milliseconds later, each to the whole second. A save that straddles a
+second boundary leaves the graph one second ahead, as it did for about 2% of the artifacts here, and
+the search index holds the graph's date. On the user's word the 131 were then written with
+`--replace-graph-provenance`. In every one the graph's date moved back to the document's, the search
+index followed it, and the modifier stayed the same in both.
+
+The resource server now gives the graph the stamp the artifact server wrote rather than reading the
+clock again. An ordinary update, a publication and a DOI annotation pass the stored document's
+`oslc:modifiedBy` and `pav:lastUpdatedOn`, as a verbatim write already did. A create, a new draft, a
+copy and a background clone pass its `pav:createdOn` and `pav:lastUpdatedOn` as an
+`ArtifactCreationProvenance`. A document that states neither leaves the node to stamp its own. The fix
+takes effect once a release carrying it is deployed. Nodes already a second ahead stay so until their
+artifact is next written.
+
+One write damaged a template. Since release 2.9.25 the server stores a fractional number as `Decimal128`
+and serves it back as `{"$numberDecimal": ...}`, as
+[Numbers, timestamps and source parsing](#numbers-timestamps-and-source-parsing) describes, and
+metaBUS-partial, a draft, holds two fractional `minValue` bounds. The read-back caught the difference
+and stopped the run. Rewriting the template would convert the bounds again. The stored values are
+exact, so a release carrying the rendering fix serves the template correctly without a write. The
+repair tool now holds every candidate containing a fractional number, as `fractional-number-held`,
+unless `--allow-fractional-numbers` is given, which is meant for a deployment carrying the fix. One
+more element was held that way. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-24-term-notation-corpus/`.
+
+Thirteen invalid instances could not be opened in CEE at all, and neither library read them. Seven
+were saved in June and July 2024 with a DataCite DOI annotation. Until cedar-config-library `bea2911`
+(2024-08-27), `LinkedDataUtil.addElementInstanceIds` took every object holding neither `@value` nor
+`@id` for an element occurrence and minted an identifier into it, and `_annotations` is such an
+object once a DOI annotation is attached. An annotation's value must be an object, so the stray `@id`
+made each instance unreadable. `drop-minted-annotation-id` removes it. Production refuses an invalid
+instance even on a verbatim PUT, with `invalidData`, and refuses a verbatim write that holds an
+element occurrence with a null `@id`, with `verbatimWriteRefused`; an instance therefore becomes
+openable only by becoming valid. Two of the seven did, with `restate-instance-literal` writing their
+integers in text fields as the same numbers in text. Both were written on the user's word with
+`--replace-graph-provenance`, since their graph dates were one second ahead, and CEE now opens them
+with nothing to correct. The other eleven keep values only an owner can settle: dateTime fields
+holding no dateTime, missing required properties, two `@type` classes on one value, a field holding
+both a term and a text value, and values under keys their templates no longer declare. Records are
+under `$CEDAR_HOME/.cedar/repairs/2026-10-25-cee-unopenable/`.
+
+The user then had two of the eleven made valid by deleting what blocked them. Both instances predate
+revisions of their templates. `drop-term-field-text` empties a term field holding only typed text,
+and `drop-unlisted-term-class` takes out of a term value an `@type` naming a class its field's schema
+does not list, where the schema does not require one. Each deletes something entered, so each runs
+only under `--allow-value-deletion` with an explicit `--only-ids` scope, as `drop-undeclared-keys`
+does. The MyFirstTemplate instance was written with its `@context` re-aligned under
+`--allow-context-migration`. Its template's choice fields had already been retyped in the
+legacy-template round. Both libraries read it, and CEE opens it but flags two shapes the library
+accepts: an empty date with no `@type`, and an empty term field that still names a class. The
+Migrant-Interviews instance, with `City` and the typed text removed, had its graph date one second
+ahead, so it was written with `--replace-graph-provenance` on the user's word; CEE opens it with
+nothing to correct. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-last-two-unopenable/`.
+
+Four 2017 instances carried a list of two ontology classes as one value's `@type`. Early in 2017 a
+template author could type a field with classes, and the editor stamped all of them into every value
+it saved; the model now gives a value one `@type`, so both libraries and CEE refused the instances.
+`drop-stamped-class-list` takes such a list out, leaving the value's term or text, and runs under
+`--allow-value-deletion` like the other deletions. Two instances of New RDA Demonstration Data Source
+Test were written with their dates unchanged, and CEE opens both; one still shows an empty term field
+holding a class. A MyFirstTemplate instance was then written on the user's word with its `@context`
+re-aligned under `--allow-context-migration`. CEE opens it with the same two flags as its sibling. The
+fourth, on MyFirstTest, also held a date spelled other than as an ISO date. It was written once
+`write-date-as-iso` had rewritten the date and `restamp-declared-value-type` had restated its datatype,
+and CEE opens it with nothing to correct. A Citation instance whose only defects were the minted
+identifier and absent fields validated with existing rules. Its graph date was one second ahead, so it
+was written with `--replace-graph-provenance` on the user's word, and CEE opens it with nothing to
+correct. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-stamped-classes/` and
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-two-more/`.
+
+The last four needed a value chosen, and the user chose each. Three Citation instances held a bare
+date in the template's `date` field, which is declared as a dateTime to the second.
+`write-date-at-midnight` writes such a date as that day's midnight UTC, spelled with `Z` as the
+template's other dated instances are. It assumes a time nobody entered, so it runs only under its own
+`--allow-assumed-time` with an explicit `--only-ids` scope. All three were written, their `@context`
+re-aligned and one graph date moved back one second, each on the user's word. CEE opens them and flags
+only the optional dates left empty, which it expects to carry `@type` and the library does not. In the
+FAIR-EuMon instance, `drop-text-beside-term` takes out a typed text standing beside a chosen term and
+differing from its label, under `--allow-value-deletion`, and `encode-link-spaces` writes the spaces
+inside a link's address as `%20`. Its graph date was one second ahead, so it was written with
+`--replace-graph-provenance` on the user's word, and CEE opens it with nothing to correct. All thirteen
+instances CEE could not open now validate and open. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-last-four/`.
 
 ## Validating Every Stored Artifact with the Library
 
@@ -6019,6 +6746,26 @@ user accounts. All 231 passed live preflight; 53 provenance tests passed locally
 apply/metadata/alias tests passed with the production Python runtime. The sealed launcher in
 `legacy-user-alias-plan/` refuses to run until `metadata-evidence-run-2` has fully verified.
 
+**Legacy graph modifiers, candidates prepared but not sealed:** a verbatim write sets the graph's
+modification provenance from the document. A repair of a document that records its modifier in the
+legacy form therefore copies that form into the graph, and no User node carries it. The repairs of
+2026-10-21 left 15 templates and 14 elements in this state, and those of 2026-10-23 left six
+instances. Together they record 15 distinct users. On each of the 35, the graph and the document
+record the same legacy modifier, and their dates agree. The planner classifies them as
+`eligible-legacy-graph-modifier`. That classification requires the graph's modifier and both of its
+dates to agree with the document's, and exactly one live User to carry the same UUID in the current
+form. The restoration sets only the graph's `oslc:modifiedBy` to the current form. It keeps
+`pav:lastUpdatedOn` and `lastUpdatedOnTS`, writes no Mongo document and needs no repair evidence,
+because it restores no date. The executor admits the class only under
+`--allow-legacy-user-aliases`, and the alias preflight checks its graph against the document rather
+than against the repair account. The GET-only observations, the candidates and a summary are in
+`$CEDAR_HOME/.cedar/audits/2026-10-23-legacy-graph-modifiers/`. The 29 templates and elements are
+already in the sealed 231-artifact plan, whose rows for them still expect the CEDAR Admin modifier
+and an earlier document revision. Its executor would skip them as changed. Prepare and seal the
+production plan package again before the alias job runs, with these 35 candidates in place of those
+29 rows. Its operator script checks for 231 ready candidates, so that count changes with the
+package.
+
 **Remaining Admin-modified artifacts, read-only follow-up:** all 7,419 unresolved records were
 re-read with unchanged original provenance. They include 6,802 filled instances, 552 elements,
 50 fields and 15 templates. The largest instance families are Genetic Construct (3,172), Mouse
@@ -6206,6 +6953,11 @@ current strong ETag in `If-Match` with `PUT ?verbatim=true`, and compare the ent
 with the submitted candidate. Also GET the typed `/details` endpoint and verify `oslc:modifiedBy`,
 `pav:lastUpdatedOn` (the same instant at graph seconds precision), and numeric `lastUpdatedOnTS`
 against the candidate. JSON equality alone does not verify the graph or the browser's metadata.
+A verbatim write sets the graph's modification provenance from the document, so the same check
+runs before the write as well. Where the graph already disagrees with the document, the artifact
+is held as `graph-provenance-held` and not written. The usual cause is a legacy
+`https://repo.metadatacenter.net/users/<UUID>` modifier in the document where the graph holds the
+current `https://metadatacenter.org/users/<UUID>` for the same user.
 An unverified write stops the run; at most one artifact per worker is in flight, and already-running
 workers finish and record their outcomes exactly once.
 Idempotence is not read-back verification. An artifact for which no transform proposes a change
@@ -6258,6 +7010,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `empty-derived-from` | Delete empty-string `pav:derivedFrom` at every depth; preserve populated provenance. |
 | `canonicalise-iri-field-required` | Remove legacy presence requirements only from unambiguous IRI fields. First verify each changed field's Java-rendered counterpart also declares `@id`, not `@value`, and has no `required` list. Preserve `_valueConstraints.requiredValue` and vocabulary constraints; validate the complete template and dependent instances. |
 | `drop-unused-instance-context` | Remove only simple, undeclared context mappings unused throughout their container's scope. Preserve references in nested keys, compact IRIs, datatype values, other context definitions, and attribute-group member lists; keep complex definitions. Compare proposed removals with the Java-rendered template before applying. |
+| `drop-orphan-instance-context` | Remove a simple context mapping that the template's `@context` declares for no child, does not require, and that nothing in its scope uses. The library drops such a declaration when it writes the template, so the instance would otherwise turn invalid at the template's next save. |
 | `drop-noncanonical-context-demands` | Remove context-presence requirements naming absent children or attribute-value groups, only after Java-rendered comparison confirms each removal. Keep the mappings, regular child requirements, namespace requirements and instance data; validate dependent instances. |
 | `mint-child-ids` | Replace missing/unusable child IDs with the correct type prefix; do not change property IRIs. |
 | `mint-property-iris` | Replace present but unusable property mappings; absent mappings are out of scope. Review every dependent instance and exclude unsafe targets with `--exclude-ids`. |
@@ -6268,14 +7021,20 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `complete-ui-order` | Append declared children missing from the order, preserving existing order. |
 | `drop-unusable-order-entries` | Remove reserved names or stale slash-to-hyphen rename entries; preserve possible evidence of a deleted child. |
 | `derive-title` | Derive the root title from its name; preserve descriptions and embedded child titles. |
-| `complete-instance` | Add missing empty shapes: list for repeatable children, `{"@value": null}` for literals, `{}` for IRIs, and declared element structure with fresh identity. Preserve existing values, including malformed populated shapes. |
+| `complete-instance` | Add missing empty shapes: list for repeatable children, `{"@value": null}` for literals, `{}` for IRIs, and declared element structure with fresh identity. Give an element entry that has no `@id` a fresh one, whether or not it holds values. Preserve existing values, including malformed populated shapes. |
 | `stamp-instance-value-type` | Supply the declared literal datatype, using model defaults where applicable (`xsd:decimal`, `xsd:dateTime`). |
+| `stamp-empty-value-type` | Give an empty numeric or temporal value, `{"@value": null}`, the datatype its field declares, as the model writes it. A template stored before `@type` was required admits the untyped form, and the next save of the template rejects it. Values that hold something are `stamp-instance-value-type`'s. |
 | `wrap-instance-occurrence` / `unwrap-instance-occurrence` | Match declared cardinality; never choose one value from a list of two or more. |
 | `settle-instance-empty-shape` | Normalize only an already-empty value to its declared literal/IRI shape. |
+| `drop-keyword-value-type` | Delete `"@type": "@id"` from link and controlled-term values, where the keyword names no class; keep the identifier and label. The audit reports the shape as `value-type-keyword`. |
 | `complete-instance-context` | Add template-required context definitions; review changes to existing predicates as semantic migrations. |
 | `restate-instance-literal` | Change JSON type only if the original spelling round-trips: `826` / `"826"`, but not `"007"`. |
 | `drop-static-field-from-instance` | Remove a static heading/break slot that holds no value. |
-| `normalize-instance-orcid-spacing` | Remove whitespace immediately after `https://orcid.org/` only when unchanged identifier characters pass MOD 11-2; this proves neither registration nor ownership. |
+| `normalize-instance-orcid-spacing` | Remove a space, tab or line break after `https://orcid.org/`, before the URL or after the iD, only when the unchanged identifier characters pass MOD 11-2; this proves neither registration nor ownership. |
+| `prefix-bare-orcid` | Write a bare ORCID iD in an IRI field whose name says it holds an ORCID as `https://orcid.org/<iD>`, only when the iD passes MOD 11-2. The checksum alone cannot tell an ORCID from another identifier of the same shape, so the field's name is required too. |
+| `cut-link-at-quotation-mark` | Cut a link field's address at a quotation mark that ends a URL pasted with words after it, only where the text before the mark is an absolute IRI. The words are deleted, so it applies only under `--allow-value-deletion` with an explicit `--only-ids` scope, after a person has read the text. |
+| `split-joined-links` | Give each address an entry of its own where an entry of a repeating link field joins several with semicolons, in the order written. Only an entry holding nothing but the joined text is split, and only where every part starts as an `http` or `https` address. |
+| `choose-reviewed-joined-link` | Keep the address a reviewed `--joined-link-choices` plan names, exactly as stored, in a single link field that joins several with semicolons. The others are deleted, so it applies only under `--allow-value-deletion` with an explicit `--only-ids` scope. |
 
 ### Owner-Reviewed Mappings and Schema Changes
 
@@ -6493,7 +7252,7 @@ Do not delete snapshot rows or files merely because the `latest` tag moved.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
-**Prerequisite for every development E2E run: latest development pins of ALL components,
+**Prerequisite for every development E2E run: current-source packages of ALL components,
 verified in every consumer.** Follow [the reactor contract](FRONTEND-RUNBOOK.md#the-reactor):
 `cedarcli build frontends` builds the complete current-source dependency graph, redeploys it,
 verifies the selected components and runs all smoke tiers. After backend changes, also build
@@ -6501,6 +7260,8 @@ and redeploy the current Java sources. Use `cedarcli test e2e --rest-workers 4` 
 smoke rerun only while that verified build is still current. Neither a passing smoke result nor
 matching displayed CEE versions establishes freshness by itself. Missing, stale or unverified
 components block acceptance; falling back to old pins is forbidden.
+The build request authorizes local SNAPSHOT resolution and deployment without follow-up questions.
+Registry pin maintenance and release preparation are separate workflows.
 
 One command that proves the whole stack works from the outside, the way users would exercise it.
 The Playwright script logs in through the real Keycloak form, uses Workspace and Designer to create
@@ -6683,8 +7444,9 @@ all three trees with the same checks. The monolith's build runs `npm ci` and Gul
 modification time of `app/config/version.js` so that a browser holding the old file fetches the new
 one, and writes its own `build-info.json`.
 
-Without `--server-payload`, `cedarcli build split-frontends` builds Workspace and installs Template
-Designer's locked dependencies in an isolated checkout, leaving both working trees as they are.
+Without `--server-payload`, `cedarcli build split-frontends` builds Workspace and Template Designer
+with their transitive current-source component packages in isolated copies. This local SNAPSHOT
+path includes uncommitted edits and needs no publication, pin updates or follow-up approval.
 `cedarcli native start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
 4202, not for a staging static payload.
 
@@ -6966,6 +7728,13 @@ when a native number would change the value. Use `JsonSourcePolicy.clone` and `s
 artifact ownership and wire boundaries: native JSON and `structuredClone` cannot preserve these
 atoms. The JSON token stays a number, not a quoted string or an implementation object. Source
 lexical formatting can change; numerical value, string content, key spelling and array order cannot.
+
+The artifact store keeps a fractional number exactly, as a MongoDB `Decimal128`, beside the doubles that
+artifacts saved before release 2.9.25 hold. `GenericLDDaoMongoDB` writes either type back as a plain JSON
+number. Extended JSON, which a direct Mongo export and the driver's default rendering use, writes a
+`Decimal128` as `{"$numberDecimal": "1E-7"}`; that form is refused by the validator and must never reach a
+client. Releases 2.9.25 to 2.9.28 served it, so an artifact with a fractional bound saved under them reads
+back as an object wherever one of those releases still runs.
 
 `ProvenanceTimestamp` in `cedar-model-library` owns provenance parsing and formatting; core and
 validation delegate to it. It requires an explicit offset, checks the calendar, preserves the

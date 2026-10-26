@@ -1,7 +1,7 @@
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import {artifactBody, call, enc, RESOURCE} from "./rest/lib.mjs";
-import {fixtureAt, journeyFolder} from "./journey-fixtures.mjs";
+import {dashboardAddress, fixtureAt, journeyFolder, listView} from "./journey-fixtures.mjs";
 import {shown} from "./workspace-journey-fixtures.mjs";
 import {assertNoRecoveryFiles} from "./recovery-boundary-journey.mjs";
 
@@ -513,11 +513,8 @@ export async function uncertainCreateJourney(args) {
 const INSPECT = "This operation may already have completed. Use Retry to check its result before trying again.";
 
 async function openFolder(page, base, folderId) {
-  await page.goto(base + "/dashboard?folderId=" + enc(folderId));
-  await page.getByRole("button", {name: "New", exact: true}).waitFor();
-  const list = page.getByRole("button", {name: "List view", exact: true});
-  if (await list.count()) await list.click();
-  await page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+  await page.goto(dashboardAddress(base, {folderId}));
+  await listView(page);
 }
 
 /**

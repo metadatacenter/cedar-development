@@ -82,7 +82,8 @@ ROOT_SEGMENTS = ("templates/", "template-elements/", "template-fields/", "templa
 PROPERTY_IRI_PREFIX = "https://schema.metadatacenter.org/properties/"
 UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 OUTCOMES = ("repaired", "would-repair", "already-clean", "still-invalid", "invariant-failed",
-            "transform-refused", "fetch-failed", "write-failed")
+            "transform-refused", "graph-provenance-held", "fractional-number-held", "fetch-failed",
+            "write-failed")
 DEFAULT_PROGRESS_EVERY = 100
 DEFAULT_PROGRESS_SECONDS = 30
 DEFAULT_WORKERS = 4
@@ -4545,6 +4546,10 @@ SCHEMA_ONLY_KEY_ERROR = (r"^(?:object instance has properties which are not allo
 ARRAY_EXPECTED_ERROR = r".*array expected"
 OBJECT_EXPECTED_ERROR = r".*object expected"
 VALUE_SHAPE_ERROR = r".*@value"
+NOT_A_DATE_ERROR = r"^Not a valid xsd:date\.$"
+DATATYPE_MISMATCH_ERROR = r"^The literal datatype does not match "
+NOT_AN_ABSOLUTE_IRI_ERROR = r"^Not a valid absolute IRI\.$"
+NOT_A_VALUE_ERROR = r"^Not a valid (?:xsd:|absolute IRI)"
 TYPE_EXPECTED_ERROR = r".*expected"
 
 
@@ -4707,6 +4712,205 @@ def drop_unused_instance_context(instance: Any, template: Any) -> tuple[Any, lis
     return walk(instance, template, ''), changes
 
 
+
+def orphan_context_terms(node: Any, schema: Any) -> list[str]:
+    """The terms an instance's ``@context`` maps that its template declares for no child it has.
+
+    The template's ``@context`` may declare a term, such as ``id``, that no child carries, and the
+    library drops it the next time it writes the template. An instance mapping the term stays valid
+    against the stored template and turns invalid against the written one, whose ``@context`` admits
+    nothing undeclared. Only a simple term the template does not require is returned, and only where
+    nothing in the instance's scope uses it.
+    """
+    context = node.get("@context") if isinstance(node, dict) else None
+    shape = schema.get("properties", {}).get("@context", {}) if isinstance(schema, dict) else {}
+    declared, required = shape.get("properties"), shape.get("required") or []
+    if not isinstance(context, dict) or not isinstance(declared, dict):
+        return []
+    children = {name for name, _child, _multiple in container_children(schema)}
+    orphans = []
+    for name, value in context.items():
+        if name not in declared or name in children or name in required or name.startswith("@") \
+                or ":" in name or not rest.is_absolute_iri(value):
+            continue
+        scope = copy.deepcopy(node)
+        del scope["@context"][name]
+        if not context_name_used(scope, name):
+            orphans.append(name)
+    return orphans
+
+
+def drop_orphan_instance_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove the context terms an instance maps for no child its template declares.
+
+    ``drop-unused-instance-context`` leaves alone a term the template's ``@context`` declares. This
+    one removes such a term where the declaration is an orphan, as ``orphan_context_terms`` says, so
+    the instance stays valid when the template is next written.
+    """
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+
+    def walk(node: Any, schema: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name in orphan_context_terms(node, schema):
+            changes.append({"path": f"{path}/@context/{rest.json_pointer_component(name)}",
+                            "replaced": result["@context"].pop(name), "wrote": None})
+        for name, child, multiple in container_children(schema):
+            if not is_element(child) or name not in result:
+                continue
+            value = result[name]
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if multiple and isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}") for index, item in enumerate(value)]
+            elif not multiple and isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+    return walk(instance, template, ""), changes
+
+
+def only_dropped_orphan_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes a term ``orphan_context_terms`` names in the stored body."""
+    for path, _old, new in differences(before, after):
+        context_path, _, encoded = path.rpartition("/")
+        if not context_path.endswith("/@context") or new is not ABSENT:
+            return path or "/"
+        scope_path = context_path[:-len("/@context")]
+        schema = template if not scope_path else declaration_at(template, scope_path)
+        scope = before if not scope_path else value_at(before, scope_path)
+        if encoded.replace("~1", "/").replace("~0", "~") not in orphan_context_terms(scope, schema):
+            return path
+    return None
+
+def without_shadowing_subtrees(node: Any, name: str, top: bool = True) -> Any:
+    """A copy of ``node`` without the objects below it whose own ``@context`` maps ``name``.
+
+    Inside such an object the name is that object's own mapping, so a use there says nothing about
+    whether a mapping further out is needed.
+    """
+    if isinstance(node, list):
+        return [without_shadowing_subtrees(item, name, False) for item in node]
+    if not isinstance(node, dict):
+        return node
+    if not top and isinstance(node.get("@context"), dict) and name in node["@context"]:
+        return None
+    return {key: without_shadowing_subtrees(value, name, False) for key, value in node.items()}
+
+
+def drop_shadowed_instance_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove an undeclared context term whose only uses sit inside objects that map it themselves.
+
+    ``drop-unused-instance-context`` keeps a term that anything in its scope uses, which is right
+    until the user is an element mapping the same name in its own ``@context``: there the inner
+    mapping applies, and the outer one is used by nothing.
+    """
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+
+    def walk(node: Any, schema: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        context = node.get("@context")
+        declared = schema.get("properties", {}).get("@context", {}).get("properties", {})
+        if isinstance(context, dict) and isinstance(declared, dict):
+            for name, value in context.items():
+                if name in declared or name.startswith("@") or ":" in name or not rest.is_absolute_iri(value):
+                    continue
+                scope = copy.deepcopy(node)
+                del scope["@context"][name]
+                if context_name_used(without_shadowing_subtrees(scope, name), name):
+                    continue
+                del result["@context"][name]
+                changes.append({"path": f"{path}/@context/{rest.json_pointer_component(name)}",
+                                "replaced": value, "wrote": None})
+        for name, child, multiple in container_children(schema):
+            if not is_element(child) or name not in result:
+                continue
+            value = result[name]
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if multiple and isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}") for index, item in enumerate(value)]
+            elif not multiple and isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_dropped_shadowed_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of shadowed, undeclared context terms."""
+    expected, _changes = drop_shadowed_instance_context(before, template)
+    for path, was, now in differences(before, after):
+        if "/@context/" not in f"{path}" or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def drop_minted_annotation_id(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of an instance's ``_annotations`` the element-occurrence identifier the server minted there.
+
+    Until cedar-config-library bea2911 (2024-08-27), ``LinkedDataUtil.addElementInstanceIds`` took
+    every object holding neither ``@value`` nor ``@id`` for an element occurrence and gave it a new
+    ``template-element-instances/`` identifier. ``_annotations`` is such an object once a DataCite DOI
+    annotation is attached, so an instance saved then carries an ``@id`` among its annotations. An
+    annotation's value must be an object, so both libraries and CEE refuse to read the instance at
+    all. The identifier names nothing and was entered by no one; any other ``@id`` is left alone.
+    """
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(instance)
+    annotations = result.get("_annotations")
+    if not isinstance(annotations, dict):
+        return result, []
+    minted = annotations.get("@id")
+    if not (isinstance(minted, str) and MINTED_OCCURRENCE.fullmatch(minted)):
+        return result, []
+    del annotations["@id"]
+    return result, [{"path": "/_annotations/@id", "replaced": minted, "wrote": None}]
+
+
+def only_dropped_minted_annotation_id(before: Any, after: Any) -> Optional[str]:
+    for path, was, now in differences(before, after):
+        if path != "/_annotations/@id" or not (isinstance(was, str) and MINTED_OCCURRENCE.fullmatch(was)) \
+                or now is not ABSENT:
+            return path or "/"
+    return None
+
+
+# The creator each artifact's graph node records, keyed by artifact IRI, as its /details answer states
+# it. Supplied through --creators: a document that names no creator says nothing the graph does not
+# already know, and the graph's answer is the fact rather than an inference from the last modifier.
+CREATORS: dict[str, str] = {}
+
+
+def state_creator_from_graph(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write ``pav:createdBy`` in a document that states none, as the creator its graph node records."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    creator = CREATORS.get(artifact.get("@id"))
+    if creator is None or artifact.get("pav:createdBy") is not None or not CURRENT_USER_IRI.fullmatch(creator):
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    result["pav:createdBy"] = creator
+    return result, [{"path": "/pav:createdBy", "replaced": artifact.get("pav:createdBy"), "wrote": creator}]
+
+
+def only_stated_graph_creator(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the one change states the creator the graph records where none was stated."""
+    if not isinstance(before, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if path != "/pav:createdBy" or was not in (ABSENT, None) or now != CREATORS.get(before.get("@id")):
+            return path or "/"
+    return None
+
+
 def only_dropped_unused_context(before: Any, after: Any, template: Any) -> Optional[str]:
     for path, old, new in differences(before, after):
         context_path, _, encoded = path.rpartition('/')
@@ -4729,26 +4933,89 @@ def only_dropped_unused_context(before: Any, after: Any, template: Any) -> Optio
     return None
 
 
-def normalized_spaced_orcid(value: Any) -> Optional[str]:
-    """Remove accidental space after the ORCID host only when the unchanged iD checksums.
+ORCID_IDENTIFIER = r"([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])"
+
+
+def orcid_checksums(identifier: str) -> bool:
+    """Whether an ORCID iD's last character is the MOD 11-2 check of the others.
 
     Checksum: https://support.orcid.org/hc/en-us/articles/360006897674
-    This checks format, not registration or ownership. No identifier characters are altered.
+    This checks format, not registration or ownership.
     """
-    if not isinstance(value, str):
-        return None
-    match = re.fullmatch(r"https://orcid\.org/[ \t]+([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])", value)
-    if not match:
-        return None
-    identifier = match.group(1)
     digits = identifier.replace("-", "")
     total = 0
     for digit in digits[:-1]:
         total = (total + int(digit)) * 2
     check = (12 - total % 11) % 11
-    if digits[-1] != ("X" if check == 10 else str(check)):
+    return digits[-1] == ("X" if check == 10 else str(check))
+
+
+def normalized_spaced_orcid(value: Any) -> Optional[str]:
+    """Remove accidental whitespace around an ORCID iD only when the unchanged iD checksums.
+
+    Pasting an ORCID carries a space, a tab or a line break with it: after the host, before the URL
+    or after the iD. Only whitespace goes, and only where it stands outside the iD, so no identifier
+    character is altered.
+    """
+    if not isinstance(value, str):
         return None
-    return "https://orcid.org/" + identifier
+    match = re.fullmatch(r"\s*https://orcid\.org/\s*" + ORCID_IDENTIFIER + r"\s*", value)
+    if not match or not orcid_checksums(match.group(1)):
+        return None
+    wanted = "https://orcid.org/" + match.group(1)
+    return wanted if wanted != value else None
+
+
+def prefixed_bare_orcid(value: Any) -> Optional[str]:
+    """An ORCID iD stored without its host, as the IRI it identifies, when it checksums.
+
+    An IRI field takes an absolute IRI, and the bare iD is not one. ``https://orcid.org/`` is the
+    form ORCID itself gives an iD as a link, so prefixing it says only what the iD already says.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(ORCID_IDENTIFIER, value)
+    if not match or not orcid_checksums(match.group(1)):
+        return None
+    return "https://orcid.org/" + match.group(1)
+
+
+def names_an_orcid_field(path: str) -> bool:
+    """Whether the field an instance location holds a value of is named as an ORCID field."""
+    names = [segment for segment in path.split("/") if segment and not segment.isdigit()]
+    return bool(names) and "orcid" in names[-1].replace("~1", "/").replace("~0", "~").lower()
+
+
+def prefix_bare_orcid(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a bare ORCID iD in an IRI field named as an ORCID field as its ``https://orcid.org/`` IRI.
+
+    Both guards are needed: the checksum says the text is an ORCID iD's form, and the field's name says
+    an ORCID is what the field holds. Neither alone rules out a different identifier of the same shape.
+    """
+    changes = []
+
+    def visit(value: Any, definition: dict, path: str) -> Any:
+        if not isinstance(value, dict) or "@id" not in definition.get("properties", {}) \
+                or not names_an_orcid_field(path):
+            return value
+        wanted = prefixed_bare_orcid(value.get("@id"))
+        if wanted is None:
+            return value
+        changes.append({"path": path + "/@id", "replaced": value["@id"], "wrote": wanted})
+        return {**value, "@id": wanted}
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_prefixed_bare_orcids(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change writes a bare ORCID iD in an ORCID field as its IRI, nothing else."""
+    for path, was, now in differences(before, after):
+        field = path.rsplit("/", 1)[0]
+        definition = declaration_at(template, field)
+        if not path.endswith("/@id") or not definition or "@id" not in definition.get("properties", {}) \
+                or not names_an_orcid_field(field) or prefixed_bare_orcid(was) is None \
+                or prefixed_bare_orcid(was) != now:
+            return path
+    return None
 
 
 def normalize_instance_orcid_spacing(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
@@ -4981,6 +5248,272 @@ def only_dropped_superseded_keys(before: Any, after: Any, template: Any) -> Opti
 # operator through --mapping, because nothing in the artifacts says which old name became which new
 # one: a rename is a fact about the template's history, and only its owner holds that.
 RENAMES: dict[str, dict[str, str]] = {}
+
+# Template children an owner has decided should repeat again, keyed by template IRI then by child name,
+# with the lower bound each takes. Supplied through --repeat-children: whether a child repeats is a
+# design decision, and nothing in the artifacts makes it.
+REPEATED_CHILDREN: dict[str, dict[str, int]] = {}
+
+
+def repeat_template_child(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make a template child repeat, as its plan names it, by wrapping its schema in a list.
+
+    A child the template once let repeat and now declares once leaves the instances written before
+    holding several occurrences of it, which the template refuses. Where its owner decides the child
+    should repeat again, its schema becomes ``{"type": "array", "minItems": n, "items": <schema>}``,
+    the form both libraries write for a repeating child. The child's own schema is kept whole.
+    Instances holding one occurrence then need it put in a list, which ``wrap-instance-occurrence``
+    does, so they are written straight after.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    plan = REPEATED_CHILDREN.get(artifact.get(AT_ID)) or {}
+    if not plan:
+        return artifact, []
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for name, minimum in plan.items():
+        child = (result.get("properties") or {}).get(name)
+        if not isinstance(child, dict) or child.get("type") == "array" or child.get(AT_TYPE) not in (FIELD_AT_TYPE, ELEMENT_AT_TYPE):
+            raise TransformRefused(f"{name} is not a child declared once")
+        if not isinstance(minimum, int) or minimum < 0:
+            raise TransformRefused(f"{name}: minItems must be a nonnegative integer")
+        result["properties"][name] = {"type": "array", "minItems": minimum, "items": child}
+        changes.append({"path": f"/properties/{rest.json_pointer_component(name)}", "replaced": "a single child",
+                        "wrote": f"a list of at least {minimum}"})
+    return result, changes
+
+
+def only_repeated_template_children(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is each planned child's schema wrapped in a list, nothing else."""
+    plan = REPEATED_CHILDREN.get(before.get(AT_ID)) if isinstance(before, dict) else None
+    expected = copy.deepcopy(before)
+    for name, minimum in (plan or {}).items():
+        child = (before.get("properties") or {}).get(name)
+        if not isinstance(child, dict) or child.get("type") == "array":
+            return f"/properties/{rest.json_pointer_component(name)}"
+        expected["properties"][name] = {"type": "array", "minItems": minimum, "items": child}
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+# Reviewed restructurings of single instances, keyed by instance IRI. A plan names the template the
+# instance must name, every entered value that moves and where it goes, every entered value its owner
+# agreed to drop, and the element occurrences whose identifiers carry over. Supplied through
+# --instance-mapping-plan: which field of a rebuilt template an old value now belongs in is a judgement
+# about meaning, and only the template's owner can make it.
+INSTANCE_MAPPING_PLANS: dict[str, dict[str, Any]] = {}
+
+# The keys a field's value may carry. A node carrying a @context, or any other key, is an element.
+FIELD_VALUE_MEMBERS = frozenset({"@value", "@type", "@id", "@language", "rdfs:label", "skos:notation"})
+
+
+def is_element_occurrence(node: Any) -> bool:
+    return isinstance(node, dict) and ("@context" in node or any(key not in FIELD_VALUE_MEMBERS for key in node))
+
+
+def holds_entry(value: Any) -> bool:
+    """Whether a field value holds anything a person entered."""
+    if isinstance(value, dict):
+        return any(value.get(key) not in (None, "") for key in ("@value", "@id", "rdfs:label", "skos:notation"))
+    return value not in (None, "")
+
+
+def occurrence_children(node: dict, path: str) -> Iterator[tuple[str, Any]]:
+    """An element occurrence's children, with their pointers; at the root, not the instance's own members."""
+    for key, value in node.items():
+        if key.startswith("@") or key == "_annotations" or (not path and key in INSTANCE_ROOT_MEMBERS):
+            continue
+        yield f"{path}/{rest.json_pointer_component(key)}", value
+
+
+def entered_values(node: Any, path: str = "") -> Iterator[tuple[str, Any]]:
+    """Every field value holding an entry, at any depth, with its pointer."""
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from entered_values(item, f"{path}/{index}")
+    elif is_element_occurrence(node):
+        for here, value in occurrence_children(node, path):
+            yield from entered_values(value, here)
+    elif holds_entry(node):
+        yield path, node
+
+
+def element_occurrences(node: Any, path: str = "") -> Iterator[tuple[str, dict]]:
+    """Every element occurrence below the root, with its pointer."""
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from element_occurrences(item, f"{path}/{index}")
+    elif is_element_occurrence(node):
+        if path:
+            yield path, node
+        for here, value in occurrence_children(node, path):
+            yield from element_occurrences(value, here)
+
+
+def is_fresh_element_id(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith(ELEMENT_INSTANCE_BASE) \
+        and bool(UUID_PATTERN.match(value[len(ELEMENT_INSTANCE_BASE):]))
+
+
+def pointer_parent(pointer: str) -> tuple[str, str]:
+    """A pointer's parent pointer and its last key, unescaped."""
+    parent, _, last = pointer.rpartition("/")
+    return parent, last.replace("~1", "/").replace("~0", "~")
+
+
+def instance_mapping_plan(instance: Any) -> Optional[dict[str, Any]]:
+    plan = INSTANCE_MAPPING_PLANS.get(instance.get(AT_ID)) if isinstance(instance, dict) else None
+    return plan if isinstance(plan, dict) else None
+
+
+def unaccounted_entry(instance: Any, plan: dict[str, Any]) -> Optional[str]:
+    """The first entered value the plan does not move or drop exactly once, or a pointer it names in vain."""
+    entered = dict(entered_values(instance))
+    named = [move.get("from") for move in plan.get("moves", [])] + list(plan.get("drop", []))
+    if len(set(named)) != len(named):
+        return next(pointer for pointer in named if named.count(pointer) > 1)
+    for pointer in named:
+        if pointer not in entered:
+            return pointer
+    return next((pointer for pointer in entered if pointer not in named), None)
+
+
+def restructured_base(instance: dict, template: Any) -> dict:
+    """The instance's identity and provenance in its template's current structure, holding nothing.
+
+    Every child the instance carries is set aside, with its ``@context`` entry, and the template's
+    children take their place in their empty form, each element occurrence with a fresh identifier.
+    The standard terms of the instance's ``@context`` and its ``_annotations`` stay exactly as stored.
+    """
+    old_children = {pointer_parent(here)[1] for here, _value in occurrence_children(instance, "")}
+    base = {key: copy.deepcopy(value) for key, value in instance.items()
+            if key in INSTANCE_ROOT_MEMBERS or key in (AT_ID, AT_TYPE, "_annotations")}
+    context = instance.get("@context")
+    base["@context"] = {key: copy.deepcopy(value) for key, value in context.items()
+                        if key not in old_children} if isinstance(context, dict) else {}
+    completed, _changes = complete_instance(base, template)
+    return completed
+
+
+def apply_reviewed_instance_mapping(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Rebuild an instance in its template's current structure, placing each value where its plan says.
+
+    A template rebuilt in place leaves the instances written before it in a structure it no longer
+    declares, and no rename can carry them across: the new template mints new property IRIs, splits
+    one old field into several and drops whole sections. The plan states each move, each value the
+    owner agreed to drop, and each old element occurrence that one current occurrence continues, so
+    its identifier carries over. It must account for every entered value exactly once. A moved value
+    is written exactly as stored, unless the plan states the rewritten form its owner agreed, such as
+    an abbreviation spelled out as the option the field now lists.
+    """
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    plan = instance_mapping_plan(instance)
+    if plan is None:
+        return instance, []
+    if not isinstance(template, dict) or template.get(AT_ID) != plan.get("template") \
+            or instance.get("schema:isBasedOn") != plan.get("template"):
+        raise TransformRefused("the plan was reviewed against another template")
+    fault = unaccounted_entry(instance, plan)
+    if fault is not None:
+        raise TransformRefused(f"{fault}: the plan must move or drop every entered value exactly once")
+    result = restructured_base(instance, template)
+    changes: list[dict[str, Any]] = []
+    carried: set[str] = set()
+    for pair in plan.get("elements", []):
+        old, new = value_at(instance, pair["from"]), value_at(result, pair["to"])
+        if not is_element_occurrence(old) or not isinstance(old.get(AT_ID), str) \
+                or not is_element_occurrence(new) or pair["to"] in carried:
+            raise TransformRefused(f"{pair['from']} -> {pair['to']}: not one element occurrence onto one")
+        carried.add(pair["to"])
+        new[AT_ID] = old[AT_ID]
+        changes.append({"path": f"{pair['to']}/@id", "replaced": f"moved from {pair['from']}", "wrote": old[AT_ID]})
+    filled: set[str] = set()
+    for move in plan.get("moves", []):
+        value = copy.deepcopy(move["write"] if "write" in move else value_at(instance, move["from"]))
+        parent_pointer, name = pointer_parent(move["to"])
+        parent = value_at(result, parent_pointer)
+        current = parent.get(name) if is_element_occurrence(parent) else None
+        if isinstance(current, list) and not any(is_element_occurrence(item) for item in current):
+            if move["to"] not in filled:
+                parent[name] = []
+            parent[name].append(value)
+        elif isinstance(current, dict) and not is_element_occurrence(current) and move["to"] not in filled:
+            parent[name] = value
+        else:
+            raise TransformRefused(f"{move['to']}: not a field the template declares, or already filled")
+        filled.add(move["to"])
+        changes.append({"path": move["to"], "replaced": f"moved from {move['from']}", "wrote": value})
+    for pointer in plan.get("drop", []):
+        changes.append({"path": pointer, "replaced": value_at(instance, pointer), "wrote": None})
+    return result, changes
+
+
+def only_reviewed_instance_mapping(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the template's empty structure, holding the planned values and nothing else.
+
+    The instance keeps its identity, provenance, annotations and standard terms; each planned
+    destination holds exactly the values moved there, in order; no other field holds anything; every
+    carried occurrence keeps its old identifier, and every other one has a fresh identifier no old
+    occurrence had. With the values and identifiers set aside, what remains is the template's empty
+    structure exactly.
+    """
+    plan = instance_mapping_plan(before)
+    if plan is None:
+        return next((path or "/" for path, _was, _now in differences(before, after)), None)
+    if not isinstance(template, dict) or template.get(AT_ID) != plan.get("template") \
+            or before.get("schema:isBasedOn") != plan.get("template"):
+        return "/schema:isBasedOn"
+    fault = unaccounted_entry(before, plan)
+    if fault is not None:
+        return fault
+    planned: dict[str, list[Any]] = {}
+    for move in plan.get("moves", []):
+        planned.setdefault(move["to"], []).append(move["write"] if "write" in move else value_at(before, move["from"]))
+    for pointer, values in planned.items():
+        held = value_at(after, pointer)
+        if not (json_equal(held, values) if isinstance(held, list) else len(values) == 1 and json_equal(held, values[0])):
+            return pointer
+    for pointer, _value in entered_values(after):
+        if pointer not in planned and pointer_parent(pointer)[0] not in planned:
+            return pointer
+    carried = {pair["to"]: value_at(before, pair["from"]) for pair in plan.get("elements", [])}
+    old_ids = {node.get(AT_ID) for _pointer, node in element_occurrences(before)}
+    seen: set[Any] = set()
+    occurrences = dict(element_occurrences(after))
+    for pointer in carried:
+        if pointer not in occurrences:
+            return pointer
+    for pointer, node in occurrences.items():
+        identifier = node.get(AT_ID)
+        if pointer in carried:
+            if not is_element_occurrence(carried[pointer]) or identifier != carried[pointer].get(AT_ID):
+                return f"{pointer}/@id"
+        elif not is_fresh_element_id(identifier) or identifier in old_ids:
+            return f"{pointer}/@id"
+        if identifier in seen:
+            return f"{pointer}/@id"
+        seen.add(identifier)
+    expected = restructured_base(before, template)
+    shaped = copy.deepcopy(after)
+    for pointer in planned:
+        parent_pointer, name = pointer_parent(pointer)
+        parent = value_at(shaped, parent_pointer)
+        if not isinstance(parent, dict):
+            return pointer
+        parent[name] = copy.deepcopy(value_at(expected, pointer))
+
+    def without_element_ids(document: Any) -> Any:
+        stripped = copy.deepcopy(document)
+        for _pointer, node in list(element_occurrences(stripped)):
+            node.pop(AT_ID, None)
+        return stripped
+
+    for path, _was, _now in differences(without_element_ids(expected), without_element_ids(shaped)):
+        return path or "/"
+    return None
 
 
 # Keys `ModelNodeNames` allows at the top of a schema artifact and not at the top of an instance.
@@ -5729,6 +6262,63 @@ def json_equal(before: Any, after: Any) -> bool:
     return next(differences(before, after), None) is None
 
 
+def fractional_numbers(node: Any, path: str = "") -> Iterator[tuple[str, float]]:
+    """Every JSON number written with a fraction or an exponent, as a pointer and the value.
+
+    Python's parser reads exactly those as ``float``, and they are the numbers the server's
+    ``USE_BIG_DECIMAL_FOR_FLOATS`` mapper turns into ``BigDecimal``; ``1.0`` is one of them and ``1``
+    is not.
+    """
+    if isinstance(node, float):
+        yield path, node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from fractional_numbers(value, f"{path}/{rest.json_pointer_component(key)}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from fractional_numbers(value, f"{path}/{index}")
+
+
+KEYWORD_VALUE_TYPE = "@id"
+
+
+def drop_keyword_value_types(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Delete ``"@type": "@id"`` from every link and controlled-term value, and say where each was.
+
+    A value's @type names its class. The keyword states that a term's values are IRIs, which is what
+    it means in a context, and inside a value it names no class: JSON-LD processing drops it. The
+    value keeps its identifier and label, and a value typed with a real class is left as stored.
+    """
+    removed: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str, root: bool) -> Any:
+        if isinstance(node, dict):
+            if not root and rest.is_value_node(node) and node.get(AT_TYPE) == KEYWORD_VALUE_TYPE:
+                removed.append({"path": f"{path}/{rest.json_pointer_component(AT_TYPE)}",
+                                "replaced": KEYWORD_VALUE_TYPE, "wrote": None})
+                return {name: value for name, value in node.items() if name != AT_TYPE}
+            return {name: value if name == "@context"
+                    else walk(value, f"{path}/{rest.json_pointer_component(name)}", False)
+                    for name, value in node.items()}
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}", False) for index, value in enumerate(node)]
+        return node
+
+    return walk(copy.deepcopy(artifact), "", True), removed
+
+
+def only_dropped_keyword_value_types(before: Any, after: Any) -> Optional[str]:
+    """The pointer of the first difference that is not a keyword @type leaving a value, or None."""
+    for pointer, was, now in differences(before, after):
+        steps = pointer.split("/")
+        holder = node_at(before, pointer.rsplit("/", 1)[0])
+        # A context's term definitions can take the same shape as a value, and are not values.
+        if not (steps[-1] == AT_TYPE and was == KEYWORD_VALUE_TYPE and now is ABSENT
+                and len(steps) > 2 and "@context" not in steps and rest.is_value_node(holder)):
+            return pointer or "/"
+    return None
+
+
 def declaration_at(template: Any, pointer: str) -> Optional[dict]:
     """The declaration governing an instance location, or ``None`` where the path leaves the schema.
 
@@ -5793,6 +6383,23 @@ def demands_value_type(definition: Any) -> bool:
     return isinstance(required, list) and "@type" in required
 
 
+def value_type_demanded(definition: Any, value: Any) -> bool:
+    """Whether an instance value must state a datatype, by the field's schema or by the validator.
+
+    The schema demands one where it lists ``@type`` as required. The validator demands one as well
+    wherever the field names its ``temporalType`` or ``numberType`` and the value holds something,
+    because it compares the stated type with the declared one, and an absent type matches nothing.
+    """
+    if demands_value_type(definition):
+        return True
+    if not isinstance(definition, dict) or not isinstance(value, dict):
+        return False
+    constraints = definition.get("_valueConstraints") or {}
+    named = constraints.get("temporalType") or constraints.get("numberType")
+    held = value.get("@value")
+    return isinstance(named, str) and bool(named) and held is not None and held != ""
+
+
 def instance_field_children(container: Any) -> Iterator[tuple[str, dict, bool]]:
     """The children a container declares that hold a value rather than another container."""
     for name, child, multiple in container_children(container):
@@ -5840,9 +6447,10 @@ def stamp_instance_value_type(instance: Any, template: Any) -> tuple[Any, list[d
     was enforced states only ``@value``, and the library reads it as a missing required property
     however complete the field is.
 
-    Only an absent ``@type`` is written. One already stated is left alone even where it disagrees
-    with the declaration: that is a value someone chose, and correcting it is not this repair's to
-    decide.
+    Only an absent ``@type`` is written, and only where it is demanded: by the field's schema, or by
+    the validator for a field that names its datatype and a value that holds something. One already
+    stated is left alone even where it disagrees with the declaration: that is a value someone chose,
+    and narrowing it is ``restamp-declared-value-type``'s to decide.
     """
     if not isinstance(template, dict):
         raise TransformRefused("the template this instance names could not be read")
@@ -5852,7 +6460,7 @@ def stamp_instance_value_type(instance: Any, template: Any) -> tuple[Any, list[d
 
     def visit(value: Any, definition: Any, path: str) -> Any:
         wanted = declared_value_type(definition)
-        if wanted is None or not demands_value_type(definition):
+        if wanted is None or not value_type_demanded(definition, value):
             return value
         if not isinstance(value, dict) or "@type" in value:
             return value
@@ -5872,10 +6480,1551 @@ def only_stamped_value_types(before: Any, after: Any, template: Any) -> Optional
         if not path.endswith("/@type") or was is not ABSENT:
             return path or "/"
         definition, _where = declaration_for_value(template, path)
-        if definition is None or not demands_value_type(definition):
+        if definition is None or not value_type_demanded(definition, value_at(after, path[:-len("/@type")])):
             return path
         if now != declared_value_type(definition) or not isinstance(now, str):
             return path
+    return None
+
+
+
+def stamp_empty_value_type(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give an empty numeric or temporal value the datatype its field declares.
+
+    The model writes an empty value of such a field with its datatype, as
+    ``{"@value": null, "@type": "xsd:dateTime"}``, and every template the library writes lists
+    ``@type`` among the properties the value must carry. A template stored before that rule may
+    require only ``@value``, and an empty value written against it states no datatype. The instance
+    is valid against the stored template and turns invalid the first time the template is saved
+    again.
+
+    Only an absent ``@type`` on a value whose ``@value`` is null is written. A value that holds
+    something is ``stamp-instance-value-type``'s, since a datatype there says what the value means.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        wanted = declared_value_type(definition)
+        if wanted is None or not is_empty_untyped_literal(value):
+            return value
+        changes.append({"path": f"{path}/@type", "replaced": None, "wrote": wanted})
+        return {**value, "@type": wanted}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def is_empty_untyped_literal(value: Any) -> bool:
+    """Whether a value is the empty literal ``{"@value": null}`` with no datatype stated."""
+    return isinstance(value, dict) and "@value" in value and value["@value"] is None and "@type" not in value
+
+
+def only_stamped_empty_value_types(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is an empty value's absent ``@type`` gaining its declared datatype."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@type") or was is not ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not is_empty_untyped_literal(value_at(before, path[:-len("/@type")])):
+            return path
+        if not isinstance(now, str) or now != declared_value_type(definition):
+            return path
+    return None
+
+# The order each template's slash dates are written in, "day-first" or "month-first", keyed by
+# template IRI. Supplied through --date-orders, never inferred here: one date such as 03/04/2019 cannot
+# say which order it was written in, and the table is built from every unambiguous date the template's
+# instances hold, admitting a template only where they all agree.
+DATE_ORDERS: dict[str, str] = {}
+
+MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september",
+          "october", "november", "december")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def month_number(word: str) -> Optional[int]:
+    """The month a word names, written whole or shortened to at least its first three letters."""
+    word = word.lower().rstrip(".")
+    if len(word) < 3:
+        return None
+    for number, name in enumerate(MONTHS, 1):
+        if name.startswith(word):
+            return number
+    return None
+
+
+def date_spelled_as_iso(text: str, order: Optional[str] = None) -> Optional[str]:
+    """The ISO date a stored spelling names, or None where it names none, or none unambiguously.
+
+    The spellings read are an ISO date missing its zero padding, an ISO date-time at midnight, a date
+    with its month written as a word, and a numeric date with slashes, dots or hyphens. A numeric date
+    is read only when its parts settle which is the day: one of them exceeds 12, or ``order`` says
+    which order the template writes them in. Anything else, and anything naming no calendar day, is
+    left for an owner to answer.
+    """
+    s = text.strip()
+    year = month = day = None
+    if match := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", s):
+        year, month, day = (int(part) for part in match.groups())
+    elif match := re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})[T ]00:00(?::00(?:\.0+)?)?(?:Z|[+-]\d{2}:?\d{2})?", s):
+        year, month, day = (int(part) for part in match.groups())
+    elif match := re.fullmatch(r"(\d{1,2})([/.-])(\d{1,2})\2(\d{4})", s):
+        first, second, year = int(match.group(1)), int(match.group(3)), int(match.group(4))
+        if first > 12 >= second or (first <= 12 and second <= 12 and order == "day-first"):
+            day, month = first, second
+        elif second > 12 >= first or (first <= 12 and second <= 12 and order == "month-first"):
+            month, day = first, second
+    elif match := re.fullmatch(r"(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+\.?),?\s+(\d{4})", s):
+        day, month, year = int(match.group(1)), month_number(match.group(2)), int(match.group(3))
+    elif match := re.fullmatch(r"([A-Za-z]+\.?)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})", s):
+        month, day, year = month_number(match.group(1)), int(match.group(2)), int(match.group(3))
+    if year is None or month is None or day is None:
+        return None
+    try:
+        return datetime(year, month, day).date().isoformat()
+    except ValueError:
+        return None
+
+
+def write_date_as_iso(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a date-valued field's spelling of a date as the ISO date it names.
+
+    A field declaring ``xsd:date`` holds an ISO date, and the validator refuses every other spelling
+    of one. Instances written before that was enforced hold dates the way people write them. Where
+    the spelling settles the date, the ISO form says exactly what the stored one did; where it does
+    not, the value stays as it is.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    order = DATE_ORDERS.get(instance.get("schema:isBasedOn"))
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if declared_value_type(definition) != "xsd:date" or not isinstance(value, dict):
+            return value
+        held = value.get("@value")
+        if not isinstance(held, str):
+            return value
+        written = date_spelled_as_iso(held, order)
+        if written is None or written == held:
+            return value
+        settled = dict(value)
+        settled["@value"] = written
+        changes.append({"path": f"{path}/@value", "replaced": held, "wrote": written})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dates_written_as_iso(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is a date-valued field's spelling replaced by the date it names."""
+    if not isinstance(template, dict) or not isinstance(before, dict):
+        return "/"
+    order = DATE_ORDERS.get(before.get("schema:isBasedOn"))
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or not isinstance(was, str):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if declared_value_type(definition) != "xsd:date" or now != date_spelled_as_iso(was, order):
+            return path
+    return None
+
+
+# A stated datatype the declared one replaces, and what the value must be for the replacement to say
+# nothing new. Only a narrowing is listed: a date-time field's value that is a plain date, and a
+# decimal that is a whole number or a number of the declared kind.
+RESTAMPABLE = {
+    ("xsd:dateTime", "xsd:date"): lambda value: value is None or (
+        isinstance(value, str) and bool(ISO_DATE.fullmatch(value)) and date_spelled_as_iso(value) == value),
+    ("xsd:decimal", "xsd:int"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?\d{1,9}", value))),
+    ("xsd:decimal", "xsd:long"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?\d{1,18}", value))),
+    ("xsd:decimal", "xsd:float"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?", value))),
+    ("xsd:decimal", "xsd:double"): lambda value: value is None or (
+        isinstance(value, str) and bool(re.fullmatch(r"-?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?", value))),
+}
+
+
+def restamp_declared_value_type(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Replace a stated datatype with the one the field declares, where the value already is one.
+
+    ``stamp-instance-value-type`` writes a datatype only where none is stated, because a stated one is
+    a value someone chose. This repair speaks for the cases where that choice is a wider type than the
+    field's and the value is already of the narrower one: a plain date stamped ``xsd:dateTime`` in a
+    field declaring ``xsd:date``, a whole number stamped ``xsd:decimal`` in one declaring ``xsd:int``.
+    Restamping changes what the value claims to be, never what it is.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        wanted = declared_value_type(definition)
+        if wanted is None or not isinstance(value, dict):
+            return value
+        stated = value.get("@type")
+        fits = RESTAMPABLE.get((stated, wanted))
+        if fits is None or not fits(value.get("@value")):
+            return value
+        settled = dict(value)
+        settled["@type"] = wanted
+        changes.append({"path": f"{path}/@type", "replaced": stated, "wrote": wanted})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_restamped_value_types(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is a listed widening narrowed to the declared type, value unchanged."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@type"):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        fits = RESTAMPABLE.get((was, now))
+        if fits is None or now != declared_value_type(definition) \
+                or not fits((value_at(after, path[:-len("/@type")]) or {}).get("@value")):
+            return path
+    return None
+
+
+def orcid_checksum_holds(identifier: str) -> bool:
+    """Whether a bare ORCID's last character is the ISO 7064 MOD 11-2 check of the rest."""
+    digits = identifier.replace("-", "")
+    total = 0
+    for character in digits[:-1]:
+        total = (total + int(character)) * 2
+    check = (12 - total % 11) % 11
+    return digits[-1] == ("X" if check == 10 else str(check))
+
+
+def link_written_as_iri(text: str) -> Optional[str]:
+    """The IRI a link field's bare identifier or address names, where its form settles which.
+
+    Four forms are read, and each has exactly one IRI: an ORCID whose check digit holds, a web address
+    beginning ``www.``, a DOI, and an e-mail address. Anything else is left for an owner.
+    """
+    s = text.strip()
+    if re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]", s):
+        written = f"https://orcid.org/{s}" if orcid_checksum_holds(s) else None
+    elif re.fullmatch(r"www\.[^\s<>\"{}|\\^`]+", s):
+        written = f"https://{s}"
+    elif re.fullmatch(r"10\.\d{4,9}/[^\s<>\"{}|\\^`]+", s):
+        written = f"https://doi.org/{s}"
+    elif re.fullmatch(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", s):
+        written = f"mailto:{s}"
+    else:
+        written = None
+    return written if written is not None and rest.is_absolute_iri(written) else None
+
+
+def is_link_field(definition: Any) -> bool:
+    return isinstance(definition, dict) and (definition.get("_ui") or {}).get("inputType") == "link"
+
+
+def write_link_as_iri(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a link field's bare ORCID, DOI, ``www.`` address or e-mail address as the IRI it names.
+
+    A link field holds an absolute IRI, and these are the forms people paste instead. Each names one
+    IRI, so writing it changes the spelling and not the reference. A value that is already an absolute
+    IRI, or is any other text, is left alone.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not is_link_field(definition) or not isinstance(value, dict):
+            return value
+        held = value.get("@id")
+        if not isinstance(held, str) or rest.is_absolute_iri(held):
+            return value
+        written = link_written_as_iri(held)
+        if written is None:
+            return value
+        settled = dict(value)
+        settled["@id"] = written
+        changes.append({"path": f"{path}/@id", "replaced": held, "wrote": written})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_links_written_as_iris(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is a link field's bare identifier replaced by the IRI it names."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or not isinstance(was, str) or rest.is_absolute_iri(was):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not is_link_field(definition) or now != link_written_as_iri(was):
+            return path
+    return None
+
+
+# Words people write in a field to say it has no value. Matched whole, ignoring case and surrounding
+# space. "none" counts only in a date: in a number it can mean zero.
+PLACEHOLDER_WORDS = frozenset({
+    "na", "n/a", "n.a.", "nd", "n.d.", "unknown", "unk", "not known", "not applicable", "not available",
+    "not provided", "not collected", "missing", "tbd", "null", "nan", "-", "--", "?",
+})
+DATE_PLACEHOLDER_WORDS = PLACEHOLDER_WORDS | {"none"}
+
+
+def is_placeholder(text: Any, definition: Any) -> bool:
+    if not isinstance(text, str):
+        return False
+    words = DATE_PLACEHOLDER_WORDS if (definition.get("_ui") or {}).get("inputType") == "temporal" \
+        else PLACEHOLDER_WORDS
+    return text.strip().lower() in words
+
+
+def empty_placeholder_value(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a placeholder word in a date, number or link field as the empty value it stands for.
+
+    "NA" in a date field is not a date, and it is not text the field can hold: it says the field has
+    no value, which the model already has a form for. A date or number keeps its ``@type`` and takes a
+    null ``@value``; a link loses its ``@id``, since an empty IRI is written by leaving it out. Only
+    the listed words are read this way.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or not isinstance(definition, dict):
+            return value
+        if declared_value_type(definition) is not None and is_placeholder(value.get("@value"), definition):
+            settled = dict(value)
+            settled["@value"] = None
+            changes.append({"path": f"{path}/@value", "replaced": value["@value"], "wrote": None})
+            return settled
+        if is_link_field(definition) and is_placeholder(value.get("@id"), definition):
+            settled = {key: inner for key, inner in value.items() if key != "@id"}
+            changes.append({"path": f"{path}/@id", "replaced": value["@id"], "wrote": None})
+            return settled
+        return value
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_emptied_placeholders(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change empties a listed placeholder word in a date, number or link field."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        definition, _where = declaration_for_value(template, path)
+        if not isinstance(definition, dict) or not is_placeholder(was, definition):
+            return path or "/"
+        if path.endswith("/@value") and declared_value_type(definition) is not None and now is None:
+            continue
+        if path.endswith("/@id") and is_link_field(definition) and now is ABSENT:
+            continue
+        return path
+    return None
+
+
+# Templates whose instances an import filled with the names of the DataCite locations it read from,
+# keyed by template IRI. Supplied through --placeholder-templates, never inferred: a value that looks
+# like such a name is a placeholder only where the import that wrote it is known to have left them.
+PLACEHOLDER_TEMPLATES: set[str] = set()
+
+# The name a DataCite-to-CEDAR import wrote where a record had no value: the JSON location it read
+# from, flattened with underscores, as in data_attributes_relatedIdentifiers_0_resourceTypeGeneral.
+IMPORT_PLACEHOLDER = re.compile(r"data_attributes_[A-Za-z0-9_]+")
+PLACEHOLDER_KEYS = ("@value", "@id", "rdfs:label")
+
+
+def is_import_placeholder(text: Any) -> bool:
+    return isinstance(text, str) and bool(IMPORT_PLACEHOLDER.fullmatch(text))
+
+
+def emptied_of_placeholders(value: dict, definition: Any) -> dict:
+    """A field value with every import placeholder it holds written as the field's empty value.
+
+    A literal field keeps its ``@value`` key and its ``@type``, as ``{"@value": null}``; an IRI field
+    loses each key that held a placeholder, so an IRI field holding nothing but placeholders is ``{}``.
+    """
+    settled = dict(value)
+    for key in PLACEHOLDER_KEYS:
+        if not is_import_placeholder(settled.get(key)):
+            continue
+        if key == "@value" and holds_a_literal(definition):
+            settled[key] = None
+        else:
+            del settled[key]
+    return settled
+
+
+def empty_import_placeholders(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write every unfilled import placeholder in a listed template's instances as an empty value.
+
+    An import that converted DataCite records into instances wrote, wherever a record had no value,
+    the name of the location it read from. The name says nothing about the dataset: it is the same
+    in every instance, and it is not a value any field was meant to hold. The model has a form for a
+    field with no value, and that form is what the import should have written.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    if instance.get("schema:isBasedOn") not in PLACEHOLDER_TEMPLATES:
+        return copy.deepcopy(instance), []
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or not any(is_import_placeholder(value.get(key)) for key in PLACEHOLDER_KEYS):
+            return value
+        settled = emptied_of_placeholders(value, definition)
+        for key in PLACEHOLDER_KEYS:
+            if is_import_placeholder(value.get(key)):
+                changes.append({"path": f"{path}/{key}", "replaced": value[key], "wrote": settled.get(key)})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_emptied_import_placeholders(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change empties an import placeholder in a listed template's instance."""
+    if not isinstance(template, dict) or not isinstance(before, dict):
+        return "/"
+    listed = before.get("schema:isBasedOn") in PLACEHOLDER_TEMPLATES
+    for path, was, now in differences(before, after):
+        key = path.rsplit("/", 1)[-1]
+        if not listed or key not in PLACEHOLDER_KEYS or not is_import_placeholder(was):
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if definition is None or is_element(definition):
+            return path
+        literal = key == "@value" and holds_a_literal(definition)
+        if (literal and now is not None) or (not literal and now is not ABSENT):
+            return path
+    return None
+
+
+def label_required_and_nullable(definition: Any) -> bool:
+    if not isinstance(definition, dict):
+        return False
+    required = definition.get("required")
+    declared = (definition.get("properties") or {}).get("rdfs:label")
+    kinds = declared.get("type") if isinstance(declared, dict) else None
+    kinds = [kinds] if isinstance(kinds, str) else kinds
+    return isinstance(required, list) and "rdfs:label" in required and isinstance(kinds, list) and "null" in kinds
+
+
+def complete_required_label(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """State ``"rdfs:label": null`` in a literal value whose field requires the key and admits null.
+
+    Some fields list ``rdfs:label`` among the keys every value must carry, and admit null for it. A
+    value written without the key says it has no label; null is how the field asks for that to be
+    said, so stating it changes nothing the value claims.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or "rdfs:label" in value or not label_required_and_nullable(definition):
+            return value
+        settled = dict(value)
+        settled["rdfs:label"] = None
+        changes.append({"path": f"{path}/rdfs:label", "replaced": None, "wrote": None})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_completed_required_labels(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change adds a null label a field requires and admits."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/rdfs:label") or was is not ABSENT or now is not None:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not label_required_and_nullable(definition):
+            return path
+    return None
+
+
+
+def literal_field(definition: Any) -> bool:
+    """Whether a field schema gives its value a ``@value`` and no ``@id``, which is to say a literal."""
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    return isinstance(properties, dict) and "@value" in properties and "@id" not in properties
+
+
+def mixed_field(definition: Any) -> bool:
+    """Whether a field schema declares both ``@value`` and ``@id``, so that nothing says which it holds."""
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    return isinstance(properties, dict) and "@value" in properties and "@id" in properties
+
+
+def drop_label_demand(artifact: Any, applies: Callable[[Any], bool]) -> tuple[Any, list[dict[str, Any]]]:
+    """Take ``rdfs:label`` out of the ``required`` of every field schema ``applies`` picks.
+
+    A list left empty goes altogether, since JSON Schema draft 4 admits no empty ``required``.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == REQUIRED_KEY and applies(node) and isinstance(value, list) and "rdfs:label" in value:
+                wanted = [key for key in value if key != "rdfs:label"]
+                changes.append({"path": here, "replaced": list(value), "wrote": wanted or None})
+                if wanted:
+                    result[name] = wanted
+                continue
+            result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_dropped_label_demands(before: Any, after: Any, applies: Callable[[Any], bool]) -> Optional[str]:
+    """The invariant: every change is a picked field's ``required`` losing ``rdfs:label``, and only that."""
+    for path, was, now in differences(before, after):
+        if not path.endswith(f"/{REQUIRED_KEY}") or not isinstance(was, list) or "rdfs:label" not in was:
+            return path or "/"
+        if not applies(value_at(before, path[: -len(f"/{REQUIRED_KEY}")])):
+            return path
+        wanted = [key for key in was if key != "rdfs:label"]
+        # A list left empty goes altogether, so the only removal is of a list holding the label alone.
+        if (now is ABSENT) != (not wanted) or (now is not ABSENT and now != wanted):
+            return path
+    return None
+
+
+def drop_literal_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take ``rdfs:label`` out of the keys a literal field's value must carry.
+
+    A literal value has no label. Templates of 2017 listed ``rdfs:label`` among the keys every value
+    of a text or number field must carry anyway, and no writer produces one: an instance satisfies
+    the demand only by holding the label as null, which ``complete-required-label`` stated, and a
+    save through either library's model drops it again. The property stays declared, as both
+    libraries declare it; only the demand goes. Every change relaxes a field, so nothing that
+    validates today stops doing so.
+    """
+    return drop_label_demand(artifact, literal_field)
+
+
+def only_dropped_literal_label_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a literal field's ``required`` losing ``rdfs:label`` and nothing else."""
+    return only_dropped_label_demands(before, after, literal_field)
+
+
+def drop_mixed_field_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take ``rdfs:label`` out of the keys a field declaring both ``@value`` and ``@id`` demands.
+
+    Such a field says neither which shape its value takes nor what either library would write for
+    it, so ``canonicalise-iri-field-required`` leaves it alone. Its demand on a label is the same
+    2017 demand as a literal field's, though, and it goes the same way; any other demand stays.
+    """
+    return drop_label_demand(artifact, mixed_field)
+
+
+def only_dropped_mixed_field_label_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a mixed field's ``required`` losing ``rdfs:label`` and nothing else."""
+    return only_dropped_label_demands(before, after, mixed_field)
+
+
+def drop_iri_label_demand(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove the ``required`` of an IRI field that demands ``rdfs:label``.
+
+    An unanswered IRI field is ``{}``, and a list demanding a label refuses it, as does one demanding
+    ``@id`` beside the label. Both libraries write no ``required`` for an IRI field, so the list goes
+    altogether, as ``canonicalise-iri-field-required`` would remove it; this rule reaches only the
+    lists that demand a label.
+    """
+    stripped, changes = canonicalise_iri_field_required(artifact)
+    kept = [change for change in changes if "rdfs:label" in (change.get("replaced") or [])]
+    if len(kept) == len(changes):
+        return stripped, changes
+    undone = {change["path"] for change in changes} - {change["path"] for change in kept}
+
+    def restore(node: Any, original: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [restore(item, original[index], f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {name: restore(value, original[name], f"{path}/{rest.json_pointer_component(name)}")
+                  for name, value in node.items()}
+        here = f"{path}/{REQUIRED_KEY}"
+        if here in undone:
+            result = {name: (result[name] if name in result else original[name]) for name in original}
+        return result
+
+    return restore(stripped, artifact, ""), kept
+
+
+def only_dropped_iri_label_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change removes an IRI field's ``required`` that demanded ``rdfs:label``."""
+    fault = only_canonicalised_iri_field_required(before, after)
+    if fault is not None:
+        return fault
+    for path, was, _now in differences(before, after):
+        if "rdfs:label" not in was:
+            return path
+    return None
+
+
+def drop_null_literal_label(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a null ``rdfs:label`` from a literal value whose field does not demand one.
+
+    The label is there only because a template demanded it of a literal, which has none, and
+    ``complete-required-label`` stated it as null to satisfy the demand. Once
+    ``drop-literal-label-demand`` has lifted the demand from the template, the null says nothing, and
+    a value without it is the one every writer produces. A label holding text is left alone: that is
+    something somebody wrote.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not (isinstance(value, dict) and "rdfs:label" in value and value["rdfs:label"] is None
+                and "@id" not in value and literal_field(definition)
+                and "rdfs:label" not in (definition.get(REQUIRED_KEY) or [])):
+            return value
+        settled = {key: item for key, item in value.items() if key != "rdfs:label"}
+        changes.append({"path": f"{path}/rdfs:label", "replaced": None, "wrote": None})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_null_literal_labels(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes a null label from a literal value its field does not ask one of."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/rdfs:label") or was is not None or now is not ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not literal_field(definition) or "rdfs:label" in (definition.get(REQUIRED_KEY) or []):
+            return path
+    return None
+
+def drop_null_iri(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take a null or empty ``@id`` out of a value in a field that holds an IRI.
+
+    ``@id: null`` is not JSON-LD, and an IRI field is empty when its value states no ``@id`` at all.
+    ``settle-instance-empty-shape`` settles a value holding nothing else; this repair also reaches one
+    that carries a class beside it as ``@type``, which stays exactly as it is.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or "@id" not in value \
+                or value["@id"] not in (None, ""):
+            return value
+        settled = {key: inner for key, inner in value.items() if key != "@id"}
+        changes.append({"path": f"{path}/@id", "replaced": value["@id"], "wrote": None})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_null_iris(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes a null or empty ``@id`` from an IRI field's value."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or was not in (None, "") or now is not ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if definition is None or is_element(definition) or holds_a_literal(definition):
+            return path
+    return None
+
+
+def drop_term_field_text(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Empty a term field whose value is typed text rather than a term, writing ``{}``.
+
+    A field that once held text and now holds terms keeps the text entered before the change, and
+    the field's schema admits only ``@id`` and a label. The text names no term, and resolving it would
+    mean choosing one for the owner, so the value is emptied instead. It deletes what someone entered,
+    which is why it runs only with ``--allow-value-deletion`` and an explicit ``--only-ids`` scope; a
+    value holding anything beside its text is left alone.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or set(value) != {"@value"}:
+            return value
+        text = value["@value"]
+        if not isinstance(text, str) or not text.strip():
+            return value
+        changes.append({"path": path, "replaced": value, "wrote": {}})
+        return {}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_term_field_text(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the emptying of term fields holding only text."""
+    expected, _changes = drop_term_field_text(before, template)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or not isinstance(was, str) or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def enumerated_classes(schema: Any) -> set[str]:
+    """Every class a ``@type`` schema enumerates, in its string or its list form."""
+    found: set[str] = set()
+    if isinstance(schema, dict):
+        found.update(value for value in schema.get("enum") or [] if isinstance(value, str))
+        found |= enumerated_classes(schema.get("items"))
+        for alternative in schema.get("oneOf") or []:
+            found |= enumerated_classes(alternative)
+    return found
+
+
+def drop_unlisted_term_class(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of a term value a ``@type`` naming a class its field's schema does not list.
+
+    A 2016 or 2017 template enumerates in its schema the class a chosen term's ``@type`` must name.
+    A template whose constraint later moved elsewhere can keep enumerating the old class, so a term
+    chosen under the new constraint is refused for the class it records. Where the schema does not
+    require ``@type``, removing it settles the value while keeping the term itself. It deletes what
+    the editor recorded, so it runs only with ``--allow-value-deletion`` and an explicit ``--only-ids``
+    scope.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or "@type" not in value:
+            return value
+        allowed = enumerated_classes((definition.get("properties") or {}).get("@type"))
+        if not allowed or "@type" in (definition.get("required") or []):
+            return value
+        stated = value["@type"] if isinstance(value["@type"], list) else [value["@type"]]
+        if all(item in allowed for item in stated):
+            return value
+        changes.append({"path": f"{path}/@type", "replaced": value["@type"], "wrote": None})
+        return {key: inner for key, inner in value.items() if key != "@type"}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_unlisted_term_classes(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of unlisted term classes."""
+    expected, _changes = drop_unlisted_term_class(before, template)
+    for path, _was, now in differences(before, after):
+        if not path.endswith("/@type") or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+DATATYPE_PREFIXES = ("http://www.w3.org/2001/XMLSchema#", "xsd:")
+
+
+def is_stamped_class_list(stated: Any) -> bool:
+    """Whether a value's ``@type`` is a list of two or more classes, none of them a datatype."""
+    return isinstance(stated, list) and len(stated) > 1 and all(
+        isinstance(item, str) and rest.is_absolute_iri(item) and not item.startswith(DATATYPE_PREFIXES)
+        for item in stated)
+
+
+def drop_stamped_class_list(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of a field value the list of classes the 2017 editor stamped as its ``@type``.
+
+    Early in 2017 a template author could type a field with ontology classes, and the template editor
+    then wrote every one of them into the ``@type`` of each value it saved. A value takes one ``@type``
+    in the model, so both libraries and CEE refuse the instance whole. The classes say what the
+    template said about the field rather than anything chosen for this value, and the template keeps
+    whatever it still lists. A single ``@type``, or a list naming a datatype, is left alone. The
+    removal still deletes what the editor wrote, so it runs only with ``--allow-value-deletion`` and
+    an explicit ``--only-ids`` scope.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or not is_stamped_class_list(value.get("@type")):
+            return value
+        changes.append({"path": f"{path}/@type", "replaced": value["@type"], "wrote": None})
+        return {key: inner for key, inner in value.items() if key != "@type"}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_stamped_class_lists(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of stamped class lists."""
+    expected, _changes = drop_stamped_class_list(before, template)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@type") or not is_stamped_class_list(was) or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+DATE_ONLY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def is_calendar_date(text: Any) -> bool:
+    if not isinstance(text, str) or not DATE_ONLY.fullmatch(text):
+        return False
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
+
+
+def write_date_at_midnight(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a date entered without a time, in a field declared ``xsd:dateTime``, as that day's midnight UTC.
+
+    A dateTime field refuses a bare date, and the owner who entered one gave no time. Midnight UTC is
+    an assumption rather than a reading of the value, which is why the repair runs only with
+    ``--allow-assumed-time`` and an explicit ``--only-ids`` scope. The date itself is kept, the owner
+    can correct the time once the instance opens, and ``Z`` is the spelling CEDAR's own editor writes.
+    Any other spelling is left for ``write-date-as-iso`` or an owner.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        declared = (definition.get("_valueConstraints") or {}).get("temporalType") if isinstance(definition, dict) else None
+        if declared != "xsd:dateTime" or not holds_a_literal(definition) or not isinstance(value, dict) \
+                or not is_calendar_date(value.get("@value")) or value.get("@type") not in (None, "xsd:date", "xsd:dateTime"):
+            return value
+        written = dict(value, **{"@value": value["@value"] + "T00:00:00Z", "@type": "xsd:dateTime"})
+        changes.append({"path": path, "replaced": value, "wrote": written})
+        return written
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_wrote_dates_at_midnight(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the midnight spelling of bare dates in dateTime fields."""
+    expected, _changes = write_date_at_midnight(before, template)
+    for path, _was, _now in differences(before, after):
+        if not path.endswith(("/@value", "/@type")):
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def drop_text_beside_term(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take out of a term value a typed ``@value`` that differs from the label of the term chosen.
+
+    A term field's schema admits ``@id`` and a label and no ``@value``. A value holding all three says
+    two things, the term and a text, and only one can stay. Keeping the term keeps what the field is for;
+    the text is deleted, so the repair runs only with ``--allow-value-deletion`` and an explicit
+    ``--only-ids`` scope. A text equal to the label, or an empty one, is ``settle-instance-iri-value``'s.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or not rest.is_absolute_iri(value.get("@id")):
+            return value
+        text = value.get("@value")
+        if not isinstance(text, str) or not text.strip() or text == value.get("rdfs:label"):
+            return value
+        changes.append({"path": f"{path}/@value", "replaced": text, "wrote": None})
+        return {key: inner for key, inner in value.items() if key != "@value"}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_dropped_text_beside_terms(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the result is exactly the removal of texts standing beside chosen terms."""
+    expected, _changes = drop_text_beside_term(before, template)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or not isinstance(was, str) or now is not ABSENT:
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def encode_link_spaces(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the spaces inside a link field's address as ``%20``, the form an IRI spells them in.
+
+    An IRI cannot hold a space, so an address pasted with one is refused although it names a page; a
+    browser following it sends ``%20``. Spaces at either end are dropped and those inside are encoded,
+    and only where the result is an absolute IRI. Nothing else in the address changes.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict) or (definition.get("_ui") or {}).get("inputType") != "link" \
+                or not isinstance(value, dict) or not isinstance(value.get("@id"), str):
+            return value
+        address = value["@id"]
+        encoded = address.strip(" ").replace(" ", "%20")
+        if " " not in address or rest.is_absolute_iri(address) or not rest.is_absolute_iri(encoded):
+            return value
+        changes.append({"path": f"{path}/@id", "replaced": address, "wrote": encoded})
+        return dict(value, **{"@id": encoded})
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_encoded_link_spaces(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change writes a link's spaces as ``%20`` and nothing else."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or not isinstance(was, str) or now != was.strip(" ").replace(" ", "%20"):
+            return path or "/"
+    expected, _changes = encode_link_spaces(before, template)
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def cut_at_quotation_mark(address: Any) -> Optional[str]:
+    """The address before the first quotation mark, when that much is an absolute IRI on its own."""
+    if not isinstance(address, str) or '"' not in address:
+        return None
+    head = address.split('"', 1)[0]
+    return head if rest.is_absolute_iri(head) else None
+
+
+def cut_link_at_quotation_mark(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Cut a link field's address at a quotation mark that ends a URL pasted with a sentence after it.
+
+    An IRI cannot hold a quotation mark, so an address carrying one is refused. Copying a URL out of
+    prose takes its closing quotation mark and the words after it along, and the address before the
+    mark is the URL itself. The words after it are deleted, so the repair applies only under
+    ``--allow-value-deletion`` with an explicit ``--only-ids`` scope, after a person has looked at the
+    text and agreed to the cut.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict) or (definition.get("_ui") or {}).get("inputType") != "link" \
+                or not isinstance(value, dict):
+            return value
+        cut = cut_at_quotation_mark(value.get("@id"))
+        if cut is None:
+            return value
+        changes.append({"path": f"{path}/@id", "replaced": value["@id"], "wrote": cut})
+        return dict(value, **{"@id": cut})
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_cut_links(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change cuts a link's address at its first quotation mark, nothing else."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or cut_at_quotation_mark(was) is None or now != cut_at_quotation_mark(was):
+            return path or "/"
+    expected, _changes = cut_link_at_quotation_mark(before, template)
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+def joined_link_parts(value: Any) -> Optional[list[str]]:
+    """The addresses a link value joins with semicolons, when it holds nothing but such a list."""
+    if not isinstance(value, dict) or set(value) != {"@id"} or not isinstance(value["@id"], str) \
+            or ";" not in value["@id"]:
+        return None
+    parts = [part.strip() for part in value["@id"].split(";")]
+    return parts if len(parts) > 1 and all(re.match(r"https?://", part) for part in parts) else None
+
+
+def is_link_field(definition: Any) -> bool:
+    return isinstance(definition, dict) and (definition.get("_ui") or {}).get("inputType") == "link"
+
+
+def split_joined_links(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give each address a repeating link field's entry joins with semicolons an entry of its own.
+
+    A person entering several links into one entry of a field that repeats wrote them as one text,
+    which no IRI can be. Each address takes its own entry, where the joined one stood and in the
+    order written. Only an entry holding nothing but the joined text is split, and only where every
+    part starts as an address does, so nothing is lost and nothing is guessed. A field that takes a
+    single link is left alone: which of its addresses it keeps is a person's choice, which
+    ``choose-reviewed-joined-link`` applies.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name, child, multiple in container_children(container):
+            if name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if is_element(child):
+                result[name] = [walk(item, child, f"{here}/{index}") for index, item in enumerate(value)] \
+                    if isinstance(value, list) else walk(value, child, here)
+            elif multiple and is_link_field(child) and isinstance(value, list):
+                entries = []
+                for index, entry in enumerate(value):
+                    parts = joined_link_parts(entry)
+                    if parts is None:
+                        entries.append(entry)
+                        continue
+                    entries.extend({"@id": part} for part in parts)
+                    changes.append({"path": f"{here}/{index}", "replaced": entry["@id"], "wrote": parts})
+                result[name] = entries
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_split_joined_links(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the only change is joined link entries replaced by one entry per address."""
+    for path, _was, _now in differences(before, after):
+        definition = declaration_at(template, path)
+        if not is_link_field(definition) or not isinstance(value_at(before, path), list):
+            return path or "/"
+    expected, _changes = split_joined_links(before, template)
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+# Reviewed choices among the addresses a single link field joins with semicolons, keyed by instance IRI
+# then by the field's pointer, each naming the address to keep exactly as it is stored. Supplied
+# through --joined-link-choices: which of two links a field meant is a person's judgement.
+JOINED_LINK_CHOICES: dict[str, dict[str, str]] = {}
+
+
+def choose_reviewed_joined_link(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Keep the one address a reviewed choice names in a single link field that joins several.
+
+    A field that takes one link cannot hold two, and splitting it would invent an entry the template
+    does not have. The plan names the address to keep, which must be one of the joined parts exactly
+    as stored, and the others are deleted, so the repair applies only under ``--allow-value-deletion``
+    with an explicit ``--only-ids`` scope.
+    """
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    plan = JOINED_LINK_CHOICES.get(instance.get(AT_ID)) or {}
+    if not plan:
+        return instance, []
+    result = copy.deepcopy(instance)
+    changes: list[dict[str, Any]] = []
+    for pointer, keep in plan.items():
+        value = value_at(result, pointer)
+        parts = joined_link_parts(value)
+        if not is_link_field(declaration_at(template, pointer)) or parts is None or keep not in parts:
+            raise TransformRefused(f"{pointer}: not a link field joining addresses, one of them {keep!r}")
+        changes.append({"path": f"{pointer}/@id", "replaced": value["@id"], "wrote": keep})
+        value["@id"] = keep
+    return result, changes
+
+
+def only_chosen_joined_links(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: each planned field keeps exactly its chosen address, and nothing else changes."""
+    plan = JOINED_LINK_CHOICES.get(before.get(AT_ID)) if isinstance(before, dict) else None
+    for path, was, now in differences(before, after):
+        field = path[:-len("/@id")] if path.endswith("/@id") else None
+        keep = (plan or {}).get(field) if field is not None else None
+        parts = joined_link_parts({"@id": was}) if isinstance(was, str) else None
+        if keep is None or parts is None or keep not in parts or now != keep:
+            return path or "/"
+    return None
+
+
+def drop_null_instance_type(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove an instance's root ``@type`` stated as null, which says no type and is not JSON-LD."""
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    if "@type" not in instance or instance["@type"] is not None:
+        return copy.deepcopy(instance), []
+    result = {key: value for key, value in copy.deepcopy(instance).items() if key != "@type"}
+    return result, [{"path": "/@type", "replaced": None, "wrote": None}]
+
+
+def only_dropped_null_instance_type(before: Any, after: Any) -> Optional[str]:
+    for path, was, now in differences(before, after):
+        if path != "/@type" or was is not None or now is not ABSENT:
+            return path or "/"
+    return None
+
+
+# An identifier CEDAR mints for an element occurrence when an instance is saved, which says nothing
+# anyone entered.
+MINTED_OCCURRENCE = re.compile(r"https?://repo\.metadatacenter\.(?:org|net)/template-element-instances/[^/\s]+")
+
+
+def holds_nothing_entered(value: Any) -> bool:
+    """Whether a value holds nothing a person entered: only empty values, types, mappings and minted ids."""
+    if value is None or value == "" or value == [] or value == {}:
+        return True
+    if isinstance(value, list):
+        return all(holds_nothing_entered(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    for key, inner in value.items():
+        if key in ("@context", "@type"):
+            continue
+        if key == "@id":
+            if inner in (None, "") or (isinstance(inner, str) and MINTED_OCCURRENCE.fullmatch(inner)):
+                continue
+            return False
+        if not holds_nothing_entered(inner):
+            return False
+    return True
+
+
+def drop_unfilled_undeclared_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove, at every depth, a key its container does not declare and that holds nothing entered.
+
+    ``drop-empty-undeclared-instance-keys`` reaches only the top level, and only a value that is
+    explicitly empty. An instance written against an earlier version of its template also keeps the
+    children the template has since dropped inside its elements, often as whole element occurrences
+    whose only content is the identifier CEDAR minted and empty fields. Such a key, and the mapping
+    its container's ``@context`` holds for it, is removed; a key holding anything a person entered is
+    left for an owner, or for ``drop-undeclared-keys`` once one has decided.
+    """
+    return drop_undeclared(instance, template, keep_entered=True)
+
+
+def drop_undeclared_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove, at every depth, every key its container does not declare, whatever it holds.
+
+    This deletes values someone entered under a name the template no longer has. It exists for a
+    decision that they are not wanted, and it is applied only with ``--allow-value-deletion`` and an
+    explicit ``--only-ids`` scope; the pre-image the tool saves before every write keeps them.
+    """
+    return drop_undeclared(instance, template, keep_entered=False)
+
+
+def drop_undeclared(instance: Any, template: Any, keep_entered: bool) -> tuple[Any, list[dict[str, Any]]]:
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes: list[dict[str, Any]] = []
+
+    def visit(node: Any, container: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [visit(item, container, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict) or not isinstance(container, dict):
+            return node
+        result = copy.deepcopy(node)
+        children = {name: child for name, child, _multiple in container_children(container)}
+        declared = set((container.get("properties") or {}))
+        referenced = {name for value in node.values() if isinstance(value, list)
+                      for name in value if isinstance(name, str)}
+        for key, value in node.items():
+            if key in children:
+                if is_element(children[key]):
+                    result[key] = visit(value, children[key], f"{path}/{rest.json_pointer_component(key)}")
+                continue
+            if key in declared or key in referenced or key.startswith("@") or ":" in key \
+                    or key in RESERVED_INSTANCE_KEYS or (keep_entered and not holds_nothing_entered(value)):
+                continue
+            del result[key]
+            changes.append({"path": f"{path}/{rest.json_pointer_component(key)}", "replaced": value, "wrote": None})
+            context = result.get("@context")
+            if isinstance(context, dict) and key in context:
+                changes.append({"path": f"{path}/@context/{rest.json_pointer_component(key)}",
+                                "replaced": context[key], "wrote": None})
+                del context[key]
+        return result
+
+    return visit(instance, template, ""), changes
+
+
+def only_dropped_unfilled_undeclared_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes an undeclared, unfilled key or its own context mapping."""
+    return only_dropped_undeclared(before, after, template, keep_entered=True)
+
+
+def only_dropped_undeclared_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes an undeclared key or its own context mapping."""
+    return only_dropped_undeclared(before, after, template, keep_entered=False)
+
+
+def only_dropped_undeclared(before: Any, after: Any, template: Any, keep_entered: bool) -> Optional[str]:
+    if not isinstance(template, dict):
+        return "/"
+    removed: set[str] = set()
+    for path, was, now in differences(before, after):
+        if now is not ABSENT:
+            return path or "/"
+        head, _sep, key = path.rpartition("/")
+        if head.endswith("/@context") or head == "/@context":
+            continue
+        container_path = head
+        container = declaration_at(template, container_path) if container_path else template
+        if not isinstance(container, dict) or key.replace("~1", "/").replace("~0", "~") in (container.get("properties") or {}):
+            return path
+        if keep_entered and not holds_nothing_entered(was):
+            return path
+        if key.startswith("@") or ":" in key or key.replace("~1", "/").replace("~0", "~") in RESERVED_INSTANCE_KEYS:
+            return path
+        removed.add(path)
+    for path, was, now in differences(before, after):
+        head, _sep, key = path.rpartition("/")
+        if (head.endswith("/@context") or head == "/@context") and \
+                f"{head[:-len('/@context')]}/{key}" not in removed:
+            return path
+    return None
+
+
+CHOICE_INPUT_TYPES = ("list", "radio", "checkbox")
+LEGACY_CHOICE_VALUE_TYPE = ["array", "null"]
+CHOICE_VALUE_TYPE = ["string", "null"]
+
+
+def is_legacy_choice_field(node: Any) -> bool:
+    if not isinstance(node, dict) or not isinstance(node.get("_ui"), dict) \
+            or node["_ui"].get("inputType") not in CHOICE_INPUT_TYPES:
+        return False
+    declared = (node.get("properties") or {}).get("@value")
+    return isinstance(declared, dict) and declared.get("type") == LEGACY_CHOICE_VALUE_TYPE
+
+
+def type_choice_value_as_text(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Type a choice field's ``@value`` as the text or null every other choice field declares.
+
+    Radio, list and checkbox fields written in 2016 and 2017 type ``@value`` as a list or null. Every
+    later choice field, some 45,000 of them, types it as a string or null, and so does the model: the
+    readers read a chosen value as text. An instance of the older shape is therefore either refused
+    by the schema, holding the text, or by the reader, holding a list. Typing the value as text makes
+    the template agree with the model and with the instances that state their choice as text.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f"{path}/{rest.json_pointer_component(key)}") for key, value in node.items()}
+        if is_legacy_choice_field(node):
+            result["properties"] = dict(result["properties"])
+            result["properties"]["@value"] = dict(result["properties"]["@value"], type=list(CHOICE_VALUE_TYPE))
+            changes.append({"path": f"{path}/properties/@value/type", "replaced": LEGACY_CHOICE_VALUE_TYPE,
+                            "wrote": CHOICE_VALUE_TYPE})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_typed_choice_values_as_text(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change retypes a legacy choice field's ``@value`` from list to text."""
+    suffix = "/properties/@value/type/0"
+    for path, was, now in differences(before, after):
+        if not path.endswith(suffix) or was != "array" or now != "string":
+            return path or "/"
+        field_path = path[:-len(suffix)]
+        if not is_legacy_choice_field(value_at(before, field_path)) \
+                or ((value_at(after, field_path) or {}).get("properties") or {}).get("@value", {}).get("type") != CHOICE_VALUE_TYPE:
+            return path
+    return None
+
+
+# The modifier each artifact's graph node records, keyed by artifact IRI, as its /details answer
+# states it. Supplied through --modifier-forms, read from a dry run's records: restating a document's
+# modifier is right only where the graph already holds that same user in the current form.
+MODIFIER_FORMS: dict[str, str] = {}
+LEGACY_USER = re.compile(r"https://repo\.metadatacenter\.net/users/([^/\s]+)")
+CURRENT_USER_IRI = re.compile(r"https://metadatacenter\.org/users/[^/\s]+")
+CURRENT_USER = "https://metadatacenter.org/users/{}"
+
+
+def current_form_of(modifier: Any) -> Optional[str]:
+    match = LEGACY_USER.fullmatch(modifier) if isinstance(modifier, str) else None
+    return CURRENT_USER.format(match.group(1)) if match else None
+
+
+def restate_modifier_in_current_form(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a document's ``oslc:modifiedBy`` in the current user-IRI form its graph node already holds.
+
+    Users were once identified under ``https://repo.metadatacenter.net/users/``; they are identified
+    under ``https://metadatacenter.org/users/`` now, and the graph that Workspace reads states the
+    current form even where a document still states the old one. A verbatim write copies the
+    document's modifier into the graph, so such a document cannot be repaired without moving the graph
+    back to the old form. Restating the document's modifier as the one the graph holds, for the same
+    user, makes the two agree. Only an artifact listed in ``MODIFIER_FORMS`` is changed, and only to
+    the value listed for it.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    stated = artifact.get("oslc:modifiedBy")
+    current = current_form_of(stated)
+    if current is None or MODIFIER_FORMS.get(artifact.get("@id")) != current:
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    result["oslc:modifiedBy"] = current
+    return result, [{"path": "/oslc:modifiedBy", "replaced": stated, "wrote": current}]
+
+
+def only_restated_modifier(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the one change is the modifier, to its current form, as the graph holds it."""
+    if not isinstance(before, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if path != "/oslc:modifiedBy" or now != current_form_of(was) or MODIFIER_FORMS.get(before.get("@id")) != now:
+            return path or "/"
+    return None
+
+
+TERM_NOTATION = {"type": ["string", "null"]}
+
+
+def is_term_field_without_notation(node: Any) -> bool:
+    """A controlled-term field whose value schema names ``@id`` and a label but no ``skos:notation``."""
+    if not isinstance(node, dict) or not isinstance(node.get("_ui"), dict):
+        return False
+    constraints = node.get("_valueConstraints") or {}
+    properties = node.get("properties")
+    return isinstance(properties, dict) and "@id" in properties and "rdfs:label" in properties \
+        and "skos:notation" not in properties and any(constraints.get(k) for k in TERM_CONSTRAINT_KEYS)
+
+
+def allow_term_notation(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Let a controlled-term field's value carry the term's ``skos:notation``, as the model writes it.
+
+    Both libraries render a controlled-term field's value schema with ``skos:notation``, text or null,
+    beside ``@id`` and ``rdfs:label``. Templates written before that, 2018's caDSR ones among them, name
+    no notation, and since the value schema admits nothing undeclared, an instance carrying the code of
+    the term it chose is refused. Declaring the notation only widens what a value may carry.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f"{path}/{rest.json_pointer_component(key)}") for key, value in node.items()}
+        if is_term_field_without_notation(node):
+            result["properties"] = dict(result["properties"], **{"skos:notation": dict(TERM_NOTATION)})
+            changes.append({"path": f"{path}/properties/skos:notation", "replaced": None, "wrote": TERM_NOTATION})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_allowed_term_notations(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change declares ``skos:notation`` in a controlled-term field lacking it."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/properties/skos:notation") or was is not ABSENT or now != TERM_NOTATION:
+            return path or "/"
+        if not is_term_field_without_notation(value_at(before, path[:-len("/properties/skos:notation")])):
+            return path
+    return None
+
+
+def is_iri_field_without_notation(node: Any) -> bool:
+    """An IRI field whose value schema names ``@id`` and a label but no ``skos:notation``.
+
+    A link, an external identifier or a controlled term: any field whose value is an IRI, which is a
+    field declaring ``@id`` and no ``@value``.
+    """
+    if not isinstance(node, dict) or node.get(AT_TYPE) != FIELD_AT_TYPE or not isinstance(node.get("_ui"), dict):
+        return False
+    properties = node.get("properties")
+    return isinstance(properties, dict) and "@id" in properties and "@value" not in properties \
+        and "rdfs:label" in properties and "skos:notation" not in properties
+
+
+def allow_iri_notation(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Let any IRI field's value carry ``skos:notation``, as both libraries write every IRI field.
+
+    ``allow-term-notation`` reaches controlled-term fields alone. Both libraries' strict writers give a
+    link and an external-identifier field the same value schema, ``skos:notation`` included, so a
+    template written before that, or by the library's FEBRUARY_2024 writer, refuses an instance whose
+    value carries a notation. Declaring it only widens what a value may carry.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f"{path}/{rest.json_pointer_component(key)}") for key, value in node.items()}
+        if is_iri_field_without_notation(node):
+            result["properties"] = dict(result["properties"], **{"skos:notation": dict(TERM_NOTATION)})
+            changes.append({"path": f"{path}/properties/skos:notation", "replaced": None, "wrote": TERM_NOTATION})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_allowed_iri_notations(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change declares ``skos:notation`` in an IRI field lacking it."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/properties/skos:notation") or was is not ABSENT or now != TERM_NOTATION:
+            return path or "/"
+        if not is_iri_field_without_notation(value_at(before, path[:-len("/properties/skos:notation")])):
+            return path
+    return None
+
+
+# What a template's or element's @context schema says of entries it does not name: an attribute-value
+# child adds an entry per attribute its instance holds, so a container with one admits further IRIs and
+# a container without one admits none. Both libraries' writers render exactly these two forms.
+OPEN_CONTEXT = {"type": "string", "format": "uri"}
+
+
+def has_attribute_value_child(container: Any) -> bool:
+    return any((child.get("_ui") or {}).get("inputType") == "attribute-value"
+               for _name, child, _multiple in container_children(container))
+
+
+def settle_context_openness(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make each container's ``@context`` admit further IRIs exactly when it has an attribute-value child.
+
+    A template or element that once held an attribute-value field and lost it keeps an ``@context``
+    open to entries no child can now add, and one that gained a field the other way keeps it closed.
+    The validator accepts either, but the strict TypeScript reader compares the schema with the one its
+    writer renders from the children and refuses the artifact. Only the two canonical forms are
+    exchanged; any other ``additionalProperties`` is left for an owner.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+
+    def settle(container: dict, path: str) -> None:
+        context = (container.get("properties") or {}).get("@context")
+        if isinstance(context, dict) and "additionalProperties" in context:
+            stated = context["additionalProperties"]
+            wanted = copy.deepcopy(OPEN_CONTEXT) if has_attribute_value_child(container) else False
+            if (stated is False or stated == OPEN_CONTEXT) and not json_equal(stated, wanted):
+                context["additionalProperties"] = wanted
+                changes.append({"path": f"{path}/properties/@context/additionalProperties",
+                                "replaced": stated, "wrote": wanted})
+        for name, child, multiple in container_children(container):
+            if is_element(child):
+                settle(child, f"{path}/properties/{rest.json_pointer_component(name)}{'/items' if multiple else ''}")
+
+    settle(result, "")
+    return result, changes
+
+
+def only_settled_context_openness(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the result is exactly each container's @context openness settled by its children."""
+    expected, _changes = settle_context_openness(before)
+    for path, was, now in differences(before, after):
+        if not path.endswith("/properties/@context/additionalProperties") \
+                or not (was is False or json_equal(was, OPEN_CONTEXT)) \
+                or not (now is False or json_equal(now, OPEN_CONTEXT)):
+            return path or "/"
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+USER_KEYS = ("pav:createdBy", "oslc:modifiedBy")
+
+
+def restate_user_iris_in_current_form(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write every legacy creator and modifier IRI in a document in the current user-IRI form.
+
+    The document's own ``pav:createdBy`` and ``oslc:modifiedBy`` are reached, and so are those of every
+    element and field a template or element embeds. Each becomes the ``https://metadatacenter.org/users/``
+    IRI of the same user. A verbatim write copies only the document's own modifier into the graph,
+    and the repair tool holds any write that would change what the graph records, so a graph still
+    holding the legacy form is written only with ``--replace-graph-provenance``.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for key, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            current = current_form_of(value) if key in USER_KEYS else None
+            if current is not None:
+                result[key] = current
+                changes.append({"path": here, "replaced": value, "wrote": current})
+            else:
+                result[key] = walk(value, here)
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_restated_user_iris(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a creator or modifier IRI written in its current form."""
+    for path, was, now in differences(before, after):
+        key = path.rsplit("/", 1)[-1]
+        if key not in USER_KEYS or now is None or now != current_form_of(was):
+            return path or "/"
     return None
 
 
@@ -6474,11 +8623,38 @@ def only_settled_iri_values(before: Any, after: Any, template: Any) -> Optional[
 TERMS: dict[str, dict[str, dict[str, Any]]] = {}
 
 
+def term_label_held(value: Any) -> Optional[str]:
+    """The label a controlled field's value names a term by, where it does not point at the term.
+
+    The label sits either under ``@value``, where the schema admits none, or under ``rdfs:label``
+    with no ``@id`` beside it, which is a label in the right place with the term it labels missing.
+    """
+    if not isinstance(value, dict) or value.get("@id"):
+        return None
+    held = value.get("@value") if "@value" in value else value.get("rdfs:label")
+    return held if isinstance(held, str) else None
+
+
+def settled_term_value(value: dict, term: Optional[dict]) -> dict:
+    """A controlled field's value once its label is put behind ``term``, or emptied where it is None."""
+    from_label = "@value" not in value
+    settled = {key: inner for key, inner in value.items() if key != "@value"}
+    if term is not None:
+        settled["@id"] = term["@id"]
+        settled["rdfs:label"] = term["rdfs:label"]
+    elif from_label:
+        settled.pop("rdfs:label", None)
+        if not settled.get("@id"):
+            settled.pop("@id", None)
+    return settled
+
+
 def settle_instance_term_label(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Put a controlled field's value behind the term its label names.
 
     A controlled-term field holds ``@id`` and a label, and an instance that carries the label alone —
-    under ``@value``, where the schema admits none — names a term without pointing at it. The term is
+    under ``@value``, where the schema admits none, or under ``rdfs:label`` with no ``@id`` — names a
+    term without pointing at it. The term is
     supplied rather than inferred: which IRI a label names is a fact about the ontology the field is
     constrained to, and the table is built by asking it.
 
@@ -6498,10 +8674,8 @@ def settle_instance_term_label(instance: Any, template: Any) -> tuple[Any, list[
     def visit(value: Any, definition: Any, path: str) -> Any:
         if not isinstance(value, dict) or holds_a_literal(definition):
             return value
-        if "@value" not in value or value.get("@id"):
-            return value
-        label = value.get("@value")
-        if not isinstance(label, str):
+        label = term_label_held(value)
+        if label is None:
             return value
         # The walk numbers a repeating field's occurrences; the table speaks about the field.
         route = re.sub(r"/\d+(?=/|$)", "", path)
@@ -6509,13 +8683,8 @@ def settle_instance_term_label(instance: Any, template: Any) -> tuple[Any, list[
         if not known or label.strip() not in known:
             return value
         term = known[label.strip()]
-        settled = {key: inner for key, inner in value.items() if key != "@value"}
-        if term is None:
-            wrote = "nothing; the label stated no value"
-        else:
-            settled["@id"] = term["@id"]
-            settled["rdfs:label"] = term["rdfs:label"]
-            wrote = term["@id"]
+        settled = settled_term_value(value, term)
+        wrote = "nothing; the label stated no value" if term is None else term["@id"]
         changes.append({"path": path, "replaced": label, "wrote": wrote})
         return settled
 
@@ -6538,17 +8707,12 @@ def only_settled_term_labels(before: Any, after: Any, template: Any) -> Optional
         old, new = value_at(before, here), value_at(after, here)
         if not isinstance(old, dict) or not isinstance(new, dict):
             return path or "/"
-        label = old.get("@value")
+        label = term_label_held(old)
         route = re.sub(r"/\d+(?=/|$)", "", here)
         known = (fields or {}).get(route) or {}
-        if not isinstance(label, str) or label.strip() not in known:
+        if label is None or label.strip() not in known:
             return path or "/"
-        term = known[label.strip()]
-        expected = {key: inner for key, inner in old.items() if key != "@value"}
-        if term is not None:
-            expected["@id"] = term["@id"]
-            expected["rdfs:label"] = term["rdfs:label"]
-        if new != expected:
+        if new != settled_term_value(old, known[label.strip()]):
             return path or "/"
         seen.add(here)
     return None
@@ -7846,6 +10010,12 @@ def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[
     return result, copy.deepcopy(plan.get("changes", []))
 
 
+# The repairs that delete something a person entered, and so apply only under --allow-value-deletion
+# with an explicit --only-ids scope.
+VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class",
+                          "drop-stamped-class-list", "drop-text-beside-term", "apply-reviewed-instance-mapping",
+                          "cut-link-at-quotation-mark", "choose-reviewed-joined-link"}
+
 REPAIRS = {
     "remove-reviewed-extra-schema-context": Repair(
         name="remove-reviewed-extra-schema-context", condition="extra-schema-context",
@@ -7907,9 +10077,15 @@ REPAIRS = {
     ),
     "normalize-instance-orcid-spacing": Repair(
         name="normalize-instance-orcid-spacing", condition="",
-        summary="remove accidental ORCID host-path whitespace without changing the identifier",
+        summary="remove accidental whitespace around an ORCID iD without changing the identifier",
         transform=normalize_instance_orcid_spacing, invariant=only_normalized_orcid_spacing,
         needs_template=True, error_pattern=r".*valid URI.*",
+    ),
+    "prefix-bare-orcid": Repair(
+        name="prefix-bare-orcid", condition="",
+        summary="write a bare ORCID iD in an ORCID field as its https://orcid.org/ IRI",
+        transform=prefix_bare_orcid, invariant=only_prefixed_bare_orcids,
+        needs_template=True, error_pattern=r".*valid absolute IRI.*",
     ),
     "drop-empty-undeclared-instance-keys": Repair(
         name="drop-empty-undeclared-instance-keys", condition="",
@@ -7921,6 +10097,12 @@ REPAIRS = {
         name="drop-unused-instance-context", condition="",
         summary="remove undeclared context mappings with no references in their scope",
         transform=drop_unused_instance_context, invariant=only_dropped_unused_context,
+        needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
+    ),
+    "drop-orphan-instance-context": Repair(
+        name="drop-orphan-instance-context", condition="",
+        summary="remove context mappings the template declares for no child, with no references in their scope",
+        transform=drop_orphan_instance_context, invariant=only_dropped_orphan_context,
         needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
     ),
     "complete-empty-literal": Repair(
@@ -7954,6 +10136,21 @@ REPAIRS = {
         needs_template=True,
         error_pattern=UNDECLARED_KEY_ERROR,
     ),
+    "repeat-template-child": Repair(
+        name="repeat-template-child",
+        condition="",
+        summary="make a template child its plan names repeat, wrapping its schema in a list",
+        transform=repeat_template_child,
+        invariant=only_repeated_template_children,
+    ),
+    "apply-reviewed-instance-mapping": Repair(
+        name="apply-reviewed-instance-mapping",
+        condition="",
+        summary="rebuild an instance in its template's current structure, moving and dropping values as its reviewed plan says",
+        transform=apply_reviewed_instance_mapping,
+        invariant=only_reviewed_instance_mapping,
+        needs_template=True,
+    ),
     "rename-instance-keys": Repair(
         name="rename-instance-keys",
         condition="",
@@ -7971,6 +10168,255 @@ REPAIRS = {
         invariant=only_stamped_value_types,
         needs_template=True,
         error_pattern=MISSING_CHILD_ERROR,
+    ),
+    "stamp-empty-value-type": Repair(
+        name="stamp-empty-value-type",
+        condition="",
+        summary="give an empty numeric or temporal value the datatype its field declares",
+        transform=stamp_empty_value_type,
+        invariant=only_stamped_empty_value_types,
+        needs_template=True,
+        error_pattern=MISSING_CHILD_ERROR,
+    ),
+    "complete-required-label": Repair(
+        name="complete-required-label",
+        condition="",
+        summary='state "rdfs:label": null where a field requires the key and admits null',
+        transform=complete_required_label,
+        invariant=only_completed_required_labels,
+        needs_template=True,
+    ),
+    "drop-literal-label-demand": Repair(
+        name="drop-literal-label-demand",
+        condition="",
+        summary="take rdfs:label out of the keys a literal field's value must carry",
+        transform=drop_literal_label_demand,
+        invariant=only_dropped_literal_label_demands,
+    ),
+    "drop-iri-label-demand": Repair(
+        name="drop-iri-label-demand",
+        condition="",
+        summary="remove the required of an IRI field that demands rdfs:label, so an unanswered {} is accepted",
+        transform=drop_iri_label_demand,
+        invariant=only_dropped_iri_label_demands,
+    ),
+    "drop-mixed-field-label-demand": Repair(
+        name="drop-mixed-field-label-demand",
+        condition="",
+        summary="take rdfs:label out of the keys a field declaring both @value and @id demands",
+        transform=drop_mixed_field_label_demand,
+        invariant=only_dropped_mixed_field_label_demands,
+    ),
+    "drop-null-literal-label": Repair(
+        name="drop-null-literal-label",
+        condition="",
+        summary="remove a null rdfs:label from a literal value whose field does not demand one",
+        transform=drop_null_literal_label,
+        invariant=only_dropped_null_literal_labels,
+        needs_template=True,
+    ),
+    "drop-null-iri": Repair(
+        name="drop-null-iri",
+        condition="",
+        summary="take a null or empty @id out of an IRI field's value, keeping anything beside it",
+        transform=drop_null_iri,
+        invariant=only_dropped_null_iris,
+        needs_template=True,
+    ),
+    "drop-undeclared-keys": Repair(
+        name="drop-undeclared-keys",
+        condition="",
+        summary="remove, at every depth, every undeclared key and its mapping, entered values included",
+        transform=drop_undeclared_keys,
+        invariant=only_dropped_undeclared_keys,
+        needs_template=True,
+    ),
+    "type-choice-value-as-text": Repair(
+        name="type-choice-value-as-text",
+        condition="",
+        summary="type a legacy choice field's @value as the text or null the model reads",
+        transform=type_choice_value_as_text,
+        invariant=only_typed_choice_values_as_text,
+    ),
+    "drop-shadowed-instance-context": Repair(
+        name="drop-shadowed-instance-context",
+        condition="",
+        summary="remove an undeclared context term whose only uses are mapped again where they occur",
+        transform=drop_shadowed_instance_context,
+        invariant=only_dropped_shadowed_context,
+        needs_template=True,
+    ),
+    "state-creator-from-graph": Repair(
+        name="state-creator-from-graph",
+        condition="",
+        summary="state the creator the graph records in a document that names none",
+        transform=state_creator_from_graph,
+        invariant=only_stated_graph_creator,
+    ),
+    "allow-iri-notation": Repair(
+        name="allow-iri-notation",
+        condition="",
+        summary="declare skos:notation in any IRI field's value schema, as both libraries write it",
+        transform=allow_iri_notation,
+        invariant=only_allowed_iri_notations,
+    ),
+    "allow-term-notation": Repair(
+        name="allow-term-notation",
+        condition="",
+        summary="declare skos:notation in a controlled-term field's value schema, as the model writes it",
+        transform=allow_term_notation,
+        invariant=only_allowed_term_notations,
+    ),
+    "restate-user-iris-in-current-form": Repair(
+        name="restate-user-iris-in-current-form",
+        condition="",
+        summary="write every legacy .net creator and modifier IRI, at every depth, in the current form",
+        transform=restate_user_iris_in_current_form,
+        invariant=only_restated_user_iris,
+    ),
+    "restate-modifier-in-current-form": Repair(
+        name="restate-modifier-in-current-form",
+        condition="",
+        summary="write a legacy .net modifier IRI in the current form the graph already holds",
+        transform=restate_modifier_in_current_form,
+        invariant=only_restated_modifier,
+    ),
+    "drop-term-field-text": Repair(
+        name="drop-term-field-text",
+        condition="",
+        summary="empty a term field holding only typed text, deleting the text",
+        transform=drop_term_field_text,
+        invariant=only_dropped_term_field_text,
+        needs_template=True,
+    ),
+    "settle-context-openness": Repair(
+        name="settle-context-openness",
+        condition="",
+        summary="make each container's @context admit further IRIs exactly when it has an attribute-value child",
+        transform=settle_context_openness,
+        invariant=only_settled_context_openness,
+    ),
+    "write-date-at-midnight": Repair(
+        name="write-date-at-midnight",
+        condition="",
+        summary="write a bare date in a dateTime field as that day's midnight UTC, assuming the time",
+        transform=write_date_at_midnight,
+        invariant=only_wrote_dates_at_midnight,
+        needs_template=True,
+    ),
+    "drop-text-beside-term": Repair(
+        name="drop-text-beside-term",
+        condition="",
+        summary="take out of a term value a typed text that differs from the chosen term's label",
+        transform=drop_text_beside_term,
+        invariant=only_dropped_text_beside_terms,
+        needs_template=True,
+    ),
+    "encode-link-spaces": Repair(
+        name="encode-link-spaces",
+        condition="",
+        summary="write the spaces inside a link field's address as %20",
+        transform=encode_link_spaces,
+        invariant=only_encoded_link_spaces,
+        needs_template=True,
+    ),
+    "cut-link-at-quotation-mark": Repair(
+        name="cut-link-at-quotation-mark", condition="",
+        summary="cut a link's address at the quotation mark that ends a URL pasted with words after it",
+        transform=cut_link_at_quotation_mark, invariant=only_cut_links, needs_template=True,
+    ),
+    "split-joined-links": Repair(
+        name="split-joined-links", condition="",
+        summary="give each address a repeating link field's entry joins with semicolons an entry of its own",
+        transform=split_joined_links, invariant=only_split_joined_links, needs_template=True,
+    ),
+    "choose-reviewed-joined-link": Repair(
+        name="choose-reviewed-joined-link", condition="",
+        summary="keep the reviewed address in a single link field that joins several with semicolons",
+        transform=choose_reviewed_joined_link, invariant=only_chosen_joined_links, needs_template=True,
+    ),
+    "drop-stamped-class-list": Repair(
+        name="drop-stamped-class-list",
+        condition="",
+        summary="take out of a field value the list of classes the 2017 editor stamped as its @type",
+        transform=drop_stamped_class_list,
+        invariant=only_dropped_stamped_class_lists,
+        needs_template=True,
+    ),
+    "drop-unlisted-term-class": Repair(
+        name="drop-unlisted-term-class",
+        condition="",
+        summary="take out of a term value an @type naming a class its field's schema does not list",
+        transform=drop_unlisted_term_class,
+        invariant=only_dropped_unlisted_term_classes,
+        needs_template=True,
+    ),
+    "drop-minted-annotation-id": Repair(
+        name="drop-minted-annotation-id",
+        condition="",
+        summary="take out of _annotations the element-occurrence @id the server minted there before 2024-08-27",
+        transform=drop_minted_annotation_id,
+        invariant=only_dropped_minted_annotation_id,
+    ),
+    "drop-null-instance-type": Repair(
+        name="drop-null-instance-type",
+        condition="",
+        summary="remove an instance's root @type stated as null",
+        transform=drop_null_instance_type,
+        invariant=only_dropped_null_instance_type,
+    ),
+    "drop-unfilled-undeclared-keys": Repair(
+        name="drop-unfilled-undeclared-keys",
+        condition="",
+        summary="remove, at every depth, an undeclared key that holds nothing entered, with its mapping",
+        transform=drop_unfilled_undeclared_keys,
+        invariant=only_dropped_unfilled_undeclared_keys,
+        needs_template=True,
+    ),
+    "empty-import-placeholders": Repair(
+        name="empty-import-placeholders",
+        condition="",
+        summary="write the DataCite locations an import left in place of values as empty values",
+        transform=empty_import_placeholders,
+        invariant=only_emptied_import_placeholders,
+        needs_template=True,
+        error_pattern=None,
+    ),
+    "write-date-as-iso": Repair(
+        name="write-date-as-iso",
+        condition="",
+        summary="write a date field's spelling of a date as the ISO date it names",
+        transform=write_date_as_iso,
+        invariant=only_dates_written_as_iso,
+        needs_template=True,
+        error_pattern=NOT_A_DATE_ERROR,
+    ),
+    "restamp-declared-value-type": Repair(
+        name="restamp-declared-value-type",
+        condition="",
+        summary="narrow a stated datatype to the declared one, where the value already is one",
+        transform=restamp_declared_value_type,
+        invariant=only_restamped_value_types,
+        needs_template=True,
+        error_pattern=DATATYPE_MISMATCH_ERROR,
+    ),
+    "write-link-as-iri": Repair(
+        name="write-link-as-iri",
+        condition="",
+        summary="write a link's bare ORCID, DOI, www. address or e-mail address as the IRI it names",
+        transform=write_link_as_iri,
+        invariant=only_links_written_as_iris,
+        needs_template=True,
+        error_pattern=NOT_AN_ABSOLUTE_IRI_ERROR,
+    ),
+    "empty-placeholder-value": Repair(
+        name="empty-placeholder-value",
+        condition="",
+        summary="write a placeholder word in a date, number or link field as the empty value it stands for",
+        transform=empty_placeholder_value,
+        invariant=only_emptied_placeholders,
+        needs_template=True,
+        error_pattern=NOT_A_VALUE_ERROR,
     ),
     "wrap-instance-occurrence": Repair(
         name="wrap-instance-occurrence",
@@ -8023,6 +10469,13 @@ REPAIRS = {
         invariant=only_settled_iri_values,
         needs_template=True,
         error_pattern=VALUE_SHAPE_ERROR,
+    ),
+    "drop-keyword-value-type": Repair(
+        name="drop-keyword-value-type",
+        condition="value-type-keyword",
+        summary='delete "@type": "@id" from link and controlled-term values, where it names no class',
+        transform=drop_keyword_value_types,
+        invariant=only_dropped_keyword_value_types,
     ),
     "settle-instance-empty-shape": Repair(
         name="settle-instance-empty-shape",
@@ -8798,6 +11251,41 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
         record.update(outcome="still-invalid", detail=explanation)
         return record
 
+    # Since release 2.9.25 the server stores a fractional JSON number as Mongo Decimal128 and serves it
+    # back as {"$numberDecimal": ...}, which the validator refuses, so a write would damage the artifact.
+    # cedar-microservice-libraries fe3fd3ce renders it as the number again; until production carries
+    # that fix, such an artifact is held unwritten.
+    fraction = next(fractional_numbers(repaired), None)
+    if fraction is not None and not arguments.allow_fractional_numbers:
+        record.update(outcome="fractional-number-held",
+                      detail=f"holds the fractional number {fraction[1]!r} at {fraction[0]}, which the "
+                             "server would store and serve back as $numberDecimal")
+        return record
+
+    # A verbatim write sets the graph's modification provenance from the document it writes. Where
+    # that document and the graph disagree, such as a legacy user IRI in the document and the current
+    # one in the graph, the write would replace what the graph holds, so the artifact is held rather
+    # than written. The comparison is with the candidate, not the stored body, because the candidate is
+    # what the graph receives: a repair that restates the modifier the graph already holds agrees.
+    try:
+        details = client.get_json(path + "/details")
+    except rest.AuthenticationError:
+        raise
+    except Exception as error:  # noqa: BLE001
+        record.update(outcome="fetch-failed", detail=f"details could not be read: {error}")
+        return record
+    record["graphProvenanceBefore"] = {key: details.get(key) for key in
+        ("oslc:modifiedBy", "pav:lastUpdatedOn", "lastUpdatedOnTS")} if isinstance(details, dict) else None
+    graph_difference = modification_provenance_difference(repaired, details)
+    if graph_difference is not None:
+        if not arguments.replace_graph_provenance:
+            record.update(outcome="graph-provenance-held",
+                          detail=f"the graph's {graph_difference} differs from the document's, and a "
+                                 "verbatim write would replace it")
+            return record
+        # The values replaced stay in the record, so a later restoration can find them.
+        record["graphProvenanceReplaced"] = graph_difference
+
     if not arguments.apply:
         record.update(outcome="would-repair")
         return record
@@ -8875,6 +11363,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mapping",
                         help="JSON of confirmed renames, {templateId: {oldKey: newKey}}, which "
                              "rename-instance-keys applies; nothing is renamed without it")
+    parser.add_argument("--repeat-children",
+                        help="JSON of template children an owner has decided should repeat, "
+                             "{templateId: {childName: minItems}}, which repeat-template-child applies")
+    parser.add_argument("--joined-link-choices",
+                        help="JSON of reviewed choices keyed by instance IRI then by link-field pointer, each "
+                             "naming the joined address to keep as stored, which choose-reviewed-joined-link applies")
+    parser.add_argument("--instance-mapping-plan",
+                        help="JSON of reviewed instance restructurings keyed by instance IRI, each "
+                             "{template, moves: [{from, to, write?}], drop: [pointer], elements: [{from, to}]}, "
+                             "which apply-reviewed-instance-mapping applies")
     parser.add_argument("--required-removals",
                         help="Java-reviewed parent required-list removals keyed by artifact IRI, "
                              "with beforeSha256, afterSha256 and changes (path, before, after)")
@@ -8914,6 +11412,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON of confirmed narrowings, {artifactId: {entryPath: branchEntry}}, "
                              "which narrow-ontology-constraint-to-branch applies; nothing is "
                              "narrowed without it")
+    parser.add_argument("--placeholder-templates",
+                        help="JSON list of the templates whose instances an import filled with the "
+                             "DataCite locations it read from, which empty-import-placeholders empties; "
+                             "nothing is emptied without it")
+    parser.add_argument("--modifier-forms",
+                        help="JSON of the modifier each artifact's graph holds, {artifactId: userIri}, which "
+                             "restate-modifier-in-current-form writes where the document states the same "
+                             "user in the legacy repo.metadatacenter.net form")
+    parser.add_argument("--creators",
+                        help="JSON of the creator each artifact's graph records, {artifactId: userIri}, which "
+                             "state-creator-from-graph writes where the document names none")
+    parser.add_argument("--date-orders",
+                        help="JSON of the order each template's numeric dates are written in, "
+                             "{templateId: \"day-first\" | \"month-first\"}, which write-date-as-iso "
+                             "uses for a date whose parts cannot settle it; such dates are left without it")
     parser.add_argument("--terms",
                         help="JSON of resolved terms, {templateId: {fieldRoute: {label: term}}}, which "
                              "settle-instance-term-label applies; a term of null empties the field")
@@ -8927,6 +11440,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--apply", action="store_true", help="write; otherwise report what would change")
     parser.add_argument("--allow-context-migration", action="store_true",
                         help="approve property-IRI migration for the explicit --only-ids scope")
+    parser.add_argument("--allow-value-deletion", action="store_true",
+                        help="approve the repairs that delete what was entered (drop-undeclared-keys, "
+                             "drop-term-field-text, drop-unlisted-term-class, drop-stamped-class-list, "
+                             "drop-text-beside-term), for the explicit --only-ids scope")
+    parser.add_argument("--allow-assumed-time", action="store_true",
+                        help="approve write-date-at-midnight assuming a time the owner did not enter, for the "
+                             "explicit --only-ids scope")
+    parser.add_argument("--replace-graph-provenance", action="store_true",
+                        help="write the explicit --only-ids scope even where the graph's modification "
+                             "provenance differs from the document's, which the write replaces")
+    parser.add_argument("--allow-fractional-numbers", action="store_true",
+                        help="write artifacts holding a fractional number; only once the deployment "
+                             "carries cedar-microservice-libraries fe3fd3ce, which serves Decimal128 "
+                             "back as a number")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts")
     parser.add_argument("--types", help="restrict to these artifact types, comma separated")
     parser.add_argument("--exclude-ids",
@@ -9022,12 +11549,27 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("complete-reviewed-standard-context requires --standard-context-plan")
     if "complete-reviewed-context-object-types" in names and not arguments.context_object_plan:
         parser.error("complete-reviewed-context-object-types requires --context-object-plan")
+    if "apply-reviewed-instance-mapping" in names and not arguments.instance_mapping_plan:
+        parser.error("apply-reviewed-instance-mapping requires --instance-mapping-plan")
+    if "choose-reviewed-joined-link" in names and not arguments.joined_link_choices:
+        parser.error("choose-reviewed-joined-link requires --joined-link-choices")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
     if arguments.apply and ({"align-instance-context-iris", "restore-null-standard-context"} & set(names)) \
             and not (arguments.allow_context_migration and arguments.only_ids):
         parser.error("context alignment changes meaning; applying it requires "
                      "--allow-context-migration and an explicit --only-ids scope")
+    if arguments.apply and "write-date-at-midnight" in names \
+            and not (arguments.allow_assumed_time and arguments.only_ids):
+        parser.error("write-date-at-midnight assumes a time nobody entered; applying it requires "
+                     "--allow-assumed-time and an explicit --only-ids scope")
+    deleting = sorted(set(names) & VALUE_DELETING_REPAIRS)
+    if arguments.apply and deleting and not (arguments.allow_value_deletion and arguments.only_ids):
+        parser.error(f"{', '.join(deleting)} deletes entered values; applying it requires "
+                     "--allow-value-deletion and an explicit --only-ids scope")
+    if arguments.replace_graph_provenance and not arguments.only_ids:
+        parser.error("--replace-graph-provenance replaces what the graph records, so it needs an explicit "
+                     "--only-ids scope")
     conditions = [arguments.condition] if arguments.condition \
         else [c for r in repairs for c in r.conditions]
     patterns = [] if arguments.condition else [r.error_pattern for r in repairs if r.error_pattern]
@@ -9104,6 +11646,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
+                                 ("--repeat-children", arguments.repeat_children, REPEATED_CHILDREN),
+                                 ("--instance-mapping-plan", arguments.instance_mapping_plan, INSTANCE_MAPPING_PLANS),
+                                 ("--joined-link-choices", arguments.joined_link_choices, JOINED_LINK_CHOICES),
                                  ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
                                  ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
                                  ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),
@@ -9112,6 +11657,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
+                                 ("--date-orders", arguments.date_orders, DATE_ORDERS),
+                                 ("--creators", arguments.creators, CREATORS),
+                                 ("--modifier-forms", arguments.modifier_forms, MODIFIER_FORMS),
+                                 ("--placeholder-templates", arguments.placeholder_templates, PLACEHOLDER_TEMPLATES),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--term-fields", arguments.term_fields, TERM_FIELDS),
                                  ("--term-input-fields", arguments.term_input_fields, TERM_INPUT_FIELDS),
@@ -9148,8 +11697,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     status = "COMPLETE"
     details: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
     bookkeeping = threading.Lock()
-    REPORTABLE = {"still-invalid", "invariant-failed", "transform-refused", "fetch-failed",
-                  "write-failed"}
+    REPORTABLE = {"still-invalid", "invariant-failed", "transform-refused", "graph-provenance-held",
+                  "fractional-number-held", "fetch-failed", "write-failed"}
 
     def book(record: dict[str, Any]) -> None:
         progress.note(record["outcome"], len(record.get("pathsRemoved") or []))

@@ -238,21 +238,21 @@ export async function run({ user1, user2, admin, folderId }) {
   if (checkStatus(forDoi, 201, 'a template is created to give a DOI')) {
     const did = forDoi.body['@id'];
     cleanup('template', `/templates/${enc(did)}`, doiName);
-    const doi = '10.1234/cedar-rest-suite';
+    const doi = 'https://doi.org/10.1234/cedar-rest-suite';
 
     checkStatus(await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi }),
         200, 'the owner sets the DOI');
     checkStatus(await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi }),
         200, 'and setting the same DOI again is idempotent');
 
-    const altered = await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi: '10.9999/changed' });
+    const altered = await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi: 'https://doi.org/10.9999/changed' });
     if (checkStatus(altered, 400, 'but changing it to a different DOI is refused')) {
       check((altered.text ?? '').includes('doiCanNotBeAltered'),
           'and the body says the DOI cannot be altered',
           `body was ${(altered.text ?? '').slice(0, 200)}`);
     }
 
-    checkStatus(await call(user2.auth, 'POST', '/command/annotations/doi', { '@id': did, doi: '10.5555/outsider' }),
+    checkStatus(await call(user2.auth, 'POST', '/command/annotations/doi', { '@id': did, doi: 'https://doi.org/10.5555/outsider' }),
         403, 'and a user with no write access to the artifact cannot set a DOI');
   }
 

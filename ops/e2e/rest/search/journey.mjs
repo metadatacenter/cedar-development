@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { queries, expectedAliases } from './queries.mjs';
 import { exactResults, scopedQuery } from './assertions.mjs';
+import { dashboardAddress } from '../../journey-fixtures.mjs';
 
 // The standard search tier and standalone search command share one runner and stack lock.
 // That runner owns corpus creation, evidence and cleanup for both REST and browser checks.
@@ -31,7 +32,7 @@ export async function searchJourney({ page, base, fixtures, scope, check }) {
     const [response] = await Promise.all([page.waitForResponse(responseFor(expression(id))), input.press('Enter')]);
     await renderedResults(response, id);
   }
-  await page.goto(base + '/dashboard');
+  await page.goto(dashboardAddress(base));
   await page.getByRole('button', { name: 'New', exact: true }).waitFor();
   await page.getByRole('button', { name: 'List view', exact: true }).click();
   await check('journey/quoted-value', () => submit('field-phrase'));
@@ -64,7 +65,7 @@ export async function searchJourney({ page, base, fixtures, scope, check }) {
     assert.equal(await page.locator(`[data-resource-id="${fixtures.id('private-twin')}"]`).count(), 0);
   });
   async function sharingSearch(id, label) {
-    await page.goto(base + '/dashboard');
+    await page.goto(dashboardAddress(base));
     await page.getByRole('link', { name: label, exact: true }).click();
     const sharing = queryCase(id).parameters.sharing;
     await page.waitForURL(url => url.searchParams.get('sharing') === sharing);

@@ -4,6 +4,13 @@ Running, building, testing and releasing the embeddable editor (CEE/CEF), design
 (CED), and the TypeScript model library used by them. Commands in each component
 section run from that repository unless stated otherwise.
 
+For a development frontend build, run `cedarcli build frontends`. It has Maven-like SNAPSHOT
+semantics: build current local sources, including uncommitted edits, supply their packages to every
+consumer, verify, redeploy and smoke. The request authorizes that complete local workflow without
+follow-up questions. There is no prerequisite to publish, move pins, commit, push or wait for CI.
+Use `cedarcli test frontends` when only the source build and checks are requested. Releases and
+build trains use their separate captured-source workflows.
+
 Use [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md) for open work across these components
 and the main browser applications. Shared design values belong in
 [`cedar-design-tokens`](../../cedar-design-tokens/README.md).
@@ -12,6 +19,7 @@ and the main browser applications. Shared design values belong in
 
 | Area | Start here |
 | --- | --- |
+| Development SNAPSHOT build | [The reactor](#the-reactor); `cedarcli build frontends` |
 | CEE/CEF setup and development | [Node](#cee-node-versions--read-this-first), [running](#cee-running-the-app), [build](#cee-building-the-web-component) |
 | CEE/CEF tests | [Complete gate](#cee-running-the-complete-test-gate), [domain harness](#cee-running-the-domain-test-harness), [visual baselines](#cee-running-the-visual-baseline) |
 | Model library | [Build and package](#cee-building-the-model-library), [validate output](#cee-checking-output-against-the-cedar-model) |
@@ -448,6 +456,11 @@ source/package/runtime evidence for current-development acceptance.
 
 ### Advancing a Pin
 
+For a local snapshot build, run `cedarcli build frontends` directly (or `cedarcli test frontends`
+for the source build and checks). Both use current working-tree components automatically,
+including uncommitted changes. They require no commit, push, CI publication or manual pin update.
+The registry workflow below is for recording dependencies that standalone installs will use.
+
 npm consumers keep exact immutable versions in manifests and lockfiles; `npm ci` does not follow a
 moving dist-tag. To advance tracked registry pins, use [Recording a Pin](#recording-a-pin).
 The local reactor instead wires packages built from current sources into isolated consumers,
@@ -455,23 +468,23 @@ leaving tracked pins unchanged. Both routes must verify the installed and served
 
 ### The Reactor
 
-**Mandatory: a frontend reactor build and every development E2E acceptance run must use the
-latest development pins of ALL CEDAR components in every consumer. No component is exempt.**
+**Mandatory: a frontend reactor build and every development E2E acceptance run must use packages
+built from the current development sources of ALL CEDAR components in every consumer. No component is exempt.**
 This includes the TypeScript model library, design tokens, CEE/CEF, CED/CEFD and CETP, their
 transitive CEDAR dependencies, and any components added later. It applies to all hosts, including
 the combined editor, Workspace, Designer, OpenView, Bridging and the component demos.
 
 “Latest development” means the current development sources, including the edits under test,
-built together in dependency order. Fetch remote references and resolve any checkout behind its
-development head before claiming latest-development coverage; preserve local work. A registry
+built together in dependency order. Ordinary local builds do not fetch or switch branches. If the
+request explicitly includes updating from remote development heads, do that while preserving local
+work before the build; do not make it a prerequisite for testing local edits. A registry
 `dev` tag, a version containing `dev`, a matching pair of displayed versions, or a healthy process
 does not prove freshness. The selected package must match the current source fingerprint, and
 every installed and served copy must match that selected artifact.
 
-Development pins may be the reactor's immutable local artifact hashes and resolved dependency
-locks, or newly published immutable dev versions with updated consumer manifests and locks.
-The current local reactor uses the former and leaves tracked registry pins unchanged. That is
-valid only when **every** consumer actually resolves and serves the fresh selection. An old
+The local reactor selects immutable local artifact hashes and records resolved dependency locks,
+leaving tracked registry pins unchanged. **Every** consumer must resolve and serve that fresh
+selection. Registry publication is a separate delivery workflow. An old
 checked-in pin must never determine the component used by a development E2E run.
 
 **Fail closed on stale, missing or unverified components.** Do not restore old pins or an old
@@ -494,10 +507,9 @@ and test success can both be checked. These requirements also apply to direct `o
 1. Build all frontend libraries, embeddable components and browser applications from their
    current local sources in dependency order, including the working-tree changes being tested.
 2. Make every downstream consumer use the components produced by that build. This is the
-   development equivalent of Maven SNAPSHOT resolution. It may publish fresh immutable **dev**
-   packages to Nexus and advance development pins in `package.json` and lockfiles as needed.
-   Registry publication and development-pin changes are allowed parts of the reactor, not
-   blockers or separate work the user must request again.
+   development equivalent of Maven SNAPSHOT resolution. The CLI builds and wires local packages
+   automatically, including for narrow frontend targets. No registry publication, manual pin
+   change, Git action or follow-up approval is needed.
 3. Run the applicable component, integration and visual regression checks, or reuse a result
    that passed for exactly the same inputs. Review intentional visual changes before updating
    baselines; do not accept failed screenshots automatically.
@@ -515,33 +527,93 @@ repairs and documentation do not invalidate a frontend build. A guard failure me
 changed during the run; it does not establish that the build itself changed them.
 
 This contract does not require a release, a production deployment, or a Git commit/push.
-Development package publication and development-pin updates are distinct from release-version
-changes. Commit/push remains subject to the user’s instruction.
+Registry delivery and release-version changes have their own workflows. Commit/push remains
+subject to the user’s instruction.
 
-Before it builds anything, the command runs `cedarcli check design-tokens --strict` over every
-token consumer's checkout, the check each consumer's "Design token adoption" workflow runs in CI,
-and stops on a finding. No consumer's own test gate includes it, so without this step a tree the
-reactor accepted could still fail that workflow on push. It takes seconds. `cedarcli build all`
-runs the same check unless `--skip-tests` is given.
+Before it builds anything, the command runs the strict design-token style policy over every
+token consumer's checkout. Consumers in the reactor resolve the vocabulary from the local token
+source: a token added there need not be published and pinned before consumers can build with it.
+The report retains registry-pin findings separately; standalone `cedarcli check design-tokens --strict`
+and CI still validate those pins. Missing declarations, mismatched locks, style violations and
+missing/stale baselines still fail. Vendored copies such as MCP keep their byte and pin checks.
+The subsequent producer/consumer build and runtime verification prove the selected package bytes.
+`cedarcli build all` runs the same source-aware preflight unless `--skip-tests` is given.
 
 The command then runs the component verification gates in the isolated build copies, records the
-successful package selection, restarts all native frontends, verifies their installed reactor
-packages, and runs the whole-stack smoke tiers.
+successful package selection, restarts all native frontends, waits until each serves its page and
+everything the page loads through nginx, verifies their installed reactor packages, and runs the
+whole-stack smoke tiers.
+
+Deployment refreshes a live frontend's dependencies when they are absent or older than its
+lockfile, then installs the selected local reactor components. Isolated verification does not
+populate those live `node_modules` trees, so this also handles a first deployment without a
+separate npm command or approval. Unchanged installed dependencies are retained.
 
 A repository whose inputs match an earlier passing result is not verified again. Each passing
-task leaves a record in `.reactor/results/`, named by a fingerprint of everything it read: the
-content of its source tree, its exact commands, the package each CEDAR dependency resolved to in
-the build, the integration bundles its checks loaded, the Node.js and npm versions, the platform,
-and the reactor's own tooling, which is cedar-cli's source and the frontend inputs in
-`cedar-development`. A task with the same fingerprint takes the recorded package and passes
-without running its commands. The build report lists it as `reuse <fingerprint>`, and its
-evidence record names the result it took. A changed producer yields a different package, so
-every repository built on it runs again. The fingerprint leaves out the worker budget, scratch
-paths, the time and the shell's environment. A recorded package that has left the store, or no
-longer has its digest, is not a result. `cedarcli build frontends --no-reuse` runs every
-repository's checks again, and so does the next build after `.reactor/results/` is deleted. A failure at any stage returns nonzero. A
-compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
-leaves the newly selected composition available for diagnosis and does not report completion.
+repository leaves a record in `.reactor/results/`, keyed by source contents, exact commands,
+resolved CEDAR package bytes, integration bundles, Node/npm/platform, installed Playwright
+container image identities, relevant environment and reactor tooling. CLI runtime sources and
+frontend inputs in `cedar-development` count; CLI tests, documentation and separately executed
+smoke/search gates do not. Ignored local `.env*` and `.npmrc` configuration also counts.
+Worker allocations, scratch paths and time do not. Environment values are stored as hashes.
+The hit is checked before copying source or installing dependencies. A component package must
+still exist and match its SHA-256. Reused build evidence retains the manifests and resolved locks
+from the actual earlier install, including sibling browser packages; it does not substitute the
+checkout's development lock.
+
+Task records under `.reactor/task-results/` handle edits within a repository. CEE, CED, the model,
+Workspace, Monitoring, Bridging and OpenView have explicit build/check boundaries. Their keys
+include applicable source groups, actual resolved locks, runtime/tooling and, for browser checks,
+the built bundles they consume. Builds retain their declared outputs in checksummed archives;
+a hit verifies and restores those outputs into the disposable copy before dependent checks run.
+Missing or malformed records, missing outputs and damaged archives cause execution again.
+Successful stage logs are retained beside the records. Reports print each reused task or gate
+stage, its key and original pass time.
+
+A unit specification edit in Workspace reuses its production build and browser result. A browser
+specification edit keeps the build and unit result, then runs the browser suite. Shared fixtures,
+configuration, scripts and ordinary production sources remain conservative inputs. CED's own
+build-provenance rules still apply. Source edits that affect runtime behavior rerun relevant
+verification; this is not individual-test selection. Other frontend repositories retain whole
+repository reuse until their outputs and task boundaries are declared. Installs still use private
+`node_modules` with the shared npm download cache. Workspace's disposable copies omit old staged
+hashed bundles, leaving the live checkout intact. CEE's second identical packaging step reuses the
+first verified package when its inputs have not changed.
+
+A browser success that required retries is not saved as reusable task or repository evidence.
+Completed tasks stay private until the repository source guard passes, so editing a checkout while
+it builds cannot publish new stage results from the invalidated run. A failed later check can still
+leave earlier clean stages reusable when the source guard passes. Stage candidates from a cancelled
+build are discarded with its workspace. `.reactor/stage-results/` is the older, conservative
+failure-resume store; new declared tasks use `.reactor/task-results/`.
+
+For the edit/test loop, use `cedarcli test frontends`. It builds current local sources, runs the
+same component/application checks and conditional consumer-demo gate, and reuses matching evidence.
+It does not activate a runtime, restart applications or record a whole-stack smoke pass.
+`cedarcli build frontends` retains the full deployment and acceptance contract. A compilation
+failure leaves the previous runtime selection intact; a deployment or smoke failure leaves the
+new selection available for diagnosis and does not report completion.
+
+Both commands accept `--no-reuse` to execute every repository and stage again. To discard local
+verification evidence, remove `.reactor/results/`, `.reactor/task-results/` and
+`.reactor/stage-results/`; missing evidence is rebuilt automatically. Concurrency options follow
+`test frontends` and precede `frontends` under `build`. Development still consumes the latest local
+sources automatically; caching does not change SNAPSHOT resolution or release requirements.
+
+CEE and Workspace trace only the first existing retry, instead of recording every passing browser
+test. The retry count and test matrix are unchanged. For first-attempt diagnosis, run
+`CEDAR_TEST_TRACE=on cedarcli test frontends` or set that variable on the owning npm visual command.
+Screenshots retain zero allowed differing pixels and a 0.02 color threshold.
+Workspace's Chromium project disables partial rasterization (`--disable-partial-raster`): each
+changed tile is painted completely. Reusing partially painted tiles can retain stray pixels after
+selection clears the information panel, even when the DOM and consecutive screenshots are stable.
+Keep this browser setting when updating Playwright; it requires no application CSS or baseline change.
+
+Whole-command timing reports live under `.cedar/build-reports/frontend-runs/`, separately from
+the dependency graph reports. They record preflight, build/checks, consumer demos, deployment,
+served-bundle verification and whole-stack smoke, including a failing phase. Gate stage timings
+also record granted workers and seconds waiting once a stage is queued, so worker
+contention is visible separately from execution. A graph-only timing is not a complete reactor time.
 
 An isolated build runs an install once more when npm drops an optional dependency. npm drops
 one whose download or install fails, records the drop only in its debug log, and leaves the
@@ -604,9 +676,75 @@ PRs, before dev publication. Build trains and platform release verification reta
 all three demo surfaces. Before publishing a public CEE release, explicitly test
 the final staged package as described in the npmjs release runbook.
 
-On the 16-core workstation, which runs little else, build with
-`cedarcli build --jobs 3 --workers 12 frontends`. With reuse, most builds run only the
+On hosts with at least 16 logical cores, `cedarcli build frontends` defaults to three
+repository jobs and twelve workers per repository, the same as
+`cedarcli build --jobs 3 --workers 12 frontends`. The shared pool still bounds total workers
+to the host CPU count. Smaller hosts retain two jobs and half their cores (up to eight)
+per repository. The full reactor uses four REST smoke workers with the twelve-worker budget. With reuse, most builds run only the
 repositories that changed, and a repository running on its own gains most from more workers.
+Measured on 2026-10-24 UTC on the 16-core M4 Max with 64 GB RAM, using the 3/12 defaults
+and a warm npm download cache. These are whole `test frontends` command timings, including
+input guards and the conditional demo gate; deployment and whole-stack smoke are outside this scope.
+
+| Edit/run | Before or control | Task/output caching | Savings |
+| --- | --- | --- | --- |
+| Nothing changed | 32.8 s | 21.8 s | 34% |
+| Workspace unit specification only | 101.9 s | 36.4 s | 64% |
+| Workspace browser specification only | 101.9 s | 88.9 s | 13% |
+| Workspace production source | 101.9 s | 98.9 s | All checks correctly rerun; normal timing variation |
+
+The Workspace control disables only its task cache, retaining whole-repository reuse for the
+other applications and all other optimizations. Each probe adds a temporary comment to the
+respective input, runs the real command and restores the file. Unit edits rerun units while
+restoring the production build and reusing browser evidence; browser edits rerun browser checks;
+production edits rerun all three. The unit suite took about 12 s, the production build 2.5 s and
+the browser suite 62–64 s when executed. The unchanged comparison uses the earlier whole-repository
+cache implementation, before lazy copying and the other cache changes.
+
+All evidence below is under `.cedar/build-reports/frontend-runs/`:
+
+| Run | Report |
+| --- | --- |
+| Earlier unchanged run | `20261024T055233Z-20b7f977.json` |
+| Unchanged with lazy copying | `20261024T083917Z-09834d35.json` |
+| Workspace whole-repository control | `20261024T084129Z-0092f32b.json` |
+| Workspace unit edit | `20261024T084246Z-8c35726e.json` |
+| Workspace browser edit | `20261024T084443Z-f945dcd8.json` |
+| Workspace production edit | `20261024T084730Z-3ddd3320.json` |
+| CED unit edit | `20261024T085134Z-bbef9aa5.json` |
+
+A CED unit-only edit completed in 75.6 s, reusing its browser and visual stages. In the preceding
+cold run, the browser stage alone took 174 s. This is evidence of avoided work, not an
+apples-to-apples full-command speedup measurement: CED's remaining gates and worker contention
+also affect wall time.
+
+Cold verification remains roughly 8–10 minutes: the pre-change baseline was 595.4 s
+(`20261024T074103Z-e96e1d5d.json`); complete passes during implementation took 506.1 s, 583.5 s
+and 533.6 s. One included a 50.9 s demo gate. These runs do not establish a controlled cold-run
+speedup; the main measured benefit is repeated development verification. No full deployment/E2E
+before-and-after timing was obtained.
+
+Workspace's copied staged outputs shrank from 255,641,600 to 2,304,000 bytes by omitting historical
+hashed bundles from disposable workspaces. The live checkout is unchanged. Changed Workspace
+repositories still spend 4.6–4.7 s installing private dependencies; retaining installed dependency
+trees could at most recover roughly that time per such rebuild before restoration and validation
+costs. This potential saving is not implemented or included in the table.
+
+The cache/reactor regression selection passed 115 tests. A final unchanged run after restoring
+every probe completed in 20.9 s (`20261024T085733Z-50fd8d2b.json`), reusing all repository and demo
+results. A Workspace version-selector test now
+waits for fonts and the rendered selected label before measuring geometry. The selector and bin-drop
+cases passed 120 repeated Chromium/WebKit tests with retries disabled. A later cold run nevertheless
+exposed an intermittent one-pixel bin-drop screenshot failure under combined load. The failed result
+was not cached, and the full resume and all controlled probes passed. The CI follow-up isolated this
+to Chromium's partial rasterization: with sixfold CPU throttling through the DevTools protocol,
+the exact CI pixel reproduced in 20 of 20 Chromium runs. Disabling partial rasterization passed all
+20 under the same throttling, with all 20 WebKit controls passing in both runs. The full 1,052-case
+browser suite also passed with the unchanged baselines and retries disabled (1.5 minutes, six workers).
+No cases, browser projects, screenshot thresholds or baselines were removed or relaxed.
+
+Earlier measurements, with the then-current verification inventory:
+
 Measured on 2026-10-14 with a warm npm cache and a filled result store, one run each:
 
 | What changed                    | Repositories run | `--jobs` / `--workers` | Wall time |
@@ -634,12 +772,11 @@ minute. Reports: `.cedar/build-reports/20261015T035218Z-12bec28f.json`,
 `20261015T035723Z-0ac7e652.json`, `20261015T035247Z-0015beba.json`,
 `20261015T012311Z-c285cb6b.json`, `20261015T011659Z-fedcff7b.json`,
 `20261015T010102Z-576ae15f.json`, `20261015T010854Z-104313dc.json` and
-`20261015T012939Z-82d73030.json`. The defaults suit a smaller or shared machine.
+`20261015T012939Z-82d73030.json`. These are historical scheduling comparisons.
 
 `cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
-repositories at once, with two workers per repository. Two repositories is the default;
-the worker default is half the detected CPU count, at least one and capped at eight
-(eight on a 16-core M4). Put
+repositories at once, with two workers per repository. The defaults above choose 3/12 on
+the 16-core workstation; 2/2 is an explicit lower-resource override. Put
 build options before the target; `--jobs 1 --workers 1` provides a serial comparison.
 The scheduler reads dependencies from nested package manifests (including npm aliases)
 and the inventory's integration bundle inputs. A consumer waits for its current-source
@@ -715,6 +852,13 @@ its domain/unit tiers two workers each when the budget permits, and fixture
 opening waits for finite animations instead of an unconditional 300 ms delay.
 No screenshot tolerance, baseline, browser project or integration input is removed.
 
+The designer's complete gate enables its WebKit interaction project alongside Chromium;
+both engines are installed by the shared recipe. Workspace builds before running its
+whole browser suite (including WebKit and visual baselines) in the pinned container.
+OpenView builds before its hermetic Chromium surface checks. These checks run in the
+reactor and train as well as each application's CI. CED, CETP and Workspace use the
+same 0.02 per-pixel colour threshold as CEE, with zero differing pixels allowed.
+
 The CLI passes the worker budget into Angular builds and the component browser suites.
 CEE's Vitest suites also honor it. The component gates pass `VITEST_MAX_WORKERS`
 explicitly into Angular's Vitest runner as well as bounding Angular build workers.
@@ -789,11 +933,14 @@ fail the producer task.
 lock, and the resolved manifests and locks are retained as evidence before the copy is discarded. A development build is therefore not
 lockfile-reproducible, which is why the pinned build stays the release path.
 
-Each build snapshots the available references once, then advances its own selection as its
-producers finish. A consumer cannot use an old artifact or a registry pin for a producer scheduled
-in that build that has not succeeded. A dependency outside that build's producers retains its pin
-when the store has no artifact for it. Concurrent builds can publish without changing another
-build's selection or installed bytes. Old directory entries from the earlier store format are
+Every development frontend plan starts with an empty package selection and supplies its own
+producers' outputs, including results reused for identical source and dependency fingerprints.
+Narrow selectors (`build this`, `split-frontends` and `server-frontends` without `--server-payload`)
+automatically include their transitive local producers. Missing source, an unregistered CEDAR
+producer or a failed producer stops the build; neither an older local reference nor a registry pin
+is a fallback. There is no development option to select registry pins instead. Third-party
+dependencies retain their declared constraints. Concurrent builds cannot change another build's
+selection or installed bytes. Old directory entries from the earlier store format are
 ignored; rebuilding the producers populates the tarball store. Keep immutable artifacts while
 builds are active; removing the whole `.reactor` cache is safe when no build is using it.
 
@@ -820,8 +967,8 @@ installation and retain the mismatch. Verification remains read-only and refuses
 The compilation stage leaves running frontends alone; after compilation and component checks,
 `build frontends` restarts them to serve the selected build. Its local-tarball transport
 does not publish to a registry or modify tracked manifests or locks: the build rewrite happens
-in the throwaway copy. This describes the current transport, not a prohibition on Nexus dev
-publication or development-pin updates when needed to fulfill the reactor contract. A server payload builds in place
+in the throwaway copy. Registry publication and tracked pin updates are separate delivery work.
+An explicitly selected server payload builds in place
 and still installs its locks, and the train resolves exact Nexus aliases in its own checkouts, so
 neither sees the reactor.
 
@@ -868,6 +1015,9 @@ absolute path. Without that mount, the host can install a `file:` dependency whi
 cannot resolve the same generated lock. The mount exposes only immutable tarballs.
 
 ### Recording a Pin
+
+This updates checked-in registry dependencies. It is not a prerequisite for a local snapshot build.
+The commit/CI requirements in this section apply to this publication command only.
 
 ```shell
 cedarcli publish components                # report what would move
@@ -1036,8 +1186,8 @@ is the source of truth for which.
 
 | What | Node | Why |
 |---|---|---|
-| Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.22.0** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
-| `cedar-model-typescript-library` | 24.22.0 | Uses the same Node version as CEE. |
+| Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.22.1** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
+| `cedar-model-typescript-library` | 24.22.1 | Uses the same Node version as CEE. |
 
 CEE and the model library use the same Node version for development, builds and tests.
 
@@ -1205,8 +1355,8 @@ bytes on every run — the redirection emptied the staged file before `cat` fail
 on the missing inputs. The CLI has no separate copy of the packaging rules now,
 so that class of drift cannot recur.
 
-Note that `cedarcli` builds CEE on whatever Node the login shell offers, which is
-not necessarily the 24.22.0 this repo declares.
+`cedarcli` selects the shared Node toolchain and verifies the actual interpreter against
+the repository requirement before installing or compiling. The current baseline is 24.22.1.
 
 `resolve-build-output.mjs` decides between two operations, and the difference is
 scope rather than filenames. Webpack wraps each chunk in an IIFE, so joining them
@@ -1338,7 +1488,12 @@ distinguishes them.
 
 <a id="cee-releasing-a-dev-snapshot-locally"></a>
 
-#### Releasing a Dev Snapshot Locally
+#### Publishing a Registry Dev Package
+
+This procedure publishes a package for other installations to consume. Ordinary development
+uses `cedarcli build frontends` (or `cedarcli test frontends` for checks only), which automatically
+uses current local source without publication, version changes or pin updates. A development
+build request requires no follow-up approval. Use the procedure below only for registry delivery.
 
 Publish snapshots scoped to `@org.metadatacenter` on Nexus, never unscoped: Nexus's old unscoped
 CEE lineage can outrank current releases in semver ranges. `scripts/npm-package.mjs` selects the
@@ -1510,14 +1665,30 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-A root `npm audit` reports **0**, and so does `npm run audit:prod`. It reported 11
-until `@angular-devkit/build-angular` was dropped — the webpack toolchain no build
-target had named since the move to `@angular/build` — which took every `high` with
-it, along with 427 packages. The three moderates that survived that, against
-`@angular/cli` and the two packages reached through it, `@hono/node-server` and
-`@modelcontextprotocol/sdk`, closed when the Angular toolchain moved to 22.1.8.
-Expect the root number to move again on the next disclosure; `npm run audit:prod`
-is the one that describes what ships.
+The supported frontend toolchain uses Node **24.22.1**, Angular CLI/build/CDK/Material
+**22.2.4**, and Angular core **22.2.3**. The Angular projects and CEE's domain harness
+explicitly override Vite to **8.3.4**: Angular's 22.2.4 builder still selects 8.3.0,
+which has development-server advisories affecting non-Windows hosts as well as Windows/WSL.
+The old Windows-only assessment is insufficient. Remove this temporary override only when
+Angular selects a patched Vite and the complete frontend gates pass without it.
+
+A full npm audit on 2026-10-24 reports zero findings in all 16 registered modern frontend
+locks and the E2E tooling lock, including development dependencies. The legacy Template
+Editor is separate from that result.
+
+This toolchain passed the full frontend reactor, all three framework consumer demos,
+local deployment, served-bundle verification and whole-stack smoke on 2026-10-24.
+The existing visual baselines, test skips and declared search-coverage gaps were unchanged.
+
+The security lock refresh selects `fast-uri` 3.1.9 throughout the modern frontend and
+E2E tooling, `body-parser` 2.4.0 in the Ember demo, and a patched Zod 4.6.x in the React
+demo. Review fresh audit details, including advisory identifiers and affected paths; a
+matching severity count does not prove that the same advisories were reviewed. After
+changing locks, run `cedarcli publish baselines --refresh` and review the resulting
+`ops/frontend-train.json` diff. This updates train evidence; it does not publish packages.
+
+The legacy Template Editor's npm tooling and vendored Bower assets need a separate
+assessment. An npm production-only audit does not cover those Bower assets.
 
 **Never run `npm audit fix --force` here.** npm's idea of fixing the Angular
 tooling is to walk it backwards: it proposed `@angular/cli@21.0.4` and
@@ -1588,7 +1759,7 @@ unimplemented there and every `newPage()` in the webkit-smoke project failed.
 Linux builds are current, so that constraint left with the runner. macOS runners
 cannot host a Linux container either way.
 
-**One Node version, 24.22.0, for the whole job.** It used to change midway —
+**One Node version, 24.22.1, for the whole job.** It used to change midway —
 build on 16.20.2, switch to 20.20.2, reinstall, then test the already-built
 `dist` — because Angular 14's toolchain and the Playwright the suite needs did
 not accept the same version. Angular 15 onwards do, so the split went at that
@@ -2149,7 +2320,10 @@ npm run test:unit:ci
 This is the headless, single-run form included in `npm run test:ci`. The root
 `npm test` runs the same specs through Vitest, and `test:watch` is the
 interactive form. It enforces the focused artifact/config/wrapper thresholds named
-under domain coverage above. The unit layer is small; do not treat it as a substitute
+under domain coverage above, plus the input-widget floors, per source file. A widget
+with no covered code fails even when other widgets keep the pooled total high.
+The coverage-policy tests exercise that refusal through the installed provider.
+The unit layer is small; do not treat it as a substitute
 for the domain and browser stages.
 
 The coordination layer has a separate Angular-aware tier:
@@ -2264,7 +2438,7 @@ every kind, and a new code belongs in it.
 ### Troubleshooting
 
 **`ng` refuses to run, or `npm install` fails with engine errors**
-Check your Node version first — CEE is on 24.22.0 throughout, and a version
+Check your Node version first — CEE is on 24.22.1 throughout, and a version
 outside Angular 22's range fails in ways that look like something else.
 
 **Harness: `SyntaxError: Invalid or unexpected token` pointing at line 1 of a
@@ -2313,21 +2487,17 @@ and nothing fails until the widget runs in a browser — the domain harness stay
 green throughout. The visual baseline is what catches it.
 
 **Model library changes aren't visible to the harness**
-The harness consumes the published package through CEE's root install, not a
-local checkout, so a local build of the library changes nothing. To pick up
-model-library work, publish a new dev version and bump the alias in the root and
-visual CEE manifests:
+Running a harness directly from an existing checkout uses that checkout's installed package.
+For development against current model sources, use the reactor:
 
 ```bash
-cd ../cedar-model-typescript-library && npm run build && npm publish ./dist --tag dev
+cedarcli test frontends
 ```
 
-Publish with the explicit `./dist` path — a bare `dist` is read as a package name
-and resolves an unrelated public package. Set the new version in `package.json`;
-`npm run build` synchronizes it into `package-dist.json` and then copies that
-manifest to `dist/package.json`. Each publish needs a new version, because npm
-rejects a republish rather than overwriting. For a tight local edit loop, prefer
-`npm link` over publishing a version per iteration.
+It builds the model and supplies the exact package to CEE's root, harness and visual checks in
+isolated copies. Use `cedarcli build frontends` to deploy and smoke the same source composition.
+No publication, version bump, pin update or symlink is required. Registry publication belongs to
+the [package release procedure](NPMJS-RELEASE-RUNBOOK.md).
 
 **A test asserts something that looks wrong**
 Check whether it sits in a "known defects (characterized, not endorsed)" block.
@@ -2342,7 +2512,7 @@ Those assert what CEE *does*, deliberately. [FRONTEND-ROADMAP.md](./FRONTEND-ROA
 CEE consumes `@org.metadatacenter/cedar-model-typescript-library` as a published
 package, so this is only needed when working on the library itself.
 
-The library builds on **Node 24.22.0**, the same version CEE uses: `.nvmrc` names
+The library builds on **Node 24.22.1**, the same version CEE uses: `.nvmrc` names
 it, `engines` declares `^24.15.0`, and CI pins it. It sat on Node 20 until
 2026-08-16 — declared `>=20.19.0`, CI pinned 20.20.2, and the runbook called the
 split deliberate on the grounds that the library is a separate build with its own
@@ -2420,9 +2590,12 @@ same reason, so it exercises whichever tarball the build is set to ship.
 
 #### Publishing a Model Library Dev Build
 
-For a complete CEDAR build, prefer `cedarcli publish train`; the train publishes and records the
-model itself, then wires that exact artifact into CEE. The manual procedure below remains useful for
-standalone CEE development.
+For local development, run `cedarcli build frontends` or `cedarcli test frontends`: the model's
+current source, including uncommitted edits, automatically flows into CEE and every other
+consumer. No publication or pin update is required. A narrow `cedarcli build this` also brings
+in its local component producers. The procedure below is only for explicitly publishing a
+registry package. For an immutable cross-machine build train, `cedarcli publish train` publishes
+and records the captured model source and wires that exact artifact into CEE.
 
 Version is `<next>-dev.<YYYYMMDD>.<sha>`, naming the commit whose content is
 published and *that commit's* date — so the bump commit carries a version naming
@@ -2508,7 +2681,7 @@ published commit, then restore development state. Never publish from the reposit
 | Update consumer pins and train baselines | [Propagate CEE](NPMJS-RELEASE-RUNBOOK.md#propagate-a-stable-cee-release) |
 | Adopt public CEE in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release) |
 | Write the announcement | [Release notes](NPMJS-RELEASE-RUNBOOK.md#release-notes) |
-| Publish a development snapshot | [Local dev snapshots](#cee-releasing-a-dev-snapshot-locally) |
+| Publish a registry development package | [Registry dev packages](#cee-releasing-a-dev-snapshot-locally) |
 
 
 
@@ -2553,7 +2726,7 @@ seam where that met a component at CEE's 14px showed.
 
 ### Requirements
 
-Node 24.22.0, which `.nvmrc` pins and CI runs — the same version CEE and
+Node 24.22.1, which `.nvmrc` pins and CI runs — the same version CEE and
 `cedar-embeddable-term-picker` use. Nothing here needs Java or a running CEDAR stack, except
 controlled-term search, which needs a terminology server.
 
@@ -2645,6 +2818,22 @@ Asynchronous checks and recovery actions belong to the current node, editing int
 and editability revision. A newer rejected edit also invalidates an old recovery.
 Cancellation aborts the lookup, and terminology requests have a 30-second deadline.
 Pending-only edits count as dirty; read-only sessions cannot save.
+Saveable documents must also pass structural validation of the actual JSON emitted by the adapter,
+including standalone field roots. The shared TypeScript library compiles those rules from the six
+canonical Java meta-schemas; its vendored schema hashes identify the rules in use. Occurrence limits
+must fit Java's nonnegative 32-bit integer range. The settings probes retain their existing precise
+feedback, and structural findings use the same summary and nested setting paths.
+
+`npm run test:conformance`, included in CED's mandatory gate and CI, drives real coordinator edits,
+all field types, standalone roots, nested and repeated elements, and deterministic edit histories.
+Every saveable output must pass the real Java validator, Java artifact reader and TypeScript strict
+reader/value checks. Negative controls prove invalid inputs are refused. Java 17 and Maven are
+required, and the gate fails if Java's loaded schema hashes differ from the browser library's.
+CED and the host declare `cedarJavaConformance` in their manifests. Their reactor result keys include
+the Java runtime and every resolved oracle JAR, so a Java-only or transitive dependency change reruns
+their checks even if no frontend source or meta-schema changed. Missing dependency evidence permits
+no cached success.
+
 `TemplateService` coordinates commands and UI navigation;
 `core/model/document-validation.ts` validates a document snapshot and pending
 settings drafts without Angular state. Reconciliation compares structured validation
@@ -3003,6 +3192,20 @@ from the loaded representation; this preservation step does not reconcile concur
 field, comparing its full stored definition, annotations, identifiers, provenance and sibling
 content after save and reopen. The server also follows unambiguous child identities when
 preserving provenance, so changing a placement key does not turn an existing field into a new creation.
+
+The host validates the final merge, including untouched retained branches, with the shared raw-schema
+and value checker before enabling Save. Local blocking findings use the existing validation disclosure;
+advisory semantic findings remain with the component. Immediately before a create, update or new-version
+write, `saveArtifact` prepares storage metadata and identity, then sends that exact body to
+`POST /command/validate?resource_type=...`. The server's verdict includes its mandatory Java reader.
+Missing, malformed, negative, timed-out and stale responses cannot authorize a write. The immutable
+attempt binds both the CED projection and merged body; only a successful current verdict permits
+journaling and sending the write. A failed preflight has not sent a write and cannot create uncertain
+creation recovery. The write endpoint still validates again after its own normalization.
+
+The host's mandatory browser suite loads the real packaged designer and checks the final submitted
+bodies with the same Java oracle and TypeScript reader. Its partial-artifact orchestration fixtures
+explicitly stub those external verdicts; the payload and conformance suites exercise the real checks.
 
 Designer freezes editing and disables Save while a write is pending. Unlike Editor's
 continued-typing workflow, its controls cannot receive focus or keyboard input until the
@@ -3390,8 +3593,9 @@ the saved set. These are allowed alternatives, not a requirement to assign all
 selected types. The serialized model retains the IRIs; picker labels and pins are
 session selection details.
 
-CED pins the published model development package `1.0.12-dev.20260915.076d468`
-for multi-type and paragraph length constraints. New child placements explicitly
+CED uses the model library for multi-type and paragraph length constraints. Local reactor builds
+supply the current model source automatically; standalone installs use CED's declared lock.
+New child placements explicitly
 carry their effective display labels and descriptions so JSON and the model's YAML
 reconstruction agree; absent imported overrides remain absent. Java's artifact
 library also preserves the full set of instance types through JSON and YAML; its
@@ -3652,7 +3856,8 @@ baselines use their pinned Linux ARM containers with zero pixel tolerance.
 Interface typography uses regular 400 and medium 500, with a 12px minimum for
 small labels and count badges. Every page, artifact and dialog title, OpenView's
 included, takes the shared artifact-title role. Material's per-level letter spacing
-is not used. Advance pins after publishing a new immutable snapshot; a consumer that
+is not used. Local builds adopt current token sources automatically. For registry consumers,
+advance pins after publishing a new immutable snapshot; a consumer that
 references a retired token fails `cedarcli check design-tokens --strict`, which names
 the replacement.
 
@@ -3704,12 +3909,20 @@ CEE's existing read-only and editable visual baselines remain the design referen
 
 #### Local Verification of Unpublished Token Changes
 
+Run `cedarcli test frontends` for current-source verification, or `cedarcli build frontends` for
+deployment and whole-stack smoke as well. Both build the token package and wire all consumers
+automatically. Their preflight uses the local token vocabulary; a new token or export needs no
+registry publication or pin update first.
+
+The manual procedure below is only for diagnosing a single consumer in an isolated scratch copy.
+It is not a prerequisite for either development command and must not replace a running reactor's
+selected packages. Registry CI still requires published dependencies before consumers are pushed.
+
 CEE and CED install the shared control, spacing and font exports from their
-exact Nexus snapshot pins. For future unpublished token changes, use packed
-local sources for development verification. Before pushing consumers that need
+exact Nexus snapshot pins when installed standalone. In that separate registry workflow, before pushing consumers that need
 new exports, publish a new immutable token snapshot, update their package and
 lockfile pins, and prove a clean `npm ci` build. Never overwrite a published
-version. With the native profile sourced, the local development loop is:
+version. With the native profile sourced, the scratch-copy diagnostic is:
 
 ```sh
 cd "$CEDAR_HOME/cedar-design-tokens"
@@ -3760,6 +3973,8 @@ publication, and fails when the pinned package lacks a token the repository read
 it does not prove which bundle a host serves. The token repository's README owns
 the scanner scope, exact-declaration exceptions, CI base-revision comparison and
 rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
+The reactor applies the same style policy against the local token source for consumers in its
+build graph. Registry-pin findings remain visible without blocking adoption of that source.
 
 The tokens package exports opt-in `patterns` Sass recipes for titles, menus, dialogs,
 forms, required marks, tabs, breadcrumbs, resource cards, table cells and empty states.
@@ -3776,7 +3991,16 @@ consumers. Each job records both source SHAs and the packed candidate hash, inst
 the consumer's locked graph, and replaces only the dependency-free token package.
 Every packed file is compared byte for byte. All eight consumers build; CEE, CED,
 CETP and Workspace run their existing pinned Linux ARM64 visual suites without
-updating baselines. This complements each consumer's own CI and catches shared
+updating baselines. OpenView, Monitoring, Bridging and the Template Designer host
+run their browser contracts against the candidate as well. Monitoring and
+Bridging's reactor verification installs their locked browser test packages and
+Chromium, builds the application before the browser suite, and honors
+`CEDAR_TEST_WORKERS`. Their final build step remains in place for release output
+recording. Isolated nested applications retain their repository layout, including
+the sibling `browser/` package and surface registry; the source fingerprint covers
+that whole repository so changes to those checks invalidate reused results.
+Failed-build diagnostics retain the sibling browser reports before cleanup.
+This complements each consumer's own CI and catches shared
 changes before publication. It does not install repository approval rules.
 
 Workspace imports the token package's scoped `native-choices.css` at its application
@@ -3885,6 +4109,82 @@ checks: retain all three alongside the reactor and smoke evidence. By decision, 
 baseline keeps the field library's two section heights, which its divider sets as it
 is dragged. No stylesheet can name a value that exists only at runtime, so both stay
 as recorded debt.
+
+#### Cross-consumer token audit (2026-10-23)
+
+The local audit found no new source-adoption violations or rendered-contract drift
+in the eight modern frontends. `cedarcli check design-tokens --strict --all --json`
+passed across those frontends and the MCP session page: 853 source files, 105
+existing findings, no stale allowances, missing token references or unused tokens.
+The eight modern consumers pin `0.1.0-dev.20261021.c0dd06d3`. Their installed
+Sass, compiled assets and icon files match the central checkout byte for byte,
+including installations whose package version labels are older reactor labels.
+
+| Consumer | Existing source findings | Passing browser checks |
+| --- | ---: | ---: |
+| CED / CEFD | 2 | 83 |
+| CEE / CEF | 33 | 8 |
+| CETP | 14 | 12 |
+| Workspace | 18 | 125 |
+| OpenView | 6 | 26 |
+| Monitoring | 31 | 40 |
+| Bridging | 1 | 10 |
+| Template Designer host | 0 | 11 |
+| MCP session page | 0 | Not run |
+
+All **315 browser checks passed**, including registered surfaces at 1440px and
+375px, CED authoring under host overrides and its default-value surface with real
+CEF. The runs used the existing `surfaces.spec` suites, plus CED's
+`shared-surfaces.spec`; no screenshot or allowance was updated. CED, CETP,
+Workspace and Monitoring test outputs were rebuilt. This is computed-style and
+fixture evidence, not a production audit, a complete pixel-baseline run or a
+whole-stack smoke run. Legacy AngularJS Template Editor remains outside these
+adoption and rendered-contract gates.
+
+The findings distinguish existing local values from new drift. CED's two are the
+runtime-resized library sections retained by decision. CEE keeps comfortable-mode
+Material sizing/outline values, a local time-picker line height and other geometry;
+CETP keeps its host-derived selection tint, local line heights, a 22px constraint
+action height and 0.4 disabled opacity. Workspace and the other applications also
+retain layout or categorical-color debt. Comparing recorded source allowances
+with the end of 2026-10-04 found no increases in the eight modern frontends; CED
+fell from 23 to 2 and the Template Designer host from 1 to 0. These counts do not
+justify substituting same-valued tokens with different meanings or changing
+approved geometry.
+
+The audit also exposed limits in the evidence:
+
+- Monitoring's old local `dist` failed 20 checks for a retired monospace font and
+  two for an outdated health-check fixture state. Rebuilding current source made
+  all 40 pass without a source change. A passing source scan cannot certify an
+  arbitrary existing build directory.
+- The original adoption report counted only contract `debt`, omitting
+  `scaleDebt`. The report now counts both and shows their breakdown: two CETP
+  selection-tint allowances and five Monitoring categorical-color/toast
+  allowances. The retained audit JSON predates this reporting correction; browser
+  enforcement and the registries are unchanged.
+- The audit found Monitoring and Bridging browser suites missing from the central
+  token workflow and reactor verification. Both now install and run those suites
+  against built output, as their own CI already did. A new build precedes the
+  browser checks so an old local distribution cannot stand in for current source.
+- The MCP manifest is nine token commits behind, but all three vendored
+  stylesheets match current compiled bytes. This is version lag without observed
+  stylesheet drift. `check components --all --strict` separately reports the
+  Template Designer host's CED and CETP pins one commit behind, both for a model
+  library pin update; that is not a token-style difference.
+
+The follow-up fixes passed both exact verification recipes in isolated repository
+copies: dependency installation, unit tests, fresh application builds and all 191
+Monitoring / 42 Bridging browser tests. The strict adoption check still passes and
+now reports the seven recorded color allowances. Checker, inventory, isolation,
+cache-invalidation and diagnostic-retention regressions pass. These targeted runs
+do not constitute a full frontend reactor or a GitHub Actions run.
+
+Local raw evidence is retained under
+`$CEDAR_HOME/.cedar/audits/2026-10-23-design-tokens/`: `summary.json`,
+`source-adoption.json`, `component-freshness.txt`, build logs and browser logs,
+including both Monitoring runs. Source styling, shared values, package pins and
+baselines were unchanged by this audit.
 
 <a id="accessibility-conformance"></a>
 

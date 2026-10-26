@@ -213,54 +213,13 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 7. Clear the Advisories Waiting on Upstream
+### 7. Remove the Temporary Vite Security Override When Angular Catches Up
 
-Five advisories remain in the frontend locks. All of them sit in build, lint, test or
-development-server tooling, and nothing the affected projects ship contains them. The train's lock
-baselines record the current counts as reviewed, so trains and releases pass, and nothing waits on
-this item.
-
-Two of them have no fixed release. Each is a denial of service that needs an attacker to supply the
-glob pattern or the format string, and here those come only from the projects' own configuration.
-
-- `braces` (GHSA-vfj7-8cjw-p6xm, high) affects every release up to 3.0.3, the latest. It reaches
-  the Ember CEE demo only through `micromatch` 4.0.8. ember-cli, `@embroider/compat` by way of
-  broccoli and findup-sync, `@embroider/vite` by way of fast-glob, stylelint and ember-template-lint
-  6 all still require it in their latest releases. ember-template-lint 7 no longer does.
-- `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) affects every release up to 1.1.3, the latest. It
-  reaches the Ember demo through `underscore.string` 3.3.6, which broccoli 4 and `quick-temp`
-  require. It reaches the model library through `ts-jest`, `babel-plugin-istanbul` and
-  `@istanbuljs/load-nyc-config`, which still loads `js-yaml` 3 and with it `argparse` 1.
-
-The likeliest way out for these two is withdrawal rather than a fix. Both maintainers dispute their
-advisory, and neither has merged any of the fix pull requests opened since it was published. On
-2026-10-05 a contributor asked the authority that issued the `braces` advisory to withdraw it. A
-withdrawn advisory drops out of `npm audit` with no change on CEDAR's side. stylelint's maintainers
-say its unreleased 18.0.0 drops its glob dependencies, which removes one route for `braces` and
-leaves the others.
-
-No override helps while no fixed version exists. Dropping stylelint and ember-template-lint would
-not help either, because ember-cli and Embroider would still bring `braces`, and moving
-ember-template-lint to 7 removes one route for each package without clearing either.
-
-The other three are `vite`'s, which has a fixed release the Angular projects cannot yet take. npm's
-audit began counting them on 2026-10-20. All three affect every release before 8.3.3 and sit in the
-editor launcher behind the `/__open-in-editor` endpoint every development server mounts.
-GHSA-587h-7wmj-h5pm (high) and GHSA-698v-4r3x-3vcv (moderate) apply on Windows only.
-GHSA-r825-w8mm-5pxw (moderate) applies only under WSL, with Vim, Emacs or a plugin-enabled
-Notepad++, and an attacker able to create a file named `+…` or `-…` in the working folder. None of
-them applies on the macOS workstation, the Linux runners or the images, which serve built files
-through nginx. The React and Ember demos ask for vite `^8.2` and carry 8.3.4. The ten Angular
-projects carry 8.3.0, because `@angular/build` 22.2.3 pins it exactly, and `@angular/build`
-22.3.0-next.2 already pins 8.3.4. On 2026-10-20 the decision was to take the stable Angular release
-that moves the pin, through the ordinary dependency update, rather than to override vite in each
-project. The latest stable release on 2026-10-21 was still 22.2.3.
-
-When an advisory is withdrawn, lower the counts recorded for the affected locks in
-`ops/frontend-train.json` by hand. The locks themselves do not change, and
-`cedarcli publish baselines --refresh` refreshes only a lock whose digest has moved. When a package
-publishes a fix instead, or the packages above stop requiring it, refresh the affected locks, run
-each project's lint, tests and build, and run `cedarcli publish baselines --refresh`.
+Remove the `vite: 8.3.4` overrides from the Angular projects once a supported stable
+`@angular/build` selects a patched Vite itself. Version 22.2.4 still requires Vite 8.3.0;
+the affected 8.3 line is fixed from 8.3.3. Keep CEE's domain harness aligned with the
+root project. Re-resolve the locks, inspect the advisory identities and run the frontend
+reactor and all three consumer demos before removing the overrides.
 
 ### 8. Fix CEE's WCAG Failures
 
@@ -311,7 +270,7 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 
 **Needing code changes.**
 
-- **Vitest 5.** `@angular/build` 22.2.3 already accepts it. CEE's root and its domain harness must
+- **Vitest 5.** `@angular/build` 22.2.4 already accepts it. CEE's root and its domain harness must
   move together, because the harness runs on the root's worker, and the harness's `oxc` transform
   settings need checking against Vitest 5's Vite, since the previous major broke them. The other
   Vitest projects are CED, CETP, Workspace, OpenView, Bridging, Monitoring and the Angular and
@@ -328,8 +287,6 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
   Angular project and CEE's harness use 6.0.
 - **The demos' tooling.** ESLint 10 in all three demos; zone.js 0.16 and jsdom 30 in the Angular
   demo; Babel 8, QUnit 3, ember-template-lint 7 and eslint-plugin-ember 13 in the Ember demo.
-  Moving ember-template-lint to 7 also removes one route each for the `braces` and `sprintf-js`
-  advisories that "Clear the Advisories Waiting on Upstream" tracks.
 
 **Needing a design decision.**
 

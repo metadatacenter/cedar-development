@@ -45,7 +45,8 @@ import { designerOrderJourney, largeDesignerJourney, designerKeyboardJourney, de
   nestedDesignerJourney, designerNavigationJourney } from "./designer-editing-journey.mjs";
 
 import { workspaceKeyboardFoldersJourney, workspaceKeyboardSelectionJourney, workspaceTypeFilterJourney,
-  workspacePaginationJourney, workspaceSearchReturnJourney, workspaceRenamedBreadcrumbJourney } from "./workspace-navigation-journey.mjs";
+  workspaceListingPreferencesJourney, workspacePaginationJourney, workspaceSearchReturnJourney,
+  workspaceRenamedBreadcrumbJourney } from "./workspace-navigation-journey.mjs";
 
 // JOURNEYS lists every self-contained journey under the key the runners know it by. Each journey
 // makes its fixtures in a folder of its own under the folder it is given and reads nothing another
@@ -57,8 +58,15 @@ import { workspaceKeyboardFoldersJourney, workspaceKeyboardSelectionJourney, wor
 // also share a machine-wide lock with worker setup and the core chain. The runners enforce this
 // declaration when a journey invokes a browser authentication helper.
 //
+// `shares` names state a journey changes that is not its own: something kept per account rather than
+// in the journey's folder, which every lane signs in as. No two journeys that share the same state run
+// at once, because one putting it back as it found it undoes what the other is checking.
+//
 // journey-registry.test.mjs fails when a journey file exports a journey that is neither listed here
 // nor named in BOUND.
+/** The signed-in user's saved Workspace listing preferences, which `keepingListingPreferences` puts back. */
+export const LISTING_PREFERENCES = "the signed-in user's saved Workspace listing preferences";
+
 export const JOURNEYS = [
   { key: "folder-ui", run: folderUiJourney },
   { key: "designer-authoring", run: designerAuthoringJourney },
@@ -117,7 +125,7 @@ export const JOURNEYS = [
   { key: "metadata-navigation", run: metadataNavigationJourney },
   { key: "metadata-record-switch", run: metadataRecordSwitchJourney },
   { key: "designer-return-context", run: designerReturnContextJourney },
-  { key: "metadata-return-context", run: metadataReturnContextJourney },
+  { key: "metadata-return-context", run: metadataReturnContextJourney, shares: LISTING_PREFERENCES },
   { key: "nested-metadata", run: nestedMetadataJourney },
   { key: "cloned-element", run: clonedElementJourney },
   { key: "bounded-repeated", run: boundedRepeatedJourney },
@@ -130,9 +138,10 @@ export const JOURNEYS = [
   { key: "designer-default", run: designerDefaultJourney },
   { key: "nested-designer", run: nestedDesignerJourney },
   { key: "designer-navigation", run: designerNavigationJourney },
-  { key: "workspace-keyboard-folders", run: workspaceKeyboardFoldersJourney },
+  { key: "workspace-keyboard-folders", run: workspaceKeyboardFoldersJourney, shares: LISTING_PREFERENCES },
   { key: "workspace-keyboard-selection", run: workspaceKeyboardSelectionJourney },
-  { key: "workspace-type-filter", run: workspaceTypeFilterJourney },
+  { key: "workspace-type-filter", run: workspaceTypeFilterJourney, shares: LISTING_PREFERENCES },
+  { key: "workspace-listing-preferences", run: workspaceListingPreferencesJourney, shares: LISTING_PREFERENCES },
   { key: "workspace-pagination", run: workspacePaginationJourney },
   { key: "workspace-search-return", run: workspaceSearchReturnJourney },
   { key: "workspace-renamed-breadcrumb", run: workspaceRenamedBreadcrumbJourney },

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { enc, mutate } from "./rest/lib.mjs";
 import { journeyFolder } from "./journey-fixtures.mjs";
+import { observeTokenRefresh } from "./token-refresh.mjs";
 import { createFolder, listed, listing, menu, modal, pathId, ready, row, save } from "./workspace-journey-fixtures.mjs";
 
 // The journey checks Workspace's folder controls: a folder created and renamed through its own
@@ -60,6 +61,8 @@ export async function folderUiJourney(args) {
   // Inject one expired-access-token response, then let the real refresh and
   // retried request reach Keycloak and the resource server.
   let attempts = 0;
+  const refresh = observeTokenRefresh(page);
+  let beforeRetry;
   const contentsUrl = url => url.pathname === "/folders/" + pathId(folderId) + "/contents";
   const expireOnce = async route => {
     if (route.request().method() !== "GET") return route.fallback();
@@ -71,6 +74,7 @@ export async function folderUiJourney(args) {
         body: '{"message":"Expired access token"}',
         headers: { "Access-Control-Allow-Origin": new URL(base).origin },
       });
+    beforeRetry = refresh.snapshot();
     return route.fallback();
   };
   await page.route(contentsUrl, expireOnce);
@@ -83,8 +87,10 @@ export async function folderUiJourney(args) {
     await recovered;
     await ready(page);
     assert.equal(attempts, 2, "One unauthorized request is refreshed and retried once");
+    refresh.assertRefreshedBeforeRetry(beforeRetry);
     assert.ok(await row(page, names.destination).count());
   } finally {
+    refresh.stop();
     await page.unroute(contentsUrl, expireOnce);
   }
   pass("token-refresh", "Expired access response refreshes the real session and retries once");

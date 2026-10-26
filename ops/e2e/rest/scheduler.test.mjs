@@ -104,7 +104,7 @@ test('overlapping contexts retain check labels and unwind their own fixtures', a
     }
     assert.equal(names.at(-1), 'root');
     assert.equal(live.size, 0);
-    assert.equal(summary().failed, 0);
+    assert.equal(summary(['alpha', 'beta']).failed, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -184,3 +184,22 @@ test("the newest readable split reports come first", () => {
     rmSync(directory, {recursive: true, force: true});
   }
 });
+
+test("two units that share state are never in flight together", () => {
+  const unit = (name, seconds, shares = null) => ({ kind: "journey", name, seconds, shares, identity: false });
+  const queue = createQueue([unit("filters", 30, "preferences"), unit("kept", 20, "preferences"), unit("other", 10)]);
+  const general = { name: "general-1", identity: false };
+  const first = queue.next(general);
+  assert.equal(first.name, "filters");
+  // The other preference journey waits; a unit sharing nothing is still handed out.
+  assert.equal(queue.next(general).name, "other");
+  assert.equal(queue.next(general), undefined);
+  queue.finish(first);
+  assert.equal(queue.next(general).name, "kept");
+});
+
+test("the plan carries each journey's shared state to its unit", () => {
+  const layout = plan({ lanes: 2, durations, stamp: 1 });
+  for (const entry of JOURNEYS)
+    assert.equal(layout.units.find(unit => unit.name === entry.key).shares, entry.shares ?? null, entry.key);
+});

@@ -61,6 +61,27 @@ class FrontendInventoryTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'invalid package commands'):
                 frontend_inventory.validate(self.config)
 
+    def test_split_apps_build_before_their_browser_checks(self):
+        for repository in ('cedar-monitoring', 'cedar-bridging', 'cedar-openview'):
+            with self.subTest(repository=repository):
+                commands = frontend_inventory.commands(self.config, repository, repository + '-src')
+                built = commands.index(['npm', 'run', 'build'])
+                self.assertLess(commands.index(['npm', '--prefix', '../browser', 'ci']), built)
+                self.assertLess(commands.index(['../browser/node_modules/.bin/playwright', 'install', '--with-deps', 'chromium']), built)
+                self.assertLess(built, commands.index(['npm', '--prefix', '../browser', 'test']))
+
+    def test_workspace_checks_the_built_ui_in_the_visual_container(self):
+        commands = frontend_inventory.commands(self.config, 'cedar-workspace')
+        built = commands.index(['npm', 'run', 'build'])
+        self.assertLess(commands.index(['npm', 'test']), built)
+        self.assertLess(built, commands.index(['npm', 'run', 'test:visual']))
+
+    def test_designer_installs_both_engines_before_its_complete_gate(self):
+        commands = frontend_inventory.commands(self.config, 'cedar-embeddable-designer')
+        self.assertLess(commands.index(['./browser/node_modules/.bin/playwright', 'install',
+                                        '--with-deps', 'chromium', 'webkit']),
+                        commands.index(['npm', 'run', 'test:ci']))
+
     def test_all_three_framework_demos_have_lint_and_tests(self):
         for directory in ('cedar-cee-demo-angular-src','cedar-cee-demo-ember-src','cedar-cee-demo-react'):
             commands = frontend_inventory.commands(self.config,'cedar-component-demo',directory)

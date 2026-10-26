@@ -620,7 +620,7 @@ class FrontendTrainTest(unittest.TestCase):
 
             def run(command, cwd, environment=None):
                 commands.append(command)
-                if command == ["npm", "run", "test:ci"]:
+                if command == ["npm", "run", "build"]:
                     write(cwd / "dist" / "package.json", {
                         "name": MODEL_NAME, "version": version,
                     })
@@ -637,7 +637,11 @@ class FrontendTrainTest(unittest.TestCase):
                 frontend_train.publish_model(argparse.Namespace(
                     version=VERSION, workspace=workspace, state=state, config=verification_fixture(root),
                 ))
-            self.assertIn(["npm", "run", "test:ci"], commands)
+            self.assertEqual(1, commands.count(["npm", "run", "build"]))
+            self.assertEqual(1, commands.count(["npm", "run", "test:ci:prebuilt"]))
+            self.assertNotIn(["npm", "run", "test:ci"], commands)
+            self.assertLess(commands.index(["npm", "run", "build"]),
+                            commands.index(["npm", "run", "test:ci:prebuilt"]))
             self.assertTrue(any(command[:3] == ["npm", "publish", "./dist"] for command in commands))
             completion = frontend_train.load_json(
                 state / "npm" / "model" / "completed" / f"{VERSION}.json"

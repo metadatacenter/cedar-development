@@ -1,6 +1,7 @@
 """Regressions from independent review of the production repair campaign."""
 import argparse
 import copy
+import io
 import json
 import pathlib
 import tempfile
@@ -93,15 +94,21 @@ class WriteSafetyTest(unittest.TestCase):
                                lambda ref, result: recorded.append(result['id']))
         self.assertEqual(sorted(recorded), list(range(50)))
 
-    def run_repair(self, mutate=None, body=None, valid=True, graph=None):
+    def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None,
+                   replace_graph_provenance=False, repairs=None, allow_fractional_numbers=False):
+        """Run one repair against a fake deployment whose graph details are ``graph_before`` until
+        the write and ``graph`` after it, each defaulting to the provenance of the stored body."""
         class Client:
             def __init__(self):
                 self.body = body or {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old'}
+                self.written = False
             def get_with_etag(self, path):
                 return copy.deepcopy(self.body), '"1"'
             def get_json(self, path):
-                return graph if graph is not None else copy.deepcopy(self.body)
+                stated = graph if self.written else graph_before
+                return stated if stated is not None else copy.deepcopy(self.body)
             def put_verbatim(self, path, candidate, etag):
+                self.written = True
                 self.body = copy.deepcopy(candidate)
                 if mutate:
                     mutate(self.body)
@@ -111,8 +118,10 @@ class WriteSafetyTest(unittest.TestCase):
                 return {'status': 'valid' if valid else 'invalid',
                         'errors': [] if valid else [{'message': 'invalid'}]}
         with tempfile.TemporaryDirectory() as folder:
-            return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder),
-                                [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
+            return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder,
+                                                   replace_graph_provenance=replace_graph_provenance,
+                                                   allow_fractional_numbers=allow_fractional_numbers),
+                                repairs or [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
                                 r.rest.ArtifactRef('template', 'urn:test', 'test'))
 
     def test_readback_detects_unrelated_server_change(self):
@@ -128,6 +137,84 @@ class WriteSafetyTest(unittest.TestCase):
                                        'pav:lastUpdatedOn': '2026-09-25T20:02:23-07:00'})
         self.assertFalse(result['verified'])
         self.assertIn('graph modification provenance differs', result['detail'])
+
+    def test_a_restated_modifier_the_graph_already_holds_is_written(self):
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old',
+                  'oslc:modifiedBy': 'https://repo.metadatacenter.net/users/u1',
+                  'pav:lastUpdatedOn': '2017-02-01T10:00:00-08:00'}
+        graph = {'oslc:modifiedBy': 'https://metadatacenter.org/users/u1',
+                 'pav:lastUpdatedOn': '2017-02-01T18:00:00Z', 'lastUpdatedOnTS': 1485972000}
+        r.MODIFIER_FORMS['urn:test'] = graph['oslc:modifiedBy']
+        try:
+            result = self.run_repair(body=stored, graph_before=graph, graph=graph,
+                                     repairs=[r.REPAIRS['restate-modifier-in-current-form'], r.REPAIRS['empty-derived-from']])
+        finally:
+            r.MODIFIER_FORMS.clear()
+        self.assertEqual(result['outcome'], 'repaired')
+        self.assertTrue(result['verified'])
+
+    def test_a_graph_that_already_disagrees_with_the_document_is_held_unwritten(self):
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old',
+                  'oslc:modifiedBy': 'https://repo.metadatacenter.net/users/u1',
+                  'pav:lastUpdatedOn': '2017-02-01T10:00:00-08:00'}
+        graph = {'oslc:modifiedBy': 'https://metadatacenter.org/users/u1',
+                 'pav:lastUpdatedOn': '2017-02-01T18:00:00Z', 'lastUpdatedOnTS': 1485972000}
+        result = self.run_repair(body=stored, graph_before=graph)
+        self.assertEqual(result['outcome'], 'graph-provenance-held')
+        self.assertIn('oslc:modifiedBy', result['detail'])
+        self.assertNotIn('preimage', result)
+        agreeing = dict(graph, **{'oslc:modifiedBy': stored['oslc:modifiedBy']})
+        self.assertEqual(self.run_repair(body=stored, graph_before=agreeing, graph=agreeing)['outcome'],
+                         'repaired')
+
+        replaced = self.run_repair(body=stored, graph_before=graph, graph=agreeing,
+                                   replace_graph_provenance=True)
+        self.assertEqual((replaced['outcome'], replaced['verified']), ('repaired', True))
+        self.assertEqual(replaced['graphProvenanceReplaced'], 'oslc:modifiedBy')
+        self.assertEqual(replaced['graphProvenanceBefore']['oslc:modifiedBy'], graph['oslc:modifiedBy'])
+
+    def test_a_fractional_number_is_held_unwritten(self):
+        # The server stores 1e-06 as Decimal128 and serves {"$numberDecimal": "0.000001"} back.
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old',
+                  '_valueConstraints': {'minValue': 1e-06, 'maxValue': 10}}
+        def decimal128(body):
+            body['_valueConstraints']['minValue'] = {'$numberDecimal': '0.000001'}
+        result = self.run_repair(body=stored, mutate=decimal128)
+        self.assertEqual(result['outcome'], 'fractional-number-held')
+        self.assertIn('/_valueConstraints/minValue', result['detail'])
+        self.assertNotIn('preimage', result)
+        self.assertEqual(self.run_repair(body=dict(stored, _valueConstraints={'maxValue': 10}))['outcome'],
+                         'repaired')
+        allowed = self.run_repair(body=stored, allow_fractional_numbers=True)
+        self.assertEqual((allowed['outcome'], allowed['verified']), ('repaired', True))
+
+    def test_the_minted_annotation_identifier_alone_is_dropped(self):
+        minted = 'https://repo.metadatacenter.org/template-element-instances/9d1e2f3a-0000-4000-8000-000000000001'
+        doi = {'@id': 'https://doi.org/10.1234/x'}
+        before = {'@id': 'urn:i', '_annotations': {'@id': minted, 'https://datacite.com/doi': doi}}
+        after, changes = r.drop_minted_annotation_id(before)
+        self.assertEqual(after['_annotations'], {'https://datacite.com/doi': doi})
+        self.assertEqual(changes, [{'path': '/_annotations/@id', 'replaced': minted, 'wrote': None}])
+        self.assertIsNone(r.only_dropped_minted_annotation_id(before, after))
+        self.assertEqual(after['@id'], 'urn:i')
+
+        other = {'_annotations': {'@id': 'https://example.org/chosen'}}
+        self.assertEqual(r.drop_minted_annotation_id(other), (other, []))
+        self.assertEqual(r.drop_minted_annotation_id({'@id': 'urn:i'})[1], [])
+        tampered = copy.deepcopy(after)
+        tampered['_annotations']['https://datacite.com/doi'] = {}
+        self.assertEqual(r.only_dropped_minted_annotation_id(before, tampered),
+                         '/_annotations/https:~1~1datacite.com~1doi/@id')
+
+    def test_fractional_numbers_are_the_parser_floats(self):
+        found = list(r.fractional_numbers(json.loads('{"a": 1, "b": 1.0, "c": [2e3, true], "d/e": 0.5}')))
+        self.assertEqual(found, [('/b', 1.0), ('/c/0', 2000.0), ('/d~1e', 0.5)])
+
+    def test_replacing_graph_provenance_requires_an_explicit_scope(self):
+        with patch('sys.stderr', new_callable=io.StringIO) as error, self.assertRaises(SystemExit):
+            r.main(['--apply', '--repair', 'drop-keyword-value-type', '--replace-graph-provenance',
+                    '--from-records', 'unused.jsonl'])
+        self.assertIn('--replace-graph-provenance', error.getvalue())
 
     def test_graph_date_offsets_match_but_sort_timestamp_must_be_numeric(self):
         document = {'oslc:modifiedBy': 'author', 'pav:lastUpdatedOn': '2017-12-29T08:48:17.987-08:00'}
@@ -281,6 +368,50 @@ class UnusedContextReferenceSafetyTest(unittest.TestCase):
         self.assertIsNone(r.only_dropped_unused_context(before, after, t))
 
 
+class OrphanContextSafetyTest(unittest.TestCase):
+    """A term the template's @context declares for no child leaves the instance when nothing uses it."""
+
+    def template_declaring(self, terms, required=()):
+        t = template({'Field': child()})
+        t['properties']['@context'] = {
+            'properties': {name: {'enum': ['urn:' + name]} for name in ('Field', *terms)},
+            'required': ['Field', *required]}
+        return t
+
+    def test_removes_an_unused_term_the_template_declares_for_no_child(self):
+        t = self.template_declaring(['id'])
+        before = {'@context': {'Field': 'urn:Field', 'id': 'urn:id'}, 'Field': {'@value': 'data'}}
+        after, changes = r.drop_orphan_instance_context(before, t)
+        self.assertEqual(changes, [{'path': '/@context/id', 'replaced': 'urn:id', 'wrote': None}])
+        self.assertEqual(after, {'@context': {'Field': 'urn:Field'}, 'Field': {'@value': 'data'}})
+        self.assertIsNone(r.only_dropped_orphan_context(before, after, t))
+        self.assertEqual(r.drop_orphan_instance_context(after, t)[1], [])
+
+    def test_keeps_a_child_term_a_required_term_a_used_term_and_an_undeclared_term(self):
+        t = self.template_declaring(['kept', 'used'], required=['kept'])
+        before = {'@context': {'Field': 'urn:Field', 'kept': 'urn:kept', 'used': 'urn:used',
+                               'other': 'urn:other'},
+                  'Field': {'@type': 'used:Thing'}}
+        self.assertEqual(r.drop_orphan_instance_context(before, t), (before, []))
+
+    def test_reaches_an_element_occurrence(self):
+        e = child(ELEMENT_TYPE)
+        e['properties'] = {'@context': {'properties': {'id': {'enum': ['urn:id']}}, 'required': []}}
+        t = template({'Element': {'type': 'array', 'items': e}})
+        before = {'Element': [{'@context': {'id': 'urn:id'}}, {'@context': {}}]}
+        after, changes = r.drop_orphan_instance_context(before, t)
+        self.assertEqual([x['path'] for x in changes], ['/Element/0/@context/id'])
+        self.assertIsNone(r.only_dropped_orphan_context(before, after, t))
+
+    def test_the_invariant_refuses_any_other_change(self):
+        t = self.template_declaring(['id'])
+        before = {'@context': {'Field': 'urn:Field', 'id': 'urn:id'}, 'Field': {'@value': 'data'}}
+        self.assertEqual(r.only_dropped_orphan_context(
+            before, {'@context': {'id': 'urn:id'}, 'Field': {'@value': 'data'}}, t), '/@context/Field')
+        self.assertEqual(r.only_dropped_orphan_context(
+            before, {'@context': {'Field': 'urn:Field'}, 'Field': {'@value': 'other'}}, t), '/Field/@value')
+
+
 class EmptySlotCompletionSafetyTest(unittest.TestCase):
 
     def test_prune_only_explicit_undeclared_empties(self):
@@ -342,6 +473,29 @@ class OrcidSpacingTest(unittest.TestCase):
         self.assertEqual(r.normalize_instance_orcid_spacing(after, t)[1], [])
         after['ORCID']['rdfs:label'] = 'changed'
         self.assertIsNotNone(r.only_normalized_orcid_spacing(before, after, t))
+
+    def test_a_pasted_line_break_or_trailing_whitespace_goes_too(self):
+        for value in ['https://orcid.org/\n0000-0002-1825-0097', 'https://orcid.org/0000-0002-1825-0097\n',
+                      'https://orcid.org/\r\n0000-0002-1825-0097 ', ' https://orcid.org/0000-0002-1825-0097']:
+            self.assertEqual(r.normalized_spaced_orcid(value), 'https://orcid.org/0000-0002-1825-0097')
+        self.assertIsNone(r.normalized_spaced_orcid('https://orcid.org/0000-0002-1825-0098\n'))
+        self.assertIsNone(r.normalized_spaced_orcid('https://orcid.org/0000-0002-\n1825-0097'))
+
+    def test_a_bare_identifier_in_an_orcid_field_becomes_its_iri(self):
+        c = child()
+        c['properties'] = {'@id': {'type': 'string'}}
+        t = template({'Principal ORCID': c, 'Code': copy.deepcopy(c)})
+        before = {'Principal ORCID': {'@id': '0000-0001-8771-090X'}, 'Code': {'@id': '0000-0001-8771-090X'}}
+        after, changes = r.prefix_bare_orcid(before, t)
+        self.assertEqual(after['Principal ORCID'], {'@id': 'https://orcid.org/0000-0001-8771-090X'})
+        self.assertEqual(after['Code'], before['Code'])
+        self.assertEqual([change['path'] for change in changes], ['/Principal ORCID/@id'])
+        self.assertIsNone(r.only_prefixed_bare_orcids(before, after, t))
+        self.assertEqual(r.prefix_bare_orcid(after, t)[1], [])
+        wrong = {**after, 'Code': {'@id': 'https://orcid.org/0000-0001-8771-090X'}}
+        self.assertEqual(r.only_prefixed_bare_orcids(before, wrong, t), '/Code/@id')
+        for value in ['0000-0001-8771-0901', '0000 0001 8771 090X', ' 0000-0001-8771-090X']:
+            self.assertIsNone(r.prefixed_bare_orcid(value))
 
 
 if __name__ == '__main__':

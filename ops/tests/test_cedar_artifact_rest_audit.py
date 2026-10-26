@@ -554,6 +554,27 @@ class RuleTests(unittest.TestCase):
         )
         self.assertFalse(any("Contextless element" in item.path for item in findings))
 
+    def test_a_value_typed_with_the_id_keyword_is_found_and_a_class_or_context_is_not(self):
+        ref = self.ref("instance", "https://repo.example/template-instances/i1")
+        instance = {
+            "@id": ref.artifact_id,
+            "@context": {"pav:createdBy": {"@type": "@id"}, "Term": {"@id": "urn:p", "@type": "@id"}},
+            "Term": {"@id": "urn:t", "@type": "@id", "rdfs:label": "a term"},
+            "Empty": {"@id": None, "@type": "@id"},
+            "Classed": {"@id": "urn:t", "@type": "urn:class", "rdfs:label": "a term"},
+            "Literal": {"@value": "1", "@type": "xsd:int"},
+            "Element": {"@id": "urn:e", "@context": {},
+                        "Terms": [{"@id": "urn:t", "@type": "@id"}, {"@id": "urn:u"}]},
+        }
+
+        findings = list(audit.audit_instance(ref, instance, None))
+
+        self.assertEqual(
+            sorted((item.path, item.risk) for item in findings if item.rule == "value-type-keyword"),
+            [("/Element/Terms/0/@type", "manual-review"), ("/Empty/@type", "manual-review"),
+             ("/Term/@type", "manual-review")],
+        )
+
     def test_structural_occurrence_fallback_works_without_template(self):
         instance_id = "https://repo.example/template-instances/i1"
         template_id = "https://repo.example/templates/missing"

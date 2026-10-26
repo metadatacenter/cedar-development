@@ -4,6 +4,11 @@
 No user account is created or renamed and no Mongo document is changed. The only
 supported mapping preserves a UUID from the historical .net user namespace to
 the current .org namespace, with exactly one live User carrying that UUID.
+
+A verbatim write copies the document's modifier into the graph, so a document that names its
+modifier in the legacy form leaves that form on the graph too. Such a candidate keeps its dates:
+only the graph's modifier changes, and only while the graph still names the document's own
+modifier on the document's own date.
 """
 import argparse
 from collections import Counter
@@ -14,11 +19,12 @@ import os
 from pathlib import Path
 from uuid import UUID
 
-from cedar_provenance_audit import atomic, now
+from cedar_provenance_audit import atomic, normalized, now
 
 LEGACY = 'https://repo.metadatacenter.net/users/'
 CANONICAL = 'https://metadatacenter.org/users/'
 POLICY = 'legacy-user-uri-v1'
+LEGACY_GRAPH_CLASSIFICATION = 'eligible-legacy-graph-modifier'
 
 
 def alias_for(original, users):
@@ -36,6 +42,27 @@ def alias_for(original, users):
     return {'policy': POLICY, 'original': original, 'canonical': target, 'uuid': suffix}
 
 
+def stored_graph(graph):
+    """The graph node's modification provenance under the audit's property names."""
+    return {'oslc:modifiedBy': graph.get('oslc_modifiedBy'), 'pav:lastUpdatedOn': graph.get('pav_lastUpdatedOn'),
+            'lastUpdatedOnTS': graph.get('lastUpdatedOnTS')}
+
+
+def legacy_graph_modifier(document, graph):
+    """Refuse unless the graph names the document's own legacy modifier on the document's own date."""
+    modifier = document.get('oslc:modifiedBy')
+    if graph.get('oslc:modifiedBy') != modifier:
+        raise ValueError('graph modifier is not the document modifier')
+    if not isinstance(modifier, str) or not modifier.startswith(LEGACY):
+        raise ValueError('modifier is not in the legacy user form')
+    instant = normalized('pav:lastUpdatedOn', document.get('pav:lastUpdatedOn'))
+    if not isinstance(instant, tuple) or normalized('pav:lastUpdatedOn', graph.get('pav:lastUpdatedOn')) != instant:
+        raise ValueError('graph modification date differs from the document')
+    stamp = graph.get('lastUpdatedOnTS')
+    if type(stamp) is not int or stamp != instant[1]:
+        raise ValueError('graph numeric timestamp differs from the document')
+
+
 def resolved_modifier(candidate, body, users=None, allow=False):
     original = body.get('oslc:modifiedBy')
     alias = candidate.get('modifierAlias')
@@ -50,7 +77,8 @@ def resolved_modifier(candidate, body, users=None, allow=False):
 
 def preflight(stores, plan, repair_user, out):
     from cedar_provenance_apply import documents, pending_lifecycle_ids, prepare
-    candidates = [json.loads(line) for line in plan.open()]
+    with plan.open() as stream:
+        candidates = [json.loads(line) for line in stream]
     if not candidates or len({c['id'] for c in candidates}) != len(candidates):
         raise ValueError('empty plan or duplicate identities')
     out.mkdir(parents=True, exist_ok=False)
@@ -67,7 +95,10 @@ def preflight(stores, plan, repair_user, out):
                     if identifier in pending: raise ValueError('pending lifecycle job')
                     if before.get(identifier) != after.get(identifier):
                         raise ValueError('graph changed during preflight')
-                    if (after.get(identifier) or {}).get('oslc_modifiedBy') != repair_user:
+                    graph = after.get(identifier) or {}
+                    if candidate.get('classification') == LEGACY_GRAPH_CLASSIFICATION:
+                        legacy_graph_modifier(candidate['document'], stored_graph(graph))
+                    elif graph.get('oslc_modifiedBy') != repair_user:
                         raise ValueError('current modifier is not the repair account')
                     current = copy.deepcopy(candidate)
                     current['modifierAlias'] = alias_for(candidate['document']['oslc:modifiedBy'], users)
@@ -85,7 +116,7 @@ def preflight(stores, plan, repair_user, out):
         'policy': POLICY, 'counts': counts, 'byKind': kinds, 'distinctUsers': len(identities),
         'heldReasons': reasons, 'inputSha256': hashlib.sha256(plan.read_bytes()).hexdigest(),
         'readyPlanSha256': hashlib.sha256((out/'ready-candidates.jsonl').read_bytes()).hexdigest(),
-        'scope': 'Restore graph modification date and canonical modifier URI only; preserve Mongo, creation metadata, ownership and user accounts.',
+        'scope': 'Restore graph modification date and canonical modifier URI only, or the canonical modifier URI alone for a legacy graph modifier; preserve Mongo, creation metadata, ownership and user accounts.',
         'beforeApply': 'Wait for current verification, take a fresh offline backup with application writers paused; executor repeats content/revision, identity and transaction guards.'}
     atomic(out/'summary.json', result)
     print(json.dumps(result, indent=2))

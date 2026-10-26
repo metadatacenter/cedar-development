@@ -162,7 +162,14 @@ class AuthenticationError(AuditError):
 
 
 class ResponseError(AuditError):
-    """A REST response could not be used."""
+    """A REST response could not be used.
+
+    ``status`` is the HTTP status the server answered with, and None when no answer arrived.
+    """
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -1205,6 +1212,28 @@ def audit_value_ids(ref: ArtifactRef, node: Any, path: str = "", root: bool = Tr
                 yield from audit_value_ids(ref, value, f"{path}/{index}", False)
 
 
+def audit_value_type_keywords(ref: ArtifactRef, node: Any, path: str = "", root: bool = True) -> Iterator[Finding]:
+    """Link and controlled-term values whose @type is the keyword @id rather than a class.
+
+    In a context, ``"@type": "@id"`` declares that a term's values are IRIs. In a value, @type names
+    the value's class, and a keyword names none: JSON-LD processing drops the statement, and a
+    processor in safe mode refuses the document.
+    """
+    if isinstance(node, dict):
+        if not root and is_value_node(node) and node.get("@type") == "@id":
+            yield finding(
+                ref, "value-type-keyword", "manual-review", f"{path}/@type",
+                "a link or controlled-term value's @type names a class, and the keyword @id names none",
+                node["@type"],
+            )
+        for key, value in node.items():
+            if key != "@context":
+                yield from audit_value_type_keywords(ref, value, f"{path}/{json_pointer_component(key)}", False)
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from audit_value_type_keywords(ref, value, f"{path}/{index}", False)
+
+
 def audit_structural_occurrence_ids(ref: ArtifactRef, node: Any, path: str = "",
                                     root: bool = True) -> Iterator[Finding]:
     """Mirror the server's safe structural fallback when a template cannot be resolved.
@@ -1349,6 +1378,7 @@ def audit_instance(ref: ArtifactRef, artifact: Any,
         yield finding(ref, "instance-context-missing", "save-rejected", "/@context",
                       "template instance root has no @context object")
     yield from audit_value_ids(ref, artifact)
+    yield from audit_value_type_keywords(ref, artifact)
     yield from audit_structural_occurrence_ids(ref, artifact)
     yield from audit_instance_decisions(ref, artifact)
     if template_shape is None:
@@ -1421,6 +1451,19 @@ class GetOnlyClient:
 
         return self._get(path, query, accept, read)
 
+    def get_bytes(self, path: str, accept: str = "application/json",
+                  query: Optional[dict[str, Any]] = None) -> tuple[bytes, dict[str, str]]:
+        """The response body exactly as served, with the response headers.
+
+        Parsing a body loses what JSON leaves to the writer, such as a duplicated key or the
+        spelling of a number. A caller that keeps a deployment's data for later reading needs the
+        bytes themselves.
+        """
+        def read(response) -> tuple[bytes, dict[str, str]]:
+            return response.read(), {name.lower(): value for name, value in response.headers.items()}
+
+        return self._get(path, query, accept, read)
+
     def _get(self, path: str, query: Optional[dict[str, Any]], accept: str, read) -> Any:
         if not path.startswith("/"):
             raise ValueError("request path must start with /")
@@ -1460,7 +1503,7 @@ class GetOnlyClient:
                         wait = min(30.0, 2 ** attempt)
                     time.sleep(wait)
                     continue
-                raise ResponseError(f"GET {url} returned {error.code}: {body[:300]}") from None
+                raise ResponseError(f"GET {url} returned {error.code}: {body[:300]}", error.code) from None
             except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead, json.JSONDecodeError,
                     UnicodeDecodeError) as error:
                 if attempt < self.retries - 1:

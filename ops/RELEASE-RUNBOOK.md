@@ -5,6 +5,10 @@ Cut a CEDAR release from a completed [build train](BUILD-RUNBOOK.md). For deploy
 [BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md). The optional
 [release monitor](cedar-release-monitor.html) opens directly in a browser.
 
+These are release requirements. An ordinary development frontend build uses
+`cedarcli build frontends` with current-source SNAPSHOT packages, including uncommitted edits.
+It needs no release preparation, registry publication, pin update or additional authorization.
+
 > Replace `<VER>` and `<NEXT>` with the release version and the next development version, for
 > example `2.9.4` and `2.9.5-SNAPSHOT`.
 
@@ -71,6 +75,11 @@ A release stamps the train's exact commits and refuses any captured repository w
 has moved. Finish CI, tooling and documentation changes before creating the train. A later source
 change requires a new smoke-gated train.
 
+The TypeScript model library is the one repository the release writes to without freezing it. Its
+`develop` may move while a release runs, because the release commits the library's one change onto
+`develop` as it then stands. The release refuses only when `tools/conformance/pom.xml` has changed
+since the train captured it.
+
 Use `cedarcli publish train-status` to check eligibility and identify moved repositories.
 CEE's public and development version bases need not match: eligibility depends on the
 [package equivalence proof](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release),
@@ -90,7 +99,7 @@ findings. Network conditions affect the timing; the actual release pushes remain
 
 The plan settles four groups of question:
 
-- **The machine can run a release.** Java 17 and Node 24.22.0 are active, `git`, `mvn`, and `npm`
+- **The machine can run a release.** Java 17 and Node 24.22.1 are active, `git`, `mvn`, and `npm`
   are on PATH, Git author name and email are configured, the CEDAR profile is sourced, npm's
   effective user configuration contains no obsolete authentication setting, and there is disk for
   the release's estimated clean checkouts, release/next Maven and frontend builds, publication
@@ -116,10 +125,13 @@ The plan settles four groups of question:
   release version is absent from the Maven target and from both npm registries, and each remote
   accepts dry-run pushes of every ref the release can create: `main`,
   `develop`, `release/pre-<VER>`, `release-<VER>`, and, where applicable,
-  `release/post-<NEXT>`.
+  `release/post-<NEXT>`. The TypeScript model library takes only `develop` and
+  `release/post-<NEXT>`, so the plan asks its remote about those two alone.
 - **The content is stampable.** Every file a Maven build regenerates with the version inside is
   declared, every `license.txt` carries a recognisable copyright line, and each remote's `main`
-  holds nothing that `develop` does not.
+  holds nothing that `develop` does not. The TypeScript model library's conformance POM names both
+  CEDAR libraries at the train source version, and the library's remote `develop` still carries
+  that file as the train captured it.
 
 Content present only on `main` blocks the release because integration replaces that tree. Port
 unmerged hotfixes to `develop` before building the train. If the removal from `develop` was
@@ -134,7 +146,8 @@ consumer check stops before publication and retains its log for `release resume`
 
 New release plans include a `development` phase between publication and acceptance.
 It verifies published snapshot bytes and the prepared next-development train/audit
-configuration, then checks CI at every exact integrated develop commit. The phase
+configuration, then checks CI at every exact integrated develop commit except the TypeScript
+model library's, whose `develop` also carries work the train did not capture. The phase
 dispatches `cedar-libraries` and `cedar-project` verification only after all sibling
 refs are integrated; their earlier push runs are not accepted as this proof.
 Pending CI is polled for up to 30 minutes, and a red result stops immediately with
@@ -279,7 +292,8 @@ The release runs these phases, each verifying its work before the next begins:
    recorded inputs. The next-development tree names the train's own packages, which exist the
    moment the release pushes. The release tree names the released frontends at `<VER>`, OpenView's
    Editor at the public CEE version, and `npm-cedar-releases` as `CEDAR_NPM_REGISTRY`, because
-   those two registries keep a package indefinitely.
+   those two registries keep a package indefinitely. The next-development tree also moves the two
+   CEDAR versions in the TypeScript model library's `tools/conformance/pom.xml` to `<NEXT>`.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. A frontend installs with the whole setup the train and the
    reactor run for it, so a test package's own install and the browsers it drives are in place
@@ -298,7 +312,12 @@ The release runs these phases, each verifying its work before the next begins:
    frontend packages, so this route does not republish `-SNAPSHOT` npm versions.
 6. Fetch the remotes, refuse to continue if a remote `develop` moved away from the train source,
    create explicit integration commits, then push the release branches, the tag, `main`, and
-   `develop`.
+   `develop`. The TypeScript model library takes `develop` and `release/post-<NEXT>` alone. Its
+   integration commit merges the prepared commit into `develop` as it stands at that moment,
+   changes only the conformance POM, and is rebuilt on a `develop` that moves during the push. It
+   stops only when `develop` has changed that POM since the train, or no longer contains the train
+   source. Later checks, acceptance among them, require only that the library's `develop` still
+   contains the commit.
 7. Upload the exact locally validated Maven release bytes to Nexus, accepting an existing immutable
    path only when its bytes match, and verify the required artifact inventory.
 8. Pack the nine stable npm surfaces from the exact integrated commits, record `gitHead`,
@@ -310,8 +329,8 @@ The release runs these phases, each verifying its work before the next begins:
    provenance, and runtime-asset hashes. Nexus removes a release from `npm-cedar` thirty days after
    upload, so the retained copy is the one that lasts.
 9. Verify next-development snapshot bytes, train/audit configuration and CI at the integrated
-   `develop` commits. The `development` phase and its resume rules are described above; older
-   ledgers retain their original phase contract.
+   `develop` commits other than the TypeScript model library's. The `development` phase and its
+   resume rules are described above; older ledgers retain their original phase contract.
 10. Accept the release, proving from outside the ledger that it holds. Acceptance also runs the
    captured build-train configuration validator against the complete `<NEXT>` workspace and its
    exact expected snapshot version, so `develop` is not considered ready merely because version
@@ -506,7 +525,10 @@ On `AUTH_FAIL`, refresh the PAT on GitHub, authorizing it for SSO if the org req
 
 ## What Publishes Independently
 
-The TypeScript model library and CEE release independently and are excluded from the release.
+The TypeScript model library and CEE release independently, and the release neither versions nor
+publishes either. It still writes one change to the library. On `develop`, it moves the two CEDAR
+versions that `tools/conformance/pom.xml` names to `<NEXT>`, because CED's conformance gate
+resolves those libraries from Nexus. The library's `main`, tags and packages stay its own.
 Follow [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md) to choose the model version CEE
 embeds, publish both verified packages from `main`, and restore their development channels.
 Publishing CEE is not complete operationally until its exact version has been propagated to all

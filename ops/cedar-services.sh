@@ -11,6 +11,7 @@
 # shows PID / port / health / error-count.
 # Frontend health probes the served root (they have no Dropwizard /healthcheck). A failed
 # Angular compiler still leaves its development server listening, so a port-only check lies.
+# The wait after a start asks more of a frontend: the page and everything it loads (frontend_ready.py).
 #
 # Infra (Keycloak, Mongo, Neo4j, MySQL, Redis, OpenSearch, nginx) is NOT managed here —
 # bring that up separately (it is already running in this session).
@@ -799,33 +800,136 @@ health_of() {  # echoes healthy|UNHEALTHY|slow|starting|down
 # after launching them all costs the slowest one. A frontend compiling its bundle is that one.
 START_READY_TIMEOUT=${CEDAR_START_READY_TIMEOUT:-240}
 
+# A frontend is ready once it serves a page a browser can load, which takes more than an answer from
+# its root. Every development server here opens its port before the page behind it can load.
+# frontend_ready.py requests the page with every script, module preload and stylesheet it names and
+# the modules those scripts import, and says which request failed. One request may take
+# FRONTEND_READY_REQUEST_TIMEOUT, read in full. A request still waiting on a compiler or an optimizer
+# runs out, and the next pass asks again.
+FRONTEND_READY="$(dirname "$SCRIPT_PATH")/frontend_ready.py"
+FRONTEND_READY_REQUEST_TIMEOUT=${CEDAR_FRONTEND_READY_REQUEST_TIMEOUT:-10}
+
+# Where the readiness check asks for a frontend's page. By default it asks the development server on
+# its own port, which proves the process serves without depending on nginx. In the hybrid topology the
+# frontends start before the Docker nginx that fronts them. CEDAR_FRONTEND_READY_ORIGIN=public asks
+# through nginx at the origin a browser uses, with the certificate verified against the local CA. The
+# reactor asks that way, since its smoke follows and nginx is already up. ui-content is asked on its
+# port either way, because native nginx serves content.$CEDAR_HOST from the checkout itself.
+fe_origin() {
+  local loopback="http://127.0.0.1:$(app_port "$1")"
+  if [ "${CEDAR_FRONTEND_READY_ORIGIN:-local}" != public ] || [ -z "${CEDAR_HOST:-}" ]; then
+    echo "$loopback"
+    return
+  fi
+  case "$1" in
+    ui-main)       echo "https://cedar.$CEDAR_HOST" ;;
+    ui-workspace)  echo "${CEDAR_WORKSPACE_FRONTEND_URL:-https://workspace.$CEDAR_HOST}" ;;
+    ui-designer)   echo "${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.$CEDAR_HOST}" ;;
+    ui-openview)   echo "https://openview.$CEDAR_HOST" ;;
+    ui-monitoring) echo "https://monitoring.$CEDAR_HOST" ;;
+    ui-bridging)   echo "https://bridging.$CEDAR_HOST" ;;
+    *)             echo "$loopback" ;;
+  esac
+}
+
+# The pages and assets a frontend's markup does not name, as kind:path entries for frontend_ready.py.
+# The monolith hands RequireJS its configuration from an inline script. The Workspace index is a
+# bootstrap that fetches the Angular build's own index and writes it into the document. The Designer
+# index imports its host module and stylesheet from an inline script. Every other index names all it
+# loads, and the modules an Angular development server prebundles are imports of the scripts it names.
+fe_ready_entries() {
+  case "$1" in
+    ui-main)      echo "page:/ script:/require-config.js" ;;
+    ui-workspace) echo "page:/ page:/workspace-build/index.html" ;;
+    ui-designer)  echo "page:/ module:/scripts/host.mjs style:/styles/host.css" ;;
+    *)            echo "page:/" ;;
+  esac
+}
+
+# Prints one line per frontend named: its name, `ready` or `waiting`, and the reason it is waiting.
+# Requests are cut short at the epoch second given first, though each still gets a second, so a pass
+# that starts just before that deadline overruns it by a few seconds at most.
+frontend_serves() {
+  local deadline=$1 n ca report args=()
+  shift
+  ca="${CEDAR_CA_HOME:-$CEDAR_HOME/CEDAR_CA}/ca.crt"
+  [ -f "$ca" ] && args+=(--cafile "$ca")
+  for n in "$@"; do
+    args+=(--frontend "$n" "$(fe_origin "$n")" "$(fe_ready_entries "$n")")
+  done
+  if ! report=$(python3 "$FRONTEND_READY" --deadline "$deadline" \
+                  --request-timeout "$FRONTEND_READY_REQUEST_TIMEOUT" "${args[@]}" 2>&1); then
+    report=$(printf '%s\n' "$report" | tail -n 1)
+    for n in "$@"; do printf '%s\twaiting\tthe readiness check failed: %s\n' "$n" "$report"; done
+    return
+  fi
+  printf '%s\n' "$report"
+}
+
+# A frontend's verdict in a frontend_serves report: `ready`, or the reason it is waiting.
+frontend_verdict() {
+  printf '%s\n' "$2" | awk -F '\t' -v name="$1" '
+    $1 == name { print ($2 == "ready" ? "ready" : $3); found = 1; exit }
+    END { if (!found) print "it was never checked" }'
+}
+
 # Waits for the services just launched to serve, reports each as it arrives, and names the ones
 # that never did with the last lines of their logs. A submitted job restarts what it launched, so a
-# service that never arrives is also removed rather than left respawning.
+# service that never arrives is also removed rather than left respawning. A frontend whose root
+# answers but whose page never loads is the exception: its process is up and its log is worth
+# reading, so it is reported and left running, and the start still fails.
 #
 # The probe is bounded but serial. A service that is not listening refuses at once, so a pending
 # set costs almost nothing until it starts answering; one that accepts a connection and then hangs
-# costs HEALTH_PROBE_TIMEOUT per pass, which the deadline below contains.
+# costs HEALTH_PROBE_TIMEOUT per pass, which the deadline below contains. The pending frontends are
+# checked together, in one pass of their own.
 await_ready() {
   [ $# -gt 0 ] || return 0
-  local deadline pending=("$@") still n failed=0
+  local deadline pending=("$@") still frontends n failed=0 report="" state verdict
   deadline=$(( $(date +%s) + START_READY_TIMEOUT ))
   echo "Waiting for ${#pending[@]} service(s) to serve (up to ${START_READY_TIMEOUT}s for the set)..."
   while [ "${#pending[@]}" -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ]; do
     still=()
+    frontends=()
     for n in "${pending[@]}"; do
-      if [ "$(health_of "$n")" = healthy ]; then
-        echo "  ready $n"
-      else
-        still+=("$n")
-      fi
+      case "$n" in
+        ui-*) frontends+=("$n") ;;
+        *)
+          if [ "$(health_of "$n")" = healthy ]; then
+            echo "  ready $n"
+          else
+            still+=("$n")
+          fi ;;
+      esac
     done
+    if [ "${#frontends[@]}" -gt 0 ]; then
+      report=$(frontend_serves "$deadline" "${frontends[@]}")
+      for n in "${frontends[@]}"; do
+        if [ "$(frontend_verdict "$n" "$report")" = ready ]; then
+          echo "  ready $n"
+        else
+          still+=("$n")
+        fi
+      done
+    fi
     pending=("${still[@]}")
     [ "${#pending[@]}" -gt 0 ] && sleep 1
   done
   for n in "${pending[@]}"; do
     failed=1
-    echo "  $n: never became healthy within ${START_READY_TIMEOUT}s ($(health_of "$n")); last lines of $(logfile "$n"):" >&2
+    state=$(health_of "$n")
+    case "$n" in
+      ui-*)
+        verdict=$(frontend_verdict "$n" "$report")
+        if [ "$state" = healthy ]; then
+          echo "  $n: answers on port $(app_port "$n") but never served its page within ${START_READY_TIMEOUT}s: $verdict. It is left running; last lines of $(logfile "$n"):" >&2
+          tail -n 4 "$(logfile "$n")" 2>/dev/null | sed 's/^/    /' >&2
+          continue
+        fi
+        echo "  $n: never served its page within ${START_READY_TIMEOUT}s ($state): $verdict; last lines of $(logfile "$n"):" >&2 ;;
+      *)
+        echo "  $n: never became healthy within ${START_READY_TIMEOUT}s ($state); last lines of $(logfile "$n"):" >&2 ;;
+    esac
     tail -n 4 "$(logfile "$n")" 2>/dev/null | sed 's/^/    /' >&2
     remove_launchd_job "$n" || true
   done

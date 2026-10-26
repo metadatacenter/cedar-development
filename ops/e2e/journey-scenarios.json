@@ -949,6 +949,12 @@
       "promise": "Multiple type filters constrain the real listing, descending order and folders-first compose correctly, and refresh/reload preserve those choices until the type filter is explicitly cleared"
     }
   ],
+  "workspace-listing-preferences": [
+    {
+      "id": "listing-preferences-persist",
+      "promise": "A type filter and a sort follow a folder link, the user profile keeps them, and the way back from an account page opens the Workspace with them"
+    }
+  ],
   "workspace-pagination": [
     {
       "id": "second-page-editor-return",

@@ -31,7 +31,7 @@ cedarcli check ci              # CI at every develop head a train would capture
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
 cedarcli build frontends       # full frontend reactor; `build --jobs 3 --workers 12 frontends` on the 16-core workstation; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
-cedarcli publish components    # publish each component's current source and advance the pins that follow it
+cedarcli publish components    # separate registry publication/pin update; never a local build prerequisite
 cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require; --rest-workers 4 on the 16-core workstation
 cedarcli test cee-demos        # force all three framework consumer gates; --cee-package <path> tests a staged CEE release candidate
 ```
@@ -108,6 +108,25 @@ below have no CLI front end yet, so call them directly:
   this path. One JVM, `cedar_instance_roundtrip_bridge.java`, stays up for the pass. It re-reads
   every failed read at the end, because a share of reads fail as a socket timeout rather than an
   answer and asking again settles them. Streams one record per instance, resumes, never writes.
+- `cedar_snapshot.py` — the same GET-only walk over all four artifact types, keeping every body
+  exactly as the deployment served it in one zstd-compressed tar archive under
+  `$CEDAR_HOME/.cedar/snapshots/<deployment>/`, with `latest.tar.zst` linking to the newest. A test
+  that needs production data reads the archive offline, as a stream, through the module's `Snapshot`
+  class rather than fetching a cache of its own. Resumes an interrupted download, and verifies the
+  archive against the index it carries before keeping it.
+- `cedar_snapshot_read_audit.py` — read every artifact in a snapshot with `cedar-artifact-library`
+  and with `cedar-model-typescript-library`, and validate each with `cedar-model-validation-library`,
+  instances against their templates. A refusal of an artifact the validator accepts is a reader
+  defect; a refusal of one the validator rejects is the data's. It also compares the two libraries'
+  verdict on every instance, the Java validator's against the TypeScript library's save decision,
+  and `--fail-on-disagreement` fails the run on any difference. Several bridges of each kind,
+  `cedar_snapshot_read_bridge.java` and `cedar_snapshot_read_bridge.cjs`, take a production snapshot
+  in minutes. Contacts no deployment.
+- `cedar_corpus_instance_verdicts.py` — record the Java validator's verdict on every shared-corpus
+  instance that has its template beside it, as the server would store it, into the TypeScript
+  library's `itest/resources/concordance/`, where `InstanceVerdictConcordance.spec.ts` holds the
+  TypeScript save decision to it in CI. It also records probes: corpus instances with one field's
+  value replaced by a shape the corpus holds no example of, such as an unfilled controlled term.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data
@@ -122,8 +141,9 @@ below have no CLI front end yet, so call them directly:
   by default, writes only under `--apply`. Targets come from the audit's records. Its suite and the
   tools that plan a repair sit beside it under `ops/repairs/`: `ctxreq_at_risk.py` weighs which
   templates can take a tightened `@context.required` without invalidating an instance they already
-  have, and `rename_sheet.py` drafts the field renames a template's instances imply, for an owner to
-  confirm.
+  have, `rename_sheet.py` drafts the field renames a template's instances imply, for an owner to
+  confirm, and `plan_from_snapshot.py` runs a chain of instance repairs over a snapshot and lists the
+  instances it would finish, with the files an `--apply` run takes.
 
 - `cedar_term_bench.py` — times the terminology server's lookup paths against whatever it is
   serving, drawing query strings from the served index so every lookup matches something. Reports
@@ -277,12 +297,30 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
 
 ### Frontend reactor completion contract
 
+**Development frontend builds have Java/Maven-like SNAPSHOT semantics. No follow-up questions.**
+“Build the frontends” or “do a development frontend build” authorizes the complete local build,
+dependency resolution, required checks, redeployment and smoke. Handle routine build and dependency
+work within that request; do not ask for separate approval of its steps. Use `cedarcli build frontends`
+directly: it builds current working-tree sources, including uncommitted edits, and supplies the
+resulting packages to consumers automatically. Use `cedarcli test frontends` for the same source
+build and checks without deployment or whole-stack smoke. Do not route either request through
+`publish components`, ask the user to move pins, or wait for a commit, push, CI publication or
+release. Those are requirements of separate registry workflows. If local snapshot resolution
+fails, fix or report that concrete build failure; an old checked-in registry pin is not itself
+a blocker. Report the built source and artifact identity, not just the package's version label.
+Uncommitted edits are valid build inputs. Do not require a clean tree, commit or stash before a
+development build; preserve the edits and let the build guard detect inputs changing during the run.
+Narrow development selectors also build their required local producers. Earlier local references
+and registry packages cannot substitute for a producer in the current source build.
+Release/train capture and explicit server-payload builds retain their separate reproducibility
+requirements; do not apply those requirements to local SNAPSHOT builds.
+
 “Full frontend reactor” means `cedarcli build frontends`: current local library and component
 sources flow into every frontend, followed by applicable integration/visual checks, local
-redeployment, served-bundle verification and whole-stack smoke. Fresh dev package publication
-to Nexus and consumer development-pin/lockfile updates are allowed when needed; npm pins must
-not be presented as a blocker to using the sources just built. Release-version changes and
-Git commit/push are separate from this contract.
+redeployment, served-bundle verification and whole-stack smoke. The CLI supplies local packages
+automatically; registry publication and tracked pin updates are not prerequisites. Do not
+present npm pins as a blocker to using the sources just built. Registry delivery, release-version
+changes and Git commit/push are separate from this contract.
 
 The command runs component verification, records the immutable build graph and runtime selection,
 restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
@@ -301,6 +339,22 @@ See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and fa
   OpenSearch, Keycloak). Client libraries may move; those servers may not.
 - Current framework baseline (Dropwizard version, namespace, what's migrated) lives in the runbook —
   `cedar-development/ops/BACKEND-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
+
+## The TypeScript and Java libraries always agree
+
+`cedar-model-typescript-library` and the Java libraries must never differ. For every artifact they read
+the same model, write the same document, and reach the same validation verdict. The arbiter is
+`cedar-model-validation-library`, which the server applies to every write, so an instance is valid
+exactly when it would be stored. CEE decides whether an instance can be saved with the TypeScript
+library's `InstanceValidator` and `ValidationPolicy`, so that decision must equal the Java verdict: a
+valid instance can always be saved, and an invalid one never can. A difference is a defect to fix, never
+a variation to record, and it is fixed in whichever library is wrong rather than by changing the stored
+data to suit one of them.
+
+Two gates hold this. The TypeScript library's CI compares both libraries' reading, writing and
+instance verdicts over the shared corpus, and `ops/cedar_snapshot_read_audit.py --fail-on-disagreement`
+compares the instance verdicts over a production snapshot. A change to either library's validation
+passes both before it lands.
 
 ## Preserve the agreed product design
 

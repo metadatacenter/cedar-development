@@ -1,6 +1,6 @@
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
-import {journeyFolder} from "./journey-fixtures.mjs";
+import {dashboardAddress, journeyFolder, listView} from "./journey-fixtures.mjs";
 import {actors, artifactBody, call, enc, mutate} from "./rest/lib.mjs";
 
 // A draft is shared as the version it is drafted from. Workspace's Create Draft and the Designer's
@@ -100,7 +100,7 @@ async function checkAccess({reader, designer, user, user2, sourceId, sourceAcl, 
     assert.equal((await call(user.auth, "GET", draft)).body["schema:description"], "Edited by the editor of the draft");
   } else if (role === "viewer") {
     await state.filter({hasText: /^Read only$/}).waitFor();
-    await reader.locator("#message").filter({hasText: "This artifact is read only."}).waitFor();
+    await reader.locator("#message").filter({hasText: "You do not have permission to edit this artifact."}).waitFor();
     const save = reader.locator("#save");
     assert.ok(!(await save.count()) || await save.isDisabled(), "Save offered to a viewer");
   } else {
@@ -114,10 +114,8 @@ async function checkAccess({reader, designer, user, user2, sourceId, sourceAcl, 
 // drafted first, so by then it would be listed too if it were shared.
 async function checkSharedWithMe(reader, base, drafts) {
   const listed = async () => {
-    await reader.goto(base + "/dashboard?sharing=shared-with-me");
-    await reader.getByRole("button", {name: "New", exact: true}).waitFor();
-    const list = reader.getByRole("button", {name: "List view", exact: true});
-    if (await list.count()) await list.click();
+    await reader.goto(dashboardAddress(base, {sharing: "shared-with-me"}));
+    await listView(reader);
     const found = new Set();
     for (;;) {
       await reader.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
@@ -155,11 +153,8 @@ export async function workspaceDraftSharingJourney(args) {
     // the index has caught up with its publication.
     let offered = false;
     for (let attempt = 0; attempt < 15 && !offered; attempt++) {
-      await page.goto(base + "/dashboard?folderId=" + enc(folderId));
-      await page.getByRole("button", {name: "New", exact: true}).waitFor();
-      const list = page.getByRole("button", {name: "List view", exact: true});
-      if (await list.count()) await list.click();
-      await page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+      await page.goto(dashboardAddress(base, {folderId}));
+      await listView(page);
       const row = page.locator("tbody tr").filter({has: page.locator(`a[href*="${uuid(sourceId)}"]`)}).first();
       if (!(await row.count())) continue;
       await row.getByRole("button", {name: "Actions for " + sourceName, exact: true}).click();

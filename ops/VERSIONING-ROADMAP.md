@@ -490,18 +490,19 @@ an open question, not a settled one — see item 4, whether the content-identity
    two CEE model POJOs, preserve it through `template-representation.factory.ts`, and map the template's
    VersionSpec `{id,…}` to the request's plain `version` string (send `version.id`). One call site, no
    fan-out. The single highest-value piece — it closes the reproducibility loop.
-   *Backend caveat (not CEE's job):* integrated-search honours the pin only for locally-served,
-   single-source constraints. For a non-local source, a multi-source/mixed shape, or a missing snapshot,
-   a pinned request **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422) rather than
-   silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by design).
+   *Backend caveat (not CEE's job):* integrated-search honours the pin only where every constraint's
+   source is served locally; a field with several constraints is then answered as the union of each
+   one's local answer, at its own release and branch depth. For a non-local source or a missing
+   snapshot, a pinned request **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422)
+   rather than silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by design).
    A non-BioPortal source that is not served locally is reported unavailable, not proxied to BioPortal.
 ## Testing
 
 - **3. End-to-end frozen read (after CEE sends the pin, item 2).** Verify the full loop on the live stack:
    publish a frozen template → fill an instance via CEE → confirm terms resolve against the pinned
    snapshot, not latest. The terminology and publish sides are tested; this cross-service e2e becomes
-   runnable once item 2 lands. Use a locally-served single-source constraint (the path where the backend
-   honours the pin).
+   runnable once item 2 lands. Use constraints whose sources are all served locally (the path where the
+   backend honours the pin).
 
 ## Future
 
@@ -628,10 +629,11 @@ The controls wait on the backend meaning of both actions, which item 7 settles.
    `sourceSystem` onto what is already stored.** One item because they are one change seen from two
    ends — what a constraint should carry, and what the constraints already written carry.
 
-   *The code half.* The YAML no longer authors `sourceUri` and reconstructs it from the acronym; its
-   "non-derivable" premise was overturned, since every ontology URL is BioPortal with the acronym as
-   its path. What remains is the model marking `uri` required and the JSON Schema still carrying it.
-   Retiring it needs the model field made optional — or the JSON side deriving it too — and the
+   *The code half.* YAML names a BioPortal ontology by its acronym and states `sourceUri` only for an
+   address outside BioPortal. Not every stored address is derivable. Two production templates address
+   an ontology by its OBO PURL, which no acronym gives. What remains is the model marking `uri`
+   required and the JSON Schema still carrying it. Retiring it needs those addresses given a home of
+   their own or repaired, the model field made optional or the JSON side deriving it too, and the
    editor to stop writing it.
 
    *The data half.* A migration over published templates rather than a code change, and not required
@@ -1086,14 +1088,31 @@ here can be finished without the component being finished first.
     the other single-valued fields chosen from a multi-valued annotation the same way — `label()` already
     ranks rather than takes the first, which is why it did not have this bug.
 
-- **32. Stop a harvest repainting a snapshot's origin.** A driver stamps its `--backend` on whatever it
-    ingests, and content-hash identity means an identical download merges into the snapshot already
-    held — so the merge rewrites that snapshot's source label. The OLS harvest of 2026-08-20 relabelled
-    123 BioPortal and OBO Foundry releases as `ols` across two runs, which is how `bioportal` came to
-    read 2,495 snapshots instead of 2,562; the labels were restored from the pre-run catalog. The label
-    should describe where a snapshot's bytes actually came from, so a merge must leave it alone and only
-    a first ingest should set it. Until then every driver has to record the labels and put them back,
-    which `harvest-github-releases.sh` does and the other two do not.
+- **32. Stop an identical download rewriting the release it merges into.** Content-hash identity means
+    a download identical to a release already held merges into that release, and the merge then
+    overwrites the release's provenance with the new download's. On conflict,
+    `CatalogStore.addSnapshot` replaces the declared version, the release date, the ingest time and the
+    raw-file hash, and the updates that follow it replace the submission number and the source label.
+    The source label was the first loss noticed. The OLS harvest of 2026-08-20 relabelled 123 BioPortal
+    and OBO Foundry releases as `ols` across two runs, which is how `bioportal` came to read 2,495
+    snapshots instead of 2,562, and the labels were restored from the pre-run catalog.
+
+    The rest was not restored. Compared on 2026-10-22 with the backup taken before that harvest,
+    `catalog.sqlite.bak-before-ols-harvest-20260820`, the run of 2026-08-21 rewrote 116 releases. 93
+    lost their release date, 89 had their BioPortal submission number replaced by the synthetic `1`
+    that a URL or OBO PURL ingest reports, 74 lost their declared version, 47 changed their source date,
+    32 now carry the raw-file hash of the later download, and all 116 carry its ingest time. STATO,
+    EDAM, HAO and FAO are among them. The release date is the `effectiveDate` that orders releases and
+    anchors `latest`, so these releases now order by when they were fetched rather than when they were
+    published, and the declared version a pin displays is gone.
+
+    A release's provenance describes the download that first produced it, so a merge must leave every
+    provenance column alone and only a first ingest may set them. Fix `addSnapshot` and the updates
+    after it, and add a test that ingests one release from two sources and asserts that the first
+    source's metadata survives. Then restore the 116 from the pre-harvest backup, keyed on
+    `(version_id, acronym)`, after checking that each row's content columns still agree. Until the fix
+    lands, every driver has to record provenance and put it back. `harvest-github-releases.sh` does
+    this for the source label alone, and the other two drivers do not do it at all.
 
 - **33. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
     all list their versions, so what the catalog is missing is a question with an exact answer — and
@@ -1242,22 +1261,32 @@ GET /search/hierarchy?sourceAcronym=DOID&termIri=http://purl.obolibrary.org/obo/
 }
 ```
 
-`versionId` is optional and changes where the answer comes from. Given one, the hierarchy is read
-from that release's snapshot; without one, from the cross-snapshot index, which holds each
-ontology's current version and no other. That distinction is not cosmetic: NCIT's Melanoma has 20
-children at 26.06e and 14 at 26.07d, so answering a pinned request from the index would draw an
-author the shape of a release they did not choose.
+`versionId` is optional and names the release to read. Without it, the release read is the one an
+unpinned search of the source reads: the release the index holds, or the catalog's current release
+where the index holds none. Either way the answer comes from that release's snapshot, because a
+hierarchy belongs to a release. NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d.
 
 `sourceAcronym` and `termIri` are required: an IRI addresses a term only within a source, and OBO
 terms are imported across ontologies. `path` runs root first and is absent where the term is a root of its
 ontology — 1.8 million of the index's 13.9 million terms are. `children` is alphabetical and capped
 at fifty, with `childCount` saying how many there are in all.
 
-The unpinned answer comes from the index, which holds one parent a term: the ancestors walk in one
-recursive query, bounded at thirty-two steps because a broader/narrower cycle would otherwise
-recurse without end. A pinned one opens the snapshot and walks the same chain the branch results
-walk. Either way a term the store does not hold — a proxied source, an unheld one, a release that
-never contained it — is a 404 rather than an empty hierarchy.
+The index is never read for a tree. It holds one parent a term, which is enough for the step a
+search row names, and a tree drawn from it left a term with several parents out of every parent but
+one. In DOID's 2026-06-30 release "disease of anatomical entity" has 9,161 descendants and 13
+children, and the index gave it none. The path is the chain the branch results walk, bounded at
+thirty-two steps because a broader/narrower cycle would otherwise never end. A term the store does
+not hold, whether in a proxied source, an unheld one or a release that never contained it, is a 404
+rather than an empty hierarchy.
+
+The children are the release's direct subclasses, less one kind of edge. The extractor draws an
+edge to the named genus of every `owl:equivalentClass` definition, which is the only parent OBI's
+defined assays have. Most defined classes also assert where they belong, and then the genus edge
+repeats an ancestor: DOID defines 189 classes as "disease and has_location some X" and files each
+under its organ system, so "disease" listed 197 children where DOID asserts 8. A genus edge is left
+out of every read of direct edges when another parent of the class sits below the genus. It stays in
+the snapshot, because edges enter the content hash, and leaving it out at extraction would change
+the identifier of every release that has one.
 
 ### Sources Are Described Once
 
@@ -1435,7 +1464,8 @@ once and copied by a client when it writes the constraint.
 often as across them: ACESO merges three vocabularies and labels a class "Disease" in each, under
 "Clinical finding", "disposition" and "Disease, Disorder or Finding". A hit from the index carries
 the one step above it, which is what the index holds; a hit resolved against a snapshot carries the
-chain from a root.
+chain from a root. The step is the one the release's own path takes, the first parent by IRI less a
+genus edge another parent implies, so the chain a hit names is the chain its tree draws.
 
 `matchType` is `termLabel` or `synonym`, and `matchedLabels` carries what actually matched, in
 the language it matched. Together they are what stops a synonym hit reading as a defect: a row
@@ -1668,7 +1698,10 @@ term, which every release of the ontology has.
 it, because that is the order of the two decisions: a release, and then a shape within it. Stepping
 an ontology back re-asks rather than redrawing what the current release happens to look like — the
 picker keys a held hierarchy by release as well as by term, and passes `versionId`. The difference
-is real: NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d.
+is real: NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d. The descendant count beside a
+branch row is the pinned release's too, and so is the parent that tells a row from a same-labelled
+twin in its own ontology. The search read the current release, so a row of a pinned source that
+shows either reads its own release as its group opens.
 
 Nodes read their children as they open, from `GET /search/hierarchy`, one node at a time: a
 hierarchy is a tree, SNOMED's clinical findings run to hundreds of thousands of concepts, and an
@@ -1683,8 +1716,8 @@ have been.
 
 Many chains are one step or none: AD-CDO labels a class Disease and declares it a root, with no
 parent edge in its snapshot, and 1.8 million of the index's 13.9 million terms are roots of their
-ontology. The index records one parent a term, so a term with several parents is drawn under the
-one the ingest kept — a real limit, and the reason a chain is "a" path rather than "the" path.
+ontology. A term with several parents appears under each of them as they open, but its own chain
+follows one of them, the first by IRI. That is why a chain is "a" path rather than "the" path.
 
 **The other names come from the index, in one query for the page.** They are what says whether a
 concept is the one an author meant, and they are worth nothing at a round trip a row. Shown eight

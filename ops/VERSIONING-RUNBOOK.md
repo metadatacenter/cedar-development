@@ -102,6 +102,21 @@ sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
   "CREATE INDEX IF NOT EXISTS term_by_iri ON term(iri);"
 ```
 
+Each indexed term records one parent: the one its release's own path runs through, which is the
+first of its direct parents by IRI, leaving out a genus edge another parent implies. A search row
+names the chain that parent starts, and the tree the row opens draws the same chain. An index built
+before 2026-10-23 recorded whichever parent a scan of the snapshot reached first, which follows
+internal row ids, so some of its rows name a chain their tree does not draw. In the workstation's
+index, 225,153 of 15,333,667 terms in 250 ontologies carried such a parent, 346 of them in DOID and
+3,823 in UBERON. A full rebuild took eleven minutes on 2026-10-23. Rebuild an older index whole,
+with a classpath built for the current version (see [Ingesting](#ingesting)), and copy it to any
+host that serves it:
+
+```bash
+java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
+    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite --force
+```
+
 A snapshot's identity is a content hash over its own concepts, labels and edges, so correcting a
 snapshot in place changes the release's identity rather than repairing it. Re-ingesting is the
 repair, and it mints a new version id. **The file name is not the identity** — 219 of the 5,400
@@ -689,7 +704,7 @@ flows remain available. Explicit `termTypes` or `maximumTerms` selects the table
 workflow. The default is the table workflow with all types.
 
 
-`$CEDAR_HOME/cedar-embeddable-term-picker`, default branch `develop`. Node 24.22.0, the version `.nvmrc` pins.
+`$CEDAR_HOME/cedar-embeddable-term-picker`, default branch `develop`. Node 24.22.1, the version `.nvmrc` pins.
 
 ```bash
 npm --prefix $CEDAR_HOME/cedar-embeddable-term-picker install
@@ -713,8 +728,10 @@ on Done; `constraintsChanged` invalidates a host's pending validation, and Cance
 leaves the original intact. Branch depth is editable in each branch's details.
 A bin icon removes an individual constraint or saved action. Exclusion and reordering controls are
 deferred to the roadmap; retained actions are preserved unchanged. `selectionMode = 'term'` retains single-term output
-for defaults. Multiple fixed `sources` appear in a vocabulary/release selector so
-two pins of the same acronym are searched and browsed separately.
+for defaults. CED's default dialog assigns the field's set to `fieldConstraints`, and the picker then
+searches only within it, through `bioportal/integrated-search`, showing one chip for each constraint.
+Without `fieldConstraints`, multiple fixed `sources` appear in a vocabulary/release selector so two
+pins of the same acronym are searched and browsed separately.
 
 The picker validates the supplied draft as well as edits before Done. Its central
 report identifies invalid identifiers, releases, depths, actions, duplicate entries,
@@ -856,6 +873,10 @@ nested inside the detail panel's block, left a second tree elsewhere with no sty
 what a name already means before reusing it.
 
 ## Releasing the Picker
+
+To build current picker sources into the local frontends, run `cedarcli build frontends`.
+The local SNAPSHOT workflow includes uncommitted changes and needs no publication, pin update
+or follow-up approval. The procedure here publishes registry dependencies for other installs.
 
 The picker publishes development packages to CEDAR Nexus as
 `@org.metadatacenter/cedar-embeddable-term-picker`; the split Designer consumes an exact npm alias.
