@@ -1381,31 +1381,3 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   answered or explicitly abandoned for its tail, no constraint lacks a `sourceSystem` the sweep could
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
-
-- **23. Raise branch coverage where the branches decide what CEDAR stores, and gate branches as
-  lines are gated.** Each module sets `cedar.coverage.line.minimum` a little below its measured line
-  figure, and `cedar-parent`'s coverage check fails a build whose module falls under it by its own
-  tests. Nothing gates branches, so a change can stop exercising the decisions a module makes
-  without failing anything. The full build of 2026-10-26 measured 69.6% of branches by each
-  module's own tests, 75.0% by each repository's own tests and 77.8% by any test.
-
-  The libraries whose branches decide what a write stores and what it refuses carry the most risk.
-  `cedar-model-validation-library` reaches 82.2% of its branches by its own tests, and
-  `cedar-artifact-library`'s path that reads, validates and renders artifacts reaches 80.1%, apart
-  from the Excel, UBKG and TSV exporters and the command-line tools. Hold both at 80% or above.
-  Hold each server's application module at 70% or above. The lowest are the monitor's (76.4%)
-  and the terminology server's (78.3%). The monitor's figure moved by 0.7 points between two
-  builds of the same code, because some of its branches run only on some timings, and its CI
-  figure runs below the local one, so its floor needs room for both.
-
-  Add a branch counter beside the line counter in the coverage check, through a
-  `cedar.coverage.branch.minimum` property that defaults to zero and that each module sets a little
-  below its measured figure, as it sets the line floor. Measure every floor from a clean build,
-  because a figure read after an earlier run without `clean` overstates it. A module tested from a
-  sibling module, such as `cedar-workspace-operations-library`, which its repository tests through
-  `cedar-test-support-library`, can be held only to what its own tests reach: 38.8% of its branches,
-  against 69.9% by its repository's tests.
-
-  Done when every module declares a branch floor, `cedar-model-validation-library` and the artifact
-  library's core path hold at least 80% of their branches by their own tests, and no server's
-  application module is below 70%.

@@ -4102,9 +4102,9 @@ repository, for lines and for branches. `cedarcli build diagnostics` removes rec
 `--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
 against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
-JSON as the `coverage-summary` artifact. On 2026-10-26 the estate stood at 74.8% of 58,074 lines by
-each module's own tests, 83.9% by each repository's own tests and 88.4% by any test, and at 69.6%,
-75.0% and 77.8% of 23,294 branches. The figures are
+JSON as the `coverage-summary` artifact. On 2026-10-26 the estate stood at 75.1% of 58,074 lines by
+each module's own tests, 84.1% by each repository's own tests and 88.6% by any test, and at 70.6%,
+76.1% and 78.7% of 23,294 branches. The figures are
 a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
 local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
@@ -4117,15 +4117,19 @@ Measured on 2026-10-19, the agent's cost is within run-to-run variation. `cedarc
 took 230 seconds with it, against 217 and 227 seconds for the two full builds before it without.
 `cedarcli build this` in `cedar-resource-server` took 118 seconds without it and 116 with it.
 
-Each tested module has a floor, which JaCoCo's `check` goal enforces in the `verify` phase of every
-build that runs tests. The floor is the `cedar.coverage.line.minimum` property in the module's own
-POM: the share of its lines its Surefire suites must cover, set on 2026-10-19 two points below the
-figure it measured, rounded down. A comment beside each records that figure. `cedar-parent` defaults
-the property to zero, so a module without a floor of its own has none, and the check skips a module
-that ran no tests. The floor uses the module's own figure, not the any-test one, so it cannot be met
-by another repository's suites. To raise a floor after adding tests, set the property to the new
-figure less two points. Lowering one is a decision to accept less coverage, and the commit should say
-why.
+Each tested module has two floors, which JaCoCo's `check` goal enforces in the `verify` phase of
+every build that runs tests. `cedar.coverage.line.minimum` in the module's own POM is the share of its
+lines its Surefire suites must cover, and `cedar.coverage.branch.minimum` the share of its branches,
+the decisions its code makes. Each was set two points below the figure measured from a clean build,
+rounded down: the lines on 2026-10-19 and the branches on 2026-10-26. Where CI measured a module lower
+than a local build did, because some of its branches run only on some timings, the floor follows the
+lower figure. A comment beside each records the figures. `cedar-parent` defaults both properties to
+zero, so a module without a floor of its own has none, and the check skips a module that ran no
+tests. The floors use the module's own figure, not the any-test one, so they cannot be met by another
+repository's suites, and a module tested mainly from a sibling, such as
+`cedar-workspace-operations-library` at 40.2% of its branches, is held only to what its own tests
+reach. To raise a floor after adding tests, set the property to the new figure less two points.
+Lowering one is a decision to accept less coverage, and the commit should say why.
 
 ### REST Performance Testing
 
