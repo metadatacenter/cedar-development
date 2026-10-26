@@ -5255,10 +5255,18 @@ and `_annotations` to the stored template in every mode, as stored or as the wri
 schema check gained `oneOf`, `items`, `minItems`, `uniqueItems` and `patternProperties`. Its `uri`
 format is now Java's, `IdentifierPolicy.matchesUriFormat`: a relative reference passes, and an
 identifier Java requires to be absolute is checked separately. A literal annotation is read as
-Java's model reads it, `@value` before `@id`. One probe remains an open defect: a null literal
-annotation, which the stored schema and the Java validator admit and neither model reads. On the
-production snapshot the two libraries still agree on all 150,585 instances. Records are under
+Java's model reads it, `@value` before `@id`. On the production snapshot the two libraries still
+agree on all 150,585 instances. Records are under
 `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-types/`.
+
+The template's annotation schema admits more than either model reads: a relative reference as an
+annotation's `@id`, and a number, a boolean or null as a literal's `@value`. The `uri` format also
+admits a relative reference as an instance's `@type`. The model is the rule. The Java validator now
+refuses an annotation `@id` or a class that is not an absolute IRI, and a literal that is not a
+string. Both libraries' readers refuse the same, and the TypeScript validator holds a model it did
+not read to those rules too. Production holds none, so no stored artifact changed verdict. The
+corpus gate has no open defect, and the snapshot still agrees on all 150,585 instances. Records are
+under `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-absolute/`.
 
 The four instances were invalid in both, and the form cannot edit an instance's `@context`, so their
 owners could not clear the error themselves. They were repaired on 2026-10-25 in one write each, with
