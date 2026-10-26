@@ -1101,15 +1101,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Malformed annotation objects | 7 |
   | Numeric JSON literals | 2 |
 
-  Confirm the intended GENASIS URL for Data Catalogs instance
-  `94f400a2-4d26-480a-855d-0fa299a243cc`: its `datasetIdentifier[0]` contains two `#` characters.
-  The stored link opens GENASIS filtered to one project. Percent-encoding the second `#` as `%23`
-  makes the instance valid, but GENASIS answers that form with a 404 page, and cutting off the
-  project part opens every project. No valid IRI reproduces the stored view, so the owner must
-  choose between keeping the link and storing the unfiltered one. The
-  case is counted in the table above; its fresh source and template are retained under
-  `.cedar/repairs/2026-09-26-eight-decisions/`.
-
   Verify Unicode field-IRI support in remaining browser/editor consumers. Resolve the production
   terminology HTTP 403 access restriction before claiming live lookup compatibility. Preserve
   Unicode term identifiers verbatim; percent-encoded spellings and different vocabulary versions

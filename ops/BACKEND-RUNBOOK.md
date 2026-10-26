@@ -5325,6 +5325,13 @@ documents, and open and save in CEE. A sixth, on the Collection-Admin template, 
 joined by "; " in three link fields and was left unwritten. The records and pre-images are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-25-orcid-and-entry-ids/`.
 
+The Data Catalogs instance `94f400a2-4d26-480a-855d-0fa299a243cc` is left invalid by decision, for
+its owner. Its first `datasetIdentifier` links to GENASIS with a second `#` inside the fragment,
+where GENASIS keeps a project filter, so the link is not a valid IRI. No valid spelling shows the
+same view: GENASIS answers the `%23` form with a 404 page, and the link without the project part
+opens every project. On 2026-10-25 the user decided to keep the stored link rather than store the
+unfiltered one, so no repair should rewrite it.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
