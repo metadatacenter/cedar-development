@@ -1386,15 +1386,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   lines are gated.** Each module sets `cedar.coverage.line.minimum` a little below its measured line
   figure, and `cedar-parent`'s coverage check fails a build whose module falls under it by its own
   tests. Nothing gates branches, so a change can stop exercising the decisions a module makes
-  without failing anything. The full build of 2026-10-21 measured 68.6% of branches by each
-  module's own tests, 74.3% by each repository's own tests and 77.1% by any test.
+  without failing anything. The full build of 2026-10-26 measured 69.6% of branches by each
+  module's own tests, 75.0% by each repository's own tests and 77.8% by any test.
 
   The libraries whose branches decide what a write stores and what it refuses carry the most risk.
-  `cedar-model-validation-library` reaches 72.4% of its branches by its own tests. Raise it to 80%.
-  `cedar-artifact-library`'s path that reads, validates and renders artifacts reaches 78.7%, apart
-  from the standalone exporters and command-line tools. Raise that path to 80% too. Hold each
-  server's application module to at least 70%. The terminology server (65.1%), the monitor (65.2%),
-  the messaging server (67.5%) and the worker (68.5%) are below it.
+  `cedar-model-validation-library` reaches 82.2% of its branches by its own tests, and
+  `cedar-artifact-library`'s path that reads, validates and renders artifacts reaches 80.1%, apart
+  from the Excel, UBKG and TSV exporters and the command-line tools. Hold both at 80% or above.
+  Hold each server's application module to at least 70%. The terminology server (65.1%), the
+  monitor (64.5%), the messaging server (67.5%) and the worker (68.5%) are below it, and so is the
+  repository server, whose application module has two branches, one of them covered. The
+  monitor's figure moved by 0.7 points between two builds of the same code, because some of its
+  branches run only on some timings, so its floor needs that much room.
 
   Add a branch counter beside the line counter in the coverage check, through a
   `cedar.coverage.branch.minimum` property that defaults to zero and that each module sets a little

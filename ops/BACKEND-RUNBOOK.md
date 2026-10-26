@@ -4102,8 +4102,9 @@ repository, for lines and for branches. `cedarcli build diagnostics` removes rec
 `--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
 against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
-JSON as the `coverage-summary` artifact. On 2026-10-21 the estate stood at 74.1% of 57,265 lines by
-each module's own tests, 83.4% by each repository's own tests and 87.9% by any test. The figures are
+JSON as the `coverage-summary` artifact. On 2026-10-26 the estate stood at 74.8% of 58,074 lines by
+each module's own tests, 83.9% by each repository's own tests and 88.4% by any test, and at 69.6%,
+75.0% and 77.8% of 23,294 branches. The figures are
 a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
 local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
