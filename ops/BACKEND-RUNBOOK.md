@@ -5268,6 +5268,16 @@ not read to those rules too. Production holds none, so no stored artifact change
 corpus gate has no open defect, and the snapshot still agrees on all 150,585 instances. Records are
 under `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-absolute/`.
 
+Neither library's YAML form carried an instance's `@type`, so a trip through YAML dropped it. Both
+now write it under `instanceType`, the key a template uses for the classes its instances take: one
+class as a string, several as a list, after the identifier, on the instance and on each element
+occurrence. An occurrence's classes survive a compact document, and an occurrence stating classes
+and nothing else is still written with `type: element-instance`. `instanceType` is reserved among
+the instance YAML keys, so no attribute-value field may take it; no production artifact contains the
+name. Shared-corpus case `instance-023` states classes on the instance and an element, and both
+libraries render it byte for byte alike in JSON, YAML and compact YAML. Three verdict probes cover
+an element occurrence's `@type`.
+
 The four instances were invalid in both, and the form cannot edit an instance's `@context`, so their
 owners could not clear the error themselves. They were repaired on 2026-10-25 in one write each, with
 `drop-unused-instance-context`, `drop-shadowed-instance-context`, `complete-instance-context` and

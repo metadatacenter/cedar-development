@@ -366,6 +366,12 @@ def main(argv: list[str] | None = None) -> int:
             cases.append(judge(case, instance, template, entry))
             accepted = cases[-1]["javaValid"]
             found = probes(case, template)
+            if case == "cee-suite/008":
+                # An element occurrence's own classes, which every save writes as the instance holds them.
+                occurrence = first_occurrence(instance)
+                found += [("element-type", [put(occurrence + "/@type", PROBE_CLASS)], []),
+                          ("element-type-list", [put(occurrence + "/@type", [PROBE_CLASS, PROBE_PROPERTY])], []),
+                          ("element-type-relative", [put(occurrence + "/@type", "Probe")], [])]
             if found and not accepted:
                 raise RuntimeError(f"{case}: only a case the validator accepts can be probed")
             for probe, on_instance, on_template in found:
