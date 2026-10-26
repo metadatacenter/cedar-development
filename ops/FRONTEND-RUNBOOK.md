@@ -3874,6 +3874,23 @@ same partials via Sass's configured include path. Verify both bundle variants an
 publish CEE before advancing Workspace's pin; source changes alone do not change
 what an older installed CEE package contains.
 
+CED and CETP ship the same pair: `cedar-embeddable-designer.host-fonts.js` and
+`cedar-embeddable-term-picker.host-fonts.js`, each beside a `bundle-manifest.host-fonts.json`
+and held to its own size ceiling, which is the default bundle's less the embedded faces. The
+tokens package also publishes the faces as compiled `fonts.css`, for a host without Sass. The
+Template Designer page loads CEE, CETP and CED together, so it links `fonts.css` once and
+`stage-components.mjs` stages each component's host-fonts bundle under the component's usual
+file name. The staged `manifest.json` records the package file in `bundle`, and
+`cedarcli check components` compares the served bytes with that file. A package without a
+host-fonts bundle, or a tokens package without `fonts.css`, is staged self-contained, as before.
+The page then downloads the faces once rather than three times, which saves about 180 kB of
+compressed transfer.
+
+The host checks every save payload with the meta-schema validator CED carries, through
+`designer.validateArtifact`, rather than importing its own copy. Against a CED built before that
+method, the host imports its staged `cedar-schema-validation.mjs` instead, so that file is still
+staged.
+
 CED and CEFD use one set-once configuration coordinator per component. It diagnoses
 unknown keys and wrong types, normalizes both service bases, and hands the same
 accepted configuration to terminology and embedded CEF. Malformed non-object
