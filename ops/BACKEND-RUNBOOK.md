@@ -5442,7 +5442,7 @@ selected them, and a live dry run repeated its checks before the write. 25 graph
 second ahead of their documents, with the same modifier, and those instances were written under
 `--replace-graph-provenance`. Every instance was read back, rechecks as valid against its stored
 template, and validates against the template as the library writes it. The remaining 93 need their
-owners, as the roadmap's item on template changes records. The plan, records and pre-images are
+owners, as the roadmap's production-data item records. The plan, records and pre-images are
 under `$CEDAR_HOME/.cedar/repairs/2026-10-25-resave-risk/`.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
