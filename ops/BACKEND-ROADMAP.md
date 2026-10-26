@@ -1393,11 +1393,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `cedar-model-validation-library` reaches 82.2% of its branches by its own tests, and
   `cedar-artifact-library`'s path that reads, validates and renders artifacts reaches 80.1%, apart
   from the Excel, UBKG and TSV exporters and the command-line tools. Hold both at 80% or above.
-  Hold each server's application module to at least 70%. The terminology server (65.1%), the
-  monitor (64.5%), the messaging server (67.5%) and the worker (68.5%) are below it, and so is the
-  repository server, whose application module has two branches, one of them covered. The
-  monitor's figure moved by 0.7 points between two builds of the same code, because some of its
-  branches run only on some timings, so its floor needs that much room.
+  Hold each server's application module at 70% or above. The lowest are the monitor's (76.4%)
+  and the terminology server's (78.3%). The monitor's figure moved by 0.7 points between two
+  builds of the same code, because some of its branches run only on some timings, and its CI
+  figure runs below the local one, so its floor needs room for both.
 
   Add a branch counter beside the line counter in the coverage check, through a
   `cedar.coverage.branch.minimum` property that defaults to zero and that each module sets a little
