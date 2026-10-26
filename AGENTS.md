@@ -121,7 +121,9 @@ below have no CLI front end yet, so call them directly:
   verdict on every instance, the Java validator's against the TypeScript library's save decision,
   and `--fail-on-disagreement` fails the run on any difference. Every artifact the Java library reads
   is also rendered as JSON and in the full YAML form, and timed, which measures what the server's
-  write checks would refuse and what they cost. Several bridges of each kind,
+  write checks would refuse and what they cost. Each library writes every artifact it reads as YAML,
+  full and compact, and both libraries' YAML readers read each rendering back, so a key one writes
+  and the other refuses fails the run under `--fail-on-disagreement` too. Several bridges of each kind,
   `cedar_snapshot_read_bridge.java` and `cedar_snapshot_read_bridge.cjs`, take a production snapshot
   in minutes. Contacts no deployment.
 - `cedar_corpus_instance_verdicts.py` — record the Java validator's verdict on every shared-corpus

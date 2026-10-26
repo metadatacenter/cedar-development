@@ -67,6 +67,8 @@ TEMPLATE_MIRROR = 128
 JAVA_TEMPLATE_CACHE = 2 * TEMPLATE_MIRROR
 WINDOW = 64
 PROGRESS_EVERY = 25000
+# The renderings of each artifact the Java library reads, and the read-backs of its YAML.
+RENDERINGS = ("json", "yaml", "yamlRead", "compactYamlRead")
 
 
 class Bridge:
@@ -165,7 +167,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--known", action="append", default=[], help="JSONL of artifacts known to be invalid")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts, for a trial")
     parser.add_argument("--fail-on-disagreement", action="store_true",
-                        help="exit non-zero when the libraries disagree on any instance's verdict")
+                        help="exit non-zero when the libraries disagree on any instance's verdict, or when a "
+                             "reader refuses the YAML either library writes of an artifact the validator accepts")
     arguments = parser.parse_args(argv)
 
     os.umask(0o077)
@@ -196,6 +199,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     render_counts: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     render_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     unrendered: list[dict[str, Any]] = []
+    yaml_counts: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    yaml_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    yaml_refused: list[dict[str, Any]] = []
     render_times: dict[str, list[tuple[int, int, str]]] = collections.defaultdict(list)
     problems: list[str] = []
     ended = 0
@@ -244,15 +250,35 @@ def main(argv: Optional[list[str]] = None) -> int:
         rendering = record.get("render")
         if rendering is not None:
             render_times[kind].append((rendering.get("nanos", 0), record.get("bytes", 0), record["id"]))
-            failed = [fmt for fmt in ("json", "yaml") if rendering.get(fmt) != "rendered"]
-            for fmt in ("json", "yaml"):
+            failed = [fmt for fmt in RENDERINGS if rendering.get(fmt) not in ("rendered", "read")]
+            for fmt in RENDERINGS:
                 render_counts[kind][f"{fmt}:{rendering.get(fmt, 'no-answer')}"] += 1
             for fmt in failed:
                 render_causes[f"{kind} {fmt} {'accepted' if validation == 'valid' else 'rejected'}"][
                     f"{rendering.get(fmt + 'Exception', '?').rsplit('.', 1)[-1]}: "
-                    f"{cause(rendering.get(fmt + 'Message'))}"] += 1
+                    f"{cause(rendering.get(fmt + 'Message'))}"
+                    + (f" at {rendering[fmt + 'Location']}" if fmt + "Location" in rendering else "")] += 1
             if failed and validation == "valid":
                 unrendered.append({"type": kind, "id": record["id"], "failed": failed})
+        # Each library's YAML of the artifact, read by its own reader and by the other library's.
+        lanes = dict(record.get("yamlCross", {}))
+        for writer, rendering in (("java", record.get("render")), ("ts", record.get("tsRender"))):
+            for form, name in (("full", "yamlRead"), ("compact", "compactYamlRead")):
+                if rendering is not None and name in rendering:
+                    lanes[f"{writer}Reads{writer.capitalize()}:{form}"] = {
+                        "status": rendering[name], "message": rendering.get(name + "Message"),
+                        "location": rendering.get(name + "Location")}
+        refused_lanes = []
+        for lane, verdict in sorted(lanes.items()):
+            yaml_counts[kind][f"{lane}:{verdict.get('status')}"] += 1
+            if verdict.get("status") != "read":
+                refused_lanes.append(lane)
+                errors = verdict.get("errors") or [{}]
+                yaml_causes[f"{kind} {lane} {'accepted' if validation == 'valid' else 'rejected'}"][
+                    cause(verdict.get("message") or errors[0].get("type"))
+                    + (f" at {verdict['location']}" if verdict.get("location") else "")] += 1
+        if refused_lanes and validation == "valid":
+            yaml_refused.append({"type": kind, "id": record["id"], "lanes": refused_lanes})
         both_read = java_status == "read" and ts_status == "read"
         tally["bothRead" if both_read else "notBothRead"] += 1
         if ts_status == "read" and record["ts"].get("warningCount"):
@@ -282,6 +308,18 @@ def main(argv: Optional[list[str]] = None) -> int:
                   f"not read by both: {sum(c['notBothRead'] for c in counts.values())}, of which the "
                   f"validator accepts {len(unexpected)}", flush=True)
 
+    def cross_read(record: dict[str, Any], key: tuple[str, str], rendering: dict[str, Any], readers: list[Bridge],
+                   lane: str) -> None:
+        """Send the YAML one library wrote to the other library's reader, and keep no text in the record."""
+        for form, name in (("full", "yamlText"), ("compact", "compactYamlText")):
+            text = rendering.pop(name, None)
+            if text is None:
+                continue
+            reader = readers[hash(key) % len(readers)]
+            record["awaiting"] += 1
+            reader.send({"op": "readYaml", "kind": key[0], "compact": form == "compact"}, text.encode("utf-8"),
+                        ("yaml", key, f"{lane}:{form}"))
+
     def consume(block: bool) -> None:
         nonlocal ended
         while True:
@@ -302,17 +340,29 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if answer.get("status") != "kept":
                     problems.append(f"template {context[1]} could not be kept: {answer.get('status')}")
                 continue
-            key = context
-            record = partial[key]
-            if name.startswith("java"):
-                record["java"] = answer.get("reader", {"status": "no-answer"})
-                record["validation"] = answer.get("validation", {"status": "no-answer"})
-                if "renderer" in answer:
-                    record["render"] = answer["renderer"]
+            if context[0] == "yaml":
+                _, key, lane = context
+                record = partial[key]
+                record.setdefault("yamlCross", {})[lane] = answer.get("yaml", {"status": "no-answer"})
+                record["awaiting"] -= 1
             else:
-                record["ts"] = answer.get("reader", {"status": "no-answer"})
-            if "java" in record and "ts" in record:
-                complete(partial.pop(key))
+                key = context
+                record = partial[key]
+                if name.startswith("java"):
+                    record["java"] = answer.get("reader", {"status": "no-answer"})
+                    record["validation"] = answer.get("validation", {"status": "no-answer"})
+                    if "renderer" in answer:
+                        record["render"] = answer["renderer"]
+                        cross_read(record, key, answer["renderer"], ts, "tsReadsJava")
+                else:
+                    record["ts"] = answer.get("reader", {"status": "no-answer"})
+                    if "renderer" in answer:
+                        record["tsRender"] = answer["renderer"]
+                        cross_read(record, key, answer["renderer"], java, "javaReadsTs")
+            if "java" in record and "ts" in record and record["awaiting"] == 0:
+                record = partial.pop(key)
+                del record["awaiting"]
+                complete(record)
             if block:
                 return
 
@@ -325,14 +375,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             key = (kind, entry["id"])
             if kind == "template":
                 templates[entry["id"]] = body
-            record: dict[str, Any] = {"type": kind, "id": entry["id"], "bytes": len(body)}
+            record: dict[str, Any] = {"type": kind, "id": entry["id"], "bytes": len(body), "awaiting": 0}
             try:
                 body.decode("utf-8")
             except UnicodeDecodeError:
                 record["notUtf8"] = True
             partial[key] = record
             bridge = java[position % len(java)]
-            header: dict[str, Any] = {"op": "read", "kind": kind}
+            header: dict[str, Any] = {"op": "read", "kind": kind, "crossYaml": True}
             if kind == "instance":
                 template_id = entry.get("template")
                 record["template"] = template_id
@@ -348,7 +398,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                             bridge.templates.popitem(last=False)
             bridge.send(header, body, key)
             ts_bridge = ts[position % len(ts)]
-            ts_header: dict[str, Any] = {"op": "read", "kind": kind}
+            ts_header: dict[str, Any] = {"op": "read", "kind": kind, "crossYaml": True}
             template_id = entry.get("template") if kind == "instance" else None
             if template_id and template_id in templates:
                 ts_header["templateId"] = template_id
@@ -363,9 +413,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             ts_bridge.send(ts_header, body, key)
             submitted += 1
             consume(block=False)
+        while partial:
+            consume(block=True)
         for bridge in java + ts:
             bridge.process.stdin.close()
-        while partial or ended < len(java) + len(ts):
+        while ended < len(java) + len(ts):
             consume(block=True)
     for bridge in java + ts:
         bridge.close()
@@ -400,6 +452,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             "validatorAcceptsButNotRenderedCount": len(unrendered),
             "timing": {kind: timing(times) for kind, times in sorted(render_times.items())},
         },
+        "yamlParity": {
+            "byType": {kind: dict(sorted(counter.items())) for kind, counter in sorted(yaml_counts.items())},
+            "causes": {group: dict(counter.most_common(40)) for group, counter in sorted(yaml_causes.items())},
+            "validatorAcceptsButYamlRefused": yaml_refused[:500],
+            "validatorAcceptsButYamlRefusedCount": len(yaml_refused),
+        },
         "problems": problems,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
@@ -411,9 +469,11 @@ def main(argv: Optional[list[str]] = None) -> int:
           + json.dumps({k: {m: v for m, v in t.items() if m != "slowest"} for k, t in summary["rendering"]["timing"].items()}))
     disagreeing = parity["javaValid-tsBlocks"] + parity["javaInvalid-tsSaves"]
     print(f"[parity] instance verdicts: {dict(parity)}")
+    print(f"[yaml] {len(yaml_refused)} artifact(s) the validator accepts have a YAML form, written by one library, "
+          f"that a library's reader refuses")
     if problems:
         return 1
-    return 1 if arguments.fail_on_disagreement and disagreeing else 0
+    return 1 if arguments.fail_on_disagreement and (disagreeing or yaml_refused) else 0
 
 
 if __name__ == "__main__":

@@ -1731,6 +1731,36 @@ invalid. Reading and rendering takes a median 0.07 ms for an instance and 0.7 ms
 measurement is the snapshot read audit's `rendering` summary, retained under
 `$CEDAR_HOME/.cedar/audits/2026-10-26-snapshot-read-render/`.
 
+Both libraries' YAML readers refuse a key they do not read, and report it with its path, so a
+misspelled key, or a key the form has only for another field type, is refused rather than dropped.
+Each reader counts the keys it asks for in every mapping of the document it is given, whether or not
+the mapping holds them, and refuses the first key that none of its reads asked for. A mapping whose
+keys the document names itself counts all of them as read: an instance's children, its annotations
+and an attribute-value field's attributes. The YAML specification's
+[Keys Outside the Form](https://metadatacenter.readthedocs.io/en/latest/yaml-spec/core-structure/#keys-outside-the-form)
+states the rule and the few keys earlier writers emitted that both readers read past.
+
+The two readers accept the same documents only while they ask for the same keys, and two gates hold
+them to that. `CorpusYamlKeyVerifier` records the keys the Java reader asks for in every mapping of
+every YAML document in the shared corpus, in `src/test/resources/concordance/yaml-key-vocabulary.json`,
+and the artifact library's CI fails when the record is stale. The TypeScript library's
+`YamlKeyVocabularyConcordance` spec reads every corpus document with its own reader and compares the
+keys it asks for with that record, mapping by mapping, once `npm run sync:concordance` has copied it.
+After a change to the Java reader, rewrite the record and commit it before syncing:
+
+```bash
+# In cedar-artifact-library, using the runbook's Java 17 environment:
+./mvnw test-compile exec:java -Dexec.classpathScope=test \
+  -Dexec.mainClass=org.metadatacenter.artifacts.model.reader.CorpusYamlKeyVerifier \
+  "-Dexec.args=../cedar-test-artifacts --write"
+```
+
+Over production, the snapshot read audit writes every artifact as YAML with each library, full and
+compact, and reads each rendering with both libraries' readers. Its `yamlParity` summary counts the
+eight lanes by type. On the snapshot of 2026-10-25, every artifact either library reads from its JSON
+is read back by both readers in all eight lanes, and `--fail-on-disagreement` fails a run in which a
+reader refuses the YAML of an artifact the validator accepts.
+
 Ordinary fields may use YAML scalar spellings (`true`, `null`, `yes`, numeric or date-like names)
 and YAML structural keys (`type`, `name`, `children`): writers quote where needed and preserve
 those names beneath `children`. Attribute-value group keys occupy the surrounding YAML mapping,
@@ -5147,9 +5177,11 @@ Four Java bridges (`cedar_snapshot_read_bridge.java`) and four Node bridges
 `ArtifactSourceParser`, validates it, and reads it with `JsonArtifactReader`; templates reach it
 ahead of the instances based on them. The Node bridge reads with the strict readers, and again with
 the `FEBRUARY_2024` behavior whenever the strict readers refuse, because the embeddable editor opens
-stored templates with that behavior. A production snapshot takes under a minute. `records.jsonl`
-holds one verdict per artifact, and `summary.json` counts outcomes by type and groups refusals and
-validation failures by cause, with quoted values masked.
+stored templates with that behavior. Each bridge also writes the artifact it read as YAML, full and
+compact, and reads that back. The audit then hands each rendering to the other library's bridge to
+read, and its `yamlParity` summary counts the results. A production snapshot takes under three
+minutes. `records.jsonl` holds one verdict per artifact, and `summary.json` counts outcomes by type
+and groups refusals and validation failures by cause, with quoted values masked.
 
 The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `02aadf5`), found:
 
