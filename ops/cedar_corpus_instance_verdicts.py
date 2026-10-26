@@ -14,7 +14,11 @@ commit they came from and the fixture's digest.
 
 Every instance whose template the corpus holds is a case. So is each probe: a corpus case changed by
 JSON Patch operations on its instance and its template into a shape the corpus holds no example of,
-which the spec applies the same way before reading either document. The verdict comes from the validation library
+which the spec applies the same way before reading either document. Java judges each instance as the
+server would store it from an editor's save, and each case records the operations that completion
+added, so the spec can judge that same document verbatim as well as the instance as the editor holds
+it. A stored probe changes the completed document, the shape a verbatim write stores, and is judged
+only verbatim. The verdict comes from the validation library
 ``ops/cedar_validate.sh`` builds from its sibling checkout, which must be committed unless
 ``--working-tree`` records that it is not.
 """
@@ -94,6 +98,22 @@ def as_the_server_stores(instance: dict, template: dict) -> dict:
 
     mint(stored)
     return stored
+
+
+def completion(before: Any, after: Any, path: str = "") -> list[dict[str, Any]]:
+    """The JSON Patch operations that turn an instance into its completed form: the keys completion set."""
+    operations: list[dict[str, Any]] = []
+    if isinstance(before, dict) and isinstance(after, dict):
+        for name, value in after.items():
+            here = path + key(name)
+            if name not in before or (not isinstance(value, (dict, list)) and before[name] != value):
+                operations.append(put(here, value))
+            else:
+                operations += completion(before[name], value, here)
+    elif isinstance(before, list) and isinstance(after, list):
+        for index, (old, new) in enumerate(zip(before, after)):
+            operations += completion(old, new, f"{path}/{index}")
+    return operations
 
 
 def pairs(corpus: Path) -> list[tuple[str, Path, Path]]:
@@ -191,6 +211,57 @@ def probes(case: str, template: dict) -> list[tuple[str, list[dict[str, Any]], l
     return []
 
 
+def first_occurrence(node: Any, path: str = "") -> str | None:
+    """The pointer to the first element occurrence below the root, in document order."""
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            found = first_occurrence(item, f"{path}/{index}")
+            if found is not None:
+                return found
+    elif isinstance(node, dict):
+        if path and "@context" in node:
+            return path
+        for name, value in node.items():
+            if name != "@context" and isinstance(value, (dict, list)):
+                found = first_occurrence(value, path + key(name))
+                if found is not None:
+                    return found
+    return None
+
+
+def stored_probes(case: str, completed: dict) -> list[tuple[str, list[dict[str, Any]]]]:
+    """A case's stored probes: its completed document with one of its own keys missing or malformed.
+
+    The server writes these keys on an editor's save, so only a verbatim write can store a document
+    without them, and only a judgement of the document as it stands can say whether it may.
+    """
+    if case != "cee-suite/008":
+        return []
+    occurrence = first_occurrence(completed)
+    return [("stored-element-id-absent", [drop(occurrence + "/@id")]),
+            ("stored-element-id-null", [put(occurrence + "/@id", None)]),
+            ("stored-element-id-blank", [put(occurrence + "/@id", "")]),
+            ("stored-root-id-absent", [drop("/@id")]),
+            ("stored-root-id-null", [put("/@id", None)]),
+            ("stored-based-on-absent", [drop("/schema:isBasedOn")]),
+            ("stored-name-absent", [drop("/schema:name")]),
+            ("stored-name-empty", [put("/schema:name", "")]),
+            ("stored-created-on-absent", [drop("/pav:createdOn")]),
+            ("stored-created-on-null", [put("/pav:createdOn", None)]),
+            # The format admits a timestamp leniently and the model reads one strictly, each in its own
+            # ways, and a stored timestamp must satisfy both: one probe for each combination.
+            ("stored-created-on-colonless-offset", [put("/pav:createdOn", "2026-01-15T12:34:56-0800")]),
+            ("stored-created-on-day-past-month", [put("/pav:createdOn", "2026-02-30T00:00:00-08:00")]),
+            ("stored-created-on-end-of-day", [put("/pav:createdOn", "2026-01-15T24:00:00Z")]),
+            ("stored-created-on-lowercase-t", [put("/pav:createdOn", "2026-01-15t12:34:56Z")]),
+            ("stored-created-on-no-seconds", [put("/pav:createdOn", "2026-01-15T12:34-08:00")]),
+            ("stored-created-on-hour-offset", [put("/pav:createdOn", "2026-01-15T12:34:56-08")]),
+            ("stored-created-on-date-only", [put("/pav:createdOn", "2026-01-01")]),
+            ("stored-created-on-offset-too-far", [put("/pav:createdOn", "2026-01-15T12:34:56+18:01")]),
+            ("stored-created-on-leap-second", [put("/pav:createdOn", "2016-12-31T23:59:60Z")]),
+            ("stored-derived-from-malformed", [put("/pav:derivedFrom", "not an IRI")])]
+
+
 def patched(document: dict, operations: list[dict[str, Any]]) -> dict:
     """The document with JSON Patch `add` and `remove` operations applied, as the spec applies them."""
     copy = json.loads(json.dumps(document))
@@ -198,7 +269,7 @@ def patched(document: dict, operations: list[dict[str, Any]]) -> dict:
         keys = [part.replace("~1", "/").replace("~0", "~") for part in operation["path"].split("/")[1:]]
         parent = copy
         for part in keys[:-1]:
-            parent = parent[part]
+            parent = parent[int(part)] if isinstance(parent, list) else parent[part]
         if operation["op"] == "remove":
             del parent[keys[-1]]
         else:
@@ -226,12 +297,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Validator: {hello.get('validator')} on Java {hello.get('java')}")
     cases: list[dict[str, Any]] = []
 
-    def judge(case: str, instance: dict, template: dict, entry: dict[str, Any]) -> dict[str, Any]:
+    def judge(case: str, instance: dict, template: dict, entry: dict[str, Any],
+              stored: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         bridge.cache_template(template["@id"], template)
-        answer = bridge.validate("instance", as_the_server_stores(instance, template), template["@id"])
+        completed = as_the_server_stores(instance, template)
+        answer = bridge.validate("instance", patched(completed, stored or []), template["@id"])
         if answer.get("status") not in ("valid", "invalid"):
             raise RuntimeError(f"{case}: the validator gave no verdict: {answer}")
-        return {"id": case, **entry, "javaValid": answer["status"] == "valid",
+        added = completion(instance, completed)
+        return {"id": case, **entry, **({"completion": added} if added else {}),
+                "javaValid": answer["status"] == "valid",
                 "javaErrors": [error.get("message", "") for error in (answer.get("errors") or [])[:3]]}
 
     try:
@@ -241,14 +316,21 @@ def main(argv: list[str] | None = None) -> int:
             entry = {"instance": instance_path.relative_to(corpus).as_posix(),
                      "template": template_path.relative_to(corpus).as_posix()}
             cases.append(judge(case, instance, template, entry))
+            accepted = cases[-1]["javaValid"]
             found = probes(case, template)
-            if found and not cases[-1]["javaValid"]:
+            if found and not accepted:
                 raise RuntimeError(f"{case}: only a case the validator accepts can be probed")
             for probe, on_instance, on_template in found:
                 patch = {name: operations for name, operations in (("instance", on_instance), ("template", on_template))
                          if operations}
                 cases.append(judge(f"{case}#{probe}", patched(instance, on_instance), patched(template, on_template),
                                    {**entry, "patch": patch}))
+            stored_found = stored_probes(case, as_the_server_stores(instance, template))
+            if stored_found and not accepted:
+                raise RuntimeError(f"{case}: only a case the validator accepts can be probed")
+            for probe, on_stored in stored_found:
+                cases.append(judge(f"{case}#{probe}", instance, template, {**entry, "patch": {"stored": on_stored}},
+                                   on_stored))
     finally:
         bridge.close()
     (out / "instance-verdicts-bridge.log").unlink(missing_ok=True)

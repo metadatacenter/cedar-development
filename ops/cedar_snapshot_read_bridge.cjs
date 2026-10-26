@@ -74,8 +74,9 @@ function read(kind, source, templateId) {
     else if (!instance) verdict.validation = { status: 'unreadable', canSave: false };
     else {
       try {
-        // Judged against the stored template, as the server judges it.
-        const summary = library.InstanceValidator.validateReport(instance, template, kept.stored);
+        // Judged against the stored template, and as the document stands, as the server judges a stored
+        // body: its identity, provenance and element-occurrence identifiers included.
+        const summary = library.InstanceValidator.validateReport(instance, template, kept.stored, { verbatim: true });
         const blocking = summary.findings.filter((finding) => library.ValidationPolicy.blocksSave(finding, 'instance'));
         verdict.validation = {
           status: 'judged',

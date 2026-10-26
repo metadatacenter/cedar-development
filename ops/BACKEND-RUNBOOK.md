@@ -5217,6 +5217,34 @@ On the same snapshot the two libraries now agree on every one of the 150,585 ins
 and `--fail-on-disagreement` passes. Records are under
 `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-context/`.
 
+An editor's save leaves an instance's identity, its provenance and each element occurrence's `@id`
+to the host and the server, which write them before validating, so `InstanceValidator` never asked
+them of an instance. A stored document lacking them disagreed: Java refused an element occurrence
+whose `@id` was absent or blank, and a root without its `@id`, template, name or provenance, and
+TypeScript let them through. Production held none on its own, since every such instance had a
+further fault both refused. `InstanceValidator` now takes `{ verbatim: true }` for a document judged
+exactly as it stands, as a verbatim write stores it. Each container's own keys are then held to the
+stored template: required ones must be there, and each must take a value the template admits. The
+reader records them as stored, since the model keeps an absent identifier and a null one alike.
+
+Each gate now judges the same document on both sides. The corpus gate gives Java each instance as
+the server stores it from an editor's save, and records the identifiers and stamps that completion
+adds. The spec judges the editor's instance in the default mode, and the completed document
+verbatim. Twenty stored probes change the completed document, the shape only a verbatim write
+stores, and are judged verbatim alone. The snapshot gate judges each stored body verbatim.
+
+The timestamp probes found a fault in Java rather than TypeScript. The meta-schemas' `date-time`
+format resolves a value leniently. It admits the 30th of February and `24:00:00`, which
+`TimestampPolicy`, the Java model's reader and the TypeScript reader all refuse. The format also
+refuses some values the model reads, such as a time without seconds. The Java validator now reads
+every provenance timestamp the format admits with `TimestampPolicy`, so a stored timestamp must
+satisfy both. `TimestampPolicy.matchesFormat` checks the format in TypeScript exactly as Java does.
+The two libraries agreed on 145 edge cases and on all 281,810 distinct provenance timestamps in the
+production snapshot, every one of which passes both, so no stored artifact changed verdict.
+Judged verbatim, the two libraries agree on every one of the snapshot's 150,585 instances, and
+`--fail-on-disagreement` passes. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-verbatim/`.
+
 The four instances were invalid in both, and the form cannot edit an instance's `@context`, so their
 owners could not clear the error themselves. They were repaired on 2026-10-25 in one write each, with
 `drop-unused-instance-context`, `drop-shadowed-instance-context`, `complete-instance-context` and
