@@ -4712,6 +4712,78 @@ def drop_unused_instance_context(instance: Any, template: Any) -> tuple[Any, lis
     return walk(instance, template, ''), changes
 
 
+
+def orphan_context_terms(node: Any, schema: Any) -> list[str]:
+    """The terms an instance's ``@context`` maps that its template declares for no child it has.
+
+    The template's ``@context`` may declare a term, such as ``id``, that no child carries, and the
+    library drops it the next time it writes the template. An instance mapping the term stays valid
+    against the stored template and turns invalid against the written one, whose ``@context`` admits
+    nothing undeclared. Only a simple term the template does not require is returned, and only where
+    nothing in the instance's scope uses it.
+    """
+    context = node.get("@context") if isinstance(node, dict) else None
+    shape = schema.get("properties", {}).get("@context", {}) if isinstance(schema, dict) else {}
+    declared, required = shape.get("properties"), shape.get("required") or []
+    if not isinstance(context, dict) or not isinstance(declared, dict):
+        return []
+    children = {name for name, _child, _multiple in container_children(schema)}
+    orphans = []
+    for name, value in context.items():
+        if name not in declared or name in children or name in required or name.startswith("@") \
+                or ":" in name or not rest.is_absolute_iri(value):
+            continue
+        scope = copy.deepcopy(node)
+        del scope["@context"][name]
+        if not context_name_used(scope, name):
+            orphans.append(name)
+    return orphans
+
+
+def drop_orphan_instance_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove the context terms an instance maps for no child its template declares.
+
+    ``drop-unused-instance-context`` leaves alone a term the template's ``@context`` declares. This
+    one removes such a term where the declaration is an orphan, as ``orphan_context_terms`` says, so
+    the instance stays valid when the template is next written.
+    """
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+
+    def walk(node: Any, schema: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name in orphan_context_terms(node, schema):
+            changes.append({"path": f"{path}/@context/{rest.json_pointer_component(name)}",
+                            "replaced": result["@context"].pop(name), "wrote": None})
+        for name, child, multiple in container_children(schema):
+            if not is_element(child) or name not in result:
+                continue
+            value = result[name]
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if multiple and isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}") for index, item in enumerate(value)]
+            elif not multiple and isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+    return walk(instance, template, ""), changes
+
+
+def only_dropped_orphan_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes a term ``orphan_context_terms`` names in the stored body."""
+    for path, _old, new in differences(before, after):
+        context_path, _, encoded = path.rpartition("/")
+        if not context_path.endswith("/@context") or new is not ABSENT:
+            return path or "/"
+        scope_path = context_path[:-len("/@context")]
+        schema = template if not scope_path else declaration_at(template, scope_path)
+        scope = before if not scope_path else value_at(before, scope_path)
+        if encoded.replace("~1", "/").replace("~0", "~") not in orphan_context_terms(scope, schema):
+            return path
+    return None
+
 def without_shadowing_subtrees(node: Any, name: str, top: bool = True) -> Any:
     """A copy of ``node`` without the objects below it whose own ``@context`` maps ``name``.
 
@@ -6414,6 +6486,55 @@ def only_stamped_value_types(before: Any, after: Any, template: Any) -> Optional
             return path
     return None
 
+
+
+def stamp_empty_value_type(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give an empty numeric or temporal value the datatype its field declares.
+
+    The model writes an empty value of such a field with its datatype, as
+    ``{"@value": null, "@type": "xsd:dateTime"}``, and every template the library writes lists
+    ``@type`` among the properties the value must carry. A template stored before that rule may
+    require only ``@value``, and an empty value written against it states no datatype. The instance
+    is valid against the stored template and turns invalid the first time the template is saved
+    again.
+
+    Only an absent ``@type`` on a value whose ``@value`` is null is written. A value that holds
+    something is ``stamp-instance-value-type``'s, since a datatype there says what the value means.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        wanted = declared_value_type(definition)
+        if wanted is None or not is_empty_untyped_literal(value):
+            return value
+        changes.append({"path": f"{path}/@type", "replaced": None, "wrote": wanted})
+        return {**value, "@type": wanted}
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def is_empty_untyped_literal(value: Any) -> bool:
+    """Whether a value is the empty literal ``{"@value": null}`` with no datatype stated."""
+    return isinstance(value, dict) and "@value" in value and value["@value"] is None and "@type" not in value
+
+
+def only_stamped_empty_value_types(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is an empty value's absent ``@type`` gaining its declared datatype."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@type") or was is not ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if not is_empty_untyped_literal(value_at(before, path[:-len("/@type")])):
+            return path
+        if not isinstance(now, str) or now != declared_value_type(definition):
+            return path
+    return None
 
 # The order each template's slash dates are written in, "day-first" or "month-first", keyed by
 # template IRI. Supplied through --date-orders, never inferred here: one date such as 03/04/2019 cannot
@@ -9978,6 +10099,12 @@ REPAIRS = {
         transform=drop_unused_instance_context, invariant=only_dropped_unused_context,
         needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
     ),
+    "drop-orphan-instance-context": Repair(
+        name="drop-orphan-instance-context", condition="",
+        summary="remove context mappings the template declares for no child, with no references in their scope",
+        transform=drop_orphan_instance_context, invariant=only_dropped_orphan_context,
+        needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
+    ),
     "complete-empty-literal": Repair(
         name="complete-empty-literal", condition="",
         summary="state explicit null in otherwise empty nullable literal slots",
@@ -10039,6 +10166,15 @@ REPAIRS = {
         summary="give a typed literal the datatype its field declares",
         transform=stamp_instance_value_type,
         invariant=only_stamped_value_types,
+        needs_template=True,
+        error_pattern=MISSING_CHILD_ERROR,
+    ),
+    "stamp-empty-value-type": Repair(
+        name="stamp-empty-value-type",
+        condition="",
+        summary="give an empty numeric or temporal value the datatype its field declares",
+        transform=stamp_empty_value_type,
+        invariant=only_stamped_empty_value_types,
         needs_template=True,
         error_pattern=MISSING_CHILD_ERROR,
     ),

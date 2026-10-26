@@ -368,6 +368,50 @@ class UnusedContextReferenceSafetyTest(unittest.TestCase):
         self.assertIsNone(r.only_dropped_unused_context(before, after, t))
 
 
+class OrphanContextSafetyTest(unittest.TestCase):
+    """A term the template's @context declares for no child leaves the instance when nothing uses it."""
+
+    def template_declaring(self, terms, required=()):
+        t = template({'Field': child()})
+        t['properties']['@context'] = {
+            'properties': {name: {'enum': ['urn:' + name]} for name in ('Field', *terms)},
+            'required': ['Field', *required]}
+        return t
+
+    def test_removes_an_unused_term_the_template_declares_for_no_child(self):
+        t = self.template_declaring(['id'])
+        before = {'@context': {'Field': 'urn:Field', 'id': 'urn:id'}, 'Field': {'@value': 'data'}}
+        after, changes = r.drop_orphan_instance_context(before, t)
+        self.assertEqual(changes, [{'path': '/@context/id', 'replaced': 'urn:id', 'wrote': None}])
+        self.assertEqual(after, {'@context': {'Field': 'urn:Field'}, 'Field': {'@value': 'data'}})
+        self.assertIsNone(r.only_dropped_orphan_context(before, after, t))
+        self.assertEqual(r.drop_orphan_instance_context(after, t)[1], [])
+
+    def test_keeps_a_child_term_a_required_term_a_used_term_and_an_undeclared_term(self):
+        t = self.template_declaring(['kept', 'used'], required=['kept'])
+        before = {'@context': {'Field': 'urn:Field', 'kept': 'urn:kept', 'used': 'urn:used',
+                               'other': 'urn:other'},
+                  'Field': {'@type': 'used:Thing'}}
+        self.assertEqual(r.drop_orphan_instance_context(before, t), (before, []))
+
+    def test_reaches_an_element_occurrence(self):
+        e = child(ELEMENT_TYPE)
+        e['properties'] = {'@context': {'properties': {'id': {'enum': ['urn:id']}}, 'required': []}}
+        t = template({'Element': {'type': 'array', 'items': e}})
+        before = {'Element': [{'@context': {'id': 'urn:id'}}, {'@context': {}}]}
+        after, changes = r.drop_orphan_instance_context(before, t)
+        self.assertEqual([x['path'] for x in changes], ['/Element/0/@context/id'])
+        self.assertIsNone(r.only_dropped_orphan_context(before, after, t))
+
+    def test_the_invariant_refuses_any_other_change(self):
+        t = self.template_declaring(['id'])
+        before = {'@context': {'Field': 'urn:Field', 'id': 'urn:id'}, 'Field': {'@value': 'data'}}
+        self.assertEqual(r.only_dropped_orphan_context(
+            before, {'@context': {'id': 'urn:id'}, 'Field': {'@value': 'data'}}, t), '/@context/Field')
+        self.assertEqual(r.only_dropped_orphan_context(
+            before, {'@context': {'Field': 'urn:Field'}, 'Field': {'@value': 'other'}}, t), '/Field/@value')
+
+
 class EmptySlotCompletionSafetyTest(unittest.TestCase):
 
     def test_prune_only_explicit_undeclared_empties(self):

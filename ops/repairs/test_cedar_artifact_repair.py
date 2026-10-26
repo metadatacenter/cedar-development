@@ -477,6 +477,74 @@ class StampInstanceValueTypeTest(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class StampEmptyValueTypeTest(unittest.TestCase):
+    """An empty numeric or temporal value is written with its datatype, whatever the stored template requires."""
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def stored(self, node):
+        """A field as a template saved before the library listed @type as required renders it."""
+        node["required"] = ["@value"]
+        return node
+
+    def test_an_empty_value_gains_the_declared_datatype_the_stored_template_does_not_require(self):
+        tmpl = self.template_with({"When": self.stored(temporal("xsd:date"))})
+        before = {"When": {"@value": None}}
+        after, changes = REPAIR.stamp_empty_value_type(before, tmpl)
+        self.assertEqual(after["When"], {"@value": None, "@type": "xsd:date"})
+        self.assertEqual(changes, [{"path": "/When/@type", "replaced": None, "wrote": "xsd:date"}])
+        self.assertIsNone(REPAIR.only_stamped_empty_value_types(before, after, tmpl))
+
+    def test_a_field_naming_no_datatype_gets_the_model_default(self):
+        tmpl = self.template_with({"Dose": self.stored(numeric()), "When": self.stored(temporal())})
+        after, _changes = REPAIR.stamp_empty_value_type({"Dose": {"@value": None}, "When": {"@value": None}}, tmpl)
+        self.assertEqual((after["Dose"]["@type"], after["When"]["@type"]), ("xsd:decimal", "xsd:dateTime"))
+
+    def test_a_value_that_holds_something_is_left_alone(self):
+        tmpl = self.template_with({"Dose": self.stored(numeric("xsd:int"))})
+        before = {"Dose": {"@value": 3}}
+        after, changes = REPAIR.stamp_empty_value_type(before, tmpl)
+        self.assertEqual((after, changes), (before, []))
+
+    def test_a_stated_datatype_and_a_text_field_are_left_alone(self):
+        tmpl = self.template_with({"Dose": self.stored(numeric("xsd:int")), "Name": child()})
+        before = {"Dose": {"@value": None, "@type": "xsd:decimal"}, "Name": {"@value": None}}
+        after, changes = REPAIR.stamp_empty_value_type(before, tmpl)
+        self.assertEqual((after, changes), (before, []))
+
+    def test_every_occurrence_at_every_depth_is_stamped(self):
+        inner = {"When": self.stored(temporal("xsd:time"))}
+        node = child(ELEMENT_TYPE)
+        node["properties"] = {"@context": {"properties": {}, "required": []}, **inner}
+        node["_ui"] = {"order": list(inner)}
+        tmpl = self.template_with({"Visits": repeating(node)})
+        before = {"Visits": [{"When": {"@value": None}}, {"When": {"@value": "10:00:00"}}]}
+        after, changes = REPAIR.stamp_empty_value_type(before, tmpl)
+        self.assertEqual([c["path"] for c in changes], ["/Visits/0/When/@type"])
+        self.assertIsNone(REPAIR.only_stamped_empty_value_types(before, after, tmpl))
+
+    def test_the_invariant_catches_a_typed_value_that_held_something(self):
+        tmpl = self.template_with({"Dose": self.stored(numeric("xsd:int"))})
+        self.assertEqual(REPAIR.only_stamped_empty_value_types(
+            {"Dose": {"@value": 3}}, {"Dose": {"@value": 3, "@type": "xsd:int"}}, tmpl), "/Dose/@type")
+
+    def test_the_invariant_catches_a_datatype_that_is_not_the_declared_one(self):
+        tmpl = self.template_with({"Dose": self.stored(numeric("xsd:int"))})
+        self.assertEqual(REPAIR.only_stamped_empty_value_types(
+            {"Dose": {"@value": None}}, {"Dose": {"@value": None, "@type": "xsd:long"}}, tmpl), "/Dose/@type")
+
+    def test_the_repair_is_settled_after_one_pass(self):
+        tmpl = self.template_with({"Dose": self.stored(numeric("xsd:int"))})
+        once, first = REPAIR.stamp_empty_value_type({"Dose": {"@value": None}}, tmpl)
+        _twice, second = REPAIR.stamp_empty_value_type(once, tmpl)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+
+
 class WrapAndUnwrapOccurrenceTest(unittest.TestCase):
     """A repeating child takes a list whether it holds one occurrence or several."""
 
