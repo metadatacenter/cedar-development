@@ -160,7 +160,8 @@ current draft-retention contract and operator verification commands.
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
 criteria that Workspace fails, two of them through causes it shares with the other components.
-Agree the fixes marked as visible before making them.
+Workspace meets four more criteria only in part: 1.3.1, 3.3.4, 4.1.2 and 4.1.3. Agree the fixes
+marked as visible before making them.
 
 - **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
   running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
@@ -220,7 +221,7 @@ reactor and all three consumer demos before removing the overrides.
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
 criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
-Agree the fixes marked as visible before making them.
+CEE meets one more, 3.1.2, only in part. Agree the fixes marked as visible before making them.
 
 - **Element descriptions on hover only (2.1.1).** Visible. An element's description and property
   IRI marks sit inside its panel header, which is a button, so they cannot take focus, and only a
