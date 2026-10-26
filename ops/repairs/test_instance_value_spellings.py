@@ -733,6 +733,28 @@ class OwnerChoicesTest(unittest.TestCase):
         self.assertNotIn("encode-link-spaces", r.VALUE_DELETING_REPAIRS)
 
 
+class CutLinkAtQuotationMarkTest(unittest.TestCase):
+    def test_a_url_pasted_with_the_rest_of_a_sentence_keeps_only_the_url(self):
+        before = instance(Page={"@id": 'https://example.org/reports/200", which is specific to this'},
+                          Term={"@id": 'https://example.org/term", said someone'})
+        after, changes = r.cut_link_at_quotation_mark(before, template())
+        self.assertEqual(after["Page"], {"@id": "https://example.org/reports/200"})
+        self.assertEqual(after["Term"], before["Term"])
+        self.assertEqual(changes, [{"path": "/Page/@id", "replaced": before["Page"]["@id"],
+                                    "wrote": "https://example.org/reports/200"}])
+        self.assertIsNone(r.only_cut_links(before, after, template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+        self.assertEqual(r.cut_link_at_quotation_mark(after, template())[1], [])
+        trimmed = copy.deepcopy(after); trimmed["Page"]["@id"] = "https://example.org/reports"
+        self.assertEqual(r.only_cut_links(before, trimmed, template()), "/Page/@id")
+        self.assertIn("cut-link-at-quotation-mark", r.VALUE_DELETING_REPAIRS)
+
+    def test_nothing_is_cut_where_the_text_before_the_mark_is_not_an_address(self):
+        for address in ['see "https://example.org/"', '"https://example.org/"', "https://example.org/a b"]:
+            before = instance(Page={"@id": address})
+            self.assertEqual(r.cut_link_at_quotation_mark(before, template()), (before, []))
+
+
 def container(children, iris):
     return {"@type": r.ELEMENT_AT_TYPE, "type": "object", "properties": {
         "@context": {"properties": {name: {"enum": [iri]} for name, iri in iris.items()}}, **children}}

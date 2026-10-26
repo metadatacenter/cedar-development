@@ -7314,6 +7314,53 @@ def only_encoded_link_spaces(before: Any, after: Any, template: Any) -> Optional
     return None
 
 
+def cut_at_quotation_mark(address: Any) -> Optional[str]:
+    """The address before the first quotation mark, when that much is an absolute IRI on its own."""
+    if not isinstance(address, str) or '"' not in address:
+        return None
+    head = address.split('"', 1)[0]
+    return head if rest.is_absolute_iri(head) else None
+
+
+def cut_link_at_quotation_mark(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Cut a link field's address at a quotation mark that ends a URL pasted with a sentence after it.
+
+    An IRI cannot hold a quotation mark, so an address carrying one is refused. Copying a URL out of
+    prose takes its closing quotation mark and the words after it along, and the address before the
+    mark is the URL itself. The words after it are deleted, so the repair applies only under
+    ``--allow-value-deletion`` with an explicit ``--only-ids`` scope, after a person has looked at the
+    text and agreed to the cut.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict) or (definition.get("_ui") or {}).get("inputType") != "link" \
+                or not isinstance(value, dict):
+            return value
+        cut = cut_at_quotation_mark(value.get("@id"))
+        if cut is None:
+            return value
+        changes.append({"path": f"{path}/@id", "replaced": value["@id"], "wrote": cut})
+        return dict(value, **{"@id": cut})
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_cut_links(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change cuts a link's address at its first quotation mark, nothing else."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@id") or cut_at_quotation_mark(was) is None or now != cut_at_quotation_mark(was):
+            return path or "/"
+    expected, _changes = cut_link_at_quotation_mark(before, template)
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
 def drop_null_instance_type(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Remove an instance's root ``@type`` stated as null, which says no type and is not JSON-LD."""
     if not isinstance(instance, dict):
@@ -9734,7 +9781,8 @@ def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[
 # The repairs that delete something a person entered, and so apply only under --allow-value-deletion
 # with an explicit --only-ids scope.
 VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class",
-                          "drop-stamped-class-list", "drop-text-beside-term", "apply-reviewed-instance-mapping"}
+                          "drop-stamped-class-list", "drop-text-beside-term", "apply-reviewed-instance-mapping",
+                          "cut-link-at-quotation-mark"}
 
 REPAIRS = {
     "remove-reviewed-extra-schema-context": Repair(
@@ -10024,6 +10072,11 @@ REPAIRS = {
         transform=encode_link_spaces,
         invariant=only_encoded_link_spaces,
         needs_template=True,
+    ),
+    "cut-link-at-quotation-mark": Repair(
+        name="cut-link-at-quotation-mark", condition="",
+        summary="cut a link's address at the quotation mark that ends a URL pasted with words after it",
+        transform=cut_link_at_quotation_mark, invariant=only_cut_links, needs_template=True,
     ),
     "drop-stamped-class-list": Repair(
         name="drop-stamped-class-list",

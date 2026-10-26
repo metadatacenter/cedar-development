@@ -5332,6 +5332,15 @@ same view: GENASIS answers the `%23` form with a 404 page, and the link without 
 opens every project. On 2026-10-25 the user decided to keep the stored link rather than store the
 unfiltered one, so no repair should rewrite it.
 
+A GeoExposure instance held a resource URL with the end of a sentence pasted after it, from a
+closing quotation mark on, and two links stored as `{"@id": ""}`. On 2026-10-25 it was written with
+`cut-link-at-quotation-mark` and `drop-null-iri`, under `--allow-value-deletion`, after the user
+read the text and agreed to the cut. The URL before the mark answers with HTTP 200. The graph date
+was one second ahead of the document's, so the write used `--replace-graph-provenance`. It was read
+back, rechecks as valid, keeps its stamps, its graph agrees with its document, and it opens and
+saves in CEE. The record and pre-image are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-geoexposure-link/`.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
@@ -6924,6 +6933,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `drop-static-field-from-instance` | Remove a static heading/break slot that holds no value. |
 | `normalize-instance-orcid-spacing` | Remove a space, tab or line break after `https://orcid.org/`, before the URL or after the iD, only when the unchanged identifier characters pass MOD 11-2; this proves neither registration nor ownership. |
 | `prefix-bare-orcid` | Write a bare ORCID iD in an IRI field whose name says it holds an ORCID as `https://orcid.org/<iD>`, only when the iD passes MOD 11-2. The checksum alone cannot tell an ORCID from another identifier of the same shape, so the field's name is required too. |
+| `cut-link-at-quotation-mark` | Cut a link field's address at a quotation mark that ends a URL pasted with words after it, only where the text before the mark is an absolute IRI. The words are deleted, so it applies only under `--allow-value-deletion` with an explicit `--only-ids` scope, after a person has read the text. |
 
 ### Owner-Reviewed Mappings and Schema Changes
 
