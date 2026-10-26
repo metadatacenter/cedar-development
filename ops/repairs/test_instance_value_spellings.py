@@ -733,6 +733,103 @@ class OwnerChoicesTest(unittest.TestCase):
         self.assertNotIn("encode-link-spaces", r.VALUE_DELETING_REPAIRS)
 
 
+def container(children, iris):
+    return {"@type": r.ELEMENT_AT_TYPE, "type": "object", "properties": {
+        "@context": {"properties": {name: {"enum": [iri]} for name, iri in iris.items()}}, **children}}
+
+
+def rebuilt_template():
+    """A template rebuilt in place: new property IRIs, a new nesting, a list where a single field was."""
+    subject = container({"Count": field("numeric", ("@value", "@type"), numberType="xsd:int")}, {"Count": "http://x/p/count"})
+    dataset = container({"Status": {"type": "array", "minItems": 1, "items": field("checkbox")}, "Subject": subject},
+                        {"Status": "http://x/p/status", "Subject": "http://x/p/subject"})
+    rebuilt = container({"Dataset": dataset, "Note": field("textfield"), "Remark": field("textfield")},
+                        {"Dataset": "http://x/p/dataset", "Note": "http://x/p/note", "Remark": "http://x/p/remark"})
+    return {"@id": TEMPLATE_ID, **rebuilt, "@type": TEMPLATE_AT_TYPE}
+
+
+OLD_DATA = "https://repo.metadatacenter.org/template-element-instances/11111111-1111-4111-8111-111111111111"
+OLD_PERSON = "https://repo.metadatacenter.org/template-element-instances/22222222-2222-4222-8222-222222222222"
+
+
+def old_structure_instance():
+    return instance(**{
+        "@context": {"schema": "http://schema.org/", "Data": "http://x/old/data", "Person": "http://x/old/person",
+                     "Note": "http://x/old/note"},
+        "Data": [{"@id": OLD_DATA, "@context": {"Derivation": "http://x/old/derivation", "Size": "http://x/old/size"},
+                  "Derivation": {"@value": "Raw"}, "Size": {"@value": "33", "@type": "xsd:decimal"}}],
+        "Person": {"@id": OLD_PERSON, "@context": {"Name": "http://x/old/name"}, "Name": {"@value": "someone"}},
+        "Note": {"@value": "kept"},
+    })
+
+
+def mapping_plan():
+    return {"template": TEMPLATE_ID,
+            "elements": [{"from": "/Data/0", "to": "/Dataset"}],
+            "moves": [{"from": "/Data/0/Derivation", "to": "/Dataset/Status"},
+                      {"from": "/Data/0/Size", "to": "/Dataset/Subject/Count", "write": {"@value": "33", "@type": "xsd:int"}},
+                      {"from": "/Note", "to": "/Note"}],
+            "drop": ["/Person/Name"]}
+
+
+class ReviewedInstanceMappingTest(unittest.TestCase):
+    def setUp(self):
+        r.INSTANCE_MAPPING_PLANS[instance()["@id"]] = mapping_plan()
+
+    def tearDown(self):
+        r.INSTANCE_MAPPING_PLANS.clear()
+
+    def test_values_move_as_planned_and_a_continued_occurrence_keeps_its_identifier(self):
+        before = old_structure_instance()
+        after, changes = r.apply_reviewed_instance_mapping(before, rebuilt_template())
+        self.assertEqual(after["Dataset"]["@id"], OLD_DATA)
+        self.assertEqual(after["Dataset"]["Status"], [{"@value": "Raw"}])
+        self.assertEqual(after["Dataset"]["Subject"]["Count"], {"@value": "33", "@type": "xsd:int"})
+        self.assertTrue(r.is_fresh_element_id(after["Dataset"]["Subject"]["@id"]))
+        self.assertEqual(after["Note"], {"@value": "kept"})
+        self.assertNotIn("Data", after)
+        self.assertNotIn("Person", after)
+        self.assertEqual(after["Remark"], {"@value": None})
+        self.assertEqual(after["@context"], {"schema": "http://schema.org/", "Dataset": "http://x/p/dataset",
+                                             "Note": "http://x/p/note", "Remark": "http://x/p/remark"})
+        self.assertEqual({k: after[k] for k in PROVENANCE + ("@id", "schema:isBasedOn")},
+                         {k: before[k] for k in PROVENANCE + ("@id", "schema:isBasedOn")})
+        self.assertEqual(sorted(change["path"] for change in changes),
+                         ["/Dataset/@id", "/Dataset/Status", "/Dataset/Subject/Count", "/Note", "/Person/Name"])
+        self.assertIsNone(r.only_reviewed_instance_mapping(before, after, rebuilt_template()))
+
+    def test_the_invariant_refuses_anything_the_plan_did_not_place(self):
+        before = old_structure_instance()
+        after, _changes = r.apply_reviewed_instance_mapping(before, rebuilt_template())
+        smuggled = copy.deepcopy(after); smuggled["Dataset"]["Status"].append({"@value": "someone"})
+        self.assertEqual(r.only_reviewed_instance_mapping(before, smuggled, rebuilt_template()), "/Dataset/Status")
+        stray = copy.deepcopy(after); stray["Remark"] = {"@value": "someone"}
+        self.assertEqual(r.only_reviewed_instance_mapping(before, stray, rebuilt_template()), "/Remark")
+        reused = copy.deepcopy(after); reused["Dataset"]["Subject"]["@id"] = OLD_PERSON
+        self.assertEqual(r.only_reviewed_instance_mapping(before, reused, rebuilt_template()), "/Dataset/Subject/@id")
+        lost = copy.deepcopy(after); lost["Dataset"]["@id"] = r.ELEMENT_INSTANCE_BASE + "33333333-3333-4333-8333-333333333333"
+        self.assertEqual(r.only_reviewed_instance_mapping(before, lost, rebuilt_template()), "/Dataset/@id")
+        restamped = copy.deepcopy(after); restamped["pav:lastUpdatedOn"] = "2026-01-01T00:00:00-08:00"
+        self.assertEqual(r.only_reviewed_instance_mapping(before, restamped, rebuilt_template()), "/pav:lastUpdatedOn")
+        remapped = copy.deepcopy(after); remapped["@context"]["schema"] = "http://x/other"
+        self.assertEqual(r.only_reviewed_instance_mapping(before, remapped, rebuilt_template()), "/@context/schema")
+
+    def test_a_plan_must_account_for_every_entered_value_and_match_its_template(self):
+        before = old_structure_instance()
+        r.INSTANCE_MAPPING_PLANS[before["@id"]]["drop"] = []
+        with self.assertRaises(r.TransformRefused):
+            r.apply_reviewed_instance_mapping(before, rebuilt_template())
+        r.INSTANCE_MAPPING_PLANS[before["@id"]] = {**mapping_plan(), "drop": ["/Person/Name", "/Data/0/Missing"]}
+        with self.assertRaises(r.TransformRefused):
+            r.apply_reviewed_instance_mapping(before, rebuilt_template())
+        r.INSTANCE_MAPPING_PLANS[before["@id"]] = {**mapping_plan(), "template": "https://repo.metadatacenter.org/templates/other"}
+        with self.assertRaises(r.TransformRefused):
+            r.apply_reviewed_instance_mapping(before, rebuilt_template())
+        r.INSTANCE_MAPPING_PLANS.clear()
+        self.assertEqual(r.apply_reviewed_instance_mapping(before, rebuilt_template()), (before, []))
+        self.assertIn("apply-reviewed-instance-mapping", r.VALUE_DELETING_REPAIRS)
+
+
 class RegistrationTest(unittest.TestCase):
     def test_the_chain_composes_and_leaves_provenance_alone(self):
         names = ["write-link-as-iri", "write-date-as-iso", "empty-placeholder-value", "restamp-declared-value-type"]

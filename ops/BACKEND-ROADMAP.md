@@ -1093,16 +1093,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   findings and checked repairs leave 27 affected instances under the latest libraries.
   Consistent reader rejection of an invalid source still requires a source repair.
 
-  Resolve three remaining instances whose legacy `description` attribute-value groups sit in
-  element structures that no longer match their template: `de5299da-97ed-4795-8cc4-5c405314bfce`,
-  `e6cdd723-2f7a-45e1-b062-a6187d615bd1` and `38c3559b-68e6-42ac-97cb-70624f581cb2`.
-  Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
-  mapping before renaming those groups to `description attributes`; a key-only repair cannot
-  validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 27-instance baseline. Account for their stricter-reader rejection before production
-  rollout. Live dependency checks and retained originals are under
-  `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
-
   | Remaining issue | Instances |
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
@@ -1111,11 +1101,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Malformed annotation objects | 7 |
   | Numeric JSON literals | 2 |
 
-  Establish complete value-preserving migrations for the three FAIR Workflows instances
-  `368ff63a-133c-4a6e-b694-e2ea248fa592`, `4520d4b9-ed0f-4aa8-b28b-de545e9c7f61` and
-  `85a78d6b-d8b7-4aba-bd67-b885996ee0d7`. Their old Data, Subject, contributor and Experiment
-  structures no longer match the template; empty-identifier cleanup cannot make them valid.
-  Preserve populated values, including the stored subject count `23.4`, pending an agreed mapping.
+  Write the three FAIR Workflows instances `368ff63a-133c-4a6e-b694-e2ea248fa592`,
+  `4520d4b9-ed0f-4aa8-b28b-de545e9c7f61` and `85a78d6b-d8b7-4aba-bd67-b885996ee0d7` once their
+  template's owner agrees the drafted mapping. Their template was rebuilt in place, and
+  `apply-reviewed-instance-mapping` rebuilds each in its current structure: 30 entered values move,
+  8 element occurrences in each keep their identifiers, and all three then validate and open in CEE.
+  The owner must confirm the moves made by meaning rather than by property IRI. The owner must also
+  agree to drop the 29 values the current template has no field for, a fractional subject count its
+  whole-number field cannot hold, and two placeholder words stored as links. The 29 values are each
+  instance's contributor, species, protocol availability and longitudinality, and one related
+  study's name. The write needs `--allow-value-deletion` with `--only-ids`, and
+  `--replace-graph-provenance` for `368ff63a-133c-4a6e-b694-e2ea248fa592`, whose graph date is
+  one second ahead of its document's. The plan, review sheet, dry run and live sources are under
+  `$CEDAR_HOME/.cedar/repairs/2026-10-25-fair-workflows-mapping/`.
   Confirm the intended GENASIS URL for Data Catalogs instance
   `94f400a2-4d26-480a-855d-0fa299a243cc`: its `datasetIdentifier[0]` contains two `#` characters.
   Do not guess a routing replacement. These four deferred cases are included in the table above;

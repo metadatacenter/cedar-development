@@ -5163,6 +5163,224 @@ def only_repeated_template_children(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# Reviewed restructurings of single instances, keyed by instance IRI. A plan names the template the
+# instance must name, every entered value that moves and where it goes, every entered value its owner
+# agreed to drop, and the element occurrences whose identifiers carry over. Supplied through
+# --instance-mapping-plan: which field of a rebuilt template an old value now belongs in is a judgement
+# about meaning, and only the template's owner can make it.
+INSTANCE_MAPPING_PLANS: dict[str, dict[str, Any]] = {}
+
+# The keys a field's value may carry. A node carrying a @context, or any other key, is an element.
+FIELD_VALUE_MEMBERS = frozenset({"@value", "@type", "@id", "@language", "rdfs:label", "skos:notation"})
+
+
+def is_element_occurrence(node: Any) -> bool:
+    return isinstance(node, dict) and ("@context" in node or any(key not in FIELD_VALUE_MEMBERS for key in node))
+
+
+def holds_entry(value: Any) -> bool:
+    """Whether a field value holds anything a person entered."""
+    if isinstance(value, dict):
+        return any(value.get(key) not in (None, "") for key in ("@value", "@id", "rdfs:label", "skos:notation"))
+    return value not in (None, "")
+
+
+def occurrence_children(node: dict, path: str) -> Iterator[tuple[str, Any]]:
+    """An element occurrence's children, with their pointers; at the root, not the instance's own members."""
+    for key, value in node.items():
+        if key.startswith("@") or key == "_annotations" or (not path and key in INSTANCE_ROOT_MEMBERS):
+            continue
+        yield f"{path}/{rest.json_pointer_component(key)}", value
+
+
+def entered_values(node: Any, path: str = "") -> Iterator[tuple[str, Any]]:
+    """Every field value holding an entry, at any depth, with its pointer."""
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from entered_values(item, f"{path}/{index}")
+    elif is_element_occurrence(node):
+        for here, value in occurrence_children(node, path):
+            yield from entered_values(value, here)
+    elif holds_entry(node):
+        yield path, node
+
+
+def element_occurrences(node: Any, path: str = "") -> Iterator[tuple[str, dict]]:
+    """Every element occurrence below the root, with its pointer."""
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from element_occurrences(item, f"{path}/{index}")
+    elif is_element_occurrence(node):
+        if path:
+            yield path, node
+        for here, value in occurrence_children(node, path):
+            yield from element_occurrences(value, here)
+
+
+def is_fresh_element_id(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith(ELEMENT_INSTANCE_BASE) \
+        and bool(UUID_PATTERN.match(value[len(ELEMENT_INSTANCE_BASE):]))
+
+
+def pointer_parent(pointer: str) -> tuple[str, str]:
+    """A pointer's parent pointer and its last key, unescaped."""
+    parent, _, last = pointer.rpartition("/")
+    return parent, last.replace("~1", "/").replace("~0", "~")
+
+
+def instance_mapping_plan(instance: Any) -> Optional[dict[str, Any]]:
+    plan = INSTANCE_MAPPING_PLANS.get(instance.get(AT_ID)) if isinstance(instance, dict) else None
+    return plan if isinstance(plan, dict) else None
+
+
+def unaccounted_entry(instance: Any, plan: dict[str, Any]) -> Optional[str]:
+    """The first entered value the plan does not move or drop exactly once, or a pointer it names in vain."""
+    entered = dict(entered_values(instance))
+    named = [move.get("from") for move in plan.get("moves", [])] + list(plan.get("drop", []))
+    if len(set(named)) != len(named):
+        return next(pointer for pointer in named if named.count(pointer) > 1)
+    for pointer in named:
+        if pointer not in entered:
+            return pointer
+    return next((pointer for pointer in entered if pointer not in named), None)
+
+
+def restructured_base(instance: dict, template: Any) -> dict:
+    """The instance's identity and provenance in its template's current structure, holding nothing.
+
+    Every child the instance carries is set aside, with its ``@context`` entry, and the template's
+    children take their place in their empty form, each element occurrence with a fresh identifier.
+    The standard terms of the instance's ``@context`` and its ``_annotations`` stay exactly as stored.
+    """
+    old_children = {pointer_parent(here)[1] for here, _value in occurrence_children(instance, "")}
+    base = {key: copy.deepcopy(value) for key, value in instance.items()
+            if key in INSTANCE_ROOT_MEMBERS or key in (AT_ID, AT_TYPE, "_annotations")}
+    context = instance.get("@context")
+    base["@context"] = {key: copy.deepcopy(value) for key, value in context.items()
+                        if key not in old_children} if isinstance(context, dict) else {}
+    completed, _changes = complete_instance(base, template)
+    return completed
+
+
+def apply_reviewed_instance_mapping(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Rebuild an instance in its template's current structure, placing each value where its plan says.
+
+    A template rebuilt in place leaves the instances written before it in a structure it no longer
+    declares, and no rename can carry them across: the new template mints new property IRIs, splits
+    one old field into several and drops whole sections. The plan states each move, each value the
+    owner agreed to drop, and each old element occurrence that one current occurrence continues, so
+    its identifier carries over. It must account for every entered value exactly once. A moved value
+    is written exactly as stored, unless the plan states the rewritten form its owner agreed, such as
+    an abbreviation spelled out as the option the field now lists.
+    """
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    plan = instance_mapping_plan(instance)
+    if plan is None:
+        return instance, []
+    if not isinstance(template, dict) or template.get(AT_ID) != plan.get("template") \
+            or instance.get("schema:isBasedOn") != plan.get("template"):
+        raise TransformRefused("the plan was reviewed against another template")
+    fault = unaccounted_entry(instance, plan)
+    if fault is not None:
+        raise TransformRefused(f"{fault}: the plan must move or drop every entered value exactly once")
+    result = restructured_base(instance, template)
+    changes: list[dict[str, Any]] = []
+    carried: set[str] = set()
+    for pair in plan.get("elements", []):
+        old, new = value_at(instance, pair["from"]), value_at(result, pair["to"])
+        if not is_element_occurrence(old) or not isinstance(old.get(AT_ID), str) \
+                or not is_element_occurrence(new) or pair["to"] in carried:
+            raise TransformRefused(f"{pair['from']} -> {pair['to']}: not one element occurrence onto one")
+        carried.add(pair["to"])
+        new[AT_ID] = old[AT_ID]
+        changes.append({"path": f"{pair['to']}/@id", "replaced": f"moved from {pair['from']}", "wrote": old[AT_ID]})
+    filled: set[str] = set()
+    for move in plan.get("moves", []):
+        value = copy.deepcopy(move["write"] if "write" in move else value_at(instance, move["from"]))
+        parent_pointer, name = pointer_parent(move["to"])
+        parent = value_at(result, parent_pointer)
+        current = parent.get(name) if is_element_occurrence(parent) else None
+        if isinstance(current, list) and not any(is_element_occurrence(item) for item in current):
+            if move["to"] not in filled:
+                parent[name] = []
+            parent[name].append(value)
+        elif isinstance(current, dict) and not is_element_occurrence(current) and move["to"] not in filled:
+            parent[name] = value
+        else:
+            raise TransformRefused(f"{move['to']}: not a field the template declares, or already filled")
+        filled.add(move["to"])
+        changes.append({"path": move["to"], "replaced": f"moved from {move['from']}", "wrote": value})
+    for pointer in plan.get("drop", []):
+        changes.append({"path": pointer, "replaced": value_at(instance, pointer), "wrote": None})
+    return result, changes
+
+
+def only_reviewed_instance_mapping(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the template's empty structure, holding the planned values and nothing else.
+
+    The instance keeps its identity, provenance, annotations and standard terms; each planned
+    destination holds exactly the values moved there, in order; no other field holds anything; every
+    carried occurrence keeps its old identifier, and every other one has a fresh identifier no old
+    occurrence had. With the values and identifiers set aside, what remains is the template's empty
+    structure exactly.
+    """
+    plan = instance_mapping_plan(before)
+    if plan is None:
+        return next((path or "/" for path, _was, _now in differences(before, after)), None)
+    if not isinstance(template, dict) or template.get(AT_ID) != plan.get("template") \
+            or before.get("schema:isBasedOn") != plan.get("template"):
+        return "/schema:isBasedOn"
+    fault = unaccounted_entry(before, plan)
+    if fault is not None:
+        return fault
+    planned: dict[str, list[Any]] = {}
+    for move in plan.get("moves", []):
+        planned.setdefault(move["to"], []).append(move["write"] if "write" in move else value_at(before, move["from"]))
+    for pointer, values in planned.items():
+        held = value_at(after, pointer)
+        if not (json_equal(held, values) if isinstance(held, list) else len(values) == 1 and json_equal(held, values[0])):
+            return pointer
+    for pointer, _value in entered_values(after):
+        if pointer not in planned and pointer_parent(pointer)[0] not in planned:
+            return pointer
+    carried = {pair["to"]: value_at(before, pair["from"]) for pair in plan.get("elements", [])}
+    old_ids = {node.get(AT_ID) for _pointer, node in element_occurrences(before)}
+    seen: set[Any] = set()
+    occurrences = dict(element_occurrences(after))
+    for pointer in carried:
+        if pointer not in occurrences:
+            return pointer
+    for pointer, node in occurrences.items():
+        identifier = node.get(AT_ID)
+        if pointer in carried:
+            if not is_element_occurrence(carried[pointer]) or identifier != carried[pointer].get(AT_ID):
+                return f"{pointer}/@id"
+        elif not is_fresh_element_id(identifier) or identifier in old_ids:
+            return f"{pointer}/@id"
+        if identifier in seen:
+            return f"{pointer}/@id"
+        seen.add(identifier)
+    expected = restructured_base(before, template)
+    shaped = copy.deepcopy(after)
+    for pointer in planned:
+        parent_pointer, name = pointer_parent(pointer)
+        parent = value_at(shaped, parent_pointer)
+        if not isinstance(parent, dict):
+            return pointer
+        parent[name] = copy.deepcopy(value_at(expected, pointer))
+
+    def without_element_ids(document: Any) -> Any:
+        stripped = copy.deepcopy(document)
+        for _pointer, node in list(element_occurrences(stripped)):
+            node.pop(AT_ID, None)
+        return stripped
+
+    for path, _was, _now in differences(without_element_ids(expected), without_element_ids(shaped)):
+        return path or "/"
+    return None
+
+
 # Keys `ModelNodeNames` allows at the top of a schema artifact and not at the top of an instance.
 # A template states its version and publication status; an instance of it does not have either, and
 # the meta-schema admits no property it does not declare, so one that carries them cannot validate.
@@ -9453,7 +9671,7 @@ def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[
 # The repairs that delete something a person entered, and so apply only under --allow-value-deletion
 # with an explicit --only-ids scope.
 VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class",
-                          "drop-stamped-class-list", "drop-text-beside-term"}
+                          "drop-stamped-class-list", "drop-text-beside-term", "apply-reviewed-instance-mapping"}
 
 REPAIRS = {
     "remove-reviewed-extra-schema-context": Repair(
@@ -9569,6 +9787,14 @@ REPAIRS = {
         summary="make a template child its plan names repeat, wrapping its schema in a list",
         transform=repeat_template_child,
         invariant=only_repeated_template_children,
+    ),
+    "apply-reviewed-instance-mapping": Repair(
+        name="apply-reviewed-instance-mapping",
+        condition="",
+        summary="rebuild an instance in its template's current structure, moving and dropping values as its reviewed plan says",
+        transform=apply_reviewed_instance_mapping,
+        invariant=only_reviewed_instance_mapping,
+        needs_template=True,
     ),
     "rename-instance-keys": Repair(
         name="rename-instance-keys",
@@ -10761,6 +10987,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repeat-children",
                         help="JSON of template children an owner has decided should repeat, "
                              "{templateId: {childName: minItems}}, which repeat-template-child applies")
+    parser.add_argument("--instance-mapping-plan",
+                        help="JSON of reviewed instance restructurings keyed by instance IRI, each "
+                             "{template, moves: [{from, to, write?}], drop: [pointer], elements: [{from, to}]}, "
+                             "which apply-reviewed-instance-mapping applies")
     parser.add_argument("--required-removals",
                         help="Java-reviewed parent required-list removals keyed by artifact IRI, "
                              "with beforeSha256, afterSha256 and changes (path, before, after)")
@@ -10937,6 +11167,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("complete-reviewed-standard-context requires --standard-context-plan")
     if "complete-reviewed-context-object-types" in names and not arguments.context_object_plan:
         parser.error("complete-reviewed-context-object-types requires --context-object-plan")
+    if "apply-reviewed-instance-mapping" in names and not arguments.instance_mapping_plan:
+        parser.error("apply-reviewed-instance-mapping requires --instance-mapping-plan")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
     if arguments.apply and ({"align-instance-context-iris", "restore-null-standard-context"} & set(names)) \
@@ -11031,6 +11263,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
                                  ("--repeat-children", arguments.repeat_children, REPEATED_CHILDREN),
+                                 ("--instance-mapping-plan", arguments.instance_mapping_plan, INSTANCE_MAPPING_PLANS),
                                  ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
                                  ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
                                  ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),

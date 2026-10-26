@@ -5279,6 +5279,32 @@ third instance was then written with the planned chain, its three funders kept, 
 read back, rechecks as valid, keeps its stamps, its graph now agrees with its document, and it
 opens, so all three instances of the template are valid.
 
+A template rebuilt in place can leave instances in a structure no rename reaches. The rebuild mints
+new property IRIs, splits one old field into several and drops whole sections, so no key shows
+where a value went. `apply-reviewed-instance-mapping` rebuilds such an instance in the template's
+current structure, as a reviewed `--instance-mapping-plan` keyed by instance IRI places each value.
+Each plan has this form:
+
+```json
+{"<instance IRI>": {"template": "<template IRI>",
+  "moves": [{"from": "/Data/0/Derivation", "to": "/Dataset/Status"},
+            {"from": "/Data/0/Size", "to": "/Dataset/Subject/Count", "write": {"@value": "12", "@type": "xsd:int"}}],
+  "drop": ["/Person/Name"],
+  "elements": [{"from": "/Data/0", "to": "/Dataset"}]}}
+```
+
+A `from` pointer names an entered value in the stored instance, and a `to` pointer names a field of
+the rebuilt one. The plan must move or drop every entered value exactly once, or the transform
+refuses. A value moves exactly as stored unless `write` gives the rewritten form its owner agreed,
+and moves into a repeating field fill it in plan order. Each `elements` pair carries an old
+occurrence's identifier to the one current occurrence that continues it, and every other occurrence
+gets a fresh identifier. The invariant checks that each destination holds exactly its planned
+values and that no other field holds anything. It also checks that carried identifiers match and
+that every other identifier is fresh and new. With the values and identifiers set aside, the result
+must be the template's empty structure, with the instance's identity, provenance, annotations and
+standard `@context` terms unchanged. Because a plan can drop entered values, the rule applies only
+under `--allow-value-deletion` with an explicit `--only-ids` scope.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
