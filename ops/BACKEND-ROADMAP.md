@@ -13,29 +13,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Features
 
-- **1. Complete instance-reader and rendering checks on artifact writes.** Add the Java
-  artifact-library instance reader alongside validation against the instance's actual template,
-  and verify that templates, elements, fields and instances can be rendered as JSON and YAML
-  before storing them. Model readability must not replace template-dependent instance validation.
-
-  Check the exact candidate that would be stored after ordinary completion and metadata handling;
-  for a verbatim write, check the supplied body unchanged. Run model checks on a copy and discard
-  the rendered output: verification must not replace the submitted document with a canonical
-  rendering. A repair must remain possible when its candidate passes even if the old stored body
-  cannot be read or rendered. Reject reader or renderer failures with actionable diagnostics,
-  retaining field paths where available.
-
-  Refresh the existing instance and conversion audit findings against the current libraries to
-  identify writes these additional checks would refuse, distinguish source defects from converter
-  defects, and plan any required repairs before rollout. Measure the incremental reader and
-  renderer cost on representative artifacts, including large and nested instances.
-
-  Cover JSON and YAML creates, ordinary updates, verbatim repairs, template-dependent instance
-  failures and reader/renderer diagnostics, then verify the deployed paths through whole-stack
-  smoke. Done when every accepted write passes the applicable schema validation and the artifact
-  library's read-and-render checks without the checks changing its stored content.
-
-- **2. Give the public npm releases a CLI route.** Four packages publish outside the platform
+- **1. Give the public npm releases a CLI route.** Four packages publish outside the platform
   release: `cedar-model-typescript-library`, `cedar-embeddable-editor` (CEE),
   `cedar-embeddable-designer` (CED) and `cedar-embeddable-term-picker` (CETP). The model library and
   CEE reach npmjs through the npmjs runbook. CEE's procedure alone is about twenty-five commands
@@ -58,7 +36,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   same comparison to the other three. Once the command exists, rewrite the npmjs runbook into a
   description of what it does and where it stops.
 
-- **3. Let an author renumber a draft.** A draft's version is the number its publication will
+- **2. Let an author renumber a draft.** A draft's version is the number its publication will
   carry. The Workspace asks for it when the draft is created, starting at the next patch and
   accepting anything higher, and asks again at publication, where it accepts anything no lower.
   Between the two, nothing can change it. An ordinary update refuses any change to `pav:version`,
@@ -86,7 +64,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   agree afterwards, and the command refuses a published artifact, a draft with a successor and a
   version not above its predecessor's.
 
-- **4. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+- **3. Validate and encode the DOI the DataCite metadata route resolves.** **Production
   consequence:** some path values accepted today answer 400. No data migration.
 
   `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
@@ -107,7 +85,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Security
 
-- **5. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
+- **4. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
   22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
   ended at 22.0.5. On 2026-09-30 Dependabot reported 93 open advisories against the Keycloak
   artifacts `cedar-parent` manages, 25 of them high. No community 22 release fixes any of them, and
@@ -198,7 +176,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     identity provider, and CVE-2026-2575 lets an unauthenticated caller exhaust the server's memory
     through the SAML redirect binding regardless.
   - Cap the request size on the token endpoint, and rate limit it and the login endpoints on the
-    terms item 8 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
+    terms item 7 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
     oversized `scope` parameter, and the limit slows the parallel guessing CVE-2024-4629 describes.
 
   Four changes belong in the realm and server configuration:
@@ -234,7 +212,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   CVE-2023-6841. They keep the upgrade itself urgent. Red Hat's subscription build carries fixes on
   the 22 line through 22.0.13, and it is the only way to patch Keycloak without leaving that line.
 
-- **6. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+- **5. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-two repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
@@ -267,14 +245,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 2 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 1 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-two. Until
   the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
   next morning rather than mid-release.
 
-- **7. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **6. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Four terminology routes answer an anonymous caller, and that stays.** `GET /bioportal/search`,
   the class-descendants route, `POST /bioportal/integrated-search` and `POST
@@ -288,7 +266,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Descendants was opened for OpenView in 2019. No CEDAR client calls integrated retrieve without a
   key; it stays anonymous because every release since 2024 has served it so, and a gate could break
   callers outside CEDAR. Requiring a credential is therefore not the remedy. What bounds the cost is
-  the edge rate limit in item 8, which covers `/ext-auth/*` and should cover these four on the same
+  the edge rate limit in item 7, which covers `/ext-auth/*` and should cover these four on the same
   terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
@@ -327,11 +305,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **8. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+- **7. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
   anonymous caller can spend the deployment's third-party quota, and only the development host
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. The four
-  anonymous BioPortal routes item 7 lists belong in the same limit, since each spends the
+  anonymous BioPortal routes item 6 lists belong in the same limit, since each spends the
   deployment's BioPortal key.
 
   A limit rather than a credential is deliberate. The embeddable editor calls integrated search from a
@@ -406,7 +384,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   environment states the mode and rates its authenticated quotas run at, both are recorded where the
   deployment is documented rather than only in the config, and a probe shows each taking effect.
 
-- **9. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+- **8. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
   messaging, monitor and worker restart into the change. No schema migration.
 
@@ -438,7 +416,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
   certificate, and the timezone is set by the profile that owns the data it was chosen for.
 
-- **10. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+- **9. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
   consequence:** a browser application fails cross-origin unless its exact origins are configured
   first, so every environment needs its list before the default changes.
 
@@ -451,7 +429,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
   hosted by third parties and calls `POST /bioportal/integrated-search` from origins CEDAR does not
-  know, which is one reason item 7 keeps that route anonymous. A deny-by-default list closes it
+  know, which is one reason item 6 keeps that route anonymous. A deny-by-default list closes it
   unless the policy names it.
 
   Default to no CORS headers rather than to `*`, require the allow-list in each deployment profile,
@@ -460,7 +438,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fallback, each environment's origins are recorded where it is documented, and tests cover blank,
   exact, multiple and wildcard configurations.
 
-- **11. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+- **10. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
   **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
   data and invalidates keys people and integrations hold, so it needs a rotation plan,
   rollback and operator communication. A backup taken before it still contains usable keys and has
@@ -489,7 +467,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Maintenance
 
-- **12. Rename the legacy role relationships in production Neo4j.** The application currently
+- **11. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
   deployed without changing the stored graph. The category permission model follows the same initial
   approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
@@ -539,10 +517,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
   `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
 
-- **13. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **12. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock. This item owns the
-  remaining server upgrades except Keycloak's, which item 5 owns. Order them by risk, lowest first.
+  remaining server upgrades except Keycloak's, which item 4 owns. Order them by risk, lowest first.
   Rehearse each upgrade on a copy of production data and gate on the end-to-end smoke.
 
   Containerizing the production data stores needs each image pin moved up to the version already
@@ -569,7 +547,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **14. Make database schema evolution an explicit, privileged release operation.** Application
+- **13. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -630,7 +608,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **15. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **14. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -659,7 +637,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **16. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **15. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -736,7 +714,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **17. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **16. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -748,7 +726,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: nine services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 16. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 15. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -760,7 +738,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **18. Finish converging on the body paging envelope.** Every route that pages by offset answers
+- **17. Finish converging on the body paging envelope.** Every route that pages by offset answers
   CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
   `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
   `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
@@ -807,7 +785,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
   that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
-- **19. Choose the response timeouts from the durations the request log now carries, and give a
+- **18. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -837,7 +815,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **20. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -869,7 +847,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`, and
   no run is recorded against a service whose source the gate cannot establish.
 
-- **21. Take the dependency upgrades that need code changes.** The versions that could move without
+- **20. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
   What stayed behind stayed deliberately, and it separates into work to do, versions that follow
   something else, and versions whose newest release is not a final.
@@ -902,9 +880,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
   9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.10.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 13 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 5's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
-  Keycloak client stack, which item 5 owns.
+  against the pinned server it talks to, so these are sequenced behind item 12 rather than taken on
+  their own. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
+  Keycloak client stack, which item 4 owns.
 
   Maven 3.9.16 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
   own wrapper, so the move is one change across all of them, gated on the full build and a train
@@ -918,7 +896,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start. Linux
   CI does not see the failure; every Apple silicon workstation does. Taking the upgrade therefore
   means running the suites against a different major from the deployed 5.0.31, which is the one
-  thing `EmbeddedCedarMongo` exists to avoid. It moves with item 13. Version 5.0.0 also costs one
+  thing `EmbeddedCedarMongo` exists to avoid. It moves with item 12. Version 5.0.0 also costs one
   import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and
   `EmbeddedCedarMongo` is the estate's only consumer.
 
@@ -984,7 +962,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **22. Resolve the remaining production artifact defects, review semantic migrations, and decide
+- **21. Resolve the remaining production artifact defects, review semantic migrations, and decide
   what happens to existing instances when a draft template changes.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
