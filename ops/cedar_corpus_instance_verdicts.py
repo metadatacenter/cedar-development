@@ -155,6 +155,41 @@ IRI_VALUES: dict[str, dict[str, Any]] = {
     "id-empty": {"@id": ""},
     "undeclared-key": {"rdfs:label": None, "probe": "Probe"},
 }
+# The schema a template gives `_annotations`, as the libraries write it and production templates hold it.
+ANNOTATIONS_SCHEMA = {
+    "type": "object",
+    "patternProperties": {"^.+$": {"oneOf": [
+        {"type": "object", "properties": {"@id": {"type": "string", "format": "uri"}}, "additionalProperties": False},
+        {"type": "object", "properties": {"@value": {"type": ["string", "number", "boolean", "null"]}},
+         "additionalProperties": False}]}},
+    "additionalProperties": False}
+PROBE_PROPERTY = "https://example.org/properties/Probe"
+ANNOTATIONS: dict[str, Any] = {
+    "annotation-iri": {PROBE_PROPERTY: {"@id": PROBE_CLASS}},
+    "annotation-literal": {PROBE_PROPERTY: {"@value": "Probe"}},
+    "annotation-number": {PROBE_PROPERTY: {"@value": 5}},
+    "annotation-boolean": {PROBE_PROPERTY: {"@value": True}},
+    "annotation-null-value": {PROBE_PROPERTY: {"@value": None}},
+    "annotation-null-iri": {PROBE_PROPERTY: {"@id": None}},
+    "annotation-empty": {PROBE_PROPERTY: {}},
+    "annotation-iri-and-value": {PROBE_PROPERTY: {"@id": PROBE_CLASS, "@value": "Probe"}},
+    "annotation-extra-key": {PROBE_PROPERTY: {"@id": PROBE_CLASS, "rdfs:label": "Probe"}},
+    "annotation-relative-iri": {PROBE_PROPERTY: {"@id": "Probe"}},
+    "annotation-blank-key": {"": {"@value": "Probe"}},
+    "annotation-not-object": {PROBE_PROPERTY: "Probe"},
+    "annotations-empty": {},
+    "annotations-list": [],
+}
+ROOT_TYPES: dict[str, Any] = {
+    "type-iri": PROBE_CLASS,
+    "type-list": [PROBE_CLASS],
+    "type-empty-list": [],
+    "type-repeated": [PROBE_CLASS, PROBE_CLASS],
+    "type-relative": "Probe",
+    "type-number": 5,
+    "type-null": None,
+}
+
 # The schema older templates give `additionalProperties` to admit further literal values.
 OPEN_LITERALS = {"type": "object",
                  "properties": {"@value": {"type": ["string", "null"]}, "@type": {"type": "string", "format": "uri"}},
@@ -208,6 +243,16 @@ def probes(case: str, template: dict) -> list[tuple[str, list[dict[str, Any]], l
                 ("label-absent-required", [put(field, date)], label_required)]
     if case == "cee-suite/032":
         return [("number-unfilled-untyped", [put(key("Numeric"), {"@value": None})], [])]
+    if case == "cee-suite/008":
+        # An instance's annotations and its root @type are its own, not the server's, so every save
+        # writes them as the instance holds them. Production templates declare `_annotations`; this
+        # case's template does not, so each annotation probe declares it and one leaves it undeclared.
+        declared = [put("/properties/_annotations", ANNOTATIONS_SCHEMA)]
+        return ([(name, [put("/_annotations", value)], declared) for name, value in ANNOTATIONS.items()]
+                + [("annotation-undeclared", [put("/_annotations", ANNOTATIONS["annotation-iri"])], [])]
+                + [(name, [put("/@type", value)], []) for name, value in ROOT_TYPES.items()]
+                + [("derived-from-relative", [put("/pav:derivedFrom", "Probe")], []),
+                   ("derived-from-absolute", [put("/pav:derivedFrom", PROBE_CLASS)], [])])
     return []
 
 
@@ -241,6 +286,9 @@ def stored_probes(case: str, completed: dict) -> list[tuple[str, list[dict[str, 
     return [("stored-element-id-absent", [drop(occurrence + "/@id")]),
             ("stored-element-id-null", [put(occurrence + "/@id", None)]),
             ("stored-element-id-blank", [put(occurrence + "/@id", "")]),
+            ("stored-element-id-relative", [put(occurrence + "/@id", "Probe")]),
+            ("stored-root-id-relative", [put("/@id", "Probe")]),
+            ("stored-based-on-relative", [put("/schema:isBasedOn", "Probe")]),
             ("stored-root-id-absent", [drop("/@id")]),
             ("stored-root-id-null", [put("/@id", None)]),
             ("stored-based-on-absent", [drop("/schema:isBasedOn")]),

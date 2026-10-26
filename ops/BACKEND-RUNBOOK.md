@@ -5245,6 +5245,21 @@ Judged verbatim, the two libraries agree on every one of the snapshot's 150,585 
 `--fail-on-disagreement` passes. Records are under
 `$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-verbatim/`.
 
+An instance's `@type`, at the root and on an element occurrence, and its `_annotations` are its own,
+not the host's or the server's, so every save writes them as the instance holds them. TypeScript did
+not judge either, and 22 probes showed ten disagreements. It also dropped `@type` on reading, so a
+save through CEE would have removed it from the 2,147 production instances and 4,252 element
+occurrences that state one. Java's model kept it, but its JSON renderer wrote neither. Both libraries
+now keep and write it, one class as a string and several as a list. `InstanceValidator` holds `@type`
+and `_annotations` to the stored template in every mode, as stored or as the writer writes them. Its
+schema check gained `oneOf`, `items`, `minItems`, `uniqueItems` and `patternProperties`. Its `uri`
+format is now Java's, `IdentifierPolicy.matchesUriFormat`: a relative reference passes, and an
+identifier Java requires to be absolute is checked separately. A literal annotation is read as
+Java's model reads it, `@value` before `@id`. One probe remains an open defect: a null literal
+annotation, which the stored schema and the Java validator admit and neither model reads. On the
+production snapshot the two libraries still agree on all 150,585 instances. Records are under
+`$CEDAR_HOME/.cedar/audits/2026-10-25-validation-parity-types/`.
+
 The four instances were invalid in both, and the form cannot edit an instance's `@context`, so their
 owners could not clear the error themselves. They were repaired on 2026-10-25 in one write each, with
 `drop-unused-instance-context`, `drop-shadowed-instance-context`, `complete-instance-context` and
