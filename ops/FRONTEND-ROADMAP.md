@@ -37,7 +37,8 @@ no vhost for Workspace or the Designer yet; add both.
 `CEDAR_VERSION_MODIFIER` exists to tell apart two builds of one source commit, and no cached file
 needs it. Every file whose bytes depend on the deployment is written under `app/config/` and served
 from `/config/` with `no-store`, and the Template Editor's and Workspace's cache keys already contain
-the source commit. Production still sets one, `-2026-10-03-1` for 2.9.23. Once every stable-name
+the source commit. Production still sets one. Release 2.9.29 carries `-2026-10-03-1`, the
+modifier chosen for 2.9.23. Once every stable-name
 file revalidates, remove it from Workspace's build tooling, the Template Editor's Gulp build, the
 Designer's host script, the native build-info writer, the three Docker build entrypoints, the
 microservices Compose file, the config library's environment descriptor and `CedarBuildInfo`,
@@ -97,15 +98,9 @@ reload and save an existing instance, so that the GET ETag and the subsequent `I
 are exercised. Run it on staging and then production from a browser that previously loaded the
 old payload, after rebuilding every frontend from recorded commits.
 
-Headers reach a browser only when it next asks the server. A browser that holds the 2024 `en.json`
-keeps it until its copy expires, up to about 80 days after it fetched it. Only the new OpenView
-build fixes those visitors, because it reads no translation or configuration file at runtime. That
-build is on `develop` from `452c09f`, and production deploys from `main`, so decide whether it waits
-for the next release or a release is cut sooner.
-
-The item is complete when both hosts pass the header check on every frontend origin, production
-serves OpenView from `452c09f` or later, two consecutive code deployments need no modifier, and a
-rollback works by restoring payloads and routing without inventing one.
+The item is complete when both hosts pass the header check on every frontend origin, two
+consecutive code deployments need no modifier, and a rollback works by restoring payloads and
+routing without inventing one.
 
 ## Workspace and Browser Workflows
 

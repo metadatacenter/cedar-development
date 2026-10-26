@@ -114,10 +114,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Verbatim writes bypass these changes and remain strictly validated.
 
-  **Roll out the strict write path.** Release and deploy the compatibility-retirement change once
-  the shared Java build and whole-stack smoke gates are green, so an inherited malformed submission
-  is refused rather than repaired on save.
-
   Done when each kind of draft-template edit has a stated policy for the instances it affects, and
   an author sees that effect before the save lands.
 
@@ -1141,15 +1137,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   any source repair. Retained replay evidence is under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-strict-shapes-replay/`; the
   [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix) describes coverage.
-
-  Deploy the JSON writers that preserve explicit attribute-value group property IRIs as optional
-  schema context mappings. Check JSON and YAML conversions of an affected template on the deployed
-  resource path; keep these group mappings out of instance context requirements and inflation.
-
-  **Verify deployment adoption of the updated annotation writers.** Check that backend and editor
-  model renders retain the optional `_annotations` declaration and `@nest` context mapping.
-  Keep malformed annotation values rejected. The unavailable `.net` template remains part of the
-  indexed-404 group above.
 
   **Prioritize the largest remaining groups.** These retained measurements need a fresh check
   before planning more repairs; they are not a current census. Repeated names identify distinct

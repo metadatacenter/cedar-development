@@ -1517,6 +1517,10 @@ IRIs, absent mappings, root and nested schemas, JSON/YAML round trips and inflat
 also validates an inflated instance without a group context entry. Corpus template 039 carries
 `https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair`. Templates 022 and 029 preserve their
 three existing mappings; template 022 has no mapping-loss exception in the round-trip tests.
+Production under release 2.9.29 keeps them too. On 2026-10-26 the YAML it serves for each of the
+318 templates and elements declaring a mapped group converted back, through both libraries, to JSON
+holding all 478 mappings unchanged and outside `@context.required`. The check and its records are
+under `$CEDAR_HOME/.cedar/audits/2026-10-26-deployed-writer-check/`.
 
 Template and element instance-type constraints retain an ordered set of IRIs in
 both libraries. Java exposes `instanceJsonLdTypes()` and `withInstanceJsonLdTypes`;
@@ -1763,8 +1767,11 @@ The declaration follows the existing annotation meta-schema; empty value objects
 `@value` objects, and extra properties remain invalid. Legacy templates without these declarations
 remain readable and acquire them when rendered. Publishing a library does not modify stored
 schemas. The annotation backfill uses the existing conditional JSON `PUT ?verbatim=true` path;
-it does not require a production library redeploy. Adopt the updated library in backend/editor
-consumers so later model renders retain these declarations automatically.
+it does not require a production library redeploy. Production's model renders retain them under
+release 2.9.29: on 2026-10-26 the YAML served for 503 templates declaring `_annotations`, 300 of
+them drawn at random from the 4,823 that do, converted back through both libraries with the
+declaration and its `@nest` mapping intact. The same check covered the attribute-value group
+mappings.
 
 `ops/repairs/annotation_declarations.py` plans only the two missing root declarations, taking
 their shapes from Java output verified against TypeScript. It refuses conflicting declarations
@@ -5606,8 +5613,10 @@ link and external identifier as well as controlled term, the same value schema w
 2,440 artifacts, 977 templates, 833 elements and 630 fields, declaring it in 5,325 field schemas.
 Every write was read back, every artifact rechecks as valid, and each differs from its pre-image only
 in the notations declared, with stamps, version and status unchanged. Sixteen were held: twelve whose
-graph dates differ from their documents', one holding a fractional number until the Decimal128 fix
-is deployed, and three templates invalid for other reasons. The twelve were written the same day
+graph dates differ from their documents', one element holding a fractional number, and the three
+templates the Decimal128 defect had made invalid. The last four took the notation on 2026-10-26,
+once release 2.9.29 was deployed. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-iri-notation/`. The twelve were written the same day
 with `--replace-graph-provenance`: six graphs were one second ahead and six were behind, by 37
 seconds to 88 days, one naming another modifier. Each graph now agrees with its document, and the
 documents' stamps are unchanged. A first pass stopped after 1,292 writes
@@ -5626,7 +5635,8 @@ fields, with their document, graph and search-index dates unchanged. All of them
 libraries read them as before; the strict TypeScript reader still refuses the 38 among them that it
 refused before. 136 were held because the graph's date differs from the document's. In 131 the graph is
 one second later. In five draft elements it is earlier, by between 37 seconds and 88 days. The three
-templates the Decimal128 defect damaged were left alone.
+templates the Decimal128 defect damaged were left alone until release 2.9.29 was deployed, and took
+the notation on 2026-10-26.
 
 The one-second gap comes from an ordinary save, which reads the clock twice. `ProvenanceUtil` stamps
 the document's `pav:lastUpdatedOn`, and `updateResourceById` in the workspace operations library
@@ -5640,20 +5650,30 @@ The resource server now gives the graph the stamp the artifact server wrote rath
 clock again. An ordinary update, a publication and a DOI annotation pass the stored document's
 `oslc:modifiedBy` and `pav:lastUpdatedOn`, as a verbatim write already did. A create, a new draft, a
 copy and a background clone pass its `pav:createdOn` and `pav:lastUpdatedOn` as an
-`ArtifactCreationProvenance`. A document that states neither leaves the node to stamp its own. The fix
-takes effect once a release carrying it is deployed. Nodes already a second ahead stay so until their
-artifact is next written.
+`ArtifactCreationProvenance`. A document that states neither leaves the node to stamp its own.
+Release 2.9.29 carries the fix, and production has run it since 2026-10-26. Nodes already a second
+ahead stay so until their artifact is next written.
 
-One write damaged a template. Since release 2.9.25 the server stores a fractional number as `Decimal128`
-and serves it back as `{"$numberDecimal": ...}`, as
+One write damaged a template. Releases 2.9.25 to 2.9.28 stored a fractional number as `Decimal128`
+and served it back as `{"$numberDecimal": ...}`, as
 [Numbers, timestamps and source parsing](#numbers-timestamps-and-source-parsing) describes, and
 metaBUS-partial, a draft, holds two fractional `minValue` bounds. The read-back caught the difference
-and stopped the run. Rewriting the template would convert the bounds again. The stored values are
-exact, so a release carrying the rendering fix serves the template correctly without a write. The
-repair tool now holds every candidate containing a fractional number, as `fractional-number-held`,
-unless `--allow-fractional-numbers` is given, which is meant for a deployment carrying the fix. One
-more element was held that way. Records are under
+and stopped the run. The stored values were exact, so release 2.9.29, which carries the rendering
+fix, serves the template correctly without a write. The repair tool holds every candidate
+containing a fractional number, as `fractional-number-held`, unless `--allow-fractional-numbers` is
+given. Production carries the fix, so the option is safe to give there. The hold protects a
+deployment still running one of the four releases. One more element was held that way. Records are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-24-term-notation-corpus/`.
+
+Release 2.9.29 reached production on 2026-10-26. Afterwards the four damaged templates read in both
+libraries and validate without a write. No `$numberDecimal` appears in any of the 466 artifacts
+updated since 2.9.25, counting the verbatim repair writes that kept an older date. The held element
+then took its notation, and the three templates damaged on 2026-10-21 took the notation both rounds
+had held from them, each under `--allow-fractional-numbers`. Each write was read back, each artifact
+validates and serves its bounds as plain numbers, and stamps, version and status are unchanged. The
+sweep is under `$CEDAR_HOME/prod-validation-2026-10-21/decimal-sweep/`, the element's write is
+`fractional-apply.jsonl` beside the corpus round's records, and the templates' writes are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-26-after-2.9.29/`.
 
 Thirteen invalid instances could not be opened in CEE at all, and neither library read them. Seven
 were saved in June and July 2024 with a DataCite DOI annotation. Until cedar-config-library `bea2911`
