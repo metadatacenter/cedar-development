@@ -5256,6 +5256,21 @@ validate. Seven IRI fields in the same artifacts demanded `@id` alone, which als
 All 5 were read back, recheck as valid, and differ from their pre-images only in `required`; none of
 the 4 templates has an instance.
 
+Three instances of one template could not be opened at all. Inside an element each held a key named
+`description`, a reserved instance property, holding an attribute-value list, and the TypeScript
+reader refuses such a key. The key sat in two copies of a temporal-coverage element the template has
+since replaced by `temporalCoverage - dataset`, whose property IRI and children differ, so nothing
+shows a rename and no value could be moved. On 2026-10-25 two of the three were made valid in one
+write each. `rename-instance-keys`, with a reviewed mapping to `null`, removed the two old elements
+and an undeclared `variableMeasured/name`, eight entered values in each. `wrap-instance-occurrence`
+and `unwrap-instance-occurrence` settled list shapes, `complete-instance` added the new element
+empty, `restamp-declared-value-type` restated a plain date stored as `xsd:dateTime`, and
+`align-instance-context-iris` remapped five or six child terms, under `--allow-context-migration`.
+One of the two was written with `--replace-graph-provenance`, its graph date being ahead of its
+document's. Both were read back, recheck as valid, keep their provenance stamps, and now open. The
+third holds three filled occurrences of `funder`, which the template now declares once, and stays
+unwritten until its owner chooses.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
@@ -5418,7 +5433,16 @@ so an instance carrying the code of the term it chose was refused. `allow-term-n
 notation in such fields. It only widens what a value may carry, and it was written to four templates,
 one of them published, with their dates, versions and statuses unchanged; all four instances then
 validated without a change of their own. Thousands more controlled-term fields across the corpus named
-no notation, which matters only where an instance carries one. The other two were instance defects, and
+no notation, which matters only where an instance carries one. Both libraries' strict writers give every IRI field,
+link and external identifier as well as controlled term, the same value schema with `skos:notation`.
+`allow-iri-notation` declares it in any IRI field that lacks it, and on 2026-10-25 it was written to
+2,440 artifacts, 977 templates, 833 elements and 630 fields, declaring it in 5,325 field schemas.
+Every write was read back, every artifact rechecks as valid, and each differs from its pre-image only
+in the notations declared, with stamps, version and status unchanged. Sixteen were held: twelve whose
+graph dates differ from their documents', one holding a fractional number until the Decimal128 fix
+is deployed, and three templates invalid for other reasons. A first pass stopped after 1,292 writes
+when a read-back timed out; the write it could not confirm had landed, and a second pass wrote the
+remaining 1,148. The other two were instance defects, and
 both were repaired. `state-creator-from-graph` wrote into one the `pav:createdBy` its graph node
 records, read through `--creators`, rather than inferring a creator from the last modifier.
 `drop-shadowed-instance-context` removed from the other a root `@context` mapping whose only use sits

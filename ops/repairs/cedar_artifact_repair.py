@@ -7272,6 +7272,55 @@ def only_allowed_term_notations(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+def is_iri_field_without_notation(node: Any) -> bool:
+    """An IRI field whose value schema names ``@id`` and a label but no ``skos:notation``.
+
+    A link, an external identifier or a controlled term: any field whose value is an IRI, which is a
+    field declaring ``@id`` and no ``@value``.
+    """
+    if not isinstance(node, dict) or node.get(AT_TYPE) != FIELD_AT_TYPE or not isinstance(node.get("_ui"), dict):
+        return False
+    properties = node.get("properties")
+    return isinstance(properties, dict) and "@id" in properties and "@value" not in properties \
+        and "rdfs:label" in properties and "skos:notation" not in properties
+
+
+def allow_iri_notation(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Let any IRI field's value carry ``skos:notation``, as both libraries write every IRI field.
+
+    ``allow-term-notation`` reaches controlled-term fields alone. Both libraries' strict writers give a
+    link and an external-identifier field the same value schema, ``skos:notation`` included, so a
+    template written before that, or by the library's FEBRUARY_2024 writer, refuses an instance whose
+    value carries a notation. Declaring it only widens what a value may carry.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f"{path}/{rest.json_pointer_component(key)}") for key, value in node.items()}
+        if is_iri_field_without_notation(node):
+            result["properties"] = dict(result["properties"], **{"skos:notation": dict(TERM_NOTATION)})
+            changes.append({"path": f"{path}/properties/skos:notation", "replaced": None, "wrote": TERM_NOTATION})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_allowed_iri_notations(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change declares ``skos:notation`` in an IRI field lacking it."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/properties/skos:notation") or was is not ABSENT or now != TERM_NOTATION:
+            return path or "/"
+        if not is_iri_field_without_notation(value_at(before, path[:-len("/properties/skos:notation")])):
+            return path
+    return None
+
+
 # What a template's or element's @context schema says of entries it does not name: an attribute-value
 # child adds an entry per attribute its instance holds, so a container with one admits further IRIs and
 # a container without one admits none. Both libraries' writers render exactly these two forms.
@@ -9558,6 +9607,13 @@ REPAIRS = {
         summary="state the creator the graph records in a document that names none",
         transform=state_creator_from_graph,
         invariant=only_stated_graph_creator,
+    ),
+    "allow-iri-notation": Repair(
+        name="allow-iri-notation",
+        condition="",
+        summary="declare skos:notation in any IRI field's value schema, as both libraries write it",
+        transform=allow_iri_notation,
+        invariant=only_allowed_iri_notations,
     ),
     "allow-term-notation": Repair(
         name="allow-term-notation",

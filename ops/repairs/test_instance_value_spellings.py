@@ -509,6 +509,19 @@ class AllowTermNotationTest(unittest.TestCase):
         changed = copy.deepcopy(after); changed["properties"]["Page"]["properties"]["skos:notation"] = {"type": ["string", "null"]}
         self.assertEqual(r.only_allowed_term_notations(document, changed), "/properties/Page/properties/skos:notation")
 
+    def test_every_iri_field_without_a_notation_gains_one_and_a_literal_does_not(self):
+        document = template()
+        after, changes = r.allow_iri_notation(document)
+        for name in ("Term", "Page"):
+            self.assertEqual(after["properties"][name]["properties"]["skos:notation"], {"type": ["string", "null"]})
+        self.assertNotIn("skos:notation", after["properties"]["Note"]["properties"])
+        self.assertEqual(sorted(change["path"] for change in changes),
+                         ["/properties/Page/properties/skos:notation", "/properties/Term/properties/skos:notation"])
+        self.assertIsNone(r.only_allowed_iri_notations(document, after))
+        self.assertEqual(r.allow_iri_notation(after), (after, []))
+        changed = copy.deepcopy(after); changed["properties"]["Note"]["properties"]["skos:notation"] = {"type": ["string", "null"]}
+        self.assertEqual(r.only_allowed_iri_notations(document, changed), "/properties/Note/properties/skos:notation")
+
 
 class ContextOpennessTest(unittest.TestCase):
     def document(self, sample_context, with_attribute_value=False):
