@@ -7361,6 +7361,117 @@ def only_cut_links(before: Any, after: Any, template: Any) -> Optional[str]:
     return None
 
 
+def joined_link_parts(value: Any) -> Optional[list[str]]:
+    """The addresses a link value joins with semicolons, when it holds nothing but such a list."""
+    if not isinstance(value, dict) or set(value) != {"@id"} or not isinstance(value["@id"], str) \
+            or ";" not in value["@id"]:
+        return None
+    parts = [part.strip() for part in value["@id"].split(";")]
+    return parts if len(parts) > 1 and all(re.match(r"https?://", part) for part in parts) else None
+
+
+def is_link_field(definition: Any) -> bool:
+    return isinstance(definition, dict) and (definition.get("_ui") or {}).get("inputType") == "link"
+
+
+def split_joined_links(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give each address a repeating link field's entry joins with semicolons an entry of its own.
+
+    A person entering several links into one entry of a field that repeats wrote them as one text,
+    which no IRI can be. Each address takes its own entry, where the joined one stood and in the
+    order written. Only an entry holding nothing but the joined text is split, and only where every
+    part starts as an address does, so nothing is lost and nothing is guessed. A field that takes a
+    single link is left alone: which of its addresses it keeps is a person's choice, which
+    ``choose-reviewed-joined-link`` applies.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name, child, multiple in container_children(container):
+            if name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if is_element(child):
+                result[name] = [walk(item, child, f"{here}/{index}") for index, item in enumerate(value)] \
+                    if isinstance(value, list) else walk(value, child, here)
+            elif multiple and is_link_field(child) and isinstance(value, list):
+                entries = []
+                for index, entry in enumerate(value):
+                    parts = joined_link_parts(entry)
+                    if parts is None:
+                        entries.append(entry)
+                        continue
+                    entries.extend({"@id": part} for part in parts)
+                    changes.append({"path": f"{here}/{index}", "replaced": entry["@id"], "wrote": parts})
+                result[name] = entries
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_split_joined_links(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the only change is joined link entries replaced by one entry per address."""
+    for path, _was, _now in differences(before, after):
+        definition = declaration_at(template, path)
+        if not is_link_field(definition) or not isinstance(value_at(before, path), list):
+            return path or "/"
+    expected, _changes = split_joined_links(before, template)
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
+
+# Reviewed choices among the addresses a single link field joins with semicolons, keyed by instance IRI
+# then by the field's pointer, each naming the address to keep exactly as it is stored. Supplied
+# through --joined-link-choices: which of two links a field meant is a person's judgement.
+JOINED_LINK_CHOICES: dict[str, dict[str, str]] = {}
+
+
+def choose_reviewed_joined_link(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Keep the one address a reviewed choice names in a single link field that joins several.
+
+    A field that takes one link cannot hold two, and splitting it would invent an entry the template
+    does not have. The plan names the address to keep, which must be one of the joined parts exactly
+    as stored, and the others are deleted, so the repair applies only under ``--allow-value-deletion``
+    with an explicit ``--only-ids`` scope.
+    """
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    plan = JOINED_LINK_CHOICES.get(instance.get(AT_ID)) or {}
+    if not plan:
+        return instance, []
+    result = copy.deepcopy(instance)
+    changes: list[dict[str, Any]] = []
+    for pointer, keep in plan.items():
+        value = value_at(result, pointer)
+        parts = joined_link_parts(value)
+        if not is_link_field(declaration_at(template, pointer)) or parts is None or keep not in parts:
+            raise TransformRefused(f"{pointer}: not a link field joining addresses, one of them {keep!r}")
+        changes.append({"path": f"{pointer}/@id", "replaced": value["@id"], "wrote": keep})
+        value["@id"] = keep
+    return result, changes
+
+
+def only_chosen_joined_links(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: each planned field keeps exactly its chosen address, and nothing else changes."""
+    plan = JOINED_LINK_CHOICES.get(before.get(AT_ID)) if isinstance(before, dict) else None
+    for path, was, now in differences(before, after):
+        field = path[:-len("/@id")] if path.endswith("/@id") else None
+        keep = (plan or {}).get(field) if field is not None else None
+        parts = joined_link_parts({"@id": was}) if isinstance(was, str) else None
+        if keep is None or parts is None or keep not in parts or now != keep:
+            return path or "/"
+    return None
+
+
 def drop_null_instance_type(instance: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Remove an instance's root ``@type`` stated as null, which says no type and is not JSON-LD."""
     if not isinstance(instance, dict):
@@ -9782,7 +9893,7 @@ def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[
 # with an explicit --only-ids scope.
 VALUE_DELETING_REPAIRS = {"drop-undeclared-keys", "drop-term-field-text", "drop-unlisted-term-class",
                           "drop-stamped-class-list", "drop-text-beside-term", "apply-reviewed-instance-mapping",
-                          "cut-link-at-quotation-mark"}
+                          "cut-link-at-quotation-mark", "choose-reviewed-joined-link"}
 
 REPAIRS = {
     "remove-reviewed-extra-schema-context": Repair(
@@ -10077,6 +10188,16 @@ REPAIRS = {
         name="cut-link-at-quotation-mark", condition="",
         summary="cut a link's address at the quotation mark that ends a URL pasted with words after it",
         transform=cut_link_at_quotation_mark, invariant=only_cut_links, needs_template=True,
+    ),
+    "split-joined-links": Repair(
+        name="split-joined-links", condition="",
+        summary="give each address a repeating link field's entry joins with semicolons an entry of its own",
+        transform=split_joined_links, invariant=only_split_joined_links, needs_template=True,
+    ),
+    "choose-reviewed-joined-link": Repair(
+        name="choose-reviewed-joined-link", condition="",
+        summary="keep the reviewed address in a single link field that joins several with semicolons",
+        transform=choose_reviewed_joined_link, invariant=only_chosen_joined_links, needs_template=True,
     ),
     "drop-stamped-class-list": Repair(
         name="drop-stamped-class-list",
@@ -11109,6 +11230,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repeat-children",
                         help="JSON of template children an owner has decided should repeat, "
                              "{templateId: {childName: minItems}}, which repeat-template-child applies")
+    parser.add_argument("--joined-link-choices",
+                        help="JSON of reviewed choices keyed by instance IRI then by link-field pointer, each "
+                             "naming the joined address to keep as stored, which choose-reviewed-joined-link applies")
     parser.add_argument("--instance-mapping-plan",
                         help="JSON of reviewed instance restructurings keyed by instance IRI, each "
                              "{template, moves: [{from, to, write?}], drop: [pointer], elements: [{from, to}]}, "
@@ -11291,6 +11415,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("complete-reviewed-context-object-types requires --context-object-plan")
     if "apply-reviewed-instance-mapping" in names and not arguments.instance_mapping_plan:
         parser.error("apply-reviewed-instance-mapping requires --instance-mapping-plan")
+    if "choose-reviewed-joined-link" in names and not arguments.joined_link_choices:
+        parser.error("choose-reviewed-joined-link requires --joined-link-choices")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
     if arguments.apply and ({"align-instance-context-iris", "restore-null-standard-context"} & set(names)) \
@@ -11386,6 +11512,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
                                  ("--repeat-children", arguments.repeat_children, REPEATED_CHILDREN),
                                  ("--instance-mapping-plan", arguments.instance_mapping_plan, INSTANCE_MAPPING_PLANS),
+                                 ("--joined-link-choices", arguments.joined_link_choices, JOINED_LINK_CHOICES),
                                  ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
                                  ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
                                  ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),

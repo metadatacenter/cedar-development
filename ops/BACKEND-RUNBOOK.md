@@ -5351,6 +5351,17 @@ agreed with the document, so no override was needed. The instance was read back,
 valid, keeps its stamps, and opens and saves in CEE. The mapping, record and pre-image are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-25-gene-expression-rename/`.
 
+An instance of the Collection-Admin template held two IRIs joined by "; " in three link fields: two
+ORCIDs in a project leader's entry, the same two among its custodians, and two RORs among its
+owners. On 2026-10-25 `split-joined-links` gave the custodians and owners one entry each.
+`choose-reviewed-joined-link` kept the leader's own iD, the one no other participant entry holds,
+as the user chose. `normalize-instance-orcid-spacing` removed pasted spaces from six ORCIDs, and
+`complete-instance` gave four participant entries the identifiers they lacked. The write ran under
+`--allow-value-deletion`, and under `--replace-graph-provenance`, since the graph date was one
+second ahead of the document's. The instance was read back, rechecks as valid, keeps its stamps,
+its graph agrees with its document, and it opens and saves in CEE. The choice, record and pre-image
+are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-collection-admin-split/`.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
@@ -6944,6 +6955,8 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `normalize-instance-orcid-spacing` | Remove a space, tab or line break after `https://orcid.org/`, before the URL or after the iD, only when the unchanged identifier characters pass MOD 11-2; this proves neither registration nor ownership. |
 | `prefix-bare-orcid` | Write a bare ORCID iD in an IRI field whose name says it holds an ORCID as `https://orcid.org/<iD>`, only when the iD passes MOD 11-2. The checksum alone cannot tell an ORCID from another identifier of the same shape, so the field's name is required too. |
 | `cut-link-at-quotation-mark` | Cut a link field's address at a quotation mark that ends a URL pasted with words after it, only where the text before the mark is an absolute IRI. The words are deleted, so it applies only under `--allow-value-deletion` with an explicit `--only-ids` scope, after a person has read the text. |
+| `split-joined-links` | Give each address an entry of its own where an entry of a repeating link field joins several with semicolons, in the order written. Only an entry holding nothing but the joined text is split, and only where every part starts as an `http` or `https` address. |
+| `choose-reviewed-joined-link` | Keep the address a reviewed `--joined-link-choices` plan names, exactly as stored, in a single link field that joins several with semicolons. The others are deleted, so it applies only under `--allow-value-deletion` with an explicit `--only-ids` scope. |
 
 ### Owner-Reviewed Mappings and Schema Changes
 

@@ -755,6 +755,53 @@ class CutLinkAtQuotationMarkTest(unittest.TestCase):
             self.assertEqual(r.cut_link_at_quotation_mark(before, template()), (before, []))
 
 
+def links_template():
+    links = template()
+    links["properties"]["Links"] = {"type": "array", "minItems": 0, "items": field("link", (), ("@id",))}
+    return links
+
+
+class JoinedLinksTest(unittest.TestCase):
+    JOINED = "https://example.org/a; https://example.org/b"
+
+    def tearDown(self):
+        r.JOINED_LINK_CHOICES.clear()
+
+    def test_a_repeating_link_entry_joining_addresses_becomes_one_entry_each(self):
+        before = instance(Links=[{"@id": "https://example.org/first"}, {"@id": self.JOINED}], Page={"@id": self.JOINED})
+        after, changes = r.split_joined_links(before, links_template())
+        self.assertEqual(after["Links"], [{"@id": "https://example.org/first"}, {"@id": "https://example.org/a"},
+                                          {"@id": "https://example.org/b"}])
+        self.assertEqual(after["Page"], before["Page"])
+        self.assertEqual(changes, [{"path": "/Links/1", "replaced": self.JOINED,
+                                    "wrote": ["https://example.org/a", "https://example.org/b"]}])
+        self.assertIsNone(r.only_split_joined_links(before, after, links_template()))
+        self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+        reordered = copy.deepcopy(after); reordered["Links"][1:] = reordered["Links"][:0:-1]
+        self.assertEqual(r.only_split_joined_links(before, reordered, links_template()), "/Links/1/@id")
+        for entry in [{"@id": "see https://example.org/a; https://example.org/b"},
+                      {"@id": self.JOINED, "rdfs:label": "two links"}]:
+            unsplit = instance(Links=[entry])
+            self.assertEqual(r.split_joined_links(unsplit, links_template()), (unsplit, []))
+
+    def test_a_single_link_field_keeps_only_the_reviewed_address(self):
+        before = instance(Page={"@id": self.JOINED})
+        r.JOINED_LINK_CHOICES[before["@id"]] = {"/Page": "https://example.org/a"}
+        after, changes = r.choose_reviewed_joined_link(before, links_template())
+        self.assertEqual(after["Page"], {"@id": "https://example.org/a"})
+        self.assertEqual(changes, [{"path": "/Page/@id", "replaced": self.JOINED, "wrote": "https://example.org/a"}])
+        self.assertIsNone(r.only_chosen_joined_links(before, after, links_template()))
+        other = copy.deepcopy(after); other["Page"]["@id"] = "https://example.org/b"
+        self.assertEqual(r.only_chosen_joined_links(before, other, links_template()), "/Page/@id")
+        r.JOINED_LINK_CHOICES[before["@id"]] = {"/Page": "https://example.org/c"}
+        with self.assertRaises(r.TransformRefused):
+            r.choose_reviewed_joined_link(before, links_template())
+        r.JOINED_LINK_CHOICES.clear()
+        self.assertEqual(r.choose_reviewed_joined_link(before, links_template()), (before, []))
+        self.assertIn("choose-reviewed-joined-link", r.VALUE_DELETING_REPAIRS)
+        self.assertNotIn("split-joined-links", r.VALUE_DELETING_REPAIRS)
+
+
 def container(children, iris):
     return {"@type": r.ELEMENT_AT_TYPE, "type": "object", "properties": {
         "@context": {"properties": {name: {"enum": [iri]} for name, iri in iris.items()}}, **children}}
