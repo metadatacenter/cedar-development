@@ -4861,26 +4861,89 @@ def only_dropped_unused_context(before: Any, after: Any, template: Any) -> Optio
     return None
 
 
-def normalized_spaced_orcid(value: Any) -> Optional[str]:
-    """Remove accidental space after the ORCID host only when the unchanged iD checksums.
+ORCID_IDENTIFIER = r"([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])"
+
+
+def orcid_checksums(identifier: str) -> bool:
+    """Whether an ORCID iD's last character is the MOD 11-2 check of the others.
 
     Checksum: https://support.orcid.org/hc/en-us/articles/360006897674
-    This checks format, not registration or ownership. No identifier characters are altered.
+    This checks format, not registration or ownership.
     """
-    if not isinstance(value, str):
-        return None
-    match = re.fullmatch(r"https://orcid\.org/[ \t]+([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])", value)
-    if not match:
-        return None
-    identifier = match.group(1)
     digits = identifier.replace("-", "")
     total = 0
     for digit in digits[:-1]:
         total = (total + int(digit)) * 2
     check = (12 - total % 11) % 11
-    if digits[-1] != ("X" if check == 10 else str(check)):
+    return digits[-1] == ("X" if check == 10 else str(check))
+
+
+def normalized_spaced_orcid(value: Any) -> Optional[str]:
+    """Remove accidental whitespace around an ORCID iD only when the unchanged iD checksums.
+
+    Pasting an ORCID carries a space, a tab or a line break with it: after the host, before the URL
+    or after the iD. Only whitespace goes, and only where it stands outside the iD, so no identifier
+    character is altered.
+    """
+    if not isinstance(value, str):
         return None
-    return "https://orcid.org/" + identifier
+    match = re.fullmatch(r"\s*https://orcid\.org/\s*" + ORCID_IDENTIFIER + r"\s*", value)
+    if not match or not orcid_checksums(match.group(1)):
+        return None
+    wanted = "https://orcid.org/" + match.group(1)
+    return wanted if wanted != value else None
+
+
+def prefixed_bare_orcid(value: Any) -> Optional[str]:
+    """An ORCID iD stored without its host, as the IRI it identifies, when it checksums.
+
+    An IRI field takes an absolute IRI, and the bare iD is not one. ``https://orcid.org/`` is the
+    form ORCID itself gives an iD as a link, so prefixing it says only what the iD already says.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(ORCID_IDENTIFIER, value)
+    if not match or not orcid_checksums(match.group(1)):
+        return None
+    return "https://orcid.org/" + match.group(1)
+
+
+def names_an_orcid_field(path: str) -> bool:
+    """Whether the field an instance location holds a value of is named as an ORCID field."""
+    names = [segment for segment in path.split("/") if segment and not segment.isdigit()]
+    return bool(names) and "orcid" in names[-1].replace("~1", "/").replace("~0", "~").lower()
+
+
+def prefix_bare_orcid(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a bare ORCID iD in an IRI field named as an ORCID field as its ``https://orcid.org/`` IRI.
+
+    Both guards are needed: the checksum says the text is an ORCID iD's form, and the field's name says
+    an ORCID is what the field holds. Neither alone rules out a different identifier of the same shape.
+    """
+    changes = []
+
+    def visit(value: Any, definition: dict, path: str) -> Any:
+        if not isinstance(value, dict) or "@id" not in definition.get("properties", {}) \
+                or not names_an_orcid_field(path):
+            return value
+        wanted = prefixed_bare_orcid(value.get("@id"))
+        if wanted is None:
+            return value
+        changes.append({"path": path + "/@id", "replaced": value["@id"], "wrote": wanted})
+        return {**value, "@id": wanted}
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_prefixed_bare_orcids(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change writes a bare ORCID iD in an ORCID field as its IRI, nothing else."""
+    for path, was, now in differences(before, after):
+        field = path.rsplit("/", 1)[0]
+        definition = declaration_at(template, field)
+        if not path.endswith("/@id") or not definition or "@id" not in definition.get("properties", {}) \
+                or not names_an_orcid_field(field) or prefixed_bare_orcid(was) is None \
+                or prefixed_bare_orcid(was) != now:
+            return path
+    return None
 
 
 def normalize_instance_orcid_spacing(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
@@ -9734,9 +9797,15 @@ REPAIRS = {
     ),
     "normalize-instance-orcid-spacing": Repair(
         name="normalize-instance-orcid-spacing", condition="",
-        summary="remove accidental ORCID host-path whitespace without changing the identifier",
+        summary="remove accidental whitespace around an ORCID iD without changing the identifier",
         transform=normalize_instance_orcid_spacing, invariant=only_normalized_orcid_spacing,
         needs_template=True, error_pattern=r".*valid URI.*",
+    ),
+    "prefix-bare-orcid": Repair(
+        name="prefix-bare-orcid", condition="",
+        summary="write a bare ORCID iD in an ORCID field as its https://orcid.org/ IRI",
+        transform=prefix_bare_orcid, invariant=only_prefixed_bare_orcids,
+        needs_template=True, error_pattern=r".*valid absolute IRI.*",
     ),
     "drop-empty-undeclared-instance-keys": Repair(
         name="drop-empty-undeclared-instance-keys", condition="",

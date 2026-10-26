@@ -430,6 +430,29 @@ class OrcidSpacingTest(unittest.TestCase):
         after['ORCID']['rdfs:label'] = 'changed'
         self.assertIsNotNone(r.only_normalized_orcid_spacing(before, after, t))
 
+    def test_a_pasted_line_break_or_trailing_whitespace_goes_too(self):
+        for value in ['https://orcid.org/\n0000-0002-1825-0097', 'https://orcid.org/0000-0002-1825-0097\n',
+                      'https://orcid.org/\r\n0000-0002-1825-0097 ', ' https://orcid.org/0000-0002-1825-0097']:
+            self.assertEqual(r.normalized_spaced_orcid(value), 'https://orcid.org/0000-0002-1825-0097')
+        self.assertIsNone(r.normalized_spaced_orcid('https://orcid.org/0000-0002-1825-0098\n'))
+        self.assertIsNone(r.normalized_spaced_orcid('https://orcid.org/0000-0002-\n1825-0097'))
+
+    def test_a_bare_identifier_in_an_orcid_field_becomes_its_iri(self):
+        c = child()
+        c['properties'] = {'@id': {'type': 'string'}}
+        t = template({'Principal ORCID': c, 'Code': copy.deepcopy(c)})
+        before = {'Principal ORCID': {'@id': '0000-0001-8771-090X'}, 'Code': {'@id': '0000-0001-8771-090X'}}
+        after, changes = r.prefix_bare_orcid(before, t)
+        self.assertEqual(after['Principal ORCID'], {'@id': 'https://orcid.org/0000-0001-8771-090X'})
+        self.assertEqual(after['Code'], before['Code'])
+        self.assertEqual([change['path'] for change in changes], ['/Principal ORCID/@id'])
+        self.assertIsNone(r.only_prefixed_bare_orcids(before, after, t))
+        self.assertEqual(r.prefix_bare_orcid(after, t)[1], [])
+        wrong = {**after, 'Code': {'@id': 'https://orcid.org/0000-0001-8771-090X'}}
+        self.assertEqual(r.only_prefixed_bare_orcids(before, wrong, t), '/Code/@id')
+        for value in ['0000-0001-8771-0901', '0000 0001 8771 090X', ' 0000-0001-8771-090X']:
+            self.assertIsNone(r.prefixed_bare_orcid(value))
+
 
 if __name__ == '__main__':
     unittest.main()

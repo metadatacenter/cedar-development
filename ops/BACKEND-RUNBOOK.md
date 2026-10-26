@@ -5305,6 +5305,26 @@ must be the template's empty structure, with the instance's identity, provenance
 standard `@context` terms unchanged. Because a plan can drop entered values, the rule applies only
 under `--allow-value-deletion` with an explicit `--only-ids` scope.
 
+On 2026-10-25 it was applied to the three instances of a template rebuilt in place, which kept 3 of
+the 40 property IRIs those instances used. The reviewed plan moved 30 entered values, 3 by property
+IRI and the rest by name and meaning, and carried 8 element identifiers in each instance. It dropped
+32 values the user agreed to drop: 29 for which the current template has no field, a fractional
+subject count its whole-number field cannot hold, and two placeholder words stored as links. One
+instance was written with `--replace-graph-provenance`, since its graph date was one second ahead
+of its document's. All three were read back, recheck as valid, keep their stamps, have graphs that
+agree with their documents, and open and save in CEE. The plan, pre-images and records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-fair-workflows-mapping/`.
+
+The same day five instances of two Project-Admin templates were written with
+`normalize-instance-orcid-spacing`, `prefix-bare-orcid` and `complete-instance`. They held ORCIDs
+pasted with a space or a line break, one principal investigator's bare iD, and populated element
+entries with no `@id`, which `complete-instance` gave fresh identifiers. Four were written with
+`--replace-graph-provenance`, since each graph date was one second ahead of its document's. All
+five were read back, recheck as valid, keep their stamps, have graphs that agree with their
+documents, and open and save in CEE. A sixth, on the Collection-Admin template, holds two IRIs
+joined by "; " in three link fields and was left unwritten. The records and pre-images are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-orcid-and-entry-ids/`.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
@@ -6887,7 +6907,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `complete-ui-order` | Append declared children missing from the order, preserving existing order. |
 | `drop-unusable-order-entries` | Remove reserved names or stale slash-to-hyphen rename entries; preserve possible evidence of a deleted child. |
 | `derive-title` | Derive the root title from its name; preserve descriptions and embedded child titles. |
-| `complete-instance` | Add missing empty shapes: list for repeatable children, `{"@value": null}` for literals, `{}` for IRIs, and declared element structure with fresh identity. Preserve existing values, including malformed populated shapes. |
+| `complete-instance` | Add missing empty shapes: list for repeatable children, `{"@value": null}` for literals, `{}` for IRIs, and declared element structure with fresh identity. Give an element entry that has no `@id` a fresh one, whether or not it holds values. Preserve existing values, including malformed populated shapes. |
 | `stamp-instance-value-type` | Supply the declared literal datatype, using model defaults where applicable (`xsd:decimal`, `xsd:dateTime`). |
 | `wrap-instance-occurrence` / `unwrap-instance-occurrence` | Match declared cardinality; never choose one value from a list of two or more. |
 | `settle-instance-empty-shape` | Normalize only an already-empty value to its declared literal/IRI shape. |
@@ -6895,7 +6915,8 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `complete-instance-context` | Add template-required context definitions; review changes to existing predicates as semantic migrations. |
 | `restate-instance-literal` | Change JSON type only if the original spelling round-trips: `826` / `"826"`, but not `"007"`. |
 | `drop-static-field-from-instance` | Remove a static heading/break slot that holds no value. |
-| `normalize-instance-orcid-spacing` | Remove whitespace immediately after `https://orcid.org/` only when unchanged identifier characters pass MOD 11-2; this proves neither registration nor ownership. |
+| `normalize-instance-orcid-spacing` | Remove a space, tab or line break after `https://orcid.org/`, before the URL or after the iD, only when the unchanged identifier characters pass MOD 11-2; this proves neither registration nor ownership. |
+| `prefix-bare-orcid` | Write a bare ORCID iD in an IRI field whose name says it holds an ORCID as `https://orcid.org/<iD>`, only when the iD passes MOD 11-2. The checksum alone cannot tell an ORCID from another identifier of the same shape, so the field's name is required too. |
 
 ### Owner-Reviewed Mappings and Schema Changes
 

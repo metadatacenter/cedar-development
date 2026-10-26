@@ -1101,23 +1101,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Malformed annotation objects | 7 |
   | Numeric JSON literals | 2 |
 
-  Write the three FAIR Workflows instances `368ff63a-133c-4a6e-b694-e2ea248fa592`,
-  `4520d4b9-ed0f-4aa8-b28b-de545e9c7f61` and `85a78d6b-d8b7-4aba-bd67-b885996ee0d7` once their
-  template's owner agrees the drafted mapping. Their template was rebuilt in place, and
-  `apply-reviewed-instance-mapping` rebuilds each in its current structure: 30 entered values move,
-  8 element occurrences in each keep their identifiers, and all three then validate and open in CEE.
-  The owner must confirm the moves made by meaning rather than by property IRI. The owner must also
-  agree to drop the 29 values the current template has no field for, a fractional subject count its
-  whole-number field cannot hold, and two placeholder words stored as links. The 29 values are each
-  instance's contributor, species, protocol availability and longitudinality, and one related
-  study's name. The write needs `--allow-value-deletion` with `--only-ids`, and
-  `--replace-graph-provenance` for `368ff63a-133c-4a6e-b694-e2ea248fa592`, whose graph date is
-  one second ahead of its document's. The plan, review sheet, dry run and live sources are under
-  `$CEDAR_HOME/.cedar/repairs/2026-10-25-fair-workflows-mapping/`.
   Confirm the intended GENASIS URL for Data Catalogs instance
   `94f400a2-4d26-480a-855d-0fa299a243cc`: its `datasetIdentifier[0]` contains two `#` characters.
-  Do not guess a routing replacement. These four deferred cases are included in the table above;
-  fresh sources and templates are retained under `.cedar/repairs/2026-09-26-eight-decisions/`.
+  Percent-encoding the second as `%23` would make the instance valid and openable, but whether
+  GENASIS reads that form as the same view is unconfirmed. Do not guess a routing replacement. The
+  case is counted in the table above; its fresh source and template are retained under
+  `.cedar/repairs/2026-09-26-eight-decisions/`.
 
   Verify Unicode field-IRI support in remaining browser/editor consumers. Resolve the production
   terminology HTTP 403 access restriction before claiming live lookup compatibility. Preserve
