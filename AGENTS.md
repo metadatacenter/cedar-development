@@ -119,7 +119,9 @@ below have no CLI front end yet, so call them directly:
   instances against their templates. A refusal of an artifact the validator accepts is a reader
   defect; a refusal of one the validator rejects is the data's. It also compares the two libraries'
   verdict on every instance, the Java validator's against the TypeScript library's save decision,
-  and `--fail-on-disagreement` fails the run on any difference. Several bridges of each kind,
+  and `--fail-on-disagreement` fails the run on any difference. Every artifact the Java library reads
+  is also rendered as JSON and in the full YAML form, and timed, which measures what the server's
+  write checks would refuse and what they cost. Several bridges of each kind,
   `cedar_snapshot_read_bridge.java` and `cedar_snapshot_read_bridge.cjs`, take a production snapshot
   in minutes. Contacts no deployment.
 - `cedar_corpus_instance_verdicts.py` — record the Java validator's verdict on every shared-corpus

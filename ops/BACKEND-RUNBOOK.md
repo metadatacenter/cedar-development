@@ -1710,11 +1710,26 @@ TypeScript dictionaries also have null prototypes so an exposed-map write cannot
 `__proto__`. Writers reject forbidden entries introduced through those exposed maps.
 
 The meta-schema cannot express this rule, so `cedar-model-validation-library` accepts a template
-whose child is keyed `@foo` or `__proto__`, or whose attribute-value group is keyed `name`. The
-artifact server therefore also reads every template, element and field it is asked to store with
-the artifact library's reader, and refuses one the reader refuses, with the reader's message in the
+whose child is keyed `@foo` or `__proto__`, or whose attribute-value group is keyed `name`. It also
+accepts an attribute-value field whose `minItems` is above zero, although no template can require
+attributes that whoever fills in an instance names. The artifact server therefore also reads every
+template, element, field and instance it is asked to store with the artifact library's reader, and
+renders the model as JSON and in the full YAML form, the forms it serves. It refuses an artifact the
+reader refuses or a renderer cannot write, with the reader's or the renderer's message in the
 validation report. Every editor and viewer opens an artifact through that reader or its TypeScript
-twin, so the server stores no schema artifact they cannot open. Instances are not read on write.
+twin, so the server stores nothing they cannot open or it cannot serve.
+
+The checks run only on an artifact the validator accepts, and an instance is still judged against
+its template first, so one defect is reported once and readability never stands in for validation.
+They work on a copy of the exact document about to be stored, after the server has assigned what a
+write assigns, and the renderings are discarded, so the document stored is the one received. A
+verbatim write is checked as supplied, and a repair is never refused because the body it replaces
+cannot be read. On the production snapshot of 2026-10-25 they refuse nothing the validator accepts:
+every artifact the reader reads renders in both forms, and the 17 instances it refuses are already
+invalid. Reading and rendering takes a median 0.07 ms for an instance and 0.7 ms for a template,
+1 ms and 12 ms at the 99th percentile, and 29 ms for the slowest instance, one of 735 KB. The
+measurement is the snapshot read audit's `rendering` summary, retained under
+`$CEDAR_HOME/.cedar/audits/2026-10-26-snapshot-read-render/`.
 
 Ordinary fields may use YAML scalar spellings (`true`, `null`, `yes`, numeric or date-like names)
 and YAML structural keys (`type`, `name`, `children`): writers quote where needed and preserve
