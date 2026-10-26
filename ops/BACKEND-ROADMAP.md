@@ -67,6 +67,17 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   frozen, and Update Bubbling refuses a published target, so only drafts are affected. Nothing
   decides today what should happen to those instances, and nothing tells the author.
 
+  A save with no edit can have the same effect on a template stored in an older shape, because the
+  library writes it as the current model renders it. Every numeric and temporal value must then
+  state `@type`, every child is required, a container left open without an attribute-value child is
+  closed, and `@context` admits only terms for declared children. Instances on 12 production
+  templates still depend on the older shape, 93 in all. 91 hold entered values under names their
+  template does not declare, which its legacy open schema admits and the written template rejects.
+  None of the names resembles a renamed field, so each owner decides whether to declare the fields,
+  which `declare-instance-field` can do from a reviewed plan. The other 2 keep a context term
+  because a value in them spells the term's name. Saving any of the 12 templates, even unchanged,
+  invalidates these instances, and only the impact check below would tell the author.
+
   **Choose a policy for each kind of edit.** Three answers are available, and different edits may
   deserve different ones:
   - **Warn only.** The author sees which instances the edit invalidates and saves anyway.

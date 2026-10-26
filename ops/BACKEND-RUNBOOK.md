@@ -5423,6 +5423,21 @@ second ahead of the document's. The instance was read back, rechecks as valid, k
 its graph agrees with its document, and it opens and saves in CEE. The choice, record and pre-image
 are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-collection-admin-split/`.
 
+Saving a template stored in an older shape can invalidate its instances although nothing was
+edited, because the library writes the template as the current model renders it. Over the
+2026-10-25 production snapshot, writing each of the 1,532 templates that have instances through the
+strict TypeScript writer, as the designer does, would have invalidated 1,824 instances on 74
+templates. On 2026-10-26, 1,731 of them were written with `complete-instance`,
+`stamp-empty-value-type` and `drop-orphan-instance-context`. 1,222 gained the children the written
+template requires, 142 gave their empty numeric or temporal values the declared datatype, and 368
+lost a context term that names no child and that nothing in them uses. `plan_from_snapshot.py`
+selected them, and a live dry run repeated its checks before the write. 25 graph dates were one
+second ahead of their documents, with the same modifier, and those instances were written under
+`--replace-graph-provenance`. Every instance was read back, rechecks as valid against its stored
+template, and validates against the template as the library writes it. The remaining 93 need their
+owners, as the roadmap's item on template changes records. The plan, records and pre-images are
+under `$CEDAR_HOME/.cedar/repairs/2026-10-25-resave-risk/`.
+
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
 that has one. Both writers render the `@context` open exactly when the container has an
