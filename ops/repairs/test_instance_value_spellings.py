@@ -337,6 +337,24 @@ class LegacyShapeTest(unittest.TestCase):
         emptied["properties"]["Alone"]["required"] = []
         self.assertEqual(r.only_dropped_mixed_field_label_demands(before, emptied), "/properties/Alone/required")
 
+    def test_a_planned_child_repeats_and_nothing_else_changes(self):
+        before = legacy_template()
+        r.REPEATED_CHILDREN[TEMPLATE_ID] = {"Block": 1}
+        try:
+            after, changes = r.repeat_template_child(before)
+            self.assertEqual(after["properties"]["Block"], {"type": "array", "minItems": 1, "items": before["properties"]["Block"]})
+            self.assertEqual({k: v for k, v in after["properties"].items() if k != "Block"},
+                             {k: v for k, v in before["properties"].items() if k != "Block"})
+            self.assertEqual([change["path"] for change in changes], ["/properties/Block"])
+            self.assertIsNone(r.only_repeated_template_children(before, after))
+            loose = copy.deepcopy(after); loose["properties"]["Block"]["minItems"] = 0
+            self.assertEqual(r.only_repeated_template_children(before, loose), "/properties/Block/minItems")
+            with self.assertRaises(r.TransformRefused):
+                r.repeat_template_child(after)
+        finally:
+            r.REPEATED_CHILDREN.clear()
+        self.assertEqual(r.repeat_template_child(before), (before, []))
+
     def test_a_null_label_leaves_a_literal_once_its_field_stops_demanding_one(self):
         loosened, _ = r.drop_literal_label_demand(legacy_template())
         before = instance(Labelled={"@value": None, "rdfs:label": None})

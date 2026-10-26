@@ -5114,6 +5114,54 @@ def only_dropped_superseded_keys(before: Any, after: Any, template: Any) -> Opti
 # one: a rename is a fact about the template's history, and only its owner holds that.
 RENAMES: dict[str, dict[str, str]] = {}
 
+# Template children an owner has decided should repeat again, keyed by template IRI then by child name,
+# with the lower bound each takes. Supplied through --repeat-children: whether a child repeats is a
+# design decision, and nothing in the artifacts makes it.
+REPEATED_CHILDREN: dict[str, dict[str, int]] = {}
+
+
+def repeat_template_child(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make a template child repeat, as its plan names it, by wrapping its schema in a list.
+
+    A child the template once let repeat and now declares once leaves the instances written before
+    holding several occurrences of it, which the template refuses. Where its owner decides the child
+    should repeat again, its schema becomes ``{"type": "array", "minItems": n, "items": <schema>}``,
+    the form both libraries write for a repeating child. The child's own schema is kept whole.
+    Instances holding one occurrence then need it put in a list, which ``wrap-instance-occurrence``
+    does, so they are written straight after.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    plan = REPEATED_CHILDREN.get(artifact.get(AT_ID)) or {}
+    if not plan:
+        return artifact, []
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for name, minimum in plan.items():
+        child = (result.get("properties") or {}).get(name)
+        if not isinstance(child, dict) or child.get("type") == "array" or child.get(AT_TYPE) not in (FIELD_AT_TYPE, ELEMENT_AT_TYPE):
+            raise TransformRefused(f"{name} is not a child declared once")
+        if not isinstance(minimum, int) or minimum < 0:
+            raise TransformRefused(f"{name}: minItems must be a nonnegative integer")
+        result["properties"][name] = {"type": "array", "minItems": minimum, "items": child}
+        changes.append({"path": f"/properties/{rest.json_pointer_component(name)}", "replaced": "a single child",
+                        "wrote": f"a list of at least {minimum}"})
+    return result, changes
+
+
+def only_repeated_template_children(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is each planned child's schema wrapped in a list, nothing else."""
+    plan = REPEATED_CHILDREN.get(before.get(AT_ID)) if isinstance(before, dict) else None
+    expected = copy.deepcopy(before)
+    for name, minimum in (plan or {}).items():
+        child = (before.get("properties") or {}).get(name)
+        if not isinstance(child, dict) or child.get("type") == "array":
+            return f"/properties/{rest.json_pointer_component(name)}"
+        expected["properties"][name] = {"type": "array", "minItems": minimum, "items": child}
+    for path, _was, _now in differences(expected, after):
+        return path or "/"
+    return None
+
 
 # Keys `ModelNodeNames` allows at the top of a schema artifact and not at the top of an instance.
 # A template states its version and publication status; an instance of it does not have either, and
@@ -9515,6 +9563,13 @@ REPAIRS = {
         needs_template=True,
         error_pattern=UNDECLARED_KEY_ERROR,
     ),
+    "repeat-template-child": Repair(
+        name="repeat-template-child",
+        condition="",
+        summary="make a template child its plan names repeat, wrapping its schema in a list",
+        transform=repeat_template_child,
+        invariant=only_repeated_template_children,
+    ),
     "rename-instance-keys": Repair(
         name="rename-instance-keys",
         condition="",
@@ -10703,6 +10758,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mapping",
                         help="JSON of confirmed renames, {templateId: {oldKey: newKey}}, which "
                              "rename-instance-keys applies; nothing is renamed without it")
+    parser.add_argument("--repeat-children",
+                        help="JSON of template children an owner has decided should repeat, "
+                             "{templateId: {childName: minItems}}, which repeat-template-child applies")
     parser.add_argument("--required-removals",
                         help="Java-reviewed parent required-list removals keyed by artifact IRI, "
                              "with beforeSha256, afterSha256 and changes (path, before, after)")
@@ -10972,6 +11030,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
+                                 ("--repeat-children", arguments.repeat_children, REPEATED_CHILDREN),
                                  ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
                                  ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
                                  ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),

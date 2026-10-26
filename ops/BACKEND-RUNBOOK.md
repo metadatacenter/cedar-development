@@ -5268,8 +5268,16 @@ empty, `restamp-declared-value-type` restated a plain date stored as `xsd:dateTi
 `align-instance-context-iris` remapped five or six child terms, under `--allow-context-migration`.
 One of the two was written with `--replace-graph-provenance`, its graph date being ahead of its
 document's. Both were read back, recheck as valid, keep their provenance stamps, and now open. The
-third holds three filled occurrences of `funder`, which the template now declares once, and stays
-unwritten until its owner chooses.
+third holds three filled occurrences of `funder`, which the template now declares once. The same
+day the template, a draft, was made to let `funder` repeat again: `repeat-template-child`, under a
+reviewed `--repeat-children` plan, wrapped the child's schema in a list with `minItems` 1, the form
+the template's other repeating children take, and `wrap-instance-occurrence` put the single funder
+of the two repaired instances in a list seconds later, since the new template refuses it otherwise.
+All three were read back, recheck as valid, keep their stamps, and the instances still open. The
+third instance was then written with the planned chain, its three funders kept, and with
+`--replace-graph-provenance`, since its graph date was one second ahead of its document's. It was
+read back, rechecks as valid, keeps its stamps, its graph now agrees with its document, and it
+opens, so all three instances of the template are valid.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
 `@context` open to further IRIs without an attribute-value child, and one held an element closed
@@ -5440,7 +5448,10 @@ link and external identifier as well as controlled term, the same value schema w
 Every write was read back, every artifact rechecks as valid, and each differs from its pre-image only
 in the notations declared, with stamps, version and status unchanged. Sixteen were held: twelve whose
 graph dates differ from their documents', one holding a fractional number until the Decimal128 fix
-is deployed, and three templates invalid for other reasons. A first pass stopped after 1,292 writes
+is deployed, and three templates invalid for other reasons. The twelve were written the same day
+with `--replace-graph-provenance`: six graphs were one second ahead and six were behind, by 37
+seconds to 88 days, one naming another modifier. Each graph now agrees with its document, and the
+documents' stamps are unchanged. A first pass stopped after 1,292 writes
 when a read-back timed out; the write it could not confirm had landed, and a second pass wrote the
 remaining 1,148. The other two were instance defects, and
 both were repaired. `state-creator-from-graph` wrote into one the `pav:createdBy` its graph node
