@@ -110,7 +110,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remove blank unnamed attribute rows | These rows represent unfinished editor input and cannot name a stored property. |
   | Prune unused repository-generated attribute context mappings | Deleting an attribute can leave its generated mapping behind; template-declared mappings and author-supplied vocabulary IRIs must remain. |
   | Derive schema `title` and `description` from the artifact name | Renames must keep generated schema metadata consistent while preserving generator attribution. |
-  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration. It invalidates instances on its own only where a legacy template never declared a child it already requires, which the repair in the production-data item closes. |
+  | Add ordinary child mappings to `@context.required` | The save path follows the canonical renderer's declaration. It invalidates instances on its own only where a legacy template never declared a child it already requires. |
 
   Verbatim writes bypass these changes and remain strictly validated.
 
@@ -1346,21 +1346,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a `classes` entry narrows what an instance may say, which is a decision about the template's
   meaning and not one a lookup answers. Ask the owner, or record that constraining to the whole
   ontology is intended.
-
-  **Close the legacy context-requirement gap before any save closes it for you.** Some templates
-  require a child in their top-level `required` but not in `@context.required`, and some of their
-  instances lack the child's `@context` mapping. Any ordinary save of such a template adds the
-  requirement and invalidates those instances, although the author changed nothing about them.
-  Supplying a missing mapping is mechanical: the template states the property IRI. Measure first
-  with `ops/repairs/ctxreq_at_risk.py`, which lists, per template, the instances completing its
-  `@context.required` would invalidate. Then add the missing mappings to those instances with a new
-  transform, and complete the templates with the existing `complete_context_required` transform.
-  An instance that maps the child to a different IRI is a conflict, not a gap, and needs its
-  owner. Measured 2026-09-27: 34 templates still have the gap and no elements do. Completing them
-  would newly invalidate 1,139 of the 6,334 key-visible instances checked, 890 of them under *Cell*
-  and 217 under *Chemical Tool*; 14 templates can be completed now without invalidating anything.
-  Every one of the 4,689 failures is a missing `@context` mapping, none a conflicting one. The
-  evidence is under `$CEDAR_HOME/.cedar/audits/2026-09-27-ctxreq-at-risk/`.
 
   **Possible approach: update eligible artifacts through the canonical Java model.** For artifacts
   whose meaning can be preserved, consider reading them with `cedar-artifact-library` and writing
