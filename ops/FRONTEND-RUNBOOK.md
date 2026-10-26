@@ -1046,9 +1046,12 @@ configuration records under `cee.additionalModelConsumers`. CEE's consumers are 
 instead name a `reference` consumer whose pin gives the version to follow, and nothing uses that form
 now.
 
-A followed component's consumers stay where they are, and the plan says why, while its `develop` is
-unpushed, holds uncommitted changes, is a release-preparation commit, or names a package Nexus does
-not hold yet. A run that moves one of the component's own pins, such as CEE's design tokens, skips
+A followed component's consumers take the package CI built from its pushed `origin/develop` head,
+fetched when the command runs, as a Maven build takes the newest snapshot. Unpushed commits and
+uncommitted edits in the local checkout do not hold them back, because a development build takes
+those from the checkout. They stay where they are, and the plan says why, only while that head is a
+release-preparation commit or names a package Nexus does not hold yet. A run that moves one of
+the component's own pins, such as CEE's design tokens, skips
 it, because its CI package predates that change: commit and push it, let its CI publish, and run the
 command again. After a release, this is the only command that moves the consumers from the public
 CEE to the newest development package. The build train publishes and wires its own model, CEE and
