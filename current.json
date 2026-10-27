@@ -1,7 +1,7 @@
 {
-  "completedAt": "2026-10-27T10:45:33.850807+00:00",
-  "completion": "completed/2.9.30-dev.20261027.1040.json",
-  "manifest": "trains/2.9.30-dev.20261027.1040.json",
+  "completedAt": "2026-10-27T11:49:49.443975+00:00",
+  "completion": "completed/2.9.30-dev.20261027.1144.json",
+  "manifest": "trains/2.9.30-dev.20261027.1144.json",
   "schemaVersion": 1,
-  "version": "2.9.30-dev.20261027.1040"
+  "version": "2.9.30-dev.20261027.1144"
 }
