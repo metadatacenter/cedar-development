@@ -1724,14 +1724,15 @@ adding 1,253 packages, removing 302, and undoing the upgrade march to silence
 warnings about build tooling an embedder never downloads.
 
 **Time a dependency bump against the release calendar, not against the advisory.**
-Angular embeds the root `package.json` in the browser bundle, so changing a
-dependency range changes the shipped bytes even when the dependency is a test-time
-one that never runs in a host page. A CEDAR platform release proves the CEE its
-train built byte-equivalent to the public npmjs package, and that proof reads a
-changed range as an undeclared difference. Patching vitest between a CEE release
-and the train that would consume it cost a second public release, 2.0.9, carrying
-no code change at all. Land such a patch after a release rather than before one, or
-expect to cut the package again.
+A CEDAR platform release proves the CEE its train built byte-equivalent to the public
+npmjs package. Until 2.0.30 the browser bundle embedded the root `package.json`, so a
+changed range reached the shipped bytes even for a test-time dependency that never
+runs in a host page, and the proof read it as an undeclared difference. Patching
+vitest between a CEE release and the train that would consume it cost a second
+public release, 2.0.9, carrying no code change at all. The bundle now embeds CEE's
+version alone, so a range change alone no longer reaches it. A bump that changes
+code the bundle compiles still does. Land such a patch after a release rather than
+before one, or expect to cut the package again.
 
 `npm audit fix` also declines a patch it could take. The advisory against vitest was
 fixed in 4.1.11, inside the declared `^4.1.10`, and `npm audit fix` reported "fix

@@ -620,13 +620,15 @@ first verifies each tarball and its own bundle manifest. It then requires the sa
 and normalizes only this closed release-provenance list:
 
 - package name, version, publish channel, and root lock identity;
-- the one embedded CEE version, model-package identity, and load trace in the browser bundle;
-- the one design-token pin embedded in the build manifest's `devDependencies`: the development
-  pin must equal the train's planned token package, and the public pin must be exact. Compiled
-  styles remain subject to the full byte comparison; no other dependency or code is normalized;
-- the bundle manifest derived from those browser-bundle bytes;
-- CEE's exact `allowScripts` install policy if embedded from root `package.json`: the planner reads
-  it from the train's captured CEE commit and permits its minified literal exactly once; and
+- the one embedded CEE version and load trace in the browser bundle;
+- the three strings an embedded root `package.json` carries, where the bundle embeds one, as CEE's
+  did until 2.0.30: the model-package identity; the one design-token pin in its `devDependencies`,
+  where the development pin must equal the train's planned token package and the public pin must
+  be exact; and CEE's exact `allowScripts` install policy, which the planner reads from the train's
+  captured CEE commit and permits exactly once. A bundle that embeds only its version carries none
+  of the three, and both bundles must carry the same ones. Compiled styles remain subject to the
+  full byte comparison; no other dependency or code is normalized;
+- the bundle manifest derived from those browser-bundle bytes; and
 - one dated changelog entry for the public CEE version, which must name one exact public model
   version. If the train predates that entry, removing it must reproduce the train changelog byte for
   byte; if the train already contains it, the two changelogs must already be byte-identical.
