@@ -1081,6 +1081,14 @@ bundle identities again after any packaging or publication work.
 Reporting is the default because an npm version once taken cannot be republished. Every repository it would write to must be clean in its tracked
 files first, so the diffs left behind are its own, and nothing is committed.
 
+Run the consumers' suites before committing what a run moved. A library change that passes its own
+CI can still fail a consumer whose fixtures or size budgets it tightens, because a consumer's CI runs
+only when the consumer is pushed. On 2026-10-26 a run moved every consumer to a model library that
+refuses a field written on its own that says it is required, and CEE and the designer stayed red on
+`develop` until their fixtures and size ceilings followed. `cedarcli test frontends` builds and tests
+every consumer against the local sources, which are the commits the new pins name, so it settles
+the question before anything is pushed.
+
 The train captures the term picker and the designer, so a train's recorded source names their
 `develop` heads and its preflight asks the same questions of them as of every other source
 repository.
