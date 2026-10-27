@@ -292,7 +292,7 @@ CEE meets one more, 3.1.2, only in part. Agree the fixes marked as visible befor
 ### 10. Take the Frontend Dependency Upgrades That Need Code Changes
 
 Each dependency below has a newer major release that a lock update cannot take. Some wait on an
-upstream release, most need code changes, and one needs a design decision. The versions are the
+upstream release, some need code changes, and one needs a design decision. The versions are the
 newest that `npm outdated` reported on 2026-10-19, after every in-range update had been taken.
 
 **Waiting on upstream.**
@@ -300,6 +300,11 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 - **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
   Angular release accepts 7.
 - **`@types/node` 26.** The types follow the runtime's major, and every project runs Node 24.
+- **ESLint 10 and Babel 8 in the Ember demo.** The two move together. The demo's lint
+  configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
+  newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of
+  ember-cli-babel (8.3.2), `@rollup/plugin-babel` (7.1.0) and Embroider's core and compat packages
+  accept only Babel 7, so both upgrades wait until those accept Babel 8.
 
 **Needing code changes.**
 
@@ -313,13 +318,6 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 - **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring. The adapter's major
   follows the Keycloak server, so these move with "Upgrade Keycloak to a supported release" in
   [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
-- **ng-alt-snotify 17** in OpenView, Bridging and Monitoring, which run 16, 15 and 14. Each pins an
-  exact Angular major as a peer, which an npm `overrides` entry satisfies today. Check whether 17
-  changes the API the applications call before moving.
-- **TypeScript 6 in the model library.** The library builds with TypeScript 5.9, while every
-  Angular project and CEE's harness use 6.0.
-- **The demos' tooling.** ESLint 10 in all three demos; zone.js 0.16 and jsdom 30 in the Angular
-  demo; Babel 8, QUnit 3, ember-template-lint 7 and eslint-plugin-ember 13 in the Ember demo.
 
 **Needing a design decision.**
 
