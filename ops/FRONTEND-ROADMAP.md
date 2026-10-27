@@ -124,10 +124,11 @@ each frontend vhost, as root:
    H=https://openview.staging.metadatacenter.org; for p in /index.html /folders/x /assets/img/logo/cedar-open-view-logo.png /node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js "/$(curl -s $H/index.html | grep -o 'main-[A-Z0-9]*\.js')"; do echo "$p: $(curl -sI "$H$p" | grep -i '^cache-control')"; done
    ```
 
-Production OpenView sits behind Cloudflare, which adds `max-age=14400` to JavaScript and caches
-static files at its edge. After the reload, purge `openview.metadatacenter.org` there. If the CEE
-bundle still carries `max-age=14400`, set Cloudflare's Browser Cache TTL to "Respect Existing
-Headers".
+Production OpenView, Monitoring and Bridging sit behind Cloudflare, which adds `max-age=14400` to
+JavaScript and caches static files at its edge. After the reload, purge
+`openview.metadatacenter.org`, `monitoring.metadatacenter.org` and `bridging.metadatacenter.org`
+there. If the CEE bundle that OpenView and Bridging serve still carries `max-age=14400`, set
+Cloudflare's Browser Cache TTL to "Respect Existing Headers".
 
 Extend the cache-delivery smoke to check immutable hashed assets and revalidating fallbacks, to
 compare every served build identity against the accepted commit, and to open, modify, save,
