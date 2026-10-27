@@ -33,6 +33,39 @@ def paths(changes):
 invariant = REPAIR.only_removed_empty_derived_from
 
 
+class StandaloneRequirementTest(unittest.TestCase):
+    """A field written on its own is neither required nor recommended; only a parent says so."""
+
+    @staticmethod
+    def field(**constraints):
+        return {"@type": "https://schema.metadatacenter.org/core/TemplateField", "schema:name": "F",
+                "_ui": {"inputType": "textfield"}, "_valueConstraints": {"requiredValue": False, **constraints}}
+
+    def test_clears_a_requirement_to_false_and_removes_a_recommendation(self):
+        before = self.field(requiredValue=True, recommendedValue=True)
+        after, changes = REPAIR.clear_standalone_requirement(before)
+        self.assertEqual(after["_valueConstraints"], {"requiredValue": False})
+        self.assertEqual(paths(changes), ["/_valueConstraints/requiredValue", "/_valueConstraints/recommendedValue"])
+        self.assertIsNone(REPAIR.only_cleared_standalone_requirement(before, after))
+        self.assertTrue(before["_valueConstraints"]["requiredValue"], "the stored body is left as it was")
+
+    def test_leaves_a_field_that_states_none_as_it_is(self):
+        before = self.field()
+        after, changes = REPAIR.clear_standalone_requirement(before)
+        self.assertEqual(after, before)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_names_any_other_change(self):
+        before = self.field(requiredValue=True)
+        after, _ = REPAIR.clear_standalone_requirement(before)
+        after["schema:name"] = "G"
+        self.assertEqual(REPAIR.only_cleared_standalone_requirement(before, after), "/schema:name")
+
+    def test_is_registered_under_the_audit_condition(self):
+        repair = REPAIR.REPAIRS["clear-standalone-requirement"]
+        self.assertEqual(repair.condition, "standalone-field-requirement")
+
+
 class TransformTest(unittest.TestCase):
 
     def test_removes_the_key_at_the_root(self):

@@ -173,8 +173,8 @@ async function instanceReports(auth, admin, folderId, templateId) {
 
   const damaged = [
     ['a number that is not one', body => { body.Measurement['@value'] = 'abc'; }, '/Measurement/@value', []],
-    // A property the schema does not allow is reported at the object that may not hold it, by name.
-    ['a key the template does not have', body => { body.Ghost = { '@value': 'x' }; }, '/', ["'Ghost'"]],
+    // A property the schema does not allow is reported where it is, and named.
+    ['a key the template does not have', body => { body.Ghost = { '@value': 'x' }; }, '/Ghost', ["'Ghost'"]],
     ['a literal field given an IRI', body => { body.Code = { '@id': 'https://example.org/x' }; }, '/Code', []],
   ];
   for (const [what, damage, location, phrases] of damaged) {

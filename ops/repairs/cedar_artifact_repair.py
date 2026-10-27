@@ -119,6 +119,43 @@ def strip_empty_derived_from(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     return walk(copy.deepcopy(artifact), ""), removed
 
 
+STANDALONE_REQUIREMENT = "/_valueConstraints/requiredValue"
+STANDALONE_RECOMMENDATION = "/_valueConstraints/recommendedValue"
+
+
+def clear_standalone_requirement(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Clear a field's own requirement and recommendation, and say where each one was.
+
+    Whether a field is required or recommended is what a template or an element says of its child,
+    so a field written on its own is neither. The meta-schema requires every field to state
+    ``requiredValue``, so a requirement is cleared to ``false`` rather than removed; a recommendation,
+    which the meta-schema does not require, is removed. A child's requirement is its own document's
+    and is never touched here, since this repair reads only a field artifact's root.
+    """
+    repaired = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    constraints = repaired.get("_valueConstraints") if isinstance(repaired, dict) else None
+    if isinstance(constraints, dict):
+        if constraints.get("requiredValue") is True:
+            constraints["requiredValue"] = False
+            changes.append({"path": STANDALONE_REQUIREMENT, "replaced": True, "wrote": False})
+        if constraints.get("recommendedValue") is True:
+            del constraints["recommendedValue"]
+            changes.append({"path": STANDALONE_RECOMMENDATION, "replaced": True, "wrote": None})
+    return repaired, changes
+
+
+def only_cleared_standalone_requirement(before: Any, after: Any, path: str = "") -> Optional[str]:
+    """The invariant: the root requirement went from true to false, the recommendation was removed, and nothing else changed."""
+    for where, was, now in differences(before, after, path):
+        if where == STANDALONE_REQUIREMENT and was is True and now is False:
+            continue
+        if where == STANDALONE_RECOMMENDATION and was is True and now is ABSENT:
+            continue
+        return where or "/"
+    return None
+
+
 def only_removed_empty_derived_from(before: Any, after: Any, path: str = "") -> Optional[str]:
     """The invariant. Returns the path of the first unintended difference, or None when there is none.
 
@@ -10185,6 +10222,13 @@ REPAIRS = {
         summary="state explicit null in otherwise empty nullable literal slots",
         transform=complete_empty_literal, invariant=only_completed_empty_literals,
         needs_template=True, error_pattern=MISSING_CHILD_ERROR,
+    ),
+    "clear-standalone-requirement": Repair(
+        name="clear-standalone-requirement",
+        condition="standalone-field-requirement",
+        summary="clear the requirement and recommendation a field written on its own states, which only a parent states",
+        transform=clear_standalone_requirement,
+        invariant=only_cleared_standalone_requirement,
     ),
     "empty-derived-from": Repair(
         name="empty-derived-from",
