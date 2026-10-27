@@ -319,7 +319,7 @@ plan digest, package commits, integrity values, and tarball hashes. Publication 
 and its digest label after pushing and pulling the image. During a train build, the Dockerfile also
 requires its downloaded application tarball to match the recorded SHA-256 before extracting it.
 Main, Workspace, and Template Designer then use `npm ci` with the shrinkwrap vendored into the
-published package; OpenView extracts its verified CEE and webcomponents tarballs directly. Thus a
+published package; OpenView extracts its verified CEE tarball directly. Thus a
 rebuild does not re-resolve transitive package versions. The local `--local` compatibility path may
 still consume an older package without a shrinkwrap, but it is explicitly not a reproducible train.
 

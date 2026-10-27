@@ -275,8 +275,8 @@ accepted only when its `gitHead` is identical. Each frontend tarball carries an
 that lock.
 
 Finally, the workflow downloads every model, CEE and frontend tarball, verifies registry integrity
-and records a SHA-256 in `npm/completed/<TRAIN_ID>.json`. This also covers the public webcomponents
-runtime tarball OpenView copies. Only then does `npm/current.json` advance. A train therefore owns
+and records a SHA-256 in `npm/completed/<TRAIN_ID>.json`. Only then does `npm/current.json`
+advance. A train therefore owns
 the complete model → CEE → frontend chain; it never silently substitutes whichever dev packages
 happened to have been published before the train began.
 
@@ -298,7 +298,7 @@ image records the train, the exact `cedar-docker-build` commit, the source-manif
 npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
 `/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
 tarball to that graph before extraction. The three source-package images install with `npm ci` from
-the vendored shrinkwrap; OpenView extracts the exact verified CEE and webcomponents tarballs
+the vendored shrinkwrap; OpenView extracts the exact verified CEE tarball
 directly, without resolving an npm dependency graph during the image build.
 
 The final job removes local copies and pulls each of the 28 images from Nexus with
