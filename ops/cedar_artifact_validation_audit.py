@@ -123,6 +123,7 @@ TOPICS = {
     "temporal-type-absent": "temporal type",
     "temporal-type-unsettled": "temporal type",
     "static-field-required": "static field demanded",
+    "standalone-field-requirement": "standalone requirement",
 }
 # The REST audit's diagnostics say the audit could not finish, not that the artifact is defective.
 REST_DIAGNOSTIC_RULES = {"template-analysis-unavailable"}
@@ -477,11 +478,28 @@ def rest_conditions(ref: rest.ArtifactRef, artifact: Any,
         yield Condition(finding.rule, finding.path, finding.value, finding.risk)
 
 
+def check_standalone_requirement(artifact: dict) -> Iterator[Condition]:
+    """A requirement or a recommendation stated by a field written on its own.
+
+    Whether a field is required or recommended is what a template or an element says of its child,
+    so a field on its own is neither, and the libraries' readers refuse one that says otherwise. The
+    meta-schema requires every field to state ``requiredValue``, which on its own is ``false``.
+    """
+    constraints = artifact.get("_valueConstraints")
+    if not isinstance(constraints, dict):
+        return
+    for key in ("requiredValue", "recommendedValue"):
+        if constraints.get(key) is True:
+            yield Condition("standalone-field-requirement", f"/_valueConstraints/{key}", True)
+
+
 def inventory_conditions(ref: rest.ArtifactRef, artifact: Any,
                          shape: Optional[rest.SchemaShape]) -> list[Condition]:
     conditions: list[Condition] = []
     if isinstance(artifact, dict):
         conditions.extend(check_annotations(artifact))
+        if ref.artifact_type == "field":
+            conditions.extend(check_standalone_requirement(artifact))
         if ref.artifact_type != "instance":
             nodes = list(iter_schema_nodes(artifact))
             conditions.extend(check_titles(nodes))

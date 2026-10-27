@@ -1046,9 +1046,12 @@ configuration records under `cee.additionalModelConsumers`. CEE's consumers are 
 instead name a `reference` consumer whose pin gives the version to follow, and nothing uses that form
 now.
 
-A followed component's consumers stay where they are, and the plan says why, while its `develop` is
-unpushed, holds uncommitted changes, is a release-preparation commit, or names a package Nexus does
-not hold yet. A run that moves one of the component's own pins, such as CEE's design tokens, skips
+A followed component's consumers take the package CI built from its pushed `origin/develop` head,
+fetched when the command runs, as a Maven build takes the newest snapshot. Unpushed commits and
+uncommitted edits in the local checkout do not hold them back, because a development build takes
+those from the checkout. They stay where they are, and the plan says why, only while that head is a
+release-preparation commit or names a package Nexus does not hold yet. A run that moves one of
+the component's own pins, such as CEE's design tokens, skips
 it, because its CI package predates that change: commit and push it, let its CI publish, and run the
 command again. After a release, this is the only command that moves the consumers from the public
 CEE to the newest development package. The build train publishes and wires its own model, CEE and
@@ -1077,6 +1080,14 @@ bundle identities again after any packaging or publication work.
 
 Reporting is the default because an npm version once taken cannot be republished. Every repository it would write to must be clean in its tracked
 files first, so the diffs left behind are its own, and nothing is committed.
+
+Run the consumers' suites before committing what a run moved. A library change that passes its own
+CI can still fail a consumer whose fixtures or size budgets it tightens, because a consumer's CI runs
+only when the consumer is pushed. On 2026-10-26 a run moved every consumer to a model library that
+refuses a field written on its own that says it is required, and CEE and the designer stayed red on
+`develop` until their fixtures and size ceilings followed. `cedarcli test frontends` builds and tests
+every consumer against the local sources, which are the commits the new pins name, so it settles
+the question before anything is pushed.
 
 The train captures the term picker and the designer, so a train's recorded source names their
 `develop` heads and its preflight asks the same questions of them as of every other source
@@ -1278,11 +1289,12 @@ the field element from another — they describe values in the same model classe
 
 A field artifact is not a template, so the element wraps it in a synthetic one-field
 template before CEE builds anything from it (`util/single-field-template.ts`). The
-wrapping states no cardinality, so the value the element acquires is single. It adds no
-requiredness either, but it keeps any the artifact states, because the model holds
-`requiredValue` on the field itself. CED writes a field on its own with
-`requiredValue: false`, so a default value may be empty, as a default must be. A host
-that passes a required field quiets the report of an empty value with
+wrapping states no cardinality, so the value the element acquires is single. A field
+written on its own states no requirement either, because only a template or an element
+requires the field it places. The strict reader refuses a field that says otherwise. A host
+that places the field as required sets the element's `required` configuration key, and
+the wrapping states it on the field's deployment. The field is then marked, and an empty
+value reported as missing, exactly as in a form, unless the host sets
 `suppressEmptyFieldErrors`. The wrapper template carries the
 URN `urn:cedar:cee:single-field-template` as its `@id` — a template with none is
 reported, and no repository holds this one.
@@ -1338,6 +1350,21 @@ npm --prefix visual run bundle
 The second step writes `visual/public/cedar-embeddable-editor.js` and a sidecar
 manifest recording its sha256 and byte count, which the freshness guard and the
 size gate both read rather than re-deriving.
+
+The editor and the single field render into shadow roots that take the same
+stylesheet, `src/app/modules/shared/directives/shadow-root.scss`. Declared as each
+component's own style, it reached the bundle twice, because Angular keeps a
+component's styles in that component's definition. `build:production`, `build`,
+`start` and `test:coordinator` therefore first run
+`scripts/compile-shadow-root-styles.mjs`, which compiles it once into
+`dist-styles/shadow-root-css.ts`. The compilation repeats the one Angular's builder
+gives a component stylesheet, so the text is what Angular embedded. `build` and `start`
+pass `--development`, which leaves it unminified with an inline source map, as
+Angular's development build leaves a component stylesheet. Every build
+configuration in `angular.json` substitutes that module for an empty placeholder, and
+the `ShadowRootStyles` host directive inserts it into each root, where Angular put a
+component's own styles. Build through the npm scripts. A bare `ng build` uses whatever
+an earlier run left in `dist-styles/`, and stops when nothing is there.
 
 Do not join the build's output by hand. This used to read
 `cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js`, and those are
@@ -1697,14 +1724,15 @@ adding 1,253 packages, removing 302, and undoing the upgrade march to silence
 warnings about build tooling an embedder never downloads.
 
 **Time a dependency bump against the release calendar, not against the advisory.**
-Angular embeds the root `package.json` in the browser bundle, so changing a
-dependency range changes the shipped bytes even when the dependency is a test-time
-one that never runs in a host page. A CEDAR platform release proves the CEE its
-train built byte-equivalent to the public npmjs package, and that proof reads a
-changed range as an undeclared difference. Patching vitest between a CEE release
-and the train that would consume it cost a second public release, 2.0.9, carrying
-no code change at all. Land such a patch after a release rather than before one, or
-expect to cut the package again.
+A CEDAR platform release proves the CEE its train built byte-equivalent to the public
+npmjs package. Until 2.0.30 the browser bundle embedded the root `package.json`, so a
+changed range reached the shipped bytes even for a test-time dependency that never
+runs in a host page, and the proof read it as an undeclared difference. Patching
+vitest between a CEE release and the train that would consume it cost a second
+public release, 2.0.9, carrying no code change at all. The bundle now embeds CEE's
+version alone, so a range change alone no longer reaches it. A bump that changes
+code the bundle compiles still does. Land such a patch after a release rather than
+before one, or expect to cut the package again.
 
 `npm audit fix` also declines a patch it could take. The advisory against vitest was
 fixed in 4.1.11, inside the declared `^4.1.10`, and `npm audit fix` reported "fix
@@ -3873,6 +3901,23 @@ exports `fonts/regular` and `fonts/medium`; Workspace's existing snapshot uses t
 same partials via Sass's configured include path. Verify both bundle variants and
 publish CEE before advancing Workspace's pin; source changes alone do not change
 what an older installed CEE package contains.
+
+CED and CETP ship the same pair: `cedar-embeddable-designer.host-fonts.js` and
+`cedar-embeddable-term-picker.host-fonts.js`, each beside a `bundle-manifest.host-fonts.json`
+and held to its own size ceiling, which is the default bundle's less the embedded faces. The
+tokens package also publishes the faces as compiled `fonts.css`, for a host without Sass. The
+Template Designer page loads CEE, CETP and CED together, so it links `fonts.css` once and
+`stage-components.mjs` stages each component's host-fonts bundle under the component's usual
+file name. The staged `manifest.json` records the package file in `bundle`, and
+`cedarcli check components` compares the served bytes with that file. A package without a
+host-fonts bundle, or a tokens package without `fonts.css`, is staged self-contained, as before.
+The page then downloads the faces once rather than three times, which saves about 180 kB of
+compressed transfer.
+
+The host checks every save payload with the meta-schema validator CED carries, through
+`designer.validateArtifact`, rather than importing its own copy. Against a CED built before that
+method, the host imports its staged `cedar-schema-validation.mjs` instead, so that file is still
+staged.
 
 CED and CEFD use one set-once configuration coordinator per component. It diagnoses
 unknown keys and wrong types, normalizes both service bases, and hands the same

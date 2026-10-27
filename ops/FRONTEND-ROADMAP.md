@@ -13,9 +13,46 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
+## Reusable Artifact Versions
+
+<a id="pull-version-management"></a>
+
+### 1. Complete Pull-Based Reusable Artifact Version Management
+
+- **Richer compatibility proofs and impact.** Recognize safe schema widenings beyond
+  validation-shape equality. Assess the actual invalidated record count when schemas
+  differ, including records the author cannot read, without exposing their content.
+  Keep universal compatibility, stored-instance impact and semantic changes distinct.
+  Extend final-write protection to permit proven safe widenings without weakening its
+  concurrency fence. The existing `check-update-template` delta is not a universal proof.
+- **Continuing reusable drafts and recovery across tabs.** Make continuing work on a
+  saved reusable draft possible without silently turning the embedded copy into a mutable
+  link. Define retrieval of confirmed but unattached results after the original tab closes,
+  and deliberate cleanup of reusable artifacts whose parent edits were discarded.
+- **Source revisions and descendant identity.** Record which revision of a mutable draft
+  was copied, with a retrievable baseline if future comparison requires it. Resolve the
+  identity scope of editable inline descendants before changing detachment: retaining
+  their identifiers can leave different definitions under the same identifier. Preserve
+  published descendant references and parent property IRIs. Do not rewrite stored
+  published artifacts or infer provenance for legacy copies.
+- **Version families and candidate choice.** Resolve a stable version family across
+  releases and deletion so duplicate uses at different versions can be recognized.
+  Distinguish the latest readable published release from a globally latest release. Agree
+  the interaction for selecting an older or latest compatible release, and for reviewing
+  meaningful changes and local divergence, before adding controls.
+- **Existing reuse and retirement of bubbling.** Inventory older embedded drafts with
+  shared stored identifiers and missing derivation. Agree an honest unknown-origin state
+  and a deliberate association workflow. Add a read-permission-filtered usage endpoint;
+  retire the legacy editor's bubbling UI and REST mutation/preview endpoints once the
+  replacement workflow and its existing-data path are usable.
+- **Further journey gates.** Extend real-host matrices to permission-filtered source
+  histories, source deletion during assessment, changed drafts during uncertain reusable
+  creation and cross-tab outcome retrieval. Verify untouched screens separately from
+  failure paths and keep exceptional controls absent without their triggering condition.
+
 ## Static Frontend Delivery
 
-### 1. Finish Frontend Cache Delivery
+### 2. Finish Frontend Cache Delivery
 
 A deployment should make a new code revision visible without a hand-set token, and no browser
 should reuse a file that an earlier build served. Neither holds on staging or production yet.
@@ -37,7 +74,8 @@ no vhost for Workspace or the Designer yet; add both.
 `CEDAR_VERSION_MODIFIER` exists to tell apart two builds of one source commit, and no cached file
 needs it. Every file whose bytes depend on the deployment is written under `app/config/` and served
 from `/config/` with `no-store`, and the Template Editor's and Workspace's cache keys already contain
-the source commit. Production still sets one, `-2026-10-03-1` for 2.9.23. Once every stable-name
+the source commit. Production still sets one. Release 2.9.29 carries `-2026-10-03-1`, the
+modifier chosen for 2.9.23. Once every stable-name
 file revalidates, remove it from Workspace's build tooling, the Template Editor's Gulp build, the
 Designer's host script, the native build-info writer, the three Docker build entrypoints, the
 microservices Compose file, the config library's environment descriptor and `CedarBuildInfo`,
@@ -86,10 +124,11 @@ each frontend vhost, as root:
    H=https://openview.staging.metadatacenter.org; for p in /index.html /folders/x /assets/img/logo/cedar-open-view-logo.png /node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js "/$(curl -s $H/index.html | grep -o 'main-[A-Z0-9]*\.js')"; do echo "$p: $(curl -sI "$H$p" | grep -i '^cache-control')"; done
    ```
 
-Production OpenView sits behind Cloudflare, which adds `max-age=14400` to JavaScript and caches
-static files at its edge. After the reload, purge `openview.metadatacenter.org` there. If the CEE
-bundle still carries `max-age=14400`, set Cloudflare's Browser Cache TTL to "Respect Existing
-Headers".
+Production OpenView, Monitoring and Bridging sit behind Cloudflare, which adds `max-age=14400` to
+JavaScript and caches static files at its edge. After the reload, purge
+`openview.metadatacenter.org`, `monitoring.metadatacenter.org` and `bridging.metadatacenter.org`
+there. If the CEE bundle that OpenView and Bridging serve still carries `max-age=14400`, set
+Cloudflare's Browser Cache TTL to "Respect Existing Headers".
 
 Extend the cache-delivery smoke to check immutable hashed assets and revalidating fallbacks, to
 compare every served build identity against the accepted commit, and to open, modify, save,
@@ -97,21 +136,15 @@ reload and save an existing instance, so that the GET ETag and the subsequent `I
 are exercised. Run it on staging and then production from a browser that previously loaded the
 old payload, after rebuilding every frontend from recorded commits.
 
-Headers reach a browser only when it next asks the server. A browser that holds the 2024 `en.json`
-keeps it until its copy expires, up to about 80 days after it fetched it. Only the new OpenView
-build fixes those visitors, because it reads no translation or configuration file at runtime. That
-build is on `develop` from `452c09f`, and production deploys from `main`, so decide whether it waits
-for the next release or a release is cut sooner.
-
-The item is complete when both hosts pass the header check on every frontend origin, production
-serves OpenView from `452c09f` or later, two consecutive code deployments need no modifier, and a
-rollback works by restoring payloads and routing without inventing one.
+The item is complete when both hosts pass the header check on every frontend origin, two
+consecutive code deployments need no modifier, and a rollback works by restoring payloads and
+routing without inventing one.
 
 ## Workspace and Browser Workflows
 
 <a id="doi-minting-recovery"></a>
 
-### 2. Make DOI Minting Recovery-Safe
+### 3. Make DOI Minting Recovery-Safe
 
 Keep the DataCite wizard out of Workspace resource menus while this workflow is being
 reworked. Before reintroducing an entry point, verify the recovery behavior and review the
@@ -137,7 +170,7 @@ The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#r
 
 <a id="save-recovery"></a>
 
-### 3. Recover Failed Saves Without Losing Work in Designer and Editor
+### 4. Recover Failed Saves Without Losing Work in Designer and Editor
 
 Complete the recovery routes that still cannot resume saving or create a permitted copy:
 
@@ -161,11 +194,12 @@ Keep status checks, access checks, review and explicit discard distinct. A faile
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
 current draft-retention contract and operator verification commands.
 
-### 4. Fix Workspace's WCAG Failures
+### 5. Fix Workspace's WCAG Failures
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
 criteria that Workspace fails, two of them through causes it shares with the other components.
-Agree the fixes marked as visible before making them.
+Workspace meets four more criteria only in part: 1.3.1, 3.3.4, 4.1.2 and 4.1.3. Agree the fixes
+marked as visible before making them.
 
 - **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
   running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
@@ -191,7 +225,7 @@ Agree the fixes marked as visible before making them.
 
 ## Embeddable Editor and Model Library
 
-### 5. Whole-Component Runtime Theme Overrides
+### 6. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -200,7 +234,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 6. Authoring Feedback for Unsupported Markup
+### 7. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -213,7 +247,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 7. Remove the Temporary Vite Security Override When Angular Catches Up
+### 8. Remove the Temporary Vite Security Override When Angular Catches Up
 
 Remove the `vite: 8.3.4` overrides from the Angular projects once a supported stable
 `@angular/build` selects a patched Vite itself. Version 22.2.4 still requires Vite 8.3.0;
@@ -221,11 +255,11 @@ the affected 8.3 line is fixed from 8.3.3. Keep CEE's domain harness aligned wit
 root project. Re-resolve the locks, inspect the advisory identities and run the frontend
 reactor and all three consumer demos before removing the overrides.
 
-### 8. Fix CEE's WCAG Failures
+### 9. Fix CEE's WCAG Failures
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
 criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
-Agree the fixes marked as visible before making them.
+CEE meets one more, 3.1.2, only in part. Agree the fixes marked as visible before making them.
 
 - **Element descriptions on hover only (2.1.1).** Visible. An element's description and property
   IRI marks sit inside its panel header, which is a button, so they cannot take focus, and only a
@@ -256,10 +290,10 @@ Agree the fixes marked as visible before making them.
 
 ## Frontend Dependencies
 
-### 9. Take the Frontend Dependency Upgrades That Need Code Changes
+### 10. Take the Frontend Dependency Upgrades That Need Code Changes
 
 Each dependency below has a newer major release that a lock update cannot take. Some wait on an
-upstream release, most need code changes, and one needs a design decision. The versions are the
+upstream release, some need code changes, and one needs a design decision. The versions are the
 newest that `npm outdated` reported on 2026-10-19, after every in-range update had been taken.
 
 **Waiting on upstream.**
@@ -267,6 +301,11 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 - **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
   Angular release accepts 7.
 - **`@types/node` 26.** The types follow the runtime's major, and every project runs Node 24.
+- **ESLint 10 and Babel 8 in the Ember demo.** The two move together. The demo's lint
+  configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
+  newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of
+  ember-cli-babel (8.3.2), `@rollup/plugin-babel` (7.1.0) and Embroider's core and compat packages
+  accept only Babel 7, so both upgrades wait until those accept Babel 8.
 
 **Needing code changes.**
 
@@ -280,13 +319,6 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 - **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring. The adapter's major
   follows the Keycloak server, so these move with "Upgrade Keycloak to a supported release" in
   [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
-- **ng-alt-snotify 17** in OpenView, Bridging and Monitoring, which run 16, 15 and 14. Each pins an
-  exact Angular major as a peer, which an npm `overrides` entry satisfies today. Check whether 17
-  changes the API the applications call before moving.
-- **TypeScript 6 in the model library.** The library builds with TypeScript 5.9, while every
-  Angular project and CEE's harness use 6.0.
-- **The demos' tooling.** ESLint 10 in all three demos; zone.js 0.16 and jsdom 30 in the Angular
-  demo; Babel 8, QUnit 3, ember-template-lint 7 and eslint-plugin-ember 13 in the Ember demo.
 
 **Needing a design decision.**
 
@@ -334,7 +366,7 @@ least first, the pieces are:
 
 When a piece's work leaves the item that holds it, remove the piece from this list.
 
-### 10. Fix the WCAG Failures the Components Share
+### 11. Fix the WCAG Failures the Components Share
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found failures that recur
 across CED, CEE, the term picker and Workspace because they share a cause. Fix each once, where its
@@ -358,7 +390,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 12. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -372,7 +404,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 12. Keyboard and Screen-Reader Access
+### 13. Keyboard and Screen-Reader Access
 
 Two parts of CED's keyboard and screen-reader access remain open. One needs a person with a
 screen reader, and the other needs a design decision before it can be built.
@@ -397,7 +429,7 @@ resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` 
 focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
 accessibility lint rules until this is done. Remove that exception in the same change.
 
-### 13. Fix CED's Remaining WCAG Failures
+### 14. Fix CED's Remaining WCAG Failures
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these failures in
 CED beyond the ones it shares with the other components. Several need a design decision first.
@@ -437,7 +469,7 @@ button. Keyboard focus scrolls it into view, but that puts the Add field and Imp
 reach above. Adding fields from the sidebar causes this with 15 fields at the default share, before
 any drag. Fixing it changes the default layout, so agree it first.
 
-### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 15. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
@@ -457,38 +489,3 @@ Agree its interaction before implementation; this proposal does not authorize a 
 diagnostic or recovery button, banner or file picker on ordinary editing screens.
 Any confirmed defect should lead to a generation or validation fix and a regression test; verify
 that the fallback preserves work while the rejected write remains blocked.
-
-<a id="pull-version-management"></a>
-
-### 15. Complete Pull-Based Reusable Artifact Version Management
-
-- **Richer compatibility proofs and impact.** Recognize safe schema widenings beyond
-  validation-shape equality. Assess the actual invalidated record count when schemas
-  differ, including records the author cannot read, without exposing their content.
-  Keep universal compatibility, stored-instance impact and semantic changes distinct.
-  Extend final-write protection to permit proven safe widenings without weakening its
-  concurrency fence. The existing `check-update-template` delta is not a universal proof.
-- **Continuing reusable drafts and recovery across tabs.** Make continuing work on a
-  saved reusable draft possible without silently turning the embedded copy into a mutable
-  link. Define retrieval of confirmed but unattached results after the original tab closes,
-  and deliberate cleanup of reusable artifacts whose parent edits were discarded.
-- **Source revisions and descendant identity.** Record which revision of a mutable draft
-  was copied, with a retrievable baseline if future comparison requires it. Resolve the
-  identity scope of editable inline descendants before changing detachment: retaining
-  their identifiers can leave different definitions under the same identifier. Preserve
-  published descendant references and parent property IRIs. Do not rewrite stored
-  published artifacts or infer provenance for legacy copies.
-- **Version families and candidate choice.** Resolve a stable version family across
-  releases and deletion so duplicate uses at different versions can be recognized.
-  Distinguish the latest readable published release from a globally latest release. Agree
-  the interaction for selecting an older or latest compatible release, and for reviewing
-  meaningful changes and local divergence, before adding controls.
-- **Existing reuse and retirement of bubbling.** Inventory older embedded drafts with
-  shared stored identifiers and missing derivation. Agree an honest unknown-origin state
-  and a deliberate association workflow. Add a read-permission-filtered usage endpoint;
-  retire the legacy editor's bubbling UI and REST mutation/preview endpoints once the
-  replacement workflow and its existing-data path are usable.
-- **Further journey gates.** Extend real-host matrices to permission-filtered source
-  histories, source deletion during assessment, changed drafts during uncertain reusable
-  creation and cross-tab outcome retrieval. Verify untouched screens separately from
-  failure paths and keep exceptional controls absent without their triggering condition.

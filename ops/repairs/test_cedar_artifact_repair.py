@@ -33,6 +33,39 @@ def paths(changes):
 invariant = REPAIR.only_removed_empty_derived_from
 
 
+class StandaloneRequirementTest(unittest.TestCase):
+    """A field written on its own is neither required nor recommended; only a parent says so."""
+
+    @staticmethod
+    def field(**constraints):
+        return {"@type": "https://schema.metadatacenter.org/core/TemplateField", "schema:name": "F",
+                "_ui": {"inputType": "textfield"}, "_valueConstraints": {"requiredValue": False, **constraints}}
+
+    def test_clears_a_requirement_to_false_and_removes_a_recommendation(self):
+        before = self.field(requiredValue=True, recommendedValue=True)
+        after, changes = REPAIR.clear_standalone_requirement(before)
+        self.assertEqual(after["_valueConstraints"], {"requiredValue": False})
+        self.assertEqual(paths(changes), ["/_valueConstraints/requiredValue", "/_valueConstraints/recommendedValue"])
+        self.assertIsNone(REPAIR.only_cleared_standalone_requirement(before, after))
+        self.assertTrue(before["_valueConstraints"]["requiredValue"], "the stored body is left as it was")
+
+    def test_leaves_a_field_that_states_none_as_it_is(self):
+        before = self.field()
+        after, changes = REPAIR.clear_standalone_requirement(before)
+        self.assertEqual(after, before)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_names_any_other_change(self):
+        before = self.field(requiredValue=True)
+        after, _ = REPAIR.clear_standalone_requirement(before)
+        after["schema:name"] = "G"
+        self.assertEqual(REPAIR.only_cleared_standalone_requirement(before, after), "/schema:name")
+
+    def test_is_registered_under_the_audit_condition(self):
+        repair = REPAIR.REPAIRS["clear-standalone-requirement"]
+        self.assertEqual(repair.condition, "standalone-field-requirement")
+
+
 class TransformTest(unittest.TestCase):
 
     def test_removes_the_key_at_the_root(self):
@@ -5278,6 +5311,94 @@ class CompleteContextRequiredTest(unittest.TestCase):
         self.assertEqual([c["path"] for c in changes],
                          ["/properties/Address/properties/@context/required"])
         self.assertEqual(after["properties"]["Address"]["properties"]["@context"]["required"], ["Street"])
+
+
+class CompleteChildRequiredTest(unittest.TestCase):
+    """Both libraries list in a container's required every child an instance carries. A schema written
+    before that leaves the strict TypeScript reader refusing what the Java reader reads."""
+
+    BASE_REQUIRED = ["@context", "@id"]
+
+    def container(self, children, required, order=None):
+        doc = template(children)
+        doc["required"] = self.BASE_REQUIRED + list(required)
+        if order is not None:
+            doc["_ui"]["order"] = list(order)
+        return doc
+
+    def test_omitted_children_are_appended_in_presentation_order(self):
+        doc = self.container({"Name": child(), "Age": child(), "Site": child()}, ["Name"],
+                             order=["Site", "Name", "Age"])
+        after, changes = REPAIR.complete_child_required(doc)
+        self.assertEqual(after["required"], self.BASE_REQUIRED + ["Name", "Site", "Age"])
+        self.assertEqual([c["wrote"] for c in changes], ["Site", "Age"])
+        self.assertIsNone(REPAIR.only_completed_child_required(doc, after))
+
+    def test_a_child_the_order_leaves_out_follows_in_declaration_order(self):
+        doc = self.container({"Name": child(), "Age": child()}, [], order=["Age"])
+        after, _changes = REPAIR.complete_child_required(doc)
+        self.assertEqual(after["required"], self.BASE_REQUIRED + ["Age", "Name"])
+
+    def test_static_and_attribute_value_fields_are_never_required(self):
+        doc = self.container({"Name": child(), "Note": child(STATIC_TYPE),
+                              "Attributes": child(_ui={"inputType": "attribute-value"})}, [])
+        after, changes = REPAIR.complete_child_required(doc)
+        self.assertEqual(after["required"], self.BASE_REQUIRED + ["Name"])
+        self.assertEqual([c["wrote"] for c in changes], ["Name"])
+
+    def test_a_nested_element_is_completed_wherever_it_is_deployed(self):
+        single = child(ELEMENT_TYPE, required=["@context", "@id"],
+                       properties={"@context": {"properties": {}}, "Street": child()},
+                       _ui={"order": ["Street"]})
+        repeated = copy.deepcopy(single)
+        doc = self.container({"Address": single, "Visits": {"type": "array", "items": repeated}},
+                             ["Address", "Visits"])
+        after, changes = REPAIR.complete_child_required(doc)
+        self.assertEqual(after["properties"]["Address"]["required"], ["@context", "@id", "Street"])
+        self.assertEqual(after["properties"]["Visits"]["items"]["required"], ["@context", "@id", "Street"])
+        self.assertEqual({c["path"] for c in changes},
+                         {"/properties/Address/required", "/properties/Visits/items/required"})
+        self.assertIsNone(REPAIR.only_completed_child_required(doc, after))
+
+    def test_a_field_is_not_treated_as_a_container(self):
+        field = child(required=["@value"])
+        doc = self.container({"Name": field}, ["Name"])
+        after, changes = REPAIR.complete_child_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["Name"]["required"], ["@value"])
+
+    def test_an_absent_required_is_left_alone(self):
+        doc = template({"Name": child()})
+        after, changes = REPAIR.complete_child_required(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("required", after)
+
+    def test_a_second_pass_changes_nothing(self):
+        doc = self.container({"Name": child(), "Age": child()}, [])
+        once, first = REPAIR.complete_child_required(doc)
+        _twice, second = REPAIR.complete_child_required(once)
+        self.assertEqual(len(first), 2)
+        self.assertEqual(second, [])
+
+    def test_the_invariant_rejects_a_reordered_list(self):
+        doc = self.container({"Name": child(), "Age": child()}, ["Name"])
+        reordered = copy.deepcopy(doc)
+        reordered["required"] = ["Age", "@context", "@id", "Name"]
+        self.assertIsNotNone(REPAIR.only_completed_child_required(doc, reordered))
+
+    def test_the_invariant_rejects_a_name_no_instance_carries(self):
+        doc = self.container({"Name": child(), "Note": child(STATIC_TYPE)}, ["Name"])
+        for name in ("Note", "Ghost"):
+            with self.subTest(name=name):
+                invented = copy.deepcopy(doc)
+                invented["required"] = doc["required"] + [name]
+                self.assertIsNotNone(REPAIR.only_completed_child_required(doc, invented))
+
+    def test_the_invariant_rejects_any_other_change(self):
+        doc = self.container({"Name": child(), "Age": child()}, ["Name"])
+        after, _changes = REPAIR.complete_child_required(doc)
+        after["properties"]["Age"]["_ui"]["inputType"] = "textarea"
+        self.assertIsNotNone(REPAIR.only_completed_child_required(doc, after))
 
 
 import threading

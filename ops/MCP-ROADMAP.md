@@ -57,6 +57,11 @@ by name in commits.
   when somebody happened to rebuild. The repositories' own CI now catches such a break when the
   bump is committed there, but a library release that nobody bumps them to still goes unnoticed.
 
+  The first library release after 2.9.29 shows the cost. It refuses configuration on a field written
+  on its own, and until the artifact MCP pins it, that MCP's YAML tools still accept one.
+  `render_schema_artifact`, for example, turns a standalone field's `configuration: required: true`
+  into `_valueConstraints.requiredValue: true`, and a server on the new release refuses that field.
+
 - **2. Track the CEE bundle a client actually serves.** `cedar-cee-mcp` pins the CEE by version and
   hash and refuses a mismatch, so what a build produces is known. What a *client* is running is not:
   the jar is loaded when the process spawns, and a rebuilt jar takes effect only after a restart

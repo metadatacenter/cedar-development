@@ -18,6 +18,20 @@
 //                  one JSON object under the source policy the library's readers apply
 //     validation:  "valid"; "invalid"; "template-missing", when no template was sent for the
 //                  instance; "error", when the validator throws
+//     renderer:    for an artifact the reader read, "rendered" or "failed" for each of "json" and
+//                  "yaml", the renderings a client is served: JsonArtifactRenderer's, and the full
+//                  YAML form YamlSerializer writes. "nanos" times the read and both renderings.
+//                  "yamlRead" and "compactYamlRead" say whether YamlArtifactReader reads back the
+//                  full and the compact YAML this library writes: "read", "refused" with the
+//                  reader's message and location, or "failed" when the compact form can not be
+//                  written. A read request stating "crossYaml": true also has the two YAML texts
+//                  returned, as "yamlText" and "compactYamlText", for the TypeScript library to read.
+//
+//     {"seq": 3, "op": "readYaml", "kind": "template" | "element" | "field" | "instance",
+//      "compact": false, "length": N}
+//
+// A "readYaml" request carries YAML another library wrote, and is answered with a "yaml" verdict of
+// the same shape as "yamlRead", from the full or the compact reader as "compact" says.
 //
 // The source is parsed once with ArtifactSourceParser, the boundary the library's own readers use.
 // Every verdict is the library's. Nothing but answers goes to stdout, and the libraries' logging
@@ -29,9 +43,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.metadatacenter.artifacts.model.core.Artifact;
+import org.metadatacenter.artifacts.model.core.ElementSchemaArtifact;
+import org.metadatacenter.artifacts.model.core.FieldSchemaArtifact;
+import org.metadatacenter.artifacts.model.core.TemplateInstanceArtifact;
+import org.metadatacenter.artifacts.model.core.TemplateSchemaArtifact;
 import org.metadatacenter.artifacts.model.reader.ArtifactParseException;
+import org.metadatacenter.artifacts.model.renderer.JsonArtifactRenderer;
+import org.metadatacenter.artifacts.model.tools.YamlSerializer;
 import org.metadatacenter.artifacts.model.reader.ArtifactSourceParser;
 import org.metadatacenter.artifacts.model.reader.JsonArtifactReader;
+import org.metadatacenter.artifacts.model.reader.YamlArtifactReader;
 import org.metadatacenter.model.validation.CedarValidator;
 import org.metadatacenter.model.validation.ModelValidator;
 import org.metadatacenter.model.validation.report.ErrorItem;
@@ -57,6 +79,9 @@ public class CedarSnapshotReadBridge {
 
   private final ModelValidator validator = new CedarValidator();
   private final JsonArtifactReader reader = new JsonArtifactReader();
+  private final YamlArtifactReader yamlReader = new YamlArtifactReader();
+  private final YamlArtifactReader compactYamlReader = new YamlArtifactReader(true);
+  private final JsonArtifactRenderer renderer = new JsonArtifactRenderer();
   private final Map<String, ObjectNode> templates;
 
   private CedarSnapshotReadBridge(int templateCapacity) {
@@ -121,6 +146,11 @@ public class CedarSnapshotReadBridge {
       }
       return answer;
     }
+    if ("readYaml".equals(op)) {
+      boolean compact = request.path("compact").asBoolean();
+      answer.set("yaml", readYaml(request.path("kind").asText(), source, compact ? compactYamlReader : yamlReader));
+      return answer;
+    }
     if (!"read".equals(op)) {
       answer.put("status", "error");
       answer.put("message", "unknown op: " + op);
@@ -139,20 +169,25 @@ public class CedarSnapshotReadBridge {
       return answer;
     }
     answer.set("validation", validate(kind, node.deepCopy(), request.path("templateId").asText()));
-    answer.set("reader", read(kind, node));
+    long started = System.nanoTime();
+    Artifact[] model = new Artifact[1];
+    answer.set("reader", read(kind, node, model));
+    if (model[0] != null) {
+      answer.set("renderer", render(model[0], started, request.path("crossYaml").asBoolean()));
+    }
     return answer;
   }
 
-  private ObjectNode read(String kind, ObjectNode node) {
+  private ObjectNode read(String kind, ObjectNode node, Artifact[] model) {
     ObjectNode verdict = MAPPER.createObjectNode();
     try {
-      switch (kind) {
+      model[0] = switch (kind) {
         case "template" -> reader.readTemplateSchemaArtifact(node);
         case "element" -> reader.readElementSchemaArtifact(node);
         case "field" -> reader.readFieldSchemaArtifact(node);
         case "instance" -> reader.readTemplateInstanceArtifact(node);
         default -> throw new IllegalArgumentException("unknown kind: " + kind);
-      }
+      };
       verdict.put("status", "read");
     } catch (Throwable t) {
       verdict.put("status", "refused");
@@ -165,6 +200,85 @@ public class CedarSnapshotReadBridge {
       }
     }
     return verdict;
+  }
+
+  /** Render a model the way the deployment serves it, as JSON and as full-form YAML. */
+  private ObjectNode render(Artifact model, long started, boolean crossYaml) {
+    ObjectNode verdict = MAPPER.createObjectNode();
+    renderOne(verdict, "json", () -> {
+      if (model instanceof TemplateSchemaArtifact template) return renderer.renderTemplateSchemaArtifact(template);
+      if (model instanceof ElementSchemaArtifact element) return renderer.renderElementSchemaArtifact(element);
+      if (model instanceof FieldSchemaArtifact field) return renderer.renderFieldSchemaArtifact(field);
+      if (model instanceof TemplateInstanceArtifact instance) return renderer.renderTemplateInstanceArtifact(instance);
+      throw new IllegalArgumentException("no renderer for " + model.getClass().getName());
+    });
+    String[] yaml = new String[1];
+    renderOne(verdict, "yaml", () -> yaml[0] = YamlSerializer.getYAML(model, false, true));
+    verdict.put("nanos", System.nanoTime() - started);
+    String kind = model instanceof TemplateSchemaArtifact ? "template" : model instanceof ElementSchemaArtifact
+        ? "element" : model instanceof FieldSchemaArtifact ? "field" : "instance";
+    if (yaml[0] != null) {
+      readBack(verdict, "yamlRead", readYaml(kind, yaml[0], yamlReader));
+      if (crossYaml) verdict.put("yamlText", yaml[0]);
+    }
+    String compact;
+    try {
+      compact = YamlSerializer.getYAML(model, true, true);
+    } catch (Throwable t) {
+      verdict.put("compactYamlRead", "failed");
+      verdict.put("compactYamlReadMessage", truncate(t.getMessage()));
+      return verdict;
+    }
+    readBack(verdict, "compactYamlRead", readYaml(kind, compact, compactYamlReader));
+    if (crossYaml) verdict.put("compactYamlText", compact);
+    return verdict;
+  }
+
+  /** A YAML verdict, put into a renderer verdict under {@code name}. */
+  private static void readBack(ObjectNode verdict, String name, ObjectNode read) {
+    verdict.put(name, read.path("status").asText());
+    read.fields().forEachRemaining(entry -> {
+      if (!entry.getKey().equals("status")) {
+        verdict.set(name + Character.toUpperCase(entry.getKey().charAt(0)) + entry.getKey().substring(1), entry.getValue());
+      }
+    });
+  }
+
+  /** Whether {@code yamlReader} reads {@code yaml} as an artifact of {@code kind}. */
+  private static ObjectNode readYaml(String kind, String yaml, YamlArtifactReader yamlReader) {
+    ObjectNode verdict = MAPPER.createObjectNode();
+    try {
+      var source = ArtifactSourceParser.yaml(yaml);
+      switch (kind) {
+        case "template" -> yamlReader.readTemplateSchemaArtifact(source);
+        case "element" -> yamlReader.readElementSchemaArtifact(source);
+        case "field" -> yamlReader.readFieldSchemaArtifact(source);
+        case "instance" -> yamlReader.readTemplateInstanceArtifact(source);
+        default -> throw new IllegalArgumentException("unknown kind: " + kind);
+      }
+      verdict.put("status", "read");
+    } catch (Throwable t) {
+      verdict.put("status", "refused");
+      verdict.put("exception", t.getClass().getName());
+      if (t instanceof ArtifactParseException parse) {
+        verdict.put("message", truncate(parse.getParseErrorMessage() + " for " + parse.getFieldKey()));
+        verdict.put("location", parse.getPath());
+      } else {
+        verdict.put("message", truncate(t.getMessage()));
+      }
+    }
+    return verdict;
+  }
+
+  private static void renderOne(ObjectNode verdict, String format, java.util.concurrent.Callable<?> rendering) {
+    try {
+      rendering.call();
+      verdict.put(format, "rendered");
+    } catch (Throwable t) {
+      verdict.put(format, "failed");
+      verdict.put(format + "Exception", t.getClass().getName());
+      verdict.put(format + "Message", truncate(t.getMessage()));
+    }
   }
 
   private ObjectNode validate(String kind, ObjectNode node, String templateId) {

@@ -24,6 +24,16 @@
 // summarised by ValidationPolicy, which is what the editor's Save follows. Its "canSave" is the answer
 // the Java validator's verdict must equal, and the findings that block saving come with it.
 //
+// A read request stating "crossYaml": true also has the artifact the strict reader read written as
+// YAML by this library, full and compact, and read back by its strict YAML readers. The answer's
+// "renderer" carries "yamlRead" and "compactYamlRead", each "read", "refused" or "failed" with a
+// message, and the two texts as "yamlText" and "compactYamlText", for the Java library to read.
+//
+//     {"seq": 3, "op": "readYaml", "kind": "template" | "element" | "field" | "instance", "compact": false, "length": N}
+//
+// A "readYaml" request carries YAML another library wrote, and is answered with a "yaml" verdict of
+// the same shape, from the full or the compact reader as "compact" says.
+//
 //     node ops/cedar_snapshot_read_bridge.cjs <cedar-model-typescript-library>/dist/index.js
 
 'use strict';
@@ -44,6 +54,16 @@ function readersFor(behavior) {
   };
 }
 const strict = readersFor('getStrict');
+function yamlReadersFor(method) {
+  return {
+    template: library.YamlTemplateReader[method](),
+    element: library.YamlTemplateElementReader[method](),
+    field: library.YamlTemplateFieldReader[method](),
+    instance: library.YamlTemplateInstanceReader[method](),
+  };
+}
+const yamlReaders = { full: yamlReadersFor('getStrict'), compact: yamlReadersFor('getStrictForCompact') };
+const yamlWriters = library.CedarWriters.yaml().getStrict();
 const lenient = readersFor('getFebruary2024');
 const ERROR_LIMIT = 5;
 const MESSAGE_LIMIT = 400;
@@ -63,8 +83,47 @@ function describe(error) {
   };
 }
 
-function read(kind, source, templateId) {
+/** Whether this library's YAML reader reads `yaml` as an artifact of `kind`. */
+function readYaml(kind, yaml, compact) {
+  const reader = (compact ? yamlReaders.compact : yamlReaders.full)[kind];
+  if (!reader) return { status: 'refused', message: `unknown kind: ${kind}` };
+  try {
+    const result = reader.readFromString(yaml);
+    if (result.parsingResult.wasSuccessful()) return { status: 'read' };
+    const errors = result.parsingResult.getBlueprintComparisonErrors();
+    return { status: 'refused', errorCount: errors.length, errors: errors.slice(0, ERROR_LIMIT).map(describe) };
+  } catch (error) {
+    return { status: 'refused', exception: error && error.name, message: truncate(error && error.message) };
+  }
+}
+
+/** The artifact written as YAML by this library, full and compact, and each read back. */
+function render(kind, model) {
+  const verdict = {};
+  for (const [name, compact] of [['yaml', false], ['compactYaml', true]]) {
+    let text;
+    try {
+      if (kind === 'template') text = yamlWriters.getTemplateWriter().getAsYamlString(model, compact);
+      else if (kind === 'element') text = yamlWriters.getTemplateElementWriter().getAsYamlString(model, compact);
+      else if (kind === 'field') text = yamlWriters.getFieldWriterForField(model).getAsYamlString(model, compact);
+      else text = yamlWriters.getTemplateInstanceWriter().getAsYamlString(model, compact);
+    } catch (error) {
+      verdict[`${name}Read`] = 'failed';
+      verdict[`${name}ReadMessage`] = truncate(error && error.message);
+      continue;
+    }
+    const read = readYaml(kind, text, compact);
+    verdict[`${name}Read`] = read.status;
+    if (read.message) verdict[`${name}ReadMessage`] = read.message;
+    if (read.errors) verdict[`${name}ReadErrors`] = read.errors;
+    verdict[`${name}Text`] = text;
+  }
+  return verdict;
+}
+
+function read(kind, source, templateId, crossYaml) {
   const verdict = readWith(strict, kind, source);
+  if (crossYaml && verdict.status === 'read') verdict.renderer = render(kind, verdict.model);
   if (verdict.status === 'refused' || verdict.status === 'threw') verdict.lenient = readWith(lenient, kind, source);
   if (kind === 'instance' && templateId) {
     const kept = templates.get(templateId);
@@ -95,7 +154,11 @@ function read(kind, source, templateId) {
     }
   }
   delete verdict.instance;
-  if (verdict.lenient) delete verdict.lenient.instance;
+  delete verdict.model;
+  if (verdict.lenient) {
+    delete verdict.lenient.instance;
+    delete verdict.lenient.model;
+  }
   return verdict;
 }
 
@@ -126,7 +189,8 @@ function readWith(readers, kind, source) {
     const parsing = result.parsingResult;
     const warningCount = parsing.getBlueprintComparisonWarningCount();
     const instance = kind === 'instance' ? result.instance : undefined;
-    if (parsing.wasSuccessful()) return { status: 'read', warningCount, instance };
+    const model = result.template ?? result.element ?? result.field ?? result.instance;
+    if (parsing.wasSuccessful()) return { status: 'read', warningCount, instance, model };
     const errors = parsing.getBlueprintComparisonErrors();
     return { status: 'refused', errorCount: errors.length, warningCount, errors: errors.slice(0, ERROR_LIMIT).map(describe), instance };
   } catch (error) {
@@ -147,7 +211,13 @@ function drain() {
     const source = buffered.subarray(newline + 1, newline + 1 + length).toString('utf8');
     buffered = buffered.subarray(newline + 1 + length);
     const answer = { seq: request.seq };
-    if (request.op === 'read') answer.reader = read(request.kind, source, request.templateId);
+    if (request.op === 'read') {
+      answer.reader = read(request.kind, source, request.templateId, request.crossYaml === true);
+      if (answer.reader.renderer) {
+        answer.renderer = answer.reader.renderer;
+        delete answer.reader.renderer;
+      }
+    } else if (request.op === 'readYaml') answer.yaml = readYaml(request.kind, source, request.compact === true);
     else answer.status = request.op === 'template' ? keepTemplate(request.id, source) : 'error';
     answers.push(JSON.stringify(answer));
   }

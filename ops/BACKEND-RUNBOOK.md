@@ -1517,6 +1517,10 @@ IRIs, absent mappings, root and nested schemas, JSON/YAML round trips and inflat
 also validates an inflated instance without a group context entry. Corpus template 039 carries
 `https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair`. Templates 022 and 029 preserve their
 three existing mappings; template 022 has no mapping-loss exception in the round-trip tests.
+Production under release 2.9.29 keeps them too. On 2026-10-26 the YAML it serves for each of the
+318 templates and elements declaring a mapped group converted back, through both libraries, to JSON
+holding all 478 mappings unchanged and outside `@context.required`. The check and its records are
+under `$CEDAR_HOME/.cedar/audits/2026-10-26-deployed-writer-check/`.
 
 Template and element instance-type constraints retain an ordered set of IRIs in
 both libraries. Java exposes `instanceJsonLdTypes()` and `withInstanceJsonLdTypes`;
@@ -1706,11 +1710,56 @@ TypeScript dictionaries also have null prototypes so an exposed-map write cannot
 `__proto__`. Writers reject forbidden entries introduced through those exposed maps.
 
 The meta-schema cannot express this rule, so `cedar-model-validation-library` accepts a template
-whose child is keyed `@foo` or `__proto__`, or whose attribute-value group is keyed `name`. The
-artifact server therefore also reads every template, element and field it is asked to store with
-the artifact library's reader, and refuses one the reader refuses, with the reader's message in the
+whose child is keyed `@foo` or `__proto__`, or whose attribute-value group is keyed `name`. It also
+accepts an attribute-value field whose `minItems` is above zero, although no template can require
+attributes that whoever fills in an instance names. The artifact server therefore also reads every
+template, element, field and instance it is asked to store with the artifact library's reader, and
+renders the model as JSON and in the full YAML form, the forms it serves. It refuses an artifact the
+reader refuses or a renderer cannot write, with the reader's or the renderer's message in the
 validation report. Every editor and viewer opens an artifact through that reader or its TypeScript
-twin, so the server stores no schema artifact they cannot open. Instances are not read on write.
+twin, so the server stores nothing they cannot open or it cannot serve.
+
+The checks run only on an artifact the validator accepts, and an instance is still judged against
+its template first, so one defect is reported once and readability never stands in for validation.
+They work on a copy of the exact document about to be stored, after the server has assigned what a
+write assigns, and the renderings are discarded, so the document stored is the one received. A
+verbatim write is checked as supplied, and a repair is never refused because the body it replaces
+cannot be read. On the production snapshot of 2026-10-25 they refuse nothing the validator accepts:
+every artifact the reader reads renders in both forms, and the 17 instances it refuses are already
+invalid. Reading and rendering takes a median 0.07 ms for an instance and 0.7 ms for a template,
+1 ms and 12 ms at the 99th percentile, and 29 ms for the slowest instance, one of 735 KB. The
+measurement is the snapshot read audit's `rendering` summary, retained under
+`$CEDAR_HOME/.cedar/audits/2026-10-26-snapshot-read-render/`.
+
+Both libraries' YAML readers refuse a key they do not read, and report it with its path, so a
+misspelled key, or a key the form has only for another field type, is refused rather than dropped.
+Each reader counts the keys it asks for in every mapping of the document it is given, whether or not
+the mapping holds them, and refuses the first key that none of its reads asked for. A mapping whose
+keys the document names itself counts all of them as read: an instance's children, its annotations
+and an attribute-value field's attributes. The YAML specification's
+[Keys Outside the Form](https://metadatacenter.readthedocs.io/en/latest/yaml-spec/core-structure/#keys-outside-the-form)
+states the rule and the few keys earlier writers emitted that both readers read past.
+
+The two readers accept the same documents only while they ask for the same keys, and two gates hold
+them to that. `CorpusYamlKeyVerifier` records the keys the Java reader asks for in every mapping of
+every YAML document in the shared corpus, in `src/test/resources/concordance/yaml-key-vocabulary.json`,
+and the artifact library's CI fails when the record is stale. The TypeScript library's
+`YamlKeyVocabularyConcordance` spec reads every corpus document with its own reader and compares the
+keys it asks for with that record, mapping by mapping, once `npm run sync:concordance` has copied it.
+After a change to the Java reader, rewrite the record and commit it before syncing:
+
+```bash
+# In cedar-artifact-library, using the runbook's Java 17 environment:
+./mvnw test-compile exec:java -Dexec.classpathScope=test \
+  -Dexec.mainClass=org.metadatacenter.artifacts.model.reader.CorpusYamlKeyVerifier \
+  "-Dexec.args=../cedar-test-artifacts --write"
+```
+
+Over production, the snapshot read audit writes every artifact as YAML with each library, full and
+compact, and reads each rendering with both libraries' readers. Its `yamlParity` summary counts the
+eight lanes by type. On the snapshot of 2026-10-25, every artifact either library reads from its JSON
+is read back by both readers in all eight lanes, and `--fail-on-disagreement` fails a run in which a
+reader refuses the YAML of an artifact the validator accepts.
 
 Ordinary fields may use YAML scalar spellings (`true`, `null`, `yes`, numeric or date-like names)
 and YAML structural keys (`type`, `name`, `children`): writers quote where needed and preserve
@@ -1763,8 +1812,11 @@ The declaration follows the existing annotation meta-schema; empty value objects
 `@value` objects, and extra properties remain invalid. Legacy templates without these declarations
 remain readable and acquire them when rendered. Publishing a library does not modify stored
 schemas. The annotation backfill uses the existing conditional JSON `PUT ?verbatim=true` path;
-it does not require a production library redeploy. Adopt the updated library in backend/editor
-consumers so later model renders retain these declarations automatically.
+it does not require a production library redeploy. Production's model renders retain them under
+release 2.9.29: on 2026-10-26 the YAML served for 503 templates declaring `_annotations`, 300 of
+them drawn at random from the 4,823 that do, converted back through both libraries with the
+declaration and its `@nest` mapping intact. The same check covered the attribute-value group
+mappings.
 
 `ops/repairs/annotation_declarations.py` plans only the two missing root declarations, taking
 their shapes from Java output verified against TypeScript. It refuses conflicting declarations
@@ -4095,8 +4147,9 @@ repository, for lines and for branches. `cedarcli build diagnostics` removes rec
 `--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
 against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
-JSON as the `coverage-summary` artifact. On 2026-10-21 the estate stood at 74.1% of 57,265 lines by
-each module's own tests, 83.4% by each repository's own tests and 87.9% by any test. The figures are
+JSON as the `coverage-summary` artifact. On 2026-10-26 the estate stood at 75.1% of 58,074 lines by
+each module's own tests, 84.1% by each repository's own tests and 88.6% by any test, and at 70.6%,
+76.1% and 78.7% of 23,294 branches. The figures are
 a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
 local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
@@ -4109,15 +4162,19 @@ Measured on 2026-10-19, the agent's cost is within run-to-run variation. `cedarc
 took 230 seconds with it, against 217 and 227 seconds for the two full builds before it without.
 `cedarcli build this` in `cedar-resource-server` took 118 seconds without it and 116 with it.
 
-Each tested module has a floor, which JaCoCo's `check` goal enforces in the `verify` phase of every
-build that runs tests. The floor is the `cedar.coverage.line.minimum` property in the module's own
-POM: the share of its lines its Surefire suites must cover, set on 2026-10-19 two points below the
-figure it measured, rounded down. A comment beside each records that figure. `cedar-parent` defaults
-the property to zero, so a module without a floor of its own has none, and the check skips a module
-that ran no tests. The floor uses the module's own figure, not the any-test one, so it cannot be met
-by another repository's suites. To raise a floor after adding tests, set the property to the new
-figure less two points. Lowering one is a decision to accept less coverage, and the commit should say
-why.
+Each tested module has two floors, which JaCoCo's `check` goal enforces in the `verify` phase of
+every build that runs tests. `cedar.coverage.line.minimum` in the module's own POM is the share of its
+lines its Surefire suites must cover, and `cedar.coverage.branch.minimum` the share of its branches,
+the decisions its code makes. Each was set two points below the figure measured from a clean build,
+rounded down: the lines on 2026-10-19 and the branches on 2026-10-26. Where CI measured a module lower
+than a local build did, because some of its branches run only on some timings, the floor follows the
+lower figure. A comment beside each records the figures. `cedar-parent` defaults both properties to
+zero, so a module without a floor of its own has none, and the check skips a module that ran no
+tests. The floors use the module's own figure, not the any-test one, so they cannot be met by another
+repository's suites, and a module tested mainly from a sibling, such as
+`cedar-workspace-operations-library` at 40.2% of its branches, is held only to what its own tests
+reach. To raise a floor after adding tests, set the property to the new figure less two points.
+Lowering one is a decision to accept less coverage, and the commit should say why.
 
 ### REST Performance Testing
 
@@ -5120,9 +5177,11 @@ Four Java bridges (`cedar_snapshot_read_bridge.java`) and four Node bridges
 `ArtifactSourceParser`, validates it, and reads it with `JsonArtifactReader`; templates reach it
 ahead of the instances based on them. The Node bridge reads with the strict readers, and again with
 the `FEBRUARY_2024` behavior whenever the strict readers refuse, because the embeddable editor opens
-stored templates with that behavior. A production snapshot takes under a minute. `records.jsonl`
-holds one verdict per artifact, and `summary.json` counts outcomes by type and groups refusals and
-validation failures by cause, with quoted values masked.
+stored templates with that behavior. Each bridge also writes the artifact it read as YAML, full and
+compact, and reads that back. The audit then hands each rendering to the other library's bridge to
+read, and its `yamlParity` summary counts the results. A production snapshot takes under three
+minutes. `records.jsonl` holds one verdict per artifact, and `summary.json` counts outcomes by type
+and groups refusals and validation failures by cause, with quoted values masked.
 
 The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `02aadf5`), found:
 
@@ -5435,7 +5494,7 @@ selected them, and a live dry run repeated its checks before the write. 25 graph
 second ahead of their documents, with the same modifier, and those instances were written under
 `--replace-graph-provenance`. Every instance was read back, rechecks as valid against its stored
 template, and validates against the template as the library writes it. The remaining 93 need their
-owners, as the roadmap's item on template changes records. The plan, records and pre-images are
+owners, as the roadmap's production-data item records. The plan, records and pre-images are
 under `$CEDAR_HOME/.cedar/repairs/2026-10-25-resave-risk/`.
 
 Of the 46 templates the strict TypeScript reader refused, 42 held a template's or element's
@@ -5463,6 +5522,18 @@ instances, which all validated against the closed template, so it was closed. Th
 hold values under removed fields. CEE blocks saving those instances, which are valid, because it
 does not recognise the undeclared keys, so the owners' decision on the removed fields is also what
 lets them be saved in CEE. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-25-renamed-fields/`.
+
+The other four the strict reader refused leave children out of `required`. Both writers list every
+child an instance carries there, leaving out static and attribute-value fields, in `_ui.order`'s
+order, and `complete-child-required` appends the missing names the same way. On all four its
+candidate equals the template rendered by the Java library. On 2026-10-26 every instance of the four
+was validated against each template before and after. Chemical Tool's 427 kept their verdicts, 425
+valid and 2 invalid with no new error, so it was written with its dates unchanged, and the strict
+reader now reads it. Cell, Expression and SWATH-DIA Experimental Specifications each have instances,
+4, 14 and 3, already invalid for other reasons and lacking the children the closure would require.
+Production refuses to store an invalid instance, so they cannot be completed first, and the three
+templates wait for their owners. The nine open-context templates, rechecked the same day, still
+break 64 instances. Records are under `$CEDAR_HOME/.cedar/repairs/2026-10-26-close-templates/`.
 
 ### Repairing Instance Values the 2.9.25 Rules Refuse
 
@@ -5606,8 +5677,10 @@ link and external identifier as well as controlled term, the same value schema w
 2,440 artifacts, 977 templates, 833 elements and 630 fields, declaring it in 5,325 field schemas.
 Every write was read back, every artifact rechecks as valid, and each differs from its pre-image only
 in the notations declared, with stamps, version and status unchanged. Sixteen were held: twelve whose
-graph dates differ from their documents', one holding a fractional number until the Decimal128 fix
-is deployed, and three templates invalid for other reasons. The twelve were written the same day
+graph dates differ from their documents', one element holding a fractional number, and the three
+templates the Decimal128 defect had made invalid. The last four took the notation on 2026-10-26,
+once release 2.9.29 was deployed. Records are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-25-iri-notation/`. The twelve were written the same day
 with `--replace-graph-provenance`: six graphs were one second ahead and six were behind, by 37
 seconds to 88 days, one naming another modifier. Each graph now agrees with its document, and the
 documents' stamps are unchanged. A first pass stopped after 1,292 writes
@@ -5626,7 +5699,8 @@ fields, with their document, graph and search-index dates unchanged. All of them
 libraries read them as before; the strict TypeScript reader still refuses the 38 among them that it
 refused before. 136 were held because the graph's date differs from the document's. In 131 the graph is
 one second later. In five draft elements it is earlier, by between 37 seconds and 88 days. The three
-templates the Decimal128 defect damaged were left alone.
+templates the Decimal128 defect damaged were left alone until release 2.9.29 was deployed, and took
+the notation on 2026-10-26.
 
 The one-second gap comes from an ordinary save, which reads the clock twice. `ProvenanceUtil` stamps
 the document's `pav:lastUpdatedOn`, and `updateResourceById` in the workspace operations library
@@ -5640,20 +5714,30 @@ The resource server now gives the graph the stamp the artifact server wrote rath
 clock again. An ordinary update, a publication and a DOI annotation pass the stored document's
 `oslc:modifiedBy` and `pav:lastUpdatedOn`, as a verbatim write already did. A create, a new draft, a
 copy and a background clone pass its `pav:createdOn` and `pav:lastUpdatedOn` as an
-`ArtifactCreationProvenance`. A document that states neither leaves the node to stamp its own. The fix
-takes effect once a release carrying it is deployed. Nodes already a second ahead stay so until their
-artifact is next written.
+`ArtifactCreationProvenance`. A document that states neither leaves the node to stamp its own.
+Release 2.9.29 carries the fix, and production has run it since 2026-10-26. Nodes already a second
+ahead stay so until their artifact is next written.
 
-One write damaged a template. Since release 2.9.25 the server stores a fractional number as `Decimal128`
-and serves it back as `{"$numberDecimal": ...}`, as
+One write damaged a template. Releases 2.9.25 to 2.9.28 stored a fractional number as `Decimal128`
+and served it back as `{"$numberDecimal": ...}`, as
 [Numbers, timestamps and source parsing](#numbers-timestamps-and-source-parsing) describes, and
 metaBUS-partial, a draft, holds two fractional `minValue` bounds. The read-back caught the difference
-and stopped the run. Rewriting the template would convert the bounds again. The stored values are
-exact, so a release carrying the rendering fix serves the template correctly without a write. The
-repair tool now holds every candidate containing a fractional number, as `fractional-number-held`,
-unless `--allow-fractional-numbers` is given, which is meant for a deployment carrying the fix. One
-more element was held that way. Records are under
+and stopped the run. The stored values were exact, so release 2.9.29, which carries the rendering
+fix, serves the template correctly without a write. The repair tool holds every candidate
+containing a fractional number, as `fractional-number-held`, unless `--allow-fractional-numbers` is
+given. Production carries the fix, so the option is safe to give there. The hold protects a
+deployment still running one of the four releases. One more element was held that way. Records are under
 `$CEDAR_HOME/.cedar/repairs/2026-10-24-term-notation-corpus/`.
+
+Release 2.9.29 reached production on 2026-10-26. Afterwards the four damaged templates read in both
+libraries and validate without a write. No `$numberDecimal` appears in any of the 466 artifacts
+updated since 2.9.25, counting the verbatim repair writes that kept an older date. The held element
+then took its notation, and the three templates damaged on 2026-10-21 took the notation both rounds
+had held from them, each under `--allow-fractional-numbers`. Each write was read back, each artifact
+validates and serves its bounds as plain numbers, and stamps, version and status are unchanged. The
+sweep is under `$CEDAR_HOME/prod-validation-2026-10-21/decimal-sweep/`, the element's write is
+`fractional-apply.jsonl` beside the corpus round's records, and the templates' writes are under
+`$CEDAR_HOME/.cedar/repairs/2026-10-26-after-2.9.29/`.
 
 Thirteen invalid instances could not be opened in CEE at all, and neither library read them. Seven
 were saved in June and July 2024 with a DataCite DOI annotation. Until cedar-config-library `bea2911`
@@ -5812,6 +5896,7 @@ The conditions, by the roadmap paragraph each measures:
 | `ui-order-on-field` | A `_ui.order` on a field, standalone or embedded. A field has no children and the meta-schema forbids the key, so the validator refuses it. The legacy Field Designer added an empty one to every new standalone field until 2026-10-21. |
 | `schema-version-absent`, `schema-version-stale`, `schema-version-unparsable`, and their `-nested` forms | The root's `schema:schemaVersion` against the version the libraries write, and the same for embedded children. The summary also lists every version in use, by type. |
 | `static-field-required` | A static field named in `required`, `@context.required` or `@context.properties`, which describes an instance no editor will build, so no instance of that container can validate. |
+| `standalone-field-requirement` | A field artifact whose own `_valueConstraints` says it is required or recommended. Whether a field is required or recommended is what a template or element says of its child, so a field on its own is neither, and both libraries' readers refuse one that says otherwise. The meta-schema requires every field to state `requiredValue`, which on its own is `false`. |
 | `source-system-absent` | A controlled-term constraint entry with no `sourceSystem`; every entry counts, so the occurrence count is the size of the sweep. |
 | `constraint-source-uri-legacy`, `constraint-iri-absent`, `constraint-acronym-underivable` | How far a stored value constraint has come towards the versioned shape: the legacy `sourceUri` it still carries, the canonical `iri` it lacks, and the entry that names its ontology only as free text, so no acronym can be derived and nothing can be looked up for it. Deriving the canonical IRI needs the terminology catalog, which the audit does not open, so absence is what is reported. |
 | `temporal-type-absent`, `temporal-type-unsettled` | A temporal field that does not say what kind of temporal value it holds, which leaves a slot nobody can fill and which nothing refuses. The two are split by whether the field's own `_ui.temporalGranularity` settles the type: a day or coarser can only be a date, while below that only the stored values decide. |
@@ -6997,6 +7082,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 
 | Repair | Permitted change and boundary |
 | --- | --- |
+| `complete-child-required` | Append to a template's or element's `required` every child an instance carries that it omits, in `_ui.order`'s order, leaving out static and attribute-value fields, as both writers list them. A `required` that is absent or not an array is left alone. Every instance must then carry each child, so validate every dependent instance against the candidate before writing; an instance missing a child it cannot be given blocks the template. |
 | `complete-schema-bibo-context` | Add `"bibo": "http://purl.org/ontology/bibo/"`, matching Java's model prefix mappings, only to existing schema-owned contexts that omit it. Traverse declared templates, elements and fields (including array items and static fields); preserve existing mappings, annotations, instance-context schemas and required arrays. |
 | `drop-reviewed-required-entries` | Remove only Java-confirmed unexpected entries from template/element `required` arrays, using `--required-removals`. Each artifact's plan pins the entire source and candidate SHA-256 and exact before/after arrays. Source drift refuses the write. The independent invariant preserves Java's fixed requirements, every declared child, list order, all properties, instance-context constraints and field values. Removing only parent presence demands cannot invalidate an already-valid instance. |
 | `apply-reviewed-schema-shapes` | Use `--schema-shape-plan` with Java-confirmed changes and complete before/after document SHA-256. Only expand schema-owned `properties.@id.type` from `"string"` to `["string", "null"]`, or remove UI-order entries naming no declared property. Preserve surviving order, labels, descriptions, required arrays, values and all other constraints. Source drift refuses the write. |
@@ -7008,6 +7094,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | `rename-reserved-child` | After explicit approval and checking dependent instances, rename a child field stored under a key the artifact library reserves: `@value` to `value`, `@Type` to `Type` and `@xml:lang` to `xml:lang`. Each rename covers the child's context, required-list and UI references, and a label equal to the old key follows it. Preserve the property IRI, identifiers, field constraints and inner literal `@value`; append the child to UI order when absent. Refuse conflicting destinations. |
 | `drop-orphan-literal-actions` | After approval, remove only nonempty vocabulary `actions` from literal `textfield` declarations with `@value`, no `@id`, and no active ontology/value-set/class/branch constraints. Preserve regexes, defaults, required flags and every other property. IRI fields and active vocabulary selections are excluded. |
 | `empty-derived-from` | Delete empty-string `pav:derivedFrom` at every depth; preserve populated provenance. |
+| `clear-standalone-requirement` | Set a field artifact's own `_valueConstraints.requiredValue` from `true` to `false`, and remove a `recommendedValue` of `true`. The key stays, since the meta-schema requires it. A child's requirement is its container's document and is never touched. Run it before deploying a library release that refuses a standalone requirement, or the server refuses writes and YAML reads of those fields. Applied to production on 2026-10-26 to all 144 such fields: each now differs from its pre-image in `requiredValue` alone, keeps its dates and authors, validates, and reads with the stricter readers. The targets came from the 2026-10-25 snapshot. On 2026-10-27 the newest field update in production still dated from 2026-10-23, so the 144 were every such field production held. The pre-images are under `$CEDAR_HOME/.cedar/audits/2026-10-26-standalone-requirement/`. |
 | `canonicalise-iri-field-required` | Remove legacy presence requirements only from unambiguous IRI fields. First verify each changed field's Java-rendered counterpart also declares `@id`, not `@value`, and has no `required` list. Preserve `_valueConstraints.requiredValue` and vocabulary constraints; validate the complete template and dependent instances. |
 | `drop-unused-instance-context` | Remove only simple, undeclared context mappings unused throughout their container's scope. Preserve references in nested keys, compact IRIs, datatype values, other context definitions, and attribute-group member lists; keep complex definitions. Compare proposed removals with the Java-rendered template before applying. |
 | `drop-orphan-instance-context` | Remove a simple context mapping that the template's `@context` declares for no child, does not require, and that nothing in its scope uses. The library drops such a declaration when it writes the template, so the instance would otherwise turn invalid at the template's next save. |
