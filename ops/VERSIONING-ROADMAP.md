@@ -216,15 +216,18 @@ Naming the source explicitly unifies every case; the source discriminates what a
 |---|---|---|---|
 | BioPortal ontology | BioPortal | `obo/doid` | triple |
 | Same ontology, other backend | OLS / OBO-PURL | `obo/doid` (same) | triple (own hash) |
-| Dynamic dataset with releases | e.g. EPA CompTox (PFAS) | collection IRI | triple (release) |
+| Enumerable dataset | e.g. EPA PFAS method panels | collection IRI | triple (CEDAR snapshot) |
 | **Open authority / live resolver** | ORCID, DOI, RRID | the authority | **absent** |
 
 **ORCID falls out naturally:** an open authority is not a versioned value space (infinite, validated
 live). Nothing to snapshot; reproducibility comes from recording the chosen value (iD + label) in the
-instance, which CEDAR already does. PFAS lands in row 3 (enumerable release) or row 4 (live lookup).
+instance, which CEDAR already does. PFAS method panels fit row 3; a live chemical resolver fits row 4.
+An enumerable API need not offer immutable upstream releases: CEDAR can retain its retrieved content
+and identify each snapshot by normalized content hash, with retrieval time recorded separately.
 
-Every row has a base `iri`, including the open authorities: ORCID → `https://orcid.org/`, EPA
-CompTox (PFAS) → the DTXSID namespace. For sources with content these are derived (§6.4); for open
+Every row has a base `iri`, including the open authorities: ORCID → `https://orcid.org/`. An EPA
+method collection has its own collection IRI; its chemical members keep CompTox DTXSID page IRIs.
+For ontology sources these are derived (§6.4); for open
 authorities the backend adapter declares them as a constant.
 
 ### 6. The Value-Constraint Shape
@@ -951,10 +954,12 @@ The controls wait on the backend meaning of both actions, which item 7 settles.
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
    versioned controlled term. (The instance is where these land — see
    [Instance-level version capture](#5-instance-level-version-capture-design-decision-documented).)
-- **19. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
-   could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
-   and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
-   serializations. Worth a spike.
+- **19. Extend targeted EPA PFAS coverage when the study requires it.** Reconcile SRS's draft Method
+   1633 list with the final EPA Method 1633A analyte panel before offering it. Assess further panels
+   individually rather than exposing the full CompTox list catalog. Define a reviewed refresh policy
+   and a membership-change report before automating updates; preserve published template pins and
+   distinguish a CEDAR retrieval date from an EPA release. Operational details for importing method
+   lists are in [the versioning runbook](./VERSIONING-RUNBOOK.md#targeted-epa-pfas-value-sets).
 - **20. Cache the CompTox substance registry locally (bridge server, infra).** On every start the bridge
    server rebuilds its registry by fetching roughly 14,700 substances from the external CompTox API in
    batches of a thousand, holding the result in a `ConcurrentHashMap` that dies with the process
@@ -1131,6 +1136,42 @@ here can be finished without the component being finished first.
     the flag — carrying both indefinitely means two pickers writing constraints in two ways, which
     is worse than either. Set the date the old one goes when the flag goes in, rather than leaving
     it to be noticed.
+
+### Shared resource resolution
+
+- **35. Batch descriptions when reopening artifacts.** Add `POST /resources/describe` over the shared
+    resource-description contract. Accept a bounded array of references plus client correlation keys;
+    each reference carries its kind, source system/canonical identity, resource IRI, optional exact
+    version, and requested language. Return one independent result per key, including the resolved
+    version, descriptor, and explicit missing-source, missing-resource, missing-version or inaccessible
+    status. One bad reference must not discard the others. Description is not membership validation,
+    and resolving a label must never alter the saved constraint, selected value, or published pin.
+
+    Gather references from the current visible editor view, deduplicate, and issue one bounded request
+    rather than one request per field. Reuse the same descriptors and renderer for search, hierarchy,
+    defaults, selected values, specification sources and reopened artifacts. Ignore unsupported
+    capabilities rather than exposing speculative controls. For two selected sets, resolve two
+    descriptors; a field's union is not a third resource with an invented landing page.
+    Reconstruct source and version context from the existing template constraints when an instance
+    carries only an identifier and label. If several providers or pins could describe that identifier,
+    preserve the ambiguity rather than silently choosing the first; this does not justify adding
+    presentation fields to the instance format.
+
+    Cache by deployment and access context as well as kind, canonical source identity, resource IRI,
+    exact resolved version and language. Immutable pinned content may live longer than unpinned
+    latest results, but public URLs and access rules need their own revision/ETag and revalidation.
+    Keep transient failures short-lived; clear relevant entries on host/account changes and ingest
+    refresh. Do not share licensed or private descriptions across users. Bound both batch size and
+    cache size, cancel obsolete requests, and prevent late answers from replacing a newer reference.
+
+    Render the stored label immediately. If resolution fails, retain readable text and omit an unknown
+    link; an unavailable pinned release must not silently use latest. Expose the distinction between a
+    page for the exact release and a provider's current page through the existing link affordance,
+    without adding routine dialogs or per-provider controls. A CEDAR-hosted fallback landing page is
+    a separate decision, not a prerequisite for batch resolution. Validate the design with mixed
+    providers, different pins of one source, offline reopen, partial failures, language changes and
+    stale responses. Current single-resource operation and ingest profiles are described in
+    [the runbook](./VERSIONING-RUNBOOK.md#resource-descriptions-and-public-links).
 
 ## The Search API
 

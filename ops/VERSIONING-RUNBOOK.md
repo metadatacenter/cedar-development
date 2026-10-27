@@ -159,6 +159,121 @@ a source offers, `--valuesets` files the acronym as a value-set collection, and 
 obofoundry|url` draws from somewhere other than BioPortal. Ingest is idempotent on the content hash
 and refuses to overwrite a good snapshot with an empty extraction, so a re-run costs a download.
 
+### Resource descriptions and public links
+
+Templates and instances retain the existing CEDAR JSON/YAML serialization. A template records its
+normal vocabulary, branch, class or value-set constraints and their existing version pins; an
+instance records the selected identifier and label. Selecting two sets writes two constraints in
+either format. The description below is additive terminology API JSON, not a new artifact format or
+a requirement to embed presentation metadata in each template. The optional ingestion profile is
+currently read as JSON (`--presentation`); YAML input for that operator profile is not implemented.
+
+`GET /resources/description` describes one resource without expanding a constraint or changing a
+selection. Its reference names `kind` (`term`, `branch`, `valueSet`, `vocabulary`, or `property`),
+`sourceSystem`, `sourceAcronym`, optional canonical `sourceIri`, `resourceIri`, and optional
+`versionId`; `language` requests a label language. The version-aware search hits and hierarchy
+responses carry the same `resource` description. Source blocks also supply `authorityLabel`, so
+consumers need no provider-name table.
+
+The response separates the reference from its label, description, availability/deprecation status,
+replacement identifier, public `links`, and small capability list (`search`, `members`, `hierarchy`,
+`versions`). A link has `rel`, `href`, `label` and `versionScope` (`current` or `exact`). The optional
+`icon` is a presentation hint; clients use their existing generic external-link icon for unfamiliar
+hints. A resource identifier is not assumed to be a web page. Missing pages produce an empty link
+list, and an unavailable exact version produces no link or substitution to latest. An unpinned
+legacy BioPortal reference outside the local store can receive an explicitly `unverified` public
+link; this is not evidence of term membership or remote availability.
+
+Adapters supply `SourcePresentation` during ingestion. The profile is stored as
+`resource_presentation_v1` in the snapshot metadata and is excluded from the semantic content hash:
+correcting a public URL must not mint a new vocabulary release. BioPortal and EPA adapters provide
+profiles; other sources can implement the same hook or pass `--presentation <file.json>` to
+`IngestJob`. For example, a new registry using the existing term and set interactions can supply:
+
+```json
+{
+  "sourceSystem": "example-registry",
+  "authorityLabel": "Example Registry",
+  "links": {
+    "term": [{"rel":"landing","href":"https://registry.example/record?iri={resourceIri}","label":"Example Registry","versionScope":"current"}]
+  },
+  "resourceLinks": {
+    "urn:example:set:one": [{"rel":"landing","href":"https://registry.example/lists/one","label":"Example Registry","versionScope":"current"}]
+  },
+  "capabilities": {"term":["versions"],"valueSet":["search","members","versions"]}
+}
+```
+
+The backend expands `{sourceAcronym}`, `{resourceIri}` and `{versionId}` as URL-encoded components;
+`{resourceIriRaw}` is available when an adapter explicitly declares that the identifier is its public
+page. It emits only absolute HTTP(S) links without embedded credentials. Per-resource overrides
+win over kind defaults, including an explicitly empty list. Profiles describe public pages, not API
+endpoints or credentials. Older snapshots without profiles retain the legacy BioPortal compatibility
+profile; newly ingested unfamiliar sources do not inherit BioPortal link conventions.
+
+CEE uses the descriptions in its existing specification and selected-value link slots. It retains
+stored labels while resolving, tolerates absent metadata, and forwards source identity and exact
+pins. The basic resolver coalesces identical in-flight reads and keeps a bounded in-memory cache;
+the batch API, language-aware refresh policy and cross-surface invalidation are still proposed in
+the roadmap. No link metadata is copied into template constraints or instance identifiers. Multiple
+selected sets remain separate references and separate public links; integrated search computes and
+deduplicates their union. A new provider using the supported interactions requires ingestion or
+configuration, not a provider-specific frontend change. A new interaction requires an explicit
+shared frontend capability.
+
+### Targeted EPA PFAS value sets
+
+`EPA-PFAS` is a native EPA collection, with `sourceSystem: "epa"` and canonical collection IRI
+`https://metadatacenter.org/terminology/value-sets/epa-pfas`. It appears in the existing picker's
+**Value sets** results. Choose either method list for an ordinary controlled-term field, or select
+both lists on the same field to accept their union. Each selected list retains its own EPA SRS
+link in the specification; no combined page or PFAS-specific authoring controls are needed.
+Publishing the template freezes the sets to the current snapshot;
+the populated instance keeps the chemical's CompTox IRI and label. The existing broad bridge-backed
+PFAS field remains available.
+
+The initial collection contains EPA Method 533, EPA Method 537.1, and their union. The live import
+on 2026-10-27 contained 25, 18 and 29 distinct substances respectively. Membership comes from the
+[EPA SRS method lists](https://cdxapps.epa.gov/oms-substance-registry-services/), not PFASSTRUCT or
+the broader CompTox drinking-water list: the latter includes additional ammonium salts. The UCMR5
+list also includes lithium, so it is not itself a PFAS-only set.
+
+After building the ingester and its classpath above, source the normal native profile and run:
+
+```bash
+java -cp "$CP" org.metadatacenter.terms.ingest.IngestJob \
+    "$CEDAR_HOME/cedar-term/prod/catalog.sqlite" \
+    "$CEDAR_HOME/cedar-term/prod/snapshots" EPA-PFAS --source epa-pfas
+java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
+    "$CEDAR_HOME/cedar-term/prod/catalog.sqlite" \
+    "$CEDAR_HOME/cedar-term/prod/search-index.sqlite" --acronyms EPA-PFAS --force
+cedarcli native restart microservice terminology
+```
+
+The source reads `CEDAR_COMP_TOX_API_KEY` from the profile. It sends that key only to CompTox;
+SRS requests are unauthenticated. It checks list identity and count, resolves each current CAS
+number to exactly one CompTox DTXSID, checks populated SRS cross-references, and fetches chemical
+details and synonyms in batches. Missing synonym records are tolerated; incomplete membership,
+missing details, ambiguous identities and conflicting cross-references fail the import before
+publication. SRS method list IDs are 477 and 475; a changed or renamed list requires review.
+
+Every chemical keeps its canonical CompTox page as its IRI, for example
+[PFOA](https://comptox.epa.gov/dashboard/chemical/details/DTXSID8031865). The selected value links
+there in CEE's read-only view and through the existing link-out button while editing. Search accepts
+names, retained aliases, CAS numbers and DTXSIDs within the selected set. Deleted CompTox synonyms
+and its lower-quality `other` group are excluded, as are inactive SRS names.
+
+EPA's APIs provide current data, not a retrievable immutable release. Each import retains the exact
+API response bodies and retrieval time in a key-free JSON archive under the usual raw content hash.
+The normalized snapshot hash includes membership, labels and all searchable names; timestamps and
+response ordering do not affect it. An unchanged re-import preserves the version ID, and changed
+names or membership produce a new version while old pins remain resolvable. EPA snapshots opt into
+name hashing without changing the identities of existing BioPortal snapshots. Refresh is manual;
+an EPA retrieval date is not an EPA-issued release identifier. `EPA-PFAS` must be in both local
+allowlists on a host serving these sets; the shared native configuration includes it.
+
+### Bulk ingest drivers
+
 Six drivers wrap it for bulk work, each writing a `results.tsv` and carrying on past a failure. Three
 draw from BioPortal:
 
