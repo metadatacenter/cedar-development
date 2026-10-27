@@ -1358,7 +1358,9 @@ component's styles in that component's definition. `build:production`, `build`,
 `start` and `test:coordinator` therefore first run
 `scripts/compile-shadow-root-styles.mjs`, which compiles it once into
 `dist-styles/shadow-root-css.ts`. The compilation repeats the one Angular's builder
-gives a component stylesheet, so the text is what Angular embedded. Every build
+gives a component stylesheet, so the text is what Angular embedded. `build` and `start`
+pass `--development`, which leaves it unminified with an inline source map, as
+Angular's development build leaves a component stylesheet. Every build
 configuration in `angular.json` substitutes that module for an empty placeholder, and
 the `ShadowRootStyles` host directive inserts it into each root, where Angular put a
 component's own styles. Build through the npm scripts. A bare `ng build` uses whatever
