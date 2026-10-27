@@ -1281,11 +1281,12 @@ the field element from another — they describe values in the same model classe
 
 A field artifact is not a template, so the element wraps it in a synthetic one-field
 template before CEE builds anything from it (`util/single-field-template.ts`). The
-wrapping states no cardinality, so the value the element acquires is single. It adds no
-requiredness either, but it keeps any the artifact states, because the model holds
-`requiredValue` on the field itself. CED writes a field on its own with
-`requiredValue: false`, so a default value may be empty, as a default must be. A host
-that passes a required field quiets the report of an empty value with
+wrapping states no cardinality, so the value the element acquires is single. A field
+written on its own states no requirement either, because only a template or an element
+requires the field it places. The strict reader refuses a field that says otherwise. A host
+that places the field as required sets the element's `required` configuration key, and
+the wrapping states it on the field's deployment. The field is then marked, and an empty
+value reported as missing, exactly as in a form, unless the host sets
 `suppressEmptyFieldErrors`. The wrapper template carries the
 URN `urn:cedar:cee:single-field-template` as its `@id` — a template with none is
 reported, and no repository holds this one.
@@ -1341,6 +1342,19 @@ npm --prefix visual run bundle
 The second step writes `visual/public/cedar-embeddable-editor.js` and a sidecar
 manifest recording its sha256 and byte count, which the freshness guard and the
 size gate both read rather than re-deriving.
+
+The editor and the single field render into shadow roots that take the same
+stylesheet, `src/app/modules/shared/directives/shadow-root.scss`. Declared as each
+component's own style, it reached the bundle twice, because Angular keeps a
+component's styles in that component's definition. `build:production`, `build`,
+`start` and `test:coordinator` therefore first run
+`scripts/compile-shadow-root-styles.mjs`, which compiles it once into
+`dist-styles/shadow-root-css.ts`. The compilation repeats the one Angular's builder
+gives a component stylesheet, so the text is what Angular embedded. Every build
+configuration in `angular.json` substitutes that module for an empty placeholder, and
+the `ShadowRootStyles` host directive inserts it into each root, where Angular put a
+component's own styles. Build through the npm scripts. A bare `ng build` uses whatever
+an earlier run left in `dist-styles/`, and stops when nothing is there.
 
 Do not join the build's output by hand. This used to read
 `cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js`, and those are
