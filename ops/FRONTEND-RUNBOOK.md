@@ -4244,7 +4244,9 @@ CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their 
 and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE `313d7ceb`, the
 term picker `8ed2d81` and Workspace `0323655a`. On 2026-10-21 the criteria a fourth round touched
 were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and Workspace
-`bc2401e8`. The assessment read code and tests. Nobody ran a
+`bc2401e8`. On 2026-10-27 the criteria a fifth round touched, 1.4.1 and 1.4.11, were reassessed at
+CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9`. The
+assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -4273,10 +4275,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 21 | 9 | 9 | 0 | 16 | 21 of 39, 54% |
-| CEE | 22 | 11 | 8 | 6 | 8 | 22 of 47, 47% |
-| Term picker | 24 | 8 | 7 | 0 | 16 | 24 of 39, 62% |
-| Workspace | 29 | 13 | 5 | 0 | 8 | 29 of 47, 62% |
+| CED | 21 | 11 | 7 | 0 | 16 | 21 of 39, 54% |
+| CEE | 22 | 12 | 7 | 6 | 8 | 22 of 47, 47% |
+| Term picker | 24 | 10 | 5 | 0 | 16 | 24 of 39, 62% |
+| Workspace | 29 | 15 | 3 | 0 | 8 | 29 of 47, 62% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -4288,7 +4290,12 @@ third rounds moved more to Met, but the failures stood at 27 after them, because
 and the wider scans found new ones as fast as others were fixed. The fourth round moved CED's 1.4.13
 from Fails to Met and Workspace's 3.1.2 from Partial to Met. CEE's wider layout check then found
 long read-only values cut short at 200% zoom and under text spacing, and CED was found to leave
-focus on a hidden control, so the failures now stand at 29. Most of them need a visible change.
+focus on a hidden control, so the failures stood at 29. The fifth round darkened the shared control
+outline to 3.2:1 and gave every state that a tint alone had marked a second cue. That moved 1.4.11
+in all four components, and 1.4.1 in CED, the term picker and Workspace, from Fails to Partial
+rather than to Met, because no test covers every boundary and every use of colour. CEE's 1.4.1
+still fails on its warnings, which differ from errors only by colour. The failures now stand at 22,
+and most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -4299,18 +4306,15 @@ spec as a named exception, and an exception that stops occurring fails it.
 
 ### Failures Several Components Share
 
-Three failures recur across components:
+One failure still recurs across components: targets under 24px. CED's field settings toggle,
+CEE's read-only link-out icon and the term picker's tree twists, tree terms and history releases
+fall under WCAG 2.2's minimum target (2.5.8).
 
-- **Control borders.** Text inputs draw their boundary in `control-border-default`,
-  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, where criterion 1.4.11 asks for 3:1. CED, CEE and
-  Workspace take their borders from that token.
-- **Tint-only state.** The term picker marks the current release and a picked tree term, Workspace
-  a selected list row and the pressed view switch, and CEE the calendar's focused date, only by a
-  tint of about 1.2:1 (1.4.1, 1.4.11). CED tells an errored settings tab from the selected one by
-  hue alone.
-- **Targets under 24px.** CED's field settings toggle, CEE's read-only link-out icon and the term
-  picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum target
-  (2.5.8).
+Two others had shared causes, and each was fixed where its cause lives. Text inputs draw their
+boundary in `control-border-default`, which now measures 3.2:1 on white. A selection tint of about
+1.2:1 is never a selection's only mark. A selected item takes `patterns.selected-outline` or, where
+the focus ring needs the outline, `patterns.selected-frame`. CEE's calendar gives the focused date
+the focus ring, and CED's errored settings tab carries the warning icon.
 
 The layout check's failures are each a component's own: CED's narrow layouts, CEE's PubMed and
 RRID instructions cut short at 320 pixels and its long read-only values cut short at 320 pixels, at
@@ -4338,13 +4342,13 @@ that touches it, and update the assessment date and commits with it.
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
 | 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
-| 1.4.1 Use of Color | A | Fails | Fails | Fails | Fails |
+| 1.4.1 Use of Color | A | Partial | Fails | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
 | 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
 | 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
-| 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
+| 1.4.11 Non-text Contrast | AA | Partial | Partial | Partial | Partial |
 | 1.4.12 Text Spacing | AA | Met | Fails | Met | Fails |
 | 1.4.13 Content on Hover or Focus | AA | Met | Partial | Met | Met |
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |

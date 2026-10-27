@@ -196,10 +196,9 @@ current draft-retention contract and operator verification commands.
 
 ### 5. Fix Workspace's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
-criteria that Workspace fails, two of them through causes it shares with the other components.
-Workspace meets four more criteria only in part: 1.3.1, 3.3.4, 4.1.2 and 4.1.3. Agree the fixes
-marked as visible before making them.
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found three WCAG 2.2
+criteria that Workspace fails. Workspace meets four more only in part: 1.3.1, 3.3.4, 4.1.2 and
+4.1.3. Agree the fixes marked as visible before making them.
 
 - **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
   running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
@@ -257,9 +256,9 @@ reactor and all three consumer demos before removing the overrides.
 
 ### 9. Fix CEE's WCAG Failures
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
-criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
-CEE meets one more, 3.1.2, only in part. Agree the fixes marked as visible before making them.
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found seven WCAG 2.2
+criteria that CEE fails. CEE meets one more, 3.1.2, only in part. Agree the fixes marked as visible
+before making them.
 
 - **Element descriptions on hover only (2.1.1).** Visible. An element's description and property
   IRI marks sit inside its panel header, which is a button, so they cannot take focus, and only a
@@ -328,9 +327,9 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 
 ## Accessibility Across Components
 
-Five items hold the open accessibility work: "Fix Workspace's WCAG Failures", "Fix CEE's WCAG
-Failures", "Fix the WCAG Failures the Components Share", and CED's "Keyboard and Screen-Reader
-Access" and "Fix CED's Remaining WCAG Failures". The term picker's three are on the
+Four items hold the open accessibility work: "Fix Workspace's WCAG Failures", "Fix CEE's WCAG
+Failures", and CED's "Keyboard and Screen-Reader Access" and "Fix CED's Remaining WCAG Failures".
+The term picker's three are on the
 [versioning roadmap](VERSIONING-ROADMAP.md). Every open piece waits on a decision about a visible
 change or a design, except the screen-reader runs, which wait on a person. In order of effort,
 least first, the pieces are:
@@ -345,12 +344,10 @@ least first, the pieces are:
 - naming CEE's text-like boxes from a hidden label in the template's language;
 - keeping CEE's cleared and reverted notices until they are dismissed;
 - a cue beyond colour for CEE's warnings;
-- a darker `control-border-default`, published to every consumer with its new baselines;
 - labels that stay in CED's field-name, option and library-search boxes;
 - a keyboard route to CEE's element descriptions and property IRI marks;
 - wrapping CEE's long read-only values;
 - wrapping Workspace's grid card lines under text spacing, through the shared card recipe;
-- one second cue for the six tint-only states;
 - a confirmation or an undo for removing access in Workspace;
 - a keyboard route for CED's sidebar divider, after its Tab order is agreed;
 - CED's sidebar split, which fails no criterion but hides the library's last button;
@@ -366,22 +363,6 @@ least first, the pieces are:
 
 When a piece's work leaves the item that holds it, remove the piece from this list.
 
-### 11. Fix the WCAG Failures the Components Share
-
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found failures that recur
-across CED, CEE, the term picker and Workspace because they share a cause. Fix each once, where its
-cause lives.
-
-- **Control borders (1.4.11).** `control-border-default` in `cedar-design-tokens` is
-  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, and CED, CEE and Workspace draw text-input borders
-  with it. Criterion 1.4.11 asks for 3:1. A darker value changes every consumer's controls, so
-  agree it as a visual change. The token package's contrast test records the shortfall as a known
-  failure and fails once the token reaches 3:1, so remove that record with the change.
-- **Tint-only state (1.4.1, 1.4.11).** A tint of about 1.2:1 is the only mark of the term picker's
-  current release and picked tree term, Workspace's selected list row and pressed view switch, and
-  the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
-  hue alone. Agree one second cue, such as a bar, a weight or an icon, and apply it in each place.
-
 <a id="ced"></a>
 
 ## CED
@@ -390,7 +371,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 12. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -404,7 +385,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 13. Keyboard and Screen-Reader Access
+### 12. Keyboard and Screen-Reader Access
 
 Two parts of CED's keyboard and screen-reader access remain open. One needs a person with a
 screen reader, and the other needs a design decision before it can be built.
@@ -429,7 +410,7 @@ resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` 
 focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
 accessibility lint rules until this is done. Remove that exception in the same change.
 
-### 14. Fix CED's Remaining WCAG Failures
+### 13. Fix CED's Remaining WCAG Failures
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these failures in
 CED beyond the ones it shares with the other components. Several need a design decision first.
@@ -469,7 +450,7 @@ button. Keyboard focus scrolls it into view, but that puts the Add field and Imp
 reach above. Adding fields from the sidebar causes this with 15 fields at the default share, before
 any drag. Fixing it changes the default layout, so agree it first.
 
-### 15. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible

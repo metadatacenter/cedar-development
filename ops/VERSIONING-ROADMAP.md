@@ -1017,9 +1017,7 @@ These three items concern the component alone, and none waits on a host.
    loses its acronym to an ellipsis, a value set row cuts its matched terms, and the narrowing panel
    opens with about 96px of room, clipping its list and its Clear all, Cancel and Apply buttons until
    the page is scrolled. `browser/tests/accessibility.spec.ts` and `layout-resilience.spec.ts`
-   record each as an exception. The tint that alone marks the current release and a picked tree term
-   is part of "Fix the WCAG Failures the Components Share" on the
-   [frontend roadmap](FRONTEND-ROADMAP.md).
+   record each as an exception.
 
 ### The Template Designer
 
