@@ -161,99 +161,107 @@ and refuses to overwrite a good snapshot with an empty extraction, so a re-run c
 
 ### Resource descriptions and public links
 
-Templates and instances retain the existing CEDAR JSON/YAML serialization. A template records its
-normal vocabulary, branch, class or value-set constraints and their existing version pins; an
-instance records the selected identifier and label. Selecting two sets writes two constraints in
-either format. The description below is additive terminology API JSON, not a new artifact format or
-a requirement to embed presentation metadata in each template. The optional ingestion profile is
-currently read as JSON (`--presentation`); YAML input for that operator profile is not implemented.
+The four CEDAR controlled-term constraint kinds (ontology, branch, class and value set) accept the
+same optional `links` object in core JSON and YAML. Instances continue to record only the selected
+identifier and label. Selecting two sets writes two constraints, each with its own links.
 
-`POST /resources/description` resolves one reference without expanding a constraint or changing a
-selection. The request uses CEDAR's existing constraint names: `type` (`class`, `branch`, `ontology`,
+```yaml
+links:
+  landingPage: https://comptox.epa.gov/dashboard/chemical/details/DTXSID8031865
+  icon: https://registry.example/assets/source.svg
+```
+
+`landingPage` is the human-facing page for that particular constraint resource or selected term.
+`icon` is an image URL, not a provider name or rendering token. Both are optional; omit `links` if
+neither is known. The object is closed to these two keys and accepts only absolute HTTP(S) URLs
+without credentials. There are no provider-specific members. The example icon above is illustrative;
+the EPA adapter currently supplies landing pages without an icon. The normal fallback link icon
+remains available. A failed image falls back to that link treatment.
+
+Version remains in the existing top-level constraint `version` object; links carry no separate
+version category. A public site may show its current record even when CEDAR uses a pinned snapshot.
+The page does not assert which release the selected constraint uses. Canonical `sourceIri`, service
+`sourceUri` (JSON `uri` for an ontology), and term identifiers retain their existing meanings and
+spelling. A landing page is never substituted for any of them.
+
+The canonical links schema is
+`cedar-model-validation-library/schema/valueConstraintsLinksFieldContent.json`. All four constraint
+items reference it. The Java validator validates stored artifacts; the Java artifact library reads,
+writes and validates the links value. The TypeScript model uses a generated runtime validator from
+the same schema, not merely a compile-time interface. Both libraries preserve links through JSON and
+YAML. CETP validates incoming links using that TypeScript validator, and the designer preserves them
+when converting the picker result to core constraints. Java integrated-search DTOs use the core
+`ConstraintLinks` reader even when their surrounding mapper accepts legacy constraint fields.
+
+`POST /resources/description` resolves one identity reference without expanding a constraint or
+changing a selection. It still takes a reduced API reference: `type` (`class`, `branch`, `ontology`,
 `valueSet`, or `property`), `sourceAcronym`, optional `sourceSystem` and canonical `sourceIri`,
 `termIri` for a class/property or `termBaseIri` for a branch/value set, and optional `version`.
-A version is the existing object with `id` and optional `effectiveDate`/`declaredVersion`, or
-`"latest"`. Ontology references have no term field. Source and term IRIs retain their original spelling,
-including Unicode. This is a reference to a constraint, not a second
-artifact model; labels, depth and other selection rules remain in the existing CEDAR constraints.
+The pin uses the existing `id`, optional `effectiveDate`/`declaredVersion`, or `"latest"`.
+Ontology references have no term field. This projection is validated by the endpoint's JSON Schema;
+it is not the complete core artifact constraint. Consolidating that reference projection is tracked
+in the roadmap.
 
-The response has exactly `constraint` (the resolved reference) and `presentation`. Search hits,
-source blocks and hierarchy entries already carry their identity, so they carry `presentation`
-directly. Source blocks retain `authorityLabel` for their existing repository display.
+The response contains `constraint` (the resolved reference) and optional `links`. Search hits,
+source blocks and hierarchy entries carry `links` directly. Source blocks retain `authorityLabel`
+for their existing repository display. Missing links are omitted, not serialized as `{}`. Missing
+sources, resources or exact pins return 404; invalid references return 400. A missing pin is never
+substituted with latest. Unpinned legacy BioPortal references outside the store retain their public
+link convention; that link does not assert membership or remote availability.
 
-**Every provider uses the same closed presentation object with at most four keys:**
-
-```json
-{
-  "href": "https://comptox.epa.gov/dashboard/chemical/details/DTXSID8031865",
-  "label": "EPA CompTox",
-  "versionScope": "current"
-}
-```
-
-`href` is the public landing page, `label` names the link, and `versionScope` is `current` or `exact`.
-Those three keys are required together. The optional `icon` is a shared rendering hint (`bioportal`
-or `external`); it preserves the existing icon treatment and does not select provider-specific
-behavior. New providers use the generic external icon. An empty object `{}` means no known public
-page. No arbitrary keys, provider subobjects, capabilities, status, or duplicate identity are allowed
-inside presentation. New keywords require a change to the shared contract for every consumer.
-A pinned constraint may link to a provider's current web page; `versionScope` describes the page,
-not a change to the selected release. Missing sources, resources or exact pins return normal CEDAR
-HTTP 404 errors, invalid references return 400, and no missing pin is substituted with latest.
-Optional search enrichment leaves presentation empty when no page can be resolved. Unpinned legacy
-BioPortal references outside the store retain their public-link convention; the link does not
-assert membership or remote availability.
-
-The canonical JSON Schema is
-`cedar-terminology-server-core/src/main/resources/contracts/terminology-presentation.schema.json`
-in `cedar-terminology-server`. The endpoint validates requests against it; contract tests validate
-serialized responses and reject extension keys. Both CEE and CETP use types generated from this
-same schema, not independently maintained DTOs. Regenerate or check them from `$CEDAR_HOME`:
+The endpoint schema is
+`cedar-terminology-server-core/src/main/resources/contracts/terminology-links.schema.json`.
+Its links definition is checked against the core model fragment, and generated client types import
+`ConstraintLinks` from the TypeScript model. Regenerate or check the API types from `$CEDAR_HOME`:
 
 ```bash
-python3 cedar-terminology-server/tools/generate-presentation-types.py \
-  cedar-embeddable-editor/src/app/modules/shared/models/generated/terminology-presentation.ts \
-  cedar-embeddable-term-picker/src/app/search/generated/terminology-presentation.ts
-# Add --check to verify that both copies match the canonical schema.
+python3 cedar-terminology-server/tools/generate-terminology-types.py \
+  cedar-embeddable-editor/src/app/modules/shared/models/generated/terminology-links.ts \
+  cedar-embeddable-term-picker/src/app/search/generated/terminology-links.ts
+# Add --check to verify both copies.
 ```
 
-Adapters supply `SourcePresentation` during ingestion. This internal link-template configuration
-is distinct from the public presentation block. It is stored as `resource_presentation_v1` in
-snapshot metadata and excluded from the semantic content hash: correcting a public URL must not
-mint a vocabulary release. BioPortal and EPA adapters provide profiles; other sources can implement
-the same hook or pass `--presentation <file.json>` to `IngestJob`. For example:
+Adapters supply `SourcePresentation` during ingestion. This internal link-template configuration is
+stored as `resource_presentation_v1` in snapshot metadata and excluded from the semantic content
+hash: correcting a public URL must not mint a vocabulary release. BioPortal and EPA adapters supply
+profiles; other sources can implement that hook or pass `--presentation <file.json>` to `IngestJob`.
+This operator input is JSON; the artifact constraints themselves support both JSON and YAML.
 
 ```json
 {
   "sourceSystem": "example-registry",
   "authorityLabel": "Example Registry",
   "links": {
-    "class": [{"rel":"landing","href":"https://registry.example/record?iri={termIri}","label":"Example Registry","versionScope":"current"}]
+    "class": {"landingPage":"https://registry.example/record?iri={termIri}","icon":"https://registry.example/icon.svg"}
   },
   "resourceLinks": {
-    "urn:example:set:one": [{"rel":"landing","href":"https://registry.example/lists/one","label":"Example Registry","versionScope":"current"}]
+    "urn:example:set:one": {"landingPage":"https://registry.example/lists/one"}
   }
 }
 ```
 
 The backend expands `{sourceAcronym}`, `{sourceIri}` (ontology pages), `{termIri}`, `{termBaseIri}`
-and `{version.id}` as URL-encoded components. `{termIriRaw}` is available when an adapter explicitly
-declares that the identifier is its public page. It emits only absolute HTTP(S) links without
-embedded credentials, encoding international page paths for transport. Per-resource overrides win over type defaults, including an explicitly empty
-list; the first valid landing pattern supplies the single public page. Profiles contain public page
-configuration, not API endpoints or credentials. Earlier profile names and placeholders are read
-compatibly inside the backend; they do not cross the public contract. Older snapshots without
-profiles retain the legacy BioPortal compatibility profile; newly ingested unfamiliar sources do
-not inherit BioPortal link conventions.
+and `{version.id}` as URL-encoded components. `{termIriRaw}` is available when an adapter declares
+that the identifier is its public page. A version placeholder requires a resolved version. Only
+absolute HTTP(S) URLs without credentials are emitted, with international paths encoded for transport.
+Per-resource overrides replace type defaults; an empty override suppresses the inherited links.
+Profiles contain public URLs, not API credentials. Stored profiles must use the current object shape;
+the server does not translate old link arrays, icon tokens, resource-type aliases or placeholder names.
+Update any older stored profile explicitly before deploying this reader. Only the profile metadata
+may change: vocabulary tables, catalog versions and tags must remain intact. This metadata is excluded
+from the content hash, so correcting its format does not require a new vocabulary version.
+Older snapshots without profiles retain the BioPortal compatibility profile; unfamiliar ingested
+providers do not inherit BioPortal conventions.
+The existing BioPortal image is served publicly at `/resources/icons/bioportal.png`, and its absolute
+URL is supplied by the backend like any other icon.
 
-CEE uses the presentation in its existing specification and selected-value link slots. It retains
-stored labels while resolving, tolerates absent metadata, and forwards source identity and exact
-pins. The basic resolver coalesces identical in-flight reads and keeps a bounded in-memory cache;
-batch resolution and cross-surface invalidation remain proposed in the roadmap. No presentation
-metadata is copied into template constraints or instance identifiers. Multiple selected sets remain
-separate references and separate public links; integrated search computes and deduplicates their
-union. A new provider using supported interactions requires ingestion or configuration. A new
-interaction requires an explicitly agreed shared frontend enhancement.
+CEE consumes `links` in the existing source and selected-value link slots. Embedded links are used
+when available; otherwise the resolver uses the template's source identity and exact pin. It keeps
+stored labels visible, coalesces identical in-flight reads and bounds its memory cache. Batch reads
+and cross-surface invalidation remain in the roadmap. Multiple selected sets keep separate links;
+integrated search computes and deduplicates their union. A new provider using supported interactions
+requires an adapter or configuration and ingestion. A new interaction requires an agreed shared
+frontend enhancement.
 
 ### Targeted EPA PFAS value sets
 

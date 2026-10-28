@@ -1139,26 +1139,19 @@ here can be finished without the component being finished first.
 
 ### Shared resource resolution
 
-- **35. Unify resource references with the CEDAR constraint vocabulary.** Reuse the existing YAML
-    `values` entries and their `type`, source identity, term identity, labels, version and selection
-    rules across the model and terminology API. A resource lookup may project the identity it needs,
-    but must not establish a second constraint model. Keep Java and TypeScript readers, writers and
-    validation aligned, and preserve existing artifact JSON and YAML compatibility.
-
-    The new information is a declared human-facing landing page: a term, branch, value set or source
-    identifier does not by itself identify that page. Define one minimal, provider-independent link
-    shape for all of them. `links.landing` is a candidate, not an implemented artifact keyword.
-    Distinguish a page for the selected release from a provider's current page as link-target
-    semantics; versioning does not belong in presentation. Reassess duplicate labels and cosmetic
-    icon hints before adding model keywords. Keep supported frontend interactions shared across
-    providers, with new sources supplied through adapters or ingestion configuration.
+- **35. Unify resource-reference validation with the CEDAR constraint model.** Define the reduced
+    identity projection used by resource lookup directly from the core constraint vocabulary, instead
+    of maintaining its reference schema independently. Preserve existing YAML `values` and JSON
+    `_valueConstraints` compatibility, with labels, depth and selection rules remaining in core
+    constraints. Keep Java and TypeScript readers and validators aligned. Do not add another version
+    category or provider-specific link keywords.
 
 - **36. Batch descriptions when reopening artifacts.** Add `POST /resources/describe` over the shared
-    constraint-reference and presentation contract. Accept a bounded array of references plus client
+    constraint-reference and links contract. Accept a bounded array of references plus client
     correlation keys; use the same `type`, source, `termIri`/`termBaseIri` and `version` keys as the
     single-resource endpoint. Return one independent result per key, with either its resolved
-    constraint and generic presentation or a normal CEDAR error. Do not add errors or provider
-    extensions inside the presentation block. One bad reference must not discard the others.
+    constraint and generic links or a normal CEDAR error. Do not add errors or provider
+    extensions inside the links object. One bad reference must not discard the others.
     Description is not membership validation,
     and resolving a label must never alter the saved constraint, selected value, or published pin.
 
@@ -1169,7 +1162,7 @@ here can be finished without the component being finished first.
     Reconstruct source and version context from the existing template constraints when an instance
     carries only an identifier and label. If several providers or pins could describe that identifier,
     preserve the ambiguity rather than silently choosing the first; this does not justify adding
-    presentation fields to the instance format.
+    links to the instance format.
 
     Cache by deployment and access context as well as kind, canonical source identity, resource IRI,
     exact resolved version. Immutable pinned content may live longer than unpinned
@@ -1179,9 +1172,9 @@ here can be finished without the component being finished first.
     cache size, cancel obsolete requests, and prevent late answers from replacing a newer reference.
 
     Render the stored label immediately. If resolution fails, retain readable text and omit an unknown
-    link; an unavailable pinned release must not silently use latest. Expose the distinction between a
-    page for the exact release and a provider's current page through the existing link affordance,
-    without adding routine dialogs or per-provider controls. A CEDAR-hosted fallback landing page is
+    link; an unavailable pinned release must not silently use latest. Keep public page navigation
+    independent of pin resolution without another version category, routine dialogs or per-provider
+    controls. A CEDAR-hosted fallback landing page is
     a separate decision, not a prerequisite for batch resolution. Validate the design with mixed
     providers, different pins of one source, offline reopen, partial failures and stale responses.
     Current single-resource operation and ingest profiles are described in
