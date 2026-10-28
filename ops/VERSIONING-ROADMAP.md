@@ -1091,22 +1091,7 @@ here can be finished without the component being finished first.
     the other single-valued fields chosen from a multi-valued annotation the same way — `label()` already
     ranks rather than takes the first, which is why it did not have this bug.
 
-- **32. Restore provenance overwritten by the earlier OLS harvest.** Compared on 2026-10-22 with
-    the backup taken before that harvest,
-    `catalog.sqlite.bak-before-ols-harvest-20260820`, the run of 2026-08-21 rewrote 116 releases. 93
-    lost their release date, 89 had their BioPortal submission number replaced by the synthetic `1`
-    that a URL or OBO PURL ingest reports, 74 lost their declared version, 47 changed their source date,
-    32 now carry the raw-file hash of the later download, and all 116 carry its ingest time. STATO,
-    EDAM, HAO and FAO are among them. The release date is the `effectiveDate` that orders releases and
-    anchors `latest`, so these releases now order by when they were fetched rather than when they were
-    published, and the declared version a pin displays is gone.
-
-    Restore the 116 from the pre-harvest backup, keyed on `(version_id, acronym)`, after checking
-    that each row's content columns still agree. Preserve the overwritten state as legacy audit
-    evidence and recover raw-archive references only where the retained bytes verify the recorded
-    hash. Missing historic retrieval timestamps must remain unknown.
-
-- **33. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
+- **32. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
     all list their versions, so what the catalog is missing is a question with an exact answer — and
     nothing asks it on a schedule. A weekly poll of a plan of repositories and acronyms, ingesting only
     what is absent, would keep the store current for the sources where currency is knowable, and would
@@ -1118,7 +1103,7 @@ here can be finished without the component being finished first.
 
 ### Cutover
 
-- **34. Ship behind a flag for one release, then delete what it replaces.** The new component is the
+- **33. Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
@@ -1128,14 +1113,14 @@ here can be finished without the component being finished first.
 
 ### Shared resource resolution
 
-- **35. Unify resource-reference validation with the CEDAR constraint model.** Define the reduced
+- **34. Unify resource-reference validation with the CEDAR constraint model.** Define the reduced
     identity projection used by resource lookup directly from the core constraint vocabulary, instead
     of maintaining its reference schema independently. Preserve existing YAML `values` and JSON
     `_valueConstraints` compatibility, with labels, depth and selection rules remaining in core
     constraints. Keep Java and TypeScript readers and validators aligned. Do not add another version
     category or provider-specific link keywords.
 
-- **36. Batch descriptions when reopening artifacts.** Add `POST /resources/describe` over the shared
+- **35. Batch descriptions when reopening artifacts.** Add `POST /resources/describe` over the shared
     constraint-reference and links contract. Accept a bounded array of references plus client
     correlation keys; use the same `type`, source, `termIri`/`termBaseIri` and `version` keys as the
     single-resource endpoint. Return one independent result per key, with either its resolved
@@ -2241,7 +2226,8 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 
   Two defects surfaced, both mine to have caused and both now recorded. Every driver **repainted the
   source label** of any snapshot its download merged into: 123 BioPortal and OBO Foundry releases were
-  relabelled `ols` across the two runs, restored from the pre-run catalog — item 32. And a sweep for
+  relabelled `ols` across the two runs; the restoration procedure is in the
+  [runbook](./VERSIONING-RUNBOOK.md#restoring-provenance-from-a-catalog-backup). And a sweep for
   unlabelled ontologies flagged 11 of the 46 by comparing each label against its IRI's local name, which
   is **wrong for a whole family of vocabularies**: schema.org, OWL, PROV, SKOS and REPRODUCE-ME label
   their terms with the CamelCase local name on purpose, and DHBA, HBA, EC and LIPIDMAPS carry proper
@@ -2699,7 +2685,7 @@ being told which exist. Useful for filling in, unhelpful for noticing a change.
 The strategy follows from the split. For the enumerable sources, poll the version list on a schedule
 and ingest what the catalog lacks — cheap, exact, and the only ongoing work worth automating.
 `harvest-github-releases.sh` does the GitHub half of this and `backfill-tail.sh` the BioPortal half;
-neither runs on a timer yet, which is what item 33 is for. For the single-file sources, re-read on a
+neither runs on a timer yet, which is what item 32 is for. For the single-file sources, re-read on a
 much slower cadence and accept that the yield is a snapshot only where the file has changed since the
 last pass — the OLS re-ingest of 2026-08-20 measured that yield at **8 ontologies out of 120**, which
 sets the expectation for how often a re-read is worth its download.

@@ -130,6 +130,66 @@ the snapshot's first-observed ingest day when no source release is known. That f
 observation date, not an upstream publication claim, and repeated retrievals no longer move it.
 No additional version or presentation keywords are needed in constraint JSON/YAML.
 
+### Restoring provenance from a catalog backup
+
+Match a historical catalog to the current one by `(acronym, version_id)`, and verify the normalized
+content hash of each current snapshot before restoring any metadata. Require agreement on the
+catalog's class count, edge count, hierarchy status and license tier. Extractor-reported counts can
+differ from the normalized tables' counts; retain those recorded counts and use the content hash as
+the identity check. Verify retained download bytes against their recorded raw hashes: decompress
+archives created as `.gz`, but hash `.raw` files exactly as downloaded.
+
+Restore original snapshot provenance from the evidenced earlier row: declared version, release date,
+first ingest time, format, raw hash, backend, submission selector and source date. Keep its current
+file path, content hash and content counts. A later property-enriched snapshot is a distinct version:
+correct its inherited source metadata only when its lineage and identical raw-file hash establish
+the connection, retaining its own creation time, raw hash and content identity. A different archive
+does not establish the same upstream release metadata merely because the earlier class graph matched.
+
+The local restoration on 2026-10-28 recovered all 116 original records overwritten by the August OLS
+harvest, using `catalog.sqlite.bak-before-ols-harvest-20260820`. All 116 original archives and all 116
+later archives verified. Of their 116 property-enriched descendants, 61 also needed source-metadata
+correction and used identical original archives; 23 already had correct source metadata; 32 used
+different archives and retained their own provenance. All 177 affected snapshot content hashes were
+verified, and every snapshot file remained byte-identical through the repair. Tags, index files and
+unrelated catalog tables were unchanged.
+
+The repair appended 177 `legacy` history entries carrying the restored metadata and verified archive
+references. It preserved all existing history, including the overwritten states. Retrieval times
+remain unknown; completion times come from the recorded historical ingest/creation timestamps.
+No new retrieval or upstream publication was invented.
+
+The local evidence bundle is `$CEDAR_HOME/.cedar/reports/provenance-restore-20261028/`: the immutable
+repair plan, source/byte-hash checks, guarded Python repair script, pre-repair catalog backup,
+rehearsal and concurrent-change refusal results, and `restoration-result.json`. Applying holds the
+catalog writer reservation and commits all updates and audit inserts together. It refuses a row
+that differs from the planned before-state; a repeated apply makes no changes. Preserve the bundle
+with the store backup. A plan belongs to the catalog it was checked against and must not be reused
+against a different deployment.
+
+### Catalog tag integrity
+
+A tag references a snapshot by both vocabulary acronym and version hash. Schema initialization
+detects the older `version_tag.version_id REFERENCES snapshot(version_id)` declaration and migrates
+it transactionally to the composite foreign key. It preserves tag values and row IDs, custom indexes
+and triggers, and the connection's previous foreign-key enforcement setting. Migration refuses an
+invalid source/snapshot reference or an unexpected table shape, leaving the original tag table intact.
+It does not choose another release or drop a bad reference. Repeated initialization does not rebuild
+an already-correct table. Ordinary `CatalogStore.setTag` writes also check the scoped target in the
+same SQL statement, including on connections with SQLite foreign-key enforcement disabled.
+
+The local catalog was migrated on 2026-10-28 after a backup and a full-copy rehearsal. All 1,267 tags,
+5,401 snapshot records and 5,579 ingest-history records remained unchanged. Both SQLite's integrity
+check and its full foreign-key check pass. The historical provenance-restoration report retains the
+pre-migration diagnostic; the current verification is in
+`$CEDAR_HOME/.cedar/reports/tag-foreign-key-20261028/`. A clean foreign-key check prints no rows:
+
+```bash
+sqlite3 -readonly "$CEDAR_HOME/cedar-term/catalog.sqlite" 'PRAGMA foreign_key_check;'
+```
+
+### Search index
+
 The index file carries three SQL indexes, `term_by_acronym`, `term_by_iri` and `name_by_term`, and
 `SearchIndexJob` creates all three. A file built before `term_by_iri` existed does not have it, and
 nothing reports the absence. A corpus-wide search fetches the names of a page of hits by IRI alone,
