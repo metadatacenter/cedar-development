@@ -891,7 +891,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile. Even 4.5.29, the newest release on the current line, is more than a patch. It
     replaces the Sesame 2.7.16, Semargl and `jsonld-java-sesame` parsers under all three users with
-    RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major.
+    RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major. Renovate has
+    a pull request open for 4.5.29, and it stays unmerged until that testing is done.
   - **Jedis 5.2.0 to 8.0.2.** Every release from 6.0 supports Redis 7.2 and later, so the deployed
     server can stay. The majors since 5.x removed deprecated APIs, and 7.0 also dropped
     `JedisSharding` and renamed the pipeline and transaction base classes. CEDAR uses only `Jedis`,
@@ -930,9 +931,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and
   `EmbeddedCedarMongo` is the estate's only consumer.
 
-  Logback 1.6 belongs here rather than among the upgrades to make, and SLF4J is not what holds it:
-  every 1.6 release builds against slf4j 2.0.18, which the estate already carries. Dropwizard does.
-  Raising logback to 1.6 fails before a test runs — `LogbackAccessRequestLayout` reads
+  Logback 1.6 belongs here rather than among the upgrades to make. SLF4J does not hold it back,
+  since the newest 1.6 release, 1.6.6, builds against slf4j 2.0.19 and the estate carries 2.0.20.
+  Dropwizard holds it back. Raising logback to 1.6 fails before a test runs —
+  `LogbackAccessRequestLayout` reads
   `DEFAULT_CONVERTER_MAP`, which logback 1.6 removed, so every Dropwizard-booting suite dies in a
   class initializer. `mvn test -Dlogback.version=1.6.3` in a server module reproduces it, and an
   enforcer rule in `cedar-parent` now fails the build there rather than inside a test JVM, where
@@ -955,7 +957,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   resolves one version of an artifact nothing here depends on directly, which makes these four
   nobody's choice to raise: HK2 locator 3.0.6 to 4.0.3, which follows Jersey; Jandex 2.4.5 to 3.3.1,
   which follows RESTEasy; protobuf-java 4.31.1 to 4.36.2, which follows Connector/J, the newer of
-  its two users; and Reactor Core 3.7.19 to 3.8.7, which follows OpenSearch with the Lucene pin.
+  its two users; and Reactor Core 3.7.19 to 3.8.8, which follows OpenSearch with the Lucene pin.
   Each moves to the version its owner's POM names when that owner moves. Raising one on its own
   would pin a version its owner does not expect, and the Renovate config offers none of them.
 
@@ -966,7 +968,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   parent POM's harness note anticipates.
 
   **Versions whose newest release is not a final.** These have no final to move to: HttpCore
-  5.5-beta4 and HttpClient 5.7-alpha1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta3, Angus Activation
+  5.5-beta4 and HttpClient 5.7-beta1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta3, Angus Activation
   2.1.0-M1, and the Jakarta activation and XML binding milestones. The old javax jaxb-api's only
   newer version is a 2018 build that was never finalized, so it stays too.
 
@@ -976,18 +978,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
   plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every version this item names was
-  rechecked against the published metadata on 2026-10-24, with pre-releases set aside. Read an
+  rechecked against the published metadata on 2026-10-28, with pre-releases set aside. Read an
   artifact's `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest
   release a given Maven version can actually use, before concluding that something cannot move.
 
   Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
-  blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
-  one: the artifact server's test configuration names port 9091 for every test class in the module,
-  so a class that starts before its predecessor has released the port fails to bind. Others depend
-  on timing under load, several of them in the resource server. Each shows up in one full run and
-  not the next, which makes an unrelated version look guilty, and the estate's own convention that
-  test servers sit on 19xxx ports is not in fact kept. Prefer the suites of the modules a change
-  actually touches, and treat a single red full build as a question rather than an answer.
+  blamed for it. Some suites depend on timing under load, several of them in the resource server.
+  Each shows up in one full run and not the next, which makes an unrelated version look guilty.
+  Prefer the suites of the modules a change actually touches, and treat a single red full build as
+  a question rather than an answer.
 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
