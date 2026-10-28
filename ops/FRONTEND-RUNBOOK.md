@@ -4268,8 +4268,9 @@ and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE 
 term picker `8ed2d81` and Workspace `0323655a`. On 2026-10-21 the criteria a fourth round touched
 were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and Workspace
 `bc2401e8`. On 2026-10-27 the criteria a fifth round touched, 1.4.1 and 1.4.11, were reassessed at
-CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9`. The
-assessment read code and tests. Nobody ran a
+CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9`. On 2026-10-28
+1.4.11 was reassessed again, after a sixth round, at CED `0aefc50`, CEE `f12dd0e3`, the term picker
+`080062d` and Workspace `9725e2f3`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -4317,14 +4318,21 @@ focus on a hidden control, so the failures stood at 29. The fifth round darkened
 outline to 3.2:1 and gave every state that a tint alone had marked a second cue. That moved 1.4.11
 in all four components, and 1.4.1 in CED, the term picker and Workspace, from Fails to Partial
 rather than to Met, because no test covers every boundary and every use of colour. CEE's 1.4.1
-still fails on its warnings, which differ from errors only by colour. The failures now stand at 22,
-and most of them need a visible change.
+still fails on its warnings, which differ from errors only by colour. The sixth round added a check
+of every field boundary as the browser draws it. A white field keeps its fill under its border, so
+on a panel its outline was drawn over white and seen against the panel, at 2.99:1, in CED's
+settings and the term picker's constraint details. The term picker's depth field also drew its
+border in the rule colour, at 1.24:1. The outline darkened to 0.45 and the depth field took it, so
+every boundary now measures at least 3:1 as drawn. 1.4.11 stays Partial, because icons, the focus
+ring and selection marks are still measured as token pairs rather than as drawn. The failures now
+stand at 22, and most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
 has measured fails the gate. Each suite also runs `layout-resilience.spec`, one method in all four:
 reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text spacing at 1280 pixels,
-and the contrast of every placeholder. A finding that needs a visible change is recorded in the
+the contrast of every placeholder, and the contrast of every field boundary against what lies
+outside it. A finding that needs a visible change is recorded in the
 spec as a named exception, and an exception that stops occurring fails it.
 
 ### Failures Several Components Share
@@ -4334,7 +4342,8 @@ CEE's read-only link-out icon and the term picker's tree twists, tree terms and 
 fall under WCAG 2.2's minimum target (2.5.8).
 
 Two others had shared causes, and each was fixed where its cause lives. Text inputs draw their
-boundary in `control-border-default`, which now measures 3.2:1 on white. A selection tint of about
+boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
+field sits on a panel. A selection tint of about
 1.2:1 is never a selection's only mark. A selected item takes `patterns.selected-outline` or, where
 the focus ring needs the outline, `patterns.selected-frame`. CEE's calendar gives the focused date
 the focus ring, and CED's errored settings tab carries the warning icon.
