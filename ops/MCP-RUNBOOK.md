@@ -98,8 +98,8 @@ terminology and bridge services the fields themselves call.
 Two lines in `pom.xml` pin it:
 
 ```xml
-<cee.version>2.0.25</cee.version>
-<cee.sha256>0821ebe422cfde9db3c07a96c7e1a80e9edcaafb0774ec4d38b57e9f95f2bc8d</cee.sha256>
+<cee.version>2.0.30</cee.version>
+<cee.sha256>87ec2da47f8efa70bd7d8b7fa8d05a8126ac807a21f878fd098607b0284ce3d6</cee.sha256>
 ```
 
 The hash is the bundle's own, from the package's `bundle-manifest.json`, and the build refuses a
@@ -162,10 +162,13 @@ The MCP SDK validates tool schemas with `json-schema-validator` 3.x, and loads i
 none of the classes the SDK wants: the server dies on its first `build()` with
 `NoClassDefFoundError: com/networknt/schema/dialect/Dialects`.
 
-`cedar-artifact-rest-mcp` and `cedar-cee-mcp` declare 3.0.0 and are done with it. `cedar-artifact-mcp`
-cannot: `CedarValidator`, from `cedar-model-validation-library`, calls `com.networknt.schema.Format`,
-which 2.0.0 removed, and one classpath cannot hold both. It supplies the MCP server its own
-validator built on the 1.x release already present, so the SDK never asks for one.
+`cedar-artifact-rest-mcp` and `cedar-cee-mcp` declare a 3.x release and are done with it.
+`cedar-artifact-mcp` cannot: `CedarValidator`, from `cedar-model-validation-library`, calls
+`com.networknt.schema.Format`, which 2.0.0 removed, and one classpath cannot hold both. It supplies
+the MCP server its own validator built on the 1.x release already present, so the SDK never asks
+for one. That validator does what the SDK's default does: it checks every tool's input schema
+against JSON Schema 2020-12 when the server starts, and every call's arguments against that schema
+before the handler runs.
 
 The symptom to recognize: a jar that built cleanly and exits immediately on startup. Read the
 server's stderr — the client hides it.

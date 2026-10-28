@@ -46,7 +46,7 @@ jobs:
           path: controller
 
       - name: Set up Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
@@ -123,7 +123,7 @@ jobs:
           path: controller
 
       - name: Set up Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
@@ -165,7 +165,7 @@ jobs:
         run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind maven --workspace "$TRAIN_WORKSPACE")" >> "$GITHUB_OUTPUT"
 
       - name: Cache third-party Maven downloads
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/cedar-maven-dependencies
           key: train-maven-v1-${{ runner.os }}-${{ runner.arch }}-java17-${{ steps.dependency-key.outputs.value }}
@@ -265,7 +265,7 @@ jobs:
         run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
 
       - name: Cache downloaded npm packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.npm/_cacache
           key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-model-${{ steps.dependency-key.outputs.value }}
@@ -354,7 +354,7 @@ jobs:
         run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
 
       - name: Cache downloaded npm packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.npm/_cacache
           key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-cee-${{ steps.dependency-key.outputs.value }}
@@ -431,7 +431,7 @@ jobs:
         run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
 
       - name: Cache downloaded npm packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.npm/_cacache
           key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-picker-${{ steps.dependency-key.outputs.value }}
@@ -513,7 +513,7 @@ jobs:
         run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
 
       - name: Cache downloaded npm packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.npm/_cacache
           key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-frontends-${{ steps.dependency-key.outputs.value }}

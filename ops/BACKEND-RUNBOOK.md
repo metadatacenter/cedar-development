@@ -4780,7 +4780,9 @@ what failed, the publication needs repeating rather than the source.
 
 ### Automated Dependency Updates
 
-The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. The hosted
+The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. Every other
+Java repository and the three Java MCP servers carry a configuration for it as well, which does
+nothing until an organization owner adds those repositories to the app's repository access. The hosted
 app reads its configuration from the default branch, `main`, while `baseBranchPatterns` is set to
 `develop`, so Renovate branches and pull requests must target `develop`, never `main`. A config
 change is committed to `develop` like any other change and reaches `main` with the next release.
@@ -4796,6 +4798,24 @@ EE 10 lines, Logback below 1.6 and logback-access below 2.0.14, Netty on 4.1, em
 carry another artifact's choice: Lucene and reactor-core follow OpenSearch, hk2-locator follows
 Jersey, Jandex follows RESTEasy and protobuf-java follows Connector/J. Nor does it offer the MariaDB
 test binaries, whose single version property has to exist for three platforms. Those move by hand.
+
+What the backend repositories have in common is one preset, `renovate-backend.json` in
+`cedar-parent`: review-only pull requests against `develop` after the release age, majors behind
+approval, Maven lookups through the Nexus proxy, no move of an internal CEDAR version, and the Java
+17 hold. It also keeps the Maven wrapper behind approval, because moving Maven is one change across
+every repository, and groups a repository's workflow action updates into one pull request. Each
+repository's `renovate.json`, the parent's included, extends it as
+`local>metadatacenter/cedar-parent:renovate-backend` and adds only its own rules. A repository that
+inherits the parent declares no third-party version, so Renovate finds only its workflow actions
+and Maven wrapper there.
+
+The MCP servers build outside the parent and work on `main`, so their configurations set `main` as
+the base branch and watch the Maven versions each server declares. They look up
+`cedar-artifact-library` in the BMIR Nexus releases repository, which the proxy does not serve.
+That lookup reads the repository's `maven-metadata.xml`, which on 2026-10-28 listed nothing after
+2.9.2 for any CEDAR artifact, last rebuilt on 2026-08-22, although every release since is deployed
+beside it. Until Nexus rebuilds that metadata, Renovate offers no library update, and any tool that
+asks the repository for its newest CEDAR release gets 2.9.2.
 
 `cedar-docker-build` watches the locked server variables in `bin/cedar-images-base.sh` through its
 custom manager as well as ordinary Dockerfile and Actions references. It groups the locked server
