@@ -2319,14 +2319,29 @@ npm run update:visual
 npm run test:visual:prebuilt
 ```
 
-Compare with the committed image when a change is unexplained:
+A shared change, such as a token value, can re-record a hundred images at once, and a small
+unrelated difference among them is easy to miss by eye. After re-recording, and before committing,
+run the review tool from the repository root:
 
 ```bash
-git show HEAD:visual/tests/render.spec.ts-snapshots/07-timezone-desktop-linux.png > /tmp/old.png
+node $CEDAR_HOME/cedar-development/ops/review-visual-baselines.mjs --crops /tmp/baseline-crops .
 ```
 
-Inspect each changed region. Do not accept unrelated differences merely because regeneration
-produced a passing comparison.
+It works the same way in CEE, CED, CETP and Workspace. The tool compares every changed PNG in the
+working tree with the committed version, or with the revision that `--base` names, and sorts the
+images into groups. A tone shift is a change in which neutral pixels are only drawn darker, or only
+drawn lighter. Images with any other change come first, as mixed changes, each listed with the
+region that holds most of its colour changes. Images whose only change is a tone shift follow. A
+colour change found in more than one image is listed once at the top. A token change that darkens
+an outline therefore appears as a few colour changes at the top and a long list of tone shifts
+below, and an image it does not explain appears among the mixed changes.
+
+With `--crops`, the tool writes an enlarged crop of the first three regions of each image. Each
+crop shows the region three ways: as committed, as re-recorded, and faded with the changed pixels in
+magenta. `--json` prints the
+same findings for a script. The tool narrows the review without replacing it. Look at every mixed
+change and at one image of each tone shift, and do not accept an unrelated difference merely
+because regeneration produced a passing comparison.
 
 A dependency patch can move baselines too. Angular Material 22.2.3 doubled the block margin of
 every chip in a chip set and gave each chip a 48px touch target, which made each occurrence pager
