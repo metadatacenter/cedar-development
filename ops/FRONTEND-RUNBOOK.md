@@ -4356,9 +4356,9 @@ The layout check's failures are each a component's own: CED's narrow layouts, CE
 RRID instructions cut short at 320 pixels and its long read-only values cut short at 320 pixels, at
 200% zoom and under text spacing, the term picker's release history at 320 pixels and its truncated
 lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are
-open work on the
-[frontend roadmap](FRONTEND-ROADMAP.md) and, for the term picker, the
-[versioning roadmap](VERSIONING-ROADMAP.md).
+open work in the
+[frontend roadmap's accessibility items](FRONTEND-ROADMAP.md#accessibility), the term picker's
+included.
 
 ### By Criterion
 
