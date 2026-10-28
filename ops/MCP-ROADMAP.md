@@ -168,15 +168,11 @@ by name in commits.
 
 ## cedar-cee-mcp
 
-- **14. Load the Material Symbols font in the host page.** The CEE's icon ligatures render as their
-  own text — `more_vert`, `unfold_more` — because the host page does not load the font. Add the
-  font link, or establish which face the pinned CEE version expects.
-
-- **15. Serve successive calls from one persistent browser tab.** A single tab receiving show and
+- **14. Serve successive calls from one persistent browser tab.** A single tab receiving show and
   fill calls over SSE or polling, in place of a tab per session, would suit repeated
   demonstrations. Tab-per-call is adequate meanwhile, so this waits on the ergonomics mattering.
 
-- **16. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
+- **15. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
   resources would put the editor in the conversation. Revisit when client support is broad and the
   sandbox and CSP story accommodates a 2 MB component bundle that needs network access to the
   terminology service. The localhost-tab approach works in every client today, terminal ones
@@ -184,7 +180,7 @@ by name in commits.
 
 ## bioportal-term-mcp
 
-- **17. Polish the BioPortal client.** Four independent changes, none urgent:
+- **16. Polish the BioPortal client.** Four independent changes, none urgent:
 
   - Cache results. Every tool calls BioPortal on every invocation, so one ontology looked up five
     times in a session costs five HTTP calls. A TTL cache in `_bioportal_get` fixes that
@@ -195,7 +191,7 @@ by name in commits.
     caller needs the second.
   - Go async, but only once latency becomes a real concern. It has not.
 
-- **18. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
+- **17. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
   string relevance and `find_ontology` by acronym and name overlap. Both surface candidates and
   neither judges which term fits a field, so several related terms searched one at a time can each
   land in whichever ontology matched lexically rather than in one coherent set. Choosing well —
