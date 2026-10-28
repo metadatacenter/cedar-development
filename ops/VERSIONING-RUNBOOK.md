@@ -537,55 +537,84 @@ cannot be pinned in this store.
 ## Moving the Store to Another Host
 
 A staging or production host that serves the picker needs only the parts of the store that answer
-requests, about 59 GB. Ingest can stay on the workstation that keeps the originals, and the serving
-host then receives copies of the files it writes. Put the copy on a data volume with room to grow,
-not on a small system partition. On app-05, `/var` is 4 GB.
+requests. Ingest can stay on the workstation that keeps the originals, and the serving host then
+receives copies of the files it writes. Give every host the same copy. A version identifier is a
+hash of its snapshot's content, so a pin recorded on one host resolves on every host that holds the
+same snapshot. Hosts that ingest separately can hold different snapshots and tag different ones
+`latest`.
+
+On 2026-10-28 the serving set was 61 GB: 5,401 catalogued snapshots totalling 50.9 GB, a 9.7 GB
+search index and a 4.5 MB catalog. The catalogued snapshots had grown by 3.5 GB since 2026-10-07.
+Put the copy on a data volume with room to grow, not on a small system partition. On app-05, `/var`
+is 4 GB. A later copy writes each changed file in full beside the old one before replacing it, so
+updating the index takes a further 10 GB while it runs. Plan for at least 75 GB free.
+
+On the workstation the store is `$CEDAR_HOME/cedar-term/prod`, where `prod` separates the served
+store from the trial stores, logs and scripts kept beside it in `$CEDAR_HOME/cedar-term`. A serving
+host keeps nothing else there, so it needs no such level. Use `$CEDAR_HOME/cedar-term` itself, which
+is `/srv/cedar/cedar-term` on the staging and production hosts. `<store>` below names that
+directory.
 
 Copy only what the catalog records, while no ingest or index job runs, since both write the store.
-The snapshot files go first and the catalog and index last, so the host's catalog never records a
-file the host lacks. Build the file list beside the store, because `/tmp` is swept:
+The store uses SQLite's rollback journal, so an unfinished write leaves a file ending in
+`.sqlite-journal` beside the database it writes, never a `-wal` file. Wait for a running job to
+finish. An interrupted job leaves the same file behind, and rerunning the job is the repair, as
+[Publication, interruption and cleanup](#publication-interruption-and-cleanup) describes. A
+`.sqlite.tmp-journal` belongs to an ingest's private working file, which is never copied.
+
+Confirm too that the index is current before copying it. An index built before 2026-08-25 lacks two
+columns that the server adds on startup. A serving host opens the index read-only and cannot add
+them, so corpus-wide search starts off there. A current index prints 2.
+
+Then build the list of files to copy and a manifest of their checksums. Keep both beside the store,
+because `/tmp` is swept. `shasum` reports any snapshot the catalog records and the workstation
+lacks. On 2026-10-07 the catalog recorded two FBBI snapshots, one of them `latest`, that were not
+on disk.
 
 ```bash
 cd $CEDAR_HOME/cedar-term/prod
-sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" > serving-snapshots.txt
-rsync -a --files-from=serving-snapshots.txt . <host>:<store>/
-rsync -a catalog.sqlite search-index.sqlite <host>:<store>/
-```
-
-`<store>` is the directory the host's settings name. A `catalog.sqlite-wal` or
-`search-index.sqlite-wal` beside either file means a writer has not finished, so wait for it rather
-than copy. The originals and the working copies never go to the serving host.
-
-Before serving from the copy, confirm that every snapshot the catalog records is present. A file
-can be missing at the source too. On 2026-10-07 the workstation's catalog recorded two FBBI
-snapshots, one of them `latest`, that were not on disk.
-
-```bash
-cd <store>
-sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" |
-  while read -r p; do [ -e "$p" ] || echo "missing: $p"; done
-```
-
-Confirm too that the host's search index is current, before a terminology server that opens it
-read-only first serves from it. That includes a host that already holds a store from an earlier
-copy. An index built before 2026-08-25 lacks two columns the server adds on startup, and a read-only
-open cannot add them, so corpus-wide search starts off. A current index prints 2:
-
-```bash
+find . -name '*.sqlite-journal'
 sqlite3 -readonly search-index.sqlite \
   "SELECT (SELECT count(*) FROM pragma_table_info('term') WHERE name = 'definition')
         + (SELECT count(*) FROM pragma_table_info('name') WHERE name = 'ont')"
+sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" > serving-snapshots.txt
+{ cat serving-snapshots.txt; echo catalog.sqlite; echo search-index.sqlite; } |
+  tr '\n' '\0' | xargs -0 shasum -a 256 > serving-manifest.sha256
 ```
 
-Name the store in the host's `set-env-internal.sh`. `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` lists the
-ontologies the host searches locally. Copy the workstation's value from its profile unless the host
-should serve fewer.
+The snapshot files go first and the catalog, index and manifest last, so the host's catalog never
+records a file the host lacks. `--partial-dir` keeps a partly sent file apart from the file it will
+replace. An interrupted copy then leaves the host's file intact, and a rerun does not send the
+arrived part again. Plain `--partial` would leave the truncated file in place of a good one. The
+originals and the working copies never go to the serving host.
 
 ```bash
-export CEDAR_TERMINOLOGY_STORE_CATALOG="<store>/catalog.sqlite"
-export CEDAR_TERMINOLOGY_STORE_INDEX="<store>/search-index.sqlite"
-export CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES="<the workstation's list>"
+rsync -a --partial-dir=.rsync-partial --files-from=serving-snapshots.txt . <host>:<store>/
+rsync -a --partial-dir=.rsync-partial catalog.sqlite search-index.sqlite serving-manifest.sha256 <host>:<store>/
 ```
+
+Before serving from the copy, check it against the manifest on the host. The check prints nothing
+when every file matches the workstation's, and names each file that is missing or differs.
+
+```bash
+cd <store>
+sha256sum --quiet -c serving-manifest.sha256
+```
+
+Name the store in the host's `set-env-internal.sh` only once that check passes. The server does not
+check that the catalog exists. A path into a directory that holds no catalog makes SQLite create an
+empty one, and the server then reports the store enabled while serving nothing from it.
+
+```bash
+export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/catalog.sqlite"
+export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/search-index.sqlite"
+```
+
+The host's file sets only these paths. `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` and
+`CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES`, which select the ontologies the store answers for, are
+declared once for every environment in
+[`bin/util/set-env-generic.sh`](../bin/util/set-env-generic.sh). The profile sources that file after
+`set-env-internal.sh`, so a list set on the host would be overwritten.
 
 Re-source the environment, restart the terminology server, and confirm the store from the startup
 log as [Serving the Store](#serving-the-store) shows. Then ask for a search. A host without a
@@ -597,8 +626,9 @@ curl -s -X POST http://localhost:9004/search -H 'Content-Type: application/json'
   -d '{"query":"melanoma"}' | head -c 300
 ```
 
-After a later ingest, repeat the copy in the same order and restart the terminology server. `rsync`
-replaces each file it updates, and a running server keeps reading the file it opened.
+After a later ingest, repeat the whole procedure in the same order, manifest included, and restart
+the terminology server. `rsync` replaces each file it updates, and a running server keeps reading
+the files it opened until it restarts.
 
 ## What a Lookup Costs
 
