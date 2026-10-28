@@ -168,58 +168,92 @@ either format. The description below is additive terminology API JSON, not a new
 a requirement to embed presentation metadata in each template. The optional ingestion profile is
 currently read as JSON (`--presentation`); YAML input for that operator profile is not implemented.
 
-`GET /resources/description` describes one resource without expanding a constraint or changing a
-selection. Its reference names `kind` (`term`, `branch`, `valueSet`, `vocabulary`, or `property`),
-`sourceSystem`, `sourceAcronym`, optional canonical `sourceIri`, `resourceIri`, and optional
-`versionId`; `language` requests a label language. The version-aware search hits and hierarchy
-responses carry the same `resource` description. Source blocks also supply `authorityLabel`, so
-consumers need no provider-name table.
+`POST /resources/description` resolves one reference without expanding a constraint or changing a
+selection. The request uses CEDAR's existing constraint names: `type` (`class`, `branch`, `ontology`,
+`valueSet`, or `property`), `sourceAcronym`, optional `sourceSystem` and canonical `sourceIri`,
+`termIri` for a class/property or `termBaseIri` for a branch/value set, and optional `version`.
+A version is the existing object with `id` and optional `effectiveDate`/`declaredVersion`, or
+`"latest"`. Ontology references have no term field. Source and term IRIs retain their original spelling,
+including Unicode. This is a reference to a constraint, not a second
+artifact model; labels, depth and other selection rules remain in the existing CEDAR constraints.
 
-The response separates the reference from its label, description, availability/deprecation status,
-replacement identifier, public `links`, and small capability list (`search`, `members`, `hierarchy`,
-`versions`). A link has `rel`, `href`, `label` and `versionScope` (`current` or `exact`). The optional
-`icon` is a presentation hint; clients use their existing generic external-link icon for unfamiliar
-hints. A resource identifier is not assumed to be a web page. Missing pages produce an empty link
-list, and an unavailable exact version produces no link or substitution to latest. An unpinned
-legacy BioPortal reference outside the local store can receive an explicitly `unverified` public
-link; this is not evidence of term membership or remote availability.
+The response has exactly `constraint` (the resolved reference) and `presentation`. Search hits,
+source blocks and hierarchy entries already carry their identity, so they carry `presentation`
+directly. Source blocks retain `authorityLabel` for their existing repository display.
 
-Adapters supply `SourcePresentation` during ingestion. The profile is stored as
-`resource_presentation_v1` in the snapshot metadata and is excluded from the semantic content hash:
-correcting a public URL must not mint a new vocabulary release. BioPortal and EPA adapters provide
-profiles; other sources can implement the same hook or pass `--presentation <file.json>` to
-`IngestJob`. For example, a new registry using the existing term and set interactions can supply:
+**Every provider uses the same closed presentation object with at most four keys:**
+
+```json
+{
+  "href": "https://comptox.epa.gov/dashboard/chemical/details/DTXSID8031865",
+  "label": "EPA CompTox",
+  "versionScope": "current"
+}
+```
+
+`href` is the public landing page, `label` names the link, and `versionScope` is `current` or `exact`.
+Those three keys are required together. The optional `icon` is a shared rendering hint (`bioportal`
+or `external`); it preserves the existing icon treatment and does not select provider-specific
+behavior. New providers use the generic external icon. An empty object `{}` means no known public
+page. No arbitrary keys, provider subobjects, capabilities, status, or duplicate identity are allowed
+inside presentation. New keywords require a change to the shared contract for every consumer.
+A pinned constraint may link to a provider's current web page; `versionScope` describes the page,
+not a change to the selected release. Missing sources, resources or exact pins return normal CEDAR
+HTTP 404 errors, invalid references return 400, and no missing pin is substituted with latest.
+Optional search enrichment leaves presentation empty when no page can be resolved. Unpinned legacy
+BioPortal references outside the store retain their public-link convention; the link does not
+assert membership or remote availability.
+
+The canonical JSON Schema is
+`cedar-terminology-server-core/src/main/resources/contracts/terminology-presentation.schema.json`
+in `cedar-terminology-server`. The endpoint validates requests against it; contract tests validate
+serialized responses and reject extension keys. Both CEE and CETP use types generated from this
+same schema, not independently maintained DTOs. Regenerate or check them from `$CEDAR_HOME`:
+
+```bash
+python3 cedar-terminology-server/tools/generate-presentation-types.py \
+  cedar-embeddable-editor/src/app/modules/shared/models/generated/terminology-presentation.ts \
+  cedar-embeddable-term-picker/src/app/search/generated/terminology-presentation.ts
+# Add --check to verify that both copies match the canonical schema.
+```
+
+Adapters supply `SourcePresentation` during ingestion. This internal link-template configuration
+is distinct from the public presentation block. It is stored as `resource_presentation_v1` in
+snapshot metadata and excluded from the semantic content hash: correcting a public URL must not
+mint a vocabulary release. BioPortal and EPA adapters provide profiles; other sources can implement
+the same hook or pass `--presentation <file.json>` to `IngestJob`. For example:
 
 ```json
 {
   "sourceSystem": "example-registry",
   "authorityLabel": "Example Registry",
   "links": {
-    "term": [{"rel":"landing","href":"https://registry.example/record?iri={resourceIri}","label":"Example Registry","versionScope":"current"}]
+    "class": [{"rel":"landing","href":"https://registry.example/record?iri={termIri}","label":"Example Registry","versionScope":"current"}]
   },
   "resourceLinks": {
     "urn:example:set:one": [{"rel":"landing","href":"https://registry.example/lists/one","label":"Example Registry","versionScope":"current"}]
-  },
-  "capabilities": {"term":["versions"],"valueSet":["search","members","versions"]}
+  }
 }
 ```
 
-The backend expands `{sourceAcronym}`, `{resourceIri}` and `{versionId}` as URL-encoded components;
-`{resourceIriRaw}` is available when an adapter explicitly declares that the identifier is its public
-page. It emits only absolute HTTP(S) links without embedded credentials. Per-resource overrides
-win over kind defaults, including an explicitly empty list. Profiles describe public pages, not API
-endpoints or credentials. Older snapshots without profiles retain the legacy BioPortal compatibility
-profile; newly ingested unfamiliar sources do not inherit BioPortal link conventions.
+The backend expands `{sourceAcronym}`, `{sourceIri}` (ontology pages), `{termIri}`, `{termBaseIri}`
+and `{version.id}` as URL-encoded components. `{termIriRaw}` is available when an adapter explicitly
+declares that the identifier is its public page. It emits only absolute HTTP(S) links without
+embedded credentials, encoding international page paths for transport. Per-resource overrides win over type defaults, including an explicitly empty
+list; the first valid landing pattern supplies the single public page. Profiles contain public page
+configuration, not API endpoints or credentials. Earlier profile names and placeholders are read
+compatibly inside the backend; they do not cross the public contract. Older snapshots without
+profiles retain the legacy BioPortal compatibility profile; newly ingested unfamiliar sources do
+not inherit BioPortal link conventions.
 
-CEE uses the descriptions in its existing specification and selected-value link slots. It retains
+CEE uses the presentation in its existing specification and selected-value link slots. It retains
 stored labels while resolving, tolerates absent metadata, and forwards source identity and exact
 pins. The basic resolver coalesces identical in-flight reads and keeps a bounded in-memory cache;
-the batch API, language-aware refresh policy and cross-surface invalidation are still proposed in
-the roadmap. No link metadata is copied into template constraints or instance identifiers. Multiple
-selected sets remain separate references and separate public links; integrated search computes and
-deduplicates their union. A new provider using the supported interactions requires ingestion or
-configuration, not a provider-specific frontend change. A new interaction requires an explicit
-shared frontend capability.
+batch resolution and cross-surface invalidation remain proposed in the roadmap. No presentation
+metadata is copied into template constraints or instance identifiers. Multiple selected sets remain
+separate references and separate public links; integrated search computes and deduplicates their
+union. A new provider using supported interactions requires ingestion or configuration. A new
+interaction requires an explicitly agreed shared frontend enhancement.
 
 ### Targeted EPA PFAS value sets
 

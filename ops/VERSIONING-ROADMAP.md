@@ -1139,26 +1139,40 @@ here can be finished without the component being finished first.
 
 ### Shared resource resolution
 
-- **35. Batch descriptions when reopening artifacts.** Add `POST /resources/describe` over the shared
-    resource-description contract. Accept a bounded array of references plus client correlation keys;
-    each reference carries its kind, source system/canonical identity, resource IRI, optional exact
-    version, and requested language. Return one independent result per key, including the resolved
-    version, descriptor, and explicit missing-source, missing-resource, missing-version or inaccessible
-    status. One bad reference must not discard the others. Description is not membership validation,
+- **35. Unify resource references with the CEDAR constraint vocabulary.** Reuse the existing YAML
+    `values` entries and their `type`, source identity, term identity, labels, version and selection
+    rules across the model and terminology API. A resource lookup may project the identity it needs,
+    but must not establish a second constraint model. Keep Java and TypeScript readers, writers and
+    validation aligned, and preserve existing artifact JSON and YAML compatibility.
+
+    The new information is a declared human-facing landing page: a term, branch, value set or source
+    identifier does not by itself identify that page. Define one minimal, provider-independent link
+    shape for all of them. `links.landing` is a candidate, not an implemented artifact keyword.
+    Distinguish a page for the selected release from a provider's current page as link-target
+    semantics; versioning does not belong in presentation. Reassess duplicate labels and cosmetic
+    icon hints before adding model keywords. Keep supported frontend interactions shared across
+    providers, with new sources supplied through adapters or ingestion configuration.
+
+- **36. Batch descriptions when reopening artifacts.** Add `POST /resources/describe` over the shared
+    constraint-reference and presentation contract. Accept a bounded array of references plus client
+    correlation keys; use the same `type`, source, `termIri`/`termBaseIri` and `version` keys as the
+    single-resource endpoint. Return one independent result per key, with either its resolved
+    constraint and generic presentation or a normal CEDAR error. Do not add errors or provider
+    extensions inside the presentation block. One bad reference must not discard the others.
+    Description is not membership validation,
     and resolving a label must never alter the saved constraint, selected value, or published pin.
 
     Gather references from the current visible editor view, deduplicate, and issue one bounded request
     rather than one request per field. Reuse the same descriptors and renderer for search, hierarchy,
-    defaults, selected values, specification sources and reopened artifacts. Ignore unsupported
-    capabilities rather than exposing speculative controls. For two selected sets, resolve two
-    descriptors; a field's union is not a third resource with an invented landing page.
+    defaults, selected values, specification sources and reopened artifacts. For two selected sets,
+    resolve two descriptors; a field's union is not a third resource with an invented landing page.
     Reconstruct source and version context from the existing template constraints when an instance
     carries only an identifier and label. If several providers or pins could describe that identifier,
     preserve the ambiguity rather than silently choosing the first; this does not justify adding
     presentation fields to the instance format.
 
     Cache by deployment and access context as well as kind, canonical source identity, resource IRI,
-    exact resolved version and language. Immutable pinned content may live longer than unpinned
+    exact resolved version. Immutable pinned content may live longer than unpinned
     latest results, but public URLs and access rules need their own revision/ETag and revalidation.
     Keep transient failures short-lived; clear relevant entries on host/account changes and ingest
     refresh. Do not share licensed or private descriptions across users. Bound both batch size and
@@ -1169,8 +1183,8 @@ here can be finished without the component being finished first.
     page for the exact release and a provider's current page through the existing link affordance,
     without adding routine dialogs or per-provider controls. A CEDAR-hosted fallback landing page is
     a separate decision, not a prerequisite for batch resolution. Validate the design with mixed
-    providers, different pins of one source, offline reopen, partial failures, language changes and
-    stale responses. Current single-resource operation and ingest profiles are described in
+    providers, different pins of one source, offline reopen, partial failures and stale responses.
+    Current single-resource operation and ingest profiles are described in
     [the runbook](./VERSIONING-RUNBOOK.md#resource-descriptions-and-public-links).
 
 ## The Search API
