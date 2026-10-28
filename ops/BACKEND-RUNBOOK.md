@@ -4811,11 +4811,13 @@ and Maven wrapper there.
 
 The MCP servers build outside the parent and work on `main`, so their configurations set `main` as
 the base branch and watch the Maven versions each server declares. They look up
-`cedar-artifact-library` in the BMIR Nexus releases repository, which the proxy does not serve.
-That lookup reads the repository's `maven-metadata.xml`, which on 2026-10-28 listed nothing after
-2.9.2 for any CEDAR artifact, last rebuilt on 2026-08-22, although every release since is deployed
-beside it. Until Nexus rebuilds that metadata, Renovate offers no library update, and any tool that
-asks the repository for its newest CEDAR release gets 2.9.2.
+`cedar-artifact-library` in the BMIR Nexus releases repository, where every CEDAR release is
+deployed. The proxy holds only the CEDAR releases on Maven Central, the newest of which is 2.9.19.
+The lookup reads the releases repository's `maven-metadata.xml`. On 2026-10-28 that file, last
+written on 2026-08-22, listed nothing after 2.9.2 for any of the five CEDAR artifacts checked,
+although every release since is deployed beside it. Until that metadata is rebuilt, Renovate offers
+no library update, and any tool that asks the releases repository for its newest CEDAR release gets
+2.9.2.
 
 `cedar-docker-build` watches the locked server variables in `bin/cedar-images-base.sh` through its
 custom manager as well as ordinary Dockerfile and Actions references. It groups the locked server
