@@ -7271,7 +7271,7 @@ before running either differ and points to `$TERM_REPORT_DIR/term-gate-instance.
 `cedar_term_gate.sh record` re-records the BioPortal goldens (drift refresh) from a BioPortal-proxy
 instance — run it on a cadence (BioPortal content drifts; ours is pinned), monthly is ample given the
 measured ~0.03%/day, additive pace of change. Paths default to
-`$CEDAR_HOME/cedar-term/{prod/catalog.sqlite,goldens,goldens_roots,matrix.jsonl}`; override with
+`$CEDAR_HOME/cedar-term/{catalog.sqlite,goldens,goldens_roots,matrix.jsonl}`; override with
 `TERM_*` env vars.
 
 Cutover is **per-endpoint**, set from the profile and injected by `cedar-services.sh` (unset the vars

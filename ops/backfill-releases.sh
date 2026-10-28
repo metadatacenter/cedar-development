@@ -19,15 +19,15 @@
 
 set -u
 PLAN="${1:?usage: backfill-releases.sh <plan.tsv> [logdir]}"
-LOGDIR="${2:-$CEDAR_HOME/cedar-term/prod/logs/backfill-$(date +%Y%m%d-%H%M%S)}"
+LOGDIR="${2:-$CEDAR_HOME/cedar-term/logs/backfill-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$LOGDIR"
 
-CATALOG="$CEDAR_HOME/cedar-term/prod/catalog.sqlite"
-SNAPSHOTS="$CEDAR_HOME/cedar-term/prod/snapshots"
+CATALOG="$CEDAR_HOME/cedar-term/catalog.sqlite"
+SNAPSHOTS="$CEDAR_HOME/cedar-term/snapshots"
 # The runtime classpath, kept beside the store rather than in /tmp, which is swept: a missing
 # file leaves only the classes directory and every ingest dies on NoClassDefFoundError in
 # under a second, which reads as a thousand failures rather than as one missing file.
-CPFILE="$CEDAR_HOME/cedar-term/prod/ingest-cp.txt"
+CPFILE="$CEDAR_HOME/cedar-term/ingest-cp.txt"
 [ -s "$CPFILE" ] || { echo "no classpath at $CPFILE — run mvn dependency:build-classpath" >&2; exit 2; }
 CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat "$CPFILE")"
 RESULTS="$LOGDIR/results.tsv"
@@ -61,7 +61,7 @@ echo "ingest done: $(grep -c 'ok' "$RESULTS") ok, $(grep -c failed "$RESULTS") f
 # The index is derived, so it is rebuilt for whatever was touched rather than in whole.
 ACR=$(cut -f1 "$RESULTS" | sort -u | paste -sd, -)
 java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
-    "$CATALOG" "$CEDAR_HOME/cedar-term/prod/search-index.sqlite" --acronyms "$ACR" --force \
+    "$CATALOG" "$CEDAR_HOME/cedar-term/search-index.sqlite" --acronyms "$ACR" --force \
     > "$LOGDIR/index-rebuild.log" 2>&1
 echo "index rebuild: $? — $(tail -1 "$LOGDIR/index-rebuild.log")"
 echo "results: $RESULTS"

@@ -43,7 +43,7 @@ Use a genuinely permitted term when a journey expects all quality findings to cl
 
 ## The Store
 
-The store is `$CEDAR_HOME/cedar-term/prod`. Three parts of it answer requests:
+The store is `$CEDAR_HOME/cedar-term`. Three parts of it answer requests:
 
 - `catalog.sqlite` — every ontology the store knows, every snapshot of each, and the `latest` tag.
 - `search-index.sqlite` — the cross-snapshot full-text index, one current version an ontology,
@@ -79,7 +79,7 @@ Delete the working copies while no ingest is running. The command removes a work
 its original is beside it:
 
 ```bash
-find $CEDAR_HOME/cedar-term/prod/snapshots -path '*/raw/*' -type f -name '*.expanded*' \
+find $CEDAR_HOME/cedar-term/snapshots -path '*/raw/*' -type f -name '*.expanded*' \
   -exec sh -c 'for f; do [ -e "${f%%.expanded*}" ] && rm -- "$f"; done' sh {} +
 ```
 
@@ -96,9 +96,9 @@ seconds to 1.8 seconds. Confirm a store has it, and add it to one that predates 
 terminology server stopped. Building it takes a few seconds and about 0.8 GB.
 
 ```bash
-sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/search-index.sqlite \
   "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='term';"
-sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/search-index.sqlite \
   "CREATE INDEX IF NOT EXISTS term_by_iri ON term(iri);"
 ```
 
@@ -114,7 +114,7 @@ host that serves it:
 
 ```bash
 java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite --force
+    $CEDAR_HOME/cedar-term/catalog.sqlite $CEDAR_HOME/cedar-term/search-index.sqlite --force
 ```
 
 A snapshot's identity is a content hash over its own concepts, labels and edges, so correcting a
@@ -124,7 +124,7 @@ catalogued snapshots are named something other than their `version_id`, written 
 rule, and the catalog's `file_path` is what resolves a snapshot.
 
 ```bash
-sqlite3 $CEDAR_HOME/cedar-term/prod/catalog.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/catalog.sqlite \
   "SELECT n AS releases, COUNT(*) AS ontologies
      FROM (SELECT acronym, COUNT(*) n FROM snapshot GROUP BY acronym)
     GROUP BY n ORDER BY n;"
@@ -140,7 +140,7 @@ in `/tmp`, which is swept:
 cd $CEDAR_HOME/cedar-terminology-server
 mvn -q -pl cedar-terminology-server-ingest -am install -DskipTests
 mvn -pl cedar-terminology-server-ingest dependency:build-classpath \
-    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/prod/ingest-cp.txt -DincludeScope=runtime
+    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/ingest-cp.txt -DincludeScope=runtime
 ```
 
 A missing classpath file leaves only the classes directory, and every ingest then dies on
@@ -148,10 +148,10 @@ A missing classpath file leaves only the classes directory, and every ingest the
 missing file. The drivers below refuse to start without it.
 
 ```bash
-CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat $CEDAR_HOME/cedar-term/prod/ingest-cp.txt)"
+CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat $CEDAR_HOME/cedar-term/ingest-cp.txt)"
 BIOPORTAL_API_KEY=$CEDAR_BIOPORTAL_API_KEY java -Xmx10g -cp "$CP" \
     org.metadatacenter.terms.ingest.IngestJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/snapshots DOID
+    $CEDAR_HOME/cedar-term/catalog.sqlite $CEDAR_HOME/cedar-term/snapshots DOID
 ```
 
 `--submission <id>` takes one named release rather than the current one, `--all` takes every release
@@ -284,11 +284,11 @@ After building the ingester and its classpath above, source the normal native pr
 
 ```bash
 java -cp "$CP" org.metadatacenter.terms.ingest.IngestJob \
-    "$CEDAR_HOME/cedar-term/prod/catalog.sqlite" \
-    "$CEDAR_HOME/cedar-term/prod/snapshots" EPA-PFAS --source epa-pfas
+    "$CEDAR_HOME/cedar-term/catalog.sqlite" \
+    "$CEDAR_HOME/cedar-term/snapshots" EPA-PFAS --source epa-pfas
 java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
-    "$CEDAR_HOME/cedar-term/prod/catalog.sqlite" \
-    "$CEDAR_HOME/cedar-term/prod/search-index.sqlite" --acronyms EPA-PFAS --force
+    "$CEDAR_HOME/cedar-term/catalog.sqlite" \
+    "$CEDAR_HOME/cedar-term/search-index.sqlite" --acronyms EPA-PFAS --force
 cedarcli native restart microservice terminology
 ```
 
@@ -360,7 +360,7 @@ is safe:
 
 ```bash
 java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+    $CEDAR_HOME/cedar-term/catalog.sqlite $CEDAR_HOME/cedar-term/search-index.sqlite \
     --acronyms DOID,NCIT --force
 ```
 
@@ -512,8 +512,8 @@ under
 Configure the catalog and index paths in this installation's `set-env-internal.sh`:
 
 ```bash
-export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/prod/catalog.sqlite"
-export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/prod/search-index.sqlite"
+export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/catalog.sqlite"
+export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/search-index.sqlite"
 ```
 
 The native controller passes them only to Terminology as `terminologyStore.*` JVM properties.
@@ -557,11 +557,8 @@ Put the copy on a data volume with room to grow, not on a small system partition
 is 4 GB. A later copy writes each changed file in full beside the old one before replacing it, so
 updating the index takes a further 10 GB while it runs. Plan for at least 75 GB free.
 
-On the workstation the store is `$CEDAR_HOME/cedar-term/prod`, where `prod` separates the served
-store from the trial stores, logs and scripts kept beside it in `$CEDAR_HOME/cedar-term`. A serving
-host keeps nothing else there, so it needs no such level. Use `$CEDAR_HOME/cedar-term` itself, which
-is `/srv/cedar/cedar-term` on the staging and production hosts. `<store>` below names that
-directory.
+Every host keeps the store in `$CEDAR_HOME/cedar-term`, which is `/srv/cedar/cedar-term` on the
+staging and production hosts. `<store>` below names that directory on the serving host.
 
 Copy only what the catalog records, while no ingest or index job runs, since both write the store.
 The store uses SQLite's rollback journal, so an unfinished write leaves a file ending in
@@ -580,7 +577,7 @@ lacks. On 2026-10-07 the catalog recorded two FBBI snapshots, one of them `lates
 on disk.
 
 ```bash
-cd $CEDAR_HOME/cedar-term/prod
+cd $CEDAR_HOME/cedar-term
 find . -name '*.sqlite-journal'
 sqlite3 -readonly search-index.sqlite \
   "SELECT (SELECT count(*) FROM pragma_table_info('term') WHERE name = 'definition')
@@ -732,7 +729,7 @@ requires at least three characters for an unscoped search; scoped searches permi
 Check the match count:
 
 ```bash
-sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/search-index.sqlite \
   "SELECT COUNT(*) FROM name_fts WHERE name_fts MATCH '\"ce\"*';"
 ```
 
@@ -788,14 +785,14 @@ regenerated after a version change; an old `ingest-cp.txt` can name an older sto
 ```bash
 cd $CEDAR_HOME/cedar-terminology-server
 mvn -pl cedar-terminology-server-ingest dependency:build-classpath \
-    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/prod/ingest-cp.txt -DincludeScope=runtime
-CP="cedar-terminology-server-ingest/target/classes:cedar-terminology-server-store/target/classes:$(cat $CEDAR_HOME/cedar-term/prod/ingest-cp.txt)"
+    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/ingest-cp.txt -DincludeScope=runtime
+CP="cedar-terminology-server-ingest/target/classes:cedar-terminology-server-store/target/classes:$(cat $CEDAR_HOME/cedar-term/ingest-cp.txt)"
 # Report retained archives whose bytes match the catalog hash; no database writes.
 java -Xmx12g -cp "$CP" org.metadatacenter.terms.ingest.PropertyBackfillJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite OBI RO
+    $CEDAR_HOME/cedar-term/catalog.sqlite OBI RO
 # Apply to these sources. Omit the acronym arguments to process every catalog snapshot.
 java -Xmx12g -cp "$CP" org.metadatacenter.terms.ingest.PropertyBackfillJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite --apply OBI RO
+    $CEDAR_HOME/cedar-term/catalog.sqlite --apply OBI RO
 ```
 
 Back up the catalog before applying a corpus backfill. Preserve original snapshots: existing class
@@ -852,8 +849,8 @@ same hash ingest does, and that hash leaves a snapshot taken before property ext
 was, so on a converted catalog the report shows no identifier changing and no merge.
 
 ```bash
-java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/prod/catalog.sqlite
-java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/prod/catalog.sqlite --apply
+java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/catalog.sqlite
+java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/catalog.sqlite --apply
 ```
 
 `DeriveOntologyIriBackfill` records each ontology's canonical IRI, its identity across sources, for a
@@ -864,7 +861,7 @@ to each ontology it ingests. The job writes as it runs and has no dry run. With 
 only those ontologies, and without them every ontology in the catalog.
 
 ```bash
-java -cp "$CP" org.metadatacenter.terms.ingest.DeriveOntologyIriBackfill $CEDAR_HOME/cedar-term/prod/catalog.sqlite OBI RO
+java -cp "$CP" org.metadatacenter.terms.ingest.DeriveOntologyIriBackfill $CEDAR_HOME/cedar-term/catalog.sqlite OBI RO
 ```
 
 ## Running the Picker

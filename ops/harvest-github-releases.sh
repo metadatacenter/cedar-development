@@ -66,7 +66,7 @@ export JAVA_HOME=${JAVA_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null)}
 # The runtime classpath, kept beside the store rather than in /tmp, which is swept. A missing file
 # leaves only the classes directory and every ingest then dies on NoClassDefFoundError in under a
 # second, which reads as a hundred failures rather than as one missing file.
-CPFILE=${CPFILE:-${CEDAR_HOME:-}/cedar-term/prod/ingest-cp.txt}
+CPFILE=${CPFILE:-${CEDAR_HOME:-}/cedar-term/ingest-cp.txt}
 [ -s "$CPFILE" ] || die "no classpath at $CPFILE — run mvn dependency:build-classpath"
 CP="$TS_DIR/cedar-terminology-server-ingest/target/classes:$(cat "$CPFILE")"
 

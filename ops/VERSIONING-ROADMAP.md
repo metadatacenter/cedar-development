@@ -2284,7 +2284,7 @@ third — `ops/harvest-github-releases.sh`, taking a plan of `acronym repo asset
 [Keeping Up With Sources That Move](#keeping-up-with-sources-that-move).
 
 Ordered for the next unattended run, cheapest and most certain first. The catalog is
-`$CEDAR_HOME/cedar-term/prod/catalog.sqlite`; back it up before any write, and re-check roots and edges
+`$CEDAR_HOME/cedar-term/catalog.sqlite`; back it up before any write, and re-check roots and edges
 after every refresh rather than class count alone (this is what caught FLOPO).
 
 1. **Give FLOPO its labels back.** The only item-16 ontology still without a label side-table. It needs a
