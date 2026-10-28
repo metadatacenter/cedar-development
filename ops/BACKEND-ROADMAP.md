@@ -219,38 +219,68 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   one reading of an advisory line of going that way. The release gate refuses such a source now, and
   `cedarcli check main` answers the same question between releases, but neither prevents the push.
 
-  **The goal is that no ordinary push lands on `main`.** How the release lands its own commit is a
-  second decision, and the two are worth keeping apart, because a protection rule written around
-  whoever runs the release protects nothing against the case that prompted this. `cedarcli release
-  start` pushes to `main` in thirty-nine repositories as that person, so granting them the bypass
-  reopens the hole the rule closes. Whichever route below is taken, the release needs credentials of
-  its own: a GitHub App or a dedicated account, authenticated as itself rather than as an operator.
+  **The goal is that no ordinary push lands on `main`.** A protection rule written around whoever
+  runs the release protects nothing against the case that prompted this. `cedarcli release start`
+  pushes to `main` in thirty-nine repositories as that person, so granting them the bypass reopens
+  the hole the rule closes. The release therefore needs credentials of its own.
 
-  **Route one, a bypass on a direct push.** The release keeps the mechanism it has, and the ruleset
-  grants the bypass to the release identity. The bypass has to cover every ref a release creates —
-  `develop`, the tags, and `release/pre-*` among them — or a release fails after its Maven and
-  frontend builds are already spent. It changes nothing in the release code, and it leaves the
-  protection weaker on paper than a review gate, since the identity holding the bypass can write
-  anything.
+  **Give the release a GitHub App, and let only the app bypass the rule.** Register an app owned by
+  the `metadatacenter` organization with read and write access to repository contents, and install
+  it on the forty-two repositories. Its private key stays with the release operator, outside every
+  repository. The release writes refs with plain `git push` in two places, `_push` and the deletion
+  of superseded branches (`release_support/integration.py`), and both would authenticate through a
+  credential helper that mints an installation token. A token lasts an hour and a release runs
+  longer, so the helper mints one for each push rather than one per run. Commit authorship does not
+  change. Only the pusher does.
 
-  **Route two, a pull request the release opens.** Nothing in the design forbids it. Each repository
-  gets its integration commit on a branch, a pull request, and a merge through the API, which is how
-  the npm releases already reach `main`. It costs three things. GitHub's merge produces a commit
-  that is not the one the release prepared, so the ledger's `expectedCommit` check has to verify
-  `main` by the tree it already records beside that commit (`release_support/integration.py`).
-  Something has to merge forty-two pull requests: requiring only a pull request lets the release
-  merge its own, which buys an audit trail rather than a review, while requiring an approval means a
-  person approves forty-two of them mid-release, since GitHub refuses self-approval. And a pull request is a step other people can
-  close or merge out of order, which weakens the guarantee that a resumed run reproduces the refs it
-  recorded.
+  Apply two rulesets to `main` in each repository. Organization rulesets need the Team plan, and the
+  organization is on Free. Free does support rulesets on public repositories, which all forty-two
+  are, so a script applies them one repository at a time through the repository rulesets API. The
+  first ruleset restricts updates, creation and deletion of `main`, and lists the app as its only
+  bypass actor, so a push by anyone else is refused, an administrator's included. The second blocks
+  force pushes and has no bypass actors at all, because a bypass skips every rule in its ruleset.
+  The release never needs to force. It pushes `main` only while the remote still holds the
+  integration commit's first parent, so every push is a fast-forward. Leaving `develop`, the tags
+  and `release/*` unprotected means the bypass covers `main` alone, so no other ref the release
+  writes can be refused after its Maven and frontend builds have run.
 
-  The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 1 exists to remove. Automating
-  that route puts the identity question back.
+  The TypeScript model library and CEE reach `main` through a pull request their operator merges,
+  and a restriction on updates would refuse that merge. Give each repository whose npm release
+  works that way a ruleset that requires a pull request with no approvals instead, until item 1's
+  command can merge as the app.
 
-  Prove whichever ruleset is chosen against one repository before it reaches all forty-two. Until
-  the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
-  next morning rather than mid-release.
+  **Fix the release preflight before any ruleset lands.** The preflight checks that each remote
+  accepts every ref the release writes by running `git push --dry-run`
+  (`release_support/preflight.py`). A dry run never sends the ref updates, so GitHub never evaluates
+  its rules against them. The check proves write access and nothing more, although its remedy names
+  branch protection. A repository whose ruleset lacks the app would therefore pass the preflight and
+  refuse the real push after the builds have run. Make the preflight ask GitHub instead.
+  `GET /repos/{owner}/{repo}/rules/branches/main` returns the rules in force on the branch, and
+  reading each ruleset shows whether the app is among its bypass actors.
+
+  **The rule stops an accidental push, not a deliberate one.** The app's key sits where the release
+  runs, so an operator who means to push to `main` still can. What the rule prevents is the accident
+  that has already nearly happened: an ordinary `git push` of a hotfix to `main`. Separating the two
+  would require the push step to run where the operator cannot reach the key, such as a GitHub
+  Actions workflow holding it as a secret. That is a much larger change to the release.
+
+  **A pull request opened by the release is the alternative, and it costs more than it buys.** Each
+  repository would get its integration commit on a branch, a pull request and a merge through the
+  API. GitHub's merge produces a commit other than the one the release prepared, so the ledger's
+  `expectedCommit` check would have to verify `main` by the tree it records beside that commit
+  (`release_support/integration.py`). If the release may merge its own pull requests, the route buys
+  an audit trail rather than a review. If an approval is required, a person approves forty-two pull
+  requests mid-release, since GitHub refuses self-approval. A pull request can also be closed or
+  merged out of order by someone else, which weakens the guarantee that a resumed run reproduces the
+  refs it recorded.
+
+  Prove the rulesets on one repository first. Confirm that an operator's push to `main` is refused,
+  that the app's push succeeds, and that the new preflight reports a ruleset without the app, then
+  apply them to the rest by script. Extend `cedarcli check main` to report any repository missing
+  either ruleset. Until every repository carries them, run `cedarcli check main` on a schedule, so
+  divergence is found the next morning rather than mid-release. Done when every repository refuses
+  an ordinary push to `main`, a release lands `main` as the app, and the preflight refuses a
+  repository whose rules would refuse the release.
 
 - **6. Complete the remaining backend trust-boundary, transport and credential security work.**
 

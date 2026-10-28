@@ -250,10 +250,36 @@ the server does not translate old link arrays, icon tokens, resource-type aliase
 Update any older stored profile explicitly before deploying this reader. Only the profile metadata
 may change: vocabulary tables, catalog versions and tags must remain intact. This metadata is excluded
 from the content hash, so correcting its format does not require a new vocabulary version.
-Older snapshots without profiles retain the BioPortal compatibility profile; unfamiliar ingested
-providers do not inherit BioPortal conventions.
+Snapshots without profiles emit no links. The reader has no provider-specific URL defaults, and
+an unheld source or version returns 404 from the description endpoint. Search remains available
+when link metadata is absent. BioPortal URL patterns belong to its ingest adapter, just as EPA's do.
 The existing BioPortal image is served publicly at `/resources/icons/bioportal.png`, and its absolute
-URL is supplied by the backend like any other icon.
+URL is supplied by the backend like any other icon. `{serviceBase}` uses the public HTTPS terminology
+host derived from `CEDAR_HOST`, not the private inter-service HTTP address.
+
+For a store ingested before profiles were recorded, back up the catalog and snapshots, then use the
+offline backfill below. Its default is a read-only report. Applying inserts the adapter's current
+profile only where catalog provenance is `bioportal` and the metadata key is absent, across every
+held release. It never replaces an existing profile, changes vocabulary tables, registers a version,
+or moves a tag. Other providers remain untouched. No API key, network access or index rebuild is needed.
+
+```bash
+java -cp "$CP" org.metadatacenter.terms.ingest.BioPortalLinksBackfill \
+  $CEDAR_HOME/cedar-term/catalog.sqlite
+cedarcli native stop microservice terminology
+java -cp "$CP" org.metadatacenter.terms.ingest.BioPortalLinksBackfill \
+  $CEDAR_HOME/cedar-term/catalog.sqlite --apply /path/to/bioportal-links-journal.jsonl
+cedarcli native start microservice terminology
+```
+
+Build the ingest classpath as above. Applying holds the same catalog writer reservation as ingestion
+and cleanup, and commits each snapshot's single metadata insert separately. The append-only JSONL
+journal records the exact file, catalog version, absent previous value and inserted value before each
+write, then records its commit. A rerun skips completed snapshots and resumes missing ones. If the
+process is interrupted, finish the backfill before starting the read-only server; do not run ingestion
+concurrently. Preserve the journal with the backup. To undo a recorded insert, first confirm the stored
+value still equals that journal entry's value, then delete only that metadata key; never overwrite a
+later correction or change vocabulary/version records.
 
 CEE consumes `links` in the existing source and selected-value link slots. Embedded links are used
 when available; otherwise the resolver uses the template's source identity and exact pin. It keeps
