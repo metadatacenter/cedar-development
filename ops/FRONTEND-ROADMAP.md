@@ -246,15 +246,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 8. Remove the Temporary Vite Security Override When Angular Catches Up
-
-Remove the `vite: 8.3.4` overrides from the Angular projects once a supported stable
-`@angular/build` selects a patched Vite itself. Version 22.2.4 still requires Vite 8.3.0;
-the affected 8.3 line is fixed from 8.3.3. Keep CEE's domain harness aligned with the
-root project. Re-resolve the locks, inspect the advisory identities and run the frontend
-reactor and all three consumer demos before removing the overrides.
-
-### 9. Fix CEE's WCAG Failures
+### 8. Fix CEE's WCAG Failures
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found seven WCAG 2.2
 criteria that CEE fails. CEE meets one more, 3.1.2, only in part. Agree the fixes marked as visible
@@ -289,11 +281,11 @@ before making them.
 
 ## Frontend Dependencies
 
-### 10. Take the Frontend Dependency Upgrades That Need Code Changes
+### 9. Take the Frontend Dependency Upgrades That Need Code Changes
 
-Each dependency below has a newer major release that a lock update cannot take. Some wait on an
-upstream release, some need code changes, and one needs a design decision. The versions are the
-newest that `npm outdated` reported on 2026-10-19, after every in-range update had been taken.
+No dependency below can move by a lock update alone. Some wait on an upstream release, some need
+code changes, and one needs a design decision. The versions are the newest that `npm outdated`
+reported on 2026-10-28, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
@@ -308,20 +300,36 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
 
 **Needing code changes.**
 
-- **Vitest 5.** `@angular/build` 22.2.4 already accepts it. CEE's root and its domain harness must
+- **Vitest 5.** `@angular/build` 22.2.5 already accepts it. CEE's root and its domain harness must
   move together, because the harness runs on the root's worker, and the harness's `oxc` transform
   settings need checking against Vitest 5's Vite, since the previous major broke them. The other
   Vitest projects are CED, CETP, Workspace, OpenView, Bridging, Monitoring and the Angular and
   React demos. OpenView, Bridging and Monitoring also move `@vitest/browser-playwright` with it.
 - **ngx-translate 18** in OpenView, Bridging and Monitoring. It removes `TranslateModule`, so each
   application's module-based setup moves to the provider functions.
-- **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring. The adapter's major
-  follows the Keycloak server, so these move with "Upgrade Keycloak to a supported release" in
+- **ngx-translate 18.1** in CEE, CED, CETP and Workspace, which hold 18.0.x with a `~18.0.0`
+  range. Release 18.1.0 rebuilds the service around signals. Under it, `onTranslationChange`
+  fires three times rather than twice when a host names a language map after CEE has its
+  template, which fails the late-language specification in the wrapper component's suite. CED's
+  bundle also grows by about 4.7 KB raw and 1.7 KB compressed, past all four of its size
+  ceilings. Taking it needs a decision on whether the third announcement is acceptable, and on
+  whether CED's ceilings rise or something else in the bundle shrinks.
+- **A replacement for `ng-alt-snotify`** in OpenView, Bridging and Monitoring. Its last release,
+  17.0.0 from January 2024, declares Angular 17 as its peer, and each application forces it onto
+  Angular 22 through `overrides`. No newer release exists. Monitoring uses it in 32 source files,
+  OpenView in 10 and Bridging in 8. The replacement must keep the notifications' appearance and
+  behavior.
+- **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring, and the adapter that
+  Workspace and the Template Designer host load from `app/scripts/keycloak/`. The installed
+  keycloak-angular 13.1.0 declares Angular 15 as its peer and is forced onto Angular 22 through
+  `overrides`. The Workspace and Designer copy was committed in March 2023 outside npm, so neither
+  `npm outdated` nor `npm audit` sees it. The adapter's major follows the Keycloak server, so all
+  of these move with "Upgrade Keycloak to a supported release" in
   [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 
 **Needing a design decision.**
 
-- **lucide-static 1.59** in the design tokens, which pin 1.47.0 exactly. A newer release can
+- **lucide-static 1.63** in the design tokens, which pin 1.47.0 exactly. A newer release can
   redraw icons that every consumer shows, so the move needs its rendered differences reviewed and
   approved like any other visual change.
 
@@ -371,7 +379,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -385,7 +393,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 12. Keyboard and Screen-Reader Access
+### 11. Keyboard and Screen-Reader Access
 
 Two parts of CED's keyboard and screen-reader access remain open. One needs a person with a
 screen reader, and the other needs a design decision before it can be built.
@@ -410,7 +418,7 @@ resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` 
 focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
 accessibility lint rules until this is done. Remove that exception in the same change.
 
-### 13. Fix CED's Remaining WCAG Failures
+### 12. Fix CED's Remaining WCAG Failures
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these failures in
 CED beyond the ones it shares with the other components. Several need a design decision first.
@@ -450,7 +458,7 @@ button. Keyboard focus scrolls it into view, but that puts the Add field and Imp
 reach above. Adding fields from the sidebar causes this with 15 fields at the default share, before
 any drag. Fixing it changes the default layout, so agree it first.
 
-### 14. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 13. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible

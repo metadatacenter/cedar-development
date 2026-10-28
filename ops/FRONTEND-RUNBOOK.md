@@ -1693,18 +1693,26 @@ its author cannot fix there, and would teach people to expect a red gate for rea
 that are not theirs.
 
 The supported frontend toolchain uses Node **24.22.1**, Angular CLI/build/CDK/Material
-**22.2.4**, and Angular core **22.2.3**. The Angular projects and CEE's domain harness
-explicitly override Vite to **8.3.4**: Angular's 22.2.4 builder still selects 8.3.0,
-which has development-server advisories affecting non-Windows hosts as well as Windows/WSL.
-The old Windows-only assessment is insufficient. Remove this temporary override only when
-Angular selects a patched Vite and the complete frontend gates pass without it.
+**22.2.5**, and Angular core **22.2.3**. Angular's 22.2.5 builder selects Vite 8.3.5. The
+development-server advisories against the Vite 8.3 line are fixed from 8.3.3, so no project
+overrides Vite.
 
-A full npm audit on 2026-10-24 reports zero findings in all 16 registered modern frontend
-locks and the E2E tooling lock, including development dependencies. The legacy Template
-Editor is separate from that result.
+CEE, CED, CETP and Workspace hold `@ngx-translate/core` at 18.0.x with a `~18.0.0` range.
+Release 18.1.0 changes how often the service announces a translation change, which fails
+CEE's late-language specification, and it enlarges CED's bundle past its size ceilings.
+The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md).
+
+A full npm audit on 2026-10-28 reports zero findings in 15 of the 16 registered modern
+frontend locks and in the E2E tooling lock, including development dependencies. The
+TypeScript model library's lock reports six low findings, all from one advisory,
+GHSA-gcqx-w48m-w2h4, which reports prototype poisoning in `deepmerge` 4.3.1. The package
+reaches the library through `jest-config`, and Jest runs only the library's tests. No
+patched `deepmerge` exists, and the fix `npm audit` offers is Jest 25, a downgrade. The
+train baseline records the six findings. The legacy Template Editor is separate from that
+result.
 
 This toolchain passed the full frontend reactor, all three framework consumer demos,
-local deployment, served-bundle verification and whole-stack smoke on 2026-10-24.
+local deployment, served-bundle verification and whole-stack smoke on 2026-10-28.
 The existing visual baselines, test skips and declared search-coverage gaps were unchanged.
 
 The security lock refresh selects `fast-uri` 3.1.9 throughout the modern frontend and
