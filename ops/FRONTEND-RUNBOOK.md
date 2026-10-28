@@ -1702,9 +1702,13 @@ Release 18.1.0 changes how often the service announces a translation change, whi
 CEE's late-language specification, and it enlarges CED's bundle past its size ceilings.
 The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md).
 
-A full npm audit on 2026-10-28 reports zero findings in 15 of the 16 registered modern
+A full npm audit on 2026-10-28 reports zero findings in 22 of the 23 registered modern
 frontend locks and in the E2E tooling lock, including development dependencies. The
-TypeScript model library's lock reports six low findings, all from one advisory,
+registered locks include the Playwright test packages in the `browser/` directories of
+Workspace, the Template Designer host, OpenView, Monitoring, Bridging, CETP and CED. Each
+declares an empty `allowScripts` policy, because none of them locks a package with an
+install script, and the train holds them to it as it holds every other registered lock.
+The TypeScript model library's lock reports six low findings, all from one advisory,
 GHSA-gcqx-w48m-w2h4, which reports prototype poisoning in `deepmerge` 4.3.1. The package
 reaches the library through `jest-config`, and Jest runs only the library's tests. No
 patched `deepmerge` exists, and the fix `npm audit` offers is Jest 25, a downgrade. The
