@@ -1091,16 +1091,8 @@ here can be finished without the component being finished first.
     the other single-valued fields chosen from a multi-valued annotation the same way — `label()` already
     ranks rather than takes the first, which is why it did not have this bug.
 
-- **32. Stop an identical download rewriting the release it merges into.** Content-hash identity means
-    a download identical to a release already held merges into that release, and the merge then
-    overwrites the release's provenance with the new download's. On conflict,
-    `CatalogStore.addSnapshot` replaces the declared version, the release date, the ingest time and the
-    raw-file hash, and the updates that follow it replace the submission number and the source label.
-    The source label was the first loss noticed. The OLS harvest of 2026-08-20 relabelled 123 BioPortal
-    and OBO Foundry releases as `ols` across two runs, which is how `bioportal` came to read 2,495
-    snapshots instead of 2,562, and the labels were restored from the pre-run catalog.
-
-    The rest was not restored. Compared on 2026-10-22 with the backup taken before that harvest,
+- **32. Restore provenance overwritten by the earlier OLS harvest.** Compared on 2026-10-22 with
+    the backup taken before that harvest,
     `catalog.sqlite.bak-before-ols-harvest-20260820`, the run of 2026-08-21 rewrote 116 releases. 93
     lost their release date, 89 had their BioPortal submission number replaced by the synthetic `1`
     that a URL or OBO PURL ingest reports, 74 lost their declared version, 47 changed their source date,
@@ -1109,13 +1101,10 @@ here can be finished without the component being finished first.
     anchors `latest`, so these releases now order by when they were fetched rather than when they were
     published, and the declared version a pin displays is gone.
 
-    A release's provenance describes the download that first produced it, so a merge must leave every
-    provenance column alone and only a first ingest may set them. Fix `addSnapshot` and the updates
-    after it, and add a test that ingests one release from two sources and asserts that the first
-    source's metadata survives. Then restore the 116 from the pre-harvest backup, keyed on
-    `(version_id, acronym)`, after checking that each row's content columns still agree. Until the fix
-    lands, every driver has to record provenance and put it back. `harvest-github-releases.sh` does
-    this for the source label alone, and the other two drivers do not do it at all.
+    Restore the 116 from the pre-harvest backup, keyed on `(version_id, acronym)`, after checking
+    that each row's content columns still agree. Preserve the overwritten state as legacy audit
+    evidence and recover raw-archive references only where the retained bytes verify the recorded
+    hash. Missing historic retrieval timestamps must remain unknown.
 
 - **33. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
     all list their versions, so what the catalog is missing is a question with an exact answer — and

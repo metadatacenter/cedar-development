@@ -46,6 +46,7 @@ Use a genuinely permitted term when a journey expects all quality findings to cl
 The store is `$CEDAR_HOME/cedar-term`. Three parts of it answer requests:
 
 - `catalog.sqlite` — every ontology the store knows, every snapshot of each, and the `latest` tag.
+  Its `ingest_event` table records retrievals separately from snapshot identity.
 - `search-index.sqlite` — the cross-snapshot full-text index, one current version an ontology,
   rebuilt from the catalog rather than authored.
 - `snapshots/<ACRONYM>/<version-id>.sqlite` — one file a release, holding its concepts, labels,
@@ -85,6 +86,49 @@ find $CEDAR_HOME/cedar-term/snapshots -path '*/raw/*' -type f -name '*.expanded*
 
 Keep the catalog, the catalogued snapshots and the originals in a backup off the workstation. The
 index is derived and rebuilds in minutes, so a backup can leave it out.
+
+### Snapshot identity and ingest history
+
+The catalog keeps one snapshot per `(acronym, content hash)`. Ordinary ingestion only inserts a
+snapshot: encountering the same hash preserves both its catalog metadata and its existing file,
+including link metadata outside the content hash. It returns the catalog's existing file path even
+when the new invocation requested another output directory. A missing catalogued file is an error
+requiring restoration; a later download must not silently replace the original observation.
+
+Every completed shared-ingester attempt appends an `ingest_event`. A successful event points to its
+snapshot; a failed attempt has no snapshot pointer and retains any archive that was successfully
+downloaded before the failure. Each event records the backend, submission selector, declared version
+and source release date separately from its start, download-completion and completion timestamps.
+`raw_file_path` is catalog-relative and `raw_file_hash` identifies the original download bytes
+before archival compression. Multiple events can point to one snapshot and one raw archive, or to
+different raw archives that normalize to the same snapshot. Success history, snapshot registration
+and tag changes commit together. Error types are retained without error messages or credential-bearing
+request URLs. An abrupt process termination can leave a raw archive but no completed event; the
+history is a record of completed attempts, not a scheduler or a crash-recovery journal.
+
+Offline property extraction appends a `reextract` event referring to the retained archive, with no
+new retrieval timestamp. Other explicit maintenance backfills remain separate operator repairs.
+The audit API only appends events. Historical identifiers remain as recorded even if an operator
+explicitly retires a snapshot or runs the old identity-cutover tool.
+
+Schema initialization migrates older catalogs once: each existing snapshot contributes one event
+marked `kind=legacy, status=unknown`, containing only the provenance still in that row. It does not
+invent retrieval times or raw paths, nor reconstruct overwritten earlier ingests. Snapshot rows,
+files, version hashes and tags are unchanged. Back up the catalog before upgrading it.
+
+Inspect a source's history with SQLite (or `CatalogStore.ingestHistory`, which resolves raw paths):
+
+```bash
+sqlite3 -header -column "$CEDAR_HOME/cedar-term/catalog.sqlite" \
+  "SELECT kind, status, version_id, backend, released_at, retrieved_at, completed_at, raw_file_path
+   FROM ingest_event WHERE acronym='EPA-PFAS' ORDER BY completed_at, rowid;"
+```
+
+Source release dates may be absent. `released_at` is never filled with a local retrieval date.
+The existing constraint `effectiveDate` convention remains the source release day, falling back to
+the snapshot's first-observed ingest day when no source release is known. That fallback is a CEDAR
+observation date, not an upstream publication claim, and repeated retrievals no longer move it.
+No additional version or presentation keywords are needed in constraint JSON/YAML.
 
 The index file carries three SQL indexes, `term_by_acronym`, `term_by_iri` and `name_by_term`, and
 `SearchIndexJob` creates all three. A file built before `term_by_iri` existed does not have it, and
@@ -339,6 +383,23 @@ names or membership produce a new version while old pins remain resolvable. EPA 
 name hashing without changing the identities of existing BioPortal snapshots. Refresh is manual;
 an EPA retrieval date is not an EPA-issued release identifier. `EPA-PFAS` must be in both local
 allowlists on a host serving these sets; the shared native configuration includes it.
+EPA therefore supplies neither a declared release nor `released_at`. Its synthetic submission
+selector `1` is an adapter implementation detail, not an EPA release number. The shared ingest
+history records each completed retrieval and its raw-response archive independently of the pin.
+
+Older EPA ingests incorrectly put the capture timestamp in `snapshot.released_at`. For such a
+catalog, back it up and run schema initialization first so the legacy row is retained as audit
+evidence, then clear that field explicitly with the terminology service stopped:
+
+```sql
+UPDATE snapshot SET released_at = NULL
+WHERE acronym = 'EPA-PFAS' AND backend = 'epa'
+  AND format = 'EPA-PFAS-JSON' AND declared_version IS NULL;
+```
+
+Keep the snapshot hash, ingest timestamp, file, and tags unchanged. Ordinary re-ingest deliberately
+does not repair existing metadata. The local catalog's single EPA row was corrected on 2026-10-28;
+its snapshot bytes and version pin were verified unchanged before and after a real repeat ingest.
 
 ### Bulk ingest drivers
 
