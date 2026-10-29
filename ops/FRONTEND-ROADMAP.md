@@ -249,34 +249,20 @@ newest that `npm outdated` reported on 2026-10-28, after every in-range update h
 
 **Needing code changes.**
 
-- **Vitest 5.** `@angular/build` 22.2.5 already accepts it. CEE's root and its domain harness must
-  move together, because the harness runs on the root's worker, and the harness's `oxc` transform
-  settings need checking against Vitest 5's Vite, since the previous major broke them. The other
-  Vitest projects are CED, CETP, Workspace, OpenView, Bridging, Monitoring and the Angular and
-  React demos. Its companion packages move with it: `@vitest/coverage-v8` in CEE's root and
-  harness, CED and the Angular demo, and `@vitest/browser-playwright` in OpenView, Bridging and
-  Monitoring.
-- **ngx-translate 18** in OpenView, Bridging and Monitoring. It removes `TranslateModule`, so each
-  application's module-based setup moves to the provider functions.
-- **ngx-translate 18.1** in CEE, CED, CETP and Workspace, which hold 18.0.x with a `~18.0.0`
-  range. Release 18.1.0 rebuilds the service around signals. Under it, `onTranslationChange`
-  fires three times rather than twice when a host names a language map after CEE has its
-  template, which fails the late-language specification in the wrapper component's suite. CED's
-  bundle also grows by about 4.7 KB raw and 1.7 KB compressed, past all four of its size
-  ceilings. Taking it needs a decision on whether the third announcement is acceptable, and on
-  whether CED's ceilings rise or something else in the bundle shrinks.
-- **A replacement for `ng-alt-snotify`** in OpenView, Bridging and Monitoring. Its last release,
-  17.0.0 from January 2024, declares Angular 17 as its peer, and each application forces it onto
-  Angular 22 through `overrides`. No newer release exists. Monitoring uses it in 32 source files,
-  OpenView in 10 and Bridging in 8. The replacement must keep the notifications' appearance and
-  behavior.
+- **ngx-translate 18.1** in CEE, CED, CETP and Workspace, which hold 18.0.x with a `~18.0.0` range.
+  Release 18.1.0 rebuilds the service around signals. Under it, `onTranslationChange` fires three
+  times rather than twice when a host names a language map after CEE has its template, which fails
+  the late-language specification in the wrapper component's suite. CED's bundle also grows by
+  about 4.7 KB raw and 1.7 KB compressed, past all four of its size ceilings. Taking it needs a
+  decision on whether the third announcement is acceptable, and on whether CED's ceilings rise or
+  something else in the bundle shrinks.
 - **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring, and the adapter that
   Workspace and the Template Designer host load from `app/scripts/keycloak/`. The installed
   keycloak-angular 13.1.0 declares Angular 15 as its peer and is forced onto Angular 22 through
-  `overrides`. The Workspace and Designer copy was committed in March 2023 outside npm, so neither
-  `npm outdated` nor `npm audit` sees it. The adapter's major follows the Keycloak server, so all
-  of these move with "Upgrade Keycloak to a supported release" in
-  [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
+  `overrides`, the only override either application still carries. The Workspace and Designer copy
+  was committed in March 2023 outside npm, so neither `npm outdated` nor `npm audit` sees it. The
+  adapter's major follows the Keycloak server, so all of these move with "Upgrade Keycloak to a
+  supported release" in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 
 **Needing a design decision.**
 
@@ -354,18 +340,11 @@ the layout around it, so each piece is a visible change.
   on a 16px pitch, and the history's 22px release buttons are under the minimum.
   `browser/tests/accessibility.spec.ts` records each as an exception.
 
-### 12. Measure Colour and Contrast as Drawn
+### 12. Mark CEE's Warnings Beyond Colour
 
-Colour still carries a meaning alone in one component, and part of non-text contrast is measured
-only as token values in all four.
-
-- **CEE: severity by colour (1.4.1).** Visible. Range and quality warnings differ from errors only
-  by amber against red.
-- **All four: icons, the focus ring and selection marks (1.4.11).** Each component's layout check
-  measures every field boundary as the browser draws it. Icons, the focus ring and selection marks
-  are measured only as pairs of token values, so a framework default or a local override could
-  draw one fainter without failing anything. Extend the check to measure each against what lies
-  behind it, at 3:1, in the states that show it. Until then 1.4.11 stays Partial in all four.
+Visible. CEE's range and quality warnings differ from its errors only by amber against red
+(1.4.1). They need a second cue, such as an icon or a word, that tells a warning from an error
+without colour.
 
 ### 13. Confirm or Undo Removing Access in Workspace
 

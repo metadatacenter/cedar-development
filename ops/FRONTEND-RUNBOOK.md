@@ -1700,7 +1700,9 @@ overrides Vite.
 CEE, CED, CETP and Workspace hold `@ngx-translate/core` at 18.0.x with a `~18.0.0` range.
 Release 18.1.0 changes how often the service announces a translation change, which fails
 CEE's late-language specification, and it enlarges CED's bundle past its size ceilings.
-The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md).
+The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md). OpenView, Bridging and
+Monitoring take 18.1 with a `^18.1.0` range and register it through its provider functions; none of
+them selects a language at run time.
 
 A full npm audit on 2026-10-28 reports zero findings in 22 of the 23 registered modern
 frontend locks and in the E2E tooling lock, including development dependencies. The
@@ -4273,8 +4275,8 @@ term picker `8ed2d81` and Workspace `0323655a`. On 2026-10-21 the criteria a fou
 were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and Workspace
 `bc2401e8`. On 2026-10-27 the criteria a fifth round touched, 1.4.1 and 1.4.11, were reassessed at
 CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9`. On 2026-10-28
-1.4.11 was reassessed again, after a sixth round, at CED `0aefc50`, CEE `f12dd0e3`, the term picker
-`080062d` and Workspace `9725e2f3`. The assessment read code and tests. Nobody ran a
+1.4.11 was reassessed twice more, after a sixth and a seventh round, last at CED `0bb2eb7`, CEE
+`1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -4303,10 +4305,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 21 | 11 | 7 | 0 | 16 | 21 of 39, 54% |
-| CEE | 22 | 12 | 7 | 6 | 8 | 22 of 47, 47% |
-| Term picker | 24 | 10 | 5 | 0 | 16 | 24 of 39, 62% |
-| Workspace | 29 | 15 | 3 | 0 | 8 | 29 of 47, 62% |
+| CED | 22 | 10 | 7 | 0 | 16 | 22 of 39, 56% |
+| CEE | 23 | 11 | 7 | 6 | 8 | 23 of 47, 49% |
+| Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
+| Workspace | 30 | 14 | 3 | 0 | 8 | 30 of 47, 64% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -4327,16 +4329,18 @@ of every field boundary as the browser draws it. A white field keeps its fill un
 on a panel its outline was drawn over white and seen against the panel, at 2.99:1, in CED's
 settings and the term picker's constraint details. The term picker's depth field also drew its
 border in the rule colour, at 1.24:1. The outline darkened to 0.45 and the depth field took it, so
-every boundary now measures at least 3:1 as drawn. 1.4.11 stays Partial, because icons, the focus
-ring and selection marks are still measured as token pairs rather than as drawn. The failures now
-stand at 22, and most of them need a visible change.
+every boundary now measures at least 3:1 as drawn. A seventh round measured icons, focus indicators
+and selection marks as drawn too. It found that a selected CED field card showed no focus ring, that
+CEE's current page chip was marked by a tint alone, and that the term picker drew its tree's twists
+and its close button white on white. With each fixed, 1.4.11 moved from Partial to Met in all four
+components. The failures still stand at 22, and most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
 has measured fails the gate. Each suite also runs `layout-resilience.spec`, one method in all four:
 reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text spacing at 1280 pixels,
-the contrast of every placeholder, and the contrast of every field boundary against what lies
-outside it. A finding that needs a visible change is recorded in the
+the contrast of every placeholder, and the contrast of every field boundary, icon, focus indicator
+and selection mark against what it is drawn on. A finding that needs a visible change is recorded in the
 spec as a named exception, and an exception that stops occurring fails it.
 
 ### Failures Several Components Share
@@ -4384,7 +4388,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
 | 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
-| 1.4.11 Non-text Contrast | AA | Partial | Partial | Partial | Partial |
+| 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
 | 1.4.12 Text Spacing | AA | Met | Fails | Met | Fails |
 | 1.4.13 Content on Hover or Focus | AA | Met | Partial | Met | Met |
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
