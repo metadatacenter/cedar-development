@@ -146,27 +146,21 @@ routing without inventing one.
 
 ### 3. Make DOI Minting Recovery-Safe
 
-Keep the DataCite wizard out of Workspace resource menus while this workflow is being
-reworked. Before reintroducing an entry point, verify the recovery behavior and review the
-wizard's user-facing flow.
+The backend runbook's [DOI Records](BACKEND-RUNBOOK.md#doi-records) describes the bridge's
+recovery behavior, which the work below verifies and completes.
 
-A retry after a timeout must be able to tell whether the earlier attempt minted a DOI. Define
-durable draft/reserved, published and locally attached states in `cedar-bridge-server`, retain
-the DataCite identifier before the fallible write-back, and make a retry resume or reconcile the
-same DOI rather than orphan or duplicate one. Give the `reconciliationRequired` response a code
-path that resolves it.
-
-Associate an existing draft with its source artifact directly rather than by matching DataCite
-records on the OpenView URL. Move orchestration, configuration and error mapping out of
-`DataCiteResource`. Add offline tests for retry after timeout and repeated publish. The opt-in
-`datacite`-tagged test cannot pass as written, because its positive cases name source artifacts
-that no resource server holds. Rework it, or replace it with a sandbox smoke, to cover the full
-mint and attach contract and the credential check.
+Keep the DataCite wizard out of Workspace resource menus until its user-facing flow has been
+reviewed against that recovery behavior. Before reintroducing an entry point, verify the behavior
+end to end on a deployed stack, against DataCite's test API with the deployment's credentials.
 
 Establish how historical document/graph DOI disagreements arose; do not assume they prove a
-minting timeout. Extend offline regression coverage to ordinary unchanged-DOI updates after
-reconciliation and continued rejection of DOI replacement or deletion through ordinary updates.
-The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
+minting timeout. Find the DOIs published at DataCite before the bridge kept records that no artifact
+carries, and attach or report each, since nothing reconciles them automatically. Extend the resource
+server's offline regression coverage to an ordinary unchanged-DOI update after reconciliation, and to
+continued rejection of DOI replacement or deletion through ordinary updates after it. The admin
+tool's schema rebuild drops the bridge's uniqueness constraint on DOI records without recreating it,
+so teach it the constraint or restart the bridge after every rebuild. The verified recovery
+procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
 <a id="save-recovery"></a>
 
