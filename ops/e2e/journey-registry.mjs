@@ -27,6 +27,7 @@ import { olderKeyRenameJourney } from "./older-key-rename-journey.mjs";
 import { designerPendingSaveJourney } from "./designer-pending-save-journey.mjs";
 import { saveStatusJourney, confirmedSaveRecoveryJourney } from "./save-status-journey.mjs";
 import { recoveryElementEditsJourney } from "./recovery-element-edits-journey.mjs";
+import { restoredControlShapesJourney, restoredNewerEditsJourney, unresolvedVersionJourney } from "./recovery-validation-journey.mjs";
 import { draftRecoveryJourney, metadataReconciliationJourney } from "./draft-recovery-journey.mjs";
 import { contentDeletionJourney } from "./content-deletion-journey.mjs";
 import { incompleteMetadataJourney } from "./incomplete-metadata-journey.mjs";
@@ -110,6 +111,9 @@ export const JOURNEYS = [
   { key: "save-status", run: saveStatusJourney },
   { key: "confirmed-save-recovery", run: confirmedSaveRecoveryJourney },
   { key: "recovery-element-edits", run: recoveryElementEditsJourney },
+  { key: "restored-control-shapes", run: restoredControlShapesJourney },
+  { key: "restored-newer-edits", run: restoredNewerEditsJourney },
+  { key: "unresolved-version", run: unresolvedVersionJourney },
   { key: "draft-recovery", run: draftRecoveryJourney, authentication: "reauthenticates the first user" },
   { key: "metadata-reconciliation", run: metadataReconciliationJourney },
   { key: "content-deletion", run: contentDeletionJourney },

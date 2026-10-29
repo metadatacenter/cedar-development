@@ -623,6 +623,52 @@
       "promise": "Editor can remove submitted and add replacement during lost-save recovery; acknowledgement preserves the surviving identity and the replacement receives a distinct identity"
     }
   ],
+  "restored-control-shapes": [
+    {
+      "id": "template-text-length-range",
+      "promise": "Designer template: an inverted text-length range survives reload and restoration exactly, keeps saving blocked with its explanation, and saves and reopens once corrected"
+    },
+    {
+      "id": "element-incomplete-regex",
+      "promise": "Designer element: an incomplete regular expression survives reload and restoration exactly, keeps saving blocked with its explanation, and saves and reopens once corrected"
+    },
+    {
+      "id": "metadata-malformed-iri",
+      "promise": "Editor: a malformed IRI in a link field survives reload and restoration exactly, keeps saving blocked as structurally invalid, and saves and reopens once corrected"
+    }
+  ],
+  "restored-newer-edits": [
+    {
+      "id": "newer-edits-template",
+      "promise": "template: a restored draft whose lost save added a field settles through a status check despite the server's provenance stamps, keeps input typed during the check, and saves and reopens"
+    },
+    {
+      "id": "newer-edits-element",
+      "promise": "element: a restored draft whose lost save added a field settles through a status check despite the server's provenance stamps, keeps input typed during the check, and saves and reopens"
+    },
+    {
+      "id": "newer-edits-field",
+      "promise": "field: a restored draft's status check keeps input typed while it runs, and the next save stores and reopens it"
+    },
+    {
+      "id": "newer-edits-metadata",
+      "promise": "metadata: a restored draft's status check keeps input typed while it runs and the entry identities the lost save minted, and the next save stores and reopens it"
+    }
+  ],
+  "unresolved-version": [
+    {
+      "id": "discard-refused",
+      "promise": "Designer Create new draft: a restored draft whose version reply was lost cannot be discarded until checked, and the check then settles one successor"
+    },
+    {
+      "id": "changed-draft",
+      "promise": "Designer Create new draft: a check that finds the committed draft changed by another client keeps the edit and the save guard, adopts nothing and sends no version"
+    },
+    {
+      "id": "published-source",
+      "promise": "Designer Create new draft: a check that finds the uncommitted source published by another client keeps the edit and the save guard, adopts nothing and sends no version"
+    }
+  ],
   "draft-recovery": [
     {
       "id": "restore-template-outage",
