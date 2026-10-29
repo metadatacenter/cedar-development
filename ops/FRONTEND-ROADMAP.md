@@ -338,8 +338,9 @@ the layout around it, so each piece is a visible change.
   panel's last control also sits within 12px of the toggle's centre. Either the toggle or the
   header needs 24px. `browser/tests/accessibility.spec.ts` records it under `EXCEPTIONS`.
 - **Term picker: the tree and the release history.** The tree's 16px twists, its terms, 14px tall
-  on a 16px pitch, and the history's 22px release buttons are under the minimum.
-  `browser/tests/accessibility.spec.ts` records each as an exception.
+  on a 16px pitch, the release count that opens a row's history, and the history's 22px release
+  buttons are under the minimum. `browser/tests/accessibility.spec.ts` records each as an
+  exception.
 
 ### 12. Mark CEE's Warnings Beyond Colour
 
