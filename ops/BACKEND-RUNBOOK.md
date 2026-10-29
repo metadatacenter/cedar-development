@@ -3348,20 +3348,20 @@ Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mo
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
-MySQL). Nor does any suite need an external service. The tests that do call one are tagged and
-excluded from the default build by their application POM: terminology excludes `bioportal` (61 tests
-across six resource classes) and bridge excludes `datacite` (`DataCiteResourceTest`). Clear the
-exclusion with `-DexcludedGroups=` to run them against the real service. Their CEDAR variables must
-still be set even when the tests are excluded, because the configuration substitutes them as it
-loads; a placeholder value is enough.
+MySQL). Nor does any suite need an external service. The tests that do call one are terminology's
+BioPortal tests (61 across six resource classes). They are tagged `bioportal`, and terminology's
+application POM excludes them from the default build. Clear the exclusion with `-DexcludedGroups=` to
+run them against BioPortal. Their CEDAR variables must still be set even when the tests are excluded,
+because the configuration substitutes them as it loads; a placeholder value is enough. The bridge's
+DOI suites call no DataCite. They run against a DataCite fake that keeps what it registers.
 
 A test that starts a Dropwizard application, an embedded store, embedded Redis, OpenSearch or a
 local socket server carries the `integration` tag. Every other test is a unit test. No POM excludes
 the tag, so the default build runs both kinds. Select one kind with `-Dgroups=integration` or
 `-DexcludedGroups=integration`. Terminology reads its exclusion from the `excludedGroups` property,
 so name both tags there (`-DexcludedGroups=bioportal,integration`) or the BioPortal tests run too.
-Bridge fixes its exclusion in the POM and ignores the property. A base class that starts a server
-carries the tag for its subclasses. A test that starts one itself needs the tag on its own class.
+A base class that starts a server carries the tag for its subclasses. A test that starts one itself
+needs the tag on its own class.
 The OpenSearch `*IT` suites carry the tag as well. Their names keep them out of the default build,
 because only Failsafe runs `*IT` classes. `cedarcli check test-tags` names every class that starts
 one of these without the tag, and `cedarcli build java` refuses to run the tests while one exists.
@@ -4508,9 +4508,9 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   controlled-term versions, but the resolver is fail-safe: it leaves that pin absent and increments
   `skippedResolutionCount` when terminology is unavailable. Monitor's Keycloak user detail is a
   diagnostic assembled from several stores, so it logs the Keycloak failure and returns that section
-  as unavailable without discarding the other sections. DataCite is the exception still needing
-  work: its minting client and recovery behavior belong to the explicit DataCite lifecycle roadmap
-  item rather than a dead-port-only degradation test.
+  as unavailable without discarding the other sections. DataCite is covered by the bridge's recovery
+  suite rather than a dead-port test. A registration DataCite does not answer is a 502, and the suite
+  repeats each interrupted registration against a DataCite fake that keeps what it registers.
 
   Concurrent edits are covered both over HTTP and directly at the Mongo compare-and-swap boundary.
   Pagination is covered on a folder's contents and search (`pagination` suite); the other paged
@@ -4675,9 +4675,9 @@ cd $CEDAR_HOME && for d in cedar-*-server; do
 done
 ```
 
-Tests that need something external are tagged and excluded by default: `datacite` in the bridge
-server, `bioportal` in the terminology server. Both services keep untagged coverage of their
-authenticated surface, so excluding the tagged tests does not silently drop a row to nothing.
+The terminology server's tests that need BioPortal are tagged `bioportal` and excluded by default.
+The server keeps untagged coverage of its authenticated surface, so excluding the tagged tests does
+not silently drop a row to nothing.
 
 ## Continuous Integration
 
@@ -7661,6 +7661,53 @@ rather than curing it.
 (already configured on this machine).
 
 
+### DOI Records
+
+Minting a DOI takes two writes: DataCite registers the DOI, and then the resource server records it
+on the artifact. Either can fail, and either can time out after it took effect. The bridge server
+keeps a record of each artifact's DOI so that a request repeated after any of these failures
+continues with the same DOI.
+
+Each record is a `CedarDoiRegistration` node in the graph, apart from the artifact's own node, and a
+uniqueness constraint on `sourceArtifactId` holds one per artifact. The bridge creates the
+constraint the first time it uses the records after it starts, so a schema rebuild that drops every
+constraint needs a bridge restart to restore it. A record holds the DOI without its resolver prefix
+and the state its registration has reached:
+
+| State | Meaning |
+| --- | --- |
+| `RESERVED` | The bridge chose the DOI and recorded it. DataCite may or may not hold it. |
+| `DRAFT` | DataCite holds the DOI as a draft. |
+| `PUBLISHED` | DataCite holds the DOI as findable, and the artifact does not yet carry it. |
+| `ATTACHED` | The artifact carries the DOI. |
+
+The bridge chooses each DOI itself, in the suffix form DataCite generates, and records it before it
+asks DataCite to register it. A request that times out therefore leaves a DOI the next request reads
+from DataCite by its identifier. If DataCite holds it, the next request continues from there, and if
+not, the next request registers that same DOI. A published DOI is recorded as `PUBLISHED` before the
+resource server is asked to record it on the artifact. When that write fails,
+`POST /datacite/create-doi?state=publish` answers 502 with `parameters.reconciliationRequired` and the
+DOI in `parameters.doi`. Repeating the request records that DOI on the artifact and asks DataCite
+nothing. Until then, the form start and a draft save answer 409 with the same two parameters.
+
+A record moves forward only. The one exception is a reservation or draft DataCite turns out not to
+hold, which is reserved again: under the same DOI when DataCite has dropped a draft, and under a new
+one when the DOI is another artifact's. A replaced DOI is kept in `supersededDois`. An artifact with
+no record is looked up as it was before records existed, by asking DataCite for drafts at its
+landing page, and the next save records the draft that lookup finds.
+
+Read one record with:
+
+```cypher
+MATCH (r:CedarDoiRegistration {sourceArtifactId: $id})
+RETURN r.doi, r.state, r.supersededDois, r.createdBy, r.createdAt, r.updatedAt
+```
+
+Recording a DOI by hand through `POST /command/annotations/doi`, as
+[Recovering an Existing DOI Attachment](#recovering-an-existing-doi-attachment) does, leaves the
+record as it stands until the next DOI request for the artifact. That request finds the artifact
+carrying the recorded DOI, answers 409, and moves the record to `ATTACHED`.
+
 ### Recovering an existing DOI attachment
 
 When a document already carries a DOI but its graph projection does not, production 2.9.19 can
@@ -7699,7 +7746,8 @@ This completes the known writable annotation-backfill cohort: 4,833 templates ac
 the indexed `.net` template still returns 404. The retained schema strict-reader backlog falls to
 46 templates (42 context declarations and 4 missing-child requirements), and the retained instance
 pipeline backlog falls to 28. These are targeted updates to prior audits, not a fresh corpus census.
-The broader DataCite timeout/retry state-machine work remains in the frontend roadmap.
+A DOI the bridge published but could not record on the artifact at all is a different case, which
+repeating the publish request resolves, as [DOI Records](#doi-records) explains.
 
 ### Misplaced annotation identifier: reader rejection and source repair
 
