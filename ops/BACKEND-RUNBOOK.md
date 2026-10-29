@@ -2948,10 +2948,24 @@ blocks a deploy for a condition nobody needs to act on, which is the case `CompT
 argues at length for the Bridge server's view of the EPA registry.
 
 The shared bootstrap probes what every microservice opens. Neo4j is gating: it resolves the caller
-of every authenticated request, so a server that cannot reach it can serve nothing. The Redis
-application log queue is reporting: enqueueing is best-effort by design and drops events rather
-than failing the request that produced them. Every server therefore carries `neo4j` and
-`app-log-queue` in addition to Dropwizard's own `deadlocks`.
+of every authenticated request, so a server that cannot reach it can serve nothing. The realm's
+signing keys are gating too. Every browser request carries a bearer token, and each server verifies
+it against keys it fetches from `https://auth.<host>`, so a server that cannot fetch them refuses
+every signed-in user. The Redis application log queue is reporting: enqueueing is best-effort by
+design and drops events rather than failing the request that produced them. Every server therefore
+carries `neo4j`, `keycloak-signing-keys` and `app-log-queue` in addition to Dropwizard's own
+`deadlocks`.
+
+`keycloak-signing-keys` exists because the failure it reports is otherwise silent. The Keycloak
+adapter loads the realm's discovery document on the first token it verifies, and when that load
+fails it logs a warning and carries on without the key set's address. Each signed-in request then
+ends in a `NullPointerException` and a 500 with no message, while API keys, which never consult
+Keycloak, keep working. The probe makes the same two requests through the adapter's own client,
+with its TLS settings and timeouts, and names the real cause, such as `SocketException: Connection
+reset`. The adapter retries discovery on every request, so a server recovers without a restart once
+Keycloak is reachable again. The adapter's client gives up after 2 seconds connecting and 5 seconds
+waiting for a response. Without those limits it waited as long as the operating system allowed, and
+each signed-in request hung for about 30 seconds before failing.
 
 Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
 the shared bootstrap registers it, so artifact carries `mongo`; repo, OpenView and monitor proxy document access and no longer register that store probe.

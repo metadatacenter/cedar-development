@@ -123,6 +123,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
     supplied for free, and what would have to be written, is the rotating public-key locator and the
     HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
+    `KeycloakSigningKeys`, the probe behind every server's `keycloak-signing-keys` health check,
+    sends its requests through the adapter's deployment and client, so it moves to the new client
+    too. The new client keeps the adapter's 2-second connection and 5-second response limits. A
+    failed key fetch should answer 503 and name the address it could not reach, where the adapter
+    ends in a `NullPointerException` and a 500.
 
   - **`keycloak-admin-client-jakarta` is not a blocker.** It stopped at 21.1.2 because it was a
     transitional variant, not because it was abandoned. From Keycloak 22 the main
