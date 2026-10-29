@@ -1693,7 +1693,7 @@ its author cannot fix there, and would teach people to expect a red gate for rea
 that are not theirs.
 
 The supported frontend toolchain uses Node **24.22.1**, Angular CLI/build/CDK/Material
-**22.2.5**, and Angular core **22.2.3**. Angular's 22.2.5 builder selects Vite 8.3.5. The
+**22.2.5**, and Angular core **22.2.4**. Angular's 22.2.5 builder selects Vite 8.3.5. The
 development-server advisories against the Vite 8.3 line are fixed from 8.3.3, so no project
 overrides Vite.
 
@@ -1718,7 +1718,7 @@ train baseline records the six findings. The legacy Template Editor is separate 
 result.
 
 This toolchain passed the full frontend reactor, all three framework consumer demos,
-local deployment, served-bundle verification and whole-stack smoke on 2026-10-28.
+local deployment, served-bundle verification and whole-stack smoke on 2026-10-29.
 The existing visual baselines, test skips and declared search-coverage gaps were unchanged.
 
 The security lock refresh selects `fast-uri` 3.1.9 throughout the modern frontend and

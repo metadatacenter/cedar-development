@@ -227,7 +227,7 @@ data images.
 
 No dependency below can move by a lock update alone. Some wait on an upstream release, some have
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
-reported on 2026-10-28, after every in-range update had been taken.
+reported on 2026-10-29, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
