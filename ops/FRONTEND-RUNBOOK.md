@@ -4386,7 +4386,7 @@ RRID instructions cut short at 320 pixels and its long read-only values cut shor
 200% zoom and under text spacing, the term picker's release history at 320 pixels and its truncated
 lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are
 open work in the
-[frontend roadmap's accessibility items](FRONTEND-ROADMAP.md#accessibility), the term picker's
+[frontend roadmap's accessibility item](FRONTEND-ROADMAP.md#accessibility), the term picker's
 included.
 
 ### By Criterion
