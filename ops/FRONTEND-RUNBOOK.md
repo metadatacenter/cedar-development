@@ -1693,18 +1693,32 @@ its author cannot fix there, and would teach people to expect a red gate for rea
 that are not theirs.
 
 The supported frontend toolchain uses Node **24.22.1**, Angular CLI/build/CDK/Material
-**22.2.4**, and Angular core **22.2.3**. The Angular projects and CEE's domain harness
-explicitly override Vite to **8.3.4**: Angular's 22.2.4 builder still selects 8.3.0,
-which has development-server advisories affecting non-Windows hosts as well as Windows/WSL.
-The old Windows-only assessment is insufficient. Remove this temporary override only when
-Angular selects a patched Vite and the complete frontend gates pass without it.
+**22.2.5**, and Angular core **22.2.4**. Angular's 22.2.5 builder selects Vite 8.3.5. The
+development-server advisories against the Vite 8.3 line are fixed from 8.3.3, so no project
+overrides Vite.
 
-A full npm audit on 2026-10-24 reports zero findings in all 16 registered modern frontend
-locks and the E2E tooling lock, including development dependencies. The legacy Template
-Editor is separate from that result.
+CEE, CED, CETP and Workspace hold `@ngx-translate/core` at 18.0.x with a `~18.0.0` range.
+Release 18.1.0 changes how often the service announces a translation change, which fails
+CEE's late-language specification, and it enlarges CED's bundle past its size ceilings.
+The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md). OpenView, Bridging and
+Monitoring take 18.1 with a `^18.1.0` range and register it through its provider functions; none of
+them selects a language at run time.
+
+A full npm audit on 2026-10-28 reports zero findings in 22 of the 23 registered modern
+frontend locks and in the E2E tooling lock, including development dependencies. The
+registered locks include the Playwright test packages in the `browser/` directories of
+Workspace, the Template Designer host, OpenView, Monitoring, Bridging, CETP and CED. Each
+declares an empty `allowScripts` policy, because none of them locks a package with an
+install script, and the train holds them to it as it holds every other registered lock.
+The TypeScript model library's lock reports six low findings, all from one advisory,
+GHSA-gcqx-w48m-w2h4, which reports prototype poisoning in `deepmerge` 4.3.1. The package
+reaches the library through `jest-config`, and Jest runs only the library's tests. No
+patched `deepmerge` exists, and the fix `npm audit` offers is Jest 25, a downgrade. The
+train baseline records the six findings. The legacy Template Editor is separate from that
+result.
 
 This toolchain passed the full frontend reactor, all three framework consumer demos,
-local deployment, served-bundle verification and whole-stack smoke on 2026-10-24.
+local deployment, served-bundle verification and whole-stack smoke on 2026-10-29.
 The existing visual baselines, test skips and declared search-coverage gaps were unchanged.
 
 The security lock refresh selects `fast-uri` 3.1.9 throughout the modern frontend and
@@ -1834,7 +1848,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
-Expect **over 2,500 passing** on `develop` — 2,560 on 18 August 2026. For watch
+Expect **over 5,800 passing** on `develop`, 5,821 on 28 October 2026. For watch
 mode, run `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
@@ -1868,10 +1882,10 @@ coordinator at 95% / 95%, and the wrapper at 70% / 60%. Do not replace those wit
 one global percentage: a heavily covered serializer can otherwise conceal an
 untested artifact transition or widget-sync branch.
 
-Branches sit below statements because Vitest 4 counts them differently, not
-because the suite is weaker: it replaced the old V8 mapping with AST-aware
-remapping and offers no way back, and source that cleared 90% everywhere under
-Vitest 1 measures 86.6 to 91.5 under 4. No test was removed and no branch
+Branches sit below statements because Vitest has counted them differently since
+version 4, not because the suite is weaker. Version 4 replaced the old V8 mapping
+with AST-aware remapping and offers no way back, and source that cleared 90%
+everywhere under Vitest 1 measured 86.6 to 91.5 under 4. No test was removed and no branch
 stopped being exercised — branches the old mapping never counted are now in the
 denominator.
 
@@ -2319,14 +2333,29 @@ npm run update:visual
 npm run test:visual:prebuilt
 ```
 
-Compare with the committed image when a change is unexplained:
+A shared change, such as a token value, can re-record a hundred images at once, and a small
+unrelated difference among them is easy to miss by eye. After re-recording, and before committing,
+run the review tool from the repository root:
 
 ```bash
-git show HEAD:visual/tests/render.spec.ts-snapshots/07-timezone-desktop-linux.png > /tmp/old.png
+node $CEDAR_HOME/cedar-development/ops/review-visual-baselines.mjs --crops /tmp/baseline-crops .
 ```
 
-Inspect each changed region. Do not accept unrelated differences merely because regeneration
-produced a passing comparison.
+It works the same way in CEE, CED, CETP and Workspace. The tool compares every changed PNG in the
+working tree with the committed version, or with the revision that `--base` names, and sorts the
+images into groups. A tone shift is a change in which neutral pixels are only drawn darker, or only
+drawn lighter. Images with any other change come first, as mixed changes, each listed with the
+region that holds most of its colour changes. Images whose only change is a tone shift follow. A
+colour change found in more than one image is listed once at the top. A token change that darkens
+an outline therefore appears as a few colour changes at the top and a long list of tone shifts
+below, and an image it does not explain appears among the mixed changes.
+
+With `--crops`, the tool writes an enlarged crop of the first three regions of each image. Each
+crop shows the region three ways: as committed, as re-recorded, and faded with the changed pixels in
+magenta. `--json` prints the
+same findings for a script. The tool narrows the review without replacing it. Look at every mixed
+change and at one image of each tone shift, and do not accept an unrelated difference merely
+because regeneration produced a passing comparison.
 
 A dependency patch can move baselines too. Angular Material 22.2.3 doubled the block margin of
 every chip in a chip set and gave each chip a 48px touch target, which made each occurrence pager
@@ -2928,7 +2957,11 @@ and action. Original versions open in another Designer tab.
 
 `npm run smoke:journey -- pull-versions reusable-publication` in `ops/e2e` exercises published
 selection, copied/linked fields and elements, nested/repeated placement, creation/publication,
-lost creation/publication replies and parent save/reopen against real REST. `npm run smoke:rest -- pull-versions`
+lost creation/publication replies and parent save/reopen against real REST.
+`npm run smoke:journey -- version-source-access version-source-deletion reusable-changed-draft`
+adds sources the author cannot read, sources deleted during assessment and parents changed while
+a reusable save is uncertain. Each journey first opens an untouched fixture of its own, which must
+show no failure and no exceptional control and write nothing. `npm run smoke:rest -- pull-versions`
 directly exercises the final write guard, skipped assessments, records arriving after assessment,
 unchanged revisions on refusal and published immutability. The artifact server's embedded race
 tests also pause actual instance creation across a replacement. Broader compatibility proofs,
@@ -3427,6 +3460,27 @@ Additional focused checks, also included in the regular modern smoke:
 - `partial-version-draft`: a parent folder the author may no longer create in refuses Create new
   draft before publication, through reload and access rechecks, until the grant returns. It uses
   the second test account by REST token only.
+- `unresolved-version`: lose the reply to Designer's Create new draft. Discard is refused until a status
+  check settles the version. When another client has edited the committed draft, or published the
+  source of an uncommitted one, the check keeps the edit and the save guard, adopts nothing and
+  sends no second version command.
+- `version-source-access`: the second test account, acting by REST token only, owns the sources.
+  The Version tab never offers or attaches a release the author cannot read. It reports an
+  unreadable origin and offers only Detach, and the parent still saves its own edit with the link.
+- `version-source-deletion`: delete a source through REST while the Version tab's request for it
+  is held. A release deleted after the history listed it is answered 404 and offered for no
+  upgrade, and an origin deleted while its history is read is reported as unreadable.
+- `reusable-changed-draft`: edit the parent while Save as reusable draft is pending, after a lost
+  reply whose readback also fails, and after a create that never reached the server, for a field
+  and an element. The result is never attached to the changed parent. Repeating the action
+  attaches one stored artifact under the identity first sent.
+- `restored-control-shapes`: restore an inverted text-length range in a Designer template, an
+  incomplete regular expression in a Designer element and a malformed IRI in a metadata link
+  field. Each returns exactly, blocks Save with its own explanation and writes nothing until it
+  is corrected.
+- `restored-newer-edits`: lose the reply to a committed save, reload, restore and type while the
+  status check is held, for templates, elements, fields and metadata. The check accepts the
+  server's normalization of the lost save, and the next conditional save stores the newer input.
 
 Run any subset with `npm run smoke:journey -- <names>`. Failure injection tests the hosts' handling
 of the specified HTTP outcome; fixture creation, successful writes, readback and permission
@@ -4244,7 +4298,10 @@ CED, CEE, the term picker and Workspace were assessed on 2026-10-19, from their 
 and reassessed on 2026-10-20 after three rounds of fixes, at CED `7bf2a79`, CEE `313d7ceb`, the
 term picker `8ed2d81` and Workspace `0323655a`. On 2026-10-21 the criteria a fourth round touched
 were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and Workspace
-`bc2401e8`. The assessment read code and tests. Nobody ran a
+`bc2401e8`. On 2026-10-27 the criteria a fifth round touched, 1.4.1 and 1.4.11, were reassessed at
+CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9`. On 2026-10-28
+1.4.11 was reassessed twice more, after a sixth and a seventh round, last at CED `0bb2eb7`, CEE
+`1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -4273,10 +4330,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 21 | 9 | 9 | 0 | 16 | 21 of 39, 54% |
-| CEE | 22 | 11 | 8 | 6 | 8 | 22 of 47, 47% |
-| Term picker | 24 | 8 | 7 | 0 | 16 | 24 of 39, 62% |
-| Workspace | 29 | 13 | 5 | 0 | 8 | 29 of 47, 62% |
+| CED | 22 | 10 | 7 | 0 | 16 | 22 of 39, 56% |
+| CEE | 23 | 11 | 7 | 6 | 8 | 23 of 47, 49% |
+| Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
+| Workspace | 30 | 14 | 3 | 0 | 8 | 30 of 47, 64% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -4288,37 +4345,49 @@ third rounds moved more to Met, but the failures stood at 27 after them, because
 and the wider scans found new ones as fast as others were fixed. The fourth round moved CED's 1.4.13
 from Fails to Met and Workspace's 3.1.2 from Partial to Met. CEE's wider layout check then found
 long read-only values cut short at 200% zoom and under text spacing, and CED was found to leave
-focus on a hidden control, so the failures now stand at 29. Most of them need a visible change.
+focus on a hidden control, so the failures stood at 29. The fifth round darkened the shared control
+outline to 3.2:1 and gave every state that a tint alone had marked a second cue. That moved 1.4.11
+in all four components, and 1.4.1 in CED, the term picker and Workspace, from Fails to Partial
+rather than to Met, because no test covers every boundary and every use of colour. CEE's 1.4.1
+still fails on its warnings, which differ from errors only by colour. The sixth round added a check
+of every field boundary as the browser draws it. A white field keeps its fill under its border, so
+on a panel its outline was drawn over white and seen against the panel, at 2.99:1, in CED's
+settings and the term picker's constraint details. The term picker's depth field also drew its
+border in the rule colour, at 1.24:1. The outline darkened to 0.45 and the depth field took it, so
+every boundary now measures at least 3:1 as drawn. A seventh round measured icons, focus indicators
+and selection marks as drawn too. It found that a selected CED field card showed no focus ring, that
+CEE's current page chip was marked by a tint alone, and that the term picker drew its tree's twists
+and its close button white on white. With each fixed, 1.4.11 moved from Partial to Met in all four
+components. The failures still stand at 22, and most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
 has measured fails the gate. Each suite also runs `layout-resilience.spec`, one method in all four:
 reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text spacing at 1280 pixels,
-and the contrast of every placeholder. A finding that needs a visible change is recorded in the
+the contrast of every placeholder, and the contrast of every field boundary, icon, focus indicator
+and selection mark against what it is drawn on. A finding that needs a visible change is recorded in the
 spec as a named exception, and an exception that stops occurring fails it.
 
 ### Failures Several Components Share
 
-Three failures recur across components:
+One failure still recurs across components: targets under 24px. CED's field settings toggle,
+CEE's read-only link-out icon and the term picker's tree twists, tree terms and history releases
+fall under WCAG 2.2's minimum target (2.5.8).
 
-- **Control borders.** Text inputs draw their boundary in `control-border-default`,
-  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, where criterion 1.4.11 asks for 3:1. CED, CEE and
-  Workspace take their borders from that token.
-- **Tint-only state.** The term picker marks the current release and a picked tree term, Workspace
-  a selected list row and the pressed view switch, and CEE the calendar's focused date, only by a
-  tint of about 1.2:1 (1.4.1, 1.4.11). CED tells an errored settings tab from the selected one by
-  hue alone.
-- **Targets under 24px.** CED's field settings toggle, CEE's read-only link-out icon and the term
-  picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum target
-  (2.5.8).
+Two others had shared causes, and each was fixed where its cause lives. Text inputs draw their
+boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
+field sits on a panel. A selection tint of about
+1.2:1 is never a selection's only mark. A selected item takes `patterns.selected-outline` or, where
+the focus ring needs the outline, `patterns.selected-frame`. CEE's calendar gives the focused date
+the focus ring, and CED's errored settings tab carries the warning icon.
 
 The layout check's failures are each a component's own: CED's narrow layouts, CEE's PubMed and
 RRID instructions cut short at 320 pixels and its long read-only values cut short at 320 pixels, at
 200% zoom and under text spacing, the term picker's release history at 320 pixels and its truncated
 lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are
-open work on the
-[frontend roadmap](FRONTEND-ROADMAP.md) and, for the term picker, the
-[versioning roadmap](VERSIONING-ROADMAP.md).
+open work in the
+[frontend roadmap's accessibility item](FRONTEND-ROADMAP.md#accessibility), the term picker's
+included.
 
 ### By Criterion
 
@@ -4338,13 +4407,13 @@ that touches it, and update the assessment date and commits with it.
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
 | 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
-| 1.4.1 Use of Color | A | Fails | Fails | Fails | Fails |
+| 1.4.1 Use of Color | A | Partial | Fails | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
 | 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
 | 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
-| 1.4.11 Non-text Contrast | AA | Fails | Fails | Fails | Fails |
+| 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
 | 1.4.12 Text Spacing | AA | Met | Fails | Met | Fails |
 | 1.4.13 Content on Hover or Focus | AA | Met | Partial | Met | Met |
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |

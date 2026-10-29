@@ -8,7 +8,8 @@ spans a frontend and its supporting service.
 See [FRONTEND-RUNBOOK.md](FRONTEND-RUNBOOK.md) for operating procedures and
 [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md) for backend work outside browser workflows.
 Term-picker and terminology-versioning work remains in
-[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md).
+[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md), apart from the picker's accessibility work, which
+is grouped here with the other components'.
 
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
@@ -28,7 +29,10 @@ Refer to the concrete change by name in commits.
 - **Continuing reusable drafts and recovery across tabs.** Make continuing work on a
   saved reusable draft possible without silently turning the embedded copy into a mutable
   link. Define retrieval of confirmed but unattached results after the original tab closes,
-  and deliberate cleanup of reusable artifacts whose parent edits were discarded.
+  and deliberate cleanup of reusable artifacts whose parent edits were discarded. Once a
+  reusable creation is unconfirmed, editing the child refuses every further Save as reusable
+  draft, although the message asks the author to retry. A retry should settle the identity
+  first sent.
 - **Source revisions and descendant identity.** Record which revision of a mutable draft
   was copied, with a retrievable baseline if future comparison requires it. Resolve the
   identity scope of editable inline descendants before changing detachment: retaining
@@ -36,19 +40,24 @@ Refer to the concrete change by name in commits.
   published descendant references and parent property IRIs. Do not rewrite stored
   published artifacts or infer provenance for legacy copies.
 - **Version families and candidate choice.** Resolve a stable version family across
-  releases and deletion so duplicate uses at different versions can be recognized.
-  Distinguish the latest readable published release from a globally latest release. Agree
-  the interaction for selecting an older or latest compatible release, and for reviewing
+  releases and deletion so duplicate uses at different versions can be recognized. The
+  resource server's version history lists every release to anyone who can read the version
+  asked about, so the Version tab names a newer release the author cannot read and offers no
+  readable release between the two. List only readable releases, and offer the latest of
+  them. Agree what Upgrade does with a release deleted after its assessment. Today it attaches
+  the assessed content, and Save stores a link to the deleted artifact. Agree the
+  interaction for selecting an older or latest compatible release, and for reviewing
   meaningful changes and local divergence, before adding controls.
 - **Existing reuse and retirement of bubbling.** Inventory older embedded drafts with
   shared stored identifiers and missing derivation. Agree an honest unknown-origin state
   and a deliberate association workflow. Add a read-permission-filtered usage endpoint;
   retire the legacy editor's bubbling UI and REST mutation/preview endpoints once the
   replacement workflow and its existing-data path are usable.
-- **Further journey gates.** Extend real-host matrices to permission-filtered source
-  histories, source deletion during assessment, changed drafts during uncertain reusable
-  creation and cross-tab outcome retrieval. Verify untouched screens separately from
-  failure paths and keep exceptional controls absent without their triggering condition.
+- **Further journey gates.** Add a journey for cross-tab outcome retrieval once retrieval of
+  confirmed but unattached results is defined. Once version histories list only readable
+  releases, extend `version-source-access` to a readable release between the author's and an
+  unreadable newest one, which the tab should then offer. Verify untouched screens separately
+  from failure paths and keep exceptional controls absent without their triggering condition.
 
 ## Static Frontend Delivery
 
@@ -84,7 +93,7 @@ step that chooses a modifier. Workspace's Settings page loses its "Version modif
 as agreed on 2026-10-07. Operators read a build's source commit from `/config/build-info.json` and
 from Monitoring's deploy matrix.
 
-Apply the policy on staging (`cedr-stg-app-03`) first, then on production (`cedr-prd-app-05`), to
+Apply the policy on staging (`cedr-stg-app-07`) first, then on production (`cedr-prd-app-05`), to
 each frontend vhost, as root:
 
 1. Find the vhost with `grep -l -E "openview|monitoring|bridging|workspace|designer|cedar" /etc/nginx/sites-enabled/*`.
@@ -130,11 +139,10 @@ JavaScript and caches static files at its edge. After the reload, purge
 there. If the CEE bundle that OpenView and Bridging serve still carries `max-age=14400`, set
 Cloudflare's Browser Cache TTL to "Respect Existing Headers".
 
-Extend the cache-delivery smoke to check immutable hashed assets and revalidating fallbacks, to
-compare every served build identity against the accepted commit, and to open, modify, save,
-reload and save an existing instance, so that the GET ETag and the subsequent `If-Match` update
-are exercised. Run it on staging and then production from a browser that previously loaded the
-old payload, after rebuilding every frontend from recorded commits.
+Run the cache-delivery smoke, `npm run smoke:frontend-cache` in `ops/e2e`, on staging and then
+production after rebuilding every frontend from recorded commits. Name the host in `CEDAR_HOST`, the
+recorded commits in `CEDAR_ACCEPTED_COMMITS`, and a browser profile in `CEDAR_CACHE_SMOKE_PROFILE`
+that loaded the old payload before the deployment.
 
 The item is complete when both hosts pass the header check on every frontend origin, two
 consecutive code deployments need no modifier, and a rollback works by restoring payloads and
@@ -146,27 +154,21 @@ routing without inventing one.
 
 ### 3. Make DOI Minting Recovery-Safe
 
-Keep the DataCite wizard out of Workspace resource menus while this workflow is being
-reworked. Before reintroducing an entry point, verify the recovery behavior and review the
-wizard's user-facing flow.
+The backend runbook's [DOI Records](BACKEND-RUNBOOK.md#doi-records) describes the bridge's
+recovery behavior, which the work below verifies and completes.
 
-A retry after a timeout must be able to tell whether the earlier attempt minted a DOI. Define
-durable draft/reserved, published and locally attached states in `cedar-bridge-server`, retain
-the DataCite identifier before the fallible write-back, and make a retry resume or reconcile the
-same DOI rather than orphan or duplicate one. Give the `reconciliationRequired` response a code
-path that resolves it.
-
-Associate an existing draft with its source artifact directly rather than by matching DataCite
-records on the OpenView URL. Move orchestration, configuration and error mapping out of
-`DataCiteResource`. Add offline tests for retry after timeout and repeated publish. The opt-in
-`datacite`-tagged test cannot pass as written, because its positive cases name source artifacts
-that no resource server holds. Rework it, or replace it with a sandbox smoke, to cover the full
-mint and attach contract and the credential check.
+Keep the DataCite wizard out of Workspace resource menus until its user-facing flow has been
+reviewed against that recovery behavior. Before reintroducing an entry point, verify the behavior
+end to end on a deployed stack, against DataCite's test API with the deployment's credentials.
 
 Establish how historical document/graph DOI disagreements arose; do not assume they prove a
-minting timeout. Extend offline regression coverage to ordinary unchanged-DOI updates after
-reconciliation and continued rejection of DOI replacement or deletion through ordinary updates.
-The verified recovery procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
+minting timeout. Find the DOIs published at DataCite before the bridge kept records that no artifact
+carries, and attach or report each, since nothing reconciles them automatically. Extend the resource
+server's offline regression coverage to an ordinary unchanged-DOI update after reconciliation, and to
+continued rejection of DOI replacement or deletion through ordinary updates after it. The admin
+tool's schema rebuild drops the bridge's uniqueness constraint on DOI records without recreating it,
+so teach it the constraint or restart the bridge after every rebuild. The verified recovery
+procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
 <a id="save-recovery"></a>
 
@@ -181,51 +183,23 @@ on an actual failure or retained unfinished work, and new UI requires agreement 
 - **Designer conflicts:** fetch the latest schema separately from the working draft and
   provide review and reconciliation for templates, elements and fields, including unknown
   content, server normalization and intervening writes; never attach its ETag to an
-  unreconciled draft.
+  unreconciled draft. A new version that a status check reports unresolved can be neither
+  saved nor discarded. Save stays blocked, and Discard stays refused after every check.
 - **Changed metadata templates:** reconcile retained metadata against a changed template
   through an explicit migration workflow, preserving unfinished input and unsupported values.
 - **Permitted copies:** recover retained work to another folder when the original artifact is
   inaccessible or deleted, checking destination permissions without silently recreating the
   original or mistaking a permission refusal for deletion.
-- **Recovery validation:** extend live coverage to additional invalid control shapes and newer edits
-  during recovery; include schema normalization and unresolved version operations.
 
 Keep status checks, access checks, review and explicit discard distinct. A failed recovery
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
 current draft-retention contract and operator verification commands.
 
-### 5. Fix Workspace's WCAG Failures
-
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found five WCAG 2.2
-criteria that Workspace fails, two of them through causes it shares with the other components.
-Workspace meets four more criteria only in part: 1.3.1, 3.3.4, 4.1.2 and 4.1.3. Agree the fixes
-marked as visible before making them.
-
-- **A Save that refuses without saying so (2.1.1).** Visible. While CEE's validation is still
-  running, the metadata editor's Save looks enabled, ignores clicks and explains itself only in a
-  hover tooltip. Marking it `aria-disabled`, as Save is when errors refuse it, would dim it.
-- **Text spacing in grid cards (1.4.12).** Visible. Under WCAG's text spacing a grid card's type
-  and date line, such as "Template · 1 day ago", ends in an ellipsis. The line needs to wrap and the
-  card to grow, through the token package's resource-card recipe, which also changes cards that are
-  cut today.
-- **Selection as a state (1.3.1, 4.1.2).** A selected row is described as Selected, because a plain
-  table's rows take no `aria-selected`. Stating it as a state needs a grid and its arrow-key model,
-  which is a keyboard design decision.
-- **Menus that stay open (2.4.3).** Visible. The resource menu and the user, actions and New
-  menus stay open when Tab moves focus out of them. Decide whether they close when focus leaves.
-- **Removing access (3.3.4).** Visible. Removing a person's access or a group member saves at once,
-  with no confirmation or undo. Decide whether it needs either.
-- **Messages that arrive already written (4.1.3).** The metadata editor's review panel is a live
-  region inserted together with its explanation and comparison table, so a screen reader may not
-  announce it. Decide what the panel should announce before giving it a region that is present
-  first. A notice identical to the one before it shows and says nothing, because the notice is
-  never cleared, and fixing that is visible.
-
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 6. Whole-Component Runtime Theme Overrides
+### 5. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -234,7 +208,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 7. Authoring Feedback for Unsupported Markup
+### 6. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -247,54 +221,13 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 8. Remove the Temporary Vite Security Override When Angular Catches Up
-
-Remove the `vite: 8.3.4` overrides from the Angular projects once a supported stable
-`@angular/build` selects a patched Vite itself. Version 22.2.4 still requires Vite 8.3.0;
-the affected 8.3 line is fixed from 8.3.3. Keep CEE's domain harness aligned with the
-root project. Re-resolve the locks, inspect the advisory identities and run the frontend
-reactor and all three consumer demos before removing the overrides.
-
-### 9. Fix CEE's WCAG Failures
-
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found eight WCAG 2.2
-criteria that CEE fails, one of them, 1.4.11, through causes it shares with the other components.
-CEE meets one more, 3.1.2, only in part. Agree the fixes marked as visible before making them.
-
-- **Element descriptions on hover only (2.1.1).** Visible. An element's description and property
-  IRI marks sit inside its panel header, which is a button, so they cannot take focus, and only a
-  pointer shows their tooltips. Either the marks move out of the header or the header shows the
-  tooltip when it takes focus.
-- **Notices that vanish (2.2.1).** Visible. The notices that an entry was cleared or reverted
-  disappear after five seconds, and nothing keeps them.
-- **Severity by colour (1.4.1).** Visible. Range and quality warnings differ from errors only by
-  amber against red.
-- **The link-out icon (2.5.8).** Visible. At 480px a read-only term's 20px link-out icon touches its
-  IRI link. It needs a 24px target or a 4px gap. `visual/tests/accessibility.spec.ts` records it as
-  a known violation.
-- **Instructions cut short (1.4.10).** Visible. At 320px the PubMed and RRID boxes' placeholders
-  need about 271 and 276px and get 264px, so their last letters are cut. They need a shorter
-  instruction, or the instruction moved into hint text that wraps.
-  `visual/tests/layout-resilience.spec.ts` records it as an exception.
-- **Read-only values cut short (1.4.4, 1.4.10, 1.4.12).** Visible. A long text, email or phone
-  value in a read-only box is cut at the box's edge with nothing to show that more follows. At 320px
-  all three are cut, and at 200% zoom and under text spacing the text value is. The value needs to
-  wrap onto further lines, as a paragraph value does. `visual/tests/layout-resilience.spec.ts`
-  records it as an exception.
-- **Box names in the wrong language (3.1.2).** The text, email, phone, link, numeric,
-  controlled-term and authority boxes, and the read-only temporal and select boxes, take the field's
-  label as their `aria-label`, so the label is read in the value's language or CEE's. The term link
-  group's name has the same fault. Naming each from a hidden label marked with the template's
-  language, as the editable temporal boxes now are, changes nothing visible. Decide first whether
-  that fits the rule that a box carries its value's language and never the template's.
-
 ## Frontend Dependencies
 
-### 10. Take the Frontend Dependency Upgrades That Need Code Changes
+### 7. Take the Frontend Dependency Upgrades That Need Code Changes
 
-Each dependency below has a newer major release that a lock update cannot take. Some wait on an
-upstream release, some need code changes, and one needs a design decision. The versions are the
-newest that `npm outdated` reported on 2026-10-19, after every in-range update had been taken.
+No dependency below can move by a lock update alone. Some wait on an upstream release, some have
+not been tried, and some need code changes. The versions are the newest that `npm outdated`
+reported on 2026-10-29, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
@@ -305,82 +238,173 @@ newest that `npm outdated` reported on 2026-10-19, after every in-range update h
   configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
   newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of
   ember-cli-babel (8.3.2), `@rollup/plugin-babel` (7.1.0) and Embroider's core and compat packages
-  accept only Babel 7, so both upgrades wait until those accept Babel 8.
+  accept only Babel 7, so both upgrades wait until those accept Babel 8. `@eslint/js` 10 moves with
+  ESLint, and `@babel/plugin-proposal-decorators` and `@babel/plugin-transform-runtime` 8 move with
+  Babel.
+
+**Not yet tried.**
+
+- **The Ember demo's other lint and build packages.** `eslint-plugin-n` 18, `eslint-config-prettier`
+  10, `globals` 17 and `concurrently` 10 are new majors, and ember-cli 7.3 and ember-source 7.4 fall
+  outside the demo's `~7.2.0` ranges. None of them waits on ESLint 10 or Babel 8. Both ESLint
+  packages accept ESLint 9, `globals` declares no peer, and `concurrently` 10 needs only Node 22.
+  Each move needs its range changed and the demo's lint, build and tests run under it.
+- **`@axe-core/playwright` 4.14** in the Playwright test packages of CEE, CED, CETP and Workspace,
+  which pin 4.13.0 exactly. A new axe release can add rules or change what an existing rule
+  reports, so the move needs every accessibility scan rerun and any new finding placed in the
+  [Accessibility](#accessibility) item.
 
 **Needing code changes.**
 
-- **Vitest 5.** `@angular/build` 22.2.4 already accepts it. CEE's root and its domain harness must
-  move together, because the harness runs on the root's worker, and the harness's `oxc` transform
-  settings need checking against Vitest 5's Vite, since the previous major broke them. The other
-  Vitest projects are CED, CETP, Workspace, OpenView, Bridging, Monitoring and the Angular and
-  React demos. OpenView, Bridging and Monitoring also move `@vitest/browser-playwright` with it.
-- **ngx-translate 18** in OpenView, Bridging and Monitoring. It removes `TranslateModule`, so each
-  application's module-based setup moves to the provider functions.
-- **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring. The adapter's major
-  follows the Keycloak server, so these move with "Upgrade Keycloak to a supported release" in
-  [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
+- **ngx-translate 18.1** in CEE, CED, CETP and Workspace, which hold 18.0.x with a `~18.0.0` range.
+  Release 18.1.0 rebuilds the service around signals. Under it, `onTranslationChange` fires three
+  times rather than twice when a host names a language map after CEE has its template, which fails
+  the late-language specification in the wrapper component's suite. CED's bundle also grows by
+  about 4.7 KB raw and 1.7 KB compressed, past all four of its size ceilings. Taking it needs a
+  decision on whether the third announcement is acceptable, and on whether CED's ceilings rise or
+  something else in the bundle shrinks.
+- **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring, and the adapter that
+  Workspace and the Template Designer host load from `app/scripts/keycloak/`. The installed
+  keycloak-angular 13.1.0 declares Angular 15 as its peer and is forced onto Angular 22 through
+  `overrides`, the only override either application still carries. The Workspace and Designer copy
+  was committed in March 2023 outside npm, so neither `npm outdated` nor `npm audit` sees it. The
+  adapter's major follows the Keycloak server, so all of these move with "Upgrade Keycloak to a
+  supported release" in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 
-**Needing a design decision.**
+<a id="accessibility"></a>
 
-- **lucide-static 1.59** in the design tokens, which pin 1.47.0 exactly. A newer release can
-  redraw icons that every consumer shows, so the move needs its rendered differences reviewed and
-  approved like any other visual change.
+## Accessibility
 
-## Accessibility Across Components
+### 8. Fix the Failures the WCAG 2.2 Conformance Report Records
 
-Five items hold the open accessibility work: "Fix Workspace's WCAG Failures", "Fix CEE's WCAG
-Failures", "Fix the WCAG Failures the Components Share", and CED's "Keyboard and Screen-Reader
-Access" and "Fix CED's Remaining WCAG Failures". The term picker's three are on the
-[versioning roadmap](VERSIONING-ROADMAP.md). Every open piece waits on a decision about a visible
-change or a design, except the screen-reader runs, which wait on a person. In order of effort,
-least first, the pieces are:
+The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
+picker and Workspace against the 55 success criteria of WCAG 2.2 at levels A and AA. Its failures
+are grouped by the kind of fix rather than by component, because one decision usually settles a kind
+of fix in every component it touches. Every piece waits on a decision about a visible change or a
+design, except the screen-reader runs, which wait on a person. Agree each visible change before
+making it.
 
-- where focus goes when Escape hides a focused insertion action in CED;
-- whether Workspace's menus close when focus leaves them;
-- marking Workspace's Save `aria-disabled` while CEE validates, which dims it;
-- clearing Workspace's notice, so that an identical one is seen and announced;
-- what Workspace's metadata review panel announces when it appears;
-- 24px targets for CEE's link-out icon and CED's field settings toggle;
-- shorter PubMed and RRID instructions in CEE, or hint text that wraps;
-- naming CEE's text-like boxes from a hidden label in the template's language;
-- keeping CEE's cleared and reverted notices until they are dismissed;
-- a cue beyond colour for CEE's warnings;
-- a darker `control-border-default`, published to every consumer with its new baselines;
-- labels that stay in CED's field-name, option and library-search boxes;
-- a keyboard route to CEE's element descriptions and property IRI marks;
-- wrapping CEE's long read-only values;
-- wrapping Workspace's grid card lines under text spacing, through the shared card recipe;
-- one second cue for the six tint-only states;
-- a confirmation or an undo for removing access in Workspace;
-- a keyboard route for CED's sidebar divider, after its Tab order is agreed;
-- CED's sidebar split, which fails no criterion but hides the library's last button;
-- the term picker's result tabs as one Tab stop;
-- a keyboard route for CED's sidebar field list, as buttons or a listbox;
-- CED's screen-reader runs with VoiceOver and NVDA;
-- selection in Workspace's listing as a state, through a grid;
-- semantics for CED's child picker results;
-- semantics for the term picker's result list, and larger release buttons;
-- the term picker's remaining target and layout failures;
-- CED's layout below 768px;
-- a click-only alternative to dragging in CED's canvas, Overview, child picker and sidebar.
+Many findings are recorded as exceptions in a component's `accessibility.spec.ts` or
+`layout-resilience.spec.ts`. An exception fails once its finding stops, so remove it in the same
+change as the fix. Remove each piece when its work is done, and the item once it holds none.
 
-When a piece's work leaves the item that holds it, remove the piece from this list.
-
-### 11. Fix the WCAG Failures the Components Share
-
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found failures that recur
-across CED, CEE, the term picker and Workspace because they share a cause. Fix each once, where its
-cause lives.
-
-- **Control borders (1.4.11).** `control-border-default` in `cedar-design-tokens` is
-  `rgba(0, 0, 0, 0.38)`, about 2.7:1 on white, and CED, CEE and Workspace draw text-input borders
-  with it. Criterion 1.4.11 asks for 3:1. A darker value changes every consumer's controls, so
-  agree it as a visual change. The token package's contrast test records the shortfall as a known
-  failure and fails once the token reaches 3:1, so remove that record with the change.
-- **Tint-only state (1.4.1, 1.4.11).** A tint of about 1.2:1 is the only mark of the term picker's
-  current release and picked tree term, Workspace's selected list row and pressed view switch, and
-  the focused date in CEE's calendar. CED tells an errored settings tab from the selected one by
-  hue alone. Agree one second cue, such as a bar, a weight or an icon, and apply it in each place.
+- **Focus after an action (2.4.3, 2.4.7).**
+  - In CED, when Escape hides an insertion action that has keyboard focus, focus stays on a control
+    nobody can see, as it already did when a keyboard press on one opened the palette. Decide where
+    focus goes, or whether a focused action stays shown.
+  - Workspace's resource menu and its user, actions and New menus stay open when Tab moves focus
+    out of them. Closing them when focus leaves is a visible change.
+- **Messages announced and kept long enough to read (4.1.3, 2.2.1).**
+  - Workspace's metadata editor inserts its review panel, a live region, together with its
+    explanation and comparison table, so a screen reader may not announce it. Decide what the panel
+    should announce before giving it a region that is present first.
+  - A Workspace notice identical to the one before it shows and says nothing, because the notice is
+    never cleared. Fixing that is a visible change.
+  - CEE's notices that an entry was cleared or reverted disappear after five seconds, and nothing
+    keeps them. Keeping them is a visible change.
+- **Lasting names in the right language (3.3.2, 3.1.2).**
+  - CED's field-name and option boxes and its library search are labelled only by placeholders,
+    which disappear once the box holds text. Labels that stay are a visible change.
+  - CEE's text, email, phone, link, numeric, controlled-term and authority boxes, and its read-only
+    temporal and select boxes, take the field's label as their `aria-label`, so the label is read in
+    the value's language or CEE's. The term link group's name has the same fault. Naming each from a hidden label marked with the
+    template's language, as the editable temporal boxes are, changes nothing visible. Decide first
+    whether that fits the rule that a box carries its value's language and never the template's.
+- **Targets of at least 24px (2.5.8).** Growing a target changes the layout around it, so each
+  piece is a visible change. Each is recorded as an exception in its component's
+  `accessibility.spec.ts`.
+  - At 480px, a read-only term's 20px link-out icon in CEE touches its IRI link. It needs a 24px
+    target or a 4px gap.
+  - CED's field settings toggle is 36 by 14px. The field header beside it opens the same settings
+    but is 23px tall, a pixel short, and the settings panel's last control sits within 12px of the
+    toggle's centre. Either the toggle or the header needs 24px.
+  - In the term picker, the tree's 16px twists, its terms, 14px tall on a 16px pitch, the release
+    count that opens a row's history, and the history's 22px release buttons are under the minimum.
+- **Warnings marked beyond colour (1.4.1).** CEE's range and quality warnings differ from its
+  errors only by amber against red. A second cue, such as an icon or a word, is a visible change.
+- **Confirming a removal of access (3.3.4).** Removing a person's access or a group member in
+  Workspace saves at once, with no confirmation or undo. Decide whether it needs either. Both are
+  visible changes.
+- **Keyboard routes (2.1.1, 2.5.7).** Some actions and information are reached only by a pointer,
+  and one keyboard route does not follow the pattern its roles set.
+  - While CEE's validation is still running, Workspace's metadata editor shows Save as enabled, but
+    Save ignores clicks and explains itself only in a hover tooltip. Marking it `aria-disabled`, as
+    Save is when errors refuse it, would dim it, which is a visible change.
+  - An element's description and property IRI marks in CEE sit inside its panel header, which is a
+    button, so they cannot take focus, and only a pointer shows their tooltips. Either the marks move
+    out of the header or the header shows the tooltip when it takes focus. Both are visible changes.
+  - The term picker's result scopes, which are Terms, Branches, Ontologies and Value sets when an
+    author chooses a constraint, form a `tablist` of `tab` buttons. Each button is its own Tab stop,
+    no arrow key moves between them, and nothing carries the `tabpanel` role. Follow the ARIA tabs
+    pattern: the current tab is the only Tab stop, the arrow keys and Home and End move between
+    tabs, and the result list is labelled as the current tab's panel. Showing a tab can fetch more
+    results, so decide whether an arrow key shows its tab at once or only moves focus until Enter or
+    Space. Pin the order in the browser suite.
+  - In CED, a click on an entry in the sidebar's field list opens the container that holds the
+    field, selects it and scrolls to it. The Overview offers reordering by keyboard, but going
+    straight to a field has no keyboard route. The entry, `.draggable-field-item` in
+    `field-library-sidebar.component.html`, has no `tabindex` and no key handler, so a keyboard
+    reaches a field only by moving through the canvas cards before it. A button per entry adds a Tab
+    stop per field, which in a long template puts the canvas many stops away. A listbox adds a single
+    Tab stop, and the arrow keys move within it. Decide which, and whether choosing an entry moves
+    focus to its card. Agree the resulting Tab order, then pin it in `keyboard-order.spec.ts` and pin
+    where focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
+    accessibility lint rules, so remove that exception in the same change.
+  - Reordering in CED, on the canvas, in the Overview, in the child picker and in the sidebar, and
+    resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route that needs
+    only single clicks, such as Move up and Move down buttons, which is new UI to agree first. The
+    divider between the sidebar's field list and the panel below needs a drag alone, with no
+    keyboard route and no `separator` role. The Overview's resize separator is the pattern to
+    follow.
+- **Layout under reflow, zoom and text spacing (1.4.4, 1.4.10, 1.4.12).** Each component's layout
+  check finds content cut short, scrolled sideways or drawn over other content at 320 CSS pixels, at
+  200% zoom or under WCAG's text spacing. Each finding is recorded in its component's
+  `layout-resilience.spec.ts`, and each fix is a visible change.
+  - Under text spacing, a Workspace grid card's type and date line, such as "Template · 1 day ago",
+    ends in an ellipsis. The line needs to wrap and the card to grow, through the token package's
+    resource-card recipe, which also changes cards that are cut today.
+  - At 320px, CEE's PubMed and RRID placeholders need about 271 and 276px and get 264px, so their
+    last letters are cut. They need a shorter instruction, or the instruction moved into hint text
+    that wraps.
+  - A long text, email or phone value in a read-only CEE box is cut at the box's edge with nothing to
+    show that more follows. At 320px all three are cut, and at 200% zoom and under text spacing the
+    text value is. The value needs to wrap onto further lines, as a paragraph value does.
+  - At 375px, the term picker's release-history head gives its count column no width, so "3
+    releases, newest first" overlaps "effective date", and a release row clips its tag. At 320px the
+    history scrolls sideways, where each release could take two lines. At 200% zoom the selection's
+    source line loses its acronym to an ellipsis, a value set row cuts its matched terms, and the
+    narrowing panel opens with about 96px of room, clipping its list and its Clear all, Cancel and
+    Apply buttons until the page is scrolled.
+  - Below 768px of width, CED hides the Overview (`app.component.scss`), and with it outline
+    navigation, Expand all, Collapse all and the only keyboard route for reordering, so all of them
+    are gone at 200% zoom as well (2.1.1). At 320px the Preferences field-type list scrolls sideways
+    by 8px, and the Define Presets body scrolls sideways. Already at 375px, the template's Types row
+    pushes Enter IRI manually past the card's edge and sets "No types selected." one letter to a
+    line. Decide how a narrow host lays these out.
+  - CED's sidebar divider also shows a layout defect that fails no WCAG criterion. Its shares leave
+    out the roughly 72px of insertion actions above the field list, so the sections below can
+    overrun the sidebar by about 78px, which `.main-content` clips. A pointer then cannot reach the
+    library's last button. Keyboard focus scrolls it into view, but that puts the Add field and
+    Import row out of reach above. Adding 15 fields from the sidebar causes this at the default
+    share, before any drag. Fixing it changes the default layout, so agree it first.
+- **Row semantics a screen reader can follow (1.3.1, 4.1.2).** Three components draw rows that act
+  on a click but whose roles do not say so. Each fix changes a keyboard model, so each is a design
+  decision.
+  - Workspace describes a selected row as Selected, because a plain table's rows take no
+    `aria-selected`. Stating selection as a state needs a grid and its arrow-key model.
+  - CED's child-picker result rows act on a click but are plain table rows, whose selected state
+    Chromium ignores. A grid needs an arrow-key model, a list of buttons is a redesign, and a
+    visually hidden button in each row disturbs the scroller. Decide which. The smokes find a row by
+    its name, Select and the artifact's name, which any choice must keep.
+  - A term picker result row is an `option` outside any `listbox`, carries `aria-expanded`, which an
+    option does not take, and holds buttons of its own. The browser suite's axe gate records these
+    as exceptions. Choose list semantics that fit rows with their own actions, such as a grid or a
+    list of rows whose actions are reached from the row, and decide how the arrow keys move through
+    them.
+- **CED's screen-reader protocol.** Run the
+  [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with VoiceOver and Safari
+  and with NVDA and Firefox, and fix what it finds. The browser suite cannot tell whether a screen
+  reader speaks the live region's messages, in what order, or whether one interrupts another.
 
 <a id="ced"></a>
 
@@ -390,7 +414,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 12. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -404,72 +428,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 13. Keyboard and Screen-Reader Access
-
-Two parts of CED's keyboard and screen-reader access remain open. One needs a person with a
-screen reader, and the other needs a design decision before it can be built.
-
-**Screen readers.** Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol)
-with VoiceOver and Safari and with NVDA and Firefox, and fix what it finds. The browser suite
-cannot tell whether a screen reader speaks the live region's messages, in what order, or
-whether one interrupts another.
-
-**The sidebar's field list.** Each entry in the sidebar's list of the template's fields opens
-the container that holds its field, selects the field and scrolls to it. Only a click does
-this. The entry, `.draggable-field-item` in `field-library-sidebar.component.html`, has no
-`tabindex` and no key handler, so a keyboard cannot reach it. Dragging an entry reorders the fields, and the Overview
-already offers that by keyboard. Going straight to a field has no keyboard route. A keyboard can
-reach each field on the canvas, but only by moving through the cards before it, which the list
-lets a pointer skip.
-
-Two designs fit. A button per entry adds one Tab stop per field, which in a long template puts
-the canvas many stops away. A listbox adds a single Tab stop, and the arrow keys move within
-it. Decide as well whether choosing an entry moves focus to the card it selects. Agree the
-resulting Tab order before changing it, then pin it in `keyboard-order.spec.ts` and pin where
-focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
-accessibility lint rules until this is done. Remove that exception in the same change.
-
-### 14. Fix CED's Remaining WCAG Failures
-
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) found these failures in
-CED beyond the ones it shares with the other components. Several need a design decision first.
-
-- **Narrow widths (1.4.4, 1.4.10, 2.1.1).** Visible. Below 768px of width the designer hides the
-  Overview (`app.component.scss`), and with it outline navigation, Expand all and Collapse all, and
-  the only keyboard route for reordering, so it is gone at 200% zoom as well. At 320px the
-  Preferences field-type list scrolls sideways by 8px, and the Define Presets body scrolls sideways.
-  The template's Types row pushes Enter IRI manually past the card's edge and sets "No types
-  selected." one letter to a line, already at 375px. `browser/tests/layout-resilience.spec.ts`
-  records each as an exception. Decide how a narrow host lays these out.
-- **Dragging (2.1.1, 2.5.7).** Reordering on the canvas, in the Overview, in the child picker and
-  in the sidebar, and resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a
-  route that needs only single clicks, such as Move up and Move down buttons, which is new UI to
-  agree first. The sidebar's divider between its field list and the panel below needs a drag alone:
-  it has no keyboard route and no `separator` role. The Overview's resize separator is the pattern
-  to follow.
-- **Focus on a hidden action (2.4.7).** When Escape hides an insertion action that has keyboard
-  focus, focus stays on a control nobody can see, as it already did when a keyboard press on one
-  opened the palette. Decide where focus goes, or whether a focused action stays shown.
-- **Field settings toggles (2.5.8).** Visible. A field card's settings toggle is 36 by 14px, and the
-  field header beside it, which opens the same settings, is 23px tall, a pixel short of WCAG's 24.
-  The settings panel's last control also sits within 12px of the toggle's centre. Either the toggle
-  or the header needs 24px. `browser/tests/accessibility.spec.ts` records it under `EXCEPTIONS`.
-- **The child picker's results (1.3.1, 4.1.2).** Its result rows act on a click but are plain table
-  rows, whose selected state Chromium ignores. A grid needs an arrow-key model, a list of buttons is
-  a redesign, and a visually hidden button in each row disturbs the scroller. Decide which. The
-  smokes find a row by its name, Select and the artifact's name, which any choice must keep.
-- **Labels that vanish (3.3.2).** Visible. The field-name and option boxes and the library search
-  are labelled only by placeholders, which disappear once the box holds text. They need labels
-  that stay.
-
-The sidebar's divider also shows a layout defect that fails no WCAG criterion. Its shares leave out
-the roughly 72px of insertion actions above the field list, so the sections below can overrun the
-sidebar by about 78px, which `.main-content` clips. A pointer then cannot reach the library's last
-button. Keyboard focus scrolls it into view, but that puts the Add field and Import row out of
-reach above. Adding fields from the sidebar causes this with 15 fields at the default share, before
-any drag. Fixing it changes the default layout, so agree it first.
-
-### 15. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible

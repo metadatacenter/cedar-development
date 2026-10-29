@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {artifactBody, call, enc, mintId, RESOURCE} from './rest/lib.mjs';
 import {journeyFolder, recordCreate} from './journey-fixtures.mjs';
 
-const collection = kind => kind === 'template' ? 'templates' : `template-${kind}s`;
-function insert(parent, key, child, repeated = false) {
+export const collection = kind => kind === 'template' ? 'templates' : `template-${kind}s`;
+export function insert(parent, key, child, repeated = false) {
   parent.properties[key] = repeated ? {type: 'array', minItems: 0, items: child} : child;
   parent.properties['@context'].properties[key] = {enum: [`https://example.org/pull/${key}`]};
   parent._ui.order.push(key); parent._ui.propertyLabels[key] = key;
@@ -13,7 +13,7 @@ const childAt = (doc, nested, repeated) => {
   const parent = nested ? doc.properties.Group : doc;
   return repeated ? parent.properties.Reused.items : parent.properties.Reused;
 };
-async function setup(ctx, suffix) {
+export async function setup(ctx, suffix) {
   const folderId = await journeyFolder(ctx, suffix);
   const request = async (method, path, body, options, status = 200) => {
     const reply = await call(ctx.user.auth, method, path, body, options);
@@ -28,7 +28,7 @@ async function setup(ctx, suffix) {
   };
   return {folderId, request, read, create};
 }
-async function versionPanel(page, kind) {
+export async function versionPanel(page, kind) {
   const cards = page.locator(kind === 'field' ? 'app-field-card' : 'app-element-card');
   await cards.first().waitFor();
   let card;
@@ -43,7 +43,7 @@ async function versionPanel(page, kind) {
   await settings.getByRole('tab', {name: 'Version', exact: true}).first().click();
   return settings.getByRole('tabpanel', {name: 'Version', exact: true}).first();
 }
-async function open(ctx, template, folderId) {
+export async function open(ctx, template, folderId) {
   await ctx.page.goto(`${ctx.designer}/templates/edit/${enc(template['@id'])}?folderId=${enc(folderId)}`);
   await ctx.page.locator('#state').filter({hasText: /^Unmodified$/}).waitFor();
   assert.equal(await ctx.page.locator('#check-save').isVisible(), false);

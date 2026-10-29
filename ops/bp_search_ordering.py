@@ -454,7 +454,7 @@ def main():
     ap.add_argument("--terms", default=",".join(DEFAULT_TERMS))
     ap.add_argument("--pool", type=int, default=200)
     ap.add_argument("--show", type=int, default=4, help="terms to list group-by-group")
-    ap.add_argument("--prod", default=os.path.join(os.environ.get("CEDAR_HOME", ""), "cedar-term/prod"))
+    ap.add_argument("--prod", default=os.path.join(os.environ.get("CEDAR_HOME", ""), "cedar-term"))
     ap.add_argument("--cache-dir", default=os.path.join(os.path.expanduser("~"), ".cache/cedar-bp-ordering"))
     args = ap.parse_args()
     args.terms = [t.strip() for t in args.terms.split(",") if t.strip()]

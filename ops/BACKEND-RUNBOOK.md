@@ -884,7 +884,10 @@ is parked after its sixtieth failed read. Transient failures, including 408 and 
 for retry. A response lost before its generated identifier is recorded, which only a create by
 `POST` can suffer, leaves an intent with an unknown artifact identity; it needs inspection, never a
 guessed delete. A late
-response can supply that evidence while no cleanup has occurred. Parked records are retained rather
+response can supply that evidence while no cleanup has occurred. A create the artifact server never
+received leaves no record. The client sends a `POST`, or a `PUT` without `If-Match`, only once, so
+when no connection to the artifact server opened, whether refused or timed out, the request cannot
+have reached it, and the record is removed as the create fails. Parked records are retained rather
 than silently cleared. Inspect them with read-only Cypher:
 
 ```cypher
@@ -893,6 +896,10 @@ RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt, j.rechec
        j.attempts, j.lastStatus, j.cleanupStarted, j.parked, j.parkedReason
 ORDER BY j.createdAt
 ```
+
+A parked record with no identity is settled by comparing the content store with the graph. A document
+the graph does not register, created near the record's `createdAt`, is the create's to remove. With
+none, the create stored nothing, and the record can be deleted.
 
 Deploy the resource server and worker with the matching workspace/search libraries: producers,
 registration transactions and relays share this protocol. A relay built before identities were
@@ -2941,10 +2948,24 @@ blocks a deploy for a condition nobody needs to act on, which is the case `CompT
 argues at length for the Bridge server's view of the EPA registry.
 
 The shared bootstrap probes what every microservice opens. Neo4j is gating: it resolves the caller
-of every authenticated request, so a server that cannot reach it can serve nothing. The Redis
-application log queue is reporting: enqueueing is best-effort by design and drops events rather
-than failing the request that produced them. Every server therefore carries `neo4j` and
-`app-log-queue` in addition to Dropwizard's own `deadlocks`.
+of every authenticated request, so a server that cannot reach it can serve nothing. The realm's
+signing keys are gating too. Every browser request carries a bearer token, and each server verifies
+it against keys it fetches from `https://auth.<host>`, so a server that cannot fetch them refuses
+every signed-in user. The Redis application log queue is reporting: enqueueing is best-effort by
+design and drops events rather than failing the request that produced them. Every server therefore
+carries `neo4j`, `keycloak-signing-keys` and `app-log-queue` in addition to Dropwizard's own
+`deadlocks`.
+
+`keycloak-signing-keys` exists because the failure it reports is otherwise silent. The Keycloak
+adapter loads the realm's discovery document on the first token it verifies, and when that load
+fails it logs a warning and carries on without the key set's address. Each signed-in request then
+ends in a `NullPointerException` and a 500 with no message, while API keys, which never consult
+Keycloak, keep working. The probe makes the same two requests through the adapter's own client,
+with its TLS settings and timeouts, and names the real cause, such as `SocketException: Connection
+reset`. The adapter retries discovery on every request, so a server recovers without a restart once
+Keycloak is reachable again. The adapter's client gives up after 2 seconds connecting and 5 seconds
+waiting for a response. Without those limits it waited as long as the operating system allowed, and
+each signed-in request hung for about 30 seconds before failing.
 
 Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
 the shared bootstrap registers it, so artifact carries `mongo`; repo, OpenView and monitor proxy document access and no longer register that store probe.
@@ -3348,20 +3369,20 @@ Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mo
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
-MySQL). Nor does any suite need an external service. The tests that do call one are tagged and
-excluded from the default build by their application POM: terminology excludes `bioportal` (61 tests
-across six resource classes) and bridge excludes `datacite` (`DataCiteResourceTest`). Clear the
-exclusion with `-DexcludedGroups=` to run them against the real service. Their CEDAR variables must
-still be set even when the tests are excluded, because the configuration substitutes them as it
-loads; a placeholder value is enough.
+MySQL). Nor does any suite need an external service. The tests that do call one are terminology's
+BioPortal tests (61 across six resource classes). They are tagged `bioportal`, and terminology's
+application POM excludes them from the default build. Clear the exclusion with `-DexcludedGroups=` to
+run them against BioPortal. Their CEDAR variables must still be set even when the tests are excluded,
+because the configuration substitutes them as it loads; a placeholder value is enough. The bridge's
+DOI suites call no DataCite. They run against a DataCite fake that keeps what it registers.
 
 A test that starts a Dropwizard application, an embedded store, embedded Redis, OpenSearch or a
 local socket server carries the `integration` tag. Every other test is a unit test. No POM excludes
 the tag, so the default build runs both kinds. Select one kind with `-Dgroups=integration` or
 `-DexcludedGroups=integration`. Terminology reads its exclusion from the `excludedGroups` property,
 so name both tags there (`-DexcludedGroups=bioportal,integration`) or the BioPortal tests run too.
-Bridge fixes its exclusion in the POM and ignores the property. A base class that starts a server
-carries the tag for its subclasses. A test that starts one itself needs the tag on its own class.
+A base class that starts a server carries the tag for its subclasses. A test that starts one itself
+needs the tag on its own class.
 The OpenSearch `*IT` suites carry the tag as well. Their names keep them out of the default build,
 because only Failsafe runs `*IT` classes. `cedarcli check test-tags` names every class that starts
 one of these without the tag, and `cedarcli build java` refuses to run the tests while one exists.
@@ -3586,11 +3607,11 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 `DropwizardAppExtension`: its version bundled with Dropwizard 2.1 is binary-incompatible with the
 current JUnit platform.
 
-Rough suite sizes: artifact 1334 (parameterized CRUD over four artifact types on embedded Mongo),
-server-rest 281, workspace-operations 182, search-operations 208, artifact-library 800,
-terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 63,
-cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, bridge 57, monitor 8, and a
-one-to-seven-test boot-and-config tier on the remaining thin servers.
+Suite sizes in the surefire reports of the 2026-10-28 build: artifact 1,816 (parameterized CRUD over
+four artifact types on embedded Mongo), server-rest 527, workspace-operations 271, search-operations
+337, artifact-library 1,928, terminology 782 (61 more excluded under `bioportal`), model-validation
+505, resource 1,440, cadsr-tools 139, core-library 440, user 43, group 34, messaging 38, bridge 639,
+monitor 144, and a one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### Reproducing a Flake That Depends on Class Order
 
@@ -4469,8 +4490,14 @@ but it is bound to AngularJS markup, so it is the more brittle of the two and th
 survive a frontend replacement. Prefer adding to the REST smoke.
 
 Two smaller browser smokes cover the frontends that one does not reach. `npm run smoke:frontend-cache`
-checks all seven origins for a 200 and `Cache-Control: no-store` without credentials, which a
-completely broken application still passes. `npm run smoke:frontend-app` signs in through Keycloak and
+holds all seven origins to their cache policy. A local stack must answer everything `no-store`. A
+deployment must answer its entry pages, deep links and `/config/` `no-store`, its hashed bundles
+`immutable`, and its other files with `no-cache`, and must refuse a request for a removed bundle
+rather than answer it with the entry page. The smoke compares every build identity an origin serves
+with the accepted commit, which a deployment names in `CEDAR_ACCEPTED_COMMITS`, and then signs in to
+Workspace and saves a reloaded instance twice, each save carrying the ETag the editor last read. Run
+from the same `CEDAR_CACHE_SMOKE_PROFILE` before and after a deployment, it shows that a browser
+which held the earlier payload now runs the accepted one. `npm run smoke:frontend-app` signs in through Keycloak and
 waits for Monitoring and Bridging to render content only their own components produce, failing on the
 console errors an application cannot run through. That distinction is the point: the Angular 22 upgrade
 left OpenView building clean and dying at bootstrap with an injector error, which every gate then in
@@ -4508,9 +4535,9 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   controlled-term versions, but the resolver is fail-safe: it leaves that pin absent and increments
   `skippedResolutionCount` when terminology is unavailable. Monitor's Keycloak user detail is a
   diagnostic assembled from several stores, so it logs the Keycloak failure and returns that section
-  as unavailable without discarding the other sections. DataCite is the exception still needing
-  work: its minting client and recovery behavior belong to the explicit DataCite lifecycle roadmap
-  item rather than a dead-port-only degradation test.
+  as unavailable without discarding the other sections. DataCite is covered by the bridge's recovery
+  suite rather than a dead-port test. A registration DataCite does not answer is a 502, and the suite
+  repeats each interrupted registration against a DataCite fake that keeps what it registers.
 
   Concurrent edits are covered both over HTTP and directly at the Mongo compare-and-swap boundary.
   Pagination is covered on a folder's contents and search (`pagination` suite); the other paged
@@ -4675,9 +4702,9 @@ cd $CEDAR_HOME && for d in cedar-*-server; do
 done
 ```
 
-Tests that need something external are tagged and excluded by default: `datacite` in the bridge
-server, `bioportal` in the terminology server. Both services keep untagged coverage of their
-authenticated surface, so excluding the tagged tests does not silently drop a row to nothing.
+The terminology server's tests that need BioPortal are tagged `bioportal` and excluded by default.
+The server keeps untagged coverage of its authenticated surface, so excluding the tagged tests does
+not silently drop a row to nothing.
 
 ## Continuous Integration
 
@@ -4780,7 +4807,9 @@ what failed, the publication needs repeating rather than the source.
 
 ### Automated Dependency Updates
 
-The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. The hosted
+The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. Every other
+Java repository and the three Java MCP servers carry a configuration for it as well, which does
+nothing until an organization owner adds those repositories to the app's repository access. The hosted
 app reads its configuration from the default branch, `main`, while `baseBranchPatterns` is set to
 `develop`, so Renovate branches and pull requests must target `develop`, never `main`. A config
 change is committed to `develop` like any other change and reaches `main` with the next release.
@@ -4796,6 +4825,26 @@ EE 10 lines, Logback below 1.6 and logback-access below 2.0.14, Netty on 4.1, em
 carry another artifact's choice: Lucene and reactor-core follow OpenSearch, hk2-locator follows
 Jersey, Jandex follows RESTEasy and protobuf-java follows Connector/J. Nor does it offer the MariaDB
 test binaries, whose single version property has to exist for three platforms. Those move by hand.
+
+What the backend repositories have in common is one preset, `renovate-backend.json` in
+`cedar-parent`: review-only pull requests against `develop` after the release age, majors behind
+approval, Maven lookups through the Nexus proxy, no move of an internal CEDAR version, and the Java
+17 hold. It also keeps the Maven wrapper behind approval, because moving Maven is one change across
+every repository, and groups a repository's workflow action updates into one pull request. Each
+repository's `renovate.json`, the parent's included, extends it as
+`local>metadatacenter/cedar-parent:renovate-backend` and adds only its own rules. A repository that
+inherits the parent declares no third-party version, so Renovate finds only its workflow actions
+and Maven wrapper there.
+
+The MCP servers build outside the parent and work on `main`, so their configurations set `main` as
+the base branch and watch the Maven versions each server declares. They look up
+`cedar-artifact-library` in the BMIR Nexus releases repository, where every CEDAR release is
+deployed. The proxy holds only the CEDAR releases on Maven Central, the newest of which is 2.9.19.
+The lookup reads the releases repository's `maven-metadata.xml`. On 2026-10-28 that file, last
+written on 2026-08-22, listed nothing after 2.9.2 for any of the five CEDAR artifacts checked,
+although every release since is deployed beside it. Until that metadata is rebuilt, Renovate offers
+no library update, and any tool that asks the releases repository for its newest CEDAR release gets
+2.9.2.
 
 `cedar-docker-build` watches the locked server variables in `bin/cedar-images-base.sh` through its
 custom manager as well as ordinary Dockerfile and Actions references. It groups the locked server
@@ -7271,7 +7320,7 @@ before running either differ and points to `$TERM_REPORT_DIR/term-gate-instance.
 `cedar_term_gate.sh record` re-records the BioPortal goldens (drift refresh) from a BioPortal-proxy
 instance — run it on a cadence (BioPortal content drifts; ours is pinned), monthly is ample given the
 measured ~0.03%/day, additive pace of change. Paths default to
-`$CEDAR_HOME/cedar-term/{prod/catalog.sqlite,goldens,goldens_roots,matrix.jsonl}`; override with
+`$CEDAR_HOME/cedar-term/{catalog.sqlite,goldens,goldens_roots,matrix.jsonl}`; override with
 `TERM_*` env vars.
 
 Cutover is **per-endpoint**, set from the profile and injected by `cedar-services.sh` (unset the vars
@@ -7639,6 +7688,53 @@ rather than curing it.
 (already configured on this machine).
 
 
+### DOI Records
+
+Minting a DOI takes two writes: DataCite registers the DOI, and then the resource server records it
+on the artifact. Either can fail, and either can time out after it took effect. The bridge server
+keeps a record of each artifact's DOI so that a request repeated after any of these failures
+continues with the same DOI.
+
+Each record is a `CedarDoiRegistration` node in the graph, apart from the artifact's own node, and a
+uniqueness constraint on `sourceArtifactId` holds one per artifact. The bridge creates the
+constraint the first time it uses the records after it starts, so a schema rebuild that drops every
+constraint needs a bridge restart to restore it. A record holds the DOI without its resolver prefix
+and the state its registration has reached:
+
+| State | Meaning |
+| --- | --- |
+| `RESERVED` | The bridge chose the DOI and recorded it. DataCite may or may not hold it. |
+| `DRAFT` | DataCite holds the DOI as a draft. |
+| `PUBLISHED` | DataCite holds the DOI as findable, and the artifact does not yet carry it. |
+| `ATTACHED` | The artifact carries the DOI. |
+
+The bridge chooses each DOI itself, in the suffix form DataCite generates, and records it before it
+asks DataCite to register it. A request that times out therefore leaves a DOI the next request reads
+from DataCite by its identifier. If DataCite holds it, the next request continues from there, and if
+not, the next request registers that same DOI. A published DOI is recorded as `PUBLISHED` before the
+resource server is asked to record it on the artifact. When that write fails,
+`POST /datacite/create-doi?state=publish` answers 502 with `parameters.reconciliationRequired` and the
+DOI in `parameters.doi`. Repeating the request records that DOI on the artifact and asks DataCite
+nothing. Until then, the form start and a draft save answer 409 with the same two parameters.
+
+A record moves forward only. The one exception is a reservation or draft DataCite turns out not to
+hold, which is reserved again: under the same DOI when DataCite has dropped a draft, and under a new
+one when the DOI is another artifact's. A replaced DOI is kept in `supersededDois`. An artifact with
+no record is looked up as it was before records existed, by asking DataCite for drafts at its
+landing page, and the next save records the draft that lookup finds.
+
+Read one record with:
+
+```cypher
+MATCH (r:CedarDoiRegistration {sourceArtifactId: $id})
+RETURN r.doi, r.state, r.supersededDois, r.createdBy, r.createdAt, r.updatedAt
+```
+
+Recording a DOI by hand through `POST /command/annotations/doi`, as
+[Recovering an Existing DOI Attachment](#recovering-an-existing-doi-attachment) does, leaves the
+record as it stands until the next DOI request for the artifact. That request finds the artifact
+carrying the recorded DOI, answers 409, and moves the record to `ATTACHED`.
+
 ### Recovering an existing DOI attachment
 
 When a document already carries a DOI but its graph projection does not, production 2.9.19 can
@@ -7677,7 +7773,8 @@ This completes the known writable annotation-backfill cohort: 4,833 templates ac
 the indexed `.net` template still returns 404. The retained schema strict-reader backlog falls to
 46 templates (42 context declarations and 4 missing-child requirements), and the retained instance
 pipeline backlog falls to 28. These are targeted updates to prior audits, not a fresh corpus census.
-The broader DataCite timeout/retry state-machine work remains in the frontend roadmap.
+A DOI the bridge published but could not record on the artifact at all is a different case, which
+repeating the publish request resolves, as [DOI Records](#doi-records) explains.
 
 ### Misplaced annotation identifier: reader rejection and source repair
 

@@ -392,6 +392,9 @@ service nginx start
 ## Verify
 
 - `cedarcli native status` — all Java services up on the new build.
+- `cedarcli native health` — every check passes. Each server's `keycloak-signing-keys` check fetches
+  the realm's key set the way token verification does, so it fails when the host cannot reach
+  `auth.<host>`.
 - `cedarcli check versions --strict` — expected version and modifier, with no checkout behind its
   remote. Matching version strings alone do not prove source freshness.
 - Confirm `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` is absent or `false`. Never use the native-development
@@ -431,6 +434,15 @@ service nginx start
   from the profile, is in [Renumbering a Draft by Hand](BACKEND-RUNBOOK.md#renumbering-a-draft-by-hand).
 - **Finish the app-DB migration before starting microservices.** Build before the outage; monitor
   Redis capacity while the separate log consumer is unavailable.
+- **A host must reach its own public names.** Every server fetches the realm's signing keys from
+  `https://auth.<host>`, so that request leaves the host and has to come back to it. Staging's load
+  balancer, `cedr-stg-web-lb.stanford.edu`, resets any connection from `cedr-stg-app-07` back to
+  itself. On that host, `/etc/hosts` therefore points every name on the staging certificate at
+  127.0.0.1, where the host's own nginx serves it. Without that entry, every signed-in request
+  returns 500 and each server's `keycloak-signing-keys` check reports `SocketException: Connection
+  reset`. Puppet generates `/etc/hosts` there. The line was added by hand on 2026-10-29 and belongs
+  in the host's Puppet configuration, so that a rebuilt host carries it. On any host behind such a
+  load balancer, `getent hosts auth.<host>` must print `127.0.0.1`.
 
 ## What Each Non-Obvious Command Does
 

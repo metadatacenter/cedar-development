@@ -157,6 +157,21 @@ response must first be reconciled with GitHub; if no run exists, dispatch its CI
 workflow on the unchanged develop ref, then resume. Final acceptance checks remote
 refs again. Previously created release ledgers retain their original phase contract.
 
+Rerun a flaky red run until it passes. A run that fails the same way at that commit
+whatever is rerun cannot be repaired either, because a fix would move an integrated
+`develop` and acceptance refuses that. Release 2.9.30 met one in the design tokens'
+consumer contract, which ran a term picker command older than the picker's own
+build check. After confirming the failure is in the check rather than the released
+code, accept that one run on resume:
+
+```bash
+cedarcli release resume --accept-red-development <repository>=<run-id>
+```
+
+The ledger records the acceptance beside the release's others, and the evidence
+marks the run accepted. Any other red run, of the same workflow or another, still
+stops the release. Fix the check itself on `develop` after acceptance.
+
 Neither a release nor a train needs `cedarcli check versions --strict`. A release stamps a train's
 exact commits rather than anything on this machine, and the train's own preflight requires every
 checked-out repository's `develop` to equal the live remote `develop`. The strict form is for a host

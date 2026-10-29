@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 BASE = os.environ.get("CEDAR_TERM_BASE", "http://localhost:9004")
 STORE = os.environ.get("CEDAR_TERMINOLOGY_STORE_INDEX",
-                       os.path.expanduser("~/CEDAR/cedar-term/prod/search-index.sqlite"))
+                       os.path.expanduser("~/CEDAR/cedar-term/search-index.sqlite"))
 
 # A size ladder drawn from the store: term counts span four orders of magnitude.
 ONTS = [("UO", 574), ("EDAM", 3539), ("DOID", 19578),

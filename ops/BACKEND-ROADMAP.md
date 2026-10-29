@@ -123,6 +123,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
     supplied for free, and what would have to be written, is the rotating public-key locator and the
     HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
+    `KeycloakSigningKeys`, the probe behind every server's `keycloak-signing-keys` health check,
+    sends its requests through the adapter's deployment and client, so it moves to the new client
+    too. The new client keeps the adapter's 2-second connection and 5-second response limits. A
+    failed key fetch should answer 503 and name the address it could not reach, where the adapter
+    ends in a `NullPointerException` and a 500.
 
   - **`keycloak-admin-client-jakarta` is not a blocker.** It stopped at 21.1.2 because it was a
     transitional variant, not because it was abandoned. From Keycloak 22 the main
@@ -219,38 +224,68 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   one reading of an advisory line of going that way. The release gate refuses such a source now, and
   `cedarcli check main` answers the same question between releases, but neither prevents the push.
 
-  **The goal is that no ordinary push lands on `main`.** How the release lands its own commit is a
-  second decision, and the two are worth keeping apart, because a protection rule written around
-  whoever runs the release protects nothing against the case that prompted this. `cedarcli release
-  start` pushes to `main` in thirty-nine repositories as that person, so granting them the bypass
-  reopens the hole the rule closes. Whichever route below is taken, the release needs credentials of
-  its own: a GitHub App or a dedicated account, authenticated as itself rather than as an operator.
+  **The goal is that no ordinary push lands on `main`.** A protection rule written around whoever
+  runs the release protects nothing against the case that prompted this. `cedarcli release start`
+  pushes to `main` in thirty-nine repositories as that person, so granting them the bypass reopens
+  the hole the rule closes. The release therefore needs credentials of its own.
 
-  **Route one, a bypass on a direct push.** The release keeps the mechanism it has, and the ruleset
-  grants the bypass to the release identity. The bypass has to cover every ref a release creates —
-  `develop`, the tags, and `release/pre-*` among them — or a release fails after its Maven and
-  frontend builds are already spent. It changes nothing in the release code, and it leaves the
-  protection weaker on paper than a review gate, since the identity holding the bypass can write
-  anything.
+  **Give the release a GitHub App, and let only the app bypass the rule.** Register an app owned by
+  the `metadatacenter` organization with read and write access to repository contents, and install
+  it on the forty-two repositories. Its private key stays with the release operator, outside every
+  repository. The release writes refs with plain `git push` in two places, `_push` and the deletion
+  of superseded branches (`release_support/integration.py`), and both would authenticate through a
+  credential helper that mints an installation token. A token lasts an hour and a release runs
+  longer, so the helper mints one for each push rather than one per run. Commit authorship does not
+  change. Only the pusher does.
 
-  **Route two, a pull request the release opens.** Nothing in the design forbids it. Each repository
-  gets its integration commit on a branch, a pull request, and a merge through the API, which is how
-  the npm releases already reach `main`. It costs three things. GitHub's merge produces a commit
-  that is not the one the release prepared, so the ledger's `expectedCommit` check has to verify
-  `main` by the tree it already records beside that commit (`release_support/integration.py`).
-  Something has to merge forty-two pull requests: requiring only a pull request lets the release
-  merge its own, which buys an audit trail rather than a review, while requiring an approval means a
-  person approves forty-two of them mid-release, since GitHub refuses self-approval. And a pull request is a step other people can
-  close or merge out of order, which weakens the guarantee that a resumed run reproduces the refs it
-  recorded.
+  Apply two rulesets to `main` in each repository. Organization rulesets need the Team plan, and the
+  organization is on Free. Free does support rulesets on public repositories, which all forty-two
+  are, so a script applies them one repository at a time through the repository rulesets API. The
+  first ruleset restricts updates, creation and deletion of `main`, and lists the app as its only
+  bypass actor, so a push by anyone else is refused, an administrator's included. The second blocks
+  force pushes and has no bypass actors at all, because a bypass skips every rule in its ruleset.
+  The release never needs to force. It pushes `main` only while the remote still holds the
+  integration commit's first parent, so every push is a fast-forward. Leaving `develop`, the tags
+  and `release/*` unprotected means the bypass covers `main` alone, so no other ref the release
+  writes can be refused after its Maven and frontend builds have run.
 
-  The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 1 exists to remove. Automating
-  that route puts the identity question back.
+  The TypeScript model library and CEE reach `main` through a pull request their operator merges,
+  and a restriction on updates would refuse that merge. Give each repository whose npm release
+  works that way a ruleset that requires a pull request with no approvals instead, until item 1's
+  command can merge as the app.
 
-  Prove whichever ruleset is chosen against one repository before it reaches all forty-two. Until
-  the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
-  next morning rather than mid-release.
+  **Fix the release preflight before any ruleset lands.** The preflight checks that each remote
+  accepts every ref the release writes by running `git push --dry-run`
+  (`release_support/preflight.py`). A dry run never sends the ref updates, so GitHub never evaluates
+  its rules against them. The check proves write access and nothing more, although its remedy names
+  branch protection. A repository whose ruleset lacks the app would therefore pass the preflight and
+  refuse the real push after the builds have run. Make the preflight ask GitHub instead.
+  `GET /repos/{owner}/{repo}/rules/branches/main` returns the rules in force on the branch, and
+  reading each ruleset shows whether the app is among its bypass actors.
+
+  **The rule stops an accidental push, not a deliberate one.** The app's key sits where the release
+  runs, so an operator who means to push to `main` still can. What the rule prevents is the accident
+  that has already nearly happened: an ordinary `git push` of a hotfix to `main`. Separating the two
+  would require the push step to run where the operator cannot reach the key, such as a GitHub
+  Actions workflow holding it as a secret. That is a much larger change to the release.
+
+  **A pull request opened by the release is the alternative, and it costs more than it buys.** Each
+  repository would get its integration commit on a branch, a pull request and a merge through the
+  API. GitHub's merge produces a commit other than the one the release prepared, so the ledger's
+  `expectedCommit` check would have to verify `main` by the tree it records beside that commit
+  (`release_support/integration.py`). If the release may merge its own pull requests, the route buys
+  an audit trail rather than a review. If an approval is required, a person approves forty-two pull
+  requests mid-release, since GitHub refuses self-approval. A pull request can also be closed or
+  merged out of order by someone else, which weakens the guarantee that a resumed run reproduces the
+  refs it recorded.
+
+  Prove the rulesets on one repository first. Confirm that an operator's push to `main` is refused,
+  that the app's push succeeds, and that the new preflight reports a ruleset without the app, then
+  apply them to the rest by script. Extend `cedarcli check main` to report any repository missing
+  either ruleset. Until every repository carries them, run `cedarcli check main` on a schedule, so
+  divergence is found the next morning rather than mid-release. Done when every repository refuses
+  an ordinary push to `main`, a release lands `main` as the app, and the preflight refuses a
+  repository whose rules would refuse the release.
 
 - **6. Complete the remaining backend trust-boundary, transport and credential security work.**
 
@@ -861,7 +896,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile. Even 4.5.29, the newest release on the current line, is more than a patch. It
     replaces the Sesame 2.7.16, Semargl and `jsonld-java-sesame` parsers under all three users with
-    RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major.
+    RDF4J 3.7.7. It needs the same testing against ingested ontologies as the major. Renovate has
+    a pull request open for 4.5.29, and it stays unmerged until that testing is done.
   - **Jedis 5.2.0 to 8.0.2.** Every release from 6.0 supports Redis 7.2 and later, so the deployed
     server can stay. The majors since 5.x removed deprecated APIs, and 7.0 also dropped
     `JedisSharding` and renamed the pipeline and transaction base classes. CEDAR uses only `Jedis`,
@@ -900,9 +936,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and
   `EmbeddedCedarMongo` is the estate's only consumer.
 
-  Logback 1.6 belongs here rather than among the upgrades to make, and SLF4J is not what holds it:
-  every 1.6 release builds against slf4j 2.0.18, which the estate already carries. Dropwizard does.
-  Raising logback to 1.6 fails before a test runs — `LogbackAccessRequestLayout` reads
+  Logback 1.6 belongs here rather than among the upgrades to make. SLF4J does not hold it back,
+  since the newest 1.6 release, 1.6.6, builds against slf4j 2.0.19 and the estate carries 2.0.20.
+  Dropwizard holds it back. Raising logback to 1.6 fails before a test runs —
+  `LogbackAccessRequestLayout` reads
   `DEFAULT_CONVERTER_MAP`, which logback 1.6 removed, so every Dropwizard-booting suite dies in a
   class initializer. `mvn test -Dlogback.version=1.6.3` in a server module reproduces it, and an
   enforcer rule in `cedar-parent` now fails the build there rather than inside a test JVM, where
@@ -925,7 +962,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   resolves one version of an artifact nothing here depends on directly, which makes these four
   nobody's choice to raise: HK2 locator 3.0.6 to 4.0.3, which follows Jersey; Jandex 2.4.5 to 3.3.1,
   which follows RESTEasy; protobuf-java 4.31.1 to 4.36.2, which follows Connector/J, the newer of
-  its two users; and Reactor Core 3.7.19 to 3.8.7, which follows OpenSearch with the Lucene pin.
+  its two users; and Reactor Core 3.7.19 to 3.8.8, which follows OpenSearch with the Lucene pin.
   Each moves to the version its owner's POM names when that owner moves. Raising one on its own
   would pin a version its owner does not expect, and the Renovate config offers none of them.
 
@@ -936,7 +973,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   parent POM's harness note anticipates.
 
   **Versions whose newest release is not a final.** These have no final to move to: HttpCore
-  5.5-beta4 and HttpClient 5.7-alpha1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta3, Angus Activation
+  5.5-beta4 and HttpClient 5.7-beta1, SLF4J 2.1.0-alpha1, Log4j 3.0.0-beta3, Angus Activation
   2.1.0-M1, and the Jakarta activation and XML binding milestones. The old javax jaxb-api's only
   newer version is a 2018 build that was never finalized, so it stays too.
 
@@ -946,18 +983,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
   plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every version this item names was
-  rechecked against the published metadata on 2026-10-24, with pre-releases set aside. Read an
+  rechecked against the published metadata on 2026-10-28, with pre-releases set aside. Read an
   artifact's `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest
   release a given Maven version can actually use, before concluding that something cannot move.
 
   Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
-  blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
-  one: the artifact server's test configuration names port 9091 for every test class in the module,
-  so a class that starts before its predecessor has released the port fails to bind. Others depend
-  on timing under load, several of them in the resource server. Each shows up in one full run and
-  not the next, which makes an unrelated version look guilty, and the estate's own convention that
-  test servers sit on 19xxx ports is not in fact kept. Prefer the suites of the modules a change
-  actually touches, and treat a single red full build as a question rather than an answer.
+  blamed for it. Some suites depend on timing under load, several of them in the resource server.
+  Each shows up in one full run and not the next, which makes an unrelated version look guilty.
+  Prefer the suites of the modules a change actually touches, and treat a single red full build as
+  a question rather than an answer.
 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.

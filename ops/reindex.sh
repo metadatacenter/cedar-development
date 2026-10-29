@@ -12,10 +12,10 @@
 
 set -u
 
-CATALOG="$CEDAR_HOME/cedar-term/prod/catalog.sqlite"
-INDEX="$CEDAR_HOME/cedar-term/prod/search-index.sqlite"
+CATALOG="$CEDAR_HOME/cedar-term/catalog.sqlite"
+INDEX="$CEDAR_HOME/cedar-term/search-index.sqlite"
 # The runtime classpath, kept beside the store rather than in /tmp, which is swept.
-CPFILE="$CEDAR_HOME/cedar-term/prod/ingest-cp.txt"
+CPFILE="$CEDAR_HOME/cedar-term/ingest-cp.txt"
 [ -s "$CPFILE" ] || { echo "no classpath at $CPFILE — run mvn dependency:build-classpath" >&2; exit 2; }
 CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat "$CPFILE")"
 
@@ -23,10 +23,10 @@ if [ "${1:-}" = "--from-results" ]; then
   RESULTS="${2:?usage: reindex.sh --from-results <results.tsv> [logdir]}"
   [ -s "$RESULTS" ] || { echo "no results at $RESULTS" >&2; exit 2; }
   ACR=$(cut -f1 "$RESULTS" | grep . | sort -u | paste -sd, -)
-  LOGDIR="${3:-$CEDAR_HOME/cedar-term/prod/logs/reindex-$(date +%Y%m%d-%H%M%S)}"
+  LOGDIR="${3:-$CEDAR_HOME/cedar-term/logs/reindex-$(date +%Y%m%d-%H%M%S)}"
 else
   ACR="${1:?usage: reindex.sh <acronym,acronym,...> [logdir]}"
-  LOGDIR="${2:-$CEDAR_HOME/cedar-term/prod/logs/reindex-$(date +%Y%m%d-%H%M%S)}"
+  LOGDIR="${2:-$CEDAR_HOME/cedar-term/logs/reindex-$(date +%Y%m%d-%H%M%S)}"
 fi
 mkdir -p "$LOGDIR"
 

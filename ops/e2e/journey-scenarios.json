@@ -623,6 +623,52 @@
       "promise": "Editor can remove submitted and add replacement during lost-save recovery; acknowledgement preserves the surviving identity and the replacement receives a distinct identity"
     }
   ],
+  "restored-control-shapes": [
+    {
+      "id": "template-text-length-range",
+      "promise": "Designer template: an inverted text-length range survives reload and restoration exactly, keeps saving blocked with its explanation, and saves and reopens once corrected"
+    },
+    {
+      "id": "element-incomplete-regex",
+      "promise": "Designer element: an incomplete regular expression survives reload and restoration exactly, keeps saving blocked with its explanation, and saves and reopens once corrected"
+    },
+    {
+      "id": "metadata-malformed-iri",
+      "promise": "Editor: a malformed IRI in a link field survives reload and restoration exactly, keeps saving blocked as structurally invalid, and saves and reopens once corrected"
+    }
+  ],
+  "restored-newer-edits": [
+    {
+      "id": "newer-edits-template",
+      "promise": "template: a restored draft whose lost save added a field settles through a status check despite the server's provenance stamps, keeps input typed during the check, and saves and reopens"
+    },
+    {
+      "id": "newer-edits-element",
+      "promise": "element: a restored draft whose lost save added a field settles through a status check despite the server's provenance stamps, keeps input typed during the check, and saves and reopens"
+    },
+    {
+      "id": "newer-edits-field",
+      "promise": "field: a restored draft's status check keeps input typed while it runs, and the next save stores and reopens it"
+    },
+    {
+      "id": "newer-edits-metadata",
+      "promise": "metadata: a restored draft's status check keeps input typed while it runs and the entry identities the lost save minted, and the next save stores and reopens it"
+    }
+  ],
+  "unresolved-version": [
+    {
+      "id": "discard-refused",
+      "promise": "Designer Create new draft: a restored draft whose version reply was lost cannot be discarded until checked, and the check then settles one successor"
+    },
+    {
+      "id": "changed-draft",
+      "promise": "Designer Create new draft: a check that finds the committed draft changed by another client keeps the edit and the save guard, adopts nothing and sends no version"
+    },
+    {
+      "id": "published-source",
+      "promise": "Designer Create new draft: a check that finds the uncommitted source published by another client keeps the edit and the save guard, adopts nothing and sends no version"
+    }
+  ],
   "draft-recovery": [
     {
       "id": "restore-template-outage",
@@ -1063,6 +1109,64 @@
     {
       "id": "element-published-lost-publication",
       "promise": "element reusable publication with a lost reply is recovered without creating or publishing twice"
+    }
+  ],
+  "version-source-access": [
+    {
+      "id": "readable-history-untouched",
+      "promise": "A linked child whose whole history the author can read shows its newest release with no failure, no exceptional control and no write"
+    },
+    {
+      "id": "newer-release-unreadable",
+      "promise": "A newer release the author cannot read is never offered or attached, and the parent stays unchanged and unwritten"
+    },
+    {
+      "id": "origin-unreadable",
+      "promise": "An origin the author cannot read is reported as unreadable with only detachment offered, and the parent saves its own edit with the link intact"
+    }
+  ],
+  "version-source-deletion": [
+    {
+      "id": "assessment-untouched",
+      "promise": "An untouched assessment offers the compatible release with no failure, no exceptional control and no write"
+    },
+    {
+      "id": "candidate-deleted-during-load",
+      "promise": "A release deleted while the tab loads it is never offered, the parent stays unwritten, and a fresh lookup lists only what remains"
+    },
+    {
+      "id": "origin-deleted-during-lookup",
+      "promise": "An origin deleted while its history is read is reported as unreadable, offers only detachment, and leaves the parent unwritten"
+    }
+  ],
+  "reusable-changed-draft": [
+    {
+      "id": "local-child-untouched",
+      "promise": "A local child's Version tab offers only storage, with no failure, no exceptional control and no write"
+    },
+    {
+      "id": "field-parent-edited-pending",
+      "promise": "field: a parent edited while Save as reusable draft is pending keeps its edit, attaches one stored artifact on repetition, and saves and reopens"
+    },
+    {
+      "id": "field-parent-edited-lost-reply",
+      "promise": "field: a parent edited while Save as reusable draft is unconfirmed after a lost reply keeps its edit, attaches one stored artifact on repetition, and saves and reopens"
+    },
+    {
+      "id": "field-parent-edited-unsent",
+      "promise": "field: a parent edited while Save as reusable draft is unsent keeps its edit, attaches one stored artifact on repetition, and saves and reopens"
+    },
+    {
+      "id": "element-parent-edited-pending",
+      "promise": "element: a parent edited while Save as reusable draft is pending keeps its edit, attaches one stored artifact on repetition, and saves and reopens"
+    },
+    {
+      "id": "element-parent-edited-lost-reply",
+      "promise": "element: a parent edited while Save as reusable draft is unconfirmed after a lost reply keeps its edit, attaches one stored artifact on repetition, and saves and reopens"
+    },
+    {
+      "id": "element-parent-edited-unsent",
+      "promise": "element: a parent edited while Save as reusable draft is unsent keeps its edit, attaches one stored artifact on repetition, and saves and reopens"
     }
   ]
 }

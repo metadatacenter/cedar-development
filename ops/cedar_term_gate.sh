@@ -19,7 +19,7 @@ OPS="$CEDAR_HOME/cedar-development/ops"
 APP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-application"
 
 STORE=$CEDAR_HOME/cedar-term
-CATALOG=${TERM_CATALOG:-${CEDAR_TERMINOLOGY_STORE_CATALOG:-$STORE/prod/catalog.sqlite}}
+CATALOG=${TERM_CATALOG:-${CEDAR_TERMINOLOGY_STORE_CATALOG:-$STORE/catalog.sqlite}}
 GOLDENS=${TERM_GOLDENS:-$STORE/goldens}
 GOLDENS_ROOTS=${TERM_GOLDENS_ROOTS:-$STORE/goldens_roots}
 MATRIX=${TERM_MATRIX:-$STORE/matrix.jsonl}

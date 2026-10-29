@@ -16,15 +16,15 @@
 set -u
 LIST="${1:?usage: backfill-tail.sh <acronyms.txt> <keep> [logdir]}"
 KEEP="${2:?how many recent releases to hold}"
-LOGDIR="${3:-$CEDAR_HOME/cedar-term/prod/logs/tail-$(date +%Y%m%d-%H%M%S)}"
+LOGDIR="${3:-$CEDAR_HOME/cedar-term/logs/tail-$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$LOGDIR"
 
-CATALOG="$CEDAR_HOME/cedar-term/prod/catalog.sqlite"
-SNAPSHOTS="$CEDAR_HOME/cedar-term/prod/snapshots"
+CATALOG="$CEDAR_HOME/cedar-term/catalog.sqlite"
+SNAPSHOTS="$CEDAR_HOME/cedar-term/snapshots"
 # The runtime classpath, kept beside the store rather than in /tmp, which is swept: a missing
 # file leaves only the classes directory and every ingest dies on NoClassDefFoundError in
 # under a second, which reads as a thousand failures rather than as one missing file.
-CPFILE="$CEDAR_HOME/cedar-term/prod/ingest-cp.txt"
+CPFILE="$CEDAR_HOME/cedar-term/ingest-cp.txt"
 [ -s "$CPFILE" ] || { echo "no classpath at $CPFILE — run mvn dependency:build-classpath" >&2; exit 2; }
 CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat "$CPFILE")"
 RESULTS="$LOGDIR/results.tsv"
@@ -77,7 +77,7 @@ echo "ingest done: $(awk -F'\t' '$3=="ok"' "$RESULTS" | wc -l) ok, $(grep -c fai
 ACR=$(awk -F'\t' '$3=="ok" {print $1}' "$RESULTS" | sort -u | paste -sd, -)
 if [ -n "$ACR" ]; then
   java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
-      "$CATALOG" "$CEDAR_HOME/cedar-term/prod/search-index.sqlite" --acronyms "$ACR" --force \
+      "$CATALOG" "$CEDAR_HOME/cedar-term/search-index.sqlite" --acronyms "$ACR" --force \
       > "$LOGDIR/index-rebuild.log" 2>&1
   echo "index rebuild: $? — $(tail -1 "$LOGDIR/index-rebuild.log")"
 fi

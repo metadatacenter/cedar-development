@@ -386,7 +386,8 @@ That constraint applies when the train was built before the release entry existe
 first and build the train afterwards and it does not arise at all: the two changelogs are then
 identical, and the release compares bundle provenance instead. Either order is supported; the
 second is harder to get wrong, and its cost is that the train cannot be built in parallel with the
-release preparation.
+release preparation. It also lets the release-intended train dry run rehearse the promotion proof
+against the public CEE before a train is spent.
 
 Update `CedarEmbeddableMetadataEditorComponent.INNER_VERSION` to the release preparation time. That
 stamp is only the load trace; `package.json` supplies the public runtime version.

@@ -800,10 +800,11 @@ cedarnet. They have separate variables for that reason:
 | native nginx (the resting state here) | `host-gateway` |
 | the `infra-nginx` container | `${CEDAR_NGINX_HOST}` |
 
-Getting it wrong is silent until a token is verified. The request reaches the server, the server
-cannot fetch the realm's signing keys, and a **valid** token comes back `500` while an invalid one
-still correctly returns `401` — so the failure looks like a server bug rather than a routing one.
-The log says `java.net.NoRouteToHostException`.
+Getting it wrong leaves every server unhealthy, because each one's `keycloak-signing-keys` check
+fetches the realm's key set the way token verification does and reports
+`NoRouteToHostException`. Requests show the same fault less plainly. The server cannot fetch the
+realm's signing keys, so a **valid** token comes back `500` while an invalid one still correctly
+returns `401`, and the failure looks like a server bug rather than a routing one.
 
 **The Keycloak container cannot reach a native resource server.** Its event listener posts user
 lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the Docker profile is a

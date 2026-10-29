@@ -35,7 +35,7 @@ by name in commits.
   - Decide whether they join the train-backed release or stay outside it, as CEE and the
     TypeScript model library do. Dependency resolution no longer decides that question:
     `cedar-artifact-rest-mcp` resolves from Maven Central alone, while `cedar-artifact-mcp` and
-    `cedar-cee-mcp` resolve released `cedar-artifact-library` 2.9.28 from the BMIR Nexus.
+    `cedar-cee-mcp` resolve a released `cedar-artifact-library` from the BMIR Nexus.
   - Make a running server state which CEDAR it talks to. `ping` reports the build and deliberately
     contacts nothing, so the target is invisible — and it is fixed when the process spawns, so
     editing a client's configuration changes nothing until the server restarts. That combination let
@@ -44,7 +44,7 @@ by name in commits.
 
   Two obstacles this item used to carry are gone. The artifact and CEE MCPs once pinned a local
   `cedar-artifact-library:2.8.4-SNAPSHOT` while Maven attempted an obsolete Sonatype repository;
-  both now pin released 2.9.28 from the BMIR Nexus, and the REST MCP has no artifact-library
+  both now pin a released version from the BMIR Nexus, and the REST MCP has no artifact-library
   dependency. Separately, a rebuild produced a jar that would not start at all, from a
   `json-schema-validator` conflict between the MCP SDK and `CedarValidator`; that is resolved per
   server and written up in the runbook.
@@ -56,11 +56,6 @@ by name in commits.
   annotations follows databind, and a library bump is one property rather than three. Each surfaced
   when somebody happened to rebuild. The repositories' own CI now catches such a break when the
   bump is committed there, but a library release that nobody bumps them to still goes unnoticed.
-
-  The first library release after 2.9.29 shows the cost. It refuses configuration on a field written
-  on its own, and until the artifact MCP pins it, that MCP's YAML tools still accept one.
-  `render_schema_artifact`, for example, turns a standalone field's `configuration: required: true`
-  into `_valueConstraints.requiredValue: true`, and a server on the new release refuses that field.
 
 - **2. Track the CEE bundle a client actually serves.** `cedar-cee-mcp` pins the CEE by version and
   hash and refuses a mismatch, so what a build produces is known. What a *client* is running is not:
@@ -150,8 +145,8 @@ by name in commits.
 - **10. Render an instance through the renderer overloads that take its schema.**
   Since 2.9.27, `cedar-artifact-library`'s `JsonArtifactRenderer` has
   `renderTemplateInstanceArtifact(template, instance)` and
-  `renderElementInstanceArtifact(element, instance)`, and both servers pin 2.9.28. Each completes a
-  sparse instance against its schema and renders it in one call. `ValidateInstanceArtifactTool`
+  `renderElementInstanceArtifact(element, instance)`, and both servers pin a release that has
+  them. Each completes a sparse instance against its schema and renders it in one call. `ValidateInstanceArtifactTool`
   still calls `InstanceInflater` and then the one-argument renderer, for template and element
   instances alike, and so does the JSON branch of `RenderInstanceArtifactTool` when a template is
   supplied. Move them onto the overloads. The editing tools inflate so that the slot they write
@@ -173,15 +168,11 @@ by name in commits.
 
 ## cedar-cee-mcp
 
-- **14. Load the Material Symbols font in the host page.** The CEE's icon ligatures render as their
-  own text — `more_vert`, `unfold_more` — because the host page does not load the font. Add the
-  font link, or establish which face the pinned CEE version expects.
-
-- **15. Serve successive calls from one persistent browser tab.** A single tab receiving show and
+- **14. Serve successive calls from one persistent browser tab.** A single tab receiving show and
   fill calls over SSE or polling, in place of a tab per session, would suit repeated
   demonstrations. Tab-per-call is adequate meanwhile, so this waits on the ergonomics mattering.
 
-- **16. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
+- **15. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
   resources would put the editor in the conversation. Revisit when client support is broad and the
   sandbox and CSP story accommodates a 2 MB component bundle that needs network access to the
   terminology service. The localhost-tab approach works in every client today, terminal ones
@@ -189,7 +180,7 @@ by name in commits.
 
 ## bioportal-term-mcp
 
-- **17. Polish the BioPortal client.** Four independent changes, none urgent:
+- **16. Polish the BioPortal client.** Four independent changes, none urgent:
 
   - Cache results. Every tool calls BioPortal on every invocation, so one ontology looked up five
     times in a session costs five HTTP calls. A TTL cache in `_bioportal_get` fixes that
@@ -200,7 +191,7 @@ by name in commits.
     caller needs the second.
   - Go async, but only once latency becomes a real concern. It has not.
 
-- **18. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
+- **17. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
   string relevance and `find_ontology` by acronym and name overlap. Both surface candidates and
   neither judges which term fits a field, so several related terms searched one at a time can each
   land in whichever ontology matched lexically rather than in one coherent set. Choosing well —

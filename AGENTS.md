@@ -284,8 +284,8 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   consumers, or they pick up stale managed versions and fail quietly. Never pipe `mvn` through
   `head`/`grep -m`: SIGPIPE can kill the reactor mid-build under a clean exit. Redirect to a file.
 - Every server suite runs backend-free (in-memory auth + embedded Neo4j/Mongo/MariaDB from
-  `cedar-test-support-library`). No suite needs an external service: the tests that do call one are
-  tagged and excluded by default, terminology's under `bioportal` and bridge's under `datacite`.
+  `cedar-test-support-library`). No suite needs an external service. The tests that do call one are
+  terminology's, tagged `bioportal` and excluded by default.
   Tests boot on `19xxx` ports (dev + 10000) so a running dev stack never collides.
 - GitHub Actions builds every Java repo on push and PR to `develop`, and a merge to `develop`
   publishes that repo's snapshot to Nexus. Downstream builds and the Docker images resolve CEDAR

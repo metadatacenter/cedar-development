@@ -43,9 +43,10 @@ Use a genuinely permitted term when a journey expects all quality findings to cl
 
 ## The Store
 
-The store is `$CEDAR_HOME/cedar-term/prod`. Three parts of it answer requests:
+The store is `$CEDAR_HOME/cedar-term`. Three parts of it answer requests:
 
 - `catalog.sqlite` — every ontology the store knows, every snapshot of each, and the `latest` tag.
+  Its `ingest_event` table records retrievals separately from snapshot identity.
 - `search-index.sqlite` — the cross-snapshot full-text index, one current version an ontology,
   rebuilt from the catalog rather than authored.
 - `snapshots/<ACRONYM>/<version-id>.sqlite` — one file a release, holding its concepts, labels,
@@ -79,12 +80,115 @@ Delete the working copies while no ingest is running. The command removes a work
 its original is beside it:
 
 ```bash
-find $CEDAR_HOME/cedar-term/prod/snapshots -path '*/raw/*' -type f -name '*.expanded*' \
+find $CEDAR_HOME/cedar-term/snapshots -path '*/raw/*' -type f -name '*.expanded*' \
   -exec sh -c 'for f; do [ -e "${f%%.expanded*}" ] && rm -- "$f"; done' sh {} +
 ```
 
 Keep the catalog, the catalogued snapshots and the originals in a backup off the workstation. The
 index is derived and rebuilds in minutes, so a backup can leave it out.
+
+### Snapshot identity and ingest history
+
+The catalog keeps one snapshot per `(acronym, content hash)`. Ordinary ingestion only inserts a
+snapshot: encountering the same hash preserves both its catalog metadata and its existing file,
+including link metadata outside the content hash. It returns the catalog's existing file path even
+when the new invocation requested another output directory. A missing catalogued file is an error
+requiring restoration; a later download must not silently replace the original observation.
+
+Every completed shared-ingester attempt appends an `ingest_event`. A successful event points to its
+snapshot; a failed attempt has no snapshot pointer and retains any archive that was successfully
+downloaded before the failure. Each event records the backend, submission selector, declared version
+and source release date separately from its start, download-completion and completion timestamps.
+`raw_file_path` is catalog-relative and `raw_file_hash` identifies the original download bytes
+before archival compression. Multiple events can point to one snapshot and one raw archive, or to
+different raw archives that normalize to the same snapshot. Success history, snapshot registration
+and tag changes commit together. Error types are retained without error messages or credential-bearing
+request URLs. An abrupt process termination can leave a raw archive but no completed event; the
+history is a record of completed attempts, not a scheduler or a crash-recovery journal.
+
+Offline property extraction appends a `reextract` event referring to the retained archive, with no
+new retrieval timestamp. Other explicit maintenance backfills remain separate operator repairs.
+The audit API only appends events. Historical identifiers remain as recorded even if an operator
+explicitly retires a snapshot or runs the old identity-cutover tool.
+
+Schema initialization migrates older catalogs once: each existing snapshot contributes one event
+marked `kind=legacy, status=unknown`, containing only the provenance still in that row. It does not
+invent retrieval times or raw paths, nor reconstruct overwritten earlier ingests. Snapshot rows,
+files, version hashes and tags are unchanged. Back up the catalog before upgrading it.
+
+Inspect a source's history with SQLite (or `CatalogStore.ingestHistory`, which resolves raw paths):
+
+```bash
+sqlite3 -header -column "$CEDAR_HOME/cedar-term/catalog.sqlite" \
+  "SELECT kind, status, version_id, backend, released_at, retrieved_at, completed_at, raw_file_path
+   FROM ingest_event WHERE acronym='EPA-PFAS' ORDER BY completed_at, rowid;"
+```
+
+Source release dates may be absent. `released_at` is never filled with a local retrieval date.
+The existing constraint `effectiveDate` convention remains the source release day, falling back to
+the snapshot's first-observed ingest day when no source release is known. That fallback is a CEDAR
+observation date, not an upstream publication claim, and repeated retrievals no longer move it.
+No additional version or presentation keywords are needed in constraint JSON/YAML.
+
+### Restoring provenance from a catalog backup
+
+Match a historical catalog to the current one by `(acronym, version_id)`, and verify the normalized
+content hash of each current snapshot before restoring any metadata. Require agreement on the
+catalog's class count, edge count, hierarchy status and license tier. Extractor-reported counts can
+differ from the normalized tables' counts; retain those recorded counts and use the content hash as
+the identity check. Verify retained download bytes against their recorded raw hashes: decompress
+archives created as `.gz`, but hash `.raw` files exactly as downloaded.
+
+Restore original snapshot provenance from the evidenced earlier row: declared version, release date,
+first ingest time, format, raw hash, backend, submission selector and source date. Keep its current
+file path, content hash and content counts. A later property-enriched snapshot is a distinct version:
+correct its inherited source metadata only when its lineage and identical raw-file hash establish
+the connection, retaining its own creation time, raw hash and content identity. A different archive
+does not establish the same upstream release metadata merely because the earlier class graph matched.
+
+The local restoration on 2026-10-28 recovered all 116 original records overwritten by the August OLS
+harvest, using `catalog.sqlite.bak-before-ols-harvest-20260820`. All 116 original archives and all 116
+later archives verified. Of their 116 property-enriched descendants, 61 also needed source-metadata
+correction and used identical original archives; 23 already had correct source metadata; 32 used
+different archives and retained their own provenance. All 177 affected snapshot content hashes were
+verified, and every snapshot file remained byte-identical through the repair. Tags, index files and
+unrelated catalog tables were unchanged.
+
+The repair appended 177 `legacy` history entries carrying the restored metadata and verified archive
+references. It preserved all existing history, including the overwritten states. Retrieval times
+remain unknown; completion times come from the recorded historical ingest/creation timestamps.
+No new retrieval or upstream publication was invented.
+
+The local evidence bundle is `$CEDAR_HOME/.cedar/reports/provenance-restore-20261028/`: the immutable
+repair plan, source/byte-hash checks, guarded Python repair script, pre-repair catalog backup,
+rehearsal and concurrent-change refusal results, and `restoration-result.json`. Applying holds the
+catalog writer reservation and commits all updates and audit inserts together. It refuses a row
+that differs from the planned before-state; a repeated apply makes no changes. Preserve the bundle
+with the store backup. A plan belongs to the catalog it was checked against and must not be reused
+against a different deployment.
+
+### Catalog tag integrity
+
+A tag references a snapshot by both vocabulary acronym and version hash. Schema initialization
+detects the older `version_tag.version_id REFERENCES snapshot(version_id)` declaration and migrates
+it transactionally to the composite foreign key. It preserves tag values and row IDs, custom indexes
+and triggers, and the connection's previous foreign-key enforcement setting. Migration refuses an
+invalid source/snapshot reference or an unexpected table shape, leaving the original tag table intact.
+It does not choose another release or drop a bad reference. Repeated initialization does not rebuild
+an already-correct table. Ordinary `CatalogStore.setTag` writes also check the scoped target in the
+same SQL statement, including on connections with SQLite foreign-key enforcement disabled.
+
+The local catalog was migrated on 2026-10-28 after a backup and a full-copy rehearsal. All 1,267 tags,
+5,401 snapshot records and 5,579 ingest-history records remained unchanged. Both SQLite's integrity
+check and its full foreign-key check pass. The historical provenance-restoration report retains the
+pre-migration diagnostic; the current verification is in
+`$CEDAR_HOME/.cedar/reports/tag-foreign-key-20261028/`. A clean foreign-key check prints no rows:
+
+```bash
+sqlite3 -readonly "$CEDAR_HOME/cedar-term/catalog.sqlite" 'PRAGMA foreign_key_check;'
+```
+
+### Search index
 
 The index file carries three SQL indexes, `term_by_acronym`, `term_by_iri` and `name_by_term`, and
 `SearchIndexJob` creates all three. A file built before `term_by_iri` existed does not have it, and
@@ -96,9 +200,9 @@ seconds to 1.8 seconds. Confirm a store has it, and add it to one that predates 
 terminology server stopped. Building it takes a few seconds and about 0.8 GB.
 
 ```bash
-sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/search-index.sqlite \
   "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='term';"
-sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/search-index.sqlite \
   "CREATE INDEX IF NOT EXISTS term_by_iri ON term(iri);"
 ```
 
@@ -114,7 +218,7 @@ host that serves it:
 
 ```bash
 java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite --force
+    $CEDAR_HOME/cedar-term/catalog.sqlite $CEDAR_HOME/cedar-term/search-index.sqlite --force
 ```
 
 A snapshot's identity is a content hash over its own concepts, labels and edges, so correcting a
@@ -124,7 +228,7 @@ catalogued snapshots are named something other than their `version_id`, written 
 rule, and the catalog's `file_path` is what resolves a snapshot.
 
 ```bash
-sqlite3 $CEDAR_HOME/cedar-term/prod/catalog.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/catalog.sqlite \
   "SELECT n AS releases, COUNT(*) AS ontologies
      FROM (SELECT acronym, COUNT(*) n FROM snapshot GROUP BY acronym)
     GROUP BY n ORDER BY n;"
@@ -140,7 +244,7 @@ in `/tmp`, which is swept:
 cd $CEDAR_HOME/cedar-terminology-server
 mvn -q -pl cedar-terminology-server-ingest -am install -DskipTests
 mvn -pl cedar-terminology-server-ingest dependency:build-classpath \
-    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/prod/ingest-cp.txt -DincludeScope=runtime
+    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/ingest-cp.txt -DincludeScope=runtime
 ```
 
 A missing classpath file leaves only the classes directory, and every ingest then dies on
@@ -148,16 +252,216 @@ A missing classpath file leaves only the classes directory, and every ingest the
 missing file. The drivers below refuse to start without it.
 
 ```bash
-CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat $CEDAR_HOME/cedar-term/prod/ingest-cp.txt)"
+CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat $CEDAR_HOME/cedar-term/ingest-cp.txt)"
 BIOPORTAL_API_KEY=$CEDAR_BIOPORTAL_API_KEY java -Xmx10g -cp "$CP" \
     org.metadatacenter.terms.ingest.IngestJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/snapshots DOID
+    $CEDAR_HOME/cedar-term/catalog.sqlite $CEDAR_HOME/cedar-term/snapshots DOID
 ```
 
 `--submission <id>` takes one named release rather than the current one, `--all` takes every release
 a source offers, `--valuesets` files the acronym as a value-set collection, and `--source
 obofoundry|url` draws from somewhere other than BioPortal. Ingest is idempotent on the content hash
 and refuses to overwrite a good snapshot with an empty extraction, so a re-run costs a download.
+
+### Resource descriptions and public links
+
+The four CEDAR controlled-term constraint kinds (ontology, branch, class and value set) accept the
+same optional `links` object in core JSON and YAML. Instances continue to record only the selected
+identifier and label. Selecting two sets writes two constraints, each with its own links.
+
+```yaml
+links:
+  landingPage: https://comptox.epa.gov/dashboard/chemical/details/DTXSID8031865
+  icon: https://registry.example/assets/source.svg
+```
+
+`landingPage` is the human-facing page for that particular constraint resource or selected term.
+`icon` is an image URL, not a provider name or rendering token. Both are optional; omit `links` if
+neither is known. The object is closed to these two keys and accepts only absolute HTTP(S) URLs
+without credentials. There are no provider-specific members. The example icon above is illustrative;
+the EPA adapter currently supplies landing pages without an icon. The normal fallback link icon
+remains available. A failed image falls back to that link treatment.
+
+Version remains in the existing top-level constraint `version` object; links carry no separate
+version category. A public site may show its current record even when CEDAR uses a pinned snapshot.
+The page does not assert which release the selected constraint uses. Canonical `sourceIri`, service
+`sourceUri` (JSON `uri` for an ontology), and term identifiers retain their existing meanings and
+spelling. A landing page is never substituted for any of them.
+
+The canonical links schema is
+`cedar-model-validation-library/schema/valueConstraintsLinksFieldContent.json`. All four constraint
+items reference it. The Java validator validates stored artifacts; the Java artifact library reads,
+writes and validates the links value. The TypeScript model uses a generated runtime validator from
+the same schema, not merely a compile-time interface. Both libraries preserve links through JSON and
+YAML. CETP validates incoming links using that TypeScript validator, and the designer preserves them
+when converting the picker result to core constraints. Java integrated-search DTOs use the core
+`ConstraintLinks` reader even when their surrounding mapper accepts legacy constraint fields.
+
+`POST /resources/description` resolves one identity reference without expanding a constraint or
+changing a selection. It still takes a reduced API reference: `type` (`class`, `branch`, `ontology`,
+`valueSet`, or `property`), `sourceAcronym`, optional `sourceSystem` and canonical `sourceIri`,
+`termIri` for a class/property or `termBaseIri` for a branch/value set, and optional `version`.
+The pin uses the existing `id`, optional `effectiveDate`/`declaredVersion`, or `"latest"`.
+Ontology references have no term field. This projection is validated by the endpoint's JSON Schema;
+it is not the complete core artifact constraint. Consolidating that reference projection is tracked
+in the roadmap.
+
+The response contains `constraint` (the resolved reference) and optional `links`. Search hits,
+source blocks and hierarchy entries carry `links` directly. Source blocks retain `authorityLabel`
+for their existing repository display. Missing links are omitted, not serialized as `{}`. Missing
+sources, resources or exact pins return 404; invalid references return 400. A missing pin is never
+substituted with latest. Unpinned legacy BioPortal references outside the store retain their public
+link convention; that link does not assert membership or remote availability.
+
+The endpoint schema is
+`cedar-terminology-server-core/src/main/resources/contracts/terminology-links.schema.json`.
+Its links definition is checked against the core model fragment, and generated client types import
+`ConstraintLinks` from the TypeScript model. Regenerate or check the API types from `$CEDAR_HOME`:
+
+```bash
+python3 cedar-terminology-server/tools/generate-terminology-types.py \
+  cedar-embeddable-editor/src/app/modules/shared/models/generated/terminology-links.ts \
+  cedar-embeddable-term-picker/src/app/search/generated/terminology-links.ts
+# Add --check to verify both copies.
+```
+
+Adapters supply `SourcePresentation` during ingestion. This internal link-template configuration is
+stored as `resource_presentation_v1` in snapshot metadata and excluded from the semantic content
+hash: correcting a public URL must not mint a vocabulary release. BioPortal and EPA adapters supply
+profiles; other sources can implement that hook or pass `--presentation <file.json>` to `IngestJob`.
+This operator input is JSON; the artifact constraints themselves support both JSON and YAML.
+
+```json
+{
+  "sourceSystem": "example-registry",
+  "authorityLabel": "Example Registry",
+  "links": {
+    "class": {"landingPage":"https://registry.example/record?iri={termIri}","icon":"https://registry.example/icon.svg"}
+  },
+  "resourceLinks": {
+    "urn:example:set:one": {"landingPage":"https://registry.example/lists/one"}
+  }
+}
+```
+
+The backend expands `{sourceAcronym}`, `{sourceIri}` (ontology pages), `{termIri}`, `{termBaseIri}`
+and `{version.id}` as URL-encoded components. `{termIriRaw}` is available when an adapter declares
+that the identifier is its public page. A version placeholder requires a resolved version. Only
+absolute HTTP(S) URLs without credentials are emitted, with international paths encoded for transport.
+Per-resource overrides replace type defaults; an empty override suppresses the inherited links.
+Profiles contain public URLs, not API credentials. Stored profiles must use the current object shape;
+the server does not translate old link arrays, icon tokens, resource-type aliases or placeholder names.
+Update any older stored profile explicitly before deploying this reader. Only the profile metadata
+may change: vocabulary tables, catalog versions and tags must remain intact. This metadata is excluded
+from the content hash, so correcting its format does not require a new vocabulary version.
+Snapshots without profiles emit no links. The reader has no provider-specific URL defaults, and
+an unheld source or version returns 404 from the description endpoint. Search remains available
+when link metadata is absent. BioPortal URL patterns belong to its ingest adapter, just as EPA's do.
+The existing BioPortal image is served publicly at `/resources/icons/bioportal.png`, and its absolute
+URL is supplied by the backend like any other icon. `{serviceBase}` uses the public HTTPS terminology
+host derived from `CEDAR_HOST`, not the private inter-service HTTP address.
+
+For a store ingested before profiles were recorded, back up the catalog and snapshots, then use the
+offline backfill below. Its default is a read-only report. Applying inserts the adapter's current
+profile only where catalog provenance is `bioportal` and the metadata key is absent, across every
+held release. It never replaces an existing profile, changes vocabulary tables, registers a version,
+or moves a tag. Other providers remain untouched. No API key, network access or index rebuild is needed.
+
+```bash
+java -cp "$CP" org.metadatacenter.terms.ingest.BioPortalLinksBackfill \
+  $CEDAR_HOME/cedar-term/catalog.sqlite
+cedarcli native stop microservice terminology
+java -cp "$CP" org.metadatacenter.terms.ingest.BioPortalLinksBackfill \
+  $CEDAR_HOME/cedar-term/catalog.sqlite --apply /path/to/bioportal-links-journal.jsonl
+cedarcli native start microservice terminology
+```
+
+Build the ingest classpath as above. Applying holds the same catalog writer reservation as ingestion
+and cleanup, and commits each snapshot's single metadata insert separately. The append-only JSONL
+journal records the exact file, catalog version, absent previous value and inserted value before each
+write, then records its commit. A rerun skips completed snapshots and resumes missing ones. If the
+process is interrupted, finish the backfill before starting the read-only server; do not run ingestion
+concurrently. Preserve the journal with the backup. To undo a recorded insert, first confirm the stored
+value still equals that journal entry's value, then delete only that metadata key; never overwrite a
+later correction or change vocabulary/version records.
+
+CEE consumes `links` in the existing source and selected-value link slots. Embedded links are used
+when available; otherwise the resolver uses the template's source identity and exact pin. It keeps
+stored labels visible, coalesces identical in-flight reads and bounds its memory cache. Batch reads
+and cross-surface invalidation remain in the roadmap. Multiple selected sets keep separate links;
+integrated search computes and deduplicates their union. A new provider using supported interactions
+requires an adapter or configuration and ingestion. A new interaction requires an agreed shared
+frontend enhancement.
+
+### Targeted EPA PFAS value sets
+
+`EPA-PFAS` is a native EPA collection, with `sourceSystem: "epa"` and canonical collection IRI
+`https://metadatacenter.org/terminology/value-sets/epa-pfas`. It appears in the existing picker's
+**Value sets** results. Choose either method list for an ordinary controlled-term field, or select
+both lists on the same field to accept their union. Each selected list retains its own EPA SRS
+link in the specification; no combined page or PFAS-specific authoring controls are needed.
+Publishing the template freezes the sets to the current snapshot;
+the populated instance keeps the chemical's CompTox IRI and label. The existing broad bridge-backed
+PFAS field remains available.
+
+The initial collection contains EPA Method 533, EPA Method 537.1, and their union. The live import
+on 2026-10-27 contained 25, 18 and 29 distinct substances respectively. Membership comes from the
+[EPA SRS method lists](https://cdxapps.epa.gov/oms-substance-registry-services/), not PFASSTRUCT or
+the broader CompTox drinking-water list: the latter includes additional ammonium salts. The UCMR5
+list also includes lithium, so it is not itself a PFAS-only set.
+
+After building the ingester and its classpath above, source the normal native profile and run:
+
+```bash
+java -cp "$CP" org.metadatacenter.terms.ingest.IngestJob \
+    "$CEDAR_HOME/cedar-term/catalog.sqlite" \
+    "$CEDAR_HOME/cedar-term/snapshots" EPA-PFAS --source epa-pfas
+java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
+    "$CEDAR_HOME/cedar-term/catalog.sqlite" \
+    "$CEDAR_HOME/cedar-term/search-index.sqlite" --acronyms EPA-PFAS --force
+cedarcli native restart microservice terminology
+```
+
+The source reads `CEDAR_COMP_TOX_API_KEY` from the profile. It sends that key only to CompTox;
+SRS requests are unauthenticated. It checks list identity and count, resolves each current CAS
+number to exactly one CompTox DTXSID, checks populated SRS cross-references, and fetches chemical
+details and synonyms in batches. Missing synonym records are tolerated; incomplete membership,
+missing details, ambiguous identities and conflicting cross-references fail the import before
+publication. SRS method list IDs are 477 and 475; a changed or renamed list requires review.
+
+Every chemical keeps its canonical CompTox page as its IRI, for example
+[PFOA](https://comptox.epa.gov/dashboard/chemical/details/DTXSID8031865). The selected value links
+there in CEE's read-only view and through the existing link-out button while editing. Search accepts
+names, retained aliases, CAS numbers and DTXSIDs within the selected set. Deleted CompTox synonyms
+and its lower-quality `other` group are excluded, as are inactive SRS names.
+
+EPA's APIs provide current data, not a retrievable immutable release. Each import retains the exact
+API response bodies and retrieval time in a key-free JSON archive under the usual raw content hash.
+The normalized snapshot hash includes membership, labels and all searchable names; timestamps and
+response ordering do not affect it. An unchanged re-import preserves the version ID, and changed
+names or membership produce a new version while old pins remain resolvable. EPA snapshots opt into
+name hashing without changing the identities of existing BioPortal snapshots. Refresh is manual;
+an EPA retrieval date is not an EPA-issued release identifier. `EPA-PFAS` must be in both local
+allowlists on a host serving these sets; the shared native configuration includes it.
+EPA therefore supplies neither a declared release nor `released_at`. Its synthetic submission
+selector `1` is an adapter implementation detail, not an EPA release number. The shared ingest
+history records each completed retrieval and its raw-response archive independently of the pin.
+
+Older EPA ingests incorrectly put the capture timestamp in `snapshot.released_at`. For such a
+catalog, back it up and run schema initialization first so the legacy row is retained as audit
+evidence, then clear that field explicitly with the terminology service stopped:
+
+```sql
+UPDATE snapshot SET released_at = NULL
+WHERE acronym = 'EPA-PFAS' AND backend = 'epa'
+  AND format = 'EPA-PFAS-JSON' AND declared_version IS NULL;
+```
+
+Keep the snapshot hash, ingest timestamp, file, and tags unchanged. Ordinary re-ingest deliberately
+does not repair existing metadata. The local catalog's single EPA row was corrected on 2026-10-28;
+its snapshot bytes and version pin were verified unchanged before and after a real repeat ingest.
+
+### Bulk ingest drivers
 
 Six drivers wrap it for bulk work, each writing a `results.tsv` and carrying on past a failure. Three
 draw from BioPortal:
@@ -203,7 +507,7 @@ is safe:
 
 ```bash
 java -Xmx10g -cp "$CP" org.metadatacenter.terms.ingest.SearchIndexJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+    $CEDAR_HOME/cedar-term/catalog.sqlite $CEDAR_HOME/cedar-term/search-index.sqlite \
     --acronyms DOID,NCIT --force
 ```
 
@@ -355,8 +659,8 @@ under
 Configure the catalog and index paths in this installation's `set-env-internal.sh`:
 
 ```bash
-export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/prod/catalog.sqlite"
-export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/prod/search-index.sqlite"
+export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/catalog.sqlite"
+export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/search-index.sqlite"
 ```
 
 The native controller passes them only to Terminology as `terminologyStore.*` JVM properties.
@@ -388,55 +692,81 @@ cannot be pinned in this store.
 ## Moving the Store to Another Host
 
 A staging or production host that serves the picker needs only the parts of the store that answer
-requests, about 59 GB. Ingest can stay on the workstation that keeps the originals, and the serving
-host then receives copies of the files it writes. Put the copy on a data volume with room to grow,
-not on a small system partition. On app-05, `/var` is 4 GB.
+requests. Ingest can stay on the workstation that keeps the originals, and the serving host then
+receives copies of the files it writes. Give every host the same copy. A version identifier is a
+hash of its snapshot's content, so a pin recorded on one host resolves on every host that holds the
+same snapshot. Hosts that ingest separately can hold different snapshots and tag different ones
+`latest`.
+
+On 2026-10-28 the serving set was 61 GB: 5,401 catalogued snapshots totalling 50.9 GB, a 9.7 GB
+search index and a 4.5 MB catalog. The catalogued snapshots had grown by 3.5 GB since 2026-10-07.
+Put the copy on a data volume with room to grow, not on a small system partition. On app-05, `/var`
+is 4 GB. A later copy writes each changed file in full beside the old one before replacing it, so
+updating the index takes a further 10 GB while it runs. Plan for at least 75 GB free.
+
+Every host keeps the store in `$CEDAR_HOME/cedar-term`, which is `/srv/cedar/cedar-term` on the
+staging and production hosts. `<store>` below names that directory on the serving host.
 
 Copy only what the catalog records, while no ingest or index job runs, since both write the store.
-The snapshot files go first and the catalog and index last, so the host's catalog never records a
-file the host lacks. Build the file list beside the store, because `/tmp` is swept:
+The store uses SQLite's rollback journal, so an unfinished write leaves a file ending in
+`.sqlite-journal` beside the database it writes, never a `-wal` file. Wait for a running job to
+finish. An interrupted job leaves the same file behind, and rerunning the job is the repair, as
+[Publication, interruption and cleanup](#publication-interruption-and-cleanup) describes. A
+`.sqlite.tmp-journal` belongs to an ingest's private working file, which is never copied.
+
+Confirm too that the index is current before copying it. An index built before 2026-08-25 lacks two
+columns that the server adds on startup. A serving host opens the index read-only and cannot add
+them, so corpus-wide search starts off there. A current index prints 2.
+
+Then build the list of files to copy and a manifest of their checksums. Keep both beside the store,
+because `/tmp` is swept. `shasum` reports any snapshot the catalog records and the workstation
+lacks. On 2026-10-07 the catalog recorded two FBBI snapshots, one of them `latest`, that were not
+on disk.
 
 ```bash
-cd $CEDAR_HOME/cedar-term/prod
-sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" > serving-snapshots.txt
-rsync -a --files-from=serving-snapshots.txt . <host>:<store>/
-rsync -a catalog.sqlite search-index.sqlite <host>:<store>/
-```
-
-`<store>` is the directory the host's settings name. A `catalog.sqlite-wal` or
-`search-index.sqlite-wal` beside either file means a writer has not finished, so wait for it rather
-than copy. The originals and the working copies never go to the serving host.
-
-Before serving from the copy, confirm that every snapshot the catalog records is present. A file
-can be missing at the source too. On 2026-10-07 the workstation's catalog recorded two FBBI
-snapshots, one of them `latest`, that were not on disk.
-
-```bash
-cd <store>
-sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" |
-  while read -r p; do [ -e "$p" ] || echo "missing: $p"; done
-```
-
-Confirm too that the host's search index is current, before a terminology server that opens it
-read-only first serves from it. That includes a host that already holds a store from an earlier
-copy. An index built before 2026-08-25 lacks two columns the server adds on startup, and a read-only
-open cannot add them, so corpus-wide search starts off. A current index prints 2:
-
-```bash
+cd $CEDAR_HOME/cedar-term
+find . -name '*.sqlite-journal'
 sqlite3 -readonly search-index.sqlite \
   "SELECT (SELECT count(*) FROM pragma_table_info('term') WHERE name = 'definition')
         + (SELECT count(*) FROM pragma_table_info('name') WHERE name = 'ont')"
+sqlite3 -readonly catalog.sqlite "SELECT file_path FROM snapshot" > serving-snapshots.txt
+{ cat serving-snapshots.txt; echo catalog.sqlite; echo search-index.sqlite; } |
+  tr '\n' '\0' | xargs -0 shasum -a 256 > serving-manifest.sha256
 ```
 
-Name the store in the host's `set-env-internal.sh`. `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` lists the
-ontologies the host searches locally. Copy the workstation's value from its profile unless the host
-should serve fewer.
+The snapshot files go first and the catalog, index and manifest last, so the host's catalog never
+records a file the host lacks. `--partial-dir` keeps a partly sent file apart from the file it will
+replace. An interrupted copy then leaves the host's file intact, and a rerun does not send the
+arrived part again. Plain `--partial` would leave the truncated file in place of a good one. The
+originals and the working copies never go to the serving host.
 
 ```bash
-export CEDAR_TERMINOLOGY_STORE_CATALOG="<store>/catalog.sqlite"
-export CEDAR_TERMINOLOGY_STORE_INDEX="<store>/search-index.sqlite"
-export CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES="<the workstation's list>"
+rsync -a --partial-dir=.rsync-partial --files-from=serving-snapshots.txt . <host>:<store>/
+rsync -a --partial-dir=.rsync-partial catalog.sqlite search-index.sqlite serving-manifest.sha256 <host>:<store>/
 ```
+
+Before serving from the copy, check it against the manifest on the host. The check prints nothing
+when every file matches the workstation's, and names each file that is missing or differs.
+
+```bash
+cd <store>
+sha256sum --quiet -c serving-manifest.sha256
+```
+
+Name the store in the host's `set-env-internal.sh` only once that check passes. The server does not
+check that the catalog exists. A path into a directory that holds no catalog makes SQLite create an
+empty one, and the server then reports the store enabled while serving nothing from it.
+
+```bash
+export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/catalog.sqlite"
+export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/search-index.sqlite"
+```
+
+The host's file sets only these paths. `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` and
+`CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES`, which select the ontologies the store answers for, are
+declared once for every environment in
+[`bin/util/set-env-generic.sh`](../bin/util/set-env-generic.sh). The profile sources that file after
+`set-env-internal.sh`, so a list set on the host would be overwritten.
 
 Re-source the environment, restart the terminology server, and confirm the store from the startup
 log as [Serving the Store](#serving-the-store) shows. Then ask for a search. A host without a
@@ -448,8 +778,9 @@ curl -s -X POST http://localhost:9004/search -H 'Content-Type: application/json'
   -d '{"query":"melanoma"}' | head -c 300
 ```
 
-After a later ingest, repeat the copy in the same order and restart the terminology server. `rsync`
-replaces each file it updates, and a running server keeps reading the file it opened.
+After a later ingest, repeat the whole procedure in the same order, manifest included, and restart
+the terminology server. `rsync` replaces each file it updates, and a running server keeps reading
+the files it opened until it restarts.
 
 ## What a Lookup Costs
 
@@ -545,7 +876,7 @@ requires at least three characters for an unscoped search; scoped searches permi
 Check the match count:
 
 ```bash
-sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+sqlite3 $CEDAR_HOME/cedar-term/search-index.sqlite \
   "SELECT COUNT(*) FROM name_fts WHERE name_fts MATCH '\"ce\"*';"
 ```
 
@@ -601,14 +932,14 @@ regenerated after a version change; an old `ingest-cp.txt` can name an older sto
 ```bash
 cd $CEDAR_HOME/cedar-terminology-server
 mvn -pl cedar-terminology-server-ingest dependency:build-classpath \
-    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/prod/ingest-cp.txt -DincludeScope=runtime
-CP="cedar-terminology-server-ingest/target/classes:cedar-terminology-server-store/target/classes:$(cat $CEDAR_HOME/cedar-term/prod/ingest-cp.txt)"
+    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/ingest-cp.txt -DincludeScope=runtime
+CP="cedar-terminology-server-ingest/target/classes:cedar-terminology-server-store/target/classes:$(cat $CEDAR_HOME/cedar-term/ingest-cp.txt)"
 # Report retained archives whose bytes match the catalog hash; no database writes.
 java -Xmx12g -cp "$CP" org.metadatacenter.terms.ingest.PropertyBackfillJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite OBI RO
+    $CEDAR_HOME/cedar-term/catalog.sqlite OBI RO
 # Apply to these sources. Omit the acronym arguments to process every catalog snapshot.
 java -Xmx12g -cp "$CP" org.metadatacenter.terms.ingest.PropertyBackfillJob \
-    $CEDAR_HOME/cedar-term/prod/catalog.sqlite --apply OBI RO
+    $CEDAR_HOME/cedar-term/catalog.sqlite --apply OBI RO
 ```
 
 Back up the catalog before applying a corpus backfill. Preserve original snapshots: existing class
@@ -665,8 +996,8 @@ same hash ingest does, and that hash leaves a snapshot taken before property ext
 was, so on a converted catalog the report shows no identifier changing and no merge.
 
 ```bash
-java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/prod/catalog.sqlite
-java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/prod/catalog.sqlite --apply
+java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/catalog.sqlite
+java -cp "$CP" org.metadatacenter.terms.ingest.ContentHashCutover $CEDAR_HOME/cedar-term/catalog.sqlite --apply
 ```
 
 `DeriveOntologyIriBackfill` records each ontology's canonical IRI, its identity across sources, for a
@@ -677,7 +1008,7 @@ to each ontology it ingests. The job writes as it runs and has no dry run. With 
 only those ontologies, and without them every ontology in the catalog.
 
 ```bash
-java -cp "$CP" org.metadatacenter.terms.ingest.DeriveOntologyIriBackfill $CEDAR_HOME/cedar-term/prod/catalog.sqlite OBI RO
+java -cp "$CP" org.metadatacenter.terms.ingest.DeriveOntologyIriBackfill $CEDAR_HOME/cedar-term/catalog.sqlite OBI RO
 ```
 
 ## Running the Picker

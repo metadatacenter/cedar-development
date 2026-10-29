@@ -73,7 +73,7 @@ remote checks become available:
 | Phase | Required checks |
 | --- | --- |
 | Local (seconds) | Maven/npm/28-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
-| Remote (roughly 90 seconds) | GitHub authentication and workflow; exact remote `develop` CI; matching local/remote heads; idle train slot and unused ID; anonymous source access; passing smoke record for those heads; publication-target availability. |
+| Remote (roughly 90 seconds) | GitHub authentication and workflow; exact remote `develop` CI; cross-repository contracts covering their consumers; matching local/remote heads; idle train slot and unused ID; anonymous source access; passing smoke record for those heads; publication-target availability. |
 
 The publication probe checks Nexus service/writable status, `cedar-maven-dev`, npm identity and
 Docker Registry v2 authentication. Credentials come from `BMIR_NEXUS_USERNAME` /
@@ -93,6 +93,15 @@ CI environment drift is also advisory: `cedarcli check ci-env` compares Java wor
 
 Run `cedarcli check ci` after a release and before the next train. It lists captured `develop`
 heads without passing CI, links their runs and prints `gh run rerun --failed` for failed jobs.
+
+Some workflows check other repositories. The design tokens' Consumer contracts and Token readers
+each check out eight consumers at `develop`. Their runs answer only for the consumer heads they
+checked out, and a consumer push does not run them, so a consumer change can stay unchecked until
+the tokens next change. That can be the release's own push, which then has to accept a red run
+it cannot fix. `cedarcli check ci` therefore also requires the newest run of each contract at its
+`develop` head to be green and to have started after every consumer's head was pushed, and the
+dispatch preflight refuses otherwise. `cedarcli check ci --dispatch-stale-contracts` starts a run
+of each contract no run covers yet; dispatch the train once they pass.
 
 `cedarcli test e2e` runs the native REST, monolith-browser and split-application tiers and records
 every train repository's `develop` head in `ops/e2e/reports/smoke-gate/`. Dispatch requires a passing
@@ -563,9 +572,17 @@ Remove `--dry-run` to dispatch after the same checks pass. The release target mu
 match the train base, and the next development version must advance. Release
 credentials, target refs and registry occupancy, toolchain and source contracts
 are checked before the expensive train. A failed or unreadable prerequisite
-refuses dispatch. Public CEE publication and executable equivalence remain required
-by `release plan|start` once the train artifacts exist. Ordinary development trains
-need none of these options.
+refuses dispatch. Ordinary development trains need none of these options.
+
+The same checks rehearse the CEE promotion proof that `release plan` runs once the train
+exists. They prove the development package CEE's CI published for the captured `develop`
+commit a promotion of the public CEE named by `--cee-version`, with the plan's own
+comparison. A refusal stops the dispatch, because the plan would refuse the train's CEE the
+same way. Release CEE from that `develop`, or remove the difference, first. When CEE's
+model or design-token pins name packages built from commits other than the ones the train
+captures, a refusal may be the pins' doing and is reported as advisory; move the pins to
+rehearse exactly. When the public CEE is not yet on npmjs, the proof waits for
+`release plan`.
 
 The pre-train checks also survey every release repository's remote main/develop
 sources and required license files. Main-only paths are labeled as declared generated
