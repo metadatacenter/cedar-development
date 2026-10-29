@@ -93,7 +93,7 @@ step that chooses a modifier. Workspace's Settings page loses its "Version modif
 as agreed on 2026-10-07. Operators read a build's source commit from `/config/build-info.json` and
 from Monitoring's deploy matrix.
 
-Apply the policy on staging (`cedr-stg-app-03`) first, then on production (`cedr-prd-app-05`), to
+Apply the policy on staging (`cedr-stg-app-07`) first, then on production (`cedr-prd-app-05`), to
 each frontend vhost, as root:
 
 1. Find the vhost with `grep -l -E "openview|monitoring|bridging|workspace|designer|cedar" /etc/nginx/sites-enabled/*`.
