@@ -29,7 +29,10 @@ Refer to the concrete change by name in commits.
 - **Continuing reusable drafts and recovery across tabs.** Make continuing work on a
   saved reusable draft possible without silently turning the embedded copy into a mutable
   link. Define retrieval of confirmed but unattached results after the original tab closes,
-  and deliberate cleanup of reusable artifacts whose parent edits were discarded.
+  and deliberate cleanup of reusable artifacts whose parent edits were discarded. Once a
+  reusable creation is unconfirmed, editing the child refuses every further Save as reusable
+  draft, although the message asks the author to retry. A retry should settle the identity
+  first sent.
 - **Source revisions and descendant identity.** Record which revision of a mutable draft
   was copied, with a retrievable baseline if future comparison requires it. Resolve the
   identity scope of editable inline descendants before changing detachment: retaining
@@ -37,19 +40,24 @@ Refer to the concrete change by name in commits.
   published descendant references and parent property IRIs. Do not rewrite stored
   published artifacts or infer provenance for legacy copies.
 - **Version families and candidate choice.** Resolve a stable version family across
-  releases and deletion so duplicate uses at different versions can be recognized.
-  Distinguish the latest readable published release from a globally latest release. Agree
-  the interaction for selecting an older or latest compatible release, and for reviewing
+  releases and deletion so duplicate uses at different versions can be recognized. The
+  resource server's version history lists every release to anyone who can read the version
+  asked about, so the Version tab names a newer release the author cannot read and offers no
+  readable release between the two. List only readable releases, and offer the latest of
+  them. Agree what Upgrade does with a release deleted after its assessment. Today it attaches
+  the assessed content, and Save stores a link to the deleted artifact. Agree the
+  interaction for selecting an older or latest compatible release, and for reviewing
   meaningful changes and local divergence, before adding controls.
 - **Existing reuse and retirement of bubbling.** Inventory older embedded drafts with
   shared stored identifiers and missing derivation. Agree an honest unknown-origin state
   and a deliberate association workflow. Add a read-permission-filtered usage endpoint;
   retire the legacy editor's bubbling UI and REST mutation/preview endpoints once the
   replacement workflow and its existing-data path are usable.
-- **Further journey gates.** Extend real-host matrices to permission-filtered source
-  histories, source deletion during assessment, changed drafts during uncertain reusable
-  creation and cross-tab outcome retrieval. Verify untouched screens separately from
-  failure paths and keep exceptional controls absent without their triggering condition.
+- **Further journey gates.** Add a journey for cross-tab outcome retrieval once retrieval of
+  confirmed but unattached results is defined. Once version histories list only readable
+  releases, extend `version-source-access` to a readable release between the author's and an
+  unreadable newest one, which the tab should then offer. Verify untouched screens separately
+  from failure paths and keep exceptional controls absent without their triggering condition.
 
 ## Static Frontend Delivery
 
@@ -175,14 +183,13 @@ on an actual failure or retained unfinished work, and new UI requires agreement 
 - **Designer conflicts:** fetch the latest schema separately from the working draft and
   provide review and reconciliation for templates, elements and fields, including unknown
   content, server normalization and intervening writes; never attach its ETag to an
-  unreconciled draft.
+  unreconciled draft. A new version that a status check reports unresolved can be neither
+  saved nor discarded. Save stays blocked, and Discard stays refused after every check.
 - **Changed metadata templates:** reconcile retained metadata against a changed template
   through an explicit migration workflow, preserving unfinished input and unsupported values.
 - **Permitted copies:** recover retained work to another folder when the original artifact is
   inaccessible or deleted, checking destination permissions without silently recreating the
   original or mistaking a permission refusal for deletion.
-- **Recovery validation:** extend live coverage to additional invalid control shapes and newer edits
-  during recovery; include schema normalization and unresolved version operations.
 
 Keep status checks, access checks, review and explicit discard distinct. A failed recovery
 read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the

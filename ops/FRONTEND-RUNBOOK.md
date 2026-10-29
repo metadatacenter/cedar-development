@@ -2957,7 +2957,11 @@ and action. Original versions open in another Designer tab.
 
 `npm run smoke:journey -- pull-versions reusable-publication` in `ops/e2e` exercises published
 selection, copied/linked fields and elements, nested/repeated placement, creation/publication,
-lost creation/publication replies and parent save/reopen against real REST. `npm run smoke:rest -- pull-versions`
+lost creation/publication replies and parent save/reopen against real REST.
+`npm run smoke:journey -- version-source-access version-source-deletion reusable-changed-draft`
+adds sources the author cannot read, sources deleted during assessment and parents changed while
+a reusable save is uncertain. Each journey first opens an untouched fixture of its own, which must
+show no failure and no exceptional control and write nothing. `npm run smoke:rest -- pull-versions`
 directly exercises the final write guard, skipped assessments, records arriving after assessment,
 unchanged revisions on refusal and published immutability. The artifact server's embedded race
 tests also pause actual instance creation across a replacement. Broader compatibility proofs,
@@ -3456,6 +3460,27 @@ Additional focused checks, also included in the regular modern smoke:
 - `partial-version-draft`: a parent folder the author may no longer create in refuses Create new
   draft before publication, through reload and access rechecks, until the grant returns. It uses
   the second test account by REST token only.
+- `unresolved-version`: lose the reply to Create new draft. Discard is refused until a status
+  check settles the version. When another client has edited the committed draft, or published the
+  source of an uncommitted one, the check keeps the edit and the save guard, adopts nothing and
+  sends no second version command.
+- `version-source-access`: the second test account, acting by REST token only, owns the sources.
+  The Version tab never offers or attaches a release the author cannot read. It reports an
+  unreadable origin and offers only Detach, and the parent still saves its own edit with the link.
+- `version-source-deletion`: delete a source through REST while the Version tab's request for it
+  is held. A release deleted after the history listed it is answered 404 and offered for no
+  upgrade, and an origin deleted while its history is read is reported as unreadable.
+- `reusable-changed-draft`: edit the parent while Save as reusable draft is pending, after a lost
+  reply whose readback also fails, and after a create that never reached the server, for a field
+  and an element. The result is never attached to the changed parent. Repeating the action
+  attaches one stored artifact under the identity first sent.
+- `restored-control-shapes`: restore an inverted text-length range in a Designer template, an
+  incomplete regular expression in a Designer element and a malformed IRI in a metadata link
+  field. Each returns exactly, blocks Save with its own explanation and writes nothing until it
+  is corrected.
+- `restored-newer-edits`: lose the reply to a committed save, reload, restore and type while the
+  status check is held, for templates, elements, fields and metadata. The check accepts the
+  server's normalization of the lost save, and the next conditional save stores the newer input.
 
 Run any subset with `npm run smoke:journey -- <names>`. Failure injection tests the hosts' handling
 of the specified HTTP outcome; fixture creation, successful writes, readback and permission
