@@ -131,11 +131,10 @@ JavaScript and caches static files at its edge. After the reload, purge
 there. If the CEE bundle that OpenView and Bridging serve still carries `max-age=14400`, set
 Cloudflare's Browser Cache TTL to "Respect Existing Headers".
 
-Extend the cache-delivery smoke to check immutable hashed assets and revalidating fallbacks, to
-compare every served build identity against the accepted commit, and to open, modify, save,
-reload and save an existing instance, so that the GET ETag and the subsequent `If-Match` update
-are exercised. Run it on staging and then production from a browser that previously loaded the
-old payload, after rebuilding every frontend from recorded commits.
+Run the cache-delivery smoke, `npm run smoke:frontend-cache` in `ops/e2e`, on staging and then
+production after rebuilding every frontend from recorded commits. Name the host in `CEDAR_HOST`, the
+recorded commits in `CEDAR_ACCEPTED_COMMITS`, and a browser profile in `CEDAR_CACHE_SMOKE_PROFILE`
+that loaded the old payload before the deployment.
 
 The item is complete when both hosts pass the header check on every frontend origin, two
 consecutive code deployments need no modifier, and a rollback works by restoring payloads and

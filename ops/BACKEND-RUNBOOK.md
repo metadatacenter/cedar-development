@@ -4469,8 +4469,14 @@ but it is bound to AngularJS markup, so it is the more brittle of the two and th
 survive a frontend replacement. Prefer adding to the REST smoke.
 
 Two smaller browser smokes cover the frontends that one does not reach. `npm run smoke:frontend-cache`
-checks all seven origins for a 200 and `Cache-Control: no-store` without credentials, which a
-completely broken application still passes. `npm run smoke:frontend-app` signs in through Keycloak and
+holds all seven origins to their cache policy. A local stack must answer everything `no-store`. A
+deployment must answer its entry pages, deep links and `/config/` `no-store`, its hashed bundles
+`immutable`, and its other files with `no-cache`, and must refuse a request for a removed bundle
+rather than answer it with the entry page. The smoke compares every build identity an origin serves
+with the accepted commit, which a deployment names in `CEDAR_ACCEPTED_COMMITS`, and then signs in to
+Workspace and saves a reloaded instance twice, each save carrying the ETag the editor last read. Run
+from the same `CEDAR_CACHE_SMOKE_PROFILE` before and after a deployment, it shows that a browser
+which held the earlier payload now runs the accepted one. `npm run smoke:frontend-app` signs in through Keycloak and
 waits for Monitoring and Bridging to render content only their own components produce, failing on the
 console errors an application cannot run through. That distinction is the point: the Angular 22 upgrade
 left OpenView building clean and dying at bootstrap with an injector error, which every gate then in

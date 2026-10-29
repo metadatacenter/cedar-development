@@ -177,11 +177,11 @@ jobs:
         working-directory: cedar-development/ops/e2e
         run: npm run test:journey-runner
 
-      # Ops utilities and performance harness logic use built-ins, temporary
+      # Ops utilities, the frontend cache policy and performance harness logic use built-ins, temporary
       # trees and stubbed requests; no npm packages, running stack or sibling servers are needed.
       - name: Run the Node ops and performance harness suites
         working-directory: cedar-development
-        run: node --test ops/test-*.mjs ops/e2e/rest-perf/test/*.test.mjs
+        run: node --test ops/test-*.mjs ops/e2e/rest-perf/test/*.test.mjs ops/e2e/frontend-cache-policy.test.mjs
 
       # Python suites under ops/, ops/tests and ops/repairs. They mock publication and service
       # operations, stand in for the deployment and the library bridges, and never start a CEDAR
