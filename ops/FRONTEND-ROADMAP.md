@@ -225,9 +225,9 @@ data images.
 
 ### 7. Take the Frontend Dependency Upgrades That Need Code Changes
 
-No dependency below can move by a lock update alone. Some wait on an upstream release, some need
-code changes, and one needs a design decision. The versions are the newest that `npm outdated`
-reported on 2026-10-28, after every in-range update had been taken.
+No dependency below can move by a lock update alone. Some wait on an upstream release, some have
+not been tried, some need code changes, and one needs a design decision. The versions are the
+newest that `npm outdated` reported on 2026-10-28, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
@@ -238,7 +238,21 @@ reported on 2026-10-28, after every in-range update had been taken.
   configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
   newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of
   ember-cli-babel (8.3.2), `@rollup/plugin-babel` (7.1.0) and Embroider's core and compat packages
-  accept only Babel 7, so both upgrades wait until those accept Babel 8.
+  accept only Babel 7, so both upgrades wait until those accept Babel 8. `@eslint/js` 10 moves with
+  ESLint, and `@babel/plugin-proposal-decorators` and `@babel/plugin-transform-runtime` 8 move with
+  Babel.
+
+**Not yet tried.**
+
+- **The Ember demo's other lint and build packages.** `eslint-plugin-n` 18, `eslint-config-prettier`
+  10, `globals` 17 and `concurrently` 10 are new majors, and ember-cli 7.3 and ember-source 7.4 fall
+  outside the demo's `~7.2.0` ranges. None of them waits on ESLint 10 or Babel 8. Both ESLint
+  packages accept ESLint 9, `globals` declares no peer, and `concurrently` 10 needs only Node 22.
+  Each move needs its range changed and the demo's lint, build and tests run under it.
+- **`@axe-core/playwright` 4.14** in the Playwright test packages of CEE, CED, CETP and Workspace,
+  which pin 4.13.0 exactly. A new axe release can add rules or change what an existing rule
+  reports, so the move needs every accessibility scan rerun and any new finding placed in the
+  [Accessibility](#accessibility) items.
 
 **Needing code changes.**
 
@@ -246,7 +260,9 @@ reported on 2026-10-28, after every in-range update had been taken.
   move together, because the harness runs on the root's worker, and the harness's `oxc` transform
   settings need checking against Vitest 5's Vite, since the previous major broke them. The other
   Vitest projects are CED, CETP, Workspace, OpenView, Bridging, Monitoring and the Angular and
-  React demos. OpenView, Bridging and Monitoring also move `@vitest/browser-playwright` with it.
+  React demos. Its companion packages move with it: `@vitest/coverage-v8` in CEE's root and
+  harness, CED and the Angular demo, and `@vitest/browser-playwright` in OpenView, Bridging and
+  Monitoring.
 - **ngx-translate 18** in OpenView, Bridging and Monitoring. It removes `TranslateModule`, so each
   application's module-based setup moves to the provider functions.
 - **ngx-translate 18.1** in CEE, CED, CETP and Workspace, which hold 18.0.x with a `~18.0.0`
