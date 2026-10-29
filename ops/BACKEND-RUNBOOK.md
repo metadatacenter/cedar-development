@@ -884,7 +884,10 @@ is parked after its sixtieth failed read. Transient failures, including 408 and 
 for retry. A response lost before its generated identifier is recorded, which only a create by
 `POST` can suffer, leaves an intent with an unknown artifact identity; it needs inspection, never a
 guessed delete. A late
-response can supply that evidence while no cleanup has occurred. Parked records are retained rather
+response can supply that evidence while no cleanup has occurred. A create the artifact server never
+received leaves no record. The client sends a `POST`, or a `PUT` without `If-Match`, only once, so
+when no connection to the artifact server opened, whether refused or timed out, the request cannot
+have reached it, and the record is removed as the create fails. Parked records are retained rather
 than silently cleared. Inspect them with read-only Cypher:
 
 ```cypher
@@ -893,6 +896,10 @@ RETURN j.jobId, j.resourceId, j.resourceType, j.operation, j.createdAt, j.rechec
        j.attempts, j.lastStatus, j.cleanupStarted, j.parked, j.parkedReason
 ORDER BY j.createdAt
 ```
+
+A parked record with no identity is settled by comparing the content store with the graph. A document
+the graph does not register, created near the record's `createdAt`, is the create's to remove. With
+none, the create stored nothing, and the record can be deleted.
 
 Deploy the resource server and worker with the matching workspace/search libraries: producers,
 registration transactions and relays share this protocol. A relay built before identities were
