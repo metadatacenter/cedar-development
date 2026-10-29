@@ -3586,11 +3586,11 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 `DropwizardAppExtension`: its version bundled with Dropwizard 2.1 is binary-incompatible with the
 current JUnit platform.
 
-Rough suite sizes: artifact 1334 (parameterized CRUD over four artifact types on embedded Mongo),
-server-rest 281, workspace-operations 182, search-operations 208, artifact-library 800,
-terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 63,
-cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, bridge 57, monitor 8, and a
-one-to-seven-test boot-and-config tier on the remaining thin servers.
+Suite sizes in the surefire reports of the 2026-10-28 build: artifact 1,816 (parameterized CRUD over
+four artifact types on embedded Mongo), server-rest 527, workspace-operations 271, search-operations
+337, artifact-library 1,928, terminology 782 (61 more excluded under `bioportal`), model-validation
+505, resource 1,440, cadsr-tools 139, core-library 440, user 43, group 34, messaging 38, bridge 639,
+monitor 144, and a one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### Reproducing a Flake That Depends on Class Order
 

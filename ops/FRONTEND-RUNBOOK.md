@@ -1848,7 +1848,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
-Expect **over 2,500 passing** on `develop` — 2,560 on 18 August 2026. For watch
+Expect **over 5,800 passing** on `develop`, 5,821 on 28 October 2026. For watch
 mode, run `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
@@ -1882,10 +1882,10 @@ coordinator at 95% / 95%, and the wrapper at 70% / 60%. Do not replace those wit
 one global percentage: a heavily covered serializer can otherwise conceal an
 untested artifact transition or widget-sync branch.
 
-Branches sit below statements because Vitest 4 counts them differently, not
-because the suite is weaker: it replaced the old V8 mapping with AST-aware
-remapping and offers no way back, and source that cleared 90% everywhere under
-Vitest 1 measures 86.6 to 91.5 under 4. No test was removed and no branch
+Branches sit below statements because Vitest has counted them differently since
+version 4, not because the suite is weaker. Version 4 replaced the old V8 mapping
+with AST-aware remapping and offers no way back, and source that cleared 90%
+everywhere under Vitest 1 measured 86.6 to 91.5 under 4. No test was removed and no branch
 stopped being exercised — branches the old mapping never counted are now in the
 denominator.
 
@@ -3460,7 +3460,7 @@ Additional focused checks, also included in the regular modern smoke:
 - `partial-version-draft`: a parent folder the author may no longer create in refuses Create new
   draft before publication, through reload and access rechecks, until the grant returns. It uses
   the second test account by REST token only.
-- `unresolved-version`: lose the reply to Create new draft. Discard is refused until a status
+- `unresolved-version`: lose the reply to Designer's Create new draft. Discard is refused until a status
   check settles the version. When another client has edited the committed draft, or published the
   source of an uncommitted one, the check keeps the edit and the save guard, adopts nothing and
   sends no second version command.
