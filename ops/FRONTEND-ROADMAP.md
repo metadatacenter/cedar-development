@@ -226,8 +226,8 @@ data images.
 ### 7. Take the Frontend Dependency Upgrades That Need Code Changes
 
 No dependency below can move by a lock update alone. Some wait on an upstream release, some have
-not been tried, some need code changes, and one needs a design decision. The versions are the
-newest that `npm outdated` reported on 2026-10-28, after every in-range update had been taken.
+not been tried, and some need code changes. The versions are the newest that `npm outdated`
+reported on 2026-10-28, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
@@ -270,12 +270,6 @@ newest that `npm outdated` reported on 2026-10-28, after every in-range update h
   was committed in March 2023 outside npm, so neither `npm outdated` nor `npm audit` sees it. The
   adapter's major follows the Keycloak server, so all of these move with "Upgrade Keycloak to a
   supported release" in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
-
-**Needing a design decision.**
-
-- **lucide-static 1.63** in the design tokens, which pin 1.47.0 exactly. A newer release can
-  redraw icons that every consumer shows, so the move needs its rendered differences reviewed and
-  approved like any other visual change.
 
 <a id="accessibility"></a>
 
