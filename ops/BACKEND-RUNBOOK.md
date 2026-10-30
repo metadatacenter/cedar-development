@@ -346,6 +346,17 @@ Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthche
 is served on the application port at `/healthcheck`, where it requires the `monitorManager` role and
 is what the Monitor's cross-service health page reads.
 
+**Read-only Monitor access.** Every Monitor route needs `MONITOR_READ`, which only the
+`monitorManager` role grants. The `monitorViewer` super role maps to that role alone, so it gives a
+person the Monitor without any administrative role. It is opt-in, one person at a time, held next to
+`normal`, never instead of it. To grant it, add the `monitorViewer` realm role to the user in Keycloak,
+then run `cedarat userProfile-updateAll-updatePermissions`: CEDAR materializes permissions on the user
+record and recomputes them only then. Remove the realm role and run the task again to revoke it. A
+Keycloak that predates the role needs the realm role created once, by hand, with that exact name. The
+realm imports under `cedar-infra-keycloak` and `os-mirror` already carry it. Read-only still includes
+the Log Explorer and the user and resource info pages, so a monitor viewer can read request logs and
+user records.
+
 In Docker only the application port is published to the host. Admin connectors bind loopback inside
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.

@@ -79,6 +79,14 @@
       "containerId" : "9284d02c-2807-45ef-9b9d-d44110562b88",
       "attributes" : { }
     }, {
+      "id" : "893c6379-adb2-46f2-b5e4-c9928ad75166",
+      "name" : "monitorViewer",
+      "description" : "Read-only access to the CEDAR Monitor (MONITOR_READ). Grant it next to normal; run cedarat userProfile-updateAll-updatePermissions afterwards",
+      "composite" : false,
+      "clientRole" : false,
+      "containerId" : "9284d02c-2807-45ef-9b9d-d44110562b88",
+      "attributes" : { }
+    }, {
       "id" : "da403b97-9c02-4126-aac1-4a48298a7d2d",
       "name" : "default-roles-cedar",
       "description" : "${role_default-roles}",
