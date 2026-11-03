@@ -859,6 +859,46 @@ For GAZ `acid`, the index returned 2 versus 25: substring-only matches included 
 `Municipality of Acidara`; `placid` still finds Lake Placid. These are examples, not proof of
 identical result sets. Exact counting was slower than snapshot lookup in the DDSS experiment.
 
+## Checking Ontology Filter Completeness
+
+The **Ontologies** filter makes a separate `POST /search` request with
+`types: ["ontology"]`, `ontologyOrder: "matches"`, `page: 1`, and `pageSize: 200`.
+The picker loads subsequent pages until a short page ends the list. A query can
+match more than 1,000 ontologies; the filter must retain every page.
+
+`SearchIndexStore.vocabularyFacet` counts distinct matching term IDs before joining
+them to their ontologies. It applies no term or ontology limit. Synonyms do not
+inflate an ontology's count, and matching uses the same token prefixes, residual
+short tokens and diacritic folding as term search. The service merges term-bearing
+ontologies with ontology-name matches, sorts the complete list, and then pages it.
+Ontology `totalCount` is exact and `countCapped` is false, including above 1,000.
+The separate bounds on term-result counts still apply.
+
+A missing ontology should be checked against this request, not just the main term
+results. The older implementation sampled 10,000 matched terms before grouping and
+could discard entire ontologies according to index order. For `organ`, it omitted
+UBERON despite returning `UBERON_0000062` in the main results. Searching **Uber
+Anatomy Ontology** before applying the filter reaches UBERON on an older deployment;
+it is unnecessary with complete ontology discovery.
+
+Local verification on 2026-11-03 returned:
+
+| Query | Ontologies (including name matches) | Pages of at most 200 | UBERON matching terms |
+| --- | ---: | ---: | ---: |
+| `organ` | 735 | 4 | 719 |
+| `pro` | 1,025 | 6 | 2,843 |
+
+Both walks returned every reported ontology exactly once with stable totals and
+`countCapped: false`. In the local Designer, searching `organ`, opening **Ontologies**,
+selecting UBERON and opening its `organ` branch reached `UBERON_0000062` directly.
+Regression suites cover more than 10,000 earlier matching terms, more than 1,000
+ontologies, synonym deduplication, re-ingestion and selection past the fifth page.
+
+Warm local API pages took 274–345 ms for `organ` and 1.37–1.45 s for `pro`; the first
+`pro` page took 10.3 s. These are diagnostic observations, not a controlled benchmark.
+A broad prefix still scans many matching names, and disk-cache state matters. Measure
+with an idle stack and distinguish first-use from warm timings before tuning.
+
 ## When a Lookup Is Slow
 
 Check the query, selected source and active store before tuning the server. `POST /search` uses
