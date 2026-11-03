@@ -4954,11 +4954,38 @@ development: Redis to 7.2.7, OpenSearch to 2.19.1, Mongo to 5.0.31 and Neo4j to 
 the version already running natively. MySQL and Keycloak have not moved in the images.
 
 The native workstation stack holds the lock only where Homebrew is told to. MongoDB comes from the
-versioned `mongodb-community@5.0` formula, and `redis` and `opensearch` are pinned with `brew pin`,
-but `mysql` is neither versioned nor pinned. On 2026-10-19 it ran 9.6.0, an Innovation release,
-against the 8.4.11 the images pin, and Homebrew's current `mysql` was 26.7.0, which the next
-`brew upgrade` would install. A local e2e run therefore exercises a newer MySQL than the images
-carry. Check `brew list --pinned` before upgrading Homebrew on a workstation.
+versioned `mongodb-community@5.0` formula. MySQL comes from the versioned `mysql@8.4` formula, the
+8.4 LTS line the images pin and the newest line Keycloak supports. `redis`, `opensearch` and
+`mysql@8.4` are also pinned with `brew pin`. Check `brew list --pinned` before upgrading Homebrew
+on a workstation.
+
+A workstation that still runs the unversioned `mysql` formula has whatever Innovation release
+Homebrew last installed, and `startmysql.sh` refuses to start it. An 8.4 server cannot open a data
+directory a 9.x server has written, so the move to `mysql@8.4` is a dump and restore. Root's
+password is `CEDAR_MYSQL_ROOT_PASSWORD` from the profile.
+
+1. Stop Keycloak and the microservices with `cedarcli native stop keycloak` and
+   `cedarcli native stop microservices`.
+2. Dump `cedar_keycloak` and `cedar_messaging` with `mysqldump --single-transaction --routines
+   --triggers --events --hex-blob --set-gtid-purged=OFF`, and `cedar_log` with `--no-data` added.
+   The log rows are diagnostics and need not move. Archive them with a full dump through `zstd` if
+   they are wanted.
+3. Save the three `cedarMySQL*User` accounts as SQL by running `SHOW CREATE USER`, with
+   `print_identified_with_as_hex` set, and `SHOW GRANTS` for each. The output keeps each password
+   hash, so the profile's passwords keep working.
+4. Shut the server down, move `$(brew --prefix)/var/mysql` aside as a backup, and run
+   `brew uninstall mysql`.
+5. Run `brew install mysql@8.4`, `brew link --force mysql@8.4` and `brew pin mysql@8.4`. The
+   install creates an empty data directory whose root account has no password.
+6. Start the server with `brew services start mysql@8.4` and set root's password. Load the
+   accounts, the two databases and the log schema, and compare row counts table by table before
+   starting the stack.
+
+Homebrew's `mysql` 9.6.0 stopped starting on 2026-10-29, when an abseil upgrade removed libraries it
+links against. To dump such a server, start `mysqld` directly with `DYLD_LIBRARY_PATH` set to the
+`lib` directory of the earlier abseil keg, which stays in the Cellar until `brew cleanup`. Neither
+`nohup` nor `mysqld_safe` can pass that variable on, because macOS strips `DYLD_*` variables from
+protected system binaries.
 
 **Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.7.1, and
 the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at

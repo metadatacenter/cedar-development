@@ -571,12 +571,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   until a Keycloak release CEDAR runs supports a 9.x LTS. The client is ready either way, since
   Connector/J 9.7.0 supports MySQL 8.0 and later.
 
-  The development workstation is off the lock. Its native MySQL comes from Homebrew's unpinned
-  `mysql` formula and ran 9.6.0 on 2026-10-19, an Innovation release nothing deployed runs, so local
-  end-to-end runs have exercised 9.6 since April. Pin the formula, then move the workstation to
-  `mysql@8.4` by dump and restore, because an 8.4 server cannot open a 9.x data directory. These
-  documents do not record production's MySQL version. Confirm it with `SELECT VERSION()` before
-  planning its move.
+  These documents do not record production's MySQL version. Confirm it with `SELECT VERSION()`
+  before planning its move.
 
   Production is the part this item owns for every store: each version rehearsed on a copy of
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap

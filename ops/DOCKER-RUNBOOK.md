@@ -769,7 +769,7 @@ to the deployment's retention decision, and restore the log schema before resumi
 ```bash
 mysqldump -u root -p --databases cedar_keycloak cedar_messaging --single-transaction > cedar.sql
 mysqldump -u root -p --no-data --databases cedar_log | grep -v GTID_PURGED > log-schema.sql
-brew services stop mysql            # see the warning below — mysqladmin shutdown is not enough
+brew services stop mysql@8.4        # see the warning below — mysqladmin shutdown is not enough
 docker compose up -d mysql keycloak
 docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < cedar.sql
 docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < log-schema.sql
@@ -783,7 +783,7 @@ container creates, and `cedar_log` and `cedar_messaging` need their databases, u
 created explicitly — at `@'%'`, since the connection now arrives from outside the container rather
 than from `localhost` as it did natively.
 
-**Stopping native MySQL needs `brew services stop mysql`.** `mysqladmin shutdown` is not enough:
+**Stopping native MySQL needs `brew services stop mysql@8.4`.** `mysqladmin shutdown` is not enough:
 launchd restarts `mysqld_safe`, which restarts `mysqld`, within seconds. Combined with the port trap
 below this is genuinely dangerous — native rebinds `127.0.0.1:3306`, wins every connection back from
 the container, and nothing reports it. Two full REST runs passed against native MySQL while the
