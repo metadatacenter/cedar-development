@@ -503,7 +503,7 @@
       "repository": "cedar-content-distribution",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "c9da42f2f0b92acc8672972933843a9b284f7770523f4162e4b30bb9d62e2e4b",
+      "sha256": "a122b98ead447c4419733cbd92209a7c883a259e3c163f553001337847ee9592",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
