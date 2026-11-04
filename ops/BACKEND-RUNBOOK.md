@@ -4185,10 +4185,9 @@ repository, for lines and for branches. `cedarcli build diagnostics` removes rec
 `--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
 against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
-JSON as the `coverage-summary` artifact. On 2026-10-26 the estate stood at 75.1% of 58,074 lines by
-each module's own tests, 84.1% by each repository's own tests and 88.6% by any test, and at 70.6%,
-76.1% and 78.7% of 23,294 branches. The figures are
-a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
+JSON as the `coverage-summary` artifact. On 2026-11-04 the estate stood at 75.4% of 58,654 lines by
+each module's own tests, 84.3% by each repository's own tests and 88.7% by any test, and at 70.8%,
+76.1% and 78.8% of 23,869 branches. The figures are a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
 local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
 
 The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
@@ -4204,7 +4203,9 @@ Each tested module has two floors, which JaCoCo's `check` goal enforces in the `
 every build that runs tests. `cedar.coverage.line.minimum` in the module's own POM is the share of its
 lines its Surefire suites must cover, and `cedar.coverage.branch.minimum` the share of its branches,
 the decisions its code makes. Each was set two points below the figure measured from a clean build,
-rounded down: the lines on 2026-10-19 and the branches on 2026-10-26. Where CI measured a module lower
+rounded down. The branch floors were set on 2026-10-26. The line floors were set on 2026-10-19 and
+raised on 2026-11-04 in the 19 modules whose coverage then stood more than five points above them.
+Where CI measured a module lower
 than a local build did, because some of its branches run only on some timings, the floor follows the
 lower figure. A comment beside each records the figures. `cedar-parent` defaults both properties to
 zero, so a module without a floor of its own has none, and the check skips a module that ran no
