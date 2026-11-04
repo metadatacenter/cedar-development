@@ -53,7 +53,7 @@ test('a CedarError with the wrong status, a field of its own or no JSON type is 
 /** Every operation in every committed document, with the probes the suite would send it. */
 function plans() {
   const all = [];
-  for (const server of ['resource', 'artifact', 'repo', 'terminology', 'user', 'impex', 'group', 'worker',
+  for (const server of ['resource', 'artifact', 'repo', 'terminology', 'user', 'group', 'worker',
     'messaging', 'openview', 'monitor', 'bridge']) {
     const spec = JSON.parse(readFileSync(resolve(CEDAR_HOME, `cedar-${server}-server`, `cedar-${server}-server-application`,
         'src/main/resources/assets/swagger-api/swagger.json'), 'utf8'));

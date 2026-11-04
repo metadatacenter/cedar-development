@@ -105,14 +105,6 @@ jobs:
           path: cedar-user-server
           sparse-checkout: cedar-user-server-application/src/main/resources/assets/swagger-api
 
-      - name: Check out impex REST contracts
-        uses: actions/checkout@v7
-        with:
-          repository: metadatacenter/cedar-impex-server
-          ref: develop
-          path: cedar-impex-server
-          sparse-checkout: cedar-impex-server-application/src/main/resources/assets/swagger-api
-
       - name: Check out group REST contracts
         uses: actions/checkout@v7
         with:

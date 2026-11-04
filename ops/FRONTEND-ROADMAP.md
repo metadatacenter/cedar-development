@@ -456,3 +456,18 @@ Agree its interaction before implementation; this proposal does not authorize a 
 diagnostic or recovery button, banner or file picker on ordinary editing screens.
 Any confirmed defect should lead to a generation or validation fix and a regression test; verify
 that the fallback preserves work while the rejected write remains blocked.
+
+## Legacy Workbench
+
+### 11. Retire the caDSR Form Import Interface and Tutorial
+
+Remove the legacy Workbench's New → Import entry, XML upload dialog, progress/report polling,
+`import.service.js`, caDSR URL builders and the `ng-flow` dependency. They still call the retired
+`/command/import-cadsr-forms` and `/command/import-cadsr-forms-status` endpoints, so the next major
+release must not offer that workflow. Remove its dedicated styles and translations after checking
+for other callers. Verify the ordinary New menu and JSON/YAML downloads still work.
+
+Update `cedar-mkdocs/docs/user-guide/cedar-for-cadsr.md` and its screenshot/navigation references so
+users are no longer instructed to export Form Builder XML and upload it to CEDAR. Keep guidance
+about existing caDSR-derived content and the separate CDE/category updater. The standalone form
+translator in `cedar-cadsr-tools` needs a separate retirement decision.

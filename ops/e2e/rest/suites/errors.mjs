@@ -44,7 +44,6 @@ const SERVERS = [
   { server: 'repo', base: local('REPO', '9002') },
   { server: 'terminology', base: TERMINOLOGY },
   { server: 'user', base: USER_SERVER },
-  { server: 'impex', base: local('IMPEX', '9008') },
   { server: 'group', base: GROUP_SERVER },
   { server: 'worker', base: WORKER },
   { server: 'messaging', base: MESSAGING },

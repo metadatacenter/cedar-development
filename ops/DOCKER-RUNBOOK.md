@@ -1,8 +1,8 @@
 # CEDAR Docker Runbook
 
 This is the operating guide for CEDAR's Docker deployment: seven infrastructure containers,
-twelve Java microservices, and seven frontend containers. Those 26 containers form the complete
-all-Docker runtime. The 19-container backend can also run with seven native frontend development
+eleven Java microservices, and seven frontend containers. Those 25 containers form the complete
+all-Docker runtime. The 18-container backend can also run with seven native frontend development
 servers as a supported hybrid. Four admin-tool containers are optional and excluded from both core
 counts.
 
@@ -16,8 +16,8 @@ Local Docker and hybrid deployments support completed immutable trains and expli
 checked-out source. Use the health, REST and browser gates in this guide to verify each deployment;
 a prior successful run does not establish the current deployment's readiness.
 
-`CEDAR_IMAGE_PREFIX` selects the 26 runtime images. `CEDAR_BASE_IMAGE_PREFIX` selects the two
-Java base images and defaults to the runtime prefix. Published trains verify all 28 images before
+`CEDAR_IMAGE_PREFIX` selects the 25 runtime images. `CEDAR_BASE_IMAGE_PREFIX` selects the two
+Java base images and defaults to the runtime prefix. Published trains verify all 27 images before
 advancing the deployable pointer.
 
 ## What Runs
@@ -25,7 +25,7 @@ advancing the deployable pointer.
 | Tier | Containers | Host ports |
 | --- | ---: | --- |
 | Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200/9300, 27017 |
-| Microservices | 12 | 9002-9015; Artifact's 9001 is intentionally internal only |
+| Microservices | 11 | 9002-9015; Artifact's 9001 is intentionally internal only |
 | Frontends (`docker` mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
 | Frontends (alternative hybrid mode) | 0 containers / 7 macOS processes | Same seven ports |
 | Admin tools (optional) | 4 | Environment-configured admin ports |
@@ -117,7 +117,7 @@ locally built image pinned into one service is lost.
 docker start infra-mongo infra-mysql infra-neo4j infra-opensearch infra-redis-persistent \
              infra-keycloak
 docker start server-artifact server-repo server-terminology server-user server-resource \
-             server-impex server-group server-worker server-messaging server-openview \
+             server-group server-worker server-messaging server-openview \
              server-monitor server-bridge
 docker start frontend-main frontend-workspace frontend-template-designer frontend-openview \
              frontend-content frontend-monitoring frontend-bridging infra-nginx
@@ -237,8 +237,8 @@ The workflow records one source manifest, then completes three ordered publicati
 2. It stamps and publishes the captured TypeScript model as an immutable development package, wires
    and tests the captured CEE against that exact model, publishes CEE, pins it into the seven
    captured frontend packages, and verifies every tarball, integrity value, and source commit.
-3. It builds the two internal bases and 26 runtime images from those Maven and npm inputs, then
-   pulls and verifies all 28 before advancing `docker/current.json`.
+3. It builds the two internal bases and 25 runtime images from those Maven and npm inputs, then
+   pulls and verifies all 27 before advancing `docker/current.json`.
 
 The Maven, npm, and Docker completion pointers move independently and only after their own stage
 has passed. A failed train never becomes the current deployable Docker train. Resume a failed
@@ -337,9 +337,9 @@ the public CEE. `CEDAR_NPM_REGISTRY` names the registry the frontend images down
 `npm-cedar` on `develop` and `npm-cedar-releases` on a release tag, because Nexus removes a package
 from `npm-cedar` within thirty days and never removes one from `npm-cedar-releases`.
 
-The full core build inventory is 28 images: seven infrastructure images, two Java bases, twelve
+The full core build inventory is 27 images: seven infrastructure images, two Java bases, eleven
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
-optional admin images, for 32 total.
+optional admin images, for 31 total.
 
 ## One-Time Docker Setup
 
@@ -367,8 +367,8 @@ docker volume inspect cedar_cert cedar_ca >/dev/null
 
 ## Start the Docker Deployment
 
-The configured `docker` mode runs all 26 core containers. Configured `hybrid` mode runs the
-19-container backend and routes Docker nginx to the seven frontend development servers on the host.
+The configured `docker` mode runs all 25 core containers. Configured `hybrid` mode runs the
+18-container backend and routes Docker nginx to the seven frontend development servers on the host.
 
 ```bash
 cedarcli docker start all --pull never
@@ -392,7 +392,7 @@ digest in that record. Compose is then forced to `--pull never` so it cannot re-
 between verification and start. This also makes resume safe: a pre-existing tag is reused only
 when its registry digest matches the completion record.
 
-The twelve Java services run as the fixed non-root identity `10001:10001`. Before starting that
+The eleven Java services run as the fixed non-root identity `10001:10001`. Before starting that
 stack, the CLI prepares the log, Resource state, and Terminology cache named volumes once and marks
 each migrated volume with `.cedar-owner-10001`. This makes volumes created by older root-running
 images safe to reuse without deleting their data. The brief ownership container runs as root with
@@ -435,7 +435,7 @@ cedarcli docker status
 ```
 
 A microservice container reads healthy when the dependencies it holds answer, not merely when its
-process is alive: every one of the twelve probes Neo4j, and each adds Mongo, MySQL, OpenSearch or
+process is alive: every one of the eleven probes Neo4j, and each adds Mongo, MySQL, OpenSearch or
 its own Redis queue where it owns one. The `depends_on` edges in the microservice stack order the
 start and do not wait on health, so an unreachable database marks one container unhealthy instead of
 preventing the containers behind it from starting at all. Staged readiness belongs to
@@ -482,10 +482,10 @@ cedarcli docker start admin --train <TRAIN_ID> --pull never --detach
 cedarcli docker stop admin
 ```
 
-The four admin images are outside the verified 28-image Docker-train pointer. Build them explicitly
+The four admin images are outside the verified 27-image Docker-train pointer. Build them explicitly
 for the train used by the deployment before starting them.
 
-For a hybrid deployment, there must be exactly 22 running backend containers and every one must
+For a hybrid deployment, there must be exactly 18 running backend containers and every one must
 report `healthy`:
 
 ```bash

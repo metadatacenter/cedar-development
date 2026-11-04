@@ -166,7 +166,7 @@ changes and confirm its startup log. Do not infer the active store from a health
 
 ## The Controller: `cedarcli native`
 
-Manages the 12 microservices and seven frontends as
+Manages the 11 microservices and seven frontends as
 background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
 systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/log/run/`. The
 controller resolves `JAVA_HOME` to a JDK 17 and refuses to start anything on another JDK, puts
@@ -329,6 +329,22 @@ Applications run in the background; the CLI never opens iTerm or Terminal. Use `
 status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli native restart
 [name...]` instead of keeping a console open for each process.
 
+## Retired caDSR Form Import Service
+
+The next major release no longer runs `cedar-impex-server`. Its upload and status endpoints have
+no replacement: `POST /command/import-cadsr-forms` and `GET /command/import-cadsr-forms-status`.
+Ports 9008, 9108 and 9208 are unassigned. Before updating an existing native installation, stop it
+with the old CLI (`cedarcli native stop microservice impex`); the new CLI no longer manages it.
+For Docker, stop and remove the old `server-impex` container before recreating the microservices.
+Retain its existing log volume when removing the container. Remove the old ImpEx nginx virtual
+host from an existing installation and reload nginx; new configurations do not generate it.
+The CA issuance ledger and existing certificates need no destructive cleanup.
+
+`cedar-admin-tool` still exports and restores complete repositories through `ImpexExportAll` and
+`ImpexImportAll`. Their `importExport` directories and configuration remain in place, as do the
+resource server's JSON/YAML downloads. `cedar-cadsr-tools` still owns the standalone form translator
+and CDE/category updater. Existing caDSR-derived templates, fields and terminology remain usable.
+
 ## Port Map
 
 | Service | app | admin | | Service | app | admin |
@@ -338,7 +354,7 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 | terminology | 9004 | 9104 | | monitor | 9014 | 9114 |
 | user | 9005 | 9105 | | bridge | 9015 | 9115 |
 | resource | 9007 | 9107 | | frontend (gulp) | 4200 | — |
-| impex | 9008 | 9108 | | workspace (Angular) | 4201 | — |
+| — | — | — | | workspace (Angular) | 4201 | — |
 | group | 9009 | 9109 | | designer (Node preview) | 4202 | — |
 | worker | 9011 | 9111 | | Keycloak | 8080 / 8443 (https) | |
 
@@ -2524,7 +2540,7 @@ Packaging is centrally managed. The shade plugin configuration lives once in `ce
 <cedar.shade.main.class>org.metadatacenter.cedar.<name>.<Name>ServerApplication</cedar.shade.main.class>
 ```
 
-A packaging change is therefore a one-line edit in `cedar-parent`, not twelve edits. To verify a
+A packaging change is therefore a one-line edit in `cedar-parent`, not eleven edits. To verify a
 shaded jar is sound: it holds exactly one merged `META-INF/.../Log4j2Plugins.dat` (~22 KB, not the
 ~700-byte single-artifact version), a `Main-Class` in its manifest, and `java -jar <jar>` boots with
 no `StatusLogger` "Unrecognized format specifier" errors.
@@ -3255,15 +3271,6 @@ paths. `RequestLoggingLifecycleTest` verifies reused workers and failure cleanup
 `RequestLoggingHttpMatrixTest` verifies authentication/routing errors, concurrent requests and paired
 IDs through real Jetty with the production registration.
 
-Chunked multipart uploads in impex use the shared `ChunkUploadStore`. It validates
-Flow.js's fixed and merged-final-chunk layouts, the declared and actual byte counts, and the 5 GiB
-per-file ceiling before publishing a chunk. Identical retries are idempotent; conflicting metadata,
-bytes and filename aliases return 400. Completion counts distinct chunks and files, and impex
-claims processing once. A consumed upload identifier cannot be reused until the process restarts.
-The ledger remains process-local: callers must resend all chunks after a restart. `ChunkUploadMatrixTest`
-covers ordering, retries, bounds, owner isolation and concurrent completion; the impex adapter
-has an adoption test, and `ImpexUploadHttpTest` sends real authenticated multipart HTTP requests.
-
 Application relays use `ResponseRelay` for buffered response bytes and metadata. Protocol headers
 (`Retry-After`, authentication challenges, `Allow`, `Location`) and repeated representation headers
 survive; cookies, transport framing, content coding already decoded by HttpClient, and fields named
@@ -3957,7 +3964,7 @@ read is not evidence of absence. `download` includes JSON / YAML / compact-YAML 
 read-negotiation across all four artifact kinds.
 
 `npm run test:rest-harness` runs every `rest/*.test.mjs` file without a running stack. Release tooling
-CI runs that same command after installing its dependencies and checking out the twelve servers'
+CI runs that same command after installing its dependencies and checking out the eleven servers'
 committed OpenAPI schemas. It covers error and success contracts, runner safeguards, freeze
 capability checks, cleanup and scheduling.
 
@@ -4162,9 +4169,8 @@ Three properties of the reports matter when reading them.
 - **Only CEDAR's own classes are instrumented.** The embedded Neo4j, MongoDB, Dropwizard and Jersey
   run in the same JVM. Measuring them would cost time and say nothing about CEDAR, so the agent
   instruments only classes under `org.metadatacenter`.
-- **Generated classes are excluded.** `cedar-impex-server-core` compiles jsonschema2pojo and xjc
-  output, and `cedar-cadsr-tools` compiles xjc output. Each of those modules excludes them in its own
-  declaration of the JaCoCo plugin.
+- **Generated classes are excluded.** `cedar-cadsr-tools` compiles xjc output and excludes it in
+  its declaration of the JaCoCo plugin.
 
 Because of the first property, `cedarcli build` reports three figures after a build that runs Java
 tests. It reads each module's own-test figure from its report. It then merges the execution data of
@@ -4607,7 +4613,7 @@ Which integration baseline each CEDAR microservice meets. The baseline is one su
 module that boots the real service wiring, exercises a request over HTTP, and pins both a success and
 a meaningful failure path, without any external service.
 
-All twelve microservices meet this baseline. Add a row when adding a service.
+All eleven microservices meet this baseline. Add a row when adding a service.
 
 A suite must run without shared developer infrastructure or a live external API. Use
 `cedar-test-support-library` for in-process stores and authentication, bind application and stub
@@ -4628,7 +4634,6 @@ and what it needs to run.
 | artifact | `ArtifactRoutesAuthenticationTest`, CRUD suites | runtime-derived route inventory; independent service-key and user-credential 401 probes | embedded Mongo |
 | bridge | `BridgeRoutesRespondTest` | `RouteSurface` 401 | none |
 | group | `GroupsAuthorizationMatrixTest`, `GroupMembershipAuthorizationMatrixTest` | `PermissionMatrix` | embedded Neo4j |
-| impex | `ImpexRoutesRespondTest` | `RouteSurface` 401 | none |
 | messaging | `MessagingRoutesRespondTest` | `RouteSurface` 401 | embedded MariaDB |
 | monitor | `MonitorRoutesAndPermissionsTest` | `RouteSurface` 401 + 403, count-hop outage 503 | none |
 | openview | `OpenViewProxyTest`, `OpenViewResourceOutageTest` | anonymous JSON/status parity, credential stripping, no fallback | resource HTTP stub + embedded Neo4j for bootstrap |
@@ -4989,7 +4994,7 @@ protected system binaries.
 
 **Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.8.1, and
 the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
-25.0.3 in August 2024 — which the bearer-token path of all twelve servers is built on. Everything
+25.0.3 in August 2024 — which the bearer-token path of all eleven servers is built on. Everything
 else that was thought to block it does not: the admin client, the event-listener SPI and the login
 theme are a coordinate change, no change at all, and two FreeMarker files respectively. The evidence
 and the two routes forward are on the roadmap under upgrading the persistence and infrastructure

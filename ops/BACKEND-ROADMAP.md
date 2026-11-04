@@ -117,7 +117,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     into a `KeycloakDeployment`, `KeycloakUtils` makes a single
     `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
     `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
-    these in the shared bootstrap, so this is the bearer-token path for all twelve.
+    these in the shared bootstrap, so this is the bearer-token path for all eleven.
 
     The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
     `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
@@ -749,7 +749,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
-  Twelve shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
+  Eleven shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
   `org.metadatacenter.config: DEBUG` beside it. Every console appender takes `threshold: ALL`, and
   every file appender archives by day with no size limit: `maxFileSize` and `totalSizeCap` appear in
   no configuration in the estate. A busy day therefore writes one file that nothing bounds, and

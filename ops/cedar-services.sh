@@ -103,7 +103,6 @@ SERVICES=(
   "worker 9011 9111"
   "openview 9013 9113"
   "monitor 9014 9114"
-  "impex 9008 9108"
   "bridge 9015 9115"
   "ui-main 4200 0"
   "ui-workspace 4201 0"
