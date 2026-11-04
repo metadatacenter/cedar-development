@@ -87,9 +87,11 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
       assert.equal(await save.isEnabled(), true);
       const before = await call(owner.auth, "GET", path);
       assert.equal(before.status, 200);
-      await groupWrite("PUT", groupPath + "/users", () => admin
-        .getByRole("listitem", {name: memberName, exact: true})
-        .getByRole("button", {name: /^Remove .* from the group$/}).click());
+      await groupWrite("PUT", groupPath + "/users", async () => {
+        await admin.getByRole("listitem", {name: memberName, exact: true})
+          .getByRole("button", {name: /^Remove .* from the group$/}).click();
+        await admin.locator("dialog.confirmation-dialog").getByRole("button", {name: "Yes", exact: true}).click();
+      });
       assert.ok([403, 404].includes((await call(member.auth, "GET", path)).status),
         "removing group membership must remove access, with no direct grant to fall back on");
       if (designing) {
