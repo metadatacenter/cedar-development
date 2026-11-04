@@ -926,7 +926,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   5.0.0 included, flapdoodle offers no mongod 5.0 package for macOS on ARM, so every suite that
   starts the embedded store dies at `could not resolve package for
   V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start. Linux
-  CI does not see the failure; every Apple silicon workstation does. Taking the upgrade therefore
+  CI does not see the failure; every Apple silicon workstation does. Staying on 4.22.0 has its own
+  cost on Linux. Its operating-system detection predates Ubuntu 26.04, so `cedar-parent` overrides
+  `de.flapdoodle.os` to 1.11.1 for the CI runners, and the upgrade would drop that override. Taking the upgrade therefore
   means running the suites against a different major from the deployed 5.0.31, which is the one
   thing `EmbeddedCedarMongo` exists to avoid. It moves with item 12. Version 5.0.0 also costs one
   import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and

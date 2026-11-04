@@ -4778,11 +4778,20 @@ Most suites need no service container. Search-library and resource-server CI int
 OpenSearch to verify permission-filter semantics rather than merely the shape of a mocked request.
 Two other exceptions both come from a real dependency rather than from CEDAR code:
 `cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
-MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` boots is the 5.0 line the
-deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04 ships OpenSSL 3, so
-that job installs `libssl1.1` on the runner first; without it `mongod` cannot start and every
-resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
-testing against a different engine than production runs.
+MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` and `cedar-admin-tool` boot
+is the 5.0 line the deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04
+and later ship OpenSSL 3, so those jobs, and the jobs of `cedar-project`, `cedar-openview-server`
+and `cedar-repo-server`, install `libssl1.1` on the runner first. Without it `mongod` cannot start
+and every resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at
+the cost of testing against a different engine than production runs.
+
+The runners also need flapdoodle to recognize their Ubuntu release, because it chooses the MongoDB
+build by release. The `de.flapdoodle.os` 1.10.0 that flapdoodle 4.22.0 brings predates Ubuntu
+26.04, which the `ubuntu-latest` runners now provide. With 1.10.0, every suite that starts the
+embedded store fails there with `could not resolve package for V5_0`. `cedar-parent` therefore
+holds `de.flapdoodle.os` at 1.11.1, which recognizes 26.04 and leads 4.22.0 to the Ubuntu 20.04
+build. A runner release newer than the one `de.flapdoodle.os` knows brings the same failure back,
+and the remedy is a newer `de.flapdoodle.os`.
 
 ### Snapshot Freshness
 
