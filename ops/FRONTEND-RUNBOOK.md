@@ -1692,10 +1692,10 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-The supported frontend toolchain uses Node **24.22.1**, Angular CLI/build/CDK/Material
-**22.2.5**, and Angular core **22.2.4**. Angular's 22.2.5 builder selects Vite 8.3.5. The
-development-server advisories against the Vite 8.3 line are fixed from 8.3.3, so no project
-overrides Vite.
+The supported frontend toolchain uses Node **24.22.1**, Angular CLI and build **22.2.5**,
+Angular CDK and Material **22.2.6**, and Angular core **22.2.4**. Angular's 22.2.5 builder
+selects Vite 8.3.5. The development-server advisories against the Vite 8.3 line are fixed from
+8.3.3, so no project overrides Vite.
 
 CEE, CED, CETP and Workspace hold `@ngx-translate/core` at 18.0.x with a `~18.0.0` range.
 Release 18.1.0 changes how often the service announces a translation change, which fails

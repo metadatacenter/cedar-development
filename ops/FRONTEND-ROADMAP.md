@@ -227,13 +227,19 @@ data images.
 
 No dependency below can move by a lock update alone. Some wait on an upstream release, some have
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
-reported on 2026-10-29, after every in-range update had been taken.
+reported on 2026-11-04, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
 - **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
-  Angular release accepts 7.
+  Angular release accepts 7. The model library, which has no Angular, waits as well: its tests run
+  through ts-jest, and ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`.
 - **`@types/node` 26.** The types follow the runtime's major, and every project runs Node 24.
+- **minimatch 11 and glob 14.** Two moderate advisories published on 2026-10-30 are fixed only in
+  new majors: GHSA-g3hv-75wg-m249 in minimatch 11.0.1 and GHSA-3g3m-2fjr-6pw4 in glob 14.0.2.
+  ESLint 10.14.0 asks for minimatch `^10.2.6`, so every project that lints with ESLint carries the
+  first. Jest 30.5.2 in the model library and the Ember demo's build packages bring earlier glob
+  majors. Both are development tools, and the recorded lock baselines include both findings.
 - **ESLint 10 and Babel 8 in the Ember demo.** The two move together. The demo's lint
   configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
   newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of
@@ -248,6 +254,8 @@ reported on 2026-10-29, after every in-range update had been taken.
   10, `globals` 17 and `concurrently` 10 are new majors, and ember-cli 7.3 and ember-source 7.4 fall
   outside the demo's `~7.2.0` ranges. None of them waits on ESLint 10 or Babel 8. Both ESLint
   packages accept ESLint 9, `globals` declares no peer, and `concurrently` 10 needs only Node 22.
+  Stylelint 18 and `stylelint-config-standard` 41 are new majors as well. The configuration
+  requires Stylelint 18, which needs Node 24.15 or later, and the demo runs Node 24.22.1.
   Each move needs its range changed and the demo's lint, build and tests run under it.
 - **`@axe-core/playwright` 4.14** in the Playwright test packages of CEE, CED, CETP and Workspace,
   which pin 4.13.0 exactly. A new axe release can add rules or change what an existing rule
