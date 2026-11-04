@@ -1728,8 +1728,12 @@ matching severity count does not prove that the same advisories were reviewed. A
 changing locks, run `cedarcli publish baselines --refresh` and review the resulting
 `ops/frontend-train.json` diff. This updates train evidence; it does not publish packages.
 
-The legacy Template Editor's npm tooling and vendored Bower assets need a separate
-assessment. An npm production-only audit does not cover those Bower assets.
+Dependency rounds and lock refreshes leave the legacy Template Editor's npm tooling as it
+is until the Workbench retires. On 2026-11-04 its lock reported 9 critical and 32 high
+advisories, all in its Gulp and Karma build and test tooling, and a plain `npm update`
+would have downgraded some of its packages, among them `request` and `tough-cookie`. The
+CEDAR development packages it consumes still move with the other consumers. No npm audit
+covers its vendored Bower assets.
 
 **Never run `npm audit fix --force` here.** npm's idea of fixing the Angular
 tooling is to walk it backwards: it proposed `@angular/cli@21.0.4` and
