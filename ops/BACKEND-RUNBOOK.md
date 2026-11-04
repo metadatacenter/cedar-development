@@ -4987,7 +4987,7 @@ links against. To dump such a server, start `mysqld` directly with `DYLD_LIBRARY
 `nohup` nor `mysqld_safe` can pass that variable on, because macOS strips `DYLD_*` variables from
 protected system binaries.
 
-**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.7.1, and
+**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.8.1, and
 the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
 25.0.3 in August 2024 — which the bearer-token path of all twelve servers is built on. Everything
 else that was thought to block it does not: the admin client, the event-listener SPI and the login
@@ -5039,7 +5039,7 @@ missing or differently versioned library. Run it locally after installing the pa
 retained under the listener's `target/keycloak-platform/`. At a Keycloak upgrade, change the
 platform version and use this comparison to identify which provider-only overrides must move.
 
-Ordinary CEDAR applications manage `commons-collections4` at 4.5.0, including MariaDB4j's test
+Ordinary CEDAR applications manage `commons-collections4` at 4.6.0, including MariaDB4j's test
 tooling; the provider profile uses Keycloak's 4.4. The admin tool and authentication library both
 exclude the unused RESTEasy JAXB and multipart providers from the Jakarta admin client, keeping
 the older providers and Mime4j out of the application's managed RESTEasy stack. The admin tool's
@@ -5056,10 +5056,10 @@ jar's `META-INF/services` before removing it, then run the full build, a redeplo
 smoke.
 
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
-1.18.14-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
+1.18.17-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
 names 1.18.8-jdk5. The managed pair is intentional, so that both share one version. Keep the core and
 agent together, and verify a change against the full Java build rather than compile alone. The
-current pairing passed the full `cedarcli build java` at sixteen threads on 2026-09-25 with no failures or errors.
+current pairing passed the full `cedarcli build java` at sixteen threads on 2026-11-04 with no failures or errors.
 
 JSON Schema validation uses the maintained networknt validator, not the abandoned java-json-tools
 (FGE) fork. networknt's built-in `uri` and `date-time` formats are stricter than FGE's and would
