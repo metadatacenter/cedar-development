@@ -300,16 +300,12 @@ change as the fix. Remove each piece when its work is done, and the item once it
   - In CED, when Escape hides an insertion action that has keyboard focus, focus stays on a control
     nobody can see, as it already did when a keyboard press on one opened the palette. Decide where
     focus goes, or whether a focused action stays shown.
-  - Workspace's resource menu and its user, actions and New menus stay open when Tab moves focus
-    out of them. Closing them when focus leaves is a visible change.
 - **Messages announced and kept long enough to read (4.1.3, 2.2.1).**
   - Workspace's metadata editor inserts its review panel, a live region, together with its
     explanation and comparison table, so a screen reader may not announce it. Decide what the panel
     should announce before giving it a region that is present first.
   - A Workspace notice identical to the one before it shows and says nothing, because the notice is
     never cleared. Fixing that is a visible change.
-  - CEE's notices that an entry was cleared or reverted disappear after five seconds, and nothing
-    keeps them. Keeping them is a visible change.
 - **Lasting names in the right language (3.3.2, 3.1.2).**
   - CED's field-name and option boxes and its library search are labelled only by placeholders,
     which disappear once the box holds text. Labels that stay are a visible change.
@@ -321,18 +317,11 @@ change as the fix. Remove each piece when its work is done, and the item once it
 - **Targets of at least 24px (2.5.8).** Growing a target changes the layout around it, so each
   piece is a visible change. Each is recorded as an exception in its component's
   `accessibility.spec.ts`.
-  - At 480px, a read-only term's 20px link-out icon in CEE touches its IRI link. It needs a 24px
-    target or a 4px gap.
   - CED's field settings toggle is 36 by 14px. The field header beside it opens the same settings
     but is 23px tall, a pixel short, and the settings panel's last control sits within 12px of the
     toggle's centre. Either the toggle or the header needs 24px.
   - In the term picker, the tree's 16px twists, its terms, 14px tall on a 16px pitch, the release
     count that opens a row's history, and the history's 22px release buttons are under the minimum.
-- **Warnings marked beyond colour (1.4.1).** CEE's range and quality warnings differ from its
-  errors only by amber against red. A second cue, such as an icon or a word, is a visible change.
-- **Confirming a removal of access (3.3.4).** Removing a person's access or a group member in
-  Workspace saves at once, with no confirmation or undo. Decide whether it needs either. Both are
-  visible changes.
 - **Keyboard routes (2.1.1, 2.5.7).** Some actions and information are reached only by a pointer,
   and one keyboard route does not follow the pattern its roles set.
   - While CEE's validation is still running, Workspace's metadata editor shows Save as enabled, but

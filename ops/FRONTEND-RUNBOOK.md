@@ -4301,7 +4301,9 @@ were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and 
 `bc2401e8`. On 2026-10-27 the criteria a fifth round touched, 1.4.1 and 1.4.11, were reassessed at
 CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9`. On 2026-10-28
 1.4.11 was reassessed twice more, after a sixth and a seventh round, last at CED `0bb2eb7`, CEE
-`1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. The assessment read code and tests. Nobody ran a
+`1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. On 2026-11-04 the criteria an
+eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were reassessed at CEE
+`d394026f` and Workspace `c6cb1227`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -4331,9 +4333,9 @@ criteria do not apply.
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
 | CED | 22 | 10 | 7 | 0 | 16 | 22 of 39, 56% |
-| CEE | 23 | 11 | 7 | 6 | 8 | 23 of 47, 49% |
+| CEE | 25 | 12 | 4 | 6 | 8 | 25 of 47, 53% |
 | Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
-| Workspace | 30 | 14 | 3 | 0 | 8 | 30 of 47, 64% |
+| Workspace | 30 | 15 | 2 | 0 | 8 | 30 of 47, 64% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -4358,7 +4360,13 @@ every boundary now measures at least 3:1 as drawn. A seventh round measured icon
 and selection marks as drawn too. It found that a selected CED field card showed no focus ring, that
 CEE's current page chip was marked by a tint alone, and that the term picker drew its tree's twists
 and its close button white on white. With each fixed, 1.4.11 moved from Partial to Met in all four
-components. The failures still stand at 22, and most of them need a visible change.
+components. The failures stood at 22 after it. An eighth round marked every CEE warning with the
+word Warning, gave CEE's link-out icon a 4px gap and kept its cleared and reverted notices until
+the next edit. In Workspace it asked before removing access and closed menus when focus leaves
+them. That moved CEE's 1.4.1 from Fails to Partial, its 2.2.1 and 2.5.8 from Fails to Met, and
+Workspace's 2.4.3 from Fails to Partial. Workspace's 3.3.4 stays Partial, because no assessment
+has covered its other irreversible actions. The failures now stand at 18, and most of them need a
+visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -4370,9 +4378,9 @@ spec as a named exception, and an exception that stops occurring fails it.
 
 ### Failures Several Components Share
 
-One failure still recurs across components: targets under 24px. CED's field settings toggle,
-CEE's read-only link-out icon and the term picker's tree twists, tree terms and history releases
-fall under WCAG 2.2's minimum target (2.5.8).
+One failure still recurs across components: targets under 24px. CED's field settings toggle and
+the term picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum
+target (2.5.8).
 
 Two others had shared causes, and each was fixed where its cause lives. Text inputs draw their
 boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
@@ -4407,7 +4415,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
 | 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
-| 1.4.1 Use of Color | A | Partial | Fails | Partial | Partial |
+| 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
 | 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
@@ -4419,12 +4427,12 @@ that touches it, and update the assessment date and commits with it.
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
 | 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
-| 2.2.1 Timing Adjustable | A | Met | Fails | Met | Partial |
+| 2.2.1 Timing Adjustable | A | Met | Met | Met | Partial |
 | 2.2.2 Pause, Stop, Hide | A | Met | Met | Met | Partial |
 | 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
 | 2.4.1 Bypass Blocks | A | Host | Host | Host | Met |
 | 2.4.2 Page Titled | A | Host | Host | Host | Met |
-| 2.4.3 Focus Order | A | Partial | Partial | Partial | Fails |
+| 2.4.3 Focus Order | A | Partial | Partial | Partial | Partial |
 | 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Met |
 | 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
 | 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
@@ -4435,7 +4443,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.5.3 Label in Name | A | Met | Met | Met | Met |
 | 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
 | 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
-| 2.5.8 Target Size (Minimum) | AA | Fails | Fails | Fails | Met |
+| 2.5.8 Target Size (Minimum) | AA | Fails | Met | Fails | Met |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
 | 3.1.2 Language of Parts | AA | Partial | Partial | Met | Met |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |
