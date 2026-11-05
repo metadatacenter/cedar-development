@@ -342,7 +342,10 @@ The CA issuance ledger and existing certificates need no destructive cleanup.
 
 `cedar-admin-tool` still exports and restores complete repositories through `ImpexExportAll` and
 `ImpexImportAll`. Their `importExport` directories and configuration remain in place, as do the
-resource server's JSON/YAML downloads. `cedar-cadsr-tools` still owns the standalone form translator
+resource server's JSON/YAML downloads. An artifact whose document is missing from the artifact store
+is exported with JSON null as its document, and the export names it and exits non-zero. The import
+reads every resource archive before it empties either store, and refuses such an export without
+changing anything. `cedar-cadsr-tools` still owns the standalone form translator
 and CDE/category updater. Existing caDSR-derived templates, fields and terminology remain usable.
 
 ## Port Map
