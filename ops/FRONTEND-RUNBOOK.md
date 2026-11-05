@@ -430,6 +430,62 @@ The existing `npm run smoke` remains the AngularJS journey for `cedar.metadatace
 Its script and legacy variants are retained unchanged; they are not the modern route's gate.
 See the Workspace README for the boundary, request contracts and direct build procedure.
 
+## Bundle Sizes and Duplicated Code
+
+The 2026-11-05 audit measured production builds with Angular's `--stats-json` and the
+packaged custom-element scripts with gzip level 9. The host rows count all emitted JavaScript,
+including lazy chunks and polyfills, but exclude CSS and separately copied components. They are
+not first-navigation transfer measurements. Decimal kB below means 1,000 bytes.
+
+| Surface | JavaScript, kB | gzip-9, kB | Additional component loading |
+| --- | ---: | ---: | --- |
+| Workspace | 873.3 | 244.8 | CEE loads when metadata editing is opened; the 50.4 kB editor route is lazy too |
+| OpenView | 595.7 | 168.5 | Eager CEE, host-font variant |
+| Monitoring | 1,104.6 | 280.7 | None |
+| Bridging | 648.3 | 185.3 | Eager CEE, host-font variant |
+| CEE standalone / host fonts | 2,362.2 / 2,239.6 | 629.9 / 537.1 | Includes its Angular runtime and model library |
+| CED standalone / host fonts | 2,152.9 / 2,030.2 | 511.7 / 417.7 | Includes its Angular runtime, model library and schema validator |
+| Term picker standalone / host fonts | 522.8 / 400.2 | 208.8 / 115.1 | Includes its Angular runtime and narrow policy entry |
+
+OpenView and Bridging register CEDAR Roboto 400/500 through their global stylesheets and copy
+`cedar-embeddable-editor.host-fonts.js`. Using the standalone script there adds 122,656 raw bytes
+and 92,840 gzip bytes of duplicate fonts. The switch was checked against each production
+stylesheet: both weights loaded and the all-input-types CEE fixture rendered pixel-identically.
+Workspace and the Template Designer already select host-font bundles when the host supplies them.
+
+The build graphs contain one installation of each contributing npm package per application;
+Angular's compiler, Moment and Lodash do not contribute to these seven modern bundles. CEE's
+unused grid-list, toolbar, list and clipboard NgModule imports retain only 594 bytes of module
+definitions, not the full controls. Removing imports based on their names alone would therefore
+overstate the savings. Its RDF processors and sanitizer are used by export and rich-text rendering.
+
+The model library is the substantial import boundary. A minified browser consumer that exposes
+only `TextPolicy` from its main entry still retains 527,097 bytes; the `/policy` entry retains
+25,613. The TypeScript compiler emits CommonJS into webpack's ESM bundle, preventing the consuming
+bundler from discarding most unused exports. In CED, the main model entry contributes 531,232 bytes
+and the separate schema entry 515,826; these are mostly different code, not two copies of the
+schema validator. An isolated ESNext/webpack `modern-module` experiment reduced CEE's main chunk
+by 146,600 bytes and CED's by 151,633, but a scalar-only main-entry probe still retained 318,555
+bytes. That experiment is not a validated package change. See the
+[remaining bundle work](FRONTEND-ROADMAP.md#bundle-delivery).
+
+Separate self-contained elements each carry their own Angular and shared-library code. The
+Template Designer loads CEE, the term picker and CED in sequence before authoring, totalling
+about 4.67 MB raw / 1.07 MB gzip for those scripts alone. Its extra schema script is a fallback
+for old CED bundles without `validateArtifact`, so it is not another normal-path download.
+The legacy Template Editor eagerly loads CEE after authentication and also uses the full UMD
+model library for its own JSON/YAML conversions. Files merely present on disk, such as Moment's
+tests, source maps and superseded hashed bundles, are not evidence of browser downloads.
+
+To repeat the analysis, build isolated source copies with the normal production prerequisites
+and add `--stats-json` to their Angular build invocation. Angular 22 writes `browser-stats.json`;
+sum `outputs[*].inputs[*].bytesInOutput` by package, not the original input-file sizes. Measure
+packaged custom elements separately and trace script tags and runtime loaders, since Angular's
+`initial` budget excludes copied assets. The local audit evidence is under
+`$CEDAR_HOME/.cedar/audits/frontend-bundles-20261105/`, including production graphs, the packaging
+experiment and the host-font rendering comparison. These diagnostics do not deploy a frontend
+or replace the reactor's source/runtime acceptance evidence.
+
 <a id="component-staleness"></a>
 
 ## Component Staleness
@@ -1340,8 +1396,8 @@ can be pointed at to try an unpublished build, by symlinking its
 `node_modules/cedar-embeddable-editor` at it — described under "Getting a Local
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
 it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
-symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
-holds the installed public npmjs release 2.0.3.
+symlinked consumer to serve CEE.** Use `cedarcli check components` and the reactor selection
+to identify each consumer's installed source; do not infer it from a historical release label.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -1388,14 +1444,9 @@ cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && npx ng build
 ```
 
-**A running `ng serve` will not pick a new bundle up, and restarting it is not
-always enough.** It copies assets when it starts, and it does not notice the file
-changing underneath it — still less the symlink being created after it started.
-Worse, openview is on Angular 16 and its webpack build cache snapshots the
-*symlink* rather than what the symlink points at, so a restart alone can replay a
-cached copy of a bundle that is no longer there. Observed: a restart served a
-bundle matching neither the symlink target nor any file in `dist/`, and went on
-doing so for two minutes of polling. Clear the cache and restart:
+**Verify the served bytes after changing a package or symlink.** A running development server
+may retain an earlier copied asset. Restart it after staging; if it still serves stale bytes,
+clear its Angular build cache and restart:
 
 ```bash
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && rm -rf .angular/cache
@@ -1411,14 +1462,18 @@ type scale and field icons present in Workspace. Compare served hashes before ch
 Ask what each host actually serves before believing anything about appearance:
 
 ```bash
-curl -s http://localhost:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -s http://localhost:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.host-fonts.js | shasum -a 256
+shasum -a 256 $CEDAR_HOME/cedar-openview/cedar-openview-src/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.host-fonts.js
 curl -s http://localhost:4200/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -s http://localhost:4201/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 shasum -a 256 $CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor/cedar-embeddable-editor.js
 ```
 
-Four matching hashes mean the hosts agree and any remaining difference is theirs
-rather than CEE's — configuration, or something the host page sets. openview sets
+Compare each response with the same bundle variant in its installed package. The standalone and
+host-font scripts intentionally have different hashes; Workspace's loader may select host fonts too.
+
+Matching each served hash to its selected package proves which CEE build the host runs.
+For the same component source, appearance can still differ with host configuration. OpenView sets
 `readOnlyMode: true`, for instance, so it legitimately shows no bound hints and no
 clear buttons. `window.cedarEmbeddableEditorVersion` names the build in a page
 that is already open, but it reports the label rather than the contents: a staged

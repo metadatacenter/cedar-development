@@ -460,3 +460,27 @@ Update `cedar-mkdocs/docs/user-guide/cedar-for-cadsr.md` and its screenshot/navi
 users are no longer instructed to export Form Builder XML and upload it to CEDAR. Keep guidance
 about existing caDSR-derived content and the separate CDE/category updater. The standalone form
 translator in `cedar-cadsr-tools` needs a separate retirement decision.
+
+<a id="bundle-delivery"></a>
+
+## Bundle Delivery
+
+### 12. Reduce Retained Library Code and Measure Complete Page Payloads
+
+- **Make the model package tree-shakeable.** Preserve ESM through compilation and remove the
+  remaining initialization barriers that keep unrelated exports alive. The
+  [bundle audit](FRONTEND-RUNBOOK.md#bundle-sizes-and-duplicated-code) measures the retained code
+  and an incomplete packaging experiment. Add consumer-size checks for narrow imports and
+  exercise the actual packed ESM, CommonJS and UMD APIs, browser mappings, exact-number identity,
+  readers, writers and validation before adopting a new layout. Verify the frontend consumers
+  through the reactor without changing tracked development pins.
+- **Budget complete pages.** Include copied component scripts and global CSS in host payload
+  checks, distinguish initial from deferred requests, and use both raw and compressed limits.
+  OpenView's 7 MB Angular limit and CEE's 3.6 MB / 840 kB packaged limits leave substantial growth
+  undetected at current sizes. Set evidence-based headroom and ensure an added script asset
+  cannot bypass the gate.
+- **Reduce repeated runtime downloads on composite pages.** Measure a shared host integration
+  build or deferred component loading for the Template Designer, OpenView, Bridging and the
+  legacy Template Editor. Preserve the independent single-file embedding contract and existing
+  authoring, preview and terminology behavior. Prove the loading and failure paths in browser
+  journeys; do not remove required frameworks, validators or export support to meet a byte limit.
