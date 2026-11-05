@@ -539,11 +539,6 @@ missing/stale baselines still fail. Vendored copies such as MCP keep their byte 
 The subsequent producer/consumer build and runtime verification prove the selected package bytes.
 `cedarcli build all` runs the same source-aware preflight unless `--skip-tests` is given.
 
-The command then runs the component verification gates in the isolated build copies, records the
-successful package selection, restarts all native frontends, waits until each serves its page and
-everything the page loads through nginx, verifies their installed reactor packages, and runs the
-whole-stack smoke tiers.
-
 Deployment refreshes a live frontend's dependencies when they are absent or older than its
 lockfile, then installs the selected local reactor components. Isolated verification does not
 populate those live `node_modules` trees, so this also handles a first deployment without a
@@ -693,86 +688,15 @@ input guards and the conditional demo gate; deployment and whole-stack smoke are
 | Workspace browser specification only | 101.9 s | 88.9 s | 13% |
 | Workspace production source | 101.9 s | 98.9 s | All checks correctly rerun; normal timing variation |
 
-The Workspace control disables only its task cache, retaining whole-repository reuse for the
-other applications and all other optimizations. Each probe adds a temporary comment to the
-respective input, runs the real command and restores the file. Unit edits rerun units while
-restoring the production build and reusing browser evidence; browser edits rerun browser checks;
-production edits rerun all three. The unit suite took about 12 s, the production build 2.5 s and
-the browser suite 62–64 s when executed. The unchanged comparison uses the earlier whole-repository
-cache implementation, before lazy copying and the other cache changes.
-
-All evidence below is under `.cedar/build-reports/frontend-runs/`:
-
-| Run | Report |
-| --- | --- |
-| Earlier unchanged run | `20261024T055233Z-20b7f977.json` |
-| Unchanged with lazy copying | `20261024T083917Z-09834d35.json` |
-| Workspace whole-repository control | `20261024T084129Z-0092f32b.json` |
-| Workspace unit edit | `20261024T084246Z-8c35726e.json` |
-| Workspace browser edit | `20261024T084443Z-f945dcd8.json` |
-| Workspace production edit | `20261024T084730Z-3ddd3320.json` |
-| CED unit edit | `20261024T085134Z-bbef9aa5.json` |
-
-A CED unit-only edit completed in 75.6 s, reusing its browser and visual stages. In the preceding
-cold run, the browser stage alone took 174 s. This is evidence of avoided work, not an
-apples-to-apples full-command speedup measurement: CED's remaining gates and worker contention
-also affect wall time.
-
-Cold verification remains roughly 8–10 minutes: the pre-change baseline was 595.4 s
-(`20261024T074103Z-e96e1d5d.json`); complete passes during implementation took 506.1 s, 583.5 s
-and 533.6 s. One included a 50.9 s demo gate. These runs do not establish a controlled cold-run
-speedup; the main measured benefit is repeated development verification. No full deployment/E2E
-before-and-after timing was obtained.
-
-Workspace's copied staged outputs shrank from 255,641,600 to 2,304,000 bytes by omitting historical
-hashed bundles from disposable workspaces. The live checkout is unchanged. Changed Workspace
-repositories still spend 4.6–4.7 s installing private dependencies; retaining installed dependency
-trees could at most recover roughly that time per such rebuild before restoration and validation
-costs. This potential saving is not implemented or included in the table.
-
-The cache/reactor regression selection passed 115 tests. A final unchanged run after restoring
-every probe completed in 20.9 s (`20261024T085733Z-50fd8d2b.json`), reusing all repository and demo
-results. A Workspace version-selector test now
-waits for fonts and the rendered selected label before measuring geometry. The selector and bin-drop
-cases passed 120 repeated Chromium/WebKit tests with retries disabled. A later cold run nevertheless
-exposed an intermittent one-pixel bin-drop screenshot failure under combined load. The failed result
-was not cached, and the full resume and all controlled probes passed. The CI follow-up isolated this
-to Chromium's partial rasterization: with sixfold CPU throttling through the DevTools protocol,
-the exact CI pixel reproduced in 20 of 20 Chromium runs. Disabling partial rasterization passed all
-20 under the same throttling, with all 20 WebKit controls passing in both runs. The full 1,052-case
-browser suite also passed with the unchanged baselines and retries disabled (1.5 minutes, six workers).
-No cases, browser projects, screenshot thresholds or baselines were removed or relaxed.
-
-Earlier measurements, with the then-current verification inventory:
-
-Measured on 2026-10-14 with a warm npm cache and a filled result store, one run each:
-
-| What changed                    | Repositories run | `--jobs` / `--workers` | Wall time |
-| ------------------------------- | ---------------- | ---------------------- | --------- |
-| Nothing                         | none             | 3 / 8                  | 8 s       |
-| CED alone                       | CED              | 3 / 12                 | 159 s     |
-| CED alone                       | CED              | 3 / 8                  | 232 s     |
-
-A full rebuild follows any change to cedar-cli or to the frontend inputs in
-`cedar-development`, because both are part of every fingerprint. It is CPU-bound for most of
-its run, so more parallelism there mostly adds contention. A third job lets the small
-applications run beside the long CEE and CED suites, and fewer workers keep those suites from
-oversubscribing the cores when they overlap:
-
-| Scheduling                               | `--jobs` / `--workers` | Wall time | CPU busy |
-| ---------------------------------------- | ---------------------- | --------- | -------- |
-| Consumers start from a packaged producer | 3 / 8                  | 345 s     | 86%      |
-| Consumers start from a packaged producer | 3 / 12                 | 361 s     | 86%      |
-| Consumers start from a packaged producer | 2 / 12                 | 380 s     |          |
-| Consumers wait for every check           | 2 / 12                 | 376 s     | 78%      |
-| Consumers wait for every check           | 3 / 8                  | 435 s     | 63%      |
-
-Twelve workers therefore cost a full rebuild 16 s and save a single-repository build more than a
-minute. Reports: `.cedar/build-reports/20261015T035218Z-12bec28f.json`,
-`20261015T035723Z-0ac7e652.json`, `20261015T035247Z-0015beba.json`,
-`20261015T012311Z-c285cb6b.json`, `20261015T011659Z-fedcff7b.json`,
-`20261015T010102Z-576ae15f.json`, `20261015T010854Z-104313dc.json` and
-`20261015T012939Z-82d73030.json`. These are historical scheduling comparisons.
+The Workspace control disables only its task cache; the unchanged comparison uses the earlier cache
+implementation. Unit edits rerun units while reusing the build and browser checks; browser edits
+rerun browser checks; production edits rerun all three. These are
+single workstation measurements, not a deployment/E2E speedup claim. Full cold verification in the
+same investigation took roughly 8–10 minutes. Evidence is retained under
+`.cedar/build-reports/frontend-runs/`, including `20261024T084129Z-0092f32b.json` (control),
+`20261024T084246Z-8c35726e.json` (unit), `20261024T084443Z-f945dcd8.json` (browser), and
+`20261024T084730Z-3ddd3320.json` (production source). Use the current command's timing report for
+capacity planning; older scheduling and pre-cache measurements used different verification inputs.
 
 `cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
 repositories at once, with two workers per repository. The defaults above choose 3/12 on
@@ -802,16 +726,6 @@ in. It is taken back once that process has exited, once the machine has restarte
 hours, longer than any command holds a slot. A pool found idle with another size, as after moving
 an estate to a new machine, takes the host's core count. Removing the directory while no build
 runs resets it.
-
-The pool leaves the length of a full rebuild where it was and removes the load that made browser
-suites time out. Measured on 2026-10-20 at `--jobs 3 --workers 12`, a full rebuild took 489 s.
-The run before the pool stopped at a CED failure after 450 s and would have taken about 475 s. The
-load's median fell from 43 to 17 on 16 cores, and CED's 980 browser tests ran with none flaky or
-failed, against seven flaky and one failed under the earlier load. A second holder that took five
-workers for two minutes in the middle of a later run waited 1.4 s for its turn, and the slots in
-use never exceeded 16 across 987 samples. Reports:
-`.cedar/build-reports/20261021T040607Z-72ccce31.json`, `20261021T022455Z-b31d00b5.json` and
-`20261021T044108Z-dd19accc.json`.
 
 A surface in `frontend-train.json` may declare a `package` phase between `setup` and
 `verify`: the commands that build and stage what it publishes. The model library and CEE
@@ -1312,9 +1226,8 @@ and type without creating form pagination.
 
 CEDAR's font stack, type scale, brand palettes and neutrals are published from
 `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, and its README is the reference
-for them. CEE held the original the other two copied, and gave it up on 2026-09-15: the values come from the
-package, reached as `@use '@org.metadatacenter/cedar-design-tokens/tokens' as tokens` with
-`node_modules` on the Sass load path, which `stylePreprocessorOptions.includePaths` declares beside
+for them. Import the values with `@use '@org.metadatacenter/cedar-design-tokens/tokens' as tokens`.
+Keep `node_modules` on the Sass load path, which `stylePreprocessorOptions.includePaths` declares beside
 `src`. What stays in `src/_cee-layout.scss` is CEE's own — the trailing slot in a title row, the
 card's inline gutter, and the size and gap of a toolbar control — because those measure a card no
 other component draws.
@@ -2784,14 +2697,10 @@ What CED still needs before it can stand in for that designer is in
 
 ### Where the Design Values Come From
 
-The designer's type scale and palette are CEDAR's, published from `cedar-design-tokens` as
-`@org.metadatacenter/cedar-design-tokens`. `src/styles.css` imported them on 2026-09-15 —
-`@import '@org.metadatacenter/cedar-design-tokens/custom-properties.css'` — in place of the hand
-translation it had been holding, which had been faithful in all nineteen shared properties except
-the advisory colour it had let drift. Tailwind's `@theme` reads custom properties rather than Sass
-variables, which is why this consumer takes the emitted file and not the partial. The five steps of the scale are 12, 14, 15, 18 and 20px, and a size between two
-of them is not on it: the designer ran 11px controls under 10px labels until 2026-09-15, and every
-seam where that met a component at CEE's 14px showed.
+The designer imports `@org.metadatacenter/cedar-design-tokens/custom-properties.css` in
+`src/styles.css`. Tailwind's `@theme` reads those custom properties, so this consumer uses the
+compiled stylesheet rather than the Sass partial. Keep shared scales and colors in the token
+package; its [README](../../cedar-design-tokens/README.md) defines the vocabulary.
 
 <a id="ced-requirements"></a>
 

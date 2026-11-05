@@ -78,9 +78,10 @@ awkward at publish time, so the working route is a granular access token from th
 otherwise raise.
 
 Keep npm credentials only in `~/.npmrc`. Never put a token, password, or OTP in a repository,
-command transcript, release note, or runbook. The repeated warnings about obsolete `always-auth`,
-`email`, and `init.author` keys do not change the package being built; clean them up separately,
-not during a release.
+command transcript, release note, or runbook. Resolve obsolete authentication settings such as
+`always-auth` before preparing the release: train and platform-release preflight reject them.
+Harmless author-metadata warnings are advisory; see the
+[shared install policy](RELEASE-RUNBOOK.md#what-plan-checks).
 
 Before each release:
 
@@ -283,8 +284,7 @@ git push origin develop
 **The version committed here is not the version published.** The publishing workflow derives its own
 `<base>-dev.<date>.<sha>` from the commit it builds, which is this advance commit — and that commit
 does not exist while `npm version` is running, so the string written above can only name the release
-merge before it. On 2026-09-14 `package.json` said `1.0.11-dev.20260914.2696f4a` while Nexus received
-`1.0.11-dev.20260914.35d400b`.
+merge before it.
 
 Nothing there needs correcting. Every commit on `develop` gets a dev package of its own and none
 overwrites another, which is the property the workflow derives the version for. What it means is that
@@ -448,10 +448,8 @@ gh pr create --base main --head develop --title "Release CEE ${CEE_VERSION}"
 ```
 
 The token-adoption PR check compares against `main`, so a baseline that passes against the
-previous `develop` commit can still fail here. For 2.0.17, one pager padding allowance had grown
-since the preceding release. Replacing literal `6px` with the equivalent shared spacing expression
-and removing that allowance preserved compiled output while satisfying the release comparison.
-Do not raise the baseline to make a release PR green.
+previous `develop` commit can still fail here. Check additions since the preceding release and use
+the shared tokens where required; do not raise the baseline to make a release PR green.
 
 Wait for the prepare job and every visual shard. Merge only when they are green:
 

@@ -225,28 +225,11 @@ Image builds do not require a selected deployment mode: they consume the Docker 
 explicit registry/train inputs without reading a runtime profile. Commands that manage or inspect a
 deployment remain gated by the configured `docker` or `hybrid` mode.
 
-Create and publish a new immutable Maven, npm, and Docker train with:
-
-```bash
-cedarcli publish train
-```
-
-The workflow records one source manifest, then completes three ordered publication stages:
-
-1. It compiles and publishes the immutable Maven graph.
-2. It stamps and publishes the captured TypeScript model as an immutable development package, wires
-   and tests the captured CEE against that exact model, publishes CEE, pins it into the seven
-   captured frontend packages, and verifies every tarball, integrity value, and source commit.
-3. It builds the two internal bases and 25 runtime images from those Maven and npm inputs, then
-   pulls and verifies all 27 before advancing `docker/current.json`.
-
-The Maven, npm, and Docker completion pointers move independently and only after their own stage
-has passed. A failed train never becomes the current deployable Docker train. Resume a failed
-publication with the train ID printed by the original command:
-
-```bash
-cedarcli publish train --resume <TRAIN_ID>
-```
+Use [Create a Train](BUILD-RUNBOOK.md#create-a-train) to publish new images and
+[Resume a Failed Train](BUILD-RUNBOOK.md#resume-a-failed-train) for recovery. After exact-source
+capture and preflight, Maven and the npm chain run independently; Docker waits for both to complete.
+Only successful image pull-back verification advances `docker/current.json`. Maven completion
+alone is not a deployable Docker train.
 
 ### Completed Build Train: Normal Published-Artifact Build
 
@@ -274,7 +257,7 @@ cedarcli docker build microservices --train <TRAIN_ID>
 ### Checked-Out Java Source: Explicit Local Build
 
 The Java build installs the parent,
-shared libraries, the 70-module server reactor, and clients in dependency order, running the unit
+shared libraries, server reactor, and clients in dependency order, running the unit
 and embedded integration suites by default. Use `--skip-tests` explicitly only for a previously
 verified compile/install loop; the REST gate below remains the deployment acceptance test. `--local`
 then stages each newly built fat JAR into its server image and clears the staged file after the
@@ -587,7 +570,7 @@ npm run smoke:split:hostnames:keycloak
 npm run smoke:split:hostnames
 ```
 
-Expected: all seven hostnames return 200, both split smoke commands pass, and all 22 backend
+Expected: all seven hostnames return 200, both split smoke commands pass, and all 18 backend
 containers remain healthy.
 
 Stop only the native frontends without touching the Docker backend:
@@ -598,11 +581,11 @@ cedarcli native stop frontends
 
 Three frontend deployment modes remain distinct:
 
-| Mode | Where frontend code is served | How it is started | Current status |
-| --- | --- | --- | --- |
-| Hybrid | Seven macOS development-server processes | `cedarcli mode hybrid --profile develop`, then native frontends and `cedarcli docker start all` | Proven local development mode |
-| All-Docker frontends | Seven containers on `cedarnet` | `cedarcli mode docker`, then `cedarcli docker start all` | Proven on 2026-08-21 |
-| Native-only stack | Seven native development servers | `cedarcli mode native --profile develop`, then `cedarcli native start all` | Preserved; Docker work does not change it |
+| Mode | Where frontend code is served | How it is started |
+| --- | --- | --- |
+| Hybrid | Seven native development-server processes | `cedarcli mode hybrid --profile develop`, then native frontends and `cedarcli docker start all` |
+| All-Docker frontends | Seven containers on `cedarnet` | `cedarcli mode docker`, then `cedarcli docker start all` |
+| Native-only stack | Seven native development servers | `cedarcli mode native --profile develop`, then `cedarcli native start all` |
 
 Do not run native and containerized frontends on the same published ports. The normal frontend
 Compose stack now contains Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and
@@ -613,22 +596,9 @@ single public TLS and routing layer.
 
 The frontend source repositories remain Docker-agnostic. All Dockerfiles, entrypoints, and private
 nginx configurations are in `cedar-docker-build`; Compose topology is in `cedar-docker-deploy`.
-Each image downloads one immutable npm package from Nexus. The build train derives the TypeScript
-model, CEE, and seven frontend package versions from their captured source commits, publishes and
-verifies that complete graph, then injects its exact identities into the Docker build. Public npmjs
-releases remain independent; a formal CEDAR release later proves its chosen public CEE is
-byte-equivalent to the development CEE the train tested.
-
-Commit the frontend source changes and publish the coordinated train:
-
-```bash
-cedarcli publish train
-```
-
-The train refuses dirty or mismatched source, records each package commit and registry integrity,
-and embeds that npm graph in every frontend image. Use the resulting completed Docker train when
-the deployment must be reproducible. Do not substitute a moving npm dist-tag or treat the
-compatibility pins used by an interactive shell build as published-train provenance.
+For package identity, manifests and caching, see [Frontend Images](#frontend-images).
+Use a completed published train for a reproducible deployment; the
+[build runbook](BUILD-RUNBOOK.md#create-a-train) owns publication and its source requirements.
 
 Stop the hybrid deployment, clear its mode, and configure Docker mode. The aggregate
 command starts the frontend containers and restores nginx's container upstreams as part of the same

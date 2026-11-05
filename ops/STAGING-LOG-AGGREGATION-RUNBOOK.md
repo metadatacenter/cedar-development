@@ -179,42 +179,15 @@ shares instance with staging app schemas ........  [ ] yes -> throttle hard  [ ]
 
 ## 3 · Deploy 2.9.7 to Staging
 
-Staging variant of `PROD-DEPLOY-RUNBOOK.md` §A–§6. Everything in an interactive `cedar` login shell
-inside `tmux` (`cedarcli`/`gocedar`/`goeditor` are profile functions — they do not exist in a bare
-`bash script.sh`).
+For a new rehearsal, use an explicitly approved release and follow the maintained
+[production deployment sequence](PROD-DEPLOY-RUNBOOK.md#the-sequence) with staging's hosts and
+server profile. Its connection, checkout, service-key, build and frontend steps apply here too.
+Do not expect today's `main` to contain this plan's original 2.9.7 release.
 
-```bash
-ssh <you>@$STAGING_APP_HOST
-sudo su - cedar
-tmux ls || tmux
-gocedar
-cedarcli mode                              # must report native
-
-# 3.1 Reconcile — investigate any dirty repo before discarding
-cedarcli git status
-# Preserve and reconcile reviewed hot-patches before restoring specific paths.
-
-# 3.2 Pull the release
-cedarcli git checkout main
-cedarcli git pull
-cedarcli git status                        # expect clean across all repos
-cedarcli check versions --strict           # expect 2.9.7 everywhere, no modifier, nothing behind
-
-# 3.3 Build (Java still up — keeps the window short)
-cedarcli build maven clean all
-cedarcli build all
-```
-
-**Do not start the new build's Java yet.** Stop the services, then go do §4 while they are down.
-
-```bash
-cedarcli native stop microservices
-cedarcli native status                     # confirm 9011 and 9014 are down
-```
-
-> Stopping monitor + worker before the migration is what makes §4 safe: they are the only two
-> services pointing Hibernate at the log DB, and on 2026-09-01 they each extended the other's outage
-> by contending on the same metadata lock.
+Build before the outage, then stop the microservices and verify Monitor and Worker are down before
+running §4. They both initialize the log schema at startup and must not contend with the manual DDL.
+Do not start the new binaries until the migration is verified. For a release with event receipts,
+include the [log-ledger migration](BACKEND-RUNBOOK.md#application-log-persistence-and-rollout).
 
 ---
 
@@ -699,5 +672,6 @@ Prod differences to remember, beyond the numbers:
 
 ## 12 · Record Results
 
-Write `worklog/2026-09-04-staging-log-aggregation.md` when this ships, and update
-`PROD-LOG-AGGREGATION-ROLLOUT.md` §10.2 with the measured numbers from §10.
+Record the actual rehearsal date, release, schema/job state and measurements from §10 in its
+deployment evidence. Update `PROD-LOG-AGGREGATION-ROLLOUT.md` §10.2 before a production rollout;
+do not reuse this plan's September date as the date of a later rehearsal.

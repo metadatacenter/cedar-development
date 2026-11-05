@@ -374,6 +374,13 @@ still holds it, check that its SHA-512 matches the lockfile's integrity, and run
 cache without asking Nexus.
 
 ### 7 · Database Migrations
+
+When upgrading a worker that predates `log_event_receipt`, follow the
+[application-log ledger rollout](BACKEND-RUNBOOK.md#application-log-persistence-and-rollout):
+create and verify the additive table before startup, and fully stop old consumers before the new
+worker runs. Keep receipts across raw-log pruning; an old worker used for rollback does not honor
+the replay or aggregation guarantees.
+
 **App MySQL — as root, on the app host:**
 ```bash
 # in a root shell: start MySQL if needed, then run the release's migration queries.
