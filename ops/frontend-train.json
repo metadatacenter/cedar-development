@@ -727,6 +727,16 @@
         [
           "npm",
           "run",
+          "configure"
+        ],
+        [
+          "npm",
+          "run",
+          "copy:cee"
+        ],
+        [
+          "npm",
+          "run",
           "test:visual"
         ]
       ],
@@ -738,7 +748,24 @@
       ],
       "packageDirectories": [
         "."
-      ]
+      ],
+      "payloadBudget": {
+        "directory": ".workspace-build",
+        "initial": {
+          "raw": 1200000,
+          "gzip": 360000
+        },
+        "total": {
+          "raw": 6200000,
+          "gzip": 1700000
+        },
+        "urlPrefix": "/workspace-build/",
+        "extraRoots": {
+          "scripts": "app/scripts",
+          "config": "app/config",
+          "third_party_components": "app/third_party_components"
+        }
+      }
     },
     {
       "id": "template-designer",
@@ -839,7 +866,18 @@
       ],
       "packageDirectories": [
         "cedar-openview-dist"
-      ]
+      ],
+      "payloadBudget": {
+        "directory": "dist/cedar-openview",
+        "initial": {
+          "raw": 850000,
+          "gzip": 320000
+        },
+        "total": {
+          "raw": 3200000,
+          "gzip": 900000
+        }
+      }
     },
     {
       "id": "bridging",
@@ -893,7 +931,18 @@
       ],
       "packageDirectories": [
         "cedar-bridging-dist"
-      ]
+      ],
+      "payloadBudget": {
+        "directory": "dist/cedar-bridging",
+        "initial": {
+          "raw": 930000,
+          "gzip": 350000
+        },
+        "total": {
+          "raw": 3300000,
+          "gzip": 950000
+        }
+      }
     },
     {
       "id": "monitoring",
@@ -950,7 +999,18 @@
       ],
       "packageDirectories": [
         "cedar-monitoring-dist"
-      ]
+      ],
+      "payloadBudget": {
+        "directory": "dist/cedar-monitoring",
+        "initial": {
+          "raw": 1400000,
+          "gzip": 450000
+        },
+        "total": {
+          "raw": 1400000,
+          "gzip": 450000
+        }
+      }
     },
     {
       "id": "content",

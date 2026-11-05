@@ -432,24 +432,25 @@ See the Workspace README for the boundary, request contracts and direct build pr
 
 ## Bundle Sizes and Duplicated Code
 
-The 2026-11-05 audit measured production builds with Angular's `--stats-json` and the
-packaged custom-element scripts with gzip level 9. The host rows count all emitted JavaScript,
+The 2026-11-05 measurements below use the reactor's production output after modular model
+packaging, with Angular's `--stats-json` and packaged custom-element scripts measured at gzip
+level 9. The host rows count all emitted JavaScript,
 including lazy chunks and polyfills, but exclude CSS and separately copied components. They are
 not first-navigation transfer measurements. Decimal kB below means 1,000 bytes.
 
 | Surface | JavaScript, kB | gzip-9, kB | Additional component loading |
 | --- | ---: | ---: | --- |
-| Workspace | 873.3 | 244.8 | CEE loads when metadata editing is opened; the 50.4 kB editor route is lazy too |
-| OpenView | 595.7 | 168.5 | Eager CEE, host-font variant |
+| Workspace | 856.4 | 239.7 | CEE loads when metadata editing is opened; the editor route is lazy too |
+| OpenView | 578.4 | 163.1 | CEE loads on artifact pages or preview, host-font variant |
 | Monitoring | 1,104.6 | 280.7 | None |
-| Bridging | 648.3 | 185.3 | Eager CEE, host-font variant |
-| CEE standalone / host fonts | 2,362.2 / 2,239.6 | 629.9 / 537.1 | Includes its Angular runtime and model library |
-| CED standalone / host fonts | 2,152.9 / 2,030.2 | 511.7 / 417.7 | Includes its Angular runtime, model library and schema validator |
-| Term picker standalone / host fonts | 522.8 / 400.2 | 208.8 / 115.1 | Includes its Angular runtime and narrow policy entry |
+| Bridging | 630.5 | 179.6 | CEE loads when a DOI form opens, host-font variant |
+| CEE standalone / host fonts | 2,237.8 / 2,115.1 | 607.1 / 514.4 | Includes its Angular runtime and model library |
+| CED standalone / host fonts | 1,982.3 / 1,859.6 | 473.5 / 380.3 | Includes its Angular runtime, model library and schema validator |
+| Term picker standalone / host fonts | 506.2 / 383.5 | 202.9 / 109.4 | Includes its Angular runtime and narrow policy entry |
 
 OpenView and Bridging register CEDAR Roboto 400/500 through their global stylesheets and copy
 `cedar-embeddable-editor.host-fonts.js`. Using the standalone script there adds 122,656 raw bytes
-and 92,840 gzip bytes of duplicate fonts. The switch was checked against each production
+and about 93 kB gzip of duplicate fonts. The switch was checked against each production
 stylesheet: both weights loaded and the all-input-types CEE fixture rendered pixel-identically.
 Workspace and the Template Designer already select host-font bundles when the host supplies them.
 
@@ -459,32 +460,83 @@ unused grid-list, toolbar, list and clipboard NgModule imports retain only 594 b
 definitions, not the full controls. Removing imports based on their names alone would therefore
 overstate the savings. Its RDF processors and sanitizer are used by export and rich-text rendering.
 
-The model library is the substantial import boundary. A minified browser consumer that exposes
-only `TextPolicy` from its main entry still retains 527,097 bytes; the `/policy` entry retains
-25,613. The TypeScript compiler emits CommonJS into webpack's ESM bundle, preventing the consuming
-bundler from discarding most unused exports. In CED, the main model entry contributes 531,232 bytes
-and the separate schema entry 515,826; these are mostly different code, not two copies of the
-schema validator. An isolated ESNext/webpack `modern-module` experiment reduced CEE's main chunk
-by 146,600 bytes and CED's by 151,633, but a scalar-only main-entry probe still retained 318,555
-bytes. That experiment is not a validated package change. See the
-[remaining bundle work](FRONTEND-ROADMAP.md#bundle-delivery).
+The model package exposes a modular ESM tree through `module: esm/index-namespace.js`, with browser
+mappings for `/policy` and `/schema` into the same tree. A minified esbuild consumer exposing only
+`TextPolicy` retains 661 bytes (385 gzip), compared with 527,102 bytes through the old single-file
+entry under the same esbuild options. The separate modules let a consumer discard unrelated readers,
+writers, YAML and validation code. YAML's browser modules are vendored with their license; the generated AJV
+validators retain their rules and share the ESM policy classes. CommonJS, UMD and the copyable
+single-file `*.esm.js` outputs remain available at their established paths. The ESM entry wrappers
+preserve the default namespace export as well as named exports, including Vite's CommonJS interop.
+
+`npm run test:package` builds consumers from the actual tarball, checks narrow-import size
+ceilings and browser subpath resolution, and compares readers, writers, validation and exact-number
+handling across CommonJS, native ESM, bundled ESM and UMD. `npm run build:watch` rebuilds all
+formats together so an incremental change cannot leave the modular tree stale.
 
 Separate self-contained elements each carry their own Angular and shared-library code. The
 Template Designer loads CEE, the term picker and CED in sequence before authoring, totalling
-about 4.67 MB raw / 1.07 MB gzip for those scripts alone. Its extra schema script is a fallback
+about 4.36 MB raw / 1.00 MB gzip for those scripts alone. Its extra schema script is a fallback
 for old CED bundles without `validateArtifact`, so it is not another normal-path download.
-The legacy Template Editor eagerly loads CEE after authentication and also uses the full UMD
-model library for its own JSON/YAML conversions. Files merely present on disk, such as Moment's
-tests, source maps and superseded hashed bundles, are not evidence of browser downloads.
+The legacy Template Editor requests CEE through RequireJS when an instance editor opens and
+also uses the full UMD model library for its own JSON/YAML conversions. OpenView folder listings
+and Bridging's landing page defer CEE too; loading failures use their existing error states, and
+a later OpenView preview can retry. The Template Designer uses CEE for ordinary field summaries
+and default editors as well as previews, so deferring it requires preserving those contracts.
+Files merely present on disk, such as Moment's tests, source maps and superseded hashed bundles,
+are not evidence of browser downloads.
+
+`cedarcli check frontend-sizes` checks the built Workspace, OpenView, Bridging and Monitoring
+payloads. Use `--surface openview --root /path/to/cedar-openview-src --report /tmp/payload.json`
+for an isolated build. The same gate runs after each host's build and browser verification in
+both the frontend reactor and immutable trains. Limits live in `ops/frontend-train.json`.
+
+The initial count follows script/stylesheet tags and static imports in `browser-stats.json`;
+dynamic imports and copied component scripts also count toward the total emitted JavaScript/CSS.
+Workspace's separately served config, authentication scripts and copied components are mounted
+into this inventory. Assets are counted once per URL, with raw bytes, gzip-9 bytes and SHA-256 in
+the report. The total is a deployment inventory, not a claim that a visitor downloads every file:
+Workspace stages both CEE variants, for example. Missing assets, external script/style URLs and
+exceeded limits fail the command. Fonts embedded in scripts or CSS count with those files.
+
+Measured complete payloads for those same builds, in decimal kB:
+
+| Host | Initial, raw / gzip-9 | Total inventory, raw / gzip-9 |
+| --- | ---: | ---: |
+| Workspace | 1,016.6 / 339.9 | 5,419.9 / 1,474.8 |
+| OpenView | 725.8 / 257.9 | 2,840.9 / 772.3 |
+| Bridging | 783.4 / 275.1 | 2,898.5 / 789.5 |
+| Monitoring | 1,273.1 / 377.7 | 1,273.1 / 377.7 |
+
+| Host | Initial limit, raw / gzip-9 bytes | Total limit, raw / gzip-9 bytes |
+| --- | ---: | ---: |
+| Workspace | 1,200,000 / 360,000 | 6,200,000 / 1,700,000 |
+| OpenView | 850,000 / 320,000 | 3,200,000 / 900,000 |
+| Bridging | 930,000 / 350,000 | 3,300,000 / 950,000 |
+| Monitoring | 1,400,000 / 450,000 | 1,400,000 / 450,000 |
+
+CEE's packaged limits are separate: standalone 2,400,000 raw / 660,000 gzip bytes and host-fonts
+2,280,000 / 560,000. Its Angular initial budget is 2.3 MB warning / 2.4 MB failure; OpenView's
+is 800 / 850 kB, and Bridging's is 900 / 930 kB. These limits must not be raised to accommodate
+unexplained growth. The Template Designer and legacy AMD application's request-aware page
+budgets and shared-runtime integration remain in the [roadmap](FRONTEND-ROADMAP.md#bundle-delivery).
 
 To repeat the analysis, build isolated source copies with the normal production prerequisites
 and add `--stats-json` to their Angular build invocation. Angular 22 writes `browser-stats.json`;
 sum `outputs[*].inputs[*].bytesInOutput` by package, not the original input-file sizes. Measure
 packaged custom elements separately and trace script tags and runtime loaders, since Angular's
 `initial` budget excludes copied assets. The local audit evidence is under
-`$CEDAR_HOME/.cedar/audits/frontend-bundles-20261105/`, including production graphs, the packaging
-experiment and the host-font rendering comparison. These diagnostics do not deploy a frontend
-or replace the reactor's source/runtime acceptance evidence.
+`$CEDAR_HOME/.cedar/audits/frontend-bundles-20261105/`, including production graphs, packed-package
+measurements, the narrow-import probe and host-font rendering comparisons. These diagnostics do
+not deploy a frontend or replace the reactor's source/runtime acceptance evidence.
+
+The full reactor, all three consumer demos, local deployment, served-byte verification and
+whole-stack smoke passed for this source composition on 2026-11-05. Its immutable build record is
+`01e070e087da8c3fbe8469cf0821f5de487b7eef56522b5f65abe642bc090303`; selected package SHA-256 prefixes
+are model `a3ce971ab7af`, CEE `4b30e2d83ab8`, CED `185e277ba3eb` and term picker `dc2f855979a2`.
+The full identities and source fingerprints are in `$CEDAR_HOME/.reactor/builds/<build>.json`.
+The native launcher can select a different Node than the build; its remaining runtime-selection
+work is tracked in the roadmap's dependency section.
 
 <a id="component-staleness"></a>
 
@@ -2517,13 +2569,11 @@ Resolution from `../src` walks up to a repo root with no `node_modules`. The
 add any new one there.
 
 **A model library change reaches the harness but not the built app**
-The harness consumes `dist/` through node's CommonJS entry; the Angular build
-takes the ES module one. Both come out of `npm run build` in the library, but
-only the ESM bundle exports named symbols, and it does so only because
-`webpack.config.js` sets `output.library.type: 'module'` on that config. Without
-it the file exports nothing but `default`, every import resolves to `undefined`,
-and nothing fails until the widget runs in a browser — the domain harness stays
-green throughout. The visual baseline is what catches it.
+The harness consumes `dist/` through Node's CommonJS entry; the Angular build takes
+the modular `esm/index-namespace.js` entry. Both come out of `npm run build` in the library.
+The separate copyable `index.esm.js` still needs webpack's named library exports.
+The packed-consumer gate checks each format, browser mappings and shared policy identities;
+the browser and visual gates prove the application using the modular output runs correctly.
 
 **Model library changes aren't visible to the harness**
 Running a harness directly from an existing checkout uses that checkout's installed package.

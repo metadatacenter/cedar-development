@@ -74,4 +74,12 @@ def commands(config, repository, directory='.'):
     row = next((r for r in surfaces(config) if (r['repository'], r['directory']) == (repository, directory)), None)
     if row is None:
         raise ValueError(f'frontend verification coverage missing: {repository}/{directory}')
-    return row['setup'] + row.get('package', []) + row['verify']
+    return row['setup'] + row.get('package', []) + row['verify'] + payload_commands(row)
+
+
+def payload_commands(row):
+    """The same final payload gate runs in local reactors and immutable trains."""
+    if not row.get('payloadBudget'):
+        return []
+    return [['python3', str(Path(__file__).resolve().with_name('frontend_payload.py')),
+             '--surface', row['id'], '--root', '.']]

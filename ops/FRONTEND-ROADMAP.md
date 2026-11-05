@@ -229,12 +229,19 @@ No dependency below can move by a lock update alone. Some wait on an upstream re
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
 reported on 2026-11-05, after every in-range update had been taken.
 
+**Native runtime selection.** Make native frontend installation and launch use the Node 24
+selected for the build. `ops/cedar-services.sh` prepends `/opt/homebrew/bin` ahead of the caller's
+PATH, and launchd starts children without that PATH. On this workstation that switches npm and
+the launched frontends to Node 26 and emits engine warnings even when the reactor built with Node
+24. Preserve or resolve the selected runtime across both paths, test the launchd handoff and
+repeat native redeployment and smoke verification.
+
 **Waiting on upstream.**
 
 - **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
   Angular release accepts 7. The model library, which has no Angular, waits as well: its tests run
   through ts-jest, and ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`.
-- **`@types/node` 26.** The types follow the runtime's major, and every project runs Node 24.
+- **`@types/node` 26.** The types follow the supported runtime's major, and the projects target Node 24.
 - **minimatch 11 and glob 14.** Two moderate advisories published on 2026-10-30 are fixed only in
   new majors: GHSA-g3hv-75wg-m249 in minimatch 11.0.1 and GHSA-3g3m-2fjr-6pw4 in glob 14.0.2.
   ESLint 10.14.0 asks for minimatch `^10.2.6`, so every project that lints with ESLint carries the
@@ -465,22 +472,16 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
 
 ## Bundle Delivery
 
-### 12. Reduce Retained Library Code and Measure Complete Page Payloads
+### 12. Share Runtimes and Budget Composite Editor Pages
 
-- **Make the model package tree-shakeable.** Preserve ESM through compilation and remove the
-  remaining initialization barriers that keep unrelated exports alive. The
-  [bundle audit](FRONTEND-RUNBOOK.md#bundle-sizes-and-duplicated-code) measures the retained code
-  and an incomplete packaging experiment. Add consumer-size checks for narrow imports and
-  exercise the actual packed ESM, CommonJS and UMD APIs, browser mappings, exact-number identity,
-  readers, writers and validation before adopting a new layout. Verify the frontend consumers
-  through the reactor without changing tracked development pins.
-- **Budget complete pages.** Include copied component scripts and global CSS in host payload
-  checks, distinguish initial from deferred requests, and use both raw and compressed limits.
-  OpenView's 7 MB Angular limit and CEE's 3.6 MB / 840 kB packaged limits leave substantial growth
-  undetected at current sizes. Set evidence-based headroom and ensure an added script asset
-  cannot bypass the gate.
 - **Reduce repeated runtime downloads on composite pages.** Measure a shared host integration
-  build or deferred component loading for the Template Designer, OpenView, Bridging and the
-  legacy Template Editor. Preserve the independent single-file embedding contract and existing
-  authoring, preview and terminology behavior. Prove the loading and failure paths in browser
-  journeys; do not remove required frameworks, validators or export support to meet a byte limit.
+  build for CED, CEE and the term picker in the Template Designer, and the remaining repeated model
+  code in the legacy Template Editor. The Designer needs CEE for ordinary field summaries and
+  default-value editors as well as previews, so deferring the whole bundle must not remove those
+  features. Preserve the independent single-file embedding contract, authoring, previews and
+  terminology behavior. Prove normal loading and failure paths in browser journeys.
+- **Extend page budgets to these hosts.** Capture the Template Designer's manifest-driven
+  component loads and the legacy application's RequireJS request graph, distinguish initial
+  from deferred transfers, and enforce raw and compressed JavaScript/CSS limits. Trace real
+  requests so copied-but-unused vendor files are not mistaken for downloads. Ensure additions
+  to component manifests or AMD dependencies cannot bypass the gate.
