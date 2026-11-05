@@ -270,6 +270,8 @@ jobs:
 
       - name: Build the TypeScript model library
         working-directory: cedar-model-typescript-library
+        env:
+          NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
         run: |
           npm ci
           npm run build

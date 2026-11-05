@@ -1728,6 +1728,16 @@ matching severity count does not prove that the same advisories were reviewed. A
 changing locks, run `cedarcli publish baselines --refresh` and review the resulting
 `ops/frontend-train.json` diff. This updates train evidence; it does not publish packages.
 
+The reactor, the in-place server-payload builds and the CEE demo gate install with
+`NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true`, as the train and every frontend CI workflow do. npm
+then refuses a locked package with an install script that the package's `allowScripts` policy
+does not cover. Each approval names an exact version, so a lock refresh that moves such a
+package fails the next reactor run until its approval moves too. Compare the new release's
+install script with the approved one (`npm view <package>@<version> scripts`) before moving
+the approval. When the reactor substitutes a locally packed CEDAR package, it also denies that
+package's scripts in the rewritten manifest. npm counts the design tokens' `prepare` script as an
+install script of a file dependency, though a registry install never runs it.
+
 Dependency rounds and lock refreshes leave the legacy Template Editor's npm tooling as it
 is until the Workbench retires. On 2026-11-04 its lock reported 9 critical and 32 high
 advisories, all in its Gulp and Karma build and test tooling, and a plain `npm update`
