@@ -485,8 +485,18 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("submit -l org.metadatacenter.cedar.native.group", result.stdout)
         self.assertIn("-- /bin/bash -c", result.stdout)
         self.assertIn('exec "$3" run-one "$4"', result.stdout)
+        self.assertIn('PATH="$5" JAVA_HOME="$6"', result.stdout)
         self.assertIn(f"develop {SCRIPT} group", result.stdout)
         self.assertIn("launched group (pid 4242)", result.stdout)
+
+    def test_controller_preserves_selected_node_before_homebrew(self):
+        with tempfile.TemporaryDirectory() as directory:
+            node = Path(directory) / 'node'
+            node.write_text('#!/bin/sh\necho selected-node-24\n')
+            node.chmod(0o755)
+            result = self.run_library('node --version', PATH=directory + os.pathsep + os.environ['PATH'])
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual('selected-node-24', result.stdout.strip())
 
     def test_linux_start_uses_the_background_launcher_and_not_launchd(self):
         """The other half of the branch above, which no test reached while every test said Darwin."""

@@ -82,7 +82,8 @@ if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
     exit 1
   fi
 fi
-PATH="${JAVA_HOME:+$JAVA_HOME/bin:}/opt/homebrew/bin:$PATH"      # /opt/homebrew/bin for node + ng (aux frontends)
+# Preserve the CLI's selected Node ahead of Homebrew's unversioned Node.
+PATH="${JAVA_HOME:+$JAVA_HOME/bin:}$PATH:/opt/homebrew/bin"
 # Loopback is safest for the native-only stack. Set this to 0.0.0.0 when Docker nginx must proxy
 # to the native Angular development servers through host.docker.internal.
 CEDAR_FRONTEND_BIND_HOST="${CEDAR_FRONTEND_BIND_HOST:-127.0.0.1}"
@@ -692,8 +693,8 @@ start_one() {
       return 1
     fi
     launchctl submit -l "$label" -o "$log" -e "$log" -- /bin/bash -c \
-      'export CEDAR_HOME="$1" CEDAR_PROFILE="$2"; exec "$3" run-one "$4"' \
-      cedar-launchd-run "$CEDAR_HOME" "$CEDAR_PROFILE" "$SCRIPT_PATH" "$name" || return 1
+      'export CEDAR_HOME="$1" CEDAR_PROFILE="$2" PATH="$5" JAVA_HOME="$6"; exec "$3" run-one "$4"' \
+      cedar-launchd-run "$CEDAR_HOME" "$CEDAR_PROFILE" "$SCRIPT_PATH" "$name" "$PATH" "$JAVA_HOME" || return 1
     p=""
     for attempt in 1 2 3 4 5; do
       p=$(launchd_job_pid "$name")
