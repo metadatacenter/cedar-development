@@ -1,13 +1,14 @@
 // Fast, credential-free contract smoke for the extracted frontend previews.
 //
 // Start both previews first:
-//   ../cedar-services.sh start workspace designer
+//   cedarcli native start frontends
 //   npm run smoke:split
 //
 // Override the defaults for a remote preview deployment with
 // CEDAR_WORKSPACE_PREVIEW, CEDAR_DESIGNER_PREVIEW, CEDAR_AUTH_URL and
 // CEDAR_RESOURCE_API. This smoke deliberately stops at the authentication
 // boundary; the full browser journey owns login and resource mutations.
+import { createHash } from 'node:crypto';
 
 const withoutTrailingSlash = value => value.replace(/\/$/, '');
 
@@ -167,8 +168,20 @@ await expectText('Workspace auth origin', `${workspace}/config/version.js`,
 
 await expectText('Designer create shell', `${designer}/templates/create`, '<main id="editor"');
 await expectText('Designer CED host', `${designer}/scripts/host.mjs`, 'cedar-embeddable-designer');
+const manifest = await (await fetchOk('Designer component manifest', `${designer}/components/manifest.json`)).json();
+const deliveries = new Map();
 for (const name of ['cedar-embeddable-designer', 'cedar-embeddable-editor', 'cedar-embeddable-term-picker']) {
-  await expectText(`Designer ${name} bundle`, `${designer}/components/${name}.js`, name, 100_000);
+  const entry = manifest[name], file = entry?.delivery?.file ?? `${name}.js`;
+  const digest = entry?.delivery?.sha256 ?? entry?.sha256;
+  if (!/^[\w-]+\.js$/.test(file) || !/^[0-9a-f]{64}$/.test(digest ?? '')) fail(`Designer ${name}: invalid component delivery`);
+  if (!deliveries.has(file)) {
+    const response = await fetchOk(`Designer ${file}`, `${designer}/components/${file}?v=${digest}`);
+    deliveries.set(file, Buffer.from(await response.arrayBuffer()));
+  }
+  const bytes = deliveries.get(file);
+  if (bytes.length < 100_000 || !bytes.toString().includes(name)
+      || createHash('sha256').update(bytes).digest('hex') !== digest) fail(`Designer ${name}: served bundle differs from its manifest`);
+  console.log(`  ok  Designer ${name} (${file})`);
 }
 await expectText('Designer auth origin', `${designer}/config/version.js`,
   `window.cedarAuthUrl = "${auth}"`);

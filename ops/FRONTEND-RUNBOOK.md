@@ -3988,13 +3988,46 @@ CED and CETP ship the same pair: `cedar-embeddable-designer.host-fonts.js` and
 `cedar-embeddable-term-picker.host-fonts.js`, each beside a `bundle-manifest.host-fonts.json`
 and held to its own size ceiling, which is the default bundle's less the embedded faces. The
 tokens package also publishes the faces as compiled `fonts.css`, for a host without Sass. The
-Template Designer page loads CEE, CETP and CED together, so it links `fonts.css` once and
-`stage-components.mjs` stages each component's host-fonts bundle under the component's usual
-file name. The staged `manifest.json` records the package file in `bundle`, and
-`cedarcli check components` compares the served bytes with that file. A package without a
-host-fonts bundle, or a tokens package without `fonts.css`, is staged self-contained, as before.
-The page then downloads the faces once rather than three times, which saves about 180 kB of
-compressed transfer.
+Template Designer page links `fonts.css` once. When staging separate component scripts,
+`stage-components.mjs` chooses each host-fonts bundle under the component's usual file name.
+A package without a host-fonts bundle, or a tokens package without `fonts.css`, is staged
+self-contained. Sharing the faces saves about 180 kB of compressed transfer.
+
+### Template Designer Shared Runtime
+
+CEE, CED and CETP also package `integration.mjs`, an AOT-compiled host-fonts module whose
+Angular, RxJS, translation and model dependencies remain external. This is an explicit host-build
+input; the default package entry and standalone scripts remain self-contained. The component
+production builds generate both standalone variants and the integration module. Packaging verifies
+the module's source fingerprint, bytes and runtime identities against `integration-manifest.json`.
+
+The Template Designer combines a complete integration cohort with Angular's production linker,
+then flattens that module graph into `cedar-editors.js`. Each component keeps its application
+injector, per-element state and configuration. Registration waits for CEE, then CETP, then CED;
+the host downloads the shared script once. Exact dependency versions must match the component
+manifests, and the model package must match by content digest too. A mismatch fails staging.
+The build checks its module graph for duplicate runtime copies.
+
+`cedarcli build frontends` supplies these modules from current source automatically. No registry
+pin changes or publication are required. Older registry cohorts without integration modules and
+explicit local standalone overrides retain the separate-script path. Runtime upgrades require
+rebuilding the coordinated cohort. The manifests record both compiled input identities and the
+combined script's digest; `cedarcli check components` verifies both. The hash in the script URL
+changes whenever its bytes change. Third-party notices travel beside the shared output.
+
+The host's `npm run check:size` runs during preparation and native startup. It counts each
+manifest delivery once, host JavaScript, imported CSS, and the deferred schema-validator fallback.
+`app/components/page-size.json` records raw and gzip sizes by file and phase. Browser coverage
+checks that observed JavaScript/CSS requests belong to that inventory. Shared delivery limits
+are 4,000,000 raw / 1,000,000 gzip initially and 4,500,000 / 1,150,000 including the fallback.
+Older standalone cohorts have separate 5,200,000 / 1,300,000 and 5,700,000 / 1,450,000 limits.
+`dist/editors/browser-stats.json` contains the build graph for investigating growth.
+
+Measured on 2026-11-06 with the same component sources, the three host-font scripts total
+4,358,267 bytes raw / 1,004,111 gzip; the shared script is 3,443,265 / 746,782, reductions of
+21.0% and 25.6%. The whole shared page's initial JavaScript/CSS is 3,771,811 / 903,335;
+including the unused-unless-needed schema fallback it is 4,290,922 / 946,573. The standalone
+CEE and CED scripts, including their host-font variants, retain identical SHA-256 hashes.
 
 The host checks every save payload with the meta-schema validator CED carries, through
 `designer.validateArtifact`, rather than importing its own copy. Against a CED built before that

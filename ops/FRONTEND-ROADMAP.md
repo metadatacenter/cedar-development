@@ -472,16 +472,12 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
 
 ## Bundle Delivery
 
-### 12. Share Runtimes and Budget Composite Editor Pages
+### 12. Reduce and Budget the Legacy Editor's Payload
 
-- **Reduce repeated runtime downloads on composite pages.** Measure a shared host integration
-  build for CED, CEE and the term picker in the Template Designer, and the remaining repeated model
-  code in the legacy Template Editor. The Designer needs CEE for ordinary field summaries and
-  default-value editors as well as previews, so deferring the whole bundle must not remove those
-  features. Preserve the independent single-file embedding contract, authoring, previews and
-  terminology behavior. Prove normal loading and failure paths in browser journeys.
-- **Extend page budgets to these hosts.** Capture the Template Designer's manifest-driven
-  component loads and the legacy application's RequireJS request graph, distinguish initial
-  from deferred transfers, and enforce raw and compressed JavaScript/CSS limits. Trace real
-  requests so copied-but-unused vendor files are not mistaken for downloads. Ensure additions
-  to component manifests or AMD dependencies cannot bypass the gate.
+- **Reduce repeated model downloads in the legacy Template Editor.** Measure how the AngularJS
+  application and its embedded CEE can share model code while preserving independent embedding,
+  authoring and instance editing. Prove normal loading and failure paths in browser journeys.
+- **Budget the legacy application's RequireJS request graph.** Distinguish initial from deferred
+  transfers and enforce raw and compressed JavaScript/CSS limits. Trace real requests so
+  copied-but-unused vendor files are not mistaken for downloads. Ensure new AMD dependencies
+  cannot bypass the gate.

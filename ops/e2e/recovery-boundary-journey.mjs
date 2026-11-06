@@ -59,7 +59,19 @@ export async function startupRecoveryJourney(args) {
     await f.input(page).fill(value);const before=await call(user.auth,'GET',f.path);
     const matcher=url=>dependency==='profile'?url.hostname.startsWith('user.')&&url.pathname.startsWith('/users/'):f.matcher(url);
     // Component URLs are discovered from the actual loaded page, not assumed from a dev build layout.
-    const scripts=await page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name).filter(url=>/\.js(?:\?|$)/.test(url)&&/cedar-embeddable-(editor|designer)(?:\.host-fonts)?\.js/.test(url)));
+    const scripts=await page.evaluate(async()=>{
+      const resources=performance.getEntriesByType('resource').map(r=>r.name);
+      const manifestUrl=resources.find(url=>new URL(url).pathname==='/components/manifest.json');
+      if(manifestUrl) {
+        const response=await fetch(manifestUrl,{cache:'no-store'});
+        if(!response.ok)throw new Error('Cannot discover the served component manifest');
+        const manifest=await response.json();
+        const files=new Set(Object.entries(manifest).map(([name,entry])=>entry.delivery?.file??`${name}.js`));
+        return resources.filter(url=>files.has(new URL(url).pathname.split('/').at(-1)));
+      }
+      // Workspace stages one standalone CEE script and has no component delivery manifest.
+      return resources.filter(url=>/cedar-embeddable-editor(?:\.host-fonts)?\.js(?:\?|$)/.test(url));
+    });
     let intercepted=0;
     const fail=route=>{if(route.request().method()!=='GET')return route.fallback();intercepted++;return route.fulfill({status:503,json:{message:'Temporary startup outage'}});};
     const match=dependency==='component'?url=>scripts.some(script=>new URL(script).origin===url.origin&&new URL(script).pathname===url.pathname):dependency==='destination'?url=>url.origin===new URL(RESOURCE).origin&&url.pathname.startsWith('/folders/')&&decodeURIComponent(url.pathname.split('/').at(-1)).split('/').at(-1)===f.folderId.split('/').at(-1):matcher;
