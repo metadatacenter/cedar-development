@@ -532,8 +532,10 @@ whole-stack smoke passed for this source composition on 2026-11-05. Its immutabl
 `01e070e087da8c3fbe8469cf0821f5de487b7eef56522b5f65abe642bc090303`; selected package SHA-256 prefixes
 are model `a3ce971ab7af`, CEE `4b30e2d83ab8`, CED `185e277ba3eb` and term picker `dc2f855979a2`.
 The full identities and source fingerprints are in `$CEDAR_HOME/.reactor/builds/<build>.json`.
-The native launcher can select a different Node than the build; its remaining runtime-selection
-work is tracked in the roadmap's dependency section.
+Frontend builds and native start/restart resolve the pinned Node and Java toolchain before
+invoking their workers. The native controller preserves that PATH and passes it, with JAVA_HOME,
+into launchd children. A native frontend launched on 2026-11-06 was verified against its actual
+executable at Node 24.22.1, even though the shell's unversioned Node was 26.
 
 <a id="component-staleness"></a>
 
@@ -1709,8 +1711,8 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-The supported frontend toolchain uses Node **24.22.1**, Angular CLI and build **22.2.5**,
-Angular CDK and Material **22.2.6**, and Angular core **22.2.4**. Angular's 22.2.5 builder
+The supported frontend toolchain uses Node **24.22.1**, Angular CLI and build **22.2.6**,
+Angular CDK and Material **22.2.6**, and Angular core **22.2.4**. Angular's 22.2.6 builder
 selects Vite 8.3.5. The development-server advisories against the Vite 8.3 line are fixed from
 8.3.3, so no project overrides Vite.
 
@@ -1721,9 +1723,11 @@ The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md). OpenView, 
 Monitoring take 18.1 with a `^18.1.0` range and register it through its provider functions; none of
 them selects a language at run time.
 
-A full npm audit on 2026-10-28 reports zero findings in 22 of the 23 registered modern
-frontend locks and in the E2E tooling lock, including development dependencies. The
-registered locks include the Playwright test packages in the `browser/` directories of
+A fresh audit of the eight changed modern frontend locks on 2026-11-06 reports zero moderate,
+high or critical findings, including development dependencies. Seven report no findings; the
+TypeScript model library retains the six low findings described below. Every one of the 24
+registered frontend locks matches its reviewed baseline. The registered locks include the
+Playwright test packages in the `browser/` directories of
 Workspace, the Template Designer host, OpenView, Monitoring, Bridging, CETP and CED. Each
 declares an empty `allowScripts` policy, because none of them locks a package with an
 install script, and the train holds them to it as it holds every other registered lock.
@@ -1733,6 +1737,12 @@ reaches the library through `jest-config`, and Jest runs only the library's test
 patched `deepmerge` exists, and the fix `npm audit` offers is Jest 25, a downgrade. The
 train baseline records the six findings. The legacy Template Editor is separate from that
 result.
+
+The affected modern tool trees override only `minimatch@>=7 <11.0.1` to 11.0.5; the model
+library and Ember demo also override `glob@>=9 <14.0.2` to 14.0.4. These remove
+GHSA-g3hv-75wg-m249 and GHSA-3g3m-2fjr-6pw4 while leaving unaffected older API majors in place.
+The full frontend checks and all three consumer demos passed with these selections. Remove
+the overrides when their upstream consumers select patched versions themselves.
 
 This toolchain passed the full frontend reactor, all three framework consumer demos,
 local deployment, served-bundle verification and whole-stack smoke on 2026-10-29.
