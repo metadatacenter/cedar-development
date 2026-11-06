@@ -480,17 +480,24 @@ handling across CommonJS, native ESM, bundled ESM and UMD. `npm run build:watch`
 formats together so an incremental change cannot leave the modular tree stale.
 
 Separate self-contained elements each carry their own Angular and shared-library code. The
-Template Designer loads CEE, the term picker and CED in sequence before authoring, totalling
-about 4.36 MB raw / 1.00 MB gzip for those scripts alone. Its extra schema script is a fallback
-for old CED bundles without `validateArtifact`, so it is not another normal-path download.
-The legacy Template Editor requests CEE through RequireJS when an instance editor opens and
-also uses the full UMD model library for its own JSON/YAML conversions. OpenView folder listings
-and Bridging's landing page defer CEE too; loading failures use their existing error states, and
-a later OpenView preview can retry. The Template Designer uses CEE for ordinary field summaries
-and default editors as well as previews, so deferring it requires preserving those contracts.
-The legacy editor uses the thin `ng-flow` adapter after its single Flow.js dependency. Its retired
-RDF preview and unused JSON-LD conversion are absent from the startup graph; the JSON Schema
+Template Designer builds CEE, the term picker and CED into one coordinated runtime graph,
+3,443,265 raw bytes in the 2026-11-06 source build. Each keeps its own application injector.
+Its extra schema script is a fallback for old CED bundles without `validateArtifact`, so it is
+not another normal-path download. See the CED integration section for the identity checks.
+
+The legacy Template Editor requests CEE through RequireJS when an instance editor opens. Its
+full model UMD loads only for a YAML preview or copy; validation keeps using the narrow policy
+entry. CKEditor and its original AngularJS adapter load when a rich-text field is opened, with
+the same toolbar and model handling. A failed load can retry when reopened; YAML copying starts
+the clipboard operation within the click so its first library download does not lose user
+activation. Against the installed model package, these optional tools total 1,034,573 raw /
+268,386 gzip-9 bytes; their initial loaders add 5,199 / 1,808 bytes. The thin `ng-flow` adapter
+uses the single Flow.js dependency. Retired RDF preview processing is absent; JSON Schema
 preview and YAML actions remain available.
+
+OpenView folder listings and Bridging's landing page defer CEE too; loading failures use their
+existing error states, and a later OpenView preview can retry. The Template Designer uses CEE
+for ordinary field summaries and default editors as well as previews.
 
 Workspace loads profile, settings, groups, privacy and logout as route chunks; Monitoring loads
 its diagnostic screens as a lazy module. Dashboard navigation therefore avoids those downloads,
