@@ -480,6 +480,10 @@ also uses the full UMD model library for its own JSON/YAML conversions. OpenView
 and Bridging's landing page defer CEE too; loading failures use their existing error states, and
 a later OpenView preview can retry. The Template Designer uses CEE for ordinary field summaries
 and default editors as well as previews, so deferring it requires preserving those contracts.
+The legacy editor uses the thin `ng-flow` adapter after its single Flow.js dependency. Its retired
+RDF preview and unused JSON-LD conversion are absent from the startup graph; the JSON Schema
+preview and YAML actions remain available.
+
 Files merely present on disk, such as Moment's tests, source maps and superseded hashed bundles,
 are not evidence of browser downloads.
 
