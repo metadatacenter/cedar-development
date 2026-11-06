@@ -290,6 +290,13 @@ post-publication inventory verification still run. Exact-commit CI probes use at
 four workers; only the coordinator records their results, and settled repositories are
 not polled again.
 
+Read-only remote-ref and artifact checks use four workers. Maven file checksum verification
+also uses four workers within its publication task, for at most seven simultaneous registry reads
+when three other publication checks are active. Every ref, local checksum and downloaded artifact
+is still checked; no previous verdict substitutes for current verification. Results are gathered
+before proceeding, and verification failures propagate after active checks settle. Superseded
+branch retirement also overlaps four independent repositories and records failures per repository.
+
 The release runs these phases, each verifying its work before the next begins:
 
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
