@@ -99,6 +99,9 @@ every train repository's `develop` head in `ops/e2e/reports/smoke-gate/`. Dispat
 record for exactly the captured heads, the complete committed REST check inventory, and clean
 sources during the run. Records do not expire, but any later commit, including a runbook edit,
 requires another run. Unhealthy or stale managed services block smoke. No option skips this gate.
+Live BioPortal availability is not part of that gate: terminology health does not fetch its catalogue,
+and release smoke excludes legacy BioPortal pagination and live term-selection journeys. Offline
+terminology route and SQLite integration tests remain required in their normal Java CI suites.
 
 The exact-SHA CI probe retries only a short GitHub indexing absence and transient network or
 502/503/504 failures. It names the repository, SHA, attempt, and delay. Pending or red CI,

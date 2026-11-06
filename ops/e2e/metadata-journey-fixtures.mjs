@@ -9,28 +9,12 @@ export const comparable = (body) => {
   delete copy["oslc:modifiedBy"];
   return copy;
 };
-export const DOID_DISEASE = "http://purl.obolibrary.org/obo/DOID_4";
-/** The DOID term a journey stores in a Disease field. It lies in the "disease" branch. */
-export const INFLUENZA = { "@id": "http://purl.obolibrary.org/obo/DOID_8469", "rdfs:label": "influenza" };
-
-/**
- * A Disease field constrained to the "disease" branch of DOID, as the Designer's term picker stores
- * the constraint. A field that takes a term holds the term's identity and label rather than a value.
- */
+/** Plain text keeps artifact journeys independent of a live terminology provider. */
 export function diseaseField() {
-  const field = artifactBody("field", "Disease");
-  field._valueConstraints = {
-    ontologies: [], valueSets: [], classes: [], requiredValue: false,
-    branches: [{ uri: DOID_DISEASE, source: "DOID", acronym: "DOID", name: "disease", maxDepth: 1,
-      iri: "http://purl.obolibrary.org/obo/doid", sourceSystem: "bioportal" }],
-  };
-  field.properties = { "@type": field.properties["@type"], "@id": { type: "string", format: "uri" },
-    "rdfs:label": { type: ["string", "null"] } };
-  delete field.required;
-  return field;
+  return artifactBody("field", "Disease");
 }
 
-/** The fields the full smoke's template is authored with in Designer: free-text Notes and a DOID-constrained Disease. */
+/** The fields the full smoke authors in Designer: free-text Notes and Disease. */
 export const diseaseFields = () => ({ Notes: artifactBody("field", "Notes"), Disease: diseaseField() });
 
 /**
@@ -116,33 +100,13 @@ export async function metadataFixture(args, suffix, fields, values, options = {}
  */
 export function diseaseRecord(args, suffix, names) {
   const fields = diseaseFields();
-  return metadataFixture(args, suffix, fields, { Notes: { "@value": "Opened" }, Disease: INFLUENZA },
+  return metadataFixture(args, suffix, fields, { Notes: { "@value": "Opened" }, Disease: { "@value": "influenza" } },
     { ...names, iris: mintedIris(fields) });
 }
 // The metadata editor's save status. It reads Loading… until the page has loaded the record, and
 // the page disregards edits made before then, so a journey waits for a loaded status before it types.
 export const editorStatus = (page, text) =>
   page.locator(".metadata-toolbar [role=status]").filter({ hasText: text });
-
-// A controlled-term lookup ends with the terms it found, with "No results found", or with a failed
-// search. The spinner shown meanwhile is an option too, so the wait is for one of these outcomes.
-const LOOKUP_ENDED = /^(No results found|Search failed: the service could not be reached)$/;
-
-/**
- * Types a query into a controlled-term field until its suggestions offer a term, and returns that
- * term's option. A lookup that ends without the term is retyped, three lookups at most.
- */
-export async function offeredTerm(page, input, query, term, failure) {
-  const option = page.getByRole("option", { name: term }).first();
-  const ended = option.or(page.getByRole("option", { name: LOOKUP_ENDED })).first();
-  for (let attempt = 1; ; attempt++) {
-    await input.fill("");
-    await input.pressSequentially(query, { delay: 40 });
-    await ended.waitFor();
-    if (await option.count()) return option;
-    assert.ok(attempt < 3, `${failure}: ${attempt} lookups for "${query}" ended without offering it`);
-  }
-}
 
 export function numericField(name, type = "xsd:decimal") {
   const field = artifactBody("field", name);

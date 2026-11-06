@@ -271,9 +271,9 @@ cedarcli native status
 Then log in at **https://cedar.metadatacenter.orgx** as `test1@test.com` / `test1`
 (also `test2@test.com` / `test2`).
 
-To prove the stack end to end (real Keycloak login, folder and template round-trip, a Disease field
-constrained to the DOID "disease" branch through the live BioPortal picker, and a populate-time term
-suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details in the runbook.
+To prove the stack end to end (real Keycloak login, folder and template round-trip, text-field
+population, metadata saves and OpenView): `cd cedar-development/ops/e2e && npm run smoke` — details
+in the runbook. Release smoke does not require live BioPortal availability.
 
 ## Building and testing
 

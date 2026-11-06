@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { call, mutate, enc } from "./rest/lib.mjs";
-import { editorStatus, offeredTerm } from "./metadata-journey-fixtures.mjs";
+import { editorStatus } from "./metadata-journey-fixtures.mjs";
 
 // A shared template embeds its reused element snapshot. A recipient should be
 // able to populate that template even without access to the private library source.
@@ -17,9 +17,7 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
     await editorStatus(page, /^Unmodified$/).waitFor();
     await cee.getByLabel("Notes", {exact: false}).first().fill("Metadata from a shared template");
     const disease = cee.getByLabel("Disease", {exact: false}).first();
-    const influenza = await offeredTerm(page, disease, "influenza", /influenza/i,
-      "the recipient could not use the template's terminology constraint");
-    await influenza.click();
+    await disease.fill("influenza");
     const saved = await write(page, "PUT", "/template-instances/",
       () => page.locator("#button-save-metadata").click(), 201);
     savedId = saved["@id"];
@@ -29,7 +27,7 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
     const stored = await call(user.auth, "GET", instancePath);
     assert.equal(stored.status, 200);
     assert.equal(stored.body.Notes["@value"], "Metadata from a shared template");
-    assert.match(stored.body.Disease["@id"], /DOID_\d+$/);
+    assert.equal(stored.body.Disease["@value"], "influenza");
     const editUrl = page.url();
     await page.getByRole("button", {name: "Back to Workspace", exact: true}).click();
     await page.locator("cedar-workspace-page .destinations").waitFor();
@@ -40,7 +38,7 @@ export async function sharedTemplateJourney({page, user, sourceElementId, templa
     assert.match(await disease.inputValue(), /influenza/i);
     await page.getByRole("button", {name: "Back to Workspace", exact: true}).click();
     await page.locator("cedar-workspace-page .destinations").waitFor();
-    pass("private-source-viewer", "A viewer populates and reopens a shared template with a private library source and a live terminology constraint");
+    pass("private-source-viewer", "A viewer populates and reopens a shared template with a private library source and preserves both field values");
   } finally {
     // The instance belongs to the recipient. The main journey's owner cannot clean it up, and must
     // not need access to the recipient's records. Only the instance this journey saved is removed:

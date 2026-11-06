@@ -156,12 +156,10 @@ export const JOURNEYS = [
 ].map(entry => Object.freeze({ authentication: null, ...entry }));
 
 // BOUND names the journeys that have no key, because they work on fixtures another runner hands them.
-// The inline chain of modern-workspace-smoke.mjs calls the first three on its own template and record,
+// The inline chain of modern-workspace-smoke.mjs calls the shared-template journey on its own template and record,
 // and access-recheck calls the group-access journey on the fixtures it provisions.
 export const BOUND = Object.freeze([
   "sharedTemplateJourney",
-  "designerTerminologyFailureJourney",
-  "editorTerminologyFailureJourney",
   "groupAccessJourney",
 ]);
 

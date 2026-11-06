@@ -135,8 +135,8 @@ request that failed and left running for inspection, and the start still fails.
 
 A listening service still booting is `starting`; a health probe that exceeds its deadline is `slow`.
 Both fail `cedarcli native health`, and smoke waits for them before refusing. A slow dependency can
-cause a probe timeout. Terminology samples `ontology-catalogue` off the request thread to keep
-BioPortal latency out of its health response.
+cause a probe timeout. Terminology health does not fetch BioPortal's catalogue; a remote provider
+outage is reported by the affected API requests rather than by CEDAR process readiness.
 
 ## The Containerized Stack
 
@@ -288,9 +288,8 @@ jar can itself have been built before its repository's `develop` head, and every
 while it is, which is how a stack came to be smoke-tested against commits it did not contain. The
 summary under the table names any microservice in that position, and `cedarcli test e2e` refuses to
 record a run while one exists. A service that is merely warming is treated differently from one that
-is wrong: terminology answers its health probe only once it has loaded every ontology, and the probe
-times out in seconds, so a stack whose every finding is a warming service is given five minutes and
-polled rather than refused. The remedy is `cedarcli build java` followed by `cedarcli native
+is wrong: a stack whose every finding is a warming service is given five minutes and polled rather
+than refused. The remedy is `cedarcli build java` followed by `cedarcli native
 restart`. For the `ui-main` and `ui-workspace` rows the column
 asks the equivalent question of the Embeddable Editor, which each of those frontends takes from npm
 and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
@@ -2318,8 +2317,6 @@ TypeScript, while both emit the same bytes for it.
   This used to fail the check, which meant an EPA outage made `cedarcli native health` exit
   non-zero and blocked the full gate below on a third party. A health check answers "should traffic
   reach this instance", and for a dependency the loader will retry forever the answer is yes.
-  (`TerminologyServerHealthCheck` is right to do the opposite: the ontology catalogue is that
-  server's entire job, and its degraded mode silently served a partial catalogue.)
 
 - **The whole stack is green, but real requests 500 (often with `NoClassDefFoundError`), or a
   service answers as an older build would** → a backend service is **`STALE`**: running a jar older
@@ -2963,8 +2960,8 @@ Servers add what they own on top of that. `initMongoServices` builds the documen
 the shared bootstrap registers it, so artifact carries `mongo`; repo, OpenView and monitor proxy document access and no longer register that store probe.
 Dropwizard's Hibernate bundle registers `hibernate` wherever a server opens MySQL, which is
 messaging, monitor and worker. Resource gates on `opensearch`, because it cannot answer without its
-index. Terminology's `ontology-catalogue` reports the size and name quality of the loaded catalogue. Bridge's `comp-tox` reports the EPA registry's condition and
-never fails on it.
+index. Terminology has no live BioPortal health probe. Bridge's `comp-tox` reports the EPA registry's
+condition and never fails on it.
 
 Each probe carries its own timeout, and the reason is specific: the Neo4j driver waits 30 seconds to
 establish a connection by default, while a container health check gives the whole endpoint 10. An
@@ -2972,12 +2969,10 @@ unbounded probe would not report a slow dependency, it would hang `/healthcheck`
 container would read as down for a reason no check names. At most one probe runs at a time per
 check, so a permanently blocked dependency costs one thread rather than one per poll.
 
-Only `ontology-catalogue` takes a measurement that leaves the host. Outside a local-only deployment
-it fetches the whole BioPortal registry, which took between 0.4 and 4.1 seconds when measured on a
-warm server. It therefore holds each measurement for thirty seconds and refreshes it on a probe
-thread, waiting two seconds before serving the measurement it already has with the pending refresh
-named in the message. A fetch that never answers still becomes an unhealthy result, because the
-BioPortal client's own response timeout is 30 seconds.
+Health polling does not fetch BioPortal's ontology registry. An unavailable or partial BioPortal
+answer still fails the affected terminology API request, but it cannot make the CEDAR service
+unhealthy or prevent a train or release. Offline HTTP-stub tests and local SQLite integration tests
+continue to verify terminology behavior.
 
 Worker health is also work-aware. Its `queue-consumers` check fails when a processor thread stops,
 its latest processing attempt remains failed, a dead-letter list is nonempty, or Redis cannot report
@@ -3651,7 +3646,7 @@ permissions twice, updates a group twice, replaces that group's membership twice
 deletes the group. It also opens and closes a folder while checking inherited anonymous access,
 moves an artifact and a folder through the real destination-picker modal, and enables and disables
 OpenView on an artifact; all six commands must send `If-Match` and return an `ETag`. In Designer it
-creates a template with a DOID-constrained field and a text field,
+creates a template with two text fields,
 saves the same open template twice without reloading, and proves the second `If-Match` is the first
 update's returned `ETag`. It then fills and saves an instance, reopens and updates it, checks the JSON
 and YAML getters, opens the result anonymously through OpenView, and conditionally deletes the
@@ -3665,9 +3660,9 @@ Angular code with a journey of their own, `npm run smoke:workspace:modern:full`,
 Workspace and Designer on their own hostnames, as a native or Docker stack serves them here. It runs
 the Workspace journey, the Designer host journey, the account pages and the lifecycle routes. The
 Workspace journey covers folders, sharing between two users, ownership transfer in both directions,
-CED authoring with a Disease field constrained to the DOID disease branch through the live term
-picker, recovery from an expired token in both applications, stale-save protection, populating
-with a live DOID suggestion, publication and drafts, downloads, OpenView and conditional deletion.
+CED authoring with two text fields, recovery from an expired token in both applications,
+stale-save protection, metadata population, publication and drafts, downloads, OpenView and
+conditional deletion. Live BioPortal selection and recovery checks are outside release smoke.
 
 The tier runs these scripts through `split-tier.mjs` in lanes that run at the same time and take
 their work from one queue. A unit of that work is one journey or one script. Each process keeps its
@@ -3776,10 +3771,11 @@ verify restoration, no automatic write replay, conditional save, stored content 
 The ordinary sign-in cases retain coverage of the existing SSO redirect path. Run these together
 with `npm run smoke:journey -- draft-recovery`.
 
-Live terminology selection and recovery searches have a separate 90-second response ceiling: successful
-BioPortal-backed responses have taken 40–80 seconds. Ordinary UI operations retain their 25-second
-limit, and the chain's overall deadline and recorded runtime still expose external-service slowness.
-Do not interpret passing under that ceiling as an acceptable interactive latency.
+Release smoke excludes live BioPortal catalogue, legacy search/class pagination, term selection
+and lookup-recovery checks. Browser fixtures use ordinary text fields while preserving the real
+artifact, permissions, save, publication and recovery workflows. Terminology's offline route,
+local-store, request-validation and version-freezing checks remain. The committed REST inventory
+names exactly the remaining checks; no release option skips that inventory gate.
 
 For focused diagnosis and independence checks, after loading the normal native profile:
 
@@ -7480,13 +7476,6 @@ happened so a listing that stays stale is index lag rather than a failed delete.
 fail about a third of runs and was long blamed on the search index lagging the delete; the request
 simply was not being sent. If it starts burning retries again, check the Dropwizard access log for a
 `DELETE` before suspecting the backend.
-
-**Constraining a field to a DOID branch.** The whole create-template-and-constrain block retries as
-a unit, each attempt starting from the designer deep link, because only a page load helps: the
-editor loads BioPortal's ontology list once per page and latches an empty cache when that load
-fails, so re-running the ontology *search* re-reads the same empty cache and can never succeed. The
-underlying frontend defect is unfixed and on the [roadmap](./BACKEND-ROADMAP.md); the retry tolerates it
-rather than curing it.
 
 ## Login
 

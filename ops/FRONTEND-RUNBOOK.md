@@ -248,13 +248,10 @@ verifies restored permission and the unchanged stored artifact, then enables sav
 refused draft without reload. Checking while access is still denied also preserves input.
 The journey restores the original artifact permissions and removes its temporary group.
 Run `npm run smoke:journey -- access-recheck` for this focused two-user check.
-The terminology-failure journey injects HTTP 503 responses and dropped connections into
-the test page's terminology searches, leaving the shared service running. Designer shows
-the failure while preserving its chosen constraints and artifact draft; changing the query
-after access returns produces real search results. Editor preserves the selected term and
-other input, can save unrelated edits during the outage without changing that term, and can
-search and select again after recovery. These checks cover search outages after the editor
-is open; they do not establish recovery for every supporting service.
+The release smoke's authoring and metadata fixtures use text fields, so live BioPortal selection
+and lookup recovery do not hold up a release. Controlled-term interactions and failure handling
+remain covered by the components' hermetic browser and unit suites. The full stack still exercises
+real artifact writes, permissions, publication, metadata preservation and recovery.
 The initial-load journey injects both HTTP 503 and connection failures into Designer's artifact,
 permission-report and component-manifest reads, and Editor's metadata, permission-report,
 template, configuration and component-script reads. Neither surface enables Save or shows an
