@@ -355,6 +355,9 @@ cedarcli publish train-status <TRAIN_ID>
 
 A completed train's status also reports release eligibility and names repositories whose `develop`
 has moved. Source changes in drift-checked repositories require a new train.
+Retries are selected by their last update, so a cancelled duplicate does not hide a later successful
+retry of the original run. A recorded Docker completion makes status successful regardless of a
+duplicate workflow's conclusion.
 
 Train state has no abandon operation. An incomplete immutable ID remains useful evidence of what was
 attempted; it cannot block a later ID.
@@ -372,9 +375,14 @@ configuration checks, and reports the first incomplete stage. Then resume it:
 cedarcli publish train --resume <TRAIN_ID>
 ```
 
-Resume requires `trains/<TRAIN_ID>.json` on the `build-trains` branch and checks out the commits in that
-manifest—not whatever is now at the head of `develop`. The hosted exact-source, credential,
-registry, and configuration preflight runs again before the workflow continues. Identical Maven files already present in
+Resume requires `trains/<TRAIN_ID>.json` on the `build-trains` branch and repeats local preflight.
+When GitHub still has the failed workflow, the CLI retries only its failed jobs with `gh run rerun
+--failed`: successful jobs, including frontend verification, keep their outputs. The retry uses the
+original workflow and captured commits. A complete train is never dispatched again.
+
+If no workflow is available, the CLI dispatches a resume workflow that checks out the commits in the
+manifest. Its hosted exact-source, credential, registry, and configuration preflight runs again.
+Identical Maven files already present in
 Nexus are accepted; missing files are uploaded. When Maven publication is already complete, resume
 skips it and continues with npm and Docker. npm artifacts are accepted only when their `gitHead`,
 integrity, and tarball bytes match the recorded graph. A Docker tag already present is accepted only
