@@ -4005,7 +4005,11 @@ The Template Designer combines a complete integration cohort with Angular's prod
 then flattens that module graph into `cedar-editors.js`. Each component keeps its application
 injector, per-element state and configuration. Registration waits for CEE, then CETP, then CED;
 the host downloads the shared script once. Exact dependency versions must match the component
-manifests, and the model package must match by content digest too. A mismatch fails staging.
+manifests. The model may cross public and development package identities only when its ESM files
+and package metadata match after removing `name`, `version` and `publishConfig`. The manifest's
+`runtimeSha256` records that comparison; its original `sha256` still records the exact build input.
+Older manifests without `runtimeSha256` retain the exact-version and exact-content rule.
+A code, resolver-metadata or other dependency mismatch fails staging.
 The build checks its module graph for duplicate runtime copies.
 
 `cedarcli build frontends` supplies these modules from current source automatically. No registry

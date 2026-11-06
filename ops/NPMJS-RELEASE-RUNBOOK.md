@@ -178,7 +178,7 @@ npm publish ./dist --access public --dry-run
 ```
 
 The dry run must name `cedar-model-typescript-library@${MODEL_VERSION}`, public npmjs, `index.js` as
-`main`, `index.esm.js` as `module`, and the expected README. Always write `./dist`; bare `dist` is
+`main`, the declared modular ESM entry as `module`, and the expected README. Always write `./dist`; bare `dist` is
 interpreted as an unrelated registry package name by npm 11.
 
 ### Commit, Merge, and Publish from `main`
@@ -631,6 +631,13 @@ and normalizes only this closed release-provenance list:
 - one dated changelog entry for the public CEE version, which must name one exact public model
   version. If the train predates that entry, removing it must reproduce the train changelog byte for
   byte; if the train already contains it, the two changelogs must already be byte-identical.
+
+Packages carrying `integration.mjs` also prove that module's executable bytes. Its manifest may
+change its source fingerprint and model package provenance only after the planner downloads both
+exact model tarballs, verifies registry integrity, recomputes both recorded fingerprints and proves
+the same model ESM and resolver metadata. Only model `name`, `version` and `publishConfig` are
+removed for that comparison; every other runtime dependency must match exactly. The module's
+licenses remain subject to the package-wide byte comparison.
 
 After those substitutions every remaining packaged byte must be identical, and the browser bundle
 must be identical too, except for a consistent renaming of short minified identifiers, which
