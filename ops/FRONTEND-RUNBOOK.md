@@ -445,11 +445,19 @@ not first-navigation transfer measurements. Decimal kB below means 1,000 bytes.
 | CED standalone / host fonts | 1,982.3 / 1,859.6 | 473.5 / 380.3 | Includes its Angular runtime, model library and schema validator |
 | Term picker standalone / host fonts | 506.2 / 383.5 | 202.9 / 109.4 | Includes its Angular runtime and narrow policy entry |
 
-OpenView and Bridging register CEDAR Roboto 400/500 through their global stylesheets and copy
-`cedar-embeddable-editor.host-fonts.js`. Using the standalone script there adds 122,656 raw bytes
-and about 93 kB gzip of duplicate fonts. The switch was checked against each production
-stylesheet: both weights loaded and the all-input-types CEE fixture rendered pixel-identically.
-Workspace and the Template Designer already select host-font bundles when the host supplies them.
+Workspace, OpenView, Bridging, Monitoring and the Template Designer register CEDAR Roboto 400/500
+through `fonts-hosted.css` from the design-token package. Its content-hashed WOFF2 files contain
+exactly the embedded faces; the browser selects the unicode subsets each page uses. Both Latin
+weights total 22,100 bytes, with another 15,412 bytes when Latin Extended is needed, instead of
+carrying all 89,452 font bytes as base64 in every host stylesheet. The four Angular hosts' initial
+CSS falls by 118,368 raw bytes (about 90 kB gzip). External font files stay in the total payload
+budget, and missing references fail the size gate. Browser checks cover subset requests and
+unchanged visual baselines; standalone CEE and CED scripts remain byte-identical.
+
+Hosts select component host-fonts bundles, which omit embedded fonts, or their coordinated
+integration modules. Standalone components retain their existing embedded fonts and require no
+additional font requests. Template Designer's staging falls back to embedded `fonts.css` when an
+older token package has no hosted-font stylesheet.
 
 The build graphs contain one installation of each contributing npm package per application;
 Angular's compiler, Moment and Lodash do not contribute to these seven modern bundles. CEE's
