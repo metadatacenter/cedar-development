@@ -296,9 +296,10 @@ order. `cedar-java` and `cedar-microservice` publish to the internal repository.
 infrastructure, eleven microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
 the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
-defaults name development packages, which Nexus removes three days after upload, so left alone
-they stop resolving within days and the Docker build's own CI goes red. A release rewrites them
-from the train's recorded inputs, as the release runbook describes. Every
+defaults name published releases in the retained registry, so Docker CI remains reproducible after
+train-package cleanup. Release readiness refuses expiring compatibility defaults before a train.
+Development preserves the captured retained pins while the release tree adopts its own released
+packages, as the release runbook describes. Every
 image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
 npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
 `/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
