@@ -665,6 +665,13 @@ the applicable local allowlist still route remotely. A green fallback-enabled su
 not prove local coverage. UMLS-licensed sources (SNOMEDCT, MEDDRA, RCD, ICPC2P) remain remote and
 cannot be pinned in this store.
 
+Corpus-wide `POST /search` uses the search allowlist too: an indexed source must be allowed and
+its indexed content hash must resolve to a snapshot file the server can read. Excluded sources do
+not contribute class or branch hits, counts, label groups, or ontology facets. Filtering precedes
+pagination, including when no indexed sources are eligible. Source blocks report the indexed
+version that was actually searched; a held older version stays pinnable, while an absent version
+is not offered as local. Ingesting or indexing a source alone does not enable it for serving.
+
 ## Moving the Store to Another Host
 
 A staging or production host that serves the picker needs only the parts of the store that answer
