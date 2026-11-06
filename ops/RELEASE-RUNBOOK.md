@@ -297,6 +297,11 @@ is still checked; no previous verdict substitutes for current verification. Resu
 before proceeding, and verification failures propagate after active checks settle. Superseded
 branch retirement also overlaps four independent repositories and records failures per repository.
 
+New plans record four remote integration jobs in `remoteConcurrency`. Each job owns one
+repository and retains its existing ref and tree guards. The coordinator records every completed
+repository, stops scheduling after a failure and drains active jobs so successful siblings are
+available to resume. Older ledgers without this policy retain serial integration.
+
 The release runs these phases, each verifying its work before the next begins:
 
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
