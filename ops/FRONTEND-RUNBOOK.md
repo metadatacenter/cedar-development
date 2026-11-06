@@ -4021,7 +4021,8 @@ CED and CETP ship the same pair: `cedar-embeddable-designer.host-fonts.js` and
 `cedar-embeddable-term-picker.host-fonts.js`, each beside a `bundle-manifest.host-fonts.json`
 and held to its own size ceiling, which is the default bundle's less the embedded faces. The
 tokens package also publishes the faces as compiled `fonts.css`, for a host without Sass. The
-Template Designer page links `fonts.css` once. When staging separate component scripts,
+Template Designer page prefers `fonts-hosted.css` with hashed WOFF2 subsets and falls back
+to embedded `fonts.css` for older token packages. When staging separate component scripts,
 `stage-components.mjs` chooses each host-fonts bundle under the component's usual file name.
 A package without a host-fonts bundle, or a tokens package without `fonts.css`, is staged
 self-contained. Sharing the faces saves about 180 kB of compressed transfer.
@@ -4029,13 +4030,18 @@ self-contained. Sharing the faces saves about 180 kB of compressed transfer.
 ### Template Designer Shared Runtime
 
 CEE, CED and CETP also package `integration.mjs`, an AOT-compiled host-fonts module whose
-Angular, RxJS, translation and model dependencies remain external. This is an explicit host-build
+Angular, RxJS, translation and model dependencies remain external. CEE also names its exact
+`jsonld` and `n3` runtimes and imports them only when exporting RDF. This is an explicit host-build
 input; the default package entry and standalone scripts remain self-contained. The component
 production builds generate both standalone variants and the integration module. Packaging verifies
 the module's source fingerprint, bytes and runtime identities against `integration-manifest.json`.
 
 The Template Designer combines a complete integration cohort with Angular's production linker,
-then flattens that module graph into `cedar-editors.js`. Each component keeps its application
+then flattens the eager module graph into `cedar-editors.js`. It bundles just the RDF processor
+exports CEE uses into two hashed `cedar-rdf-*.js` modules, loaded on the first RDF download.
+Older CEE integration packages with embedded processors retain their original single-script path.
+Standalone CEE still includes its processors in one script; its embedding contract is unchanged.
+Each component keeps its application
 injector, per-element state and configuration. Registration waits for CEE, then CETP, then CED;
 the host downloads the shared script once. Exact dependency versions must match the component
 manifests. The model may cross public and development package identities only when its ESM files
@@ -4049,22 +4055,32 @@ The build checks its module graph for duplicate runtime copies.
 pin changes or publication are required. Older registry cohorts without integration modules and
 explicit local standalone overrides retain the separate-script path. Runtime upgrades require
 rebuilding the coordinated cohort. The manifests record both compiled input identities and the
-combined script's digest; `cedarcli check components` verifies both. The hash in the script URL
+combined script's digest and deferred asset hashes and sizes; `cedarcli check components` verifies
+the installed input modules and every served delivery file. Cached builds also verify those files
+before reuse. The hash in the script URL
 changes whenever its bytes change. Third-party notices travel beside the shared output.
 
 The host's `npm run check:size` runs during preparation and native startup. It counts each
-manifest delivery once, host JavaScript, imported CSS, and the deferred schema-validator fallback.
+manifest delivery once, host JavaScript, imported CSS, deferred font subsets and RDF processors,
+and the deferred schema-validator fallback.
 `app/components/page-size.json` records raw and gzip sizes by file and phase. Browser coverage
-checks that observed JavaScript/CSS requests belong to that inventory. Shared delivery limits
+checks that observed JavaScript/CSS/font requests belong to that inventory. Shared delivery limits
 are 4,000,000 raw / 1,000,000 gzip initially and 4,500,000 / 1,150,000 including the fallback.
 Older standalone cohorts have separate 5,200,000 / 1,300,000 and 5,700,000 / 1,450,000 limits.
 `dist/editors/browser-stats.json` contains the build graph for investigating growth.
 
-Measured on 2026-11-06 with the same component sources, the three host-font scripts total
-4,358,267 bytes raw / 1,004,111 gzip; the shared script is 3,443,265 / 746,782, reductions of
-21.0% and 25.6%. The whole shared page's initial JavaScript/CSS is 3,771,811 / 903,335;
-including the unused-unless-needed schema fallback it is 4,290,922 / 946,573. The standalone
-CEE and CED scripts, including their host-font variants, retain identical SHA-256 hashes.
+Measured on 2026-11-07 against the same sources before RDF deferral, the shared script falls
+from 3,443,265 to 3,263,429 raw bytes. The whole page's initial JavaScript/CSS falls from
+3,652,610 raw / 813,417 gzip to 3,472,774 / 762,665: 179,836 raw / 50,752 gzip bytes deferred.
+Including all deferred assets, the page is 4,260,507 raw / 946,714 gzip, against 4,261,173 /
+946,429 before. Both RDF formats are covered by a real shared-host download test, alongside
+the assertion that normal summaries, editing and preview do not fetch the processors.
+Standalone CEE is 2,237,932 raw / 607,133 gzip, only 147 raw / 65 gzip bytes above that baseline;
+its host-font variant is 2,115,274 / 514,514. Neither requires additional processor files.
+
+Workspace, OpenView and Bridging retain separate on-demand CEE scripts. Sharing their runtime
+would increase their initial dashboard or landing-page transfer, so their delivery prioritizes
+the smaller initial page. The Template Designer already loads all three components on opening.
 
 The host checks every save payload with the meta-schema validator CED carries, through
 `designer.validateArtifact`, rather than importing its own copy. Against a CED built before that
