@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -34,6 +35,27 @@ def source_value() -> dict:
 
 
 class DockerTrainTest(unittest.TestCase):
+    def test_train_registry_overrides_retained_builder_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / '.cedar-train-manifest-sha256').write_text('a' * 64)
+            (workspace / '.cedar-frontend-manifest-sha256').write_text('b' * 64)
+            inputs = {'CEDAR_NPM_REGISTRY': 'https://registry.example/train',
+                      'CEDAR_WORKSPACE_NPM_VERSION': '2.9.3-dev.example'}
+            write(workspace / '.cedar-frontend-inputs.json', inputs)
+            with patch.dict(os.environ, {'CEDAR_NPM_REGISTRY': 'https://registry.example/retained'}), \
+                 patch.object(docker_train, 'remote_exists', return_value=False), \
+                 patch.object(docker_train, 'inspect_image'), \
+                 patch.object(docker_train, 'verify_labels'), \
+                 patch.object(docker_train, 'verify_embedded_manifest'), \
+                 patch.object(docker_train, 'run') as run:
+                docker_train.publish_image(argparse.Namespace(
+                    config=docker_train.DEFAULT_CONFIG, version=VERSION,
+                    workspace=workspace, image='cedar-frontend-workspace'))
+            command = next(call for call in run.call_args_list
+                           if 'build' in call.args[0])
+            self.assertEqual(inputs, {key: command.kwargs['environment'][key] for key in inputs})
+
     def make_state(self, root: Path) -> str:
         source = source_value()
         source_path = root / "trains" / f"{VERSION}.json"

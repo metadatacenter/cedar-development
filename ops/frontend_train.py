@@ -324,7 +324,10 @@ def record_plan(args: argparse.Namespace) -> None:
             "modelIntoCee": "exact Nexus alias and lock integrity",
             "ceeIntoFrontends": "exact Nexus alias and lock integrity",
         },
-        "dockerInputs": dict(sorted(docker_inputs.items())),
+        # The exact package versions and their registry are one captured input. A builder's
+        # compatibility defaults may point at retained releases instead of this train's registry.
+        "dockerInputs": dict(sorted({**docker_inputs,
+                                     "CEDAR_NPM_REGISTRY": config["registry"].rstrip("/")}.items())),
     }
     destination = args.state / "npm" / "trains" / f"{args.version}.json"
     if destination.exists():

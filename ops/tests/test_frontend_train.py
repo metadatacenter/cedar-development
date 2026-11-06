@@ -356,6 +356,8 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(model_sha, plan["model"]["revision"])
             self.assertEqual(cee_sha, plan["cee"]["revision"])
             self.assertEqual("https://registry.example/retained/", plan["retainedRegistry"])
+            self.assertEqual(config["registry"].rstrip("/"),
+                             plan["dockerInputs"]["CEDAR_NPM_REGISTRY"])
             self.assertEqual("train-owned", plan["model"]["publication"])
             self.assertEqual("train-owned", plan["cee"]["publication"])
             self.assertEqual(tokens_sha, plan['components'][0]['revision'])

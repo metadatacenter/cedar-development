@@ -640,10 +640,14 @@ removed for that comparison; every other runtime dependency must match exactly. 
 licenses remain subject to the package-wide byte comparison.
 
 After those substitutions every remaining packaged byte must be identical, and the browser bundle
-must be identical too, except for a consistent renaming of short minified identifiers, which
-esbuild's frequency-ordered name alphabet can produce from the provenance strings alone. Renaming
-must be consistent in both directions; properties, reserved words and longer identifiers cannot
-change. An undeclared or malformed install policy, adjacent JavaScript changes, a second
+must be identical too, except for renaming short minified lexical bindings, which esbuild's
+frequency-ordered name alphabet can produce from the provenance strings alone. The CLI's pinned
+Acorn parser and ESLint scope analyzer resolve every declaration and reference: independent scopes
+may reuse a name or rename it differently, but a reference must still resolve to the same binding.
+Properties, public exports, imported names, globals, strings, regular expressions, punctuation and
+longer identifiers cannot change. Renaming in a bundle with direct `eval` is refused. The CLI installs
+these locked parser dependencies under `cedar-cli/scripts/javascript/node_modules` when needed;
+CI installs them before testing. An undeclared or malformed install policy, adjacent JavaScript changes, a second
 occurrence of a provenance literal, a changed older changelog entry, an extra file, or any other
 JavaScript difference is a hard failure. This normalized byte proof is also the
 proof for the model-library code compiled into CEE. The train development base may be newer than
