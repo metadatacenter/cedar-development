@@ -108,6 +108,15 @@ done
 The three repositories' checkouts under `$CEDAR_HOME` are then unused. Remove them once no rollback
 can need them.
 
+### Read-only Monitor access: the `monitorViewer` realm role
+
+The first release with the `monitorViewer` super role needs that realm role in production Keycloak.
+Create it once, in the CEDAR realm, with exactly that name and no composites. Nobody holds it until an
+administrator adds it to a user, so the deploy itself changes no one's access. Granting it is in
+[BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md), "Read-only Monitor access": add the realm role to the user,
+then run `cedarat userProfile-updateAll-updatePermissions`. Run that task only on a release that has
+the role, because an older admin tool doesn't recognize the role and leaves the user without the grant.
+
 ### Search fixes: trusted proxy and possible-value data prerequisites
 
 Before deploying the search corrections following 2.9.25, install the forwarding-header rules from
@@ -365,6 +374,13 @@ still holds it, check that its SHA-512 matches the lockfile's integrity, and run
 cache without asking Nexus.
 
 ### 7 · Database Migrations
+
+When upgrading a worker that predates `log_event_receipt`, follow the
+[application-log ledger rollout](BACKEND-RUNBOOK.md#application-log-persistence-and-rollout):
+create and verify the additive table before startup, and fully stop old consumers before the new
+worker runs. Keep receipts across raw-log pruning; an old worker used for rollback does not honor
+the replay or aggregation guarantees.
+
 **App MySQL — as root, on the app host:**
 ```bash
 # in a root shell: start MySQL if needed, then run the release's migration queries.

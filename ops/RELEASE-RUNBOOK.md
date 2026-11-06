@@ -62,7 +62,7 @@ cedarcli release plan \
 ```
 
 `plan` changes nothing. It validates the completed train, the exact source commits, the artifact
-inventories—including the complete 28-image Docker plan and immutable registry digests—the explicit
+inventories—including the complete 27-image Docker plan and immutable registry digests—the explicit
 versions, and the byte-equivalence proof between the train's development
 CEE and the public npmjs CEE, and then runs the complete release gate. It must finish with
 `No changes made.`
@@ -367,16 +367,7 @@ library demo, OpenView, Content Distribution, Monitoring, Bridging, and the Angu
 
 <a id="what-a-release-costs"></a>
 
-## Historical Release Timings
-
-Release 2.9.8 ran 63 minutes from `start` to acceptance on the development workstation, with
-Nexus and GitHub responsive throughout: about ten minutes to clone forty repositories and pin the
-CEE in seven consumers, twenty to run the forty release and next-development builds, fifteen to
-deploy the six snapshot trees, under ten to integrate and push forty remotes, ten to upload and
-verify the eight release artifacts, and one to accept. The release before it, 2.9.7, ran 2 hours
-41 minutes through the same phases. Release 2.9.20 ran 67 minutes, 24 of them in the development
-phase and 20 of those waiting for `cedar-project`'s CI on the new `develop`. Plan on its own takes
-about two and a half minutes, most of it the exact-commit CI probe and the remote survey.
+<a id="historical-release-timings"></a>
 
 ## Watching and Finishing
 
@@ -586,5 +577,5 @@ retaining phase, task and artifact evidence for `release resume`. GitHub transpo
 retries retain their separate existing allowance. HTTP 500 and throttling refusals
 are not treated as ordinary connection blips. The failure names the request or
 upload operation; successful health/read probes do not prove that a PUT works.
-Use the optional dedicated write probe described in the build runbook when its
-disposable repository is available.
+Use the [dedicated write probe](BUILD-RUNBOOK.md#nexus-failure-budget-and-optional-write-probe)
+when its disposable repository is available.

@@ -44,6 +44,15 @@ jobs:
           ref: develop
           path: cedar-cli
 
+      # Exercise the real dependency-free configurator with the train's clean environment.
+      - name: Check out Workspace configuration contract
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-workspace
+          ref: develop
+          path: cedar-workspace
+          sparse-checkout: tools
+
       - name: Set up Java 17
         uses: actions/setup-java@v6
         with:
@@ -104,14 +113,6 @@ jobs:
           ref: develop
           path: cedar-user-server
           sparse-checkout: cedar-user-server-application/src/main/resources/assets/swagger-api
-
-      - name: Check out impex REST contracts
-        uses: actions/checkout@v7
-        with:
-          repository: metadatacenter/cedar-impex-server
-          ref: develop
-          path: cedar-impex-server
-          sparse-checkout: cedar-impex-server-application/src/main/resources/assets/swagger-api
 
       - name: Check out group REST contracts
         uses: actions/checkout@v7
@@ -278,6 +279,8 @@ jobs:
 
       - name: Build the TypeScript model library
         working-directory: cedar-model-typescript-library
+        env:
+          NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
         run: |
           npm ci
           npm run build

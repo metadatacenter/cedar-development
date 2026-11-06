@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -34,6 +35,27 @@ def source_value() -> dict:
 
 
 class DockerTrainTest(unittest.TestCase):
+    def test_train_registry_overrides_retained_builder_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / '.cedar-train-manifest-sha256').write_text('a' * 64)
+            (workspace / '.cedar-frontend-manifest-sha256').write_text('b' * 64)
+            inputs = {'CEDAR_NPM_REGISTRY': 'https://registry.example/train',
+                      'CEDAR_WORKSPACE_NPM_VERSION': '2.9.3-dev.example'}
+            write(workspace / '.cedar-frontend-inputs.json', inputs)
+            with patch.dict(os.environ, {'CEDAR_NPM_REGISTRY': 'https://registry.example/retained'}), \
+                 patch.object(docker_train, 'remote_exists', return_value=False), \
+                 patch.object(docker_train, 'inspect_image'), \
+                 patch.object(docker_train, 'verify_labels'), \
+                 patch.object(docker_train, 'verify_embedded_manifest'), \
+                 patch.object(docker_train, 'run') as run:
+                docker_train.publish_image(argparse.Namespace(
+                    config=docker_train.DEFAULT_CONFIG, version=VERSION,
+                    workspace=workspace, image='cedar-frontend-workspace'))
+            command = next(call for call in run.call_args_list
+                           if 'build' in call.args[0])
+            self.assertEqual(inputs, {key: command.kwargs['environment'][key] for key in inputs})
+
     def make_state(self, root: Path) -> str:
         source = source_value()
         source_path = root / "trains" / f"{VERSION}.json"
@@ -63,7 +85,7 @@ class DockerTrainTest(unittest.TestCase):
         ) + "\n").encode()
         return hashlib.sha256(content).hexdigest()
 
-    def test_plan_records_exactly_two_internal_and_twenty_six_runtime_images(self):
+    def test_plan_records_exactly_two_internal_and_twenty_five_runtime_images(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
             source_hash = self.make_state(state)
@@ -83,7 +105,7 @@ class DockerTrainTest(unittest.TestCase):
                 if image["prefix"].endswith("docker-cedar")
             ]
             self.assertEqual(2, len(internal))
-            self.assertEqual(26, len(public))
+            self.assertEqual(25, len(public))
             self.assertEqual(source_hash, plan["sourceManifestSha256"])
             self.assertFalse((state / "docker" / "current.json").exists())
 
@@ -140,10 +162,10 @@ class DockerTrainTest(unittest.TestCase):
             self.assertEqual(4, len(observed))
             self.assertEqual(docker_train.core_images(docker_train.load_json(docker_train.DEFAULT_CONFIG)),
                              [item["image"] for item in completion["images"]])
-            self.assertEqual(28, len(completion["images"]))
+            self.assertEqual(27, len(completion["images"]))
             self.assertEqual(VERSION, current["version"])
             pulls = [call for call in run.call_args_list if call.args[0][:2] == ["docker", "pull"]]
-            self.assertEqual(28, len(pulls))
+            self.assertEqual(27, len(pulls))
 
     @patch.object(docker_train, "inspect_image")
     @patch.object(docker_train, "run")

@@ -5,25 +5,16 @@ commits. Versions are changed only in disposable checkouts; native `develop` kee
 `<NEXT>-SNAPSHOT` versions. Maven train artifacts use `<NEXT>-dev.YYYYMMDD.HHMM` in
 Nexus `cedar-maven-dev`.
 
-Local frontend builds compile disposable source copies with private dependency installs and caches.
-The frontend reactor resolves internal dependencies from the packages just built, retains immutable
-tarballs and resolved build evidence under `.reactor/`, and leaves tracked manifests and locks
-unchanged. `cedarcli build frontends` also runs component gates, restarts the native frontends,
-verifies the selected installations and runs whole-stack smoke. See
-[the frontend reactor](FRONTEND-RUNBOOK.md#the-reactor) for its completion and failure contract.
+For local development, use `cedarcli build frontends` (build, checks, redeploy and smoke) or
+`cedarcli test frontends` (build and checks). Both use current working-tree sources, including
+uncommitted edits, and supply local packages to consumers without registry publication or tracked
+pin changes. Their [SNAPSHOT completion contract](FRONTEND-RUNBOOK.md#the-reactor) is independent
+of the clean, captured-source publication requirements below. The explicit
+`split-frontends --server-payload` path follows the
+[deployment procedure](PROD-DEPLOY-RUNBOOK.md#6--verify-and-rebuild-every-cee-host-to-the-intended-version).
 
-A development frontend build request authorizes this complete local SNAPSHOT workflow without
-follow-up questions. Uncommitted source is valid. Publication, consumer pin updates, clean trees,
-commits, pushes and CI waits are not prerequisites. The train requirements in this runbook apply
-to publishing captured artifacts, not to that development build. Narrow development builds also
-include their required local producers and refuse registry or stale-artifact fallback.
-
-Build guards accept existing edits and reject changes to their tracked source inputs during compilation. The frontend-only
-guard excludes unrelated backend work and runbook edits. Publishing owns tracked distributions;
-`split-frontends --server-payload` remains an explicit in-place build and refuses to run while a
-runtime owns the checkout.
-
-The `Angular build isolation canary` checks this boundary on Linux and macOS weekly, on dispatch
+The `Angular build isolation canary` checks that isolated builds preserve the live checkout on
+Linux and macOS weekly, on dispatch
 and when its implementation changes. It keeps Monitoring's real development server running with
 Angular caching enabled, runs `cedarcli build this`, and verifies health, cache, output and tracked
 state. Logs and machine-readable evidence are retained even on failure.
@@ -46,7 +37,7 @@ operator supplies is an existing one passed to `--resume` or `--train`.
 
 The Nexus hosted Maven repository must be named `cedar-maven-dev`, use the **Release** version
 policy, and have **Disable redeploy** selected. The two Docker hosted repositories are
-`docker-cedar`, for the 26 runtime images, and `docker-cedar-internal`, for the two Java base
+`docker-cedar`, for the 25 runtime images, and `docker-cedar-internal`, for the two Java base
 images. Both use HTTPS path-based routing and **Disable redeploy**. Anonymous read access is
 sufficient for deployments; the GitHub Actions account needs write and read access.
 
@@ -72,7 +63,7 @@ remote checks become available:
 
 | Phase | Required checks |
 | --- | --- |
-| Local (seconds) | Maven/npm/28-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
+| Local (seconds) | Maven/npm/27-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
 | Remote (roughly 90 seconds) | GitHub authentication and workflow; exact remote `develop` CI; cross-repository contracts covering their consumers; matching local/remote heads; idle train slot and unused ID; anonymous source access; passing smoke record for those heads; publication-target availability. |
 
 The publication probe checks Nexus service/writable status, `cedar-maven-dev`, npm identity and
@@ -108,6 +99,9 @@ every train repository's `develop` head in `ops/e2e/reports/smoke-gate/`. Dispat
 record for exactly the captured heads, the complete committed REST check inventory, and clean
 sources during the run. Records do not expire, but any later commit, including a runbook edit,
 requires another run. Unhealthy or stale managed services block smoke. No option skips this gate.
+Live BioPortal availability is not part of that gate: terminology health does not fetch its catalogue,
+and release smoke excludes legacy BioPortal pagination and live term-selection journeys. Offline
+terminology route and SQLite integration tests remain required in their normal Java CI suites.
 
 The exact-SHA CI probe retries only a short GitHub indexing absence and transient network or
 502/503/504 failures. It names the repository, SHA, attempt, and delay. Pending or red CI,
@@ -140,7 +134,7 @@ cedarcli publish train-status --watch
 
 Without an ID the command reports the newest dispatched train; an explicit ID selects an older
 one. It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
-counts for the 28-image matrix, and final verification. During a long unchanged stage it prints a
+counts for the 27-image matrix, and final verification. During a long unchanged stage it prints a
 quiet one-minute heartbeat with the active job/step and elapsed time. Without `--watch`, the same command is a
 one-shot status and recovery decision. For GitHub's full step log, the dispatch also prints the exact
 workflow run URL and `gh run watch` command using that run ID:
@@ -191,8 +185,8 @@ Only after that gate passes does the workflow record the immutable source manife
 Maven in the dependency order already encoded by the CEDAR reactors:
 
 1. `cedar-parent`
-2. `cedar-libraries` and its six library repositories
-3. `cedar-project`, which contains the shared microservice library, admin tool, and services
+2. `cedar-libraries` and its declared library modules
+3. `cedar-project`, which contains the shared microservice libraries, tools, and services
 4. `cedar-clients`
 5. `cedar-model-library-roundtrip`
 
@@ -297,7 +291,7 @@ them under `retainedPackages`; a release refuses a train without that evidence.
 
 Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
-infrastructure, twelve microservice, and seven frontend images publish to the runtime repository.
+infrastructure, eleven microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
 the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
 defaults name development packages, which Nexus removes three days after upload, so left alone
@@ -310,7 +304,7 @@ tarball to that graph before extraction. The three source-package images install
 the vendored shrinkwrap; OpenView extracts the exact verified CEE tarball
 directly, without resolving an npm dependency graph during the image build.
 
-The final job removes local copies and pulls each of the 28 images from Nexus with
+The final job removes local copies and pulls each of the 27 images from Nexus with
 four bounded verification workers (`docker_train.py verify --workers 1` provides serial diagnosis).
 Each worker owns a distinct image reference and records its elapsed time; completion is
 written in plan order only after all workers succeed. Failed runs drain active workers
@@ -329,16 +323,17 @@ upload, so a machine can pull a train's images only within three days of the tra
 
 <a id="what-a-train-costs"></a>
 
-## Historical Train Timings
+<a id="historical-train-timings"></a>
 
-Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven phases, two for the
-TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
-five for the 31 images, and eight and a half to pull every image back and verify it. That historical workflow ran everything but
-the image matrix serially. The current workflow overlaps Maven with the npm chain,
-uses bounded Maven/frontend/image-verification workers, and probes exact-source CI
-with four workers. Concurrent state-branch writers rebase independent evidence commits
-with bounded retries; conflicts stop the job and are never force-pushed. The local dispatch preflight takes about a minute, most of it the
-CI probe across the 45 captured repositories, and a `--dry-run` rehearsal pays it a second time.
+## Train Timing and State Writes
+
+Use `cedarcli publish train-status --watch` and the linked workflow to measure the selected train.
+Maven overlaps the npm chain; the Docker build waits for both. Timings from older serial workflows
+or different image inventories are not estimates for the current train.
+
+Concurrent state-branch writers rebase independent evidence commits with bounded retries;
+conflicts stop the job and are never force-pushed. A `--dry-run` rehearsal repeats the preflight
+work that dispatch will perform.
 
 ## Resume a Failed Train
 
@@ -395,12 +390,12 @@ one fixed commit set.
 day and on manual dispatch. A failure opens or updates the issue **Build-train publication preflight
 is failing**; recovery closes it. This is an early warning for expired credentials, an unavailable
 registry, or a repository-shape change. Pull-back verification remains part of every real train: npm
-tarballs are compared by integrity and SHA-256, existing Maven paths by content hash/bytes, and all 28
+tarballs are compared by integrity and SHA-256, existing Maven paths by content hash/bytes, and all 27
 Docker images by recorded registry digest and provenance labels. A green canary proves reachability
 and authentication, not artifact identity.
 
 Server jars are fetched in a pinned official Maven builder stage and only the resulting jar and
-configuration cross into the UBI runtime. The 12 server builds therefore do not install Maven with
+configuration cross into the UBI runtime. Server builds therefore do not install Maven with
 `microdnf`. This also avoids repeating libdnf's RHEL 9.7 OpenPGP-v6 warning for Red Hat's retained
 post-quantum signing key; the two UBI base builds may still show the upstream warning while Red Hat's
 multisignature plugin is unavailable in the minimal UBI repositories. Do not remove that key.
@@ -418,7 +413,7 @@ The `build-trains` branch is machine-owned operational state, separate from norm
 - `npm/cee/completed/<TRAIN_ID>.json` records the verified CEE publication;
 - `npm/completed/<TRAIN_ID>.json` records registry integrities and downloaded tarball hashes;
 - `npm/current.json` points to the most recently completed npm graph;
-- `docker/trains/<TRAIN_ID>.json` records the exact 28-image publication plan;
+- `docker/trains/<TRAIN_ID>.json` records the exact 27-image publication plan;
 - `docker/completed/<TRAIN_ID>.json` records the verified image digests; and
 - `docker/current.json` points to the most recently completed Docker train.
 
@@ -432,55 +427,22 @@ cedarcli publish train-status <TRAIN_ID>
 
 ## Use a Train for Docker
 
-Image builds are topology-independent and may run without a configured deployment mode; this is
-how the isolated train jobs build from only their pinned CLI and Docker-builder checkouts. Starting,
-stopping, inspecting, or otherwise managing a deployment still requires `docker` or `hybrid` mode.
-On a dedicated Docker host, inspect the current selection first:
+Follow the Docker runbook's [mode prerequisites](DOCKER-RUNBOOK.md#prerequisites), then
+[start the completed image train](DOCKER-RUNBOOK.md#start-the-docker-deployment):
 
 ```bash
-cedarcli mode
+cedarcli docker start all --train <TRAIN_ID> --pull missing
 ```
 
-If no mode is selected, configure `docker` once. If the machine is already configured for
-`hybrid`, keep that selection. A reported `native` mode must be stopped and cleared before it can
-be replaced; do not overwrite a running topology.
+Starting without `--train` resolves `docker/current.json`; an explicit train must also have Docker
+completion evidence. Maven completion alone does not prove a complete image set.
 
-```bash
-cedarcli mode docker
-```
-
-Then build the image groups you need:
-
-```bash
-cedarcli docker build infra
-cedarcli docker build microservices
-cedarcli docker build frontends
-```
-
-Every resulting image receives the same train tag. Choose an older completed train exactly when
-reproducing or diagnosing it:
-
-```bash
-cedarcli docker build microservices --train <TRAIN_ID>
-cedarcli docker start all --train <TRAIN_ID> --pull never
-```
-
-`--train` on a build first requires Maven completion. Starting without `--train` resolves
-`docker/current.json`, so a clean deployment never guesses that a Maven-complete train also has a
-complete image set. An explicit start likewise requires the Docker completion record.
-
-The local-source path remains explicit and independent of published trains:
-
-```bash
-cedarcli build java
-cedarcli docker build infra --local
-cedarcli docker build microservices --local
-cedarcli docker build frontends --local
-cedarcli docker start all --local --pull never
-```
-
-Local images keep the development tag declared in `cedar-docker-build`; they are not evidence that
-the corresponding published train was reproduced.
+For image builds, use the Docker runbook's
+[published-Maven path](DOCKER-RUNBOOK.md#completed-build-train-normal-published-artifact-build) or
+[explicit local-source path](DOCKER-RUNBOOK.md#checked-out-java-source-explicit-local-build).
+An interactive frontend image build uses the checkout's compatibility pins; pull the published
+images when reproducing the train's exact frontend graph. Local tags are not proof of published
+artifact identity.
 
 ## Failure Diagnosis
 

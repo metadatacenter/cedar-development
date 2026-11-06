@@ -34,7 +34,10 @@ from pathlib import Path
 CEDAR_HOME = Path(os.environ.get("CEDAR_HOME", Path.home() / "CEDAR"))
 CANONICAL = Path(__file__).resolve().parent / "ci-env-block.yml"
 
-# The variables the servers declare, and which of those something will default rather than demand.
+# The variables the servers and the two Java tools declare, and which of those something will default
+# rather than demand. The tools count because suites in CI build their configurations as well: the
+# Keycloak library's tests build the admin tool's, so a variable only the tools declare still has to
+# be in the block.
 # A boolean the provider does not receive becomes "false", and a variable declared OPTIONAL is one
 # the reading component defaults itself; anything else it does not receive is fatal, so the block
 # must carry it.
@@ -44,7 +47,8 @@ import org.metadatacenter.model.SystemComponent;
 var declared = new java.util.TreeSet<String>();
 var optional = new java.util.TreeSet<String>();
 for (SystemComponent c : SystemComponent.values()) {
-  if (c.getServerName() == null) continue;
+  if (c.getServerName() == null && c != SystemComponent.ADMIN_TOOL && c != SystemComponent.CADSR_TOOL)
+    continue;
   for (var v : CedarConfigEnvironmentDescriptor.getVariableNamesFor(c)) {
     declared.add(v.getName());
     if (v.isBoolean() || v.isOptional()) optional.add(v.getName());

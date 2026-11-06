@@ -248,13 +248,10 @@ verifies restored permission and the unchanged stored artifact, then enables sav
 refused draft without reload. Checking while access is still denied also preserves input.
 The journey restores the original artifact permissions and removes its temporary group.
 Run `npm run smoke:journey -- access-recheck` for this focused two-user check.
-The terminology-failure journey injects HTTP 503 responses and dropped connections into
-the test page's terminology searches, leaving the shared service running. Designer shows
-the failure while preserving its chosen constraints and artifact draft; changing the query
-after access returns produces real search results. Editor preserves the selected term and
-other input, can save unrelated edits during the outage without changing that term, and can
-search and select again after recovery. These checks cover search outages after the editor
-is open; they do not establish recovery for every supporting service.
+The release smoke's authoring and metadata fixtures use text fields, so live BioPortal selection
+and lookup recovery do not hold up a release. Controlled-term interactions and failure handling
+remain covered by the components' hermetic browser and unit suites. The full stack still exercises
+real artifact writes, permissions, publication, metadata preservation and recovery.
 The initial-load journey injects both HTTP 503 and connection failures into Designer's artifact,
 permission-report and component-manifest reads, and Editor's metadata, permission-report,
 template, configuration and component-script reads. Neither surface enables Save or shows an
@@ -430,6 +427,114 @@ The existing `npm run smoke` remains the AngularJS journey for `cedar.metadatace
 Its script and legacy variants are retained unchanged; they are not the modern route's gate.
 See the Workspace README for the boundary, request contracts and direct build procedure.
 
+## Bundle Sizes and Duplicated Code
+
+The 2026-11-05 measurements below use the reactor's production output after modular model
+packaging, with Angular's `--stats-json` and packaged custom-element scripts measured at gzip
+level 9. The host rows count all emitted JavaScript,
+including lazy chunks and polyfills, but exclude CSS and separately copied components. They are
+not first-navigation transfer measurements. Decimal kB below means 1,000 bytes.
+
+| Surface | JavaScript, kB | gzip-9, kB | Additional component loading |
+| --- | ---: | ---: | --- |
+| Workspace | 856.4 | 239.7 | CEE loads when metadata editing is opened; the editor route is lazy too |
+| OpenView | 578.4 | 163.1 | CEE loads on artifact pages or preview, host-font variant |
+| Monitoring | 1,104.6 | 280.7 | None |
+| Bridging | 630.5 | 179.6 | CEE loads when a DOI form opens, host-font variant |
+| CEE standalone / host fonts | 2,237.8 / 2,115.1 | 607.1 / 514.4 | Includes its Angular runtime and model library |
+| CED standalone / host fonts | 1,982.3 / 1,859.6 | 473.5 / 380.3 | Includes its Angular runtime, model library and schema validator |
+| Term picker standalone / host fonts | 506.2 / 383.5 | 202.9 / 109.4 | Includes its Angular runtime and narrow policy entry |
+
+OpenView and Bridging register CEDAR Roboto 400/500 through their global stylesheets and copy
+`cedar-embeddable-editor.host-fonts.js`. Using the standalone script there adds 122,656 raw bytes
+and about 93 kB gzip of duplicate fonts. The switch was checked against each production
+stylesheet: both weights loaded and the all-input-types CEE fixture rendered pixel-identically.
+Workspace and the Template Designer already select host-font bundles when the host supplies them.
+
+The build graphs contain one installation of each contributing npm package per application;
+Angular's compiler, Moment and Lodash do not contribute to these seven modern bundles. CEE's
+unused grid-list, toolbar, list and clipboard NgModule imports retain only 594 bytes of module
+definitions, not the full controls. Removing imports based on their names alone would therefore
+overstate the savings. Its RDF processors and sanitizer are used by export and rich-text rendering.
+
+The model package exposes a modular ESM tree through `module: esm/index-namespace.js`, with browser
+mappings for `/policy` and `/schema` into the same tree. A minified esbuild consumer exposing only
+`TextPolicy` retains 661 bytes (385 gzip), compared with 527,102 bytes through the old single-file
+entry under the same esbuild options. The separate modules let a consumer discard unrelated readers,
+writers, YAML and validation code. YAML's browser modules are vendored with their license; the generated AJV
+validators retain their rules and share the ESM policy classes. CommonJS, UMD and the copyable
+single-file `*.esm.js` outputs remain available at their established paths. The ESM entry wrappers
+preserve the default namespace export as well as named exports, including Vite's CommonJS interop.
+
+`npm run test:package` builds consumers from the actual tarball, checks narrow-import size
+ceilings and browser subpath resolution, and compares readers, writers, validation and exact-number
+handling across CommonJS, native ESM, bundled ESM and UMD. `npm run build:watch` rebuilds all
+formats together so an incremental change cannot leave the modular tree stale.
+
+Separate self-contained elements each carry their own Angular and shared-library code. The
+Template Designer loads CEE, the term picker and CED in sequence before authoring, totalling
+about 4.36 MB raw / 1.00 MB gzip for those scripts alone. Its extra schema script is a fallback
+for old CED bundles without `validateArtifact`, so it is not another normal-path download.
+The legacy Template Editor requests CEE through RequireJS when an instance editor opens and
+also uses the full UMD model library for its own JSON/YAML conversions. OpenView folder listings
+and Bridging's landing page defer CEE too; loading failures use their existing error states, and
+a later OpenView preview can retry. The Template Designer uses CEE for ordinary field summaries
+and default editors as well as previews, so deferring it requires preserving those contracts.
+Files merely present on disk, such as Moment's tests, source maps and superseded hashed bundles,
+are not evidence of browser downloads.
+
+`cedarcli check frontend-sizes` checks the built Workspace, OpenView, Bridging and Monitoring
+payloads. Use `--surface openview --root /path/to/cedar-openview-src --report /tmp/payload.json`
+for an isolated build. The same gate runs after each host's build and browser verification in
+both the frontend reactor and immutable trains. Limits live in `ops/frontend-train.json`.
+
+The initial count follows script/stylesheet tags and static imports in `browser-stats.json`;
+dynamic imports and copied component scripts also count toward the total emitted JavaScript/CSS.
+Workspace's separately served config, authentication scripts and copied components are mounted
+into this inventory. Assets are counted once per URL, with raw bytes, gzip-9 bytes and SHA-256 in
+the report. The total is a deployment inventory, not a claim that a visitor downloads every file:
+Workspace stages both CEE variants, for example. Missing assets, external script/style URLs and
+exceeded limits fail the command. Fonts embedded in scripts or CSS count with those files.
+
+Measured complete payloads for those same builds, in decimal kB:
+
+| Host | Initial, raw / gzip-9 | Total inventory, raw / gzip-9 |
+| --- | ---: | ---: |
+| Workspace | 1,016.6 / 339.9 | 5,419.9 / 1,474.8 |
+| OpenView | 725.8 / 257.9 | 2,840.9 / 772.3 |
+| Bridging | 783.4 / 275.1 | 2,898.5 / 789.5 |
+| Monitoring | 1,273.1 / 377.7 | 1,273.1 / 377.7 |
+
+| Host | Initial limit, raw / gzip-9 bytes | Total limit, raw / gzip-9 bytes |
+| --- | ---: | ---: |
+| Workspace | 1,200,000 / 360,000 | 6,200,000 / 1,700,000 |
+| OpenView | 850,000 / 320,000 | 3,200,000 / 900,000 |
+| Bridging | 930,000 / 350,000 | 3,300,000 / 950,000 |
+| Monitoring | 1,400,000 / 450,000 | 1,400,000 / 450,000 |
+
+CEE's packaged limits are separate: standalone 2,400,000 raw / 660,000 gzip bytes and host-fonts
+2,280,000 / 560,000. Its Angular initial budget is 2.3 MB warning / 2.4 MB failure; OpenView's
+is 800 / 850 kB, and Bridging's is 900 / 930 kB. These limits must not be raised to accommodate
+unexplained growth. The Template Designer and legacy AMD application's request-aware page
+budgets and shared-runtime integration remain in the [roadmap](FRONTEND-ROADMAP.md#bundle-delivery).
+
+To repeat the analysis, build isolated source copies with the normal production prerequisites
+and add `--stats-json` to their Angular build invocation. Angular 22 writes `browser-stats.json`;
+sum `outputs[*].inputs[*].bytesInOutput` by package, not the original input-file sizes. Measure
+packaged custom elements separately and trace script tags and runtime loaders, since Angular's
+`initial` budget excludes copied assets. The local audit evidence is under
+`$CEDAR_HOME/.cedar/audits/frontend-bundles-20261105/`, including production graphs, packed-package
+measurements, the narrow-import probe and host-font rendering comparisons. These diagnostics do
+not deploy a frontend or replace the reactor's source/runtime acceptance evidence.
+
+The full reactor, all three consumer demos, local deployment, served-byte verification and
+whole-stack smoke passed for this source composition on 2026-11-05. Its immutable build record is
+`01e070e087da8c3fbe8469cf0821f5de487b7eef56522b5f65abe642bc090303`; selected package SHA-256 prefixes
+are model `a3ce971ab7af`, CEE `4b30e2d83ab8`, CED `185e277ba3eb` and term picker `dc2f855979a2`.
+The full identities and source fingerprints are in `$CEDAR_HOME/.reactor/builds/<build>.json`.
+The native launcher can select a different Node than the build; its remaining runtime-selection
+work is tracked in the roadmap's dependency section.
+
 <a id="component-staleness"></a>
 
 ## Component Staleness
@@ -538,11 +643,6 @@ and CI still validate those pins. Missing declarations, mismatched locks, style 
 missing/stale baselines still fail. Vendored copies such as MCP keep their byte and pin checks.
 The subsequent producer/consumer build and runtime verification prove the selected package bytes.
 `cedarcli build all` runs the same source-aware preflight unless `--skip-tests` is given.
-
-The command then runs the component verification gates in the isolated build copies, records the
-successful package selection, restarts all native frontends, waits until each serves its page and
-everything the page loads through nginx, verifies their installed reactor packages, and runs the
-whole-stack smoke tiers.
 
 Deployment refreshes a live frontend's dependencies when they are absent or older than its
 lockfile, then installs the selected local reactor components. Isolated verification does not
@@ -693,86 +793,15 @@ input guards and the conditional demo gate; deployment and whole-stack smoke are
 | Workspace browser specification only | 101.9 s | 88.9 s | 13% |
 | Workspace production source | 101.9 s | 98.9 s | All checks correctly rerun; normal timing variation |
 
-The Workspace control disables only its task cache, retaining whole-repository reuse for the
-other applications and all other optimizations. Each probe adds a temporary comment to the
-respective input, runs the real command and restores the file. Unit edits rerun units while
-restoring the production build and reusing browser evidence; browser edits rerun browser checks;
-production edits rerun all three. The unit suite took about 12 s, the production build 2.5 s and
-the browser suite 62–64 s when executed. The unchanged comparison uses the earlier whole-repository
-cache implementation, before lazy copying and the other cache changes.
-
-All evidence below is under `.cedar/build-reports/frontend-runs/`:
-
-| Run | Report |
-| --- | --- |
-| Earlier unchanged run | `20261024T055233Z-20b7f977.json` |
-| Unchanged with lazy copying | `20261024T083917Z-09834d35.json` |
-| Workspace whole-repository control | `20261024T084129Z-0092f32b.json` |
-| Workspace unit edit | `20261024T084246Z-8c35726e.json` |
-| Workspace browser edit | `20261024T084443Z-f945dcd8.json` |
-| Workspace production edit | `20261024T084730Z-3ddd3320.json` |
-| CED unit edit | `20261024T085134Z-bbef9aa5.json` |
-
-A CED unit-only edit completed in 75.6 s, reusing its browser and visual stages. In the preceding
-cold run, the browser stage alone took 174 s. This is evidence of avoided work, not an
-apples-to-apples full-command speedup measurement: CED's remaining gates and worker contention
-also affect wall time.
-
-Cold verification remains roughly 8–10 minutes: the pre-change baseline was 595.4 s
-(`20261024T074103Z-e96e1d5d.json`); complete passes during implementation took 506.1 s, 583.5 s
-and 533.6 s. One included a 50.9 s demo gate. These runs do not establish a controlled cold-run
-speedup; the main measured benefit is repeated development verification. No full deployment/E2E
-before-and-after timing was obtained.
-
-Workspace's copied staged outputs shrank from 255,641,600 to 2,304,000 bytes by omitting historical
-hashed bundles from disposable workspaces. The live checkout is unchanged. Changed Workspace
-repositories still spend 4.6–4.7 s installing private dependencies; retaining installed dependency
-trees could at most recover roughly that time per such rebuild before restoration and validation
-costs. This potential saving is not implemented or included in the table.
-
-The cache/reactor regression selection passed 115 tests. A final unchanged run after restoring
-every probe completed in 20.9 s (`20261024T085733Z-50fd8d2b.json`), reusing all repository and demo
-results. A Workspace version-selector test now
-waits for fonts and the rendered selected label before measuring geometry. The selector and bin-drop
-cases passed 120 repeated Chromium/WebKit tests with retries disabled. A later cold run nevertheless
-exposed an intermittent one-pixel bin-drop screenshot failure under combined load. The failed result
-was not cached, and the full resume and all controlled probes passed. The CI follow-up isolated this
-to Chromium's partial rasterization: with sixfold CPU throttling through the DevTools protocol,
-the exact CI pixel reproduced in 20 of 20 Chromium runs. Disabling partial rasterization passed all
-20 under the same throttling, with all 20 WebKit controls passing in both runs. The full 1,052-case
-browser suite also passed with the unchanged baselines and retries disabled (1.5 minutes, six workers).
-No cases, browser projects, screenshot thresholds or baselines were removed or relaxed.
-
-Earlier measurements, with the then-current verification inventory:
-
-Measured on 2026-10-14 with a warm npm cache and a filled result store, one run each:
-
-| What changed                    | Repositories run | `--jobs` / `--workers` | Wall time |
-| ------------------------------- | ---------------- | ---------------------- | --------- |
-| Nothing                         | none             | 3 / 8                  | 8 s       |
-| CED alone                       | CED              | 3 / 12                 | 159 s     |
-| CED alone                       | CED              | 3 / 8                  | 232 s     |
-
-A full rebuild follows any change to cedar-cli or to the frontend inputs in
-`cedar-development`, because both are part of every fingerprint. It is CPU-bound for most of
-its run, so more parallelism there mostly adds contention. A third job lets the small
-applications run beside the long CEE and CED suites, and fewer workers keep those suites from
-oversubscribing the cores when they overlap:
-
-| Scheduling                               | `--jobs` / `--workers` | Wall time | CPU busy |
-| ---------------------------------------- | ---------------------- | --------- | -------- |
-| Consumers start from a packaged producer | 3 / 8                  | 345 s     | 86%      |
-| Consumers start from a packaged producer | 3 / 12                 | 361 s     | 86%      |
-| Consumers start from a packaged producer | 2 / 12                 | 380 s     |          |
-| Consumers wait for every check           | 2 / 12                 | 376 s     | 78%      |
-| Consumers wait for every check           | 3 / 8                  | 435 s     | 63%      |
-
-Twelve workers therefore cost a full rebuild 16 s and save a single-repository build more than a
-minute. Reports: `.cedar/build-reports/20261015T035218Z-12bec28f.json`,
-`20261015T035723Z-0ac7e652.json`, `20261015T035247Z-0015beba.json`,
-`20261015T012311Z-c285cb6b.json`, `20261015T011659Z-fedcff7b.json`,
-`20261015T010102Z-576ae15f.json`, `20261015T010854Z-104313dc.json` and
-`20261015T012939Z-82d73030.json`. These are historical scheduling comparisons.
+The Workspace control disables only its task cache; the unchanged comparison uses the earlier cache
+implementation. Unit edits rerun units while reusing the build and browser checks; browser edits
+rerun browser checks; production edits rerun all three. These are
+single workstation measurements, not a deployment/E2E speedup claim. Full cold verification in the
+same investigation took roughly 8–10 minutes. Evidence is retained under
+`.cedar/build-reports/frontend-runs/`, including `20261024T084129Z-0092f32b.json` (control),
+`20261024T084246Z-8c35726e.json` (unit), `20261024T084443Z-f945dcd8.json` (browser), and
+`20261024T084730Z-3ddd3320.json` (production source). Use the current command's timing report for
+capacity planning; older scheduling and pre-cache measurements used different verification inputs.
 
 `cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
 repositories at once, with two workers per repository. The defaults above choose 3/12 on
@@ -802,16 +831,6 @@ in. It is taken back once that process has exited, once the machine has restarte
 hours, longer than any command holds a slot. A pool found idle with another size, as after moving
 an estate to a new machine, takes the host's core count. Removing the directory while no build
 runs resets it.
-
-The pool leaves the length of a full rebuild where it was and removes the load that made browser
-suites time out. Measured on 2026-10-20 at `--jobs 3 --workers 12`, a full rebuild took 489 s.
-The run before the pool stopped at a CED failure after 450 s and would have taken about 475 s. The
-load's median fell from 43 to 17 on 16 cores, and CED's 980 browser tests ran with none flaky or
-failed, against seven flaky and one failed under the earlier load. A second holder that took five
-workers for two minutes in the middle of a later run waited 1.4 s for its turn, and the slots in
-use never exceeded 16 across 987 samples. Reports:
-`.cedar/build-reports/20261021T040607Z-72ccce31.json`, `20261021T022455Z-b31d00b5.json` and
-`20261021T044108Z-dd19accc.json`.
 
 A surface in `frontend-train.json` may declare a `package` phase between `setup` and
 `verify`: the commands that build and stage what it publishes. The model library and CEE
@@ -1312,9 +1331,8 @@ and type without creating form pagination.
 
 CEDAR's font stack, type scale, brand palettes and neutrals are published from
 `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, and its README is the reference
-for them. CEE held the original the other two copied, and gave it up on 2026-09-15: the values come from the
-package, reached as `@use '@org.metadatacenter/cedar-design-tokens/tokens' as tokens` with
-`node_modules` on the Sass load path, which `stylePreprocessorOptions.includePaths` declares beside
+for them. Import the values with `@use '@org.metadatacenter/cedar-design-tokens/tokens' as tokens`.
+Keep `node_modules` on the Sass load path, which `stylePreprocessorOptions.includePaths` declares beside
 `src`. What stays in `src/_cee-layout.scss` is CEE's own — the trailing slot in a title row, the
 card's inline gutter, and the size and gap of a toolbar control — because those measure a card no
 other component draws.
@@ -1427,8 +1445,8 @@ can be pointed at to try an unpublished build, by symlinking its
 `node_modules/cedar-embeddable-editor` at it — described under "Getting a Local
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
 it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
-symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
-holds the installed public npmjs release 2.0.3.
+symlinked consumer to serve CEE.** Use `cedarcli check components` and the reactor selection
+to identify each consumer's installed source; do not infer it from a historical release label.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -1475,14 +1493,9 @@ cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && npx ng build
 ```
 
-**A running `ng serve` will not pick a new bundle up, and restarting it is not
-always enough.** It copies assets when it starts, and it does not notice the file
-changing underneath it — still less the symlink being created after it started.
-Worse, openview is on Angular 16 and its webpack build cache snapshots the
-*symlink* rather than what the symlink points at, so a restart alone can replay a
-cached copy of a bundle that is no longer there. Observed: a restart served a
-bundle matching neither the symlink target nor any file in `dist/`, and went on
-doing so for two minutes of polling. Clear the cache and restart:
+**Verify the served bytes after changing a package or symlink.** A running development server
+may retain an earlier copied asset. Restart it after staging; if it still serves stale bytes,
+clear its Angular build cache and restart:
 
 ```bash
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && rm -rf .angular/cache
@@ -1498,14 +1511,18 @@ type scale and field icons present in Workspace. Compare served hashes before ch
 Ask what each host actually serves before believing anything about appearance:
 
 ```bash
-curl -s http://localhost:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -s http://localhost:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.host-fonts.js | shasum -a 256
+shasum -a 256 $CEDAR_HOME/cedar-openview/cedar-openview-src/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.host-fonts.js
 curl -s http://localhost:4200/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -s http://localhost:4201/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 shasum -a 256 $CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor/cedar-embeddable-editor.js
 ```
 
-Four matching hashes mean the hosts agree and any remaining difference is theirs
-rather than CEE's — configuration, or something the host page sets. openview sets
+Compare each response with the same bundle variant in its installed package. The standalone and
+host-font scripts intentionally have different hashes; Workspace's loader may select host fonts too.
+
+Matching each served hash to its selected package proves which CEE build the host runs.
+For the same component source, appearance can still differ with host configuration. OpenView sets
 `readOnlyMode: true`, for instance, so it legitimately shows no bound hints and no
 clear buttons. `window.cedarEmbeddableEditorVersion` names the build in a page
 that is already open, but it reports the label rather than the contents: a staged
@@ -1692,10 +1709,10 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-The supported frontend toolchain uses Node **24.22.1**, Angular CLI/build/CDK/Material
-**22.2.5**, and Angular core **22.2.4**. Angular's 22.2.5 builder selects Vite 8.3.5. The
-development-server advisories against the Vite 8.3 line are fixed from 8.3.3, so no project
-overrides Vite.
+The supported frontend toolchain uses Node **24.22.1**, Angular CLI and build **22.2.5**,
+Angular CDK and Material **22.2.6**, and Angular core **22.2.4**. Angular's 22.2.5 builder
+selects Vite 8.3.5. The development-server advisories against the Vite 8.3 line are fixed from
+8.3.3, so no project overrides Vite.
 
 CEE, CED, CETP and Workspace hold `@ngx-translate/core` at 18.0.x with a `~18.0.0` range.
 Release 18.1.0 changes how often the service announces a translation change, which fails
@@ -1728,8 +1745,22 @@ matching severity count does not prove that the same advisories were reviewed. A
 changing locks, run `cedarcli publish baselines --refresh` and review the resulting
 `ops/frontend-train.json` diff. This updates train evidence; it does not publish packages.
 
-The legacy Template Editor's npm tooling and vendored Bower assets need a separate
-assessment. An npm production-only audit does not cover those Bower assets.
+The reactor, the in-place server-payload builds and the CEE demo gate install with
+`NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true`, as the train and every frontend CI workflow do. npm
+then refuses a locked package with an install script that the package's `allowScripts` policy
+does not cover. Each approval names an exact version, so a lock refresh that moves such a
+package fails the next reactor run until its approval moves too. Compare the new release's
+install script with the approved one (`npm view <package>@<version> scripts`) before moving
+the approval. When the reactor substitutes a locally packed CEDAR package, it also denies that
+package's scripts in the rewritten manifest. npm counts the design tokens' `prepare` script as an
+install script of a file dependency, though a registry install never runs it.
+
+Dependency rounds and lock refreshes leave the legacy Template Editor's npm tooling as it
+is until the Workbench retires. On 2026-11-04 its lock reported 9 critical and 32 high
+advisories, all in its Gulp and Karma build and test tooling, and a plain `npm update`
+would have downgraded some of its packages, among them `request` and `tough-cookie`. The
+CEDAR development packages it consumes still move with the other consumers. No npm audit
+covers its vendored Bower assets.
 
 **Never run `npm audit fix --force` here.** npm's idea of fixing the Angular
 tooling is to walk it backwards: it proposed `@angular/cli@21.0.4` and
@@ -2535,13 +2566,11 @@ Resolution from `../src` walks up to a repo root with no `node_modules`. The
 add any new one there.
 
 **A model library change reaches the harness but not the built app**
-The harness consumes `dist/` through node's CommonJS entry; the Angular build
-takes the ES module one. Both come out of `npm run build` in the library, but
-only the ESM bundle exports named symbols, and it does so only because
-`webpack.config.js` sets `output.library.type: 'module'` on that config. Without
-it the file exports nothing but `default`, every import resolves to `undefined`,
-and nothing fails until the widget runs in a browser — the domain harness stays
-green throughout. The visual baseline is what catches it.
+The harness consumes `dist/` through Node's CommonJS entry; the Angular build takes
+the modular `esm/index-namespace.js` entry. Both come out of `npm run build` in the library.
+The separate copyable `index.esm.js` still needs webpack's named library exports.
+The packed-consumer gate checks each format, browser mappings and shared policy identities;
+the browser and visual gates prove the application using the modular output runs correctly.
 
 **Model library changes aren't visible to the harness**
 Running a harness directly from an existing checkout uses that checkout's installed package.
@@ -2770,14 +2799,10 @@ What CED still needs before it can stand in for that designer is in
 
 ### Where the Design Values Come From
 
-The designer's type scale and palette are CEDAR's, published from `cedar-design-tokens` as
-`@org.metadatacenter/cedar-design-tokens`. `src/styles.css` imported them on 2026-09-15 —
-`@import '@org.metadatacenter/cedar-design-tokens/custom-properties.css'` — in place of the hand
-translation it had been holding, which had been faithful in all nineteen shared properties except
-the advisory colour it had let drift. Tailwind's `@theme` reads custom properties rather than Sass
-variables, which is why this consumer takes the emitted file and not the partial. The five steps of the scale are 12, 14, 15, 18 and 20px, and a size between two
-of them is not on it: the designer ran 11px controls under 10px labels until 2026-09-15, and every
-seam where that met a component at CEE's 14px showed.
+The designer imports `@org.metadatacenter/cedar-design-tokens/custom-properties.css` in
+`src/styles.css`. Tailwind's `@theme` reads those custom properties, so this consumer uses the
+compiled stylesheet rather than the Sass partial. Keep shared scales and colors in the token
+package; its [README](../../cedar-design-tokens/README.md) defines the vocabulary.
 
 <a id="ced-requirements"></a>
 
@@ -3960,13 +3985,50 @@ CED and CETP ship the same pair: `cedar-embeddable-designer.host-fonts.js` and
 `cedar-embeddable-term-picker.host-fonts.js`, each beside a `bundle-manifest.host-fonts.json`
 and held to its own size ceiling, which is the default bundle's less the embedded faces. The
 tokens package also publishes the faces as compiled `fonts.css`, for a host without Sass. The
-Template Designer page loads CEE, CETP and CED together, so it links `fonts.css` once and
-`stage-components.mjs` stages each component's host-fonts bundle under the component's usual
-file name. The staged `manifest.json` records the package file in `bundle`, and
-`cedarcli check components` compares the served bytes with that file. A package without a
-host-fonts bundle, or a tokens package without `fonts.css`, is staged self-contained, as before.
-The page then downloads the faces once rather than three times, which saves about 180 kB of
-compressed transfer.
+Template Designer page links `fonts.css` once. When staging separate component scripts,
+`stage-components.mjs` chooses each host-fonts bundle under the component's usual file name.
+A package without a host-fonts bundle, or a tokens package without `fonts.css`, is staged
+self-contained. Sharing the faces saves about 180 kB of compressed transfer.
+
+### Template Designer Shared Runtime
+
+CEE, CED and CETP also package `integration.mjs`, an AOT-compiled host-fonts module whose
+Angular, RxJS, translation and model dependencies remain external. This is an explicit host-build
+input; the default package entry and standalone scripts remain self-contained. The component
+production builds generate both standalone variants and the integration module. Packaging verifies
+the module's source fingerprint, bytes and runtime identities against `integration-manifest.json`.
+
+The Template Designer combines a complete integration cohort with Angular's production linker,
+then flattens that module graph into `cedar-editors.js`. Each component keeps its application
+injector, per-element state and configuration. Registration waits for CEE, then CETP, then CED;
+the host downloads the shared script once. Exact dependency versions must match the component
+manifests. The model may cross public and development package identities only when its ESM files
+and package metadata match after removing `name`, `version` and `publishConfig`. The manifest's
+`runtimeSha256` records that comparison; its original `sha256` still records the exact build input.
+Older manifests without `runtimeSha256` retain the exact-version and exact-content rule.
+A code, resolver-metadata or other dependency mismatch fails staging.
+The build checks its module graph for duplicate runtime copies.
+
+`cedarcli build frontends` supplies these modules from current source automatically. No registry
+pin changes or publication are required. Older registry cohorts without integration modules and
+explicit local standalone overrides retain the separate-script path. Runtime upgrades require
+rebuilding the coordinated cohort. The manifests record both compiled input identities and the
+combined script's digest; `cedarcli check components` verifies both. The hash in the script URL
+changes whenever its bytes change. Third-party notices travel beside the shared output.
+
+The host's `npm run check:size` runs during preparation and native startup. It counts each
+manifest delivery once, host JavaScript, imported CSS, and the deferred schema-validator fallback.
+`app/components/page-size.json` records raw and gzip sizes by file and phase. Browser coverage
+checks that observed JavaScript/CSS requests belong to that inventory. Shared delivery limits
+are 4,000,000 raw / 1,000,000 gzip initially and 4,500,000 / 1,150,000 including the fallback.
+Older standalone cohorts have separate 5,200,000 / 1,300,000 and 5,700,000 / 1,450,000 limits.
+`dist/editors/browser-stats.json` contains the build graph for investigating growth.
+
+Measured on 2026-11-06 with the same component sources, the three host-font scripts total
+4,358,267 bytes raw / 1,004,111 gzip; the shared script is 3,443,265 / 746,782, reductions of
+21.0% and 25.6%. The whole shared page's initial JavaScript/CSS is 3,771,811 / 903,335;
+including the unused-unless-needed schema fallback it is 4,290,922 / 946,573. The standalone
+CEE and CED scripts, including their host-font variants, retain identical SHA-256 hashes.
 
 The host checks every save payload with the meta-schema validator CED carries, through
 `designer.validateArtifact`, rather than importing its own copy. Against a CED built before that
@@ -4301,7 +4363,9 @@ were reassessed at CED `7317f29`, CEE `2c882afa`, the term picker `ef5fac9` and 
 `bc2401e8`. On 2026-10-27 the criteria a fifth round touched, 1.4.1 and 1.4.11, were reassessed at
 CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9`. On 2026-10-28
 1.4.11 was reassessed twice more, after a sixth and a seventh round, last at CED `0bb2eb7`, CEE
-`1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. The assessment read code and tests. Nobody ran a
+`1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. On 2026-11-04 the criteria an
+eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were reassessed at CEE
+`d394026f` and Workspace `c6cb1227`. The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -4331,9 +4395,9 @@ criteria do not apply.
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
 | CED | 22 | 10 | 7 | 0 | 16 | 22 of 39, 56% |
-| CEE | 23 | 11 | 7 | 6 | 8 | 23 of 47, 49% |
+| CEE | 25 | 12 | 4 | 6 | 8 | 25 of 47, 53% |
 | Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
-| Workspace | 30 | 14 | 3 | 0 | 8 | 30 of 47, 64% |
+| Workspace | 30 | 15 | 2 | 0 | 8 | 30 of 47, 64% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -4358,7 +4422,13 @@ every boundary now measures at least 3:1 as drawn. A seventh round measured icon
 and selection marks as drawn too. It found that a selected CED field card showed no focus ring, that
 CEE's current page chip was marked by a tint alone, and that the term picker drew its tree's twists
 and its close button white on white. With each fixed, 1.4.11 moved from Partial to Met in all four
-components. The failures still stand at 22, and most of them need a visible change.
+components. The failures stood at 22 after it. An eighth round marked every CEE warning with the
+word Warning, gave CEE's link-out icon a 4px gap and kept its cleared and reverted notices until
+the next edit. In Workspace it asked before removing access and closed menus when focus leaves
+them. That moved CEE's 1.4.1 from Fails to Partial, its 2.2.1 and 2.5.8 from Fails to Met, and
+Workspace's 2.4.3 from Fails to Partial. Workspace's 3.3.4 stays Partial, because no assessment
+has covered its other irreversible actions. The failures now stand at 18, and most of them need a
+visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -4370,9 +4440,9 @@ spec as a named exception, and an exception that stops occurring fails it.
 
 ### Failures Several Components Share
 
-One failure still recurs across components: targets under 24px. CED's field settings toggle,
-CEE's read-only link-out icon and the term picker's tree twists, tree terms and history releases
-fall under WCAG 2.2's minimum target (2.5.8).
+One failure still recurs across components: targets under 24px. CED's field settings toggle and
+the term picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum
+target (2.5.8).
 
 Two others had shared causes, and each was fixed where its cause lives. Text inputs draw their
 boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
@@ -4407,7 +4477,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
 | 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
-| 1.4.1 Use of Color | A | Partial | Fails | Partial | Partial |
+| 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
 | 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
@@ -4419,12 +4489,12 @@ that touches it, and update the assessment date and commits with it.
 | 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
 | 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
-| 2.2.1 Timing Adjustable | A | Met | Fails | Met | Partial |
+| 2.2.1 Timing Adjustable | A | Met | Met | Met | Partial |
 | 2.2.2 Pause, Stop, Hide | A | Met | Met | Met | Partial |
 | 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
 | 2.4.1 Bypass Blocks | A | Host | Host | Host | Met |
 | 2.4.2 Page Titled | A | Host | Host | Host | Met |
-| 2.4.3 Focus Order | A | Partial | Partial | Partial | Fails |
+| 2.4.3 Focus Order | A | Partial | Partial | Partial | Partial |
 | 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Met |
 | 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
 | 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
@@ -4435,7 +4505,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.5.3 Label in Name | A | Met | Met | Met | Met |
 | 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
 | 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
-| 2.5.8 Target Size (Minimum) | AA | Fails | Fails | Fails | Met |
+| 2.5.8 Target Size (Minimum) | AA | Fails | Met | Fails | Met |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
 | 3.1.2 Language of Parts | AA | Partial | Partial | Met | Met |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |

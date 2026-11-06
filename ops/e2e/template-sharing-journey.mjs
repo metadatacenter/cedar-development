@@ -124,9 +124,10 @@ export async function templateSharingJourney(args) {
       await modal(page).getByRole("checkbox", { name: "Make Everyone the owner", exact: true }).isDisabled(),
       true,
     );
-    await write(page, "PUT", "/templates/",
-      () => modal(page).getByRole("button", { name: "Remove direct role for Everyone", exact: true }).click(),
-      200, true);
+    await write(page, "PUT", "/templates/", async () => {
+      await modal(page).getByRole("button", { name: "Remove direct role for Everyone", exact: true }).click();
+      await page.locator("dialog.confirmation-dialog").getByRole("button", { name: "Yes", exact: true }).click();
+    }, 200, true);
     await everyoneRole.waitFor({ state: "detached" });
 
     // An external ACL change must reject a stale edit and leave the failed intent visible.

@@ -23,7 +23,6 @@
     "cedar-embeddable-editor",
     "cedar-embeddable-term-picker",
     "cedar-group-server",
-    "cedar-impex-server",
     "cedar-keycloak-event-listener",
     "cedar-libraries",
     "cedar-messaging-server",
@@ -69,7 +68,6 @@
     "cedar-worker-server",
     "cedar-openview-server",
     "cedar-monitor-server",
-    "cedar-impex-server",
     "cedar-bridge-server",
     "cedar-cadsr-tools",
     "cedar-clients",
@@ -112,7 +110,6 @@
     "cedar-worker-server-application",
     "cedar-openview-server-application",
     "cedar-monitor-server-application",
-    "cedar-impex-server-application",
     "cedar-bridge-server-application"
   ]
 }

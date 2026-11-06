@@ -4,4 +4,6 @@ echo Stopping MySQL
 echo --------------------------------------------------------------------------------
 echo
 
-brew services stop mysql
+MYSQL_FORMULA=mysql@8.4
+
+brew services stop "${MYSQL_FORMULA}"

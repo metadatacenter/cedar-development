@@ -1,8 +1,8 @@
 # CEDAR Docker Runbook
 
 This is the operating guide for CEDAR's Docker deployment: seven infrastructure containers,
-twelve Java microservices, and seven frontend containers. Those 26 containers form the complete
-all-Docker runtime. The 19-container backend can also run with seven native frontend development
+eleven Java microservices, and seven frontend containers. Those 25 containers form the complete
+all-Docker runtime. The 18-container backend can also run with seven native frontend development
 servers as a supported hybrid. Four admin-tool containers are optional and excluded from both core
 counts.
 
@@ -16,8 +16,8 @@ Local Docker and hybrid deployments support completed immutable trains and expli
 checked-out source. Use the health, REST and browser gates in this guide to verify each deployment;
 a prior successful run does not establish the current deployment's readiness.
 
-`CEDAR_IMAGE_PREFIX` selects the 26 runtime images. `CEDAR_BASE_IMAGE_PREFIX` selects the two
-Java base images and defaults to the runtime prefix. Published trains verify all 28 images before
+`CEDAR_IMAGE_PREFIX` selects the 25 runtime images. `CEDAR_BASE_IMAGE_PREFIX` selects the two
+Java base images and defaults to the runtime prefix. Published trains verify all 27 images before
 advancing the deployable pointer.
 
 ## What Runs
@@ -25,7 +25,7 @@ advancing the deployable pointer.
 | Tier | Containers | Host ports |
 | --- | ---: | --- |
 | Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200/9300, 27017 |
-| Microservices | 12 | 9002-9015; Artifact's 9001 is intentionally internal only |
+| Microservices | 11 | 9002-9015; Artifact's 9001 is intentionally internal only |
 | Frontends (`docker` mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
 | Frontends (alternative hybrid mode) | 0 containers / 7 macOS processes | Same seven ports |
 | Admin tools (optional) | 4 | Environment-configured admin ports |
@@ -117,7 +117,7 @@ locally built image pinned into one service is lost.
 docker start infra-mongo infra-mysql infra-neo4j infra-opensearch infra-redis-persistent \
              infra-keycloak
 docker start server-artifact server-repo server-terminology server-user server-resource \
-             server-impex server-group server-worker server-messaging server-openview \
+             server-group server-worker server-messaging server-openview \
              server-monitor server-bridge
 docker start frontend-main frontend-workspace frontend-template-designer frontend-openview \
              frontend-content frontend-monitoring frontend-bridging infra-nginx
@@ -225,28 +225,11 @@ Image builds do not require a selected deployment mode: they consume the Docker 
 explicit registry/train inputs without reading a runtime profile. Commands that manage or inspect a
 deployment remain gated by the configured `docker` or `hybrid` mode.
 
-Create and publish a new immutable Maven, npm, and Docker train with:
-
-```bash
-cedarcli publish train
-```
-
-The workflow records one source manifest, then completes three ordered publication stages:
-
-1. It compiles and publishes the immutable Maven graph.
-2. It stamps and publishes the captured TypeScript model as an immutable development package, wires
-   and tests the captured CEE against that exact model, publishes CEE, pins it into the seven
-   captured frontend packages, and verifies every tarball, integrity value, and source commit.
-3. It builds the two internal bases and 26 runtime images from those Maven and npm inputs, then
-   pulls and verifies all 28 before advancing `docker/current.json`.
-
-The Maven, npm, and Docker completion pointers move independently and only after their own stage
-has passed. A failed train never becomes the current deployable Docker train. Resume a failed
-publication with the train ID printed by the original command:
-
-```bash
-cedarcli publish train --resume <TRAIN_ID>
-```
+Use [Create a Train](BUILD-RUNBOOK.md#create-a-train) to publish new images and
+[Resume a Failed Train](BUILD-RUNBOOK.md#resume-a-failed-train) for recovery. After exact-source
+capture and preflight, Maven and the npm chain run independently; Docker waits for both to complete.
+Only successful image pull-back verification advances `docker/current.json`. Maven completion
+alone is not a deployable Docker train.
 
 ### Completed Build Train: Normal Published-Artifact Build
 
@@ -274,7 +257,7 @@ cedarcli docker build microservices --train <TRAIN_ID>
 ### Checked-Out Java Source: Explicit Local Build
 
 The Java build installs the parent,
-shared libraries, the 70-module server reactor, and clients in dependency order, running the unit
+shared libraries, server reactor, and clients in dependency order, running the unit
 and embedded integration suites by default. Use `--skip-tests` explicitly only for a previously
 verified compile/install loop; the REST gate below remains the deployment acceptance test. `--local`
 then stages each newly built fat JAR into its server image and clears the staged file after the
@@ -337,9 +320,9 @@ the public CEE. `CEDAR_NPM_REGISTRY` names the registry the frontend images down
 `npm-cedar` on `develop` and `npm-cedar-releases` on a release tag, because Nexus removes a package
 from `npm-cedar` within thirty days and never removes one from `npm-cedar-releases`.
 
-The full core build inventory is 28 images: seven infrastructure images, two Java bases, twelve
+The full core build inventory is 27 images: seven infrastructure images, two Java bases, eleven
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
-optional admin images, for 32 total.
+optional admin images, for 31 total.
 
 ## One-Time Docker Setup
 
@@ -367,8 +350,8 @@ docker volume inspect cedar_cert cedar_ca >/dev/null
 
 ## Start the Docker Deployment
 
-The configured `docker` mode runs all 26 core containers. Configured `hybrid` mode runs the
-19-container backend and routes Docker nginx to the seven frontend development servers on the host.
+The configured `docker` mode runs all 25 core containers. Configured `hybrid` mode runs the
+18-container backend and routes Docker nginx to the seven frontend development servers on the host.
 
 ```bash
 cedarcli docker start all --pull never
@@ -392,7 +375,7 @@ digest in that record. Compose is then forced to `--pull never` so it cannot re-
 between verification and start. This also makes resume safe: a pre-existing tag is reused only
 when its registry digest matches the completion record.
 
-The twelve Java services run as the fixed non-root identity `10001:10001`. Before starting that
+The eleven Java services run as the fixed non-root identity `10001:10001`. Before starting that
 stack, the CLI prepares the log, Resource state, and Terminology cache named volumes once and marks
 each migrated volume with `.cedar-owner-10001`. This makes volumes created by older root-running
 images safe to reuse without deleting their data. The brief ownership container runs as root with
@@ -435,7 +418,7 @@ cedarcli docker status
 ```
 
 A microservice container reads healthy when the dependencies it holds answer, not merely when its
-process is alive: every one of the twelve probes Neo4j, and each adds Mongo, MySQL, OpenSearch or
+process is alive: every one of the eleven probes Neo4j, and each adds Mongo, MySQL, OpenSearch or
 its own Redis queue where it owns one. The `depends_on` edges in the microservice stack order the
 start and do not wait on health, so an unreachable database marks one container unhealthy instead of
 preventing the containers behind it from starting at all. Staged readiness belongs to
@@ -482,10 +465,10 @@ cedarcli docker start admin --train <TRAIN_ID> --pull never --detach
 cedarcli docker stop admin
 ```
 
-The four admin images are outside the verified 28-image Docker-train pointer. Build them explicitly
+The four admin images are outside the verified 27-image Docker-train pointer. Build them explicitly
 for the train used by the deployment before starting them.
 
-For a hybrid deployment, there must be exactly 22 running backend containers and every one must
+For a hybrid deployment, there must be exactly 18 running backend containers and every one must
 report `healthy`:
 
 ```bash
@@ -587,7 +570,7 @@ npm run smoke:split:hostnames:keycloak
 npm run smoke:split:hostnames
 ```
 
-Expected: all seven hostnames return 200, both split smoke commands pass, and all 22 backend
+Expected: all seven hostnames return 200, both split smoke commands pass, and all 18 backend
 containers remain healthy.
 
 Stop only the native frontends without touching the Docker backend:
@@ -598,11 +581,11 @@ cedarcli native stop frontends
 
 Three frontend deployment modes remain distinct:
 
-| Mode | Where frontend code is served | How it is started | Current status |
-| --- | --- | --- | --- |
-| Hybrid | Seven macOS development-server processes | `cedarcli mode hybrid --profile develop`, then native frontends and `cedarcli docker start all` | Proven local development mode |
-| All-Docker frontends | Seven containers on `cedarnet` | `cedarcli mode docker`, then `cedarcli docker start all` | Proven on 2026-08-21 |
-| Native-only stack | Seven native development servers | `cedarcli mode native --profile develop`, then `cedarcli native start all` | Preserved; Docker work does not change it |
+| Mode | Where frontend code is served | How it is started |
+| --- | --- | --- |
+| Hybrid | Seven native development-server processes | `cedarcli mode hybrid --profile develop`, then native frontends and `cedarcli docker start all` |
+| All-Docker frontends | Seven containers on `cedarnet` | `cedarcli mode docker`, then `cedarcli docker start all` |
+| Native-only stack | Seven native development servers | `cedarcli mode native --profile develop`, then `cedarcli native start all` |
 
 Do not run native and containerized frontends on the same published ports. The normal frontend
 Compose stack now contains Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and
@@ -613,22 +596,9 @@ single public TLS and routing layer.
 
 The frontend source repositories remain Docker-agnostic. All Dockerfiles, entrypoints, and private
 nginx configurations are in `cedar-docker-build`; Compose topology is in `cedar-docker-deploy`.
-Each image downloads one immutable npm package from Nexus. The build train derives the TypeScript
-model, CEE, and seven frontend package versions from their captured source commits, publishes and
-verifies that complete graph, then injects its exact identities into the Docker build. Public npmjs
-releases remain independent; a formal CEDAR release later proves its chosen public CEE is
-byte-equivalent to the development CEE the train tested.
-
-Commit the frontend source changes and publish the coordinated train:
-
-```bash
-cedarcli publish train
-```
-
-The train refuses dirty or mismatched source, records each package commit and registry integrity,
-and embeds that npm graph in every frontend image. Use the resulting completed Docker train when
-the deployment must be reproducible. Do not substitute a moving npm dist-tag or treat the
-compatibility pins used by an interactive shell build as published-train provenance.
+For package identity, manifests and caching, see [Frontend Images](#frontend-images).
+Use a completed published train for a reproducible deployment; the
+[build runbook](BUILD-RUNBOOK.md#create-a-train) owns publication and its source requirements.
 
 Stop the hybrid deployment, clear its mode, and configure Docker mode. The aggregate
 command starts the frontend containers and restores nginx's container upstreams as part of the same
@@ -769,7 +739,7 @@ to the deployment's retention decision, and restore the log schema before resumi
 ```bash
 mysqldump -u root -p --databases cedar_keycloak cedar_messaging --single-transaction > cedar.sql
 mysqldump -u root -p --no-data --databases cedar_log | grep -v GTID_PURGED > log-schema.sql
-brew services stop mysql            # see the warning below — mysqladmin shutdown is not enough
+brew services stop mysql@8.4        # see the warning below — mysqladmin shutdown is not enough
 docker compose up -d mysql keycloak
 docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < cedar.sql
 docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < log-schema.sql
@@ -783,7 +753,7 @@ container creates, and `cedar_log` and `cedar_messaging` need their databases, u
 created explicitly — at `@'%'`, since the connection now arrives from outside the container rather
 than from `localhost` as it did natively.
 
-**Stopping native MySQL needs `brew services stop mysql`.** `mysqladmin shutdown` is not enough:
+**Stopping native MySQL needs `brew services stop mysql@8.4`.** `mysqladmin shutdown` is not enough:
 launchd restarts `mysqld_safe`, which restarts `mysqld`, within seconds. Combined with the port trap
 below this is genuinely dangerous — native rebinds `127.0.0.1:3306`, wins every connection back from
 the container, and nothing reports it. Two full REST runs passed against native MySQL while the
@@ -961,6 +931,6 @@ calling shell.
   for an explicitly local experiment.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
-- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.6. This is
+- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.7. This is
   accepted because their compatibility contract is the shared 2.19 line; Docker-build CI enforces
   that major/minor pairing mechanically.

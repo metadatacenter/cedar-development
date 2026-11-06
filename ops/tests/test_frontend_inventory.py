@@ -70,6 +70,15 @@ class FrontendInventoryTest(unittest.TestCase):
                 self.assertLess(commands.index(['../browser/node_modules/.bin/playwright', 'install', '--with-deps', 'chromium']), built)
                 self.assertLess(built, commands.index(['npm', '--prefix', '../browser', 'test']))
 
+    def test_page_payload_checks_run_after_build_and_browser_verification(self):
+        for row in frontend_inventory.surfaces(self.config):
+            if 'payloadBudget' not in row:
+                continue
+            commands = frontend_inventory.commands(self.config, row['repository'], row['directory'])
+            self.assertEqual(['--surface', row['id'], '--root', '.'], commands[-1][-4:])
+            self.assertEqual('frontend_payload.py', Path(commands[-1][1]).name)
+            self.assertIn(['npm', 'run', 'build'], commands[:-1])
+
     def test_workspace_checks_the_built_ui_in_the_visual_container(self):
         commands = frontend_inventory.commands(self.config, 'cedar-workspace')
         built = commands.index(['npm', 'run', 'build'])

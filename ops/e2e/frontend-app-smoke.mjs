@@ -39,9 +39,8 @@ const applications = [
     base: withoutTrailingSlash(process.env.CEDAR_BRIDGING_BASE ?? `https://bridging.${host}`),
     // Bridging's landing card, which explains that the flow starts in CEDAR.
     marker: 'Create Datacite DOI',
-    // The editor is loaded by tag rather than bundled into the application, so
-    // its registration is the only thing proving the tag still resolves.
-    customElement: 'cedar-embeddable-editor',
+    // The landing page must not download the editor; the DOI browser journey proves its later load.
+    deferredCustomElement: 'cedar-embeddable-editor',
   },
 ];
 
@@ -127,13 +126,13 @@ async function openApplication(page, app) {
   if (focus !== 'rgb(255, 255, 255)') fail(`${app.name}: keyboard focus must contrast with the primary header`);
   else ok(`${app.name} preserves visible keyboard focus on its shared primary header`);
 
-  if (app.customElement) {
+  if (app.deferredCustomElement) {
     const registered = await page.evaluate(
-      name => !!customElements.get(name), app.customElement);
-    if (registered) {
-      ok(`${app.name} registers <${app.customElement}>`);
+      name => !!customElements.get(name), app.deferredCustomElement);
+    if (!registered) {
+      ok(`${app.name} defers <${app.deferredCustomElement}> until the form opens`);
     } else {
-      fail(`${app.name}: <${app.customElement}> is not registered, so its bundle did not load`);
+      fail(`${app.name}: the landing page loaded <${app.deferredCustomElement}> unnecessarily`);
     }
   }
 

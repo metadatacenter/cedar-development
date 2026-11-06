@@ -6,7 +6,7 @@ import { enterVersion, listed, menu, save, showInformation } from "./workspace-j
 // The journey publishes a template and drafts its next version through Workspace's row actions. A
 // record made before publication stays based on the template it was made from, and the template's
 // Version tab shows the published version and its draft from either row. The template has the
-// fields the full smoke authors in Designer, its DOID constraint included.
+// fields the full smoke authors in Designer.
 //
 // The journey acts as the runner's first test user only and never signs in as another account.
 export async function publicationJourney(args) {

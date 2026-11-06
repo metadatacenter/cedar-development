@@ -1,7 +1,7 @@
 Contributing to CEDAR
 =====================
 
-CEDAR is about fifty repositories that build and run as one system: twelve microservices, five shared Java
+CEDAR is about fifty repositories that build and run as one system: eleven microservices, five shared Java
 libraries, several frontends, a control CLI, and this repository, which holds the development and operations
 tooling. A change to one of them is rarely confined to it.
 

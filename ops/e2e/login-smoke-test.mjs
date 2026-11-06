@@ -1,14 +1,13 @@
 // End-to-end smoke test against a running CEDAR stack: log in through the real
 // Keycloak form; exercise Workspace folder, sharing, group, membership, rename,
 // OpenView open/close, artifact/folder move and delete mutations with current ETags;
-// create a template with a Disease field
-// constrained to the DOID "disease" branch via the live BioPortal picker; save it
+// create a template with two plain-text fields; save it
 // twice without reloading; prove stale-editor rejection and reload recovery; run a
 // real two-user Viewer/Editor/Manager/revoke sharing lifecycle; transfer ownership in both
 // directions; recover Workspace and Designer
 // mutations after an expired access token; publish an independent template, prove it
-// immutable, and create an editable draft; populate the main template and confirm a
-// live DOID suggestion; exercise CEE's dirty-navigation contract; publish it to
+// immutable, and create an editable draft; populate the main template;
+// exercise CEE's dirty-navigation contract; publish it to
 // OpenView and confirm an anonymous visitor sees it; then clean up everything.
 //
 //   npm run smoke                        production monolith, headless
@@ -141,7 +140,7 @@ async function assertWorkingFolderCleared(user, folderId, ownIds) {
 // True when the AngularJS application on the page has no $http request outstanding, apart from
 // requests to the terminology server. Those are BioPortal-backed lookups that fill the term
 // picker's caches and can take many seconds. Nothing these waits guard reads them, and the steps
-// that use terminology results wait for the results themselves. The outstanding count includes a
+// in this release smoke depend only on CEDAR-owned state. The outstanding count includes a
 // request from the moment it is made, while the list of sent requests, which says where each one
 // went, includes it only once it is sent. Within a digest the two moments coincide.
 const httpIdle = () => {
@@ -1271,81 +1270,6 @@ async function verifyDesignerSessionRecovery(page, editUrl, templateId, user1) {
   console.log('✓ expired sessions recovered in Workspace and Designer through one Keycloak refresh and one successful retry, without changing route or losing the edit');
 }
 
-// Constrain the just-added text field to the "disease" BRANCH of DOID via the live
-// BioPortal picker: Values tab → Add → gear → ontology mode → search the ontology →
-// select DOID → pick the "disease" tree node → stage Branch → Add. This exercises
-// the terminology server's live ontology search and class-tree browse end to end.
-async function constrainToDoidDiseaseBranch(page) {
-  const rowText = 'Human Disease Ontology (DOID)';
-  await page.locator(S.FIELD_VALUES_TAB).filter({ visible: true }).first().click();
-  const openPicker = page.getByRole('button', { name: 'Add', exact: true });
-  await openPicker.waitFor({ state: 'visible' });                     // the Values tab is showing
-  await openPicker.click();                                           // open the picker
-  // The picker is a Bootstrap modal, which takes the class `in` when it is shown. The gear's own
-  // click waits for the modal's slide-in to come to rest.
-  await page.locator('#controlled-term-modal.in').waitFor({ state: 'visible' });
-  await page.locator(S.PICKER_ADVANCED_GEAR).first().click();                       // advanced options
-  // The mode radio is a hidden/styled input whose AngularJS ng-change only fires on a
-  // real DOM click; check({force}) and coordinate clicks don't trigger it, leaving the
-  // picker in term mode. Dispatch a DOM click straight at the element (verified to switch
-  // tsc.searchScope to 'ontologies').
-  const ontologyScope = page.locator(S.SEARCH_SCOPE_ONTOLOGIES);
-  await ontologyScope.dispatchEvent('click');                         // "search for an ontology"
-  await waitForModelValue(ontologyScope, 'ontologies');               // tsc.searchScope switched
-  // The picker filters the ontology list whenever the search model changes. The list loads on
-  // demand (a ~600KB BioPortal-backed call), and a filter that runs before it has arrived finds
-  // nothing, and nothing filters again until the query changes. So the query is typed only once
-  // the list has loaded, which this wait reports as the list's length.
-  //
-  // If the load failed, the cache is empty and stays empty for this page, so no search on it can
-  // succeed. The wait reports that as -1, once the application has nothing outstanding and the
-  // list is still empty. Failing at once hands the decision to the caller, which reloads the page
-  // and gets the service to load the list afresh.
-  const ontologies = await page.waitForFunction(() => {
-    const injector = window.angular?.element(document).injector();
-    if (!injector) return false;
-    const count = injector.get('controlledTermDataService').getAllOntologies().length;
-    if (count > 0) return count;
-    let idle = false;
-    injector.get('$browser').notifyWhenNoOutstandingRequests(() => { idle = true; }, '$http');
-    return idle ? -1 : false;
-  }, null, { timeout: 60_000 }).then(handle => handle.jsonValue());
-  if (ontologies < 0) throw new Error('DOID did not appear in the ontology picker — the ontology list is empty');
-  const query = 'Human Disease Ontology';
-  const searchBox = page.getByRole('textbox', { name: 'Search field' });
-  await searchBox.fill(query);
-  // The box debounces its model by 700 ms, so the filter runs only once the query has committed.
-  await waitForModelValue(searchBox, query);
-  const doidRow = page.getByText(rowText, { exact: false }).first();
-  let found = false;
-  for (let i = 0; i < 6 && !found; i++) {
-    await page.locator(S.PICKER_SEARCH).last().click();                   // run the search
-    try { await doidRow.waitFor({ timeout: 5000 }); found = true; }
-    catch { /* The next search starts at once. This one has already waited five seconds. */ }
-  }
-  if (!found) throw new Error(`DOID did not appear in the ontology picker, which holds ${ontologies} ontologies`);
-  await doidRow.click({ timeout: 8000 });
-  const node = page.locator(S.CLASS_TREE_NODE)
-    .filter({ hasText: /^\s*disease\s*$/i }).first();                   // the DOID:4 root branch
-  await node.waitFor({ timeout: 20_000 });                              // DOID class tree loads
-  await node.click();
-  // The staging toggles render only once the selected class's details and the ontology's
-  // details have both loaded.
-  const stageBranch = page.locator(S.STAGE_BRANCH).first();
-  await stageBranch.waitFor({ state: 'visible', timeout: 20_000 });
-  await stageBranch.click(); // stage Branch
-  // The toggle marks the staged action as active, and the Add button commits whichever action is
-  // staged at the moment it is clicked.
-  await page.locator(`${S.STAGE_BRANCH}.active:not(.ng-animate)`).first().waitFor({ state: 'visible' });
-  await page.locator(S.ADD_VALUE_CONSTRAINT).first().click({ force: true }); // commit
-  await page.locator(S.STAGE_BRANCH)
-    .waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});     // picker closed
-  // The next gesture clicks the designer behind the picker, which the modal and its static
-  // backdrop cover until the fade-out has finished.
-  await page.locator('#controlled-term-modal').waitFor({ state: 'hidden' });
-  await page.locator('.modal-backdrop').waitFor({ state: 'detached' });
-}
-
 // Reach the Metadata Editor for a template via the row ⋮ → Populate (the deep link
 // hits a transient init warning). Retry until the SPA nav commits.
 async function openPopulate(page, folderId, templateName) {
@@ -1385,30 +1309,6 @@ async function instanceReadyToSave(page, value, name) {
       && window.angular.element(field).scope()?.vm?.instanceName === expectedName
       && !!button && !button.disabled;
   }, { expectedValue: value, expectedName: name }, { timeout: 15_000 });
-}
-
-// In the populate form, type a disease into the controlled Disease field and verify
-// the terminology server suggests a matching DOID term (then pick it to fill). This
-// is the end-to-end check that the value constraint resolves to live suggestions.
-async function verifyDiseaseSuggestion(page, query) {
-  const box = page.locator(S.CONTROLLED_TERM_INPUT).first();
-  await box.waitFor({ timeout: 20_000 });
-  const opt = page.getByRole('option', { name: new RegExp(query, 'i') })
-    .or(page.locator(S.SUGGESTION_OPTION, { hasText: new RegExp(query, 'i') }));
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    await box.click();
-    await box.fill('');
-    await box.pressSequentially(query, { delay: 60 }); // keyup drives the lookup; fill() won't
-    try {
-      await opt.first().waitFor({ timeout: 15_000 });
-      await opt.first().click();
-      return;
-    } catch {
-      // The next attempt starts at once by clearing the box and typing again. This one has
-      // already given its lookup fifteen seconds.
-      if (attempt === 3) throw new Error(`no DOID suggestion offered for "${query}"`);
-    }
-  }
 }
 
 // Save the populated instance from the Metadata Editor (V2 / embeddable editor) and confirm it is
@@ -2161,48 +2061,18 @@ try {
   await verifyWorkspaceOpenAndMoveOperations(page, user1, folderId, mutationFolderId);
   mutationFolderId = null;
 
-  // 3. Create a template inside the folder via the designer deep link, name it, add
-  //    a Disease field and constrain it to the DOID "disease" branch through the
-  //    live BioPortal picker (which exercises the terminology server end to end).
-  //
-  //    The block retries as a unit, and it has to be the whole block. The editor
-  //    loads BioPortal's ontology list once per page load, and a load that fails
-  //    can leave the picker's cache empty for the life of that page, so retrying
-  //    the ontology search inside the picker re-reads the same empty cache and
-  //    cannot ever succeed. Only a fresh page load gives the service another
-  //    attempt, which means starting again from the deep link.
-  //
-  //    Nothing is saved server-side until the save step below, so an attempt that
-  //    fails here leaves no template behind.
-  const CONSTRAIN_ATTEMPTS = 3;
-  for (let attempt = 1; attempt <= CONSTRAIN_ATTEMPTS; attempt++) {
-    try {
-      step = 'create-template';
-      // `domcontentloaded` for the same reason as `gotoListing`; filling the Name box below waits
-      // for it. This navigation had been retried by the surrounding loop for the same stall.
-      const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
-      await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
-          { waitUntil: 'domcontentloaded' });
-      const nameBox = page.getByRole('textbox', { name: 'Name' });
-      await nameBox.fill(TEMPLATE_NAME);
-      await waitForModelValue(nameBox, TEMPLATE_NAME); // the template model holds the name
-
-      step = 'constrain-disease-field';
-      await addTextField(page, 'Disease', 'The disease studied, from the Human Disease Ontology');
-      await constrainToDoidDiseaseBranch(page);
-
-      // A second, plain (unconstrained) text field. The template now carries two field shapes the
-      // CEE must render and collect — a controlled term and free text — and this is the field the
-      // re-edit step below mutates.
-      step = 'add-text-field';
-      await addTextField(page, TEXT_FIELD_NAME, 'Free-text notes');
-      break;
-    } catch (e) {
-      if (attempt === CONSTRAIN_ATTEMPTS) throw e;
-      console.warn(`  constrain attempt ${attempt} failed (${e.message.split('\n')[0]}) — reloading the editor for a fresh ontology load`);
-    }
-  }
-  console.log('✓ Disease field constrained to the DOID "disease" branch (live BioPortal)');
+  // 3. Author two text fields through the designer without a live terminology dependency.
+  step = 'create-template';
+  const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
+  await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
+      { waitUntil: 'domcontentloaded' });
+  const nameBox = page.getByRole('textbox', { name: 'Name' });
+  await nameBox.fill(TEMPLATE_NAME);
+  await waitForModelValue(nameBox, TEMPLATE_NAME);
+  await addTextField(page, 'Disease', 'The disease studied');
+  step = 'add-text-field';
+  await addTextField(page, TEXT_FIELD_NAME, 'Free-text notes');
+  console.log('✓ Disease and Notes authored as plain-text fields');
 
   step = 'save-template';
   // Every field edit has committed to the model (setText returns only then), so the save sends
@@ -2242,15 +2112,12 @@ try {
   step = 'publish-draft-lifecycle';
   const versionOpenViewCeeVersion = await verifyPublishDraftLifecycle(browser, page, folderId, user1);
 
-  // 3b. Populate the template and confirm the constrained Disease field offers a
-  //     live DOID suggestion (type a disease, verify a matching term appears). The
-  //     instance is not saved, so teardown stays a simple template + folder delete.
-  step = 'populate-suggestions';
+  // 3b. Populate the template and verify the real editor host.
+  step = 'populate-template';
   resetCeeConfigCounts();
   await openPopulate(page, folderId, TEMPLATE_NAME);
   await metadataEditorLoaded(page);
-  await verifyDiseaseSuggestion(page, 'asthma');
-  console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
+  await fillCeeTextField(page, 'Disease', 'asthma');
   const deployedCeeVersion = await readCeeVersion(page);
   expectCeeConfiguredCleanly('Metadata Editor, populating a template', { loads: 1 });
   console.log(`✓ Metadata Editor rendered with CEE ${deployedCeeVersion}, configured once`);
@@ -2258,8 +2125,7 @@ try {
     throw new Error(`CEE version mismatch: version-lifecycle OpenView has ${versionOpenViewCeeVersion}, Metadata Editor has ${deployedCeeVersion}`);
   }
 
-  // Fill the plain text field too, so the instance carries free text alongside the controlled term
-  // and the re-edit step has something to change.
+  // Fill Notes too, so an edit can prove the other field value is preserved.
   step = 'fill-text-field';
   await fillCeeTextField(page, TEXT_FIELD_NAME, 'initial notes');
   console.log(`✓ filled the "${TEXT_FIELD_NAME}" text field`);
@@ -2377,7 +2243,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → folder open/close + artifact/folder moves → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor and delete-conflict protection → two-user Viewer/Editor/Manager/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → artifact OpenView open/close → conditional delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → folder open/close + artifact/folder moves → "${FOLDER_NAME}" folder + seeded field → template with two text fields → repeated saves + stale-editor and delete-conflict protection → two-user Viewer/Editor/Manager/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → artifact OpenView open/close → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {

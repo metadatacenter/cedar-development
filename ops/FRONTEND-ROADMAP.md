@@ -227,13 +227,26 @@ data images.
 
 No dependency below can move by a lock update alone. Some wait on an upstream release, some have
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
-reported on 2026-10-29, after every in-range update had been taken.
+reported on 2026-11-05, after every in-range update had been taken.
+
+**Native runtime selection.** Make native frontend installation and launch use the Node 24
+selected for the build. `ops/cedar-services.sh` prepends `/opt/homebrew/bin` ahead of the caller's
+PATH, and launchd starts children without that PATH. On this workstation that switches npm and
+the launched frontends to Node 26 and emits engine warnings even when the reactor built with Node
+24. Preserve or resolve the selected runtime across both paths, test the launchd handoff and
+repeat native redeployment and smoke verification.
 
 **Waiting on upstream.**
 
 - **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
-  Angular release accepts 7.
-- **`@types/node` 26.** The types follow the runtime's major, and every project runs Node 24.
+  Angular release accepts 7. The model library, which has no Angular, waits as well: its tests run
+  through ts-jest, and ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`.
+- **`@types/node` 26.** The types follow the supported runtime's major, and the projects target Node 24.
+- **minimatch 11 and glob 14.** Two moderate advisories published on 2026-10-30 are fixed only in
+  new majors: GHSA-g3hv-75wg-m249 in minimatch 11.0.1 and GHSA-3g3m-2fjr-6pw4 in glob 14.0.2.
+  ESLint 10.14.0 asks for minimatch `^10.2.6`, so every project that lints with ESLint carries the
+  first. Jest 30.5.2 in the model library and the Ember demo's build packages bring earlier glob
+  majors. Both are development tools, and the recorded lock baselines include both findings.
 - **ESLint 10 and Babel 8 in the Ember demo.** The two move together. The demo's lint
   configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
   newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of
@@ -248,6 +261,8 @@ reported on 2026-10-29, after every in-range update had been taken.
   10, `globals` 17 and `concurrently` 10 are new majors, and ember-cli 7.3 and ember-source 7.4 fall
   outside the demo's `~7.2.0` ranges. None of them waits on ESLint 10 or Babel 8. Both ESLint
   packages accept ESLint 9, `globals` declares no peer, and `concurrently` 10 needs only Node 22.
+  Stylelint 18 and `stylelint-config-standard` 41 are new majors as well. The configuration
+  requires Stylelint 18, which needs Node 24.15 or later, and the demo runs Node 24.22.1.
   Each move needs its range changed and the demo's lint, build and tests run under it.
 - **`@axe-core/playwright` 4.14** in the Playwright test packages of CEE, CED, CETP and Workspace,
   which pin 4.13.0 exactly. A new axe release can add rules or change what an existing rule
@@ -292,16 +307,12 @@ change as the fix. Remove each piece when its work is done, and the item once it
   - In CED, when Escape hides an insertion action that has keyboard focus, focus stays on a control
     nobody can see, as it already did when a keyboard press on one opened the palette. Decide where
     focus goes, or whether a focused action stays shown.
-  - Workspace's resource menu and its user, actions and New menus stay open when Tab moves focus
-    out of them. Closing them when focus leaves is a visible change.
 - **Messages announced and kept long enough to read (4.1.3, 2.2.1).**
   - Workspace's metadata editor inserts its review panel, a live region, together with its
     explanation and comparison table, so a screen reader may not announce it. Decide what the panel
     should announce before giving it a region that is present first.
   - A Workspace notice identical to the one before it shows and says nothing, because the notice is
     never cleared. Fixing that is a visible change.
-  - CEE's notices that an entry was cleared or reverted disappear after five seconds, and nothing
-    keeps them. Keeping them is a visible change.
 - **Lasting names in the right language (3.3.2, 3.1.2).**
   - CED's field-name and option boxes and its library search are labelled only by placeholders,
     which disappear once the box holds text. Labels that stay are a visible change.
@@ -313,18 +324,11 @@ change as the fix. Remove each piece when its work is done, and the item once it
 - **Targets of at least 24px (2.5.8).** Growing a target changes the layout around it, so each
   piece is a visible change. Each is recorded as an exception in its component's
   `accessibility.spec.ts`.
-  - At 480px, a read-only term's 20px link-out icon in CEE touches its IRI link. It needs a 24px
-    target or a 4px gap.
   - CED's field settings toggle is 36 by 14px. The field header beside it opens the same settings
     but is 23px tall, a pixel short, and the settings panel's last control sits within 12px of the
     toggle's centre. Either the toggle or the header needs 24px.
   - In the term picker, the tree's 16px twists, its terms, 14px tall on a 16px pitch, the release
     count that opens a row's history, and the history's 22px release buttons are under the minimum.
-- **Warnings marked beyond colour (1.4.1).** CEE's range and quality warnings differ from its
-  errors only by amber against red. A second cue, such as an icon or a word, is a visible change.
-- **Confirming a removal of access (3.3.4).** Removing a person's access or a group member in
-  Workspace saves at once, with no confirmation or undo. Decide whether it needs either. Both are
-  visible changes.
 - **Keyboard routes (2.1.1, 2.5.7).** Some actions and information are reached only by a pointer,
   and one keyboard route does not follow the pattern its roles set.
   - While CEE's validation is still running, Workspace's metadata editor shows Save as enabled, but
@@ -448,3 +452,32 @@ Agree its interaction before implementation; this proposal does not authorize a 
 diagnostic or recovery button, banner or file picker on ordinary editing screens.
 Any confirmed defect should lead to a generation or validation fix and a regression test; verify
 that the fallback preserves work while the rejected write remains blocked.
+
+## Legacy Workbench
+
+### 11. Retire the caDSR Form Import Interface and Tutorial
+
+Remove the legacy Workbench's New → Import entry, XML upload dialog, progress/report polling,
+`import.service.js`, caDSR URL builders and the `ng-flow` dependency. They still call the retired
+`/command/import-cadsr-forms` and `/command/import-cadsr-forms-status` endpoints, so the next major
+release must not offer that workflow. Remove its dedicated styles and translations after checking
+for other callers. Verify the ordinary New menu and JSON/YAML downloads still work.
+
+Update `cedar-mkdocs/docs/user-guide/cedar-for-cadsr.md` and its screenshot/navigation references so
+users are no longer instructed to export Form Builder XML and upload it to CEDAR. Keep guidance
+about existing caDSR-derived content and the separate CDE/category updater. The standalone form
+translator in `cedar-cadsr-tools` needs a separate retirement decision.
+
+<a id="bundle-delivery"></a>
+
+## Bundle Delivery
+
+### 12. Reduce and Budget the Legacy Editor's Payload
+
+- **Reduce repeated model downloads in the legacy Template Editor.** Measure how the AngularJS
+  application and its embedded CEE can share model code while preserving independent embedding,
+  authoring and instance editing. Prove normal loading and failure paths in browser journeys.
+- **Budget the legacy application's RequireJS request graph.** Distinguish initial from deferred
+  transfers and enforce raw and compressed JavaScript/CSS limits. Trace real requests so
+  copied-but-unused vendor files are not mistaken for downloads. Ensure new AMD dependencies
+  cannot bypass the gate.

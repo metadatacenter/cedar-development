@@ -215,11 +215,12 @@ export async function setPermission(p, write, collection, role) {
   await permissionDone(p);
 }
 
-/** Removes Test User 2's direct role in the open Permissions dialog, and closes it. */
+/** Removes Test User 2's direct role in the open Permissions dialog, confirming it, and closes it. */
 export async function removePermission(p, write, collection) {
-  await write(p, "PUT", collection,
-    () => modal(p).getByRole("button", { name: "Remove direct role for Test User 2", exact: true }).click(),
-    200, true);
+  await write(p, "PUT", collection, async () => {
+    await modal(p).getByRole("button", { name: "Remove direct role for Test User 2", exact: true }).click();
+    await p.locator("dialog.confirmation-dialog").getByRole("button", { name: "Yes", exact: true }).click();
+  }, 200, true);
   await permissionDone(p);
 }
 

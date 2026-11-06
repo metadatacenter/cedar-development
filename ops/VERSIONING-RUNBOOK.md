@@ -551,35 +551,11 @@ schema migration. These changes prevent new inconsistencies; they do not restore
 already removed by an older cleanup or automatically reconcile an index left inconsistent by an
 older interrupted job.
 
-**Deterministic recovery coverage (2026-10-12).** `TerminologyPublicationTest`,
-`SnapshotPruneConcurrencyTest` and `IndexRollbackMatrixTest` run in the ordinary Maven build.
-The initial 16 probes produced nine assertion failures and seven passes, with no test errors. They
-exposed unchecked-failure commits, separately committed class/property releases, stale legacy
-property results, stale full-text postings and cleanup deleting a snapshot during registration.
-A subsequent page-cache-spill probe exposed rollback loss with journaling disabled during incremental
-full-text maintenance. The final 23 cases cover five SQL failure points with both regular and bulk
-settings, retries, SQL/runtime/error rollback, legacy transitions, existing-index upgrade, a forced
-ingest/cleanup interleaving, page-cache spill, and child-JVM termination during a write. They use
-small temporary SQLite stores, no external ontology service and no additional embedded-server startup.
-The full terminology reactor and upgrade check passed 557 tests; the new cases took about 3–4
-seconds. After local redeployment, whole-stack smoke passed 1,471 REST checks and every browser tier
-(digest `fe2ffebb4977e530`); all 22 local applications were healthy.
-
-**Batched-publication coverage (2026-10-13).** `IndexPublicationMatrixTest` adds 12 cases crossing
-regular/bulk settings, class-only/combined publication and current/trigger-based/pre-scope FTS
-schemas. They verify replacement, retries, clearing and repopulation, shared IRIs across ontologies,
-duplicate and multilingual names, empty labels, reopening, and FTS integrity before a global rebuild.
-Two further child-JVM cases terminate after both posting batches but before version publication
-commits. The focused recovery suites now contain 37 cases, and the full terminology reactor passes
-571 tests. Journaling and synchronization settings are unchanged; performance probes remain outside
-the normal build.
-
-Local redeployment was healthy. The whole-stack check passed all 1,471 REST checks and the main
-browser workflow, but the split Workspace tier failed an instance-content preservation assertion:
-editing Notes cleared `schema:description` (`modern-workspace-smoke.mjs`, digest
-`e41dc24facd29564`). That assertion was added in concurrent frontend work; the full smoke gate is
-not green for this run. An earlier attempt (`af8ef9a9cff8a538`) encountered a Workspace 502 during
-a frontend rebuild/restart.
+`TerminologyPublicationTest`, `SnapshotPruneConcurrencyTest`, `IndexRollbackMatrixTest` and
+`IndexPublicationMatrixTest` run in the ordinary Maven build. They cover transactional rollback,
+legacy/index upgrades, full-text consistency, ingest/cleanup interleavings, page-cache spill and
+child-JVM termination during publication, using temporary stores without an ontology service.
+Performance probes are separate from these correctness tests.
 
 Run the focused matrix from `cedar-terminology-server`, with Java 17 and the native profile loaded:
 
@@ -859,6 +835,46 @@ For GAZ `acid`, the index returned 2 versus 25: substring-only matches included 
 `Municipality of Acidara`; `placid` still finds Lake Placid. These are examples, not proof of
 identical result sets. Exact counting was slower than snapshot lookup in the DDSS experiment.
 
+## Checking Ontology Filter Completeness
+
+The **Ontologies** filter makes a separate `POST /search` request with
+`types: ["ontology"]`, `ontologyOrder: "matches"`, `page: 1`, and `pageSize: 200`.
+The picker loads subsequent pages until a short page ends the list. A query can
+match more than 1,000 ontologies; the filter must retain every page.
+
+`SearchIndexStore.vocabularyFacet` counts distinct matching term IDs before joining
+them to their ontologies. It applies no term or ontology limit. Synonyms do not
+inflate an ontology's count, and matching uses the same token prefixes, residual
+short tokens and diacritic folding as term search. The service merges term-bearing
+ontologies with ontology-name matches, sorts the complete list, and then pages it.
+Ontology `totalCount` is exact and `countCapped` is false, including above 1,000.
+The separate bounds on term-result counts still apply.
+
+A missing ontology should be checked against this request, not just the main term
+results. The older implementation sampled 10,000 matched terms before grouping and
+could discard entire ontologies according to index order. For `organ`, it omitted
+UBERON despite returning `UBERON_0000062` in the main results. Searching **Uber
+Anatomy Ontology** before applying the filter reaches UBERON on an older deployment;
+it is unnecessary with complete ontology discovery.
+
+Local verification on 2026-11-03 returned:
+
+| Query | Ontologies (including name matches) | Pages of at most 200 | UBERON matching terms |
+| --- | ---: | ---: | ---: |
+| `organ` | 735 | 4 | 719 |
+| `pro` | 1,025 | 6 | 2,843 |
+
+Both walks returned every reported ontology exactly once with stable totals and
+`countCapped: false`. In the local Designer, searching `organ`, opening **Ontologies**,
+selecting UBERON and opening its `organ` branch reached `UBERON_0000062` directly.
+Regression suites cover more than 10,000 earlier matching terms, more than 1,000
+ontologies, synonym deduplication, re-ingestion and selection past the fifth page.
+
+Warm local API pages took 274–345 ms for `organ` and 1.37–1.45 s for `pro`; the first
+`pro` page took 10.3 s. These are diagnostic observations, not a controlled benchmark.
+A broad prefix still scans many matching names, and disk-cache state matters. Measure
+with an idle stack and distinguish first-use from warm timings before tuning.
+
 ## When a Lookup Is Slow
 
 Check the query, selected source and active store before tuning the server. `POST /search` uses
@@ -1108,24 +1124,20 @@ histories through the search response rather than calling the versions endpoint.
 
 ## Building and Testing the Picker
 
-The picker's font, type scale and colours are CEDAR's, published from `cedar-design-tokens` as
-`@org.metadatacenter/cedar-design-tokens`. `src/_cee-tokens.scss` and `src/_cedar-neutrals.scss`
-were the copies the package was extracted from, and they went on 2026-09-15 — including the advisory
-colour that had drifted, where the picker drew `#856404` against the editor's `#b45309`. The values
-now come from `@use '@org.metadatacenter/cedar-design-tokens/tokens' as tokens`, with `node_modules`
-on the Sass load path, and the variables carry no `cee-` prefix because the alias is what carries the
-scope. The small and lead steps go on being derived from the base a host may set, so
-`--cetp-font-size: 16px` still reads as a larger component rather than a broken one.
+The picker consumes `@org.metadatacenter/cedar-design-tokens` through Sass and shared font helpers.
+Use the package's [README](../../cedar-design-tokens/README.md) for the design vocabulary and
+[Font Registration](#font-registration) for the default and host-fonts bundles.
 
 | Command | What it does |
 |---|---|
-| `npm run build:production` | the custom-element bundle, into `dist/cedar-embeddable-term-picker` |
+| `npm run build:production` | builds the default and host-fonts variants under `dist/`, recording source fingerprints |
 | `npm test` | unit tests, through the Angular CLI's Vitest builder |
 | `npm run lint` | ESLint over TypeScript and templates, Prettier included |
 | `npm run typecheck` | `tsc` over every file under `src/`, including ones no build or test reaches |
-| `npm run test:ci` | the gate: lint, typecheck, unit tests, the production build, then the browser tests against it |
+| `npm run test:ci` | lint, types, units, Unicode and packaging checks, both builds, bundle-size checks, browser tests and npm staging |
 | `npm run test:browser` | builds, then drives the bundle in Chromium with the terminology server stubbed |
 | `npm run audit:prod` | advisories against what actually ships |
+| `npm run dist` | builds, bundles, checks sizes and stages both npm variants |
 
 The browser tests live in their own workspace, `browser/`, with their own Playwright config and a
 twenty-line static server — they drive `dist/` rather than `ng serve`, because a build that breaks
@@ -1149,37 +1161,28 @@ change sees the old value. `await fixture.whenStable()` is the fix in a spec.
 **`ng test` is the Angular CLI's own Vitest builder**, not a hand-written `vitest.config`. CEE
 predates it and carries its own; nothing here needs to.
 
-**The production bundle is unhashed**, because a host page loads it by name. It is about 310 kB raw
-and 172 kB transferred, of which some 184 kB is the three embedded Roboto weights. That part is
-fixed and does not compress — base64 of an already-compressed woff2 — so the transfer figure is
-close to the raw one and stays that way.
-
-The budgets are set around that: `initial` warns at 400 kB and fails at 550 kB, leaving roughly 90 kB
-of growth before anyone is told. `anyComponentStyle` had to go to 190/200 kB, because the font
-registrar's stylesheet *is* those 184 kB, and Angular's budgets cannot exempt one file. The
-consequence is worth knowing rather than discovering: that budget no longer says anything useful
-about an ordinary component stylesheet, since another one would have to reach 190 kB to trip it.
+**The production bundles are unhashed**, because host pages load them by name. `npm run bundle`
+produces the default script and `cedar-embeddable-term-picker.host-fonts.js`, each with its own
+SHA-256/size manifest. `npm run check:size` measures the shipped scripts' raw and gzip sizes;
+`angular.json` also gates the matching raw build budgets. The authoritative limits are in
+[`scripts/check-bundle-size.mjs`](../../cedar-embeddable-term-picker/scripts/check-bundle-size.mjs)
+and [`angular.json`](../../cedar-embeddable-term-picker/angular.json). Change corresponding limits
+together only after reviewing measured growth; do not treat an old measured bundle size as a budget.
 
 <a id="fonts-and-why-there-is-a-component-that-renders-nothing"></a>
 
 ## Font Registration
 
-Browsers do not register `@font-face` from inside a shadow root, so the picker cannot simply put the
-faces in its own encapsulated stylesheet. `FontRegistrar` is the answer CEE also arrived at: a
-component with `ViewEncapsulation.None` and an empty template, whose stylesheet holds the font faces
-and no selectors at all. Angular sends an unencapsulated component's styles to the document head,
-which is what registers the fonts; it also copies them into the shadow root, so the base64 exists
-twice in the DOM at runtime. That is a memory cost rather than a transfer one.
+The default bundle's `FontRegistrar` calls the design-token package's
+`registerFontFaces(document, nonce)`. It registers CEDAR Roboto 400 and 500 in the document head
+once, shared by components on that page. Font faces inside a shadow root are not registered;
+the helper avoids copying unused font bytes into those roots.
 
-The selectors matter: an unencapsulated stylesheet reaches the host page, so anything beyond a
-`@font-face` in that file would leak out of the component.
-
-Verified in a browser rather than assumed — `document.fonts` carries `CEDAR Roboto` at 400 and 500 and
-`document.fonts.check('14px "CEDAR Roboto"')` returns true.
-
-A global stylesheet in `angular.json` would be the ordinary way to reach the document, and it does
-not work here: the CLI emits it as a separate `styles.css` that a host page never loads.
-`"styles": []` is deliberate, in this repository and in CEE.
+The host-fonts variant registers no faces. Its host must load the token package's Sass `fonts`
+export or compiled `fonts.css` at document level. Load only one picker variant: both register the
+same custom element. The [picker embedding guide](../../cedar-embeddable-term-picker/README.md)
+describes the two scripts and manifests. Global token styles in `angular.json` do not replace
+font registration for an embedded host.
 
 ## Internal Boundaries
 

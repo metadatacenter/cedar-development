@@ -3,8 +3,9 @@
 **Symptom:** the monitoring **Queue Counts** page shows *App Log* climbing and not coming back down.
 An unchecked backlog can exhaust Redis capacity and affect search permissions and caching.
 
-Written after the 2026-09-08→14 incident (`worklog/2026-09-14-app-log-queue-incident.md`). Companion
-analysis: `LOG-PIPELINE-CAPACITY.md`.
+Historical capacity measurements are in [LOG-PIPELINE-CAPACITY.md](LOG-PIPELINE-CAPACITY.md).
+The current queue protocol and replay guarantees are in the
+[backend runbook](BACKEND-RUNBOOK.md#the-redis-queues-and-where-failed-permission-events-go).
 
 ---
 
@@ -12,8 +13,7 @@ analysis: `LOG-PIPELINE-CAPACITY.md`.
 
 ## 0 · Measure Arrival and Drain Rates
 
-During the September 8–14 incident the consumer drained about 6 rows/s against normal traffic of
-about 0.76/s. Measure current arrival and drain rates first. Look for a producer surge, a blocked
+Measure current arrival and drain rates first. Look for a producer surge, a blocked
 consumer or dependency failure before changing tuning; the commands below distinguish these cases.
 
 ---
@@ -64,13 +64,10 @@ redis-cli LRANGE CEDAR-QUEUE-app-log -3 -1
 
 ## 2 · Permission Cascades
 
-This was the cause of the September 2026 incident on the older worker. Group/folder events walked
-every reachable resource and fetched each artifact again. One `GROUP_MEMBERS_UPDATED` for
-**"CEDAR Dev Team"** had been in flight for **~48.5 hours**, with nine events queued behind it.
-
 Current workers batch permission events and update graph-derived search fields without fetching
-existing artifact content; missing index documents still require a full rebuild. Check the deployed
-binary before applying the old diagnosis. See the current
+existing artifact content; missing index documents still require a full rebuild. Older workers
+fetched every reachable artifact during a cascade and could flood the log queue. Check the deployed
+binary before applying that diagnosis. See the current
 [queue protocol and permission projection](BACKEND-RUNBOOK.md#the-redis-queues-and-where-failed-permission-events-go).
 
 The message records when the event was created, not when handling began:
@@ -115,8 +112,8 @@ correctness trade, not a cleanup.
 
 ## 3 · Draining the Backlog
 
-The incident's net drain rate was roughly 5/s — **about 60 hours per million messages**.
-Estimate current drain time from measured arrival and consumption rates.
+Estimate drain time as `backlog / (consumption rate - arrival rate)`. If consumption does not
+exceed arrivals, the queue cannot drain under the measured load.
 
 If the captured messages confirm a cascade-generated backlog and discarding those log records is
 approved, purge it **while the worker is stopped**:
@@ -130,6 +127,7 @@ redis-cli DEL CEDAR-QUEUE-app-log-processing
 Then verify the fix held:
 
 ```bash
+cedarcli native start microservice worker
 redis-cli LLEN CEDAR-QUEUE-app-log; sleep 60; redis-cli LLEN CEDAR-QUEUE-app-log
 ```
 
@@ -148,7 +146,8 @@ grep -n 'log queue consumer failed' $CEDAR_HOME/log/cedar-worker-server/dropwiza
 
 That line appears **only on the first failure**; later ones are collapsed to a count, so search the
 whole file, not the tail — and every file, not just the current one: the appender rotates daily
-(`dropwizard-%d.log`, five archives kept). Its absence means the consumer has not thrown.
+(`dropwizard-%d.log`, five archives kept). An absent error may have rotated out; it does not prove
+the consumer is making progress.
 
 `AppLoggerQueueProcessor` logs nothing per message in normal operation, so **silence proves nothing
 either way.** Use `max_id` as the liveness signal, not the log.
@@ -167,13 +166,13 @@ for q in app-log search-permission cloneInstances; do
 done
 ```
 
-A message lands there after `handleWithRetries` fails **3 times** (`MAX_HANDLING_ATTEMPTS`, 1 s
-apart). The payload is parked rather than lost, and the depth is the alarm.
+A retryable message lands there after `handleWithRetries` fails **3 times** (`MAX_HANDLING_ATTEMPTS`,
+1 s apart). Malformed or explicitly non-retryable messages are parked immediately. The payload is
+parked rather than lost, and the depth is the alarm.
 
 `queue-consumers` fails when a consumer stops or fails. `queue-dead-letter` reports parked-message
 depths without failing readiness. Inspect nonzero depths even when the worker is healthy; nothing
-automatically retries those messages. Before 2026-09-15, a parked message also failed readiness and
-could exhaust the native launcher's 240-second wait.
+automatically retries those messages.
 
 Read representative messages and the corresponding exceptions before deciding whether to clear:
 
@@ -192,58 +191,35 @@ redis-cli DEL CEDAR-QUEUE-app-log-dead-letter
 
 ### Dependency Outages and Dead Letters
 
-In the 2026-09-15 investigation, production's 54 and staging's 26 parked messages were
-`cypherQuery` events with `findUserByApiKey` or `getResourceMaterializedPermission` and null request
-IDs. Dependency failures, rather than that payload shape, caused the production dead letters.
-
-Prod's `$CEDAR_HOME/log/cedar-worker-server/dropwizard-2026-09-14.log`, exception by minute:
-
-```
-26  2026-09-12 12:35  MISCONF                    <- Redis refusing writes
-44  2026-09-12 14:48  MISCONF
-26  2026-09-13 17:18  MISCONF
-12  2026-09-14 18:15  java.net.ConnectException  <- MySQL unreachable
- 6  2026-09-14 18:52  java.net.ConnectException
- 9  2026-09-14 18:53  java.net.ConnectException
- 7  2026-09-14 18:54  java.net.ConnectException
-20  2026-09-14 18:55  java.net.ConnectException
-```
-
-The 54 connection failures matched the 54 parked messages while the log DB was resized and
-restarted. Three attempts one second apart could not span that outage. Payloads created at 17:21:59
-were consumed after 18:15; their null request IDs came from background permission work.
-
-Correlate dead letters with dependency outages before blaming a message shape. Preserve the
+Correlate dead letters with Redis persistence errors and log-MySQL connection failures before
+blaming a message shape. Three attempts one second apart cannot span a database outage. A null
+request ID on a background Cypher event does not by itself make that event invalid. Preserve the
 messages and confirm the dependency has recovered before choosing replay or approved disposal.
 
-### MISCONF: Redis Refusing Writes Duplicates Log Rows
+<a id="misconf-redis-refusing-writes-duplicates-log-rows"></a>
 
-The incident also recorded 96 MISCONF failures during three backlog surges:
+### MISCONF: Redis Refusing Writes
 
 ```
 MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on
 disk. Commands that may modify the data set are disabled
 ```
 
-Redis could not write its snapshot, so it refused every write command. `handleWithRetries` writes the
-row to MySQL **first** and then calls `acknowledge()`, so with Redis refusing writes the row lands in
-the database and the acknowledge fails — the message is retried and **written again**, up to three
-times. Dead-lettering then also fails, so it stays in the processing list and is replayed on the next
-restart.
+Check the Redis host's free disk, memory and RDB errors. `stop-writes-on-bgsave-error` turns a failed
+snapshot into refused writes, including acknowledgements and moves to the dead-letter list. A
+message can therefore remain in processing and be recovered on restart even after MySQL committed.
 
-A MISCONF window can duplicate log rows. `log_cypher` grew from 5.2M to 17.0M during the incident;
-the measurements do not separate producer traffic from retry duplicates.
-
-Suspected cause: a Redis holding millions of queued messages cannot fork and snapshot on a host with
-limited free disk. That makes it a consequence of the flood as well as a contributor to it. Check the
-Redis host's disk and the Redis log's RDB errors; `stop-writes-on-bgsave-error` is what turns a failed
-snapshot into refused writes.
+Current workers commit a `log_event_receipt` with the database mutation, so replay skips a request
+phase or Cypher execution already recorded. Keep that ledger when pruning raw logs. Older workers
+without receipts could duplicate rows after an acknowledgement failure; pre-upgrade writes have no
+receipt proving whether they ran. Verify the deployed worker and ledger before relying on replay
+safety. Migration, rollback limits and incomplete-request handling are documented under
+[application-log persistence](BACKEND-RUNBOOK.md#application-log-persistence-and-rollout).
 
 ### Reading the Reason
 
 `AppLoggerQueueProcessor.deadLetter` writes the exception at ERROR, as does
-`QueueServiceWithBlockingQueue.deadLetter` on a failed move. Both have been there since `946802c`
-(2026-08-25, in every release from 2.9.3). **The appender rotates daily and keeps five archives**, so
+`QueueServiceWithBlockingQueue.deadLetter` on a failed move. **The appender rotates daily and keeps five archives**, so
 yesterday's errors are in `dropwizard-%d.log`, not `dropwizard.log`, and expire after five more days.
 
 ```bash
@@ -267,36 +243,21 @@ Investigate any renewed growth after recovery.
 
 ## 5 · Incident Measurements (2026-09-14)
 
-| hypothesis | result |
-|---|---|
-| nginx rate limits / external abuse | nginx saw 36,452/day against ~357,798 DB rows — **~10:1**. The traffic never touches nginx; it is internal or direct-to-port. |
-| `innodb_buffer_pool_size` (was 128 MB vs a 76 GB DB) | raised to 2 GB: **+26%**. Worth keeping, not a fix. |
-| `innodb_flush_log_at_trx_commit` 1 → 2 | **+20%**. Not a fix. |
-| `acknowledge()`'s O(N) `LREM` | `-processing` was 1. Not the problem. |
-| silent 1 s `Thread.sleep` in `handleWithRetries` | 0 of 30 thread samples. Not firing. |
-| network latency | ICMP 1.07 ms. Innocent as raw RTT. |
-| the log-table indexes added 2026-09-10 | ~20%. Real, marginal. |
-
-In that incident, database connections were sleeping, app-host I/O wait was zero, and the worker
-used about 28% of one core. Tuning improved throughput by roughly 50% without clearing the overload.
-Use these measurements to avoid repeating the same investigation unless current evidence differs.
+The September incident's throughput, tuning experiments and database sizes are retained in
+[LOG-PIPELINE-CAPACITY.md](LOG-PIPELINE-CAPACITY.md). They describe the older consumer and host,
+not a current capacity limit or a prescribed MySQL setting.
 
 ---
 
 <a id="6--escalation-facts-worth-having-to-hand"></a>
+<a id="6--historical-host-capacity-and-access"></a>
 
-## 6 · Historical Host Capacity and Access
+## 6 · Check Host Capacity and Access
 
-These host measurements are from the incident; recheck capacity and access before acting.
+Recheck Redis's memory limit and eviction policy, persistence status and host disk space. Measure
+MySQL memory, buffer-pool size, disk headroom and connection latency on the actual log host before
+changing tuning. Do not copy the incident's 2 GB buffer-pool setting onto a different host.
 
-- **Redis has no `maxmemory`** (`maxmemory_policy: noeviction`). It grows until the host runs out —
-  roughly 1.1 KB per message, ~37 GB available, so ~32M messages. There is no hard cliff at a
-  specific count; degradation comes first.
-- **`cedr-prd-db-01` is small:** 3.8 GB RAM, 2 vCPU. `50-server.cnf:101` carries a commented-out
-  `innodb_buffer_pool_size = 8G` templated from a larger host — **2G is the correct value here.**
-  `SET GLOBAL` does not survive a restart; persist it.
-- **Disk on that host is 85% full**, 19 GB free of 120 GB.
-- **`SELECT 1` costs 7.25 ms** against a 1.07 ms ICMP RTT between app and DB hosts — 7x
-  the ICMP latency. This alone identifies neither the cause nor an achievable throughput gain.
-- SSH to `cedr-prd-db-01` is blocked from both app and staging hosts; server-level MariaDB changes
-  need Alex or root on that box. `cedar_log_usr` has schema-scoped grants only.
+Confirm the approved SSH route and database grants with the operator. Schema-scoped log credentials
+do not authorize server-level configuration changes. Persist approved runtime tuning in the host's
+managed configuration so it survives a restart.

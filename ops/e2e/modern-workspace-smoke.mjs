@@ -1,8 +1,8 @@
 import { withBrowserAuthentication, withJourneyAuthentication } from "./auth-activity.mjs";
-// Modern Angular journey; the AngularJS login-smoke-test.mjs remains unchanged.
+// Modern Angular journey; login-smoke-test.mjs covers the AngularJS applications separately.
 //
 // The steps before the journey loop are one chain on one template, authored in Designer with a
-// Disease field constrained through the live term picker. The template then reuses a library
+// plain-text Disease field. The template then reuses a library
 // element, a second user populates it while that element's source stays private, and its owner
 // writes and edits metadata on it in the metadata editor. Each step checks what an earlier step
 // made. Everything after the chain is a journey with fixtures of its own, run in the order
@@ -17,14 +17,13 @@ import { writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 import { actors, artifactBody, call, mutate, enc, poll } from "./rest/lib.mjs";
 import { captureCreates, recordCreate, rendered } from "./journey-fixtures.mjs";
-import { DOID_DISEASE, editorStatus, offeredTerm } from "./metadata-journey-fixtures.mjs";
+import { editorStatus } from "./metadata-journey-fixtures.mjs";
 import {
   assertOnlyContentChanges, backToWorkspace, editor as editorAt, editorSave as editorSaveAt,
   listed as listedAt, listing as listingAt, menu, openSharedWithMe, pathId, ready, setPermission,
   sharedWithMeLists,
 } from "./workspace-journey-fixtures.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
-import { designerTerminologyFailureJourney, editorTerminologyFailureJourney, LIVE_SEARCH_TIMEOUT } from "./terminology-failure-journey.mjs";
 import { journeyBrowser } from "./journey-browser.mjs";
 import { scenarioTracker } from "./journey-contract.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
@@ -114,47 +113,13 @@ async function grant(p, role) {
   await menu(p, names.template, "Permissions…");
   await setPermission(p, write, "/templates/", role);
 }
-// Add a controlled-term field and constrain it, in the real term picker against the local
-// terminology server, to the "disease" branch of DOID.
-async function constrainToDoidDiseaseBranch(p) {
+// Add a second text field without consulting a live terminology provider.
+async function addDiseaseField(p) {
   await p.getByRole("button", { name: /^Add field$/ }).last().click();
-  await p
-    .locator("app-field-type-picker")
-    .getByRole("button", { name: "Controlled Terms", exact: true })
-    .click();
-  const field = p
-    .locator("app-field-card")
-    .filter({ has: p.locator("app-controlled-term-config") });
-  await field.getByRole("textbox", { name: "Enter field name", exact: true }).fill("Disease");
-  const settings = field.locator("app-field-settings");
-  const toggle = settings.locator(".settings-toggle");
-  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
-  await settings.getByRole("tab", { name: "Constraints", exact: true }).click();
-  await settings
-    .getByRole("button", { name: /Edit controlled-term constraints/ })
-    .click();
-  const picker = p.locator("cedar-embeddable-term-picker");
-  await picker.getByRole("button", { name: "Ontologies", exact: true }).click();
-  await picker
-    .getByRole("checkbox", { name: /^DOID(?:\s|$)/ })
-    .check({ timeout: LIVE_SEARCH_TIMEOUT });
-  await picker.getByRole("button", { name: "Apply", exact: true }).click();
-  await picker.getByRole("tab", { name: /^Branches/ }).click();
-  await picker
-    .getByRole("button", { name: "disease 1 ontology", exact: true })
-    .click({ timeout: LIVE_SEARCH_TIMEOUT });
-  await picker
-    .getByRole("option", { name: /^DOID · Human Disease Ontology/ })
-    .dblclick({ timeout: LIVE_SEARCH_TIMEOUT });
-  await picker
-    .getByRole("region", { name: "Field constraints" })
-    .getByRole("row")
-    .filter({ hasText: "DOID" })
-    .filter({ hasText: /Branch\s*disease/ })
-    .waitFor();
-  await designerTerminologyFailureJourney({page: p, pass});
-  await picker.getByRole("button", { name: "Done", exact: true }).click();
-  await picker.waitFor({ state: "hidden" });
+  await p.locator("app-field-type-picker").getByRole("button", { name: "Text", exact: true }).click();
+  // Wait for the new card: last() can still resolve to Notes before Angular inserts Disease.
+  await p.locator("app-field-card").nth(1)
+    .getByRole("textbox", { name: "Enter field name", exact: true }).fill("Disease");
 }
 // Answer the designer's first template save with an expired-token refusal. The host must refresh
 // through Keycloak and retry once, and the edit must reach the server.
@@ -265,16 +230,16 @@ try {
   await page
     .getByRole("textbox", { name: "Enter field name", exact: true })
     .fill("Notes");
-  await constrainToDoidDiseaseBranch(page);
+  await addDiseaseField(page);
   artifacts.template = (await editorSave(page, "PUT", "templates", 201))["@id"];
   // The new artifact stays open at its edit address, which keeps Workspace's address.
   assert.equal(new URL(page.url()).pathname, `/templates/edit/${pathId(artifacts.template)}`);
   assert.equal(new URL(page.url()).searchParams.get("returnTo"), returnUrl);
   const authored = await call(user1.auth, "GET", "/templates/" + enc(artifacts.template));
   assert.equal(
-    authored.body.properties?.Disease?._valueConstraints?.branches?.[0]?.uri,
-    DOID_DISEASE,
-    "the Disease field is constrained to the DOID disease branch",
+    authored.body.properties?.Disease?._ui?.inputType,
+    "textfield",
+    "the Disease field is stored as ordinary text",
   );
   await backToWorkspace(page);
   assert.equal(page.url(), returnUrl);
@@ -295,7 +260,7 @@ try {
   await backToWorkspace(page);
   pass("Template: CED/CEFD create, reopen, conditional update, each staying in Designer, exact return");
   pass("Template: a description edit preserves the rest of the stored artifact");
-  pass("CED authors a Disease field constrained to the DOID disease branch through the live term picker");
+  pass("CED authors and saves both text fields through the Designer");
   pass("Designer save recovers from an expired access token through one refresh and one retry");
   step = enter("reusable-element-snapshot");
   await editor(page, names.template);
@@ -388,11 +353,7 @@ try {
   const cee = page.locator("cedar-embeddable-editor");
   await editorStatus(page, /^Unmodified$/).waitFor();
   await cee.getByLabel("Notes", { exact: false }).first().fill("First notes");
-  // The constrained field offers live DOID terms from the terminology server as the user types.
-  const disease = cee.getByLabel("Disease", { exact: false }).first();
-  const influenza = await offeredTerm(page, disease, "influenza", /influenza/i,
-    "no DOID suggestion offered for influenza");
-  await influenza.click();
+  await cee.getByLabel("Disease", { exact: false }).first().fill("influenza");
   assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
   assert.deepEqual(
     await page.evaluate(() =>
@@ -435,20 +396,12 @@ try {
   await page.locator(".metadata-toolbar [role=status]").filter({hasText: "Modified"}).waitFor();
   assert.equal(await cee.getByLabel("Notes", {exact: false}).first().inputValue(), "Newer notes during acknowledgement");
   pass("First save adopts nested element IDs without losing edits made during acknowledgement");
-  const suggestedTerm = (
-    await call(
-      user1.auth,
-      "GET",
-      "/template-instances/" +
-        enc(decodeURIComponent(new URL(page.url()).pathname.split("/instances/edit/")[1])),
-    )
-  ).body.Disease?.["@id"];
-  assert.match(
-    suggestedTerm ?? "",
-    /^http:\/\/purl\.obolibrary\.org\/obo\/DOID_\d+$/,
-    "the chosen suggestion is stored as a DOID term",
-  );
-  pass("Populate offers live DOID suggestions for the constrained field and stores the chosen term");
+  const diseaseValue = (
+    await call(user1.auth, "GET", "/template-instances/" +
+      enc(decodeURIComponent(new URL(page.url()).pathname.split("/instances/edit/")[1])))
+  ).body.Disease?.["@value"];
+  assert.equal(diseaseValue, "influenza", "the second field value is stored with the instance");
+  pass("Populate stores both text field values");
   assert.equal(
     await page.evaluate(
       () =>
@@ -481,9 +434,7 @@ try {
     `stored instance fields: ${Object.keys(storedInstance).filter((k) => !k.includes(":") && !k.startsWith("@"))}`,
   );
   assertOnlyContentChanges(beforeNotesEdit, storedInstance, {Notes: {"@value": "Updated notes"}});
-  pass("CEE value edit preserves other values, term identity, context and provenance");
-  await editorTerminologyFailureJourney({page, user: user1,
-    instancePath: "/template-instances/" + enc(instanceId), write, pass});
+  pass("CEE value edit preserves other values, context and provenance");
   await page
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: /^Saved$/ })

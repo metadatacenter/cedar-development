@@ -117,7 +117,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     into a `KeycloakDeployment`, `KeycloakUtils` makes a single
     `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
     `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
-    these in the shared bootstrap, so this is the bearer-token path for all twelve.
+    these in the shared bootstrap, so this is the bearer-token path for all eleven.
 
     The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
     `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
@@ -571,12 +571,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   until a Keycloak release CEDAR runs supports a 9.x LTS. The client is ready either way, since
   Connector/J 9.7.0 supports MySQL 8.0 and later.
 
-  The development workstation is off the lock. Its native MySQL comes from Homebrew's unpinned
-  `mysql` formula and ran 9.6.0 on 2026-10-19, an Innovation release nothing deployed runs, so local
-  end-to-end runs have exercised 9.6 since April. Pin the formula, then move the workstation to
-  `mysql@8.4` by dump and restore, because an 8.4 server cannot open a 9.x data directory. These
-  documents do not record production's MySQL version. Confirm it with `SELECT VERSION()` before
-  planning its move.
+  These documents do not record production's MySQL version. Confirm it with `SELECT VERSION()`
+  before planning its move.
 
   Production is the part this item owns for every store: each version rehearsed on a copy of
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
@@ -753,7 +749,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
-  Twelve shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
+  Eleven shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
   `org.metadatacenter.config: DEBUG` beside it. Every console appender takes `threshold: ALL`, and
   every file appender archives by day with no size limit: `maxFileSize` and `totalSizeCap` appear in
   no configuration in the estate. A busy day therefore writes one file that nothing bounds, and
@@ -890,7 +886,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **The upgrades that need code or test changes.** Each of these is a change to make rather than a
   version to raise, which is why none of them rode along with a sweep.
 
-  - **json-schema-validator 1.5.9 to 3.0.8.** Two major lines on the library that decides which
+  - **json-schema-validator 1.5.9 to 3.0.9.** Two major lines on the library that decides which
     stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
@@ -913,8 +909,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     representative workbooks before the major moves.
 
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
-  6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.6 to 3.9.0, the Lucene pin
-  9.12.3 to 10.5.2, and the Neo4j test harness 5.3.0 to 2026.10.1.
+  6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
+  9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 12 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
@@ -930,7 +926,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   5.0.0 included, flapdoodle offers no mongod 5.0 package for macOS on ARM, so every suite that
   starts the embedded store dies at `could not resolve package for
   V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start. Linux
-  CI does not see the failure; every Apple silicon workstation does. Taking the upgrade therefore
+  CI does not see the failure; every Apple silicon workstation does. Staying on 4.22.0 has its own
+  cost on Linux. Its operating-system detection predates Ubuntu 26.04, so `cedar-parent` overrides
+  `de.flapdoodle.os` to 1.11.1 for the CI runners, and the upgrade would drop that override. Taking the upgrade therefore
   means running the suites against a different major from the deployed 5.0.31, which is the one
   thing `EmbeddedCedarMongo` exists to avoid. It moves with item 12. Version 5.0.0 also costs one
   import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and
@@ -966,7 +964,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Each moves to the version its owner's POM names when that owner moves. Raising one on its own
   would pin a version its owner does not expect, and the Renovate config offers none of them.
 
-  Netty, 4.1.139 to 4.2.19, is held for a different reason. The Neo4j driver 5.28.15 is built
+  Netty, 4.1.140 to 4.2.20, is held for a different reason. The Neo4j driver 5.28.15 is built
   against Netty 4.2.17, and the 4.1 pin exists for neo4j-harness 5.3.0, which declares 4.1.84 and
   runs its embedded Bolt server on it. A test dependency therefore sets the Netty every production
   server runs the driver on. Ending the hold needs the harness proved on 4.2, or replaced as the
@@ -983,7 +981,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
   plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every version this item names was
-  rechecked against the published metadata on 2026-10-28, with pre-releases set aside. Read an
+  rechecked against the published metadata on 2026-11-04, with pre-releases set aside. Read an
   artifact's `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest
   release a given Maven version can actually use, before concluding that something cannot move.
 

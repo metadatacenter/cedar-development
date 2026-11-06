@@ -8,7 +8,6 @@
 // also page by number to the rule that a request pages one way or the other.
 import {
   suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
-  TERMINOLOGY,
 } from '../lib.mjs';
 import { cedarErrorProblem } from './errors.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
@@ -241,8 +240,6 @@ export async function run({ user1, admin, folderId }) {
     { name: "the artifact server's fields", base: ARTIFACT_SERVER, path: '/template-fields' },
     { name: "the artifact server's instances", base: ARTIFACT_SERVER, path: '/template-instances' },
     { name: 'messages', base: MESSAGING, path: '/messages' },
-    { name: 'terminology search', base: TERMINOLOGY, path: '/bioportal/search?q=disease' },
-    { name: "an ontology's classes", base: TERMINOLOGY, path: '/bioportal/ontologies/DOID/classes' },
     { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
   ];
   if (check(!!admin, 'the administrator key is configured, so the monitor listings can be paged',
@@ -306,8 +303,6 @@ export async function run({ user1, admin, folderId }) {
   // with pages by offset, so a client paging by number can follow it; the authority search's links
   // used to carry the page number too, and every one of them was refused.
   const byNumber = [
-    { name: 'terminology search', base: TERMINOLOGY, path: '/bioportal/search?q=disease' },
-    { name: "an ontology's classes", base: TERMINOLOGY, path: '/bioportal/ontologies/DOID/classes' },
     { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
   ];
   for (const listing of byNumber) {

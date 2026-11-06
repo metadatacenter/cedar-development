@@ -103,7 +103,6 @@ SERVICES=(
   "worker 9011 9111"
   "openview 9013 9113"
   "monitor 9014 9114"
-  "impex 9008 9108"
   "bridge 9015 9115"
   "ui-main 4200 0"
   "ui-workspace 4201 0"
@@ -761,19 +760,15 @@ stop_one() {
 
 names() { if [ $# -gt 0 ]; then printf '%s\n' "$@"; else for s in "${SERVICES[@]}"; do set -- $s; echo "$1"; done; fi; }
 
-# Long enough for the slowest healthy answer rather than the typical one. Fourteen services answer
-# their admin check in 6-22ms. Terminology's answer is bounded at two seconds by the server itself,
-# because its ontology-catalogue check fetches the BioPortal registry, measured between 0.4s and
-# 4.1s, and that whole cost used to reach the endpoint. A closed port still fails at once, so this
-# bound is paid only by a service that accepts a connection and is slow to answer.
+# Bound a health request even when a local dependency is slow. A closed port fails at once.
+# Live BioPortal availability is not part of terminology process health.
 HEALTH_PROBE_TIMEOUT=${CEDAR_HEALTH_PROBE_TIMEOUT:-5}
 
 # A probe that ran out of time is reported as `slow`, not as `starting`. The two name different
 # conditions, and an operator acts on the difference. A starting server has not begun serving and
 # will. A slow one is serving and cannot answer for its own health inside the bound. Reporting a
-# timeout as `starting` said a healthy terminology server was still booting, which is how a
-# four-second BioPortal fetch came to refuse a gate run on 2026-09-10. curl separates the two in its
-# exit status, 28 for a timeout and anything else here for a connection that failed outright, while
+# timeout as `starting` would hide that difference. curl separates the two in its exit status,
+# 28 for a timeout and anything else here for a connection that failed outright, while
 # `%{http_code}` reports 000 for both, so the status is what this reads.
 CURL_TIMEOUT_STATUS=28
 
