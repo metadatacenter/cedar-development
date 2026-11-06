@@ -117,7 +117,8 @@ async function grant(p, role) {
 async function addDiseaseField(p) {
   await p.getByRole("button", { name: /^Add field$/ }).last().click();
   await p.locator("app-field-type-picker").getByRole("button", { name: "Text", exact: true }).click();
-  await p.locator("app-field-card").last()
+  // Wait for the new card: last() can still resolve to Notes before Angular inserts Disease.
+  await p.locator("app-field-card").nth(1)
     .getByRole("textbox", { name: "Enter field name", exact: true }).fill("Disease");
 }
 // Answer the designer's first template save with an expired-token refusal. The host must refresh
