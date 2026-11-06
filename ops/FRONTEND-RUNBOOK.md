@@ -484,6 +484,13 @@ The legacy editor uses the thin `ng-flow` adapter after its single Flow.js depen
 RDF preview and unused JSON-LD conversion are absent from the startup graph; the JSON Schema
 preview and YAML actions remain available.
 
+Workspace loads profile, settings, groups, privacy and logout as route chunks; Monitoring loads
+its diagnostic screens as a lazy module. Dashboard navigation therefore avoids those downloads,
+while direct links keep their existing guards and behavior. The 2026-11-06 production comparison
+reduced Workspace's initial graph by 63,764 raw / 13,369 gzip-9 bytes and Monitoring's by
+204,100 / 41,363 bytes. Browser tests assert that the deferred chunks are absent on the dashboard
+and requested when their routes open; the existing account and diagnostic journeys still apply.
+
 Files merely present on disk, such as Moment's tests, source maps and superseded hashed bundles,
 are not evidence of browser downloads.
 
