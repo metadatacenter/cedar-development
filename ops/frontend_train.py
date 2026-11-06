@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import frontend_inventory
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import time
 import base64
 import datetime as dt
@@ -691,7 +691,11 @@ def verification_environment(config, plan, repository, workspace, directory='.')
             member = archive.getmember('package/' + item['bundle'])
             if not member.isfile():
                 raise RuntimeError('Integration bundle must be a regular file')
-            target.write_bytes(archive.extractfile(member).read())
+            # Independent consumers may stage the same content-addressed bundle. Readers
+            # must see complete bytes even while another repository stages its copy.
+            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as staged:
+                staged.write(archive.extractfile(member).read())
+            Path(staged.name).replace(target)
         environment[item['variable']] = str(target.resolve())
     return environment
 
@@ -746,14 +750,14 @@ def verify_component_package(config, plan, component, root, workspace, workers=4
     return staged
 
 
-def verify_surfaces(config, plan, workspace, jobs=2, workers=4):
+def verify_surfaces(config, plan, workspace, jobs=2, workers=4, *, repositories=None):
     if not 1 <= jobs <= 4 or not 1 <= workers <= 16:
         raise ValueError("Frontend jobs must be 1–4 and workers 1–16")
     groups = {}
     # Resolve/stage integration tarballs before starting readers: distinct
     # consumers can name the same shared content-addressed bundle path.
     for surface in frontend_inventory.surfaces(config):
-        if not surface.get('release'):
+        if not surface.get('release') or (repositories is not None and surface['repository'] not in repositories):
             continue
         repository, directory = surface['repository'], surface['directory']
         environment = verification_environment(config, plan, repository, workspace, directory)
@@ -812,60 +816,107 @@ def build_prepared_frontends(frontends, workspace, jobs=2, workers=4):
             raise
 
 
+def prepare_dependency_graph(dependencies, prepare, jobs):
+    """Schedule independent repositories, stopping new work on failure before recording evidence."""
+    # Reject a cycle before starting anything that can publish a package.
+    remaining, reachable = set(dependencies), set()
+    while remaining:
+        ready = {name for name in remaining if dependencies[name] <= reachable}
+        if not ready:
+            raise ValueError('Frontend preparation dependencies contain a cycle or unknown producer')
+        remaining -= ready
+        reachable |= ready
+    pending, results = dict(dependencies), {}
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        active = {}
+        try:
+            while pending or active:
+                for name in list(pending):
+                    if len(active) == jobs:
+                        break
+                    if pending[name] <= results.keys():
+                        active[pool.submit(prepare, name)] = name
+                        del pending[name]
+                done, _ = wait(active, return_when=FIRST_COMPLETED)
+                # Observe every settled failure before scheduling another repository.
+                completed = [(active[future], future.result()) for future in done]
+                for future in done:
+                    del active[future]
+                results.update(completed)
+        except BaseException:
+            for future in active:
+                future.cancel()
+            raise
+    return results
+
+
 def prepare_frontends(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     plan_path = args.state / "npm" / "trains" / f"{version}.json"
     plan = load_json(plan_path)
     verify_record(plan["registry"], plan["cee"])
     source, _ = source_manifest(args.state, version)
-    wiring = []
-    by_frontend: dict[str, list[str]] = {}
-    for component in plan.get('components', []):
-        publish_component(args, plan, component)
-    model_config = load_json(args.config)
-    for frontend in plan['frontends']:
-        changed = wire_components(args, plan, frontend['repository'])
-        changed += wire_model(args, plan, frontend['repository'], model_config)
-        by_frontend.setdefault(frontend['id'], []).extend(changed)
-    for repository in sorted({c['repository'] for c in plan.get('additionalCeeConsumers', [])}
-                             - {f['repository'] for f in plan['frontends']}):
-        wire_components(args, plan, repository)
-        wire_model(args, plan, repository, model_config)
-    for consumer in plan["ceeConsumers"]:
-        repository_root(args.workspace, source, consumer["repository"])
-        manifest_path = args.workspace / consumer["repository"] / consumer["manifest"]
-        lock_path = args.workspace / consumer["repository"] / consumer["lock"]
-        install_exact_alias(
-            manifest_path.parent,
-            "cedar-embeddable-editor",
-            plan["cee"]["name"],
-            plan["cee"]["version"],
-            consumer["legacyPeerDeps"],
-        )
-        require_exact_alias(
-            manifest_path, lock_path, "cedar-embeddable-editor",
-            plan["cee"]["name"], plan["cee"]["version"],
-        )
-        record = {
-            **consumer,
-            "manifestSha256": path_sha256(manifest_path),
-            "lockSha256": path_sha256(lock_path),
-        }
-        wiring.append(record)
-        if consumer.get("publishedFrontend"):
-            by_frontend.setdefault(consumer["publishedFrontend"], []).extend([
-                consumer["manifest"], consumer["lock"],
-            ])
-
-    # All dependency rewrites are now complete. Verify every consumer composition,
-    # including demos that do not publish a standalone frontend package.
     config = load_json(args.config)
     frontend_inventory.validate(config)
-    verify_surfaces(config, plan, args.workspace,
-                    getattr(args, 'jobs', 2), getattr(args, 'workers', 4))
+    jobs, workers = getattr(args, 'jobs', 2), getattr(args, 'workers', 4)
+    if not 1 <= jobs <= 4 or not 1 <= workers <= 16:
+        raise ValueError("Frontend jobs must be 1–4 and workers 1–16")
+    components = {component['repository']: component for component in plan.get('components', [])}
+    repositories = list(dict.fromkeys(
+        [f['repository'] for f in plan['frontends']]
+        + [c['repository'] for c in plan.get('additionalCeeConsumers', [])]
+        + [c['repository'] for c in plan['ceeConsumers']]
+        + [s['repository'] for s in frontend_inventory.surfaces(config) if s.get('release')]))
+    if set(components) & set(repositories):
+        raise ValueError('A train repository cannot be both a component and a frontend')
+    dependencies = {repository: set() for repository in [*components, *repositories]}
+    for producer, component in components.items():
+        for consumer in component.get('consumers', []):
+            repository = consumer['repository']
+            if repository in dependencies and repository != producer:
+                dependencies[repository].add(producer)
+    for surface in frontend_inventory.surfaces(config):
+        for item in surface.get('integrationInputs', []):
+            if surface['repository'] in dependencies and item['repository'] in dependencies:
+                dependencies[surface['repository']].add(item['repository'])
 
-    build_prepared_frontends(plan['frontends'], args.workspace,
-                             getattr(args, 'jobs', 2), getattr(args, 'workers', 4))
+    def prepare_repository(repository):
+        if repository in components:
+            publish_component(args, plan, components[repository])
+            return {}, []
+        frontends = [f for f in plan['frontends'] if f['repository'] == repository]
+        changed = wire_components(args, plan, repository)
+        changed += wire_model(args, plan, repository, config)
+        overlays = {f['id']: list(changed) for f in frontends}
+        wiring = []
+        for consumer in plan['ceeConsumers']:
+            if consumer['repository'] != repository:
+                continue
+            repository_root(args.workspace, source, repository)
+            manifest_path = args.workspace / repository / consumer['manifest']
+            lock_path = args.workspace / repository / consumer['lock']
+            install_exact_alias(manifest_path.parent, 'cedar-embeddable-editor',
+                                plan['cee']['name'], plan['cee']['version'], consumer['legacyPeerDeps'])
+            require_exact_alias(manifest_path, lock_path, 'cedar-embeddable-editor',
+                                plan['cee']['name'], plan['cee']['version'])
+            wiring.append({**consumer, 'manifestSha256': path_sha256(manifest_path),
+                           'lockSha256': path_sha256(lock_path)})
+            if consumer.get('publishedFrontend'):
+                overlays.setdefault(consumer['publishedFrontend'], []).extend([
+                    consumer['manifest'], consumer['lock']])
+        # Each repository has exclusive ownership of its installs and outputs. Only its own
+        # producers block it; unrelated applications can run while the designer is tested.
+        verify_surfaces(config, plan, args.workspace, 1, workers, repositories={repository})
+        build_prepared_frontends(frontends, args.workspace, 1, workers)
+        return overlays, wiring
+
+    results = prepare_dependency_graph(dependencies, prepare_repository, jobs)
+    by_frontend = {}
+    consumer_records = {}
+    for overlays, records in results.values():
+        by_frontend.update(overlays)
+        consumer_records.update({(r['repository'], r['manifest']): r for r in records})
+    wiring = [consumer_records[(c['repository'], c['manifest'])] for c in plan['ceeConsumers']]
     builds = []
     for frontend in plan["frontends"]:
         build = frontend.get("preparedBuild")

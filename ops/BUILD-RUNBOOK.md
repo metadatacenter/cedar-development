@@ -261,12 +261,14 @@ controller removes stale staging output before verification and publishes the re
 package only after checking its train identity, without running a second `dist` build.
 Legacy plans and components without that declaration retain their explicit build step.
 
-Frontend consumer verification uses two concurrent repository jobs and four workers per
+Frontend preparation uses two concurrent repository jobs and four workers per
 job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).
-Commands within a repository stay ordered; shared integration bundles are staged before
-workers start. Prepared production payloads are built only after every consumer check passes, using the
-same bounded repository and worker budgets. Commands sharing a repository stay ordered;
-the coordinator records hashes and overlays only after every production build succeeds.
+Each repository waits only for its package and integration-bundle producers. The designer's
+verification overlaps Workspace and other independent applications; its template-designer host
+waits for the verified designer package. Commands within a repository stay ordered: dependency
+wiring, checks, then its prepared production build. Shared integration bundles are staged atomically.
+The coordinator records hashes and overlays only after every repository succeeds. A failed producer
+blocks its consumers, stops new work and leaves no frontend completion evidence.
 
 None of those version or dependency edits is written back to a source repository. They are
 controlled transformations in isolated exact-commit checkouts, and their hashes become part of the

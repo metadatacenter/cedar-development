@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -21,6 +22,41 @@ MODEL_NAME = "@org.metadatacenter/cedar-model-typescript-library"
 MODEL_VERSION = "1.0.3-dev.example"
 CEE_NAME = "@org.metadatacenter/cedar-embeddable-editor"
 CEE_VERSION = "2.0.2-dev.example"
+
+
+class FrontendPreparationScheduleTest(unittest.TestCase):
+    def test_independent_frontend_overlaps_designer_but_host_waits(self):
+        barrier = threading.Barrier(2, timeout=5)
+        finished = set()
+        dependencies = {'tokens': set(), 'picker': {'tokens'}, 'ced': {'tokens', 'picker'},
+                        'workspace': {'tokens'}, 'host': {'ced', 'picker'}}
+
+        def prepare(name):
+            self.assertTrue(dependencies[name] <= finished)
+            if name in {'ced', 'workspace'}:
+                barrier.wait()
+            finished.add(name)
+            return name
+
+        results = frontend_train.prepare_dependency_graph(dependencies, prepare, 2)
+        self.assertEqual(set(dependencies), set(results))
+        self.assertEqual(set(dependencies), finished)
+
+    def test_failed_component_never_starts_its_consumer(self):
+        seen = []
+        def prepare(name):
+            seen.append(name)
+            raise RuntimeError('designer test failed')
+        with self.assertRaisesRegex(RuntimeError, 'designer test failed'):
+            frontend_train.prepare_dependency_graph({'ced': set(), 'host': {'ced'}}, prepare, 2)
+        self.assertEqual(['ced'], seen)
+
+    def test_cycle_or_unknown_dependency_refuses_before_any_publication(self):
+        for dependencies in ({'ced': {'host'}, 'host': {'ced'}}, {'ced': {'missing'}}):
+            with patch.object(frontend_train, 'publish_component') as publish:
+                with self.assertRaisesRegex(ValueError, 'cycle or unknown'):
+                    frontend_train.prepare_dependency_graph(dependencies, publish, 2)
+                publish.assert_not_called()
 
 
 def write(path: Path, value: dict) -> None:
