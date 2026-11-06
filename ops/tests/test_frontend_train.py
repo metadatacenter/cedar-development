@@ -64,6 +64,40 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_workspace_configures_without_a_workstation_profile_and_preserves_server_overrides(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / 'frontend-train.json').read_text())
+        configure = Path(__file__).resolve().parents[3] / 'cedar-workspace' / 'tools' / 'workspace.mjs'
+        self.assertTrue(configure.is_file(), 'check out cedar-workspace/tools for the configuration contract')
+        cases = [({}, True, 'metadatacenter.orgx'), ({
+            'CEDAR_FRONTEND_BEHAVIOR': 'server',
+            'CEDAR_FRONTEND_TARGET': 'production',
+            'CEDAR_FRONTEND_production_UI_HOST': 'example.org',
+            'CEDAR_FRONTEND_production_REST_HOST': 'api.example.org',
+            'CEDAR_SOURCE_COMMIT': 'a' * 40,
+        }, False, 'api.example.org')]
+        for overrides, development, rest_host in cases:
+            with self.subTest(development=development), tempfile.TemporaryDirectory() as directory, \
+                    patch.dict(os.environ, {'PATH': os.environ['PATH'], **overrides}, clear=True):
+                root = Path(directory)
+                write(root / 'app/config/src/embeddable-editor-config.json', {'preserved': True})
+                environment = frontend_train.verification_environment(
+                    config, {'version': VERSION}, 'cedar-workspace', root)
+                runner = root / 'configure.mjs'
+                runner.write_text('const {configure} = await import(process.argv[2]); '
+                                  'await configure(process.argv[3]);\n')
+                result = subprocess.run(['node', str(runner), configure.as_uri(), str(root)],
+                                        env=environment, capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                output = root / 'app/config'
+                urls = json.loads((output / 'url-service.conf.json').read_text())
+                self.assertEqual(f'https://resource.{rest_host}', urls['resourceRestAPI'])
+                cee = json.loads((output / 'embeddable-editor-config.json').read_text())
+                self.assertTrue(cee['preserved'])
+                self.assertEqual(f'https://terminology.{rest_host}/', cee['terminologyBaseUrl'])
+                script = (output / 'version.js').read_text()
+                self.assertIn(f'window.cedarDevelopmentMode = {str(development).lower()};', script)
+                self.assertIn(f'window.cedarVersion = "{VERSION}";', script)
+
     def test_prepared_builds_overlap_repositories_and_fail_before_evidence(self):
         import threading
         barrier = threading.Barrier(2)

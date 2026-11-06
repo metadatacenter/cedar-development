@@ -44,6 +44,15 @@ jobs:
           ref: develop
           path: cedar-cli
 
+      # Exercise the real dependency-free configurator with the train's clean environment.
+      - name: Check out Workspace configuration contract
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-workspace
+          ref: develop
+          path: cedar-workspace
+          sparse-checkout: tools
+
       - name: Set up Java 17
         uses: actions/setup-java@v6
         with:
