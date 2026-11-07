@@ -274,8 +274,11 @@ inputs remain enabled exactly as in the full gate. Publication requires every sh
 the exact union of the original test inventory (including declared skips), and matching candidate,
 source and dependency hashes. A missing, duplicate or foreign receipt refuses publication.
 Workspace runs its complete checks and production preparation on a separate runner. Its verified
-archive is restored by the final frontend job without rerunning those checks. All other applications
-retain their complete inventory gates and production builds. Local and serial paths still run the
+archive is restored by the final frontend job without rerunning those checks. The six independent
+consumer repositories run their complete gates and production builds in isolated matrix jobs alongside
+CED. Only the Template Designer host waits for CED publication. The final frontend job requires the
+complete set of consumer archives, bound to the captured source, plan and configuration hashes; it
+restores their tested outputs and exact lockfiles before recording and publishing the seven packages. Local and serial paths still run the
 full gates; CED's `prepare` gate alone is not publication evidence.
 
 The remaining frontend preparation uses two concurrent repository jobs and four workers per job

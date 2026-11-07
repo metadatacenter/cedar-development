@@ -914,7 +914,14 @@ def prepare_frontends(args: argparse.Namespace) -> None:
             if surface['repository'] in dependencies and item['repository'] in dependencies:
                 dependencies[surface['repository']].add(item['repository'])
 
+    verified = {}
+    if getattr(args, 'verified_consumers', None):
+        from frontend_train_shards import restore_consumers
+        verified = restore_consumers(args, plan, config)
+
     def prepare_one(repository):
+        if repository in verified:
+            return verified[repository]
         if repository == 'cedar-workspace' and getattr(args, 'verified_workspace', None):
             from frontend_train_shards import restore_workspace
             return restore_workspace(args, plan)
@@ -1157,6 +1164,7 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--jobs", type=int, choices=range(1, 5), default=2)
     prepare.add_argument("--workers", type=int, choices=range(1, 17), default=4)
     prepare.add_argument("--verified-workspace", type=Path)
+    prepare.add_argument("--verified-consumers", type=Path)
     prepare.set_defaults(handler=prepare_frontends)
     publish = commands.add_parser("publish-frontends")
     publish.add_argument("--version", required=True)

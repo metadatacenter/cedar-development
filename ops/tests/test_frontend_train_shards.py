@@ -106,10 +106,60 @@ class DistributedEvidenceTest(unittest.TestCase):
     def test_workflow_requires_all_lanes_and_workspace_before_frontend_publication(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/build-train.yml').read_text()
         self.assertIn("lane: ['1', '2', '3', '4', visual]", workflow)
-        self.assertIn('needs: [publish-cee, publish-picker, publish-ced, prepare-workspace]', workflow)
+        self.assertIn('needs: [publish-cee, publish-picker, publish-ced, prepare-workspace, prepare-consumers]', workflow)
         self.assertIn('--verified-workspace "$RUNNER_TEMP/workspace-prepared"', workflow)
         self.assertIn('pattern: ced-result-*', workflow)
         self.assertIn('needs: check-ced', workflow)
+
+    def test_independent_matrix_covers_every_eligible_release_repository(self):
+        config = train.load_json(train.DEFAULT_CONFIG)
+        expected = shards.independent_consumers(config)
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/build-train.yml').read_text()
+        job = workflow.split('  prepare-consumers:', 1)[1].split('  publish-frontends:', 1)[0]
+        import re
+        actual = re.search(r'repository: \[(.*?)\]', job).group(1).split(', ')
+        self.assertEqual(expected, sorted(actual))
+        self.assertIn('needs: [publish-cee, publish-picker]', job)
+        self.assertNotIn('needs: publish-ced', job)
+        self.assertIn('prepare-consumer --repository', job)
+        component = next(c for c in config['components'] if c['repository'] == shards.CED)
+        component['consumers'].append({'repository': expected[0]})
+        with self.assertRaisesRegex(RuntimeError, 'depends on CED'):
+            shards.independent_consumers(config)
+
+    def test_consumer_restoration_requires_complete_set_and_matching_identity(self):
+        config = train.load_json(train.DEFAULT_CONFIG)
+        surface = next(s for s in config['surfaces'] if s['id'] == 'content')
+        config = {**config, 'surfaces': [{**surface, 'repository': 'consumer'}], 'components': []}
+        root = self.args.workspace / 'consumer'
+        root.mkdir()
+        (root / 'tested.js').write_text('verified')
+        self.args.verified_consumers = self.root / 'consumers'
+        self.args.artifact = self.args.verified_consumers / 'consumer-consumer'
+        self.args.verified_consumers.mkdir()
+        with self.assertRaisesRegex(RuntimeError, 'Missing'):
+            shards.restore_consumers(self.args, self.plan, config)
+        shards.archive_candidate(self.args, self.plan, 'consumer', {'result': [{'app': ['dist']}, []]})
+        with patch.object(train, 'source_manifest', return_value=({}, b'')), patch.object(train, 'repository_root'):
+            result = shards.restore_consumers(self.args, self.plan, config)
+            self.assertEqual({'consumer': [{'app': ['dist']}, []]}, result)
+            with self.assertRaisesRegex(RuntimeError, 'different train inputs'):
+                shards.restore_consumers(self.args, {**self.plan, 'changed': True}, config)
+        (self.args.verified_consumers / 'extra').mkdir()
+        with self.assertRaisesRegex(RuntimeError, 'unexpected'):
+            shards.restore_consumers(self.args, self.plan, config)
+
+    def test_consumer_receipt_is_written_only_after_complete_repository_gate(self):
+        self.args.repository = 'consumer'
+        with patch.object(shards, 'context', return_value=(self.plan, {}, {})), \
+             patch.object(shards, 'independent_consumers', return_value=['consumer']), \
+             patch.object(train, 'repository_root', return_value=(self.repo, 'revision')), \
+             patch.object(train, 'assert_clean_repository'), \
+             patch.object(train, 'prepare_repository', side_effect=RuntimeError('browser failed')), \
+             patch.object(shards, 'archive_candidate') as archive:
+            with self.assertRaisesRegex(RuntimeError, 'browser failed'):
+                shards.prepare_consumer(self.args)
+            archive.assert_not_called()
 
     def test_cee_requires_all_four_shards_including_declared_skips(self):
         receipt = self.candidate()

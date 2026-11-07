@@ -15,6 +15,7 @@ import frontend_train as train
 CEE = 'cedar-embeddable-editor'
 CED = 'cedar-embeddable-designer'
 WORKSPACE = 'cedar-workspace'
+HOST = 'cedar-template-designer'
 SHARDS = 4
 EXCLUDED = {'.git', 'node_modules', '.angular', 'coverage', 'test-results',
             'test-results-container', 'playwright-report', 'blob-report', '__pycache__'}
@@ -312,16 +313,53 @@ def restore_workspace(args, plan):
     return receipt['data']['result']
 
 
+def independent_consumers(config):
+    """Every release surface except the separately gated Workspace and CED host."""
+    repositories = {s['repository'] for s in frontend_inventory.surfaces(config) if s.get('release')}
+    repositories -= {WORKSPACE, HOST}
+    # A new CED consumer must not silently run before its producer passes.
+    dependent = {c['repository'] for p in config['components'] if p['repository'] == CED
+                 for c in p['consumers']}
+    if repositories & dependent:
+        raise RuntimeError('Independent consumer now depends on CED; update train scheduling')
+    return sorted(repositories)
+
+
+def prepare_consumer(args):
+    plan, source, config = context(args)
+    if args.repository not in independent_consumers(config):
+        raise ValueError('Not an independent release consumer')
+    root, _ = train.repository_root(args.workspace, source, args.repository)
+    train.assert_clean_repository(root, args.repository)
+    result = train.prepare_repository(args, plan, config, args.repository)
+    archive_candidate(args, plan, args.repository, {'result': result})
+
+
+def restore_consumers(args, plan, config):
+    repositories = independent_consumers(config)
+    directory = args.verified_consumers
+    expected = {f'consumer-{repository}' for repository in repositories}
+    if {p.name for p in directory.iterdir() if p.is_dir()} != expected:
+        raise RuntimeError('Missing or unexpected verified consumer artifacts')
+    results = {}
+    for repository in repositories:
+        local = argparse.Namespace(**vars(args))
+        local.artifact = directory / f'consumer-{repository}'
+        results[repository] = restore(local, plan, repository)['data']['result']
+    return results
+
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('command', choices=['prepare-ced', 'check-ced', 'publish-ced', 'prepare-workspace',
-                                       'prepare-cee', 'check-cee', 'publish-cee'])
+                                       'prepare-cee', 'check-cee', 'publish-cee', 'prepare-consumer'])
     p.add_argument('--version', required=True)
     p.add_argument('--workspace', type=Path, required=True)
     p.add_argument('--state', type=Path, required=True)
     p.add_argument('--artifact', type=Path, required=True)
     p.add_argument('--results', type=Path)
     p.add_argument('--lane')
+    p.add_argument('--repository')
     p.add_argument('--workers', type=int, default=4, choices=range(1, 17))
     p.add_argument('--config', type=Path, default=train.DEFAULT_CONFIG)
     return p
