@@ -88,6 +88,16 @@ session. Otherwise Monitoring uses the ordinary test account. A denial is report
 coverage, and the other pages continue. See the backend runbook's read-only Monitor access
 procedure before granting access.
 
+The local baseline uses the dedicated `frontend-perf-monitor@test.com` identity with
+`normal` plus `monitorViewer`, leaving existing users unchanged. Its generated password is
+stored only in `$CEDAR_HOME/.cedar/secrets/frontend-perf-monitor.json` (owner read/write,
+mode 0600), with `username` and `password` keys; load those values into the two invocation
+environment variables above for subsequent runs. Never commit that file or include its
+contents in a report. The local realm required the documented `monitorViewer` role setup;
+CEDAR's stored permissions were then updated for this account alone using its existing
+permission-expansion/user-service libraries. The added permission was exactly
+`permission_monitor_read`, and the protected `/health-check/monitor` endpoint returned 200.
+
 Each repetition starts with a fresh browser context and cleared HTTP cache. It measures a
 cold navigation, leaves the page, then measures a warm navigation in the same tab. Interaction
 measurements follow the warm load only, so retained editing drafts cannot change the next
@@ -126,11 +136,16 @@ HTTP/3 delivery. Compare identical lab settings, and verify deployment timings s
 
 ### Baseline — 2026-11-07
 
-The 12:53–13:08 UTC run collected **280 valid samples**: 14 scenarios × two profiles × two
-cache states × five repetitions. All temporary templates and their folder were deleted and
-GET-verified absent. Monitoring has no valid sample: the test account lacks `MONITOR_READ`.
-The report is therefore explicitly incomplete and the command exits 1 for missing coverage,
-not for a timing budget. The denied page is never counted as a fast dashboard.
+Across two runs, the baseline contains **300 valid samples covering all 15 scenarios**:
+two profiles × two cache states × five repetitions per scenario. All temporary templates
+and their folders were deleted and GET-verified absent.
+
+The 12:53–13:08 UTC run collected 280 samples for 14 scenarios. Its original report remains
+explicitly incomplete (exit 1): the ordinary test account lacked `MONITOR_READ`, and no denial
+page was counted as a fast dashboard. The separate **13:29–13:30 UTC Monitoring supplement**
+used the authorized dedicated account described above and collected the remaining 20 samples.
+It completed with exit 0, no setup/sample failures and no cleanup errors. Original reports
+are preserved separately rather than rewriting the first run's coverage or source identity.
 
 Evidence is under `$CEDAR_HOME/.cedar/reports/frontend-performance/baseline-20261107/`:
 `report.html`, `report.json`, `samples.csv`, `fixtures.json` and `lab/artifacts.json`.
@@ -139,6 +154,16 @@ The machine was an Apple M4 Max, 16 logical CPUs, 64 GiB RAM, macOS/Darwin 25.6.
 Chromium 156.0.8078.4 and Node 24.22.1, at 1440×1000. Desktop applications remained running;
 a backup process used roughly one CPU before the run. One-minute load was 4.32 at the start
 and 3.35 at the end. No other build or test was launched by this suite during measurement.
+
+Monitoring evidence is under
+`$CEDAR_HOME/.cedar/reports/frontend-performance/monitoring-20261107/`, with the same report,
+CSV, fixture and artifact files. It used the same machine, browser, Node, viewport and
+measurement profiles; one-minute load was 2.99 at the start and 3.77 at the end.
+Measurement code: `cedar-development@26fd9500`; CLI: `cedar-cli@323f7d0`.
+Monitoring source was clean at `e24c81139f55bd399ef451e1b2e0788e2b8f012c`; the served output
+inventory SHA-256 is `71318f25d754d6bf55e8f876ab89f375520f787c25195c3ab298f61d29e9884d`.
+All 20 Monitoring samples recorded CLS 0. The dashboard screenshot confirms the useful page,
+and the protected Monitor endpoint returned 200 for the dedicated account before measurement.
 
 The selected reactor graph was
 `3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`.
@@ -157,7 +182,7 @@ Readiness includes useful controls and font readiness, with the exact predicate 
 | Page | Normal, cold | Normal, warm | Constrained, cold | Constrained, warm |
 | --- | --- | --- | --- | --- |
 | Workspace dashboard | 0.32 (0.31–0.34) | 0.26 (0.24–0.27) | 3.67 (3.65–3.73) | 2.14 (2.13–2.21) |
-| Monitoring dashboard | Unavailable | Unavailable | Unavailable | Unavailable |
+| Monitoring dashboard (supplement) | 0.34 (0.34–0.34) | 0.24 (0.22–0.33) | 3.63 (3.62–3.69) | 2.05 (2.05–2.07) |
 | Bridging dashboard | 0.24 (0.24–0.24) | 0.24 (0.21–0.24) | 3.21 (3.20–3.23) | 2.03 (2.03–2.04) |
 | Content index | 0.04 (0.04–0.04) | 0.04 (0.04–0.04) | 0.38 (0.37–0.39) | 0.22 (0.21–0.22) |
 | Standalone term picker | 0.07 (0.07–0.09) | 0.06 (0.05–0.06) | 1.53 (1.50–1.53) | 0.25 (0.23–0.26) |
@@ -196,7 +221,7 @@ The constrained medians expose several distinct costs:
   when built-in translations are intended.
 
 The [modern performance roadmap](FRONTEND-ROADMAP.md#modern-page-performance) tracks follow-up
-investigation and the missing Monitoring measurement. None of these figures is a production
+investigation. None of these figures is a production
 SLA or a field Core Web Vitals verdict.
 
 ## Browser Metadata Editing

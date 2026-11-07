@@ -497,6 +497,3 @@ existing interface, standalone CEE/CED use, and the agreed small landing-page do
 - **Workspace translation fallback.** Resolve the configured `/assets/i18n-cee/` prefix:
   English currently incurs a 404 before built-in translations take over. Serve an intended
   override or omit the unused prefix, preserving language selection and fallback behavior.
-- **Monitoring baseline coverage.** Use an explicitly authorized local account with
-  `MONITOR_READ` to collect the same five-repeat cold/warm profiles. The ordinary test user
-  is denied; do not substitute that denial page or grant roles implicitly.
