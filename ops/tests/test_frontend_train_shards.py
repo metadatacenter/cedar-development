@@ -106,7 +106,7 @@ class DistributedEvidenceTest(unittest.TestCase):
     def test_workflow_requires_all_lanes_and_workspace_before_frontend_publication(self):
         workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/build-train.yml').read_text()
         self.assertIn("lane: ['1', '2', '3', '4', visual]", workflow)
-        self.assertIn('needs: [publish-cee, publish-picker, publish-ced, prepare-workspace, prepare-consumers]', workflow)
+        self.assertIn('needs: [publish-cee, publish-picker, publish-ced, prepare-workspace, prepare-consumers, check-host]', workflow)
         self.assertIn('--verified-workspace "$RUNNER_TEMP/workspace-prepared"', workflow)
         self.assertIn('pattern: ced-result-*', workflow)
         self.assertIn('needs: check-ced', workflow)
@@ -160,6 +160,64 @@ class DistributedEvidenceTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'browser failed'):
                 shards.prepare_consumer(self.args)
             archive.assert_not_called()
+
+    def test_host_preparation_moves_only_browser_command_to_shards(self):
+        config = train.load_json(train.DEFAULT_CONFIG)
+        before = copy.deepcopy(config)
+        prepared = shards.host_preparation_config(config)
+        self.assertEqual(before, config)
+        original = train.frontend_inventory.commands(config, shards.HOST)
+        moved = train.frontend_inventory.commands(prepared, shards.HOST)
+        self.assertEqual([c for c in original if c != ['npm', 'run', 'test:browser']], moved)
+        row = next(s for s in config['surfaces'] if s['repository'] == shards.HOST)
+        row['verify'].remove(['npm', 'run', 'test:browser'])
+        with self.assertRaisesRegex(RuntimeError, 'recipe changed'):
+            shards.host_preparation_config(config)
+
+    def test_host_coverage_rejects_omissions_duplicates_and_foreign_candidates(self):
+        receipt = self.candidate()
+        receipt['data']['visual'] = []
+        for lane, case in zip(['1', '2', '3', '4'], ['a', 'b', 'c', 'd']):
+            train.write_json(self.args.results / f'host-{lane}.json', {
+                **shards.identity(self.args, self.plan), 'archiveSha256': receipt['archiveSha256'],
+                'lane': lane, 'tests': [case]})
+        lanes = ['1', '2', '3', '4']
+        shards.require_results(self.args, self.plan, receipt, 'host', lanes)
+        path = self.args.results / 'host-4.json'
+        data = train.load_json(path)
+        for changed in ({'tests': []}, {'tests': ['a']}, {'archiveSha256': 'foreign'}):
+            train.write_json(path, {**data, **changed})
+            with self.assertRaises(RuntimeError):
+                shards.require_results(self.args, self.plan, receipt, 'host', lanes)
+        path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            shards.require_results(self.args, self.plan, receipt, 'host', lanes)
+
+    def test_host_restoration_requires_shards_and_unchanged_app(self):
+        root = self.args.workspace / shards.HOST / 'app'
+        root.mkdir(parents=True)
+        (root / 'index.html').write_text('tested')
+        self.args.verified_host = self.args.artifact
+        self.args.host_results = self.args.results
+        receipt = {'data': {'appSha256': train.path_sha256(root), 'result': [{}, []]}}
+        with patch.object(shards, 'restore', return_value=receipt), \
+             patch.object(shards, 'require_results') as results:
+            self.assertEqual([{}, []], shards.restore_host(self.args, self.plan))
+            self.assertEqual(['1', '2', '3', '4'], results.call_args.args[-1])
+            (root / 'index.html').write_text('changed')
+            with self.assertRaisesRegex(RuntimeError, 'differs from tested'):
+                shards.restore_host(self.args, self.plan)
+
+    def test_host_workflow_joins_shards_before_assembling_frontends(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/build-train.yml').read_text()
+        host = workflow.split('  check-host:', 1)[1].split('  publish-frontends:', 1)[0]
+        self.assertIn('needs: prepare-host', host)
+        self.assertIn("lane: ['1', '2', '3', '4']", host)
+        publish = workflow.split('  publish-frontends:', 1)[1].split('  record-backend-plan:', 1)[0]
+        self.assertIn('check-host]', publish)
+        self.assertIn('pattern: host-result-*', publish)
+        self.assertIn('--verified-host', publish)
+        self.assertNotIn('playwright', publish)
 
     def test_cee_requires_all_four_shards_including_declared_skips(self):
         receipt = self.candidate()

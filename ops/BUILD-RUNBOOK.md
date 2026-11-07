@@ -281,6 +281,13 @@ complete set of consumer archives, bound to the captured source, plan and config
 restores their tested outputs and exact lockfiles before recording and publishing the seven packages. Local and serial paths still run the
 full gates; CED's `prepare` gate alone is not publication evidence.
 
+The Template Designer host prepares its wired app and runs all non-browser checks once after CED
+publication. Four isolated browser shards test that same app with the original Playwright settings,
+including the real CED/Java conformance cases. Publication requires the complete test inventory,
+every shard receipt and unchanged app bytes. The final job restores the verified host and all
+other consumer outputs; it performs no browser rerun or rebuilding of transferred artifacts.
+
+
 The remaining frontend preparation uses two concurrent repository jobs and four workers per job
 (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path). Each repository
 waits only for its package and integration-bundle producers. Commands within a repository stay

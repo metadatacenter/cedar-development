@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import io
 import json
 from pathlib import Path
@@ -349,10 +350,77 @@ def restore_consumers(args, plan, config):
     return results
 
 
+def host_preparation_config(config):
+    prepared = copy.deepcopy(config)
+    row = next(s for s in prepared['surfaces'] if s['repository'] == HOST)
+    browser = ['npm', 'run', 'test:browser']
+    if row['verify'].count(browser) != 1:
+        raise RuntimeError('Designer host gate recipe changed; update distributed coverage')
+    row['verify'].remove(browser)
+    return prepared
+
+
+def prepare_host(args):
+    plan, source, config = context(args)
+    root, _ = train.repository_root(args.workspace, source, HOST)
+    train.assert_clean_repository(root, HOST)
+    result = train.prepare_repository(args, plan, host_preparation_config(config), HOST)
+    env = environment(args, plan, HOST)
+    archive_candidate(args, plan, HOST, {'result': result,
+        'appSha256': train.path_sha256(root / 'app'),
+        'browser': inventory(root, env, 'browser'), 'visual': []})
+
+
+def host_report_config(directory):
+    (directory / 'train-report.config.mjs').write_text(
+        "import base from './playwright.config.mjs';\n"
+        "export default {...base, reporter: [['line'], ['json', {outputFile: 'train-report.json'}]]};\n")
+
+
+def check_host(args):
+    plan, _, _ = context(args)
+    receipt = restore(args, plan, HOST)
+    root = args.workspace / HOST
+    shard = int(args.lane)
+    if not 1 <= shard <= SHARDS:
+        raise ValueError('Invalid Designer host shard')
+    env = environment(args, plan, HOST)
+    train.run_command(['npm', 'ci'], root, env)
+    train.run_command(['npm', '--prefix', 'browser', 'ci'], root, env)
+    train.run_command(['./browser/node_modules/.bin/playwright', 'install', '--with-deps', 'chromium'], root, env)
+    expected = inventory(root, env, 'browser', [f'--shard={shard}/{SHARDS}'])
+    host_report_config(root / 'browser')
+    report = root / 'browser/train-report.json'
+    report.unlink(missing_ok=True)
+    # Bypass only the host's preparation hook: the transferred app is the tested candidate.
+    train.run_command(['npm', '--prefix', 'browser', 'test', '--',
+                       f'--shard={shard}/{SHARDS}', '--config=train-report.config.mjs'], root, env)
+    completed = test_inventory(train.load_json(report))
+    if sorted(completed) != expected or any(t.get('status') not in {'expected', 'skipped', 'flaky'} for t in completed.values()):
+        raise RuntimeError('Designer host shard did not complete its entire test inventory')
+    if train.path_sha256(root / 'app') != receipt['data']['appSha256']:
+        raise RuntimeError('Tests changed the Designer host candidate')
+    train.write_json(args.results / f'host-{args.lane}.json', {
+        **identity(args, plan), 'archiveSha256': receipt['archiveSha256'],
+        'lane': args.lane, 'tests': expected})
+
+
+def restore_host(args, plan):
+    local = argparse.Namespace(**vars(args))
+    local.artifact = args.verified_host
+    local.results = args.host_results
+    receipt = restore(local, plan, HOST)
+    require_results(local, plan, receipt, 'host', [str(i) for i in range(1, SHARDS + 1)])
+    if train.path_sha256(args.workspace / HOST / 'app') != receipt['data']['appSha256']:
+        raise RuntimeError('Restored Designer host differs from tested candidate')
+    return receipt['data']['result']
+
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('command', choices=['prepare-ced', 'check-ced', 'publish-ced', 'prepare-workspace',
-                                       'prepare-cee', 'check-cee', 'publish-cee', 'prepare-consumer'])
+                                       'prepare-cee', 'check-cee', 'publish-cee', 'prepare-consumer',
+                                       'prepare-host', 'check-host'])
     p.add_argument('--version', required=True)
     p.add_argument('--workspace', type=Path, required=True)
     p.add_argument('--state', type=Path, required=True)
