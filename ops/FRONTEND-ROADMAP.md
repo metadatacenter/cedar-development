@@ -473,27 +473,3 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
   transfers and enforce raw and compressed JavaScript/CSS limits. Trace real requests so
   copied-but-unused vendor files are not mistaken for downloads. Ensure new AMD dependencies
   cannot bypass the gate.
-
-<a id="modern-page-performance"></a>
-
-## Modern Page Performance
-
-### 13. Address the Modern Frontend Performance Findings
-
-Use the [recorded baseline](FRONTEND-RUNBOOK.md#frontend-performance-baseline) and its request/layout
-diagnostics to investigate these independently. Keep the suite reporting-only, preserve the
-existing interface, standalone CEE/CED use, and the agreed small landing-page downloads.
-
-- **Designer startup and layout.** Trace the initial stylesheet/component/API sequence and
-  eliminate the large loading shift (constrained CLS 0.884). Separate the shared component
-  download from CPU work: the 100-field page takes 12.49 s cold and 4.92 s warm in this lab.
-  Confirm the critical path against the deployment's actual HTTP protocol before choosing
-  delivery changes, and preserve normal appearance and embedding contracts.
-- **Large-form rendering.** Profile standalone CED and the Designer host under CPU slowdown.
-  The 100-field warm observation records about 1.0/2.1 s of long-task time beyond 50 ms.
-  Locate the rendering/model work before changing it, and repeat the same fixture measurements.
-- **OpenView layout.** Identify the transitions responsible for CLS 0.134 on the 100-field
-  template and stabilize its existing layout through loading.
-- **Workspace translation fallback.** Resolve the configured `/assets/i18n-cee/` prefix:
-  English currently incurs a 404 before built-in translations take over. Serve an intended
-  override or omit the unused prefix, preserving language selection and fallback behavior.

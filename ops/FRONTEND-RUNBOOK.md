@@ -202,7 +202,7 @@ Readiness includes useful controls and font readiness, with the exact predicate 
 | OpenView template, small | 0.19 (0.17–0.26) | 0.09 (0.09–0.24) | 4.88 (4.85–4.89) | 0.52 (0.51–0.53) |
 | OpenView template, large | 0.26 (0.24–0.26) | 0.14 (0.14–0.16) | 5.01 (5.00–5.03) | 0.67 (0.63–0.68) |
 
-The constrained medians expose several distinct costs:
+The original constrained medians identified these costs (historical findings, addressed below):
 
 - **Designer loading/layout:** small/large readiness is 10.23/12.49 s cold and 2.75/4.92 s
   warm. Recorded CLS is 0.884 for both sizes and cache states. The largest shift happens
@@ -225,9 +225,145 @@ The constrained medians expose several distinct costs:
   needs tracing. The configured prefix should either name a real override or be omitted
   when built-in translations are intended.
 
-The [modern performance roadmap](FRONTEND-ROADMAP.md#modern-page-performance) tracks follow-up
-investigation. None of these figures is a production
-SLA or a field Core Web Vitals verdict.
+The [measured optimization comparison](#frontend-performance-optimizations) records the fixes
+and corrected before/after measurements. None of these figures is a production SLA or a field
+Core Web Vitals verdict.
+
+<a id="frontend-performance-optimizations"></a>
+
+### Measured optimizations — 2026-11-07
+
+Four changes preserve the existing completed pages and independent standalone CEE/CED use:
+
+- Workspace uses CEE's built-in translations directly, retaining language selection and
+  fallback without requesting the nonexistent external map.
+- Designer registers its versioned stylesheet in the document head before the body paints,
+  fetches independent startup modules concurrently, and shares one versioned core/state/
+  translation module graph. It retains the existing shared-editor delivery arrangement.
+- CED creates each field's settings controls when first opened, then retains their DOM and
+  unfinished input through collapse/reopen. Validation can reveal an unopened panel;
+  standalone field-document mode still starts expanded. Card summaries and previews remain.
+- OpenView reveals the footer after content or its existing error state is ready. This
+  approved change affects loading presentation only; the final footer layout and content
+  stay the same, including error pages.
+
+The corrected **before** run, `2026-11-07T13:35:28.456Z` to `2026-11-07T13:47:04.058Z`,
+contains 200 valid samples for the ten editor/form scenarios. The **after** run,
+`2026-11-07T14:24:25.041Z` to `2026-11-07T14:38:45.993Z`, contains 300 valid samples for all
+15 modern scenarios. Both use five repetitions, both profiles, both cache states, the same
+machine/browser/viewport and the same direct probes. No build or test ran alongside either
+measurement loop. Both runs completed without sample/setup failures or cleanup errors;
+temporary fixtures were deleted and GET-verified absent. Legacy pages are excluded.
+
+Evidence directories under `$CEDAR_HOME/.cedar/reports/frontend-performance/` are
+`optimization-before-20261107/` and `optimization-after-20261107/`, each containing
+`report.html`, `report.json`, `samples.csv`, screenshots and `lab/artifacts.json`.
+The measurement-suite inventory is identical:
+`41b21f4e255e8a28a4657fb9469165aeddf861cdffaf6cfadbf4efd8f6158801`
+(`cedar-development@dcc395cb`; the before capture recorded its then-uncommitted probe change).
+For the five unchanged landing/picker pages, the comparison below uses the original baseline
+and Monitoring supplement described above: their probes were unchanged by that correction.
+Thus those five rows compare separate earlier captures, not the ten-scenario corrected run.
+The report files retain every range and request rather than just the medians below.
+
+| Application | Verified and pushed change |
+| --- | --- |
+| Workspace | `6bcb6757` |
+| Standalone CED and its host consumers | `9f3ad3d` |
+| Template Designer host | `aa9173a9` |
+| OpenView | `101c676` |
+
+The before reactor graph is `3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`;
+the after graph is `5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
+The standalone CED package changed from
+`f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847` to
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
+Standalone CEE is byte-for-byte the same package,
+`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`.
+The reactor captured the application edits before their commits; its input/output hashes
+identify the tested bytes. The after report records the clean committed application heads.
+
+**Constrained page readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Workspace dashboard | 3.67 → 3.65 | 2.14 → 2.15 |
+| Monitoring dashboard | 3.63 → 3.62 | 2.05 → 2.05 |
+| Bridging dashboard | 3.21 → 3.20 | 2.03 → 2.03 |
+| Content index | 0.38 → 0.37 | 0.22 → 0.22 |
+| Standalone term picker | 1.53 → 1.52 | 0.25 → 0.25 |
+| Standalone CEE, 5 fields | 3.95 → 3.93 | 0.48 → 0.48 |
+| Standalone CEE, 100 fields | 4.18 → 4.19 | 0.68 → 0.68 |
+| Standalone CED, 5 fields | 3.39 → 3.29 | 0.60 → 0.51 |
+| Standalone CED, 100 fields | 4.50 → 3.68 | 1.66 → 0.85 |
+| Template Designer, 5 fields | 10.08 → 8.14 | 2.71 → 2.62 |
+| Template Designer, 100 fields | 12.40 → 9.33 | 5.00 → 3.80 |
+| Workspace editor, 5 fields | 7.83 → 7.82 | 2.52 → 2.52 |
+| Workspace editor, 100 fields | 8.10 → 8.03 | 3.17 → 3.15 |
+| OpenView, 5 fields | 4.88 → 4.90 | 0.52 → 0.52 |
+| OpenView, 100 fields | 5.06 → 5.08 | 0.68 → 0.68 |
+
+**Normal page readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Workspace dashboard | 0.32 → 0.27 | 0.26 → 0.24 |
+| Monitoring dashboard | 0.34 → 0.32 | 0.24 → 0.24 |
+| Bridging dashboard | 0.24 → 0.24 | 0.24 → 0.21 |
+| Content index | 0.04 → 0.04 | 0.04 → 0.04 |
+| Standalone term picker | 0.07 → 0.07 | 0.06 → 0.06 |
+| Standalone CEE, 5 fields | 0.14 → 0.16 | 0.07 → 0.07 |
+| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Standalone CED, 5 fields | 0.17 → 0.16 | 0.11 → 0.09 |
+| Standalone CED, 100 fields | 0.46 → 0.26 | 0.37 → 0.17 |
+| Template Designer, 5 fields | 0.93 → 0.89 | 0.36 → 0.34 |
+| Template Designer, 100 fields | 1.06 → 0.89 | 0.86 → 0.59 |
+| Workspace editor, 5 fields | 0.87 → 0.86 | 0.34 → 0.34 |
+| Workspace editor, 100 fields | 0.94 → 0.92 | 0.40 → 0.39 |
+| OpenView, 5 fields | 0.19 → 0.19 | 0.09 → 0.09 |
+| OpenView, 100 fields | 0.24 → 0.24 | 0.14 → 0.14 |
+
+**Constrained large-form CPU observation, milliseconds over 50 ms: median (minimum–maximum).**
+
+| Page | Cold before | Cold after | Warm before | Warm after |
+| --- | --- | --- | --- | --- |
+| Standalone CEE, 100 fields | 411 (397–505) | 416 (376–619) | 155 (142–219) | 153 (145–272) |
+| Standalone CED, 100 fields | 1360 (1353–1411) | 586 (522–764) | 1054 (1026–1132) | 304 (301–431) |
+| Template Designer, 100 fields | 2691 (2525–2797) | 1569 (1473–2087) | 2416 (2294–2884) | 1396 (1212–1793) |
+
+**Constrained CLS medians (the cold and warm values agree).**
+
+| Page | Before | After |
+| --- | --- | --- |
+| Template Designer, 5 fields | 0.884 | 0.013 |
+| Template Designer, 100 fields | 0.884 | 0.013 |
+| OpenView, 5 fields | 0.097 | 0.000 |
+| OpenView, 100 fields | 0.134 | 0.000 |
+
+Large standalone CED warm readiness fell 49%, with 71% less observed long-task time beyond
+50 ms. Large hosted Designer readiness fell 25% cold and 24% warm. Its remaining loading and
+preview work is still included in these timings. Standalone CEE has no product change;
+variation in its timings is a useful
+control when interpreting small differences elsewhere. Workspace's improvement is removal
+of the failed request, not a demonstrated general load-time speedup.
+
+All 40 after samples for the Workspace editor omit `/assets/i18n-cee/en.json`; there is no
+fallback 404. Designer's real-browser gate verifies one request each for its core, state,
+i18n module and both language maps. OpenView records zero CLS in all 40 after samples.
+Its readiness timings remain broadly comparable; the intended gain is layout stability.
+
+The authoritative frontend reactor passed build/checks, local redeployment, served-bundle
+verification and every whole-stack smoke tier. CED passed 14,454 unit tests, 1,137 browser
+tests (one existing skip), and all 25 unchanged visual baselines. Designer passed 633 unit
+and 404 browser tests; OpenView passed 283 unit and 186 browser tests. Workspace's existing
+unit/browser checks passed too. No screenshot baseline was updated. Comparing the ten
+before/after performance screenshots found nine pixel-identical images; standalone CED's
+small image differed only at ten antialiased border pixels. Manual review also confirmed
+the normal forms and footer retain their appearance. Tests cover retained unfinished input,
+validation opening a lazy panel, and OpenView's delayed success and failure presentations.
+
+The suite remains reporting-only. These are local laboratory measurements under the stated
+network/CPU profiles, not production load times, Lighthouse TBT or real-user INP.
 
 ## Browser Metadata Editing
 
