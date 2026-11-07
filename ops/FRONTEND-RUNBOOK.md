@@ -108,6 +108,16 @@ browser and still attempts cleanup.
 Workspace's dashboard opens that controlled two-template folder rather than a test user's
 changing home-folder contents.
 
+The default now includes two `ced-integrated-small` / `ced-integrated-large` scenarios
+(17 scenarios, 340 samples at five repetitions). These load the exact hash-verified shared
+CEE/CEF, term-picker and CED bundle from Designer's staged component manifest, plus its host
+fonts, into a minimal standalone page. They do not authenticate or fetch a repository artifact.
+Both integrated CED and Designer wait for every real CEF field summary through the components'
+shadow roots. Bare `ced-standalone-*` remains unchanged and exercises CED's lightweight fallback
+summaries without CEE. Use the integrated comparison to separate host overhead from richer
+field rendering; the bare comparison alone cannot establish wrapper cost. Capture a fresh
+before/after pair when changing this readiness predicate, rather than mixing earlier timings.
+
 | Profile | CPU | Network |
 | --- | --- | --- |
 | Normal | No slowdown | No artificial network limits |

@@ -6,7 +6,7 @@ import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
 import {profiles, instrumentation, pageMetrics, summarize, htmlReport} from './metrics.mjs';
 import {prepare, serve, inventory} from './lab.mjs';
-import {standaloneFixtures, fixtures, scenarios, authenticate} from './scenarios.mjs';
+import {standaloneFixtures, fixtures, scenarios, authenticate, scenarioFamily} from './scenarios.mjs';
 
 const {values} = parseArgs({options:{samples:{type:'string',default:'5'}, profiles:{type:'string',default:'normal,constrained'},
   scenarios:{type:'string'}, output:{type:'string'}, plan:{type:'boolean'}, check:{type:'boolean'}}});
@@ -61,7 +61,7 @@ if (values.plan) {
   process.on('SIGINT',stop); process.on('SIGTERM',stop);
   try {
     const prepared = await prepare(home,join(directory,'lab'),domain);
-    await standaloneFixtures(prepared.componentRoot,domain);
+    await standaloneFixtures(prepared.componentRoot,domain,prepared.integratedScript);
     prepared.evidence.outputs.standalone = await inventory(prepared.componentRoot);
     prepared.evidence.suite = await inventory(new URL('.',import.meta.url).pathname);
     await writeFile(join(directory,'lab/artifacts.json'),JSON.stringify(prepared.evidence,null,2)+'\n');
@@ -83,7 +83,7 @@ if (values.plan) {
     report.setupFailures = sessions.failures;
     // A broken page must not prevent reports for independent pages. A small-fixture setup
     // failure also excludes its large counterpart, which uses the same authentication path.
-    cases = cases.filter(s => !sessions.failures.some(f => s.id === f.scenario || s.id === f.scenario.replace(/-small$/,'-large')));
+    cases = cases.filter(s => !sessions.failures.some(f => scenarioFamily(s.id) === scenarioFamily(f.scenario)));
     for (let repeat=1;repeat<=repetitions && !interrupted;repeat++) {
       // Rotate scenario/profile order across repetitions; never run measured pages concurrently.
       const ordered = [...cases.slice((repeat-1)%cases.length),...cases.slice(0,(repeat-1)%cases.length)];

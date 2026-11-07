@@ -90,9 +90,19 @@ export async function prepare(home, directory, domain) {
     await writeFile(join(componentRoot, short + '.js'), bundle);
   }
   roots[`performance.${domain}`] = componentRoot;
+  // The equivalent CED fixture uses precisely the host's shared CEE/CEF, CETP and CED bytes.
+  const manifest = JSON.parse(await readFile(join(directory, 'designer/components/manifest.json'), 'utf8'));
+  const deliveries = ['cedar-embeddable-editor','cedar-embeddable-term-picker','cedar-embeddable-designer']
+    .map(name => manifest[name]?.delivery);
+  const delivery = deliveries[0];
+  if (!delivery || !/^[a-zA-Z0-9-]+\.js$/.test(delivery.file) ||
+      deliveries.some(item => item?.file !== delivery.file || item?.sha256 !== delivery.sha256) ||
+      hash(await readFile(join(directory,'designer/components',delivery.file))) !== delivery.sha256)
+    throw new Error('Equivalent CED benchmark requires one verified shared Designer component bundle');
+  const integratedScript = `https://designer.${domain}/components/${delivery.file}?v=${delivery.sha256}`;
   evidence.outputs.standalone = await inventory(componentRoot);
   await writeFile(join(directory,'artifacts.json'), JSON.stringify(evidence,null,2)+'\n');
-  return {roots, evidence, componentRoot};
+  return {roots, evidence, componentRoot, integratedScript};
 }
 
 const mime = {'.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',

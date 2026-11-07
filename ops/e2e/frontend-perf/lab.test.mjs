@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {chromium} from 'playwright';
 import {serve} from './lab.mjs';
 import {instrumentation, profiles, pageMetrics} from './metrics.mjs';
-import {template, scenarios} from './scenarios.mjs';
+import {template, scenarios, authenticationCases} from './scenarios.mjs';
 
 test('fixed fixtures scale actual fields and scenarios exclude legacy applications', () => {
   for (const n of [5,100]) {
@@ -18,10 +18,20 @@ test('fixed fixtures scale actual fields and scenarios exclude legacy applicatio
     }
   }
   const cases = scenarios('metadatacenter.orgx',{small:'small',large:'large'});
-  assert.equal(cases.length,15);
+  assert.equal(cases.length,17);
   assert.ok(cases.some(s => s.id === 'cee-standalone-large'));
   assert.ok(cases.some(s => s.id === 'ced-standalone-large'));
+  assert.ok(cases.some(s => s.id === 'ced-integrated-large' && s.settled));
   assert.ok(cases.every(s => !s.url.includes('://cedar.')));
+});
+
+test('large-only selections authenticate and a small/large pair authenticates once', () => {
+  const cases = scenarios('metadatacenter.orgx',{small:'small',large:'large'});
+  const large = cases.filter(s => s.id === 'designer-large');
+  assert.equal(authenticationCases(large).length,1);
+  assert.equal(authenticationCases(large)[0].id,'designer-large');
+  assert.equal(authenticationCases(cases).filter(s => s.id.startsWith('designer-')).length,1);
+  assert.equal(authenticationCases(cases).filter(s => s.id.startsWith('ced-integrated-')).length,0);
 });
 
 test('browser-private production origin serves gzip, preserves warm cache and observes real paint', async () => {
