@@ -110,3 +110,22 @@ class DistributedEvidenceTest(unittest.TestCase):
         self.assertIn('--verified-workspace "$RUNNER_TEMP/workspace-prepared"', workflow)
         self.assertIn('pattern: ced-result-*', workflow)
         self.assertIn('needs: check-ced', workflow)
+
+    def test_cee_requires_all_four_shards_including_declared_skips(self):
+        receipt = self.candidate()
+        receipt['data']['visual'] = []
+        for lane, case in zip(['1', '2', '3', '4'], ['a', 'b', 'c', 'd']):
+            train.write_json(self.args.results / f'cee-{lane}.json', {
+                **shards.identity(self.args, self.plan), 'archiveSha256': receipt['archiveSha256'],
+                'lane': lane, 'tests': [case]})
+        shards.require_results(self.args, self.plan, receipt, 'cee', ['1', '2', '3', '4'])
+        (self.args.results / 'cee-4.json').unlink()
+        with self.assertRaises(FileNotFoundError):
+            shards.require_results(self.args, self.plan, receipt, 'cee', ['1', '2', '3', '4'])
+
+    def test_cee_publication_waits_for_shards(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/build-train.yml').read_text()
+        publish = workflow.split('  publish-cee:', 1)[1].split('  publish-picker:', 1)[0]
+        self.assertIn('needs: check-cee', publish)
+        self.assertIn('pattern: cee-result-*', publish)
+        self.assertIn('frontend_train_shards.py publish-cee', publish)

@@ -261,6 +261,13 @@ controller removes stale staging output before verification and publishes the re
 package only after checking its train identity, without running a second `dist` build.
 Legacy plans and components without that declaration retain their explicit build step.
 
+CEE's hosted train gate builds and packages once, runs all source/domain/unit/coordinator gates
+and its production audit, then transfers the candidate to four browser/visual shards. They keep
+the pinned Linux ARM64 container, every browser project, screenshot baseline and existing skip.
+The container's `--prebuilt` mode tests the transferred bundle and fixtures without rebundling.
+Publication checks the complete test inventory and candidate hashes, and verifies the registry
+contains the tested package bytes. Default local gates and container commands remain complete.
+
 The hosted train builds CED once after its non-browser gates, then transfers that candidate to
 four browser shards and a separate ARM64 visual-baseline job. Chromium, WebKit and real CEF/picker
 inputs remain enabled exactly as in the full gate. Publication requires every shard's success,

@@ -12,6 +12,7 @@ import tarfile
 import frontend_inventory
 import frontend_train as train
 
+CEE = 'cedar-embeddable-editor'
 CED = 'cedar-embeddable-designer'
 WORKSPACE = 'cedar-workspace'
 SHARDS = 4
@@ -197,6 +198,8 @@ def verify_published_candidate(plan, expected, package):
                   for m in archive.getmembers() if m.isfile()}
     local = {p.relative_to(package).as_posix(): p.read_bytes()
              for p in package.rglob('*') if p.is_file()}
+    # npm always omits package-lock.json (npm-shrinkwrap.json is shipped instead).
+    local.pop('package-lock.json', None)
     # npm normalizes package.json; its published identity is checked by verify_record.
     # Compare its semantic fields as well as every other shipped byte.
     actual_manifest = json.loads(actual.pop('package.json'))
@@ -220,6 +223,82 @@ def publish_ced(args):
     train.record_library_completion(args.state, 'ced', plan, component, verified)
 
 
+def prepare_cee(args):
+    plan, source, config = context(args)
+    expected = plan['cee']
+    train.verify_record(plan['registry'], plan['model'])
+    root, revision = train.repository_root(args.workspace, source, CEE)
+    if revision != expected['revision']:
+        raise RuntimeError('CEE source and plan disagree')
+    train.assert_clean_repository(root, CEE)
+    train.stamp_package_version(root, expected['version'])
+    train.wire_components(args, plan, CEE)
+    dependency = config['cee']['modelDependency']
+    for consumer in expected['modelConsumers']:
+        train.install_exact_alias((root / consumer['manifest']).parent, dependency,
+            plan['model']['name'], plan['model']['version'], consumer.get('legacyPeerDeps', False))
+        train.require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
+            dependency, plan['model']['name'], plan['model']['version'])
+    env = environment(args, plan, CEE)
+    commands = frontend_inventory.commands(config, CEE)
+    if commands.count(['npm', 'run', 'test:ci:prebuilt']) != 1:
+        raise RuntimeError('CEE gate recipe changed; update distributed coverage')
+    for command in commands:
+        train.run_command(['npm', 'run', 'test:ci:nonvisual:prebuilt']
+            if command == ['npm', 'run', 'test:ci:prebuilt'] else command, root, env)
+    train.run_command(['npm', 'run', 'audit:prod'], root, env)
+    train.run_command(['npm', '--prefix', 'visual', 'run', 'fixtures'], root, env)
+    package_path = 'dist-npm/cedar-embeddable-editor'
+    package = root / package_path
+    built = train.load_json(package / 'package.json')
+    if (built['name'], built['version']) != (expected['name'], expected['version']):
+        raise RuntimeError('CEE candidate has wrong identity')
+    archive_candidate(args, plan, CEE, {'packageSha256': train.path_sha256(package),
+        'packagePath': package_path, 'publicSha256': train.path_sha256(root / 'visual/public'),
+        'browser': inventory(root, env, 'visual'), 'visual': []})
+
+
+def check_cee(args):
+    plan, _, _ = context(args)
+    receipt = restore(args, plan, CEE)
+    root = args.workspace / CEE
+    env = environment(args, plan, CEE)
+    shard = int(args.lane)
+    if not 1 <= shard <= SHARDS:
+        raise ValueError('Invalid CEE shard')
+    train.run_command(['npm', 'ci'], root, env)
+    train.run_command(['npm', '--prefix', 'visual', 'ci'], root, env)
+    expected = inventory(root, env, 'visual', [f'--shard={shard}/{SHARDS}'])
+    report_config(root / 'visual', 'train-report.json')
+    report = root / 'visual/train-report.json'
+    report.unlink(missing_ok=True)
+    train.run_command(['bash', 'visual/run-in-container.sh', '--prebuilt',
+        f'--shard={shard}/{SHARDS}', '--config=train-report.config.cjs'], root, env)
+    completed = test_inventory(train.load_json(report))
+    if sorted(completed) != expected or any(t.get('status') not in {'expected', 'skipped', 'flaky'} for t in completed.values()):
+        raise RuntimeError('CEE shard did not complete its entire test inventory')
+    if (train.path_sha256(root / receipt['data']['packagePath']) != receipt['data']['packageSha256']
+            or train.path_sha256(root / 'visual/public') != receipt['data']['publicSha256']):
+        raise RuntimeError('Tests changed the CEE candidate')
+    train.write_json(args.results / f'cee-{args.lane}.json', {
+        **identity(args, plan), 'archiveSha256': receipt['archiveSha256'],
+        'lane': args.lane, 'tests': expected})
+
+
+def publish_cee(args):
+    plan, _, _ = context(args)
+    receipt = restore(args, plan, CEE)
+    require_results(args, plan, receipt, prefix='cee', lanes=[str(i) for i in range(1, SHARDS + 1)])
+    expected = plan['cee']
+    package = args.workspace / CEE / receipt['data']['packagePath']
+    if train.path_sha256(package) != receipt['data']['packageSha256']:
+        raise RuntimeError('CEE package checksum mismatch')
+    if not train.existing_verified_package(plan['registry'], expected):
+        train.run_command(['npm', 'publish', str(package), '--tag', 'dev', '--registry', plan['registry']], args.workspace / CEE)
+    verified = verify_published_candidate(plan, expected, package)
+    train.record_library_completion(args.state, 'cee', plan, expected, verified)
+
+
 def prepare_workspace(args):
     plan, _, config = context(args)
     result = train.prepare_repository(args, plan, config, WORKSPACE)
@@ -235,7 +314,8 @@ def restore_workspace(args, plan):
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command', choices=['prepare-ced', 'check-ced', 'publish-ced', 'prepare-workspace'])
+    p.add_argument('command', choices=['prepare-ced', 'check-ced', 'publish-ced', 'prepare-workspace',
+                                       'prepare-cee', 'check-cee', 'publish-cee'])
     p.add_argument('--version', required=True)
     p.add_argument('--workspace', type=Path, required=True)
     p.add_argument('--state', type=Path, required=True)
