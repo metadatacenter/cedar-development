@@ -637,7 +637,11 @@ change its source fingerprint and model package provenance only after the planne
 exact model tarballs, verifies registry integrity, recomputes both recorded fingerprints and proves
 the same model ESM and resolver metadata. Only model `name`, `version` and `publishConfig` are
 removed for that comparison; every other runtime dependency must match exactly. The module's
-licenses remain subject to the package-wide byte comparison.
+licenses remain subject to the package-wide byte comparison, except for one exact notice heading
+changing from `Package: @org.metadatacenter/cedar-model-typescript-library` to
+`Package: cedar-model-typescript-library` after that runtime proof succeeds. Both headings must
+occur exactly once in their respective packages, with no opposite-channel heading present; every
+byte of license text and every other package notice must still match.
 
 After those substitutions every remaining packaged byte must be identical, and the browser bundle
 must be identical too, except for renaming short minified lexical bindings, which esbuild's
