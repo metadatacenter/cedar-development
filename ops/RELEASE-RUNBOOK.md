@@ -290,6 +290,18 @@ post-publication inventory verification still run. Exact-commit CI probes use at
 four workers; only the coordinator records their results, and settled repositories are
 not polled again.
 
+Read-only remote-ref and artifact checks use four workers. Maven file checksum verification
+also uses four workers within its publication task, for at most seven simultaneous registry reads
+when three other publication checks are active. Every ref, local checksum and downloaded artifact
+is still checked; no previous verdict substitutes for current verification. Results are gathered
+before proceeding, and verification failures propagate after active checks settle. Superseded
+branch retirement also overlaps four independent repositories and records failures per repository.
+
+New plans record four remote integration jobs in `remoteConcurrency`. Each job owns one
+repository and retains its existing ref and tree guards. The coordinator records every completed
+repository, stops scheduling after a failure and drains active jobs so successful siblings are
+available to resume. Older ledgers without this policy retain serial integration.
+
 The release runs these phases, each verifying its work before the next begins:
 
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
@@ -304,8 +316,11 @@ The release runs these phases, each verifying its work before the next begins:
 2. Stamp `<VER>` and `<NEXT>` from the same source commits, and move the copyright year in every
    `license.txt` to the release year. Both variants retain the stable public CEE wiring. The
    Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's
-   recorded inputs. The next-development tree names the train's own packages, which exist the
-   moment the release pushes. The release tree names the released frontends at `<VER>`, OpenView's
+   recorded inputs on the release tree. Next development preserves the captured retained
+   compatibility defaults, which already exist when integration triggers Docker CI, before new
+   release packages are published. Release readiness rejects transient compatibility pins before
+   a train; an operator can advance these defaults to an accepted release afterwards. The release
+   tree names the released frontends at `<VER>`, OpenView's
    Editor at the public CEE version, and `npm-cedar-releases` as `CEDAR_NPM_REGISTRY`, because
    those two registries keep a package indefinitely. The next-development tree also moves the two
    CEDAR versions in the TypeScript model library's `tools/conformance/pom.xml` to `<NEXT>`.

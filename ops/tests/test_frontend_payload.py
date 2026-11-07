@@ -38,6 +38,17 @@ class PagePayloadTest(unittest.TestCase):
         (self.root / 'new-component.js').write_text('x' * 2000)
         self.assertTrue(measure(self.root, self.spec)['failures'])
 
+    def test_font_subsets_are_deferred_but_remain_in_the_total_budget(self):
+        (self.root / 'styles.css').write_text("@font-face{src:url('./font.woff2')}")
+        with self.assertRaises(ValueError):
+            measure(self.root, self.spec)
+        (self.root / 'font.woff2').write_bytes(b'font')
+        report = measure(self.root, self.spec)
+        self.assertFalse(report['assets']['font.woff2']['initial'])
+        self.assertEqual(4, report['assets']['font.woff2']['raw'])
+        (self.root / 'font.woff2').write_bytes(b'f' * 2000)
+        self.assertTrue(measure(self.root, self.spec)['failures'])
+
     def test_missing_or_remote_script_fails_closed(self):
         for address in ['missing.js', 'https://cdn.example/component.js', '../outside.js']:
             (self.root / 'index.html').write_text(f'<script src="{address}"></script>')

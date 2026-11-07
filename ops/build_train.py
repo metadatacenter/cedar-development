@@ -249,6 +249,10 @@ def validate_configuration(
             if not directory.is_dir():
                 raise RuntimeError(f"prepared build directory is missing: {directory}")
             commands = prepared.get("commands")
+            if 'verifiedBuildCommand' in prepared:
+                if commands is not None:
+                    raise RuntimeError(f'prepared build declares both reuse and rebuild for {repository}')
+                commands = [prepared['verifiedBuildCommand']]
             if not isinstance(commands, list) or not commands or not all(
                 isinstance(command, list) and command and all(
                     isinstance(part, str) and part for part in command)

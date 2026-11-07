@@ -229,24 +229,16 @@ No dependency below can move by a lock update alone. Some wait on an upstream re
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
 reported on 2026-11-05, after every in-range update had been taken.
 
-**Native runtime selection.** Make native frontend installation and launch use the Node 24
-selected for the build. `ops/cedar-services.sh` prepends `/opt/homebrew/bin` ahead of the caller's
-PATH, and launchd starts children without that PATH. On this workstation that switches npm and
-the launched frontends to Node 26 and emits engine warnings even when the reactor built with Node
-24. Preserve or resolve the selected runtime across both paths, test the launchd handoff and
-repeat native redeployment and smoke verification.
-
 **Waiting on upstream.**
 
 - **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
   Angular release accepts 7. The model library, which has no Angular, waits as well: its tests run
   through ts-jest, and ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`.
 - **`@types/node` 26.** The types follow the supported runtime's major, and the projects target Node 24.
-- **minimatch 11 and glob 14.** Two moderate advisories published on 2026-10-30 are fixed only in
-  new majors: GHSA-g3hv-75wg-m249 in minimatch 11.0.1 and GHSA-3g3m-2fjr-6pw4 in glob 14.0.2.
-  ESLint 10.14.0 asks for minimatch `^10.2.6`, so every project that lints with ESLint carries the
-  first. Jest 30.5.2 in the model library and the Ember demo's build packages bring earlier glob
-  majors. Both are development tools, and the recorded lock baselines include both findings.
+- **deepmerge in Jest.** The TypeScript model library's test-only `jest-config` dependency
+  brings `deepmerge` 4.3.1, affected by GHSA-gcqx-w48m-w2h4. Adopt a patched upstream release
+  when available, refresh the audit baseline and repeat the model library's gate. The current
+  npm suggestion downgrades Jest to 25 and is not an acceptable fix.
 - **ESLint 10 and Babel 8 in the Ember demo.** The two move together. The demo's lint
   configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
   newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of

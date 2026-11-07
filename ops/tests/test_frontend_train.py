@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -21,6 +22,41 @@ MODEL_NAME = "@org.metadatacenter/cedar-model-typescript-library"
 MODEL_VERSION = "1.0.3-dev.example"
 CEE_NAME = "@org.metadatacenter/cedar-embeddable-editor"
 CEE_VERSION = "2.0.2-dev.example"
+
+
+class FrontendPreparationScheduleTest(unittest.TestCase):
+    def test_independent_frontend_overlaps_designer_but_host_waits(self):
+        barrier = threading.Barrier(2, timeout=5)
+        finished = set()
+        dependencies = {'tokens': set(), 'picker': {'tokens'}, 'ced': {'tokens', 'picker'},
+                        'workspace': {'tokens'}, 'host': {'ced', 'picker'}}
+
+        def prepare(name):
+            self.assertTrue(dependencies[name] <= finished)
+            if name in {'ced', 'workspace'}:
+                barrier.wait()
+            finished.add(name)
+            return name
+
+        results = frontend_train.prepare_dependency_graph(dependencies, prepare, 2)
+        self.assertEqual(set(dependencies), set(results))
+        self.assertEqual(set(dependencies), finished)
+
+    def test_failed_component_never_starts_its_consumer(self):
+        seen = []
+        def prepare(name):
+            seen.append(name)
+            raise RuntimeError('designer test failed')
+        with self.assertRaisesRegex(RuntimeError, 'designer test failed'):
+            frontend_train.prepare_dependency_graph({'ced': set(), 'host': {'ced'}}, prepare, 2)
+        self.assertEqual(['ced'], seen)
+
+    def test_cycle_or_unknown_dependency_refuses_before_any_publication(self):
+        for dependencies in ({'ced': {'host'}, 'host': {'ced'}}, {'ced': {'missing'}}):
+            with patch.object(frontend_train, 'publish_component') as publish:
+                with self.assertRaisesRegex(ValueError, 'cycle or unknown'):
+                    frontend_train.prepare_dependency_graph(dependencies, publish, 2)
+                publish.assert_not_called()
 
 
 def write(path: Path, value: dict) -> None:
@@ -118,6 +154,46 @@ class FrontendTrainTest(unittest.TestCase):
         with patch.object(frontend_train, 'run_command', side_effect=RuntimeError('failed')):
             with self.assertRaisesRegex(RuntimeError, 'failed'):
                 frontend_train.build_prepared_frontends(frontends, Path('/isolated'), 2, 3)
+
+    def test_verified_production_output_is_fresh_and_never_rebuilt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            frontend = dict(repository='app', preparedBuild=dict(directory='.',
+                verifiedBuildCommand=['npm', 'run', 'build'], output='dist'))
+            config = {'surfaces': [dict(repository='app', directory='.', reactorName='app',
+                setup=[], verify=[['npm', 'run', 'build'], ['browser-tests']])]}
+            output = workspace / 'app/dist'
+            output.mkdir(parents=True)
+            (output / 'stale.js').write_text('previous build')
+            frontend_train.clear_verified_outputs([frontend], workspace, config)
+            self.assertFalse(output.exists())
+            with patch.object(frontend_train, 'run_command') as run:
+                with self.assertRaisesRegex(RuntimeError, 'did not produce'):
+                    frontend_train.build_prepared_frontends([frontend], workspace)
+                output.mkdir()
+                with self.assertRaisesRegex(RuntimeError, 'did not produce'):
+                    frontend_train.build_prepared_frontends([frontend], workspace)
+                (output / 'tested.js').write_text('exact tested bytes')
+                before = frontend_train.path_sha256(output)
+                frontend_train.build_prepared_frontends([frontend], workspace)
+                self.assertEqual(before, frontend_train.path_sha256(output))
+                run.assert_not_called()
+            config['surfaces'][0]['verify'].remove(['npm', 'run', 'build'])
+            with self.assertRaisesRegex(ValueError, 'verification recipe'):
+                frontend_train.clear_verified_outputs([frontend], workspace, config)
+            self.assertEqual(before, frontend_train.path_sha256(output))
+
+    def test_verified_output_cleanup_cannot_remove_repository_or_external_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = workspace / 'app'
+            root.mkdir()
+            (root / 'keep').write_text('source')
+            for path in ('.', '..', '../outside'):
+                frontend = dict(repository='app', preparedBuild=dict(output=path))
+                with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'inside its repository'):
+                    frontend_train.verified_output_paths(frontend, workspace)
+            self.assertEqual('source', (root / 'keep').read_text())
 
     def test_picker_publication_records_verified_identity_without_waiting_for_cee(self):
         with tempfile.TemporaryDirectory() as directory:

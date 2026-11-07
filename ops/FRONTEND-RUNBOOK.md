@@ -31,7 +31,573 @@ and the main browser applications. Shared design values belong in
 | Public npmjs releases | [Npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) |
 | Term-picker operation | [Versioning runbook](VERSIONING-RUNBOOK.md) |
 | What a host serves against its components | [Component staleness](#component-staleness) |
+| Page load and interaction performance | [Reporting-only performance suite](#reporting-only-performance-suite) |
 | How each component measures against WCAG 2.2 | [Accessibility conformance](#accessibility-conformance) |
+
+## Reporting-only performance suite
+
+`cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
+part of the frontend reactor, whole-stack smoke, train or release gates. No performance budget
+fails a run. A broken page, unavailable account or failed fixture cleanup does produce a
+nonzero exit and an explicitly incomplete report; failed measurements never enter medians.
+Browser operations have a 90-second availability timeout, and sign-in setup has 60 seconds.
+
+Use the pinned Node version and a running local `.orgx` backend/Keycloak stack. Run it while
+builds, smoke tests and other benchmarks are idle. It neither restarts nor redeploys the stack.
+
+```bash
+cedarcli test frontend-performance --plan
+cedarcli test frontend-performance --check
+cedarcli test frontend-performance --samples 5
+# A shorter investigation of the standalone components:
+cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,cee-standalone-large,ced-standalone-small,ced-standalone-large
+```
+
+The default covers Workspace's dashboard and metadata editor, Template Designer, OpenView
+template pages, Bridging and Monitoring dashboards, the content index, standalone CEE and
+CED, and the standalone term picker. Editor pages use fixed 5-field and 100-field text
+templates. OpenView's root redirects away, so the suite measures useful artifact pages
+instead. No legacy application is opened. The term-picker measurement ends when its empty
+search control is usable; external terminology searches and DOI submissions are outside
+this baseline. Editing measurements type an answer or change a displayed field label;
+they do not save to the server.
+
+The suite copies the staged production Workspace and Template Designer into its report
+directory. OpenView, Monitoring, Bridging and Content are built there with their production
+configuration and existing dependencies. The only source adjustment in those disposable
+copies is the deployment domain, from `.org` to `.orgx`. Standalone components come from the
+hash-verified packages selected by `.reactor/runtime.json`. If application sources have
+changed since the last development build, refresh them with `cedarcli build frontends`
+before measuring. `lab/artifacts.json` records checkout revisions/status, the reactor
+selection and SHA-256/size of every served file, plus the measurement-suite files.
+In the copied Workspace/Designer `config/version.js`, `cedarDevelopmentMode` is set to false
+to select server cache behavior; otherwise native development's per-navigation URL cache
+busting would invalidate the warm measurement. These lab-only adjustments are recorded.
+
+A Chromium-private host mapping serves those files over an isolated loopback HTTPS/HTTP/1.1 server;
+normal local APIs and SSO still go through nginx. HTML uses `no-store`; assets use gzip when
+appropriate and a one-hour cache. These are explicit laboratory delivery settings, not a
+measurement of production nginx/CDN/TLS latency. Browser request interception is not used,
+because it disables the HTTP cache. Sign-in happens before measurement and its credentials
+stay in memory. Subsequent silent SSO and redirects count toward page readiness.
+
+Monitoring requires an account with `MONITOR_READ`. The suite never changes roles. To use
+an existing authorized local account, provide `CEDAR_PERF_MONITOR_LOGIN` and
+`CEDAR_PERF_MONITOR_PASSWORD` in the invocation environment; it gets a separate browser
+session. Otherwise Monitoring uses the ordinary test account. A denial is reported as missing
+coverage, and the other pages continue. See the backend runbook's read-only Monitor access
+procedure before granting access.
+
+The local baseline uses the dedicated `frontend-perf-monitor@test.com` identity with
+`normal` plus `monitorViewer`, leaving existing users unchanged. Its generated password is
+stored only in `$CEDAR_HOME/.cedar/secrets/frontend-perf-monitor.json` (owner read/write,
+mode 0600), with `username` and `password` keys; load those values into the two invocation
+environment variables above for subsequent runs. Never commit that file or include its
+contents in a report. The local realm required the documented `monitorViewer` role setup;
+CEDAR's stored permissions were then updated for this account alone using its existing
+permission-expansion/user-service libraries. The added permission was exactly
+`permission_monitor_read`, and the protected `/health-check/monitor` endpoint returned 200.
+
+Each repetition starts with a fresh browser context and cleared HTTP cache. It measures a
+cold navigation, leaves the page, then measures a warm navigation in the same tab. Interaction
+measurements follow the warm load only, so retained editing drafts cannot change the next
+load's content. Repetitions rotate scenario/profile order and run sequentially. Temporary
+local templates live in a dedicated folder and are deleted, with GET verification, at the
+end; `fixtures.json` records their identities and cleanup outcome. An interrupt closes the
+browser and still attempts cleanup.
+Workspace's dashboard opens that controlled two-template folder rather than a test user's
+changing home-folder contents.
+
+The default now includes two `ced-integrated-small` / `ced-integrated-large` scenarios
+(17 scenarios, 340 samples at five repetitions). These load the exact hash-verified shared
+CEE/CEF, term-picker and CED bundle from Designer's staged component manifest, plus its host
+fonts, into a minimal standalone page. They do not authenticate or fetch a repository artifact.
+Both integrated CED and Designer wait for every real CEF field summary through the components'
+shadow roots. Bare `ced-standalone-*` remains unchanged and exercises CED's lightweight fallback
+summaries without CEE. Use the integrated comparison to separate host overhead from richer
+field rendering; the bare comparison alone cannot establish wrapper cost. Capture a fresh
+before/after pair when changing this readiness predicate, rather than mixing earlier timings.
+
+| Profile | CPU | Network |
+| --- | --- | --- |
+| Normal | No slowdown | No artificial network limits |
+| Constrained | 4× slowdown | 1.6 Mbit/s download, 0.75 Mbit/s upload, 150 ms latency |
+
+The CPU multiplier is relative to the recorded machine, not a calibrated phone model.
+Reports include browser/Node versions, viewport, machine identity and load samples.
+They report median and min–max, rather than estimating population percentiles from five runs.
+Readiness/action probes target the fixture's input elements directly. CPU profiling found
+that broad accessible-name queries in the original baseline walked all 100 fields and
+contributed their own long tasks. Compare optimization results only against a rerun using
+the same direct probes; a lower measurement after changing the probe is not an application
+speedup. The original baseline below remains historical evidence, including that overhead.
+
+Outputs default to `.cedar/reports/frontend-performance/<timestamp>/`: `report.html`,
+`report.json`, `samples.csv`, first-run screenshots and build/fixture evidence. `--output`
+selects an **empty** directory; earlier measurements are never overwritten. JSON retains
+per-request transfer/cache/timing information without URL query strings, layout-shift and
+long-task entries, and failures. Paint and layout metrics cover the final top-level document
+through one second after controls and fonts are ready. CEDAR readiness includes navigation
+and any redirects. LCP can describe an early header rather than an editor becoming usable,
+so always read it alongside readiness. `blockingOver50Ms` is the sum of long-task duration
+beyond 50 ms in that window, **not Lighthouse TBT**. Scripted action completion and observed
+Event Timing entries are **not real-user INP** or proof of Core Web Vitals compliance.
+The [Web Vitals reference](https://web.dev/articles/vitals) describes the real-user targets
+and their 75th-percentile assessment; these five-run laboratory distributions are diagnostic.
+In particular, the lab's HTTP/1.1 connection behavior can differ from a production HTTP/2 or
+HTTP/3 delivery. Compare identical lab settings, and verify deployment timings separately.
+
+<a id="frontend-performance-baseline"></a>
+
+### Baseline — 2026-11-07
+
+Across two runs, the baseline contains **300 valid samples covering all 15 scenarios**:
+two profiles × two cache states × five repetitions per scenario. All temporary templates
+and their folders were deleted and GET-verified absent.
+
+The 12:53–13:08 UTC run collected 280 samples for 14 scenarios. Its original report remains
+explicitly incomplete (exit 1): the ordinary test account lacked `MONITOR_READ`, and no denial
+page was counted as a fast dashboard. The separate **13:29–13:30 UTC Monitoring supplement**
+used the authorized dedicated account described above and collected the remaining 20 samples.
+It completed with exit 0, no setup/sample failures and no cleanup errors. Original reports
+are preserved separately rather than rewriting the first run's coverage or source identity.
+
+Evidence is under `$CEDAR_HOME/.cedar/reports/frontend-performance/baseline-20261107/`:
+`report.html`, `report.json`, `samples.csv`, `fixtures.json` and `lab/artifacts.json`.
+Measurement code: `cedar-development@10387aaf`; CLI: `cedar-cli@323f7d0`.
+The machine was an Apple M4 Max, 16 logical CPUs, 64 GiB RAM, macOS/Darwin 25.6.0,
+Chromium 156.0.8078.4 and Node 24.22.1, at 1440×1000. Desktop applications remained running;
+a backup process used roughly one CPU before the run. One-minute load was 4.32 at the start
+and 3.35 at the end. No other build or test was launched by this suite during measurement.
+
+Monitoring evidence is under
+`$CEDAR_HOME/.cedar/reports/frontend-performance/monitoring-20261107/`, with the same report,
+CSV, fixture and artifact files. It used the same machine, browser, Node, viewport and
+measurement profiles; one-minute load was 2.99 at the start and 3.77 at the end.
+Measurement code: `cedar-development@26fd9500`; CLI: `cedar-cli@323f7d0`.
+Monitoring source was clean at `e24c81139f55bd399ef451e1b2e0788e2b8f012c`; the served output
+inventory SHA-256 is `71318f25d754d6bf55e8f876ab89f375520f787c25195c3ab298f61d29e9884d`.
+All 20 Monitoring samples recorded CLS 0. The dashboard screenshot confirms the useful page,
+and the protected Monitor endpoint returned 200 for the dedicated account before measurement.
+
+The selected reactor graph was
+`3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`.
+Standalone CEE used package `52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`;
+standalone CED used `f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847`.
+Workspace's staged reactor input was base `6a43eede` with source digest `cf092c45c6e8`,
+and Designer's was base `040db154` with source digest `0b3b2fa6c43b`; both reactor inputs
+included uncommitted edits when built. The retained output inventories identify the measured
+bytes, and the report separately records checkout heads at capture. Standalone components
+remain the self-contained package variants, including their fonts.
+
+**Page readiness, seconds: median (minimum–maximum).** Small means five text fields;
+large means 100. These are full navigations to the page, not an in-app route transition.
+Readiness includes useful controls and font readiness, with the exact predicate in the report.
+
+| Page | Normal, cold | Normal, warm | Constrained, cold | Constrained, warm |
+| --- | --- | --- | --- | --- |
+| Workspace dashboard | 0.32 (0.31–0.34) | 0.26 (0.24–0.27) | 3.67 (3.65–3.73) | 2.14 (2.13–2.21) |
+| Monitoring dashboard (supplement) | 0.34 (0.34–0.34) | 0.24 (0.22–0.33) | 3.63 (3.62–3.69) | 2.05 (2.05–2.07) |
+| Bridging dashboard | 0.24 (0.24–0.24) | 0.24 (0.21–0.24) | 3.21 (3.20–3.23) | 2.03 (2.03–2.04) |
+| Content index | 0.04 (0.04–0.04) | 0.04 (0.04–0.04) | 0.38 (0.37–0.39) | 0.22 (0.21–0.22) |
+| Standalone term picker | 0.07 (0.07–0.09) | 0.06 (0.05–0.06) | 1.53 (1.50–1.53) | 0.25 (0.23–0.26) |
+| Standalone CEE, small | 0.14 (0.14–0.17) | 0.07 (0.07–0.07) | 3.93 (3.92–3.94) | 0.49 (0.48–0.49) |
+| Standalone CEE, large | 0.21 (0.21–0.21) | 0.12 (0.12–0.12) | 4.18 (4.16–4.20) | 0.69 (0.66–0.69) |
+| Standalone CED, small | 0.17 (0.17–0.21) | 0.12 (0.11–0.12) | 3.38 (3.35–3.40) | 0.61 (0.58–0.62) |
+| Standalone CED, large | 0.51 (0.51–0.52) | 0.42 (0.42–0.44) | 4.73 (4.70–4.76) | 1.90 (1.88–1.93) |
+| Template Designer, small | 0.94 (0.94–0.96) | 0.84 (0.84–0.86) | 10.23 (10.09–10.24) | 2.75 (2.71–2.77) |
+| Template Designer, large | 1.12 (1.09–1.12) | 0.92 (0.91–0.96) | 12.49 (12.32–13.24) | 4.92 (4.86–4.96) |
+| Workspace metadata editor, small | 0.87 (0.82–0.91) | 0.34 (0.34–0.37) | 7.85 (7.80–7.88) | 2.53 (2.51–2.54) |
+| Workspace metadata editor, large | 0.96 (0.84–0.98) | 0.84 (0.36–0.86) | 8.11 (8.03–8.14) | 3.17 (3.11–3.22) |
+| OpenView template, small | 0.19 (0.17–0.26) | 0.09 (0.09–0.24) | 4.88 (4.85–4.89) | 0.52 (0.51–0.53) |
+| OpenView template, large | 0.26 (0.24–0.26) | 0.14 (0.14–0.16) | 5.01 (5.00–5.03) | 0.67 (0.63–0.68) |
+
+The original constrained medians identified these costs (historical findings, addressed below):
+
+- **Designer loading/layout:** small/large readiness is 10.23/12.49 s cold and 2.75/4.92 s
+  warm. Recorded CLS is 0.884 for both sizes and cache states. The largest shift happens
+  before editing, changing a nearly unstyled 1424×55 rectangle at (8,8) into a 1440×1000
+  rectangle at (0,0). The host inserts its stylesheet dynamically and imports further
+  stylesheets; late styling is a candidate to trace, not a proved sole cause. An early
+  header can become LCP while the editor is still loading.
+- **Large-form CPU work:** standalone CED records 1,292 ms of long-task time over 50 ms cold
+  and 1,005 ms warm; the Designer host records 2,476/2,148 ms. Standalone CEE records
+  380/145 ms. These are the explicitly defined observation-window diagnostics, not TBT.
+  Warm scripted action medians are 395 ms for typing and blurring the CEE answer, 543 ms
+  for the CED label edit, 613 ms for the hosted Designer label edit and 578 ms for the
+  Workspace answer sequence. They cover different whole gestures, not comparable INP values.
+- **OpenView layout:** the small/large template records CLS 0.097/0.134 in both cold and
+  warm constrained loads. Capture the contributing render transitions before choosing a fix.
+- **An avoidable Workspace request:** every metadata-editor sample requests
+  `/assets/i18n-cee/en.json`, receives 404 and falls back to CEE's built-in English map.
+  This also returns 404 on the normally served local Workspace. The failed request takes
+  a median 163 ms under the constrained profile; its contribution to the critical path
+  needs tracing. The configured prefix should either name a real override or be omitted
+  when built-in translations are intended.
+
+The [measured optimization comparison](#frontend-performance-optimizations) records the fixes
+and corrected before/after measurements. None of these figures is a production SLA or a field
+Core Web Vitals verdict.
+
+<a id="frontend-performance-optimizations"></a>
+
+### Measured optimizations — 2026-11-07
+
+Four changes preserve the existing completed pages and independent standalone CEE/CED use:
+
+- Workspace uses CEE's built-in translations directly, retaining language selection and
+  fallback without requesting the nonexistent external map.
+- Designer registers its versioned stylesheet in the document head before the body paints,
+  fetches independent startup modules concurrently, and shares one versioned core/state/
+  translation module graph. It retains the existing shared-editor delivery arrangement.
+- CED creates each field's settings controls when first opened, then retains their DOM and
+  unfinished input through collapse/reopen. Validation can reveal an unopened panel;
+  standalone field-document mode still starts expanded. Card summaries and previews remain.
+- OpenView reveals the footer after content or its existing error state is ready. This
+  approved change affects loading presentation only; the final footer layout and content
+  stay the same, including error pages.
+
+The corrected **before** run, `2026-11-07T13:35:28.456Z` to `2026-11-07T13:47:04.058Z`,
+contains 200 valid samples for the ten editor/form scenarios. The **after** run,
+`2026-11-07T14:24:25.041Z` to `2026-11-07T14:38:45.993Z`, contains 300 valid samples for all
+15 modern scenarios. Both use five repetitions, both profiles, both cache states, the same
+machine/browser/viewport and the same direct probes. No build or test ran alongside either
+measurement loop. Both runs completed without sample/setup failures or cleanup errors;
+temporary fixtures were deleted and GET-verified absent. Legacy pages are excluded.
+
+Evidence directories under `$CEDAR_HOME/.cedar/reports/frontend-performance/` are
+`optimization-before-20261107/` and `optimization-after-20261107/`, each containing
+`report.html`, `report.json`, `samples.csv`, screenshots and `lab/artifacts.json`.
+The measurement-suite inventory is identical:
+`41b21f4e255e8a28a4657fb9469165aeddf861cdffaf6cfadbf4efd8f6158801`
+(`cedar-development@dcc395cb`; the before capture recorded its then-uncommitted probe change).
+For the five unchanged landing/picker pages, the comparison below uses the original baseline
+and Monitoring supplement described above: their probes were unchanged by that correction.
+Thus those five rows compare separate earlier captures, not the ten-scenario corrected run.
+The report files retain every range and request rather than just the medians below.
+
+| Application | Verified and pushed change |
+| --- | --- |
+| Workspace | `6bcb6757` |
+| Standalone CED and its host consumers | `9f3ad3d` |
+| Template Designer host | `aa9173a9` |
+| OpenView | `101c676` |
+
+The before reactor graph is `3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`;
+the after graph is `5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
+The standalone CED package changed from
+`f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847` to
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
+Standalone CEE is byte-for-byte the same package,
+`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`.
+The reactor captured the application edits before their commits; its input/output hashes
+identify the tested bytes. The after report records the clean committed application heads.
+
+**Constrained page readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Workspace dashboard | 3.67 → 3.65 | 2.14 → 2.15 |
+| Monitoring dashboard | 3.63 → 3.62 | 2.05 → 2.05 |
+| Bridging dashboard | 3.21 → 3.20 | 2.03 → 2.03 |
+| Content index | 0.38 → 0.37 | 0.22 → 0.22 |
+| Standalone term picker | 1.53 → 1.52 | 0.25 → 0.25 |
+| Standalone CEE, 5 fields | 3.95 → 3.93 | 0.48 → 0.48 |
+| Standalone CEE, 100 fields | 4.18 → 4.19 | 0.68 → 0.68 |
+| Standalone CED, 5 fields | 3.39 → 3.29 | 0.60 → 0.51 |
+| Standalone CED, 100 fields | 4.50 → 3.68 | 1.66 → 0.85 |
+| Template Designer, 5 fields | 10.08 → 8.14 | 2.71 → 2.62 |
+| Template Designer, 100 fields | 12.40 → 9.33 | 5.00 → 3.80 |
+| Workspace editor, 5 fields | 7.83 → 7.82 | 2.52 → 2.52 |
+| Workspace editor, 100 fields | 8.10 → 8.03 | 3.17 → 3.15 |
+| OpenView, 5 fields | 4.88 → 4.90 | 0.52 → 0.52 |
+| OpenView, 100 fields | 5.06 → 5.08 | 0.68 → 0.68 |
+
+**Normal page readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Workspace dashboard | 0.32 → 0.27 | 0.26 → 0.24 |
+| Monitoring dashboard | 0.34 → 0.32 | 0.24 → 0.24 |
+| Bridging dashboard | 0.24 → 0.24 | 0.24 → 0.21 |
+| Content index | 0.04 → 0.04 | 0.04 → 0.04 |
+| Standalone term picker | 0.07 → 0.07 | 0.06 → 0.06 |
+| Standalone CEE, 5 fields | 0.14 → 0.16 | 0.07 → 0.07 |
+| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Standalone CED, 5 fields | 0.17 → 0.16 | 0.11 → 0.09 |
+| Standalone CED, 100 fields | 0.46 → 0.26 | 0.37 → 0.17 |
+| Template Designer, 5 fields | 0.93 → 0.89 | 0.36 → 0.34 |
+| Template Designer, 100 fields | 1.06 → 0.89 | 0.86 → 0.59 |
+| Workspace editor, 5 fields | 0.87 → 0.86 | 0.34 → 0.34 |
+| Workspace editor, 100 fields | 0.94 → 0.92 | 0.40 → 0.39 |
+| OpenView, 5 fields | 0.19 → 0.19 | 0.09 → 0.09 |
+| OpenView, 100 fields | 0.24 → 0.24 | 0.14 → 0.14 |
+
+**Constrained large-form CPU observation, milliseconds over 50 ms: median (minimum–maximum).**
+
+| Page | Cold before | Cold after | Warm before | Warm after |
+| --- | --- | --- | --- | --- |
+| Standalone CEE, 100 fields | 411 (397–505) | 416 (376–619) | 155 (142–219) | 153 (145–272) |
+| Standalone CED, 100 fields | 1360 (1353–1411) | 586 (522–764) | 1054 (1026–1132) | 304 (301–431) |
+| Template Designer, 100 fields | 2691 (2525–2797) | 1569 (1473–2087) | 2416 (2294–2884) | 1396 (1212–1793) |
+
+**Constrained CLS medians (the cold and warm values agree).**
+
+| Page | Before | After |
+| --- | --- | --- |
+| Template Designer, 5 fields | 0.884 | 0.013 |
+| Template Designer, 100 fields | 0.884 | 0.013 |
+| OpenView, 5 fields | 0.097 | 0.000 |
+| OpenView, 100 fields | 0.134 | 0.000 |
+
+Large standalone CED warm readiness fell 49%, with 71% less observed long-task time beyond
+50 ms. Large hosted Designer readiness fell 25% cold and 24% warm. Its remaining loading and
+preview work is still included in these timings. Standalone CEE has no product change;
+variation in its timings is a useful
+control when interpreting small differences elsewhere. Workspace's improvement is removal
+of the failed request, not a demonstrated general load-time speedup.
+
+All 40 after samples for the Workspace editor omit `/assets/i18n-cee/en.json`; there is no
+fallback 404. Designer's real-browser gate verifies one request each for its core, state,
+i18n module and both language maps. OpenView records zero CLS in all 40 after samples.
+Its readiness timings remain broadly comparable; the intended gain is layout stability.
+
+The authoritative frontend reactor passed build/checks, local redeployment, served-bundle
+verification and every whole-stack smoke tier. CED passed 14,454 unit tests, 1,137 browser
+tests (one existing skip), and all 25 unchanged visual baselines. Designer passed 633 unit
+and 404 browser tests; OpenView passed 283 unit and 186 browser tests. Workspace's existing
+unit/browser checks passed too. No screenshot baseline was updated. Comparing the ten
+before/after performance screenshots found nine pixel-identical images; standalone CED's
+small image differed only at ten antialiased border pixels. Manual review also confirmed
+the normal forms and footer retain their appearance. Tests cover retained unfinished input,
+validation opening a lazy panel, and OpenView's delayed success and failure presentations.
+
+The suite remains reporting-only. These are local laboratory measurements under the stated
+network/CPU profiles, not production load times, Lighthouse TBT or real-user INP.
+
+<a id="designer-equivalent-performance"></a>
+
+### Designer startup and equivalent rendering — 2026-11-07
+
+The bare standalone CED page uses fallback summaries; Designer loads real CEF summaries,
+CEE preview and the term picker. The `ced-integrated-*` benchmark uses Designer's exact
+shared component bundle and fonts without authentication or repository reads. Comparing
+this page with Designer separates host startup from richer field rendering. Both wait for
+all five or 100 real summaries, so these results use a fresh matched baseline rather than
+reusing the earlier Designer readiness measurements.
+
+| Piece | Pushed source |
+| --- | --- |
+| Equivalent benchmark and large-only authenticated scenario selection | `cedar-development@0fa20014` |
+| Component download alongside SSO; authenticated artifact/permission reads alongside profile | `cedar-template-designer@ac958e8a` |
+| One bundled host module and stylesheet, including translations, with content-based cache identities | `cedar-template-designer@f9365046` |
+| Independent CEE/CEF translation roots, avoiding sibling language broadcasts | `cedar-embeddable-editor@299265b2` |
+
+The startup overlap preserves the authorization boundary: no private API reads before
+sign-in, and the designer stays hidden/inert until access is known. Early rejected work is
+observed and still reaches the existing error handling. Bundling preserves stylesheet
+order, existing hashed font URLs, deferred validation/RDF loading and host interactions.
+No tracked registry pin or release version changes are needed for the local reactor.
+
+The language change also fixes a demonstrated embedding defect. In the frozen before bundle,
+creating an English CEF followed by a Hungarian CEF changed the English instance to Hungarian
+(`en → hu`). The same probe against the after bundle leaves it English (`en → en`), while
+the second instance remains Hungarian. Browser tests also cover independent CEE and CEF
+instances together. Their public embedding inputs and standalone packaging remain intact.
+
+Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
+
+- `designer-equivalent-before-20261107/`: 160 valid samples, eight editor scenarios,
+  `2026-11-07T14:52:25.148Z`–`2026-11-07T15:00:31.714Z`.
+- `designer-equivalent-after-20261107/`: 340 valid samples, all 17 modern scenarios,
+  `2026-11-07T15:29:35.525Z`–`2026-11-07T15:45:14.003Z`.
+- `designer-overlap-after-20261107/`: intermediate diagnostic after startup overlap alone;
+  18 samples, three repetitions under the constrained profile, with unchanged component
+  bytes. Small/large Designer cold medians were 6.61/7.86 seconds. This shorter capture
+  isolates that piece but is not the final five-repetition comparison.
+- `designer-equivalent-profile-before-20261107/` and
+  `designer-equivalent-profile-after-20261107/`: warm CPU profiles and the language-isolation
+  probe against the respective frozen bundles; collected outside timing loops.
+
+Both main runs use five repetitions, normal/constrained profiles and cold/warm cache states,
+Chromium 156.0.8078.4 on the same Apple M4 Max, 1440×1000 viewport, and identical measurement
+suite `0fa20014` (inventory SHA256
+`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`).
+No builds or tests ran during measurement. All samples passed; both runs completed with no
+setup failures or cleanup errors, and temporary fixtures were deleted and GET-verified absent.
+Reports retain per-sample ranges, requests, source identities and screenshots. Legacy pages
+are excluded from this performance suite.
+
+**Constrained readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Standalone CEE, 5 fields | 3.93 → 3.97 | 0.48 → 0.49 |
+| Standalone CEE, 100 fields | 4.15 → 4.18 | 0.68 → 0.68 |
+| Bare standalone CED, 5 fields | 3.28 → 3.28 | 0.52 → 0.52 |
+| Bare standalone CED, 100 fields | 3.62 → 3.63 | 0.85 → 0.84 |
+| Equivalent CED with CEF, 5 fields | 4.56 → 4.56 | 0.63 → 0.62 |
+| Equivalent CED with CEF, 100 fields | 5.45 → 5.36 | 1.45 → 1.40 |
+| Template Designer, 5 fields | 8.13 → 5.54 | 2.63 → 2.14 |
+| Template Designer, 100 fields | 9.29 → 6.65 | 3.62 → 3.18 |
+
+**Normal readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Standalone CEE, 5 fields | 0.14 → 0.14 | 0.07 → 0.07 |
+| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Bare standalone CED, 5 fields | 0.16 → 0.16 | 0.09 → 0.09 |
+| Bare standalone CED, 100 fields | 0.24 → 0.24 | 0.17 → 0.17 |
+| Equivalent CED with CEF, 5 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Equivalent CED with CEF, 100 fields | 0.42 → 0.41 | 0.32 → 0.31 |
+| Template Designer, 5 fields | 0.89 → 0.36 | 0.84 → 0.35 |
+| Template Designer, 100 fields | 0.91 → 0.57 | 0.84 → 0.55 |
+
+Designer cold readiness fell 32% for five fields and 28% for 100; warm readiness fell 19%
+and 12%. Cold requests fell from 46 to 24 (warm 43 to 21). Large cold transfer fell from
+832,293 to 805,670 bytes, so eliminating request chains and overlapping work accounts for
+more of the gain than the roughly 27 KB transfer reduction. Cold constrained Designer CLS
+is now zero; warm CLS remains approximately 0.013.
+
+For 100 fields, constrained observed blocking time beyond 50 ms fell from 1,579 to 1,462 ms
+cold and 1,219 to 1,067 ms warm in Designer. Equivalent CED fell from 1,183 to 1,105 ms cold
+and 878 to 824 ms warm. The equivalent renderer's readiness change is small and its sample
+ranges overlap (warm before 1,433–1,578 ms; after 1,384–1,618 ms); this is not evidence of a
+large rendering speedup. Bare CED and standalone CEE remain essentially unchanged. Real CEF
+DOM/style construction still costs more than fallback summaries; the host additionally
+performs SSO and repository/permission reads. The page is therefore not just a negligible
+wrapper around the bare benchmark.
+
+The other nine modern scenarios were rerun as coverage/control measurements. Their after
+constrained cold/warm medians, in seconds, are Workspace dashboard 3.71/2.19, Monitoring
+3.67/2.05, Bridging 3.20/2.04, content index 0.39/0.22, term picker 1.53/0.25, Workspace editor
+5 fields 7.84/2.52 and 100 fields 8.12/3.20, OpenView 5 fields 4.88/0.52 and 100 fields
+5.08/0.68. These have no newly captured matched before run in this comparison. All 40
+OpenView samples retain zero CLS. All 40 Workspace editor samples omit the missing external
+translation request and record no network failures.
+
+The after reactor graph is
+`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0`, compared with before
+`5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
+CEE package SHA256 changed from
+`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b` to
+`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265`.
+Bare CED remains the identical package
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
+The report's artifact inventory identifies the host output and shared component bytes too.
+
+The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
+served-bundle verification and every whole-stack smoke tier. Designer passed 634 unit and
+406 browser tests; CEE passed 1,265 unit, 5,825 domain, 100 coordinator and 1,600 browser/visual
+tests (104 existing skips). CED passed 14,454 unit, 1,137 browser tests (one existing skip) and
+25 unchanged visual baselines. The benchmark's eight checks passed, including large-only
+authenticated selection. No visual baseline was updated. Five of eight matched performance
+screenshots are pixel-identical, including both Designer pages and both standalone CEE pages;
+the other three CED images differ only at 2, 10 and 14 border pixels by one colour level.
+Manual inspection confirms the same completed layout, controls and summaries. Measurements
+remain reporting-only local laboratory results, not production timings or real-user INP.
+
+<a id="cef-summary-performance"></a>
+
+### CEF summary initialization — 2026-11-07
+
+`cedar-embeddable-editor@8797a77e` removes a second model read from single-field
+initialization. CEF still strictly reads the supplied field, constructs its one-field
+template, and retains the canonical JSON source for validation. It passes the already-read
+model through the same model-to-component mapper used by ordinary templates, instead of
+reading its own serialized wrapper again. Each field still gets its own model, instance,
+validation state and translation service. Public embedding inputs, UI, styles and ordinary
+standalone CEE template parsing are unchanged.
+
+This is a small initialization saving, not a major page-load reduction. Five paired
+repetitions of frozen before/after builds show the following constrained medians:
+
+| 100-field page | Cold readiness, seconds | Warm readiness, seconds |
+| --- | --- | --- |
+| Standalone CEE | 4.152 → 4.151 | 0.667 → 0.668 |
+| Bare standalone CED | 3.617 → 3.619 | 0.835 → 0.835 |
+| Equivalent CED with real CEF summaries | 5.385 → 5.321 | 1.402 → 1.364 |
+| Template Designer | 6.619 → 6.584 | 3.183 → 3.114 |
+
+Equivalent CED is about 2.7% faster warm, and Designer about 2.2%. All five pairs favor the
+optimized path for both pages, cold and warm. Equivalent CED warm savings per pair are
+31–83 ms; Designer's are 16–122 ms. Unchanged standalone controls remain stable. These five
+observations do not establish population percentiles or production latency.
+
+Observed constrained blocking time beyond 50 ms also falls:
+
+| 100-field page | Cold, milliseconds | Warm, milliseconds |
+| --- | --- | --- |
+| Equivalent CED with CEF | 1122 → 1067 | 824 → 789 |
+| Template Designer | 1447 → 1406 | 1089 → 1017 |
+
+**Why the paired replay matters.** Fresh ordinary before and after runs each completed 160
+valid samples: five repetitions of eight editor scenarios, both profiles and cache states.
+Other browser activity coincided with the after capture; unchanged bare CED warm readiness
+shifted from 0.83 to 1.00 seconds and standalone CEE from 0.67 to 0.77 seconds. Equivalent CED
+shifted 1.39 → 1.56 seconds and Designer 3.17 → 3.22 seconds in those separate runs. Those
+comparisons cannot isolate this source change. All original samples are retained; none were
+removed as outliers.
+
+The supplemental replay alternates the frozen before/after artifact roots within each
+scenario/repetition, reverses version order on alternate repetitions, and rotates scenario
+order. It uses the existing suite's HTTPS/gzip server, real SSO/backend fixtures, readiness,
+font settling, instrumentation and action probes. Every version gets a fresh browser context,
+a cold navigation and then a warm navigation. Four large-form scenarios × five pairs × two
+versions × two cache states give 80 valid samples. No build, test or second benchmark ran
+alongside either ordinary capture or the paired replay. Paired controls settled near their
+original baselines. All three runs completed without sample or cleanup errors; temporary
+backend fixtures were deleted and GET-verified absent.
+
+Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
+
+- `cef-summary-before-20261107/`: 160 samples,
+  `2026-11-07T15:52:23.257Z`–`2026-11-07T15:59:51.553Z`.
+- `cef-summary-after-20261107/`: 160 samples,
+  `2026-11-07T16:17:12.871Z`–`2026-11-07T16:24:54.552Z`.
+- `cef-summary-paired-20261107/`: 80 samples,
+  `2026-11-07T16:25:20.084Z`–`2026-11-07T16:31:18.082Z`; `report.json`, `report.html`,
+  `samples.csv`, version-specific screenshots, full before/after artifact inventories,
+  fixture cleanup ledger, and `replay.mjs` retain the paired method and results.
+- `cef-summary-profile-before-20261107/`: stylesheet instrumentation and a diagnostic
+  alternating eight-pair clone experiment against the previous frozen integrated bundle.
+  Cloning a cached `<style>` node did not help: warm medians were 1,086 ms unchanged and
+  1,128 ms with cloning in that probe. No stylesheet change was adopted. This probe omits
+  the standard font/frame settling and is not directly comparable to readiness above.
+- `cef-summary-profile-after-20261107/`: CPU profiles of frozen bare/equivalent CED and a
+  language-isolation probe; English stays English after a Hungarian sibling is created.
+
+The ordinary suite inventory remains
+`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`
+(`cedar-development@4f1ab150`). Both ordinary runs use Chromium 156.0.8078.4, the same M4 Max
+and 1440×1000 viewport. The paired replay uses that same browser, viewport and constrained
+profile. It adds no performance gate and excludes legacy pages.
+
+The reactor graph changes from
+`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0` to
+`405dcf9e20f5cb6e6a379478913afc914f945b2221dc69cb21426f6060965dc2`.
+CEE package SHA256 changes from
+`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265` to
+`2f490c30da8c290a2922ddc1d0aca04ad526288b6e75d4ad524f8b97d6e48d75`.
+CED remains the identical package
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`;
+Designer host source remains `f9365046`. The reactor captured the optimized working-tree
+sources before their commit; its hashes identify the actual built and measured bytes.
+
+The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
+served-bundle verification and whole-stack smoke. CEE passed 1,265 unit, 5,926 domain,
+100 coordinator and 1,600 browser/visual tests (104 existing skips). The 101 new domain
+cases compare all 25 field kinds in required/optional and editable/read-only modes, including
+rendered metadata, instance data, validation reports and source immutability, plus independent
+instances sharing a supplied field object. The targeted single-field suite passes 231 tests.
+CED passed 14,454 unit, 1,137 browser tests (one existing skip), and 25 unchanged visual
+baselines; Designer passed 634 unit and 406 browser tests. No visual baseline was updated.
+Six of eight ordinary before/after screenshots are pixel-identical, including both Designer
+pages and all four standalone CEE/CED pages. The two equivalent-CED images differ only at 6 and 10
+border pixels by one colour level. Manual review confirms the same controls, field summaries,
+labels and layout. The retained cost includes real field rendering and stylesheet insertion;
+no further stylesheet optimization was established by this investigation.
 
 ## Browser Metadata Editing
 
@@ -445,11 +1011,19 @@ not first-navigation transfer measurements. Decimal kB below means 1,000 bytes.
 | CED standalone / host fonts | 1,982.3 / 1,859.6 | 473.5 / 380.3 | Includes its Angular runtime, model library and schema validator |
 | Term picker standalone / host fonts | 506.2 / 383.5 | 202.9 / 109.4 | Includes its Angular runtime and narrow policy entry |
 
-OpenView and Bridging register CEDAR Roboto 400/500 through their global stylesheets and copy
-`cedar-embeddable-editor.host-fonts.js`. Using the standalone script there adds 122,656 raw bytes
-and about 93 kB gzip of duplicate fonts. The switch was checked against each production
-stylesheet: both weights loaded and the all-input-types CEE fixture rendered pixel-identically.
-Workspace and the Template Designer already select host-font bundles when the host supplies them.
+Workspace, OpenView, Bridging, Monitoring and the Template Designer register CEDAR Roboto 400/500
+through `fonts-hosted.css` from the design-token package. Its content-hashed WOFF2 files contain
+exactly the embedded faces; the browser selects the unicode subsets each page uses. Both Latin
+weights total 22,100 bytes, with another 15,412 bytes when Latin Extended is needed, instead of
+carrying all 89,452 font bytes as base64 in every host stylesheet. The four Angular hosts' initial
+CSS falls by 118,368 raw bytes (about 90 kB gzip). External font files stay in the total payload
+budget, and missing references fail the size gate. Browser checks cover subset requests and
+unchanged visual baselines; standalone CEE and CED scripts remain byte-identical.
+
+Hosts select component host-fonts bundles, which omit embedded fonts, or their coordinated
+integration modules. Standalone components retain their existing embedded fonts and require no
+additional font requests. Template Designer's staging falls back to embedded `fonts.css` when an
+older token package has no hosted-font stylesheet.
 
 The build graphs contain one installation of each contributing npm package per application;
 Angular's compiler, Moment and Lodash do not contribute to these seven modern bundles. CEE's
@@ -472,14 +1046,32 @@ handling across CommonJS, native ESM, bundled ESM and UMD. `npm run build:watch`
 formats together so an incremental change cannot leave the modular tree stale.
 
 Separate self-contained elements each carry their own Angular and shared-library code. The
-Template Designer loads CEE, the term picker and CED in sequence before authoring, totalling
-about 4.36 MB raw / 1.00 MB gzip for those scripts alone. Its extra schema script is a fallback
-for old CED bundles without `validateArtifact`, so it is not another normal-path download.
-The legacy Template Editor requests CEE through RequireJS when an instance editor opens and
-also uses the full UMD model library for its own JSON/YAML conversions. OpenView folder listings
-and Bridging's landing page defer CEE too; loading failures use their existing error states, and
-a later OpenView preview can retry. The Template Designer uses CEE for ordinary field summaries
-and default editors as well as previews, so deferring it requires preserving those contracts.
+Template Designer builds CEE, the term picker and CED into one coordinated runtime graph,
+3,443,265 raw bytes in the 2026-11-06 source build. Each keeps its own application injector.
+Its extra schema script is a fallback for old CED bundles without `validateArtifact`, so it is
+not another normal-path download. See the CED integration section for the identity checks.
+
+The legacy Template Editor requests CEE through RequireJS when an instance editor opens. Its
+full model UMD loads only for a YAML preview or copy; validation keeps using the narrow policy
+entry. CKEditor and its original AngularJS adapter load when a rich-text field is opened, with
+the same toolbar and model handling. A failed load can retry when reopened; YAML copying starts
+the clipboard operation within the click so its first library download does not lose user
+activation. Against the installed model package, these optional tools total 1,034,573 raw /
+268,386 gzip-9 bytes; their initial loaders add 5,199 / 1,808 bytes. The thin `ng-flow` adapter
+uses the single Flow.js dependency. Retired RDF preview processing is absent; JSON Schema
+preview and YAML actions remain available.
+
+OpenView folder listings and Bridging's landing page defer CEE too; loading failures use their
+existing error states, and a later OpenView preview can retry. The Template Designer uses CEE
+for ordinary field summaries and default editors as well as previews.
+
+Workspace loads profile, settings, groups, privacy and logout as route chunks; Monitoring loads
+its diagnostic screens as a lazy module. Dashboard navigation therefore avoids those downloads,
+while direct links keep their existing guards and behavior. The 2026-11-06 production comparison
+reduced Workspace's initial graph by 63,764 raw / 13,369 gzip-9 bytes and Monitoring's by
+204,100 / 41,363 bytes. Browser tests assert that the deferred chunks are absent on the dashboard
+and requested when their routes open; the existing account and diagnostic journeys still apply.
+
 Files merely present on disk, such as Moment's tests, source maps and superseded hashed bundles,
 are not evidence of browser downloads.
 
@@ -532,8 +1124,10 @@ whole-stack smoke passed for this source composition on 2026-11-05. Its immutabl
 `01e070e087da8c3fbe8469cf0821f5de487b7eef56522b5f65abe642bc090303`; selected package SHA-256 prefixes
 are model `a3ce971ab7af`, CEE `4b30e2d83ab8`, CED `185e277ba3eb` and term picker `dc2f855979a2`.
 The full identities and source fingerprints are in `$CEDAR_HOME/.reactor/builds/<build>.json`.
-The native launcher can select a different Node than the build; its remaining runtime-selection
-work is tracked in the roadmap's dependency section.
+Frontend builds and native start/restart resolve the pinned Node and Java toolchain before
+invoking their workers. The native controller preserves that PATH and passes it, with JAVA_HOME,
+into launchd children. A native frontend launched on 2026-11-06 was verified against its actual
+executable at Node 24.22.1, even though the shell's unversioned Node was 26.
 
 <a id="component-staleness"></a>
 
@@ -1709,8 +2303,8 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-The supported frontend toolchain uses Node **24.22.1**, Angular CLI and build **22.2.5**,
-Angular CDK and Material **22.2.6**, and Angular core **22.2.4**. Angular's 22.2.5 builder
+The supported frontend toolchain uses Node **24.22.1**, Angular CLI and build **22.2.6**,
+Angular CDK and Material **22.2.6**, and Angular core **22.2.4**. Angular's 22.2.6 builder
 selects Vite 8.3.5. The development-server advisories against the Vite 8.3 line are fixed from
 8.3.3, so no project overrides Vite.
 
@@ -1721,9 +2315,11 @@ The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md). OpenView, 
 Monitoring take 18.1 with a `^18.1.0` range and register it through its provider functions; none of
 them selects a language at run time.
 
-A full npm audit on 2026-10-28 reports zero findings in 22 of the 23 registered modern
-frontend locks and in the E2E tooling lock, including development dependencies. The
-registered locks include the Playwright test packages in the `browser/` directories of
+A fresh audit of the eight changed modern frontend locks on 2026-11-06 reports zero moderate,
+high or critical findings, including development dependencies. Seven report no findings; the
+TypeScript model library retains the six low findings described below. Every one of the 24
+registered frontend locks matches its reviewed baseline. The registered locks include the
+Playwright test packages in the `browser/` directories of
 Workspace, the Template Designer host, OpenView, Monitoring, Bridging, CETP and CED. Each
 declares an empty `allowScripts` policy, because none of them locks a package with an
 install script, and the train holds them to it as it holds every other registered lock.
@@ -1733,6 +2329,12 @@ reaches the library through `jest-config`, and Jest runs only the library's test
 patched `deepmerge` exists, and the fix `npm audit` offers is Jest 25, a downgrade. The
 train baseline records the six findings. The legacy Template Editor is separate from that
 result.
+
+The affected modern tool trees override only `minimatch@>=7 <11.0.1` to 11.0.5; the model
+library and Ember demo also override `glob@>=9 <14.0.2` to 14.0.4. These remove
+GHSA-g3hv-75wg-m249 and GHSA-3g3m-2fjr-6pw4 while leaving unaffected older API majors in place.
+The full frontend checks and all three consumer demos passed with these selections. Remove
+the overrides when their upstream consumers select patched versions themselves.
 
 This toolchain passed the full frontend reactor, all three framework consumer demos,
 local deployment, served-bundle verification and whole-stack smoke on 2026-10-29.
@@ -3985,7 +4587,8 @@ CED and CETP ship the same pair: `cedar-embeddable-designer.host-fonts.js` and
 `cedar-embeddable-term-picker.host-fonts.js`, each beside a `bundle-manifest.host-fonts.json`
 and held to its own size ceiling, which is the default bundle's less the embedded faces. The
 tokens package also publishes the faces as compiled `fonts.css`, for a host without Sass. The
-Template Designer page links `fonts.css` once. When staging separate component scripts,
+Template Designer page prefers `fonts-hosted.css` with hashed WOFF2 subsets and falls back
+to embedded `fonts.css` for older token packages. When staging separate component scripts,
 `stage-components.mjs` chooses each host-fonts bundle under the component's usual file name.
 A package without a host-fonts bundle, or a tokens package without `fonts.css`, is staged
 self-contained. Sharing the faces saves about 180 kB of compressed transfer.
@@ -3993,13 +4596,18 @@ self-contained. Sharing the faces saves about 180 kB of compressed transfer.
 ### Template Designer Shared Runtime
 
 CEE, CED and CETP also package `integration.mjs`, an AOT-compiled host-fonts module whose
-Angular, RxJS, translation and model dependencies remain external. This is an explicit host-build
+Angular, RxJS, translation and model dependencies remain external. CEE also names its exact
+`jsonld` and `n3` runtimes and imports them only when exporting RDF. This is an explicit host-build
 input; the default package entry and standalone scripts remain self-contained. The component
 production builds generate both standalone variants and the integration module. Packaging verifies
 the module's source fingerprint, bytes and runtime identities against `integration-manifest.json`.
 
 The Template Designer combines a complete integration cohort with Angular's production linker,
-then flattens that module graph into `cedar-editors.js`. Each component keeps its application
+then flattens the eager module graph into `cedar-editors.js`. It bundles just the RDF processor
+exports CEE uses into two hashed `cedar-rdf-*.js` modules, loaded on the first RDF download.
+Older CEE integration packages with embedded processors retain their original single-script path.
+Standalone CEE still includes its processors in one script; its embedding contract is unchanged.
+Each component keeps its application
 injector, per-element state and configuration. Registration waits for CEE, then CETP, then CED;
 the host downloads the shared script once. Exact dependency versions must match the component
 manifests. The model may cross public and development package identities only when its ESM files
@@ -4013,22 +4621,32 @@ The build checks its module graph for duplicate runtime copies.
 pin changes or publication are required. Older registry cohorts without integration modules and
 explicit local standalone overrides retain the separate-script path. Runtime upgrades require
 rebuilding the coordinated cohort. The manifests record both compiled input identities and the
-combined script's digest; `cedarcli check components` verifies both. The hash in the script URL
+combined script's digest and deferred asset hashes and sizes; `cedarcli check components` verifies
+the installed input modules and every served delivery file. Cached builds also verify those files
+before reuse. The hash in the script URL
 changes whenever its bytes change. Third-party notices travel beside the shared output.
 
 The host's `npm run check:size` runs during preparation and native startup. It counts each
-manifest delivery once, host JavaScript, imported CSS, and the deferred schema-validator fallback.
+manifest delivery once, host JavaScript, imported CSS, deferred font subsets and RDF processors,
+and the deferred schema-validator fallback.
 `app/components/page-size.json` records raw and gzip sizes by file and phase. Browser coverage
-checks that observed JavaScript/CSS requests belong to that inventory. Shared delivery limits
+checks that observed JavaScript/CSS/font requests belong to that inventory. Shared delivery limits
 are 4,000,000 raw / 1,000,000 gzip initially and 4,500,000 / 1,150,000 including the fallback.
 Older standalone cohorts have separate 5,200,000 / 1,300,000 and 5,700,000 / 1,450,000 limits.
 `dist/editors/browser-stats.json` contains the build graph for investigating growth.
 
-Measured on 2026-11-06 with the same component sources, the three host-font scripts total
-4,358,267 bytes raw / 1,004,111 gzip; the shared script is 3,443,265 / 746,782, reductions of
-21.0% and 25.6%. The whole shared page's initial JavaScript/CSS is 3,771,811 / 903,335;
-including the unused-unless-needed schema fallback it is 4,290,922 / 946,573. The standalone
-CEE and CED scripts, including their host-font variants, retain identical SHA-256 hashes.
+Measured on 2026-11-07 against the same sources before RDF deferral, the shared script falls
+from 3,443,265 to 3,263,429 raw bytes. The whole page's initial JavaScript/CSS falls from
+3,652,610 raw / 813,417 gzip to 3,472,774 / 762,665: 179,836 raw / 50,752 gzip bytes deferred.
+Including all deferred assets, the page is 4,260,507 raw / 946,714 gzip, against 4,261,173 /
+946,429 before. Both RDF formats are covered by a real shared-host download test, alongside
+the assertion that normal summaries, editing and preview do not fetch the processors.
+Standalone CEE is 2,237,932 raw / 607,133 gzip, only 147 raw / 65 gzip bytes above that baseline;
+its host-font variant is 2,115,274 / 514,514. Neither requires additional processor files.
+
+Workspace, OpenView and Bridging retain separate on-demand CEE scripts. Sharing their runtime
+would increase their initial dashboard or landing-page transfer, so their delivery prioritizes
+the smaller initial page. The Template Designer already loads all three components on opening.
 
 The host checks every save payload with the meta-schema validator CED carries, through
 `designer.validateArtifact`, rather than importing its own copy. Against a CED built before that

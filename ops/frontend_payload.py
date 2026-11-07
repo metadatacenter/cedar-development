@@ -6,6 +6,8 @@ import hashlib
 from html.parser import HTMLParser
 import json
 import os
+import posixpath
+import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -35,7 +37,7 @@ def measure(root, specification, working_root=None):
         if not directory.is_dir():
             raise ValueError(f'Asset directory is missing: {directory}')
         for file in sorted(directory.rglob('*')):
-            if not file.is_file() or file.suffix not in ('.js', '.mjs', '.css'):
+            if not file.is_file() or file.suffix not in ('.js', '.mjs', '.css', '.woff2'):
                 continue
             if not file.resolve().is_relative_to(directory):
                 raise ValueError(f'Asset escapes build output: {file}')
@@ -44,6 +46,23 @@ def measure(root, specification, working_root=None):
                 'raw': len(body), 'gzip': len(gzip.compress(body, compresslevel=9, mtime=0)),
                 'sha256': hashlib.sha256(body).hexdigest(),
             }
+    # Font files remain in the total budget, even though unicode-range lets the browser
+    # request only those needed. Validate CSS references too: missing fonts must not silently
+    # turn a payload reduction into fallback typography.
+    for prefix, directory in mounts.items():
+        for file in directory.rglob('*.css'):
+            name = prefix + file.relative_to(directory).as_posix()
+            for reference in re.findall(r'url\([\'\"]?([^\'\"\s)]+)[\'\"]?\)', file.read_text()):
+                address = urlsplit(reference)
+                if address.scheme == 'data' or not address.path.endswith('.woff2'):
+                    continue
+                if address.scheme or address.netloc:
+                    raise ValueError(f'Unmeasured external font: {reference}')
+                path = unquote(address.path)
+                font = (path.removeprefix(specification.get('urlPrefix', '/')).lstrip('/')
+                        if path.startswith('/') else posixpath.normpath(posixpath.join(posixpath.dirname(name), path)))
+                if font not in assets:
+                    raise ValueError(f'Stylesheet references an unmeasured or missing font: {font}')
     if not assets:
         raise ValueError(f'No JavaScript or CSS in {root}')
     page = EntryPage()

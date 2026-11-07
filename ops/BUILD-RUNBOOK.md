@@ -261,12 +261,43 @@ controller removes stale staging output before verification and publishes the re
 package only after checking its train identity, without running a second `dist` build.
 Legacy plans and components without that declaration retain their explicit build step.
 
-Frontend consumer verification uses two concurrent repository jobs and four workers per
-job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).
-Commands within a repository stay ordered; shared integration bundles are staged before
-workers start. Prepared production payloads are built only after every consumer check passes, using the
-same bounded repository and worker budgets. Commands sharing a repository stay ordered;
-the coordinator records hashes and overlays only after every production build succeeds.
+CEE's hosted train gate builds and packages once, runs all source/domain/unit/coordinator gates
+and its production audit, then transfers the candidate to four browser/visual shards. They keep
+the pinned Linux ARM64 container, every browser project, screenshot baseline and existing skip.
+The container's `--prebuilt` mode tests the transferred bundle and fixtures without rebundling.
+Publication checks the complete test inventory and candidate hashes, and verifies the registry
+contains the tested package bytes. Default local gates and container commands remain complete.
+
+The hosted train builds CED once after its non-browser gates, then transfers that candidate to
+four browser shards and a separate ARM64 visual-baseline job. Chromium, WebKit and real CEF/picker
+inputs remain enabled exactly as in the full gate. Publication requires every shard's success,
+the exact union of the original test inventory (including declared skips), and matching candidate,
+source and dependency hashes. A missing, duplicate or foreign receipt refuses publication.
+Workspace runs its complete checks and production preparation on a separate runner. Its verified
+archive is restored by the final frontend job without rerunning those checks. The six independent
+consumer repositories run their complete gates and production builds in isolated matrix jobs alongside
+CED. Only the Template Designer host waits for CED publication. The final frontend job requires the
+complete set of consumer archives, bound to the captured source, plan and configuration hashes; it
+restores their tested outputs and exact lockfiles before recording and publishing the seven packages. Local and serial paths still run the
+full gates; CED's `prepare` gate alone is not publication evidence.
+
+The Template Designer host prepares its wired app and runs all non-browser checks once after CED
+publication. Four isolated browser shards test that same app with the original Playwright settings,
+including the real CED/Java conformance cases. Publication requires the complete test inventory,
+every shard receipt and unchanged app bytes. The final job restores the verified host and all
+other consumer outputs; it performs no browser rerun or rebuilding of transferred artifacts.
+
+
+The remaining frontend preparation uses two concurrent repository jobs and four workers per job
+(`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path). Each repository
+waits only for its package and integration-bundle producers. Commands within a repository stay
+ordered: dependency wiring, then the complete verification recipe. OpenView, Monitoring, Bridging
+and the Template Designer host declare which verification command produces their production output.
+The controller clears those output directories before checks, requires fresh nonempty output after
+checks, and packages those same bytes without another install/build. Designer transfers both its
+component assets and generated `app/host` bundle. Older plans retain their explicit build commands. Shared integration bundles
+are staged atomically. The coordinator records hashes and overlays only after every repository
+succeeds. A failed producer blocks its consumers and leaves no frontend completion evidence.
 
 None of those version or dependency edits is written back to a source repository. They are
 controlled transformations in isolated exact-commit checkouts, and their hashes become part of the
@@ -289,16 +320,22 @@ unchanged, to `npm-cedar-releases`, which has no cleanup policy and disables red
 these retained packages for shared-component and non-CEE model pins. The completion record lists
 them under `retainedPackages`; a release refuses a train without that evidence.
 
-Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
-order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
+Once Maven completes, the workflow records `docker/backend-trains/<TRAIN_ID>.json` and starts
+the twenty backend/base/infrastructure images while CEE and frontend gates run. That immutable
+plan binds the source manifest, CLI and Docker-builder commits, image inventory and registry
+references. It needs no npm completion. After npm completes, the full 27-image plan binds that
+backend-plan hash to the verified npm graph and starts the seven frontend images. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, eleven microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
 the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
-defaults name development packages, which Nexus removes three days after upload, so left alone
-they stop resolving within days and the Docker build's own CI goes red. A release rewrites them
-from the train's recorded inputs, as the release runbook describes. Every
-image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
-npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
+defaults name published releases in the retained registry, so Docker CI remains reproducible after
+train-package cleanup. Release readiness refuses expiring compatibility defaults before a train.
+Development preserves the captured retained pins while the release tree adopts its own released
+packages, as the release runbook describes. Every
+image records the train, exact `cedar-docker-build` commit and source-manifest digest as OCI
+labels. Backend images additionally record their backend-plan digest; frontend images record the
+npm/frontend-manifest digest. Schema-3 plans/completions carry both digests. Verification of older
+schema-2 trains retains their original all-images frontend-label contract. Each frontend image also contains the complete graph at
 `/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
 tarball to that graph before extraction. The three source-package images install with `npm ci` from
 the vendored shrinkwrap; OpenView extracts the exact verified CEE tarball
@@ -328,7 +365,7 @@ upload, so a machine can pull a train's images only within three days of the tra
 ## Train Timing and State Writes
 
 Use `cedarcli publish train-status --watch` and the linked workflow to measure the selected train.
-Maven overlaps the npm chain; the Docker build waits for both. Timings from older serial workflows
+Maven overlaps the npm chain; backend Docker builds start after Maven, while frontend images wait for npm. Timings from older serial workflows
 or different image inventories are not estimates for the current train.
 
 Concurrent state-branch writers rebase independent evidence commits with bounded retries;
@@ -355,6 +392,9 @@ cedarcli publish train-status <TRAIN_ID>
 
 A completed train's status also reports release eligibility and names repositories whose `develop`
 has moved. Source changes in drift-checked repositories require a new train.
+Retries are selected by their last update, so a cancelled duplicate does not hide a later successful
+retry of the original run. A recorded Docker completion makes status successful regardless of a
+duplicate workflow's conclusion.
 
 Train state has no abandon operation. An incomplete immutable ID remains useful evidence of what was
 attempted; it cannot block a later ID.
@@ -372,9 +412,14 @@ configuration checks, and reports the first incomplete stage. Then resume it:
 cedarcli publish train --resume <TRAIN_ID>
 ```
 
-Resume requires `trains/<TRAIN_ID>.json` on the `build-trains` branch and checks out the commits in that
-manifest—not whatever is now at the head of `develop`. The hosted exact-source, credential,
-registry, and configuration preflight runs again before the workflow continues. Identical Maven files already present in
+Resume requires `trains/<TRAIN_ID>.json` on the `build-trains` branch and repeats local preflight.
+When GitHub still has the failed workflow, the CLI retries only its failed jobs with `gh run rerun
+--failed`: successful jobs, including frontend verification, keep their outputs. The retry uses the
+original workflow and captured commits. A complete train is never dispatched again.
+
+If no workflow is available, the CLI dispatches a resume workflow that checks out the commits in the
+manifest. Its hosted exact-source, credential, registry, and configuration preflight runs again.
+Identical Maven files already present in
 Nexus are accepted; missing files are uploaded. When Maven publication is already complete, resume
 skips it and continues with npm and Docker. npm artifacts are accepted only when their `gitHead`,
 integrity, and tarball bytes match the recorded graph. A Docker tag already present is accepted only
@@ -413,6 +458,7 @@ The `build-trains` branch is machine-owned operational state, separate from norm
 - `npm/cee/completed/<TRAIN_ID>.json` records the verified CEE publication;
 - `npm/completed/<TRAIN_ID>.json` records registry integrities and downloaded tarball hashes;
 - `npm/current.json` points to the most recently completed npm graph;
+- `docker/backend-trains/<TRAIN_ID>.json` records the twenty backend images and their independent provenance;
 - `docker/trains/<TRAIN_ID>.json` records the exact 27-image publication plan;
 - `docker/completed/<TRAIN_ID>.json` records the verified image digests; and
 - `docker/current.json` points to the most recently completed Docker train.

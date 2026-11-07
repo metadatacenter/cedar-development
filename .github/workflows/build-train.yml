@@ -299,11 +299,11 @@ jobs:
             python3 controller/ops/push_train_state.py --state build-trains
           fi
 
-  publish-cee:
-    name: npm 2/3 · wire model and publish CEE
+  prepare-cee:
+    name: Build CEE candidate and run non-browser checks
     needs: publish-model
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 60
+    timeout-minutes: 45
     env:
       BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
       BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
@@ -335,11 +335,16 @@ jobs:
           test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
           test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
           password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
           printf '%s\n' \
             '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
             "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
             "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
             '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
             > "$NPM_CONFIG_USERCONFIG"
 
       - name: Restore the exact train source checkouts
@@ -357,16 +362,190 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.npm/_cacache
-          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-cee-${{ steps.dependency-key.outputs.value }}
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-${{ steps.dependency-key.outputs.value }}
           restore-keys: |
-            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-cee-
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-
 
-      - name: Wire the train model, then gate, build, publish, and verify CEE
+      - name: Build CEE candidate and run non-browser checks
         run: |
-          python3 controller/ops/frontend_train.py publish-cee \
-            --version "$TRAIN_VERSION" \
+          python3 controller/ops/frontend_train_shards.py prepare-cee \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cee-candidate
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 7
+
+  check-cee:
+    name: CEE browser and visual shard ${{ matrix.lane }}
+    needs: prepare-cee
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ['1', '2', '3', '4']
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: cee-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: CEE browser and visual shard ${{ matrix.lane }}
+        run: |
+          python3 controller/ops/frontend_train_shards.py check-cee --lane "${{ matrix.lane }}" \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cee-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/results
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-cee:
+    name: npm 2/3 · verify CEE coverage and publish tested candidate
+    needs: check-cee
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: cee-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: cee-result-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/results
+      - name: npm 2/3 · verify CEE coverage and publish tested candidate
+        run: |
+          python3 controller/ops/frontend_train_shards.py publish-cee \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
 
       - name: Record the verified CEE artifact
         run: |
@@ -453,9 +632,610 @@ jobs:
             python3 controller/ops/push_train_state.py --state build-trains
           fi
 
+  prepare-ced:
+    name: Build CED candidate and run non-browser checks
+    needs: [publish-cee, publish-picker]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-
+
+      - name: Build CED candidate and run non-browser checks
+        run: |
+          python3 controller/ops/frontend_train_shards.py prepare-ced \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ced-candidate
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 7
+
+  check-ced:
+    name: CED browser shard ${{ matrix.lane }}
+    needs: prepare-ced
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ['1', '2', '3', '4', visual]
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: ced-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: CED browser shard ${{ matrix.lane }}
+        run: |
+          python3 controller/ops/frontend_train_shards.py check-ced --lane "${{ matrix.lane }}" \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ced-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/results
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-ced:
+    name: Verify CED coverage and publish tested candidate
+    needs: check-ced
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: ced-candidate
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: ced-result-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/results
+      - name: Verify CED coverage and publish tested candidate
+        run: |
+          python3 controller/ops/frontend_train_shards.py publish-ced \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+
+  prepare-workspace:
+    name: Verify and build Workspace on its own runner
+    needs: [publish-cee, publish-picker]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-distributed-frontends-
+
+      - name: Verify and build Workspace on its own runner
+        run: |
+          python3 controller/ops/frontend_train_shards.py prepare-workspace \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-prepared
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 7
+
+  prepare-consumers:
+    name: Verify consumer ${{ matrix.repository }}
+    needs: [publish-cee, publish-picker]
+    strategy:
+      fail-fast: false
+      matrix:
+        repository: [cedar-template-editor, cedar-openview, cedar-monitoring, cedar-bridging, cedar-content-distribution, cedar-component-demo]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-consumer-${{ matrix.repository }}-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-consumer-${{ matrix.repository }}-
+
+      # The component visual baselines are pinned to Linux ARM64. Use the
+      # captured picker's Chromium for legacy Karma suites on this runner too.
+      - name: Select the captured Chromium for consumer tests
+        run: |
+          browser="$RUNNER_TEMP/CEDAR/cedar-embeddable-term-picker/browser"
+          npm --prefix "$browser" ci
+          "$browser/node_modules/.bin/playwright" install --with-deps chromium
+          chromium=$(node -p "require('$browser/node_modules/playwright').chromium.executablePath()")
+          # Permit namespaces for this exact captured browser, keeping Chromium's
+          # sandbox enabled without relaxing the runner's global AppArmor policy.
+          printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile cedar-train-chromium "%s" flags=(unconfined) {\n  userns,\n}\n' "$chromium" | sudo tee /etc/apparmor.d/cedar-train-chromium >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/cedar-train-chromium
+          "$chromium" --headless --disable-gpu --dump-dom about:blank > "$RUNNER_TEMP/chromium-smoke.html"
+          echo "CHROME_BIN=$chromium" >> "$GITHUB_ENV"
+          # Testem discovers Chrome on PATH rather than reading CHROME_BIN.
+          mkdir -p "$RUNNER_TEMP/train-bin"
+          ln -s "$chromium" "$RUNNER_TEMP/train-bin/chrome"
+          echo "$RUNNER_TEMP/train-bin" >> "$GITHUB_PATH"
+
+      - name: Run every consumer gate and production build
+        run: |
+          python3 controller/ops/frontend_train_shards.py prepare-consumer --repository "${{ matrix.repository }}" \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: consumer-${{ matrix.repository }}
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 7
+
+  prepare-host:
+    name: Prepare Designer host and run non-browser gates
+    needs: [publish-cee, publish-picker, publish-ced]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-designer-host-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-designer-host-
+
+      - name: Prepare Designer host and run non-browser gates
+        run: |
+          python3 controller/ops/frontend_train_shards.py prepare-host \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-candidate
+          path: ${{ runner.temp }}/candidate
+          if-no-files-found: error
+          retention-days: 7
+
+  check-host:
+    name: Designer host browser shard ${{ matrix.lane }}
+    needs: prepare-host
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ['1', '2', '3', '4']
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Java 17 for host conformance tests
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Node 24.22.1
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          # Completion copies the shared components into the retained registry, which has no
+          # cleanup policy, so a release can pin them after the train registry has purged them.
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar-releases/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-designer-host-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-designer-host-
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: host-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: Designer host browser shard ${{ matrix.lane }}
+        run: |
+          python3 controller/ops/frontend_train_shards.py check-host --lane "${{ matrix.lane }}" \
+            --version "$TRAIN_VERSION" --workspace "$RUNNER_TEMP/CEDAR" --state build-trains \
+            --artifact "$RUNNER_TEMP/candidate" --results "$RUNNER_TEMP/results"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-result-${{ matrix.lane }}
+          path: ${{ runner.temp }}/results
+          if-no-files-found: error
+          retention-days: 7
+
   publish-frontends:
     name: npm 3/3 · wire consumers and publish frontends
-    needs: [publish-cee, publish-picker]
+    needs: [publish-cee, publish-picker, publish-ced, prepare-workspace, prepare-consumers, check-host]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     env:
@@ -520,28 +1300,31 @@ jobs:
           restore-keys: |
             train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-frontends-
 
-      # The component visual baselines are pinned to Linux ARM64. Use the
-      # captured picker's Chromium for legacy Karma suites on this runner too.
-      - name: Select the captured Chromium for consumer tests
-        run: |
-          browser="$RUNNER_TEMP/CEDAR/cedar-embeddable-term-picker/browser"
-          npm --prefix "$browser" ci
-          "$browser/node_modules/.bin/playwright" install --with-deps chromium
-          chromium=$(node -p "require('$browser/node_modules/playwright').chromium.executablePath()")
-          # Permit namespaces for this exact captured browser, keeping Chromium's
-          # sandbox enabled without relaxing the runner's global AppArmor policy.
-          printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile cedar-train-chromium "%s" flags=(unconfined) {\n  userns,\n}\n' "$chromium" | sudo tee /etc/apparmor.d/cedar-train-chromium >/dev/null
-          sudo apparmor_parser -r /etc/apparmor.d/cedar-train-chromium
-          "$chromium" --headless --disable-gpu --dump-dom about:blank > "$RUNNER_TEMP/chromium-smoke.html"
-          echo "CHROME_BIN=$chromium" >> "$GITHUB_ENV"
-          # Testem discovers Chrome on PATH rather than reading CHROME_BIN.
-          mkdir -p "$RUNNER_TEMP/train-bin"
-          ln -s "$chromium" "$RUNNER_TEMP/train-bin/chrome"
-          echo "$RUNNER_TEMP/train-bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v5
+        with:
+          name: workspace-prepared
+          path: ${{ runner.temp }}/workspace-prepared
 
-      - name: Wire all seven CEE consumers and rebuild bundled consumers
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: consumer-*
+          path: ${{ runner.temp }}/verified-consumers
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: host-candidate
+          path: ${{ runner.temp }}/host-candidate
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: host-result-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/host-results
+
+      - name: Verify and assemble every tested consumer
         run: |
-          python3 controller/ops/frontend_train.py prepare-frontends \
+          python3 controller/ops/frontend_train.py prepare-frontends --verified-workspace "$RUNNER_TEMP/workspace-prepared" \
+            --verified-consumers "$RUNNER_TEMP/verified-consumers" \
+            --verified-host "$RUNNER_TEMP/host-candidate" --host-results "$RUNNER_TEMP/host-results" \
             --version "$TRAIN_VERSION" \
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
@@ -572,8 +1355,55 @@ jobs:
             python3 controller/ops/push_train_state.py --state build-trains
           fi
 
+  record-backend-plan:
+    needs: publish-maven
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      java_base: ${{ steps.matrix.outputs.java_base }}
+      microservice_base: ${{ steps.matrix.outputs.microservice_base }}
+      infrastructure: ${{ steps.matrix.outputs.infrastructure }}
+      microservices: ${{ steps.matrix.outputs.microservices }}
+      frontends: ${{ steps.matrix.outputs.frontends }}
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Record backend images before frontend completion
+        run: |
+          python3 controller/ops/docker_train.py record-backend-plan \
+            --version "$TRAIN_VERSION" \
+            --state build-trains
+          git -C build-trains add "docker/backend-trains/$TRAIN_VERSION.json"
+          if ! git -C build-trains diff --cached --quiet; then
+            git -C build-trains commit -m "Record backend Docker train $TRAIN_VERSION"
+            python3 controller/ops/push_train_state.py --state build-trains
+          fi
+
+      - name: Export build matrices
+        id: matrix
+        run: |
+          echo "java_base=$(python3 controller/ops/docker_train.py matrix --group javaBase)" >> "$GITHUB_OUTPUT"
+          echo "microservice_base=$(python3 controller/ops/docker_train.py matrix --group microserviceBase)" >> "$GITHUB_OUTPUT"
+          echo "infrastructure=$(python3 controller/ops/docker_train.py matrix --group infrastructure)" >> "$GITHUB_OUTPUT"
+          echo "microservices=$(python3 controller/ops/docker_train.py matrix --group microservices)" >> "$GITHUB_OUTPUT"
+          echo "frontends=$(python3 controller/ops/docker_train.py matrix --group frontends)" >> "$GITHUB_OUTPUT"
+
   record-docker-plan:
-    needs: [publish-maven, publish-frontends]
+    needs: [publish-maven, publish-frontends, record-backend-plan]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -620,12 +1450,12 @@ jobs:
           echo "frontends=$(python3 controller/ops/docker_train.py matrix --group frontends)" >> "$GITHUB_OUTPUT"
 
   java-base:
-    needs: record-docker-plan
+    needs: record-backend-plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.java_base) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.java_base) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -638,12 +1468,12 @@ jobs:
         run: bash controller/ops/publish-docker-image-ci.sh "${{ matrix.image }}"
 
   microservice-base:
-    needs: [record-docker-plan, java-base]
+    needs: [record-backend-plan, java-base]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.microservice_base) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.microservice_base) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -656,14 +1486,14 @@ jobs:
         run: bash controller/ops/publish-docker-image-ci.sh "${{ matrix.image }}"
 
   infrastructure:
-    needs: record-docker-plan
+    needs: record-backend-plan
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 7
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.infrastructure) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.infrastructure) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -676,14 +1506,14 @@ jobs:
         run: bash controller/ops/publish-docker-image-ci.sh "${{ matrix.image }}"
 
   microservices:
-    needs: [record-docker-plan, microservice-base]
+    needs: [record-backend-plan, microservice-base]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 5
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.microservices) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.microservices) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -746,7 +1576,7 @@ jobs:
           printf '%s' "$BMIR_NEXUS_PASSWORD" | docker login "$CEDAR_DOCKER_REGISTRY_HOST" \
             --username "$BMIR_NEXUS_USERNAME" --password-stdin
 
-      - name: Pull and verify all 28 core images
+      - name: Pull and verify all 27 core images
         run: |
           python3 controller/ops/docker_train.py verify \
             --version "$TRAIN_VERSION" \

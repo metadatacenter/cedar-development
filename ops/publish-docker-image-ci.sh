@@ -15,7 +15,7 @@ state=${RUNNER_TEMP}/build-trains
 git clone --quiet --depth 1 --branch build-trains \
   "https://github.com/${GITHUB_REPOSITORY}.git" "${state}"
 python3 "${controller}/ops/docker_train.py" checkout \
-  --version "${TRAIN_VERSION}" \
+  --version "${TRAIN_VERSION}" --image "${image}" \
   --workspace "${workspace}" \
   --state "${state}"
 python3 -m pip install --quiet --disable-pip-version-check \
