@@ -148,6 +148,22 @@ class BuildTrainTest(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 build_train.validate_train(invalid)
 
+    def test_preflight_accepts_verified_builds_but_rejects_missing_or_ambiguous_recipes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            recipe = dict(directory='.', verifiedBuildCommand=['build'], overlayPaths=['app'])
+            frontend['frontends'][0]['preparedBuild'] = recipe
+            row = next(s for s in frontend['surfaces'] if s['repository'] == 'frontend')
+            row['verify'] = [['build'], ['browser-tests']]
+            build_train.validate_configuration(build, frontend, docker, workspace)
+            recipe['commands'] = [['build']]
+            with self.assertRaisesRegex(RuntimeError, 'both reuse and rebuild'):
+                build_train.validate_configuration(build, frontend, docker, workspace)
+            del recipe['commands']
+            row['verify'] = [['browser-tests']]
+            with self.assertRaisesRegex(RuntimeError, 'verified production build'):
+                build_train.validate_configuration(build, frontend, docker, workspace)
+
     def test_negative_command_return_code_names_the_signal(self):
         result = SimpleNamespace(returncode=-6, stdout="", stderr="")
         with patch.object(build_train.subprocess, "run", return_value=result):

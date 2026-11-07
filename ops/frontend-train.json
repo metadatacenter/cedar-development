@@ -242,19 +242,14 @@
       },
       "preparedBuild": {
         "directory": ".",
-        "commands": [
-          [
-            "npm",
-            "ci"
-          ],
-          [
-            "npm",
-            "run",
-            "prepare:components"
-          ]
-        ],
         "overlayPaths": [
-          "app/components"
+          "app/components",
+          "app/host"
+        ],
+        "verifiedBuildCommand": [
+          "npm",
+          "run",
+          "prepare:components"
         ]
       }
     },
@@ -270,20 +265,12 @@
       },
       "preparedBuild": {
         "directory": "cedar-openview-src",
-        "commands": [
-          [
-            "npm",
-            "ci"
-          ],
-          [
-            "npm",
-            "run",
-            "build",
-            "--",
-            "--configuration=production"
-          ]
-        ],
-        "output": "cedar-openview-src/dist/cedar-openview"
+        "output": "cedar-openview-src/dist/cedar-openview",
+        "verifiedBuildCommand": [
+          "npm",
+          "run",
+          "build"
+        ]
       }
     },
     {
@@ -301,20 +288,12 @@
       "npmVersionVariable": "CEDAR_MONITORING_NPM_VERSION",
       "preparedBuild": {
         "directory": "cedar-monitoring-src",
-        "commands": [
-          [
-            "npm",
-            "ci"
-          ],
-          [
-            "npm",
-            "run",
-            "build",
-            "--",
-            "--configuration=production"
-          ]
-        ],
-        "output": "cedar-monitoring-src/dist/cedar-monitoring"
+        "output": "cedar-monitoring-src/dist/cedar-monitoring",
+        "verifiedBuildCommand": [
+          "npm",
+          "run",
+          "build"
+        ]
       }
     },
     {
@@ -329,20 +308,12 @@
       },
       "preparedBuild": {
         "directory": "cedar-bridging-src",
-        "commands": [
-          [
-            "npm",
-            "ci"
-          ],
-          [
-            "npm",
-            "run",
-            "build",
-            "--",
-            "--configuration=production"
-          ]
-        ],
-        "output": "cedar-bridging-src/dist/cedar-bridging"
+        "output": "cedar-bridging-src/dist/cedar-bridging",
+        "verifiedBuildCommand": [
+          "npm",
+          "run",
+          "build"
+        ]
       }
     }
   ],

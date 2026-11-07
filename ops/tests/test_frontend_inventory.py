@@ -70,6 +70,18 @@ class FrontendInventoryTest(unittest.TestCase):
                 self.assertLess(commands.index(['../browser/node_modules/.bin/playwright', 'install', '--with-deps', 'chromium']), built)
                 self.assertLess(built, commands.index(['npm', '--prefix', '../browser', 'test']))
 
+    def test_reusing_output_requires_its_build_command_in_the_full_gate(self):
+        item = next(f for f in self.config['frontends'] if f['id'] == 'openview')
+        frontend_inventory.validate(self.config)
+        row = next(s for s in self.config['surfaces'] if s['id'] == 'openview')
+        row['verify'].remove(item['preparedBuild']['verifiedBuildCommand'])
+        with self.assertRaisesRegex(ValueError, 'verified production build'):
+            frontend_inventory.validate(self.config)
+
+    def test_designer_packages_both_generated_component_and_host_assets(self):
+        item = next(f for f in self.config['frontends'] if f['id'] == 'designer')
+        self.assertEqual(['app/components', 'app/host'], item['preparedBuild']['overlayPaths'])
+
     def test_page_payload_checks_run_after_build_and_browser_verification(self):
         for row in frontend_inventory.surfaces(self.config):
             if 'payloadBudget' not in row:

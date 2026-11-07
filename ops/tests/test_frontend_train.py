@@ -155,6 +155,46 @@ class FrontendTrainTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'failed'):
                 frontend_train.build_prepared_frontends(frontends, Path('/isolated'), 2, 3)
 
+    def test_verified_production_output_is_fresh_and_never_rebuilt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            frontend = dict(repository='app', preparedBuild=dict(directory='.',
+                verifiedBuildCommand=['npm', 'run', 'build'], output='dist'))
+            config = {'surfaces': [dict(repository='app', directory='.', reactorName='app',
+                setup=[], verify=[['npm', 'run', 'build'], ['browser-tests']])]}
+            output = workspace / 'app/dist'
+            output.mkdir(parents=True)
+            (output / 'stale.js').write_text('previous build')
+            frontend_train.clear_verified_outputs([frontend], workspace, config)
+            self.assertFalse(output.exists())
+            with patch.object(frontend_train, 'run_command') as run:
+                with self.assertRaisesRegex(RuntimeError, 'did not produce'):
+                    frontend_train.build_prepared_frontends([frontend], workspace)
+                output.mkdir()
+                with self.assertRaisesRegex(RuntimeError, 'did not produce'):
+                    frontend_train.build_prepared_frontends([frontend], workspace)
+                (output / 'tested.js').write_text('exact tested bytes')
+                before = frontend_train.path_sha256(output)
+                frontend_train.build_prepared_frontends([frontend], workspace)
+                self.assertEqual(before, frontend_train.path_sha256(output))
+                run.assert_not_called()
+            config['surfaces'][0]['verify'].remove(['npm', 'run', 'build'])
+            with self.assertRaisesRegex(ValueError, 'verification recipe'):
+                frontend_train.clear_verified_outputs([frontend], workspace, config)
+            self.assertEqual(before, frontend_train.path_sha256(output))
+
+    def test_verified_output_cleanup_cannot_remove_repository_or_external_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = workspace / 'app'
+            root.mkdir()
+            (root / 'keep').write_text('source')
+            for path in ('.', '..', '../outside'):
+                frontend = dict(repository='app', preparedBuild=dict(output=path))
+                with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'inside its repository'):
+                    frontend_train.verified_output_paths(frontend, workspace)
+            self.assertEqual('source', (root / 'keep').read_text())
+
     def test_picker_publication_records_verified_identity_without_waiting_for_cee(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)

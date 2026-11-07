@@ -291,7 +291,11 @@ other consumer outputs; it performs no browser rerun or rebuilding of transferre
 The remaining frontend preparation uses two concurrent repository jobs and four workers per job
 (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path). Each repository
 waits only for its package and integration-bundle producers. Commands within a repository stay
-ordered: dependency wiring, checks, then its prepared production build. Shared integration bundles
+ordered: dependency wiring, then the complete verification recipe. OpenView, Monitoring, Bridging
+and the Template Designer host declare which verification command produces their production output.
+The controller clears those output directories before checks, requires fresh nonempty output after
+checks, and packages those same bytes without another install/build. Designer transfers both its
+component assets and generated `app/host` bundle. Older plans retain their explicit build commands. Shared integration bundles
 are staged atomically. The coordinator records hashes and overlays only after every repository
 succeeds. A failed producer blocks its consumers and leaves no frontend completion evidence.
 

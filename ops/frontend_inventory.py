@@ -53,6 +53,14 @@ def validate(config):
     for item in config.get('frontends', []):
         directory = item.get('preparedBuild', {}).get('directory', item.get('packagePath', '.'))
         required.add((item['repository'], directory))
+        build = item.get('preparedBuild', {})
+        if 'verifiedBuildCommand' in build:
+            command = build['verifiedBuildCommand']
+            row = next((r for r in rows if (r['repository'], r['directory']) == (item['repository'], directory)), {})
+            if (not isinstance(command, list) or not command or
+                    any(not isinstance(part, str) or not part for part in command) or
+                    'commands' in build or command not in row.get('package', []) + row.get('verify', [])):
+                raise ValueError(f'verified production build missing from verification recipe: {item["repository"]}')
         consumer = item.get('ceeConsumer')
         if consumer:
             required.add((item['repository'], str(PurePosixPath(consumer['manifest']).parent)))

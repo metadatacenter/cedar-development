@@ -784,6 +784,36 @@ def verify_surfaces(config, plan, workspace, jobs=2, workers=4, *, repositories=
             raise
 
 
+def verified_output_paths(frontend, workspace):
+    build = frontend['preparedBuild']
+    root = (workspace / frontend['repository']).resolve()
+    paths = [build['output']] if build.get('output') else build.get('overlayPaths', [])
+    if not paths:
+        raise ValueError('Verified production build has no output paths')
+    outputs = []
+    for relative in paths:
+        target = root / relative
+        if target.is_symlink() or target.resolve() == root or not target.resolve().is_relative_to(root):
+            raise ValueError('Verified production output must be a directory inside its repository')
+        outputs.append(target)
+    return outputs
+
+
+def clear_verified_outputs(frontends, workspace, config):
+    """A passing check must produce fresh output; committed/stale dist is never evidence."""
+    for frontend in frontends:
+        build = frontend.get('preparedBuild', {})
+        command = build.get('verifiedBuildCommand')
+        if not command:
+            continue
+        recipe = frontend_inventory.commands(config, frontend['repository'], build['directory'])
+        if build.get('commands') or command not in recipe:
+            raise ValueError('Verified production build is missing from its verification recipe')
+        for output in verified_output_paths(frontend, workspace):
+            if output.exists():
+                shutil.rmtree(output)
+
+
 def build_prepared_frontends(frontends, workspace, jobs=2, workers=4):
     """Build independent repositories concurrently; leave evidence to the coordinator."""
     if not 1 <= jobs <= 4 or not 1 <= workers <= 16:
@@ -800,6 +830,11 @@ def build_prepared_frontends(frontends, workspace, jobs=2, workers=4):
         started = time.monotonic()
         for frontend in group:
             build = frontend['preparedBuild']
+            if build.get('verifiedBuildCommand'):
+                for output in verified_output_paths(frontend, workspace):
+                    if not output.is_dir() or not any(output.iterdir()):
+                        raise RuntimeError(f'Verification did not produce production output: {output}')
+                continue
             root = workspace / frontend['repository'] / build['directory']
             for command in build['commands']:
                 run_command(command, root, environment)
@@ -879,6 +914,7 @@ def prepare_repository(args, plan, config, repository):
                 consumer['manifest'], consumer['lock']])
     # Each repository has exclusive ownership of its installs and outputs. Only its own
     # producers block it; unrelated applications can run while the designer is tested.
+    clear_verified_outputs(frontends, args.workspace, config)
     verify_surfaces(config, plan, args.workspace, 1, workers, repositories={repository})
     build_prepared_frontends(frontends, args.workspace, 1, workers)
     return overlays, wiring
