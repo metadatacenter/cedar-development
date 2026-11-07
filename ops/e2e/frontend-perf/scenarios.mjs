@@ -83,13 +83,15 @@ export async function fixtures(directory) {
 }
 
 const visible = selector => async page => page.locator(selector).first().waitFor({state:'visible'});
+// Target the fixture controls directly. Broad accessible-name queries walk every field and
+// can themselves create long tasks under CPU throttling, contaminating the measurement.
 const editorReady = async page => {
-  const field = page.getByRole('textbox',{name:'Field 001',exact:true});
+  const field = page.locator('cedar-embeddable-editor input[aria-label="Field 001"]');
   await field.waitFor({state:'visible'});
   assert.equal(await field.isEnabled(),true);
 };
 const designerReady = async page => {
-  const field = page.getByRole('textbox',{name:'Enter field name',exact:true}).first();
+  const field = page.locator('cedar-embeddable-designer input.field-name').first();
   await field.waitFor();
   await page.waitForFunction(() => {
     const el = document.querySelector('cedar-embeddable-designer');
@@ -99,12 +101,12 @@ const designerReady = async page => {
   assert.equal(await field.isEnabled(),true);
 };
 const typeAnswer = async page => {
-  const field = page.getByRole('textbox',{name:'Field 001',exact:true});
+  const field = page.locator('cedar-embeddable-editor input[aria-label="Field 001"]');
   await field.pressSequentially('Performance answer'); await field.press('Tab');
   assert.equal(await field.inputValue(),'Performance answer');
 };
 const renameField = async page => {
-  const field = page.getByRole('textbox',{name:'Enter field name',exact:true}).first();
+  const field = page.locator('cedar-embeddable-designer input.field-name').first();
   await field.fill('Measured field'); await field.press('Tab');
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer')?.currentTemplate?._ui?.propertyLabels?.['Field 001'] === 'Measured field');
 };

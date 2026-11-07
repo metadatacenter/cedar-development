@@ -116,6 +116,11 @@ changing home-folder contents.
 The CPU multiplier is relative to the recorded machine, not a calibrated phone model.
 Reports include browser/Node versions, viewport, machine identity and load samples.
 They report median and min–max, rather than estimating population percentiles from five runs.
+Readiness/action probes target the fixture's input elements directly. CPU profiling found
+that broad accessible-name queries in the original baseline walked all 100 fields and
+contributed their own long tasks. Compare optimization results only against a rerun using
+the same direct probes; a lower measurement after changing the probe is not an application
+speedup. The original baseline below remains historical evidence, including that overhead.
 
 Outputs default to `.cedar/reports/frontend-performance/<timestamp>/`: `report.html`,
 `report.json`, `samples.csv`, first-run screenshots and build/fixture evidence. `--output`
