@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {distribution, layoutShiftScore, pageMetrics, summarize, htmlReport} from './metrics.mjs';
+import {EventEmitter} from 'node:events';
+import {distribution, layoutShiftScore, pageMetrics, summarize, htmlReport, instrumentation, profiles} from './metrics.mjs';
 
 test('median and range omit unavailable metrics, including null', () => {
   assert.deepEqual(distribution([9, 2, null, undefined, 4, 6]), {n:4, median:5, min:2, max:9});
@@ -29,4 +30,25 @@ test('failed samples never improve the timing distribution; report escapes error
   assert.equal(group.metrics.readyMs.median, 500);
   assert.ok(htmlReport(report).includes('&lt;script&gt;'));
   assert.ok(!htmlReport(report).includes('<script>bad'));
+});
+
+test('network accounting retains redirect hops, cache hits and unfinished requests without query secrets', async () => {
+  const cdp = new EventEmitter(); cdp.send = async () => {};
+  const meter = await instrumentation({addInitScript:async()=>{},newCDPSession:async()=>cdp},{},profiles.normal);
+  meter.start();
+  cdp.emit('Network.requestWillBeSent',{requestId:'a',timestamp:1,request:{url:'https://lab/start?token=secret'}});
+  cdp.emit('Network.requestWillBeSent',{requestId:'a',timestamp:2,request:{url:'https://lab/end'},redirectResponse:{encodedDataLength:50,status:302}});
+  cdp.emit('Network.responseReceived',{requestId:'a',response:{url:'https://lab/end',status:200,fromDiskCache:false}});
+  cdp.emit('Network.loadingFinished',{requestId:'a',timestamp:3,encodedDataLength:100});
+  cdp.emit('Network.requestWillBeSent',{requestId:'b',timestamp:3,request:{url:'https://lab/cached'}});
+  cdp.emit('Network.requestServedFromCache',{requestId:'b'});
+  cdp.emit('Network.loadingFinished',{requestId:'b',timestamp:4,encodedDataLength:0});
+  cdp.emit('Network.requestWillBeSent',{requestId:'c',timestamp:4,request:{url:'https://lab/pending'}});
+  const snapshot = meter.snapshot();
+  assert.equal(snapshot.requests,4);
+  assert.equal(snapshot.transferBytes,150);
+  assert.equal(snapshot.cachedRequests,1);
+  assert.equal(snapshot.pendingRequests,1);
+  assert.equal(snapshot.resources[0].durationMs,1000);
+  assert.ok(!JSON.stringify(snapshot).includes('secret'));
 });

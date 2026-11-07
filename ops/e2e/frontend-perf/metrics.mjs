@@ -64,21 +64,46 @@ export async function instrumentation(context, page, profile) {
   await cdp.send('Emulation.setCPUThrottlingRate', {rate: profile.cpu});
   await cdp.send('Network.emulateNetworkConditions', {offline: false, latency: profile.latency,
     downloadThroughput: profile.download, uploadThroughput: profile.upload});
-  let requests = new Set(), cached = new Set(), transferBytes = 0, failures = [], active = false;
-  cdp.on('Network.requestWillBeSent', e => {if (active && /^https?:/.test(e.request.url)) requests.add(e.requestId);});
-  cdp.on('Network.requestServedFromCache', e => {if (active) cached.add(e.requestId);});
+  let requests = new Map(), resources = [], failures = [], active = false;
+  cdp.on('Network.requestWillBeSent', e => {
+    if (!active || !/^https?:/.test(e.request.url)) return;
+    if (e.redirectResponse && requests.has(e.requestId)) {
+      const previous = requests.get(e.requestId);
+      previous.transferBytes = e.redirectResponse.encodedDataLength;
+      previous.status = e.redirectResponse.status;
+      previous.durationMs = (e.timestamp - previous.started) * 1000;
+      previous.complete = true;
+    }
+    const url = new URL(e.request.url);
+    const row = {url:url.origin+url.pathname,started:e.timestamp,transferBytes:0,cached:false,complete:false};
+    requests.set(e.requestId,row); resources.push(row);
+  });
+  cdp.on('Network.requestServedFromCache', e => {if (active && requests.has(e.requestId)) requests.get(e.requestId).cached = true;});
   cdp.on('Network.responseReceived', e => {
     if (!active) return;
-    if (e.response.fromDiskCache || e.response.fromServiceWorker) cached.add(e.requestId);
+    const row = requests.get(e.requestId);
+    if (row) {
+      row.status = e.response.status;
+      if (e.response.fromDiskCache || e.response.fromServiceWorker) row.cached = true;
+    }
     if (e.response.status >= 400) failures.push({status: e.response.status, path: new URL(e.response.url).pathname});
   });
-  cdp.on('Network.loadingFinished', e => {if (active && requests.has(e.requestId)) transferBytes += e.encodedDataLength;});
-  cdp.on('Network.loadingFailed', e => {if (active && requests.has(e.requestId) && !e.canceled) failures.push({error: e.errorText});});
+  cdp.on('Network.loadingFinished', e => {
+    const row = requests.get(e.requestId);
+    if (active && row) {row.transferBytes = e.encodedDataLength; row.durationMs = (e.timestamp-row.started)*1000; row.complete = true;}
+  });
+  cdp.on('Network.loadingFailed', e => {
+    if (active && requests.has(e.requestId)) {
+      requests.get(e.requestId).failed = true;
+      if (!e.canceled) failures.push({error:e.errorText});
+    }
+  });
   return {
     async cold() {await cdp.send('Network.clearBrowserCache');},
-    start() {requests = new Set(); cached = new Set(); transferBytes = 0; failures = []; active = true;},
-    snapshot() {return {requests: requests.size, cachedRequests: [...cached].filter(id => requests.has(id)).length,
-      transferBytes, networkFailures: [...failures]};},
+    start() {requests = new Map(); resources = []; failures = []; active = true;},
+    snapshot() {return {requests:resources.length, cachedRequests:resources.filter(r => r.cached).length,
+      transferBytes:resources.reduce((sum,r) => sum+r.transferBytes,0), networkFailures:[...failures],
+      resources:resources.map(({started,...row}) => ({...row})), pendingRequests:resources.filter(r => !r.complete && !r.failed).length};},
     stop() {active = false;},
   };
 }
@@ -101,15 +126,17 @@ export function summarize(samples) {
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 export function htmlReport(report) {
   const rows = summarize(report.samples).map(row => `<tr><td>${escape(row.key)}</td><td>${row.attempts - row.failures}/${row.attempts}</td>` +
-    ['readyMs', 'lcpMs', 'blockingOver50Ms', 'transferBytes', 'actionMs'].map(key => {
-      const d = row.metrics[key], factor = key === 'transferBytes' ? 1000 : 1;
-      return `<td>${d.n ? `${(d.median / factor).toFixed(0)} <small>(${(d.min / factor).toFixed(0)}–${(d.max / factor).toFixed(0)})</small>` : '—'}</td>`;
+    ['readyMs', 'lcpMs', 'cls', 'blockingOver50Ms', 'transferBytes', 'actionMs'].map(key => {
+      const d = row.metrics[key], factor = key === 'transferBytes' ? 1000 : 1, digits = key === 'cls' ? 3 : 0;
+      return `<td>${d.n ? `${(d.median / factor).toFixed(digits)} <small>(${(d.min / factor).toFixed(digits)}–${(d.max / factor).toFixed(digits)})</small>` : '—'}</td>`;
     }).join('') + '</tr>').join('\n');
   return `<!doctype html><meta charset="utf-8"><title>CEDAR frontend performance</title>
     <style>body{font:15px system-ui;margin:32px;color:#173f3e}table{border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:right}td:first-child{text-align:left}small{color:#555}</style>
-    <h1>CEDAR frontend performance</h1><p>${escape(report.startedAt)} · Reporting only · Median (min–max)</p>
+    <h1>CEDAR frontend performance</h1><p>${escape(report.startedAt)} · Reporting only · ${report.finishedAt ? report.complete ? 'Complete' : 'Incomplete — see missing coverage below' : 'Running'} · Median (min–max)</p>
     <p>Readiness and action completion are CEDAR-specific lab timings. LCP and CLS cover the recorded observation window. Blocking is the sum of long-task time over 50 ms, not Lighthouse TBT. No field INP or percentile compliance is inferred.</p>
-    <table><thead><tr><th>Scenario / profile / cache</th><th>Valid</th><th>Ready ms</th><th>LCP ms</th><th>Blocking ms</th><th>Transfer KB</th><th>Action ms</th></tr></thead><tbody>${rows}</tbody></table>
+    <table><thead><tr><th>Scenario / profile / cache</th><th>Valid</th><th>Ready ms</th><th>LCP ms</th><th>CLS</th><th>Blocking ms</th><th>Transfer KB</th><th>Action ms</th></tr></thead><tbody>${rows}</tbody></table>
     <h2>Run configuration and limits</h2><pre>${escape(JSON.stringify(report.metadata, null, 2))}</pre>
-    <h2>Failures</h2><pre>${escape(JSON.stringify(report.samples.filter(s => s.status !== 'ok'), null, 2))}</pre>`;
+    <h2>Failures and missing coverage</h2><pre>${escape(JSON.stringify({setup:report.setupError,
+      setupFailures:report.setupFailures, cleanup:report.cleanupErrors,
+      samples:report.samples.filter(s => s.status !== 'ok')}, null, 2))}</pre>`;
 }

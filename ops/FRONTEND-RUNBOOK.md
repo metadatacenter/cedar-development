@@ -31,7 +31,91 @@ and the main browser applications. Shared design values belong in
 | Public npmjs releases | [Npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) |
 | Term-picker operation | [Versioning runbook](VERSIONING-RUNBOOK.md) |
 | What a host serves against its components | [Component staleness](#component-staleness) |
+| Page load and interaction performance | [Reporting-only performance suite](#reporting-only-performance-suite) |
 | How each component measures against WCAG 2.2 | [Accessibility conformance](#accessibility-conformance) |
+
+## Reporting-only performance suite
+
+`cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
+part of the frontend reactor, whole-stack smoke, train or release gates. No timing threshold
+fails a run. A broken page, unavailable account or failed fixture cleanup does produce a
+nonzero exit and an explicitly incomplete report; failed measurements never enter medians.
+
+Use the pinned Node version and a running local `.orgx` backend/Keycloak stack. Run it while
+builds, smoke tests and other benchmarks are idle. It neither restarts nor redeploys the stack.
+
+```bash
+cedarcli test frontend-performance --plan
+cedarcli test frontend-performance --check
+cedarcli test frontend-performance --samples 5
+# A shorter investigation of the standalone components:
+cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,cee-standalone-large,ced-standalone-small,ced-standalone-large
+```
+
+The default covers Workspace's dashboard and metadata editor, Template Designer, OpenView
+template pages, Bridging and Monitoring dashboards, the content index, standalone CEE and
+CED, and the standalone term picker. Editor pages use fixed 5-field and 100-field text
+templates. OpenView's root redirects away, so the suite measures useful artifact pages
+instead. No legacy application is opened. The term-picker measurement ends when its empty
+search control is usable; external terminology searches and DOI submissions are outside
+this baseline. Editing measurements type an answer or change a displayed field label;
+they do not save to the server.
+
+The suite copies the staged production Workspace and Template Designer into its report
+directory. OpenView, Monitoring, Bridging and Content are built there with their production
+configuration and existing dependencies. The only source adjustment in those disposable
+copies is the deployment domain, from `.org` to `.orgx`. Standalone components come from the
+hash-verified packages selected by `.reactor/runtime.json`. If application sources have
+changed since the last development build, refresh them with `cedarcli build frontends`
+before measuring. `lab/artifacts.json` records checkout revisions/status, the reactor
+selection and SHA-256/size of every served file, plus the measurement-suite files.
+In the copied Workspace/Designer `config/version.js`, `cedarDevelopmentMode` is set to false
+to select server cache behavior; otherwise native development's per-navigation URL cache
+busting would invalidate the warm measurement. These lab-only adjustments are recorded.
+
+A Chromium-private host mapping serves those files over an isolated loopback HTTPS server;
+normal local APIs and SSO still go through nginx. HTML uses `no-store`; assets use gzip when
+appropriate and a one-hour cache. These are explicit laboratory delivery settings, not a
+measurement of production nginx/CDN/TLS latency. Browser request interception is not used,
+because it disables the HTTP cache. Sign-in happens before measurement and its credentials
+stay in memory. Subsequent silent SSO and redirects count toward page readiness.
+
+Monitoring requires an account with `MONITOR_READ`. The suite never changes roles. To use
+an existing authorized local account, provide `CEDAR_PERF_MONITOR_LOGIN` and
+`CEDAR_PERF_MONITOR_PASSWORD` in the invocation environment; it gets a separate browser
+session. Otherwise Monitoring uses the ordinary test account. A denial is reported as missing
+coverage, and the other pages continue. See the backend runbook's read-only Monitor access
+procedure before granting access.
+
+Each repetition starts with a fresh browser context and cleared HTTP cache. It measures a
+cold navigation, leaves the page, then measures a warm navigation in the same tab. Interaction
+measurements follow the warm load only, so retained editing drafts cannot change the next
+load's content. Repetitions rotate scenario/profile order and run sequentially. Temporary
+local templates live in a dedicated folder and are deleted, with GET verification, at the
+end; `fixtures.json` records their identities and cleanup outcome. An interrupt closes the
+browser and still attempts cleanup.
+Workspace's dashboard opens that controlled two-template folder rather than a test user's
+changing home-folder contents.
+
+| Profile | CPU | Network |
+| --- | --- | --- |
+| Normal | No slowdown | No artificial network limits |
+| Constrained | 4× slowdown | 1.6 Mbit/s download, 0.75 Mbit/s upload, 150 ms latency |
+
+The CPU multiplier is relative to the recorded machine, not a calibrated phone model.
+Reports include browser/Node versions, viewport, machine identity and load samples.
+They report median and min–max, rather than estimating population percentiles from five runs.
+
+Outputs default to `.cedar/reports/frontend-performance/<timestamp>/`: `report.html`,
+`report.json`, `samples.csv`, first-run screenshots and build/fixture evidence. `--output`
+selects an **empty** directory; earlier measurements are never overwritten. JSON retains
+per-request transfer/cache/timing information without URL query strings, layout-shift and
+long-task entries, and failures. Paint and layout metrics cover the final top-level document
+through one second after controls and fonts are ready. CEDAR readiness includes navigation
+and any redirects. LCP can describe an early header rather than an editor becoming usable,
+so always read it alongside readiness. `blockingOver50Ms` is the sum of long-task duration
+beyond 50 ms in that window, **not Lighthouse TBT**. Scripted action completion and observed
+Event Timing entries are **not real-user INP** or proof of Core Web Vitals compliance.
 
 ## Browser Metadata Editing
 
