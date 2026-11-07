@@ -180,6 +180,36 @@ def matrix(args: argparse.Namespace) -> None:
     print(json.dumps(config["groups"][args.group], separators=(",", ":")))
 
 
+def backend_plan(config, version, state):
+    source, content = source_manifest(version, state)
+    require_maven_completion(version, state)
+    repositories = {name: source.get('repositories', {}).get(name, '') for name in CHECKOUT_REPOSITORIES}
+    if any(not SHA_RE.fullmatch(revision) for revision in repositories.values()):
+        raise RuntimeError('Backend plan requires exact builder and CLI revisions')
+    return {'schemaVersion': 1, 'version': version,
+            'sourceManifestSha256': manifest_sha(content), 'repositories': repositories,
+            'images': [{'image': image, 'reference': reference_for(config, image, version)}
+                       for image in core_images(config) if image not in FRONTEND_IMAGES]}
+
+
+def record_backend_plan(args):
+    plan = backend_plan(load_json(args.config), validate_train(args.version), args.state)
+    path = args.state / 'docker/backend-trains' / f'{args.version}.json'
+    if path.exists() and load_json(path) != plan:
+        raise RuntimeError('Recorded backend Docker plan differs from captured inputs')
+    if not path.exists():
+        write_json(path, plan)
+    print(f"Recorded independent backend plan for {len(plan['images'])} images.")
+
+
+def backend_plan_hash(config, version, state):
+    path = f'docker/backend-trains/{version}.json'
+    actual = fetch_json(path) if state is None else load_json(state / path)
+    if actual != backend_plan(config, version, state):
+        raise RuntimeError('Backend Docker plan differs from captured inputs')
+    return manifest_sha((json.dumps(actual, indent=2, sort_keys=True) + '\n').encode())
+
+
 def record_plan(args: argparse.Namespace) -> None:
     config = load_json(args.config)
     version = validate_train(args.version)
@@ -214,6 +244,10 @@ def record_plan(args: argparse.Namespace) -> None:
         "frontendPackages": npm["dockerInputs"],
         "images": images,
     }
+    backend_path = args.state / 'docker/backend-trains' / f'{version}.json'
+    if backend_path.exists():
+        plan['schemaVersion'] = 3
+        plan['backendManifestSha256'] = backend_plan_hash(config, version, args.state)
     destination = args.state / "docker" / "trains" / f"{version}.json"
     if destination.exists():
         existing = load_json(destination)
@@ -244,9 +278,14 @@ def checkout(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     source, content = source_manifest(version, args.state)
     require_maven_completion(version, args.state)
-    npm = require_npm_completion(version, args.state)
-    if npm.get("sourceManifestSha256") != manifest_sha(content):
-        raise RuntimeError("npm completion was verified against a different source manifest")
+    image = getattr(args, 'image', None)
+    if image is not None and image not in core_images(load_json(args.config)):
+        raise RuntimeError('Unknown Docker image')
+    backend = bool(image and image not in FRONTEND_IMAGES)
+    backend_hash = backend_plan_hash(load_json(args.config), version, args.state) if backend else None
+    npm = None if backend else require_npm_completion(version, args.state)
+    if npm is not None and npm.get('sourceManifestSha256') != manifest_sha(content):
+        raise RuntimeError('npm completion was verified against a different source manifest')
     args.workspace.mkdir(parents=True, exist_ok=True)
     if any(args.workspace.iterdir()):
         raise RuntimeError(f"Docker workspace is not empty: {args.workspace}")
@@ -258,6 +297,11 @@ def checkout(args: argparse.Namespace) -> None:
     (args.workspace / ".cedar-train-manifest-sha256").write_text(
         manifest_sha(content) + "\n", encoding="utf-8"
     )
+    if backend:
+        (args.workspace / '.cedar-backend-manifest-sha256').write_text(backend_hash + '\n')
+        write_json(args.workspace / '.cedar-frontend-inputs.json', {})
+        print(f'Checked out backend Docker inputs for {version}; no npm completion required.')
+        return
     embedded = runtime_manifest(version, manifest_sha(content), npm)
     embedded_content = (json.dumps(embedded, indent=2, sort_keys=True) + "\n").encode()
     embedded_hash = manifest_sha(embedded_content)
@@ -274,16 +318,22 @@ def checkout(args: argparse.Namespace) -> None:
 
 
 def expected_labels(image: str, version: str, source_hash: str,
-                    frontend_hash: str) -> dict[str, str]:
+                    frontend_hash: str | None, backend_hash: str | None = None) -> dict[str, str]:
     if not MANIFEST_SHA_RE.fullmatch(source_hash):
         raise RuntimeError("source manifest digest is not a lowercase SHA-256")
-    if not MANIFEST_SHA_RE.fullmatch(frontend_hash):
-        raise RuntimeError("frontend manifest digest is not a lowercase SHA-256")
+    if backend_hash is not None:
+        if image in FRONTEND_IMAGES or not MANIFEST_SHA_RE.fullmatch(backend_hash):
+            raise RuntimeError('Invalid backend provenance for image')
+        provenance = {'org.metadatacenter.cedar.backend-manifest-sha256': backend_hash}
+    else:
+        if not MANIFEST_SHA_RE.fullmatch(frontend_hash or ''):
+            raise RuntimeError('frontend manifest digest is not a lowercase SHA-256')
+        provenance = {'org.metadatacenter.cedar.frontend-manifest-sha256': frontend_hash}
     return {
-        "org.metadatacenter.cedar.image": image,
-        "org.metadatacenter.cedar.train": version,
-        "org.metadatacenter.cedar.source-manifest-sha256": source_hash,
-        "org.metadatacenter.cedar.frontend-manifest-sha256": frontend_hash,
+        'org.metadatacenter.cedar.image': image,
+        'org.metadatacenter.cedar.train': version,
+        'org.metadatacenter.cedar.source-manifest-sha256': source_hash,
+        **provenance,
     }
 
 
@@ -329,11 +379,11 @@ def publish_image(args: argparse.Namespace) -> None:
     if not source_hash_path.exists():
         raise RuntimeError("Docker workspace has no source-manifest digest; run checkout first")
     source_hash = source_hash_path.read_text(encoding="utf-8").strip()
-    frontend_hash_path = args.workspace / ".cedar-frontend-manifest-sha256"
-    if not frontend_hash_path.exists():
-        raise RuntimeError("Docker workspace has no frontend-manifest digest; run checkout first")
-    frontend_hash = frontend_hash_path.read_text(encoding="utf-8").strip()
-    expected = expected_labels(args.image, version, source_hash, frontend_hash)
+    backend_path = args.workspace / '.cedar-backend-manifest-sha256'
+    backend_hash = backend_path.read_text().strip() if backend_path.exists() else None
+    frontend_hash_path = args.workspace / '.cedar-frontend-manifest-sha256'
+    frontend_hash = frontend_hash_path.read_text().strip() if frontend_hash_path.exists() else None
+    expected = expected_labels(args.image, version, source_hash, frontend_hash, backend_hash)
     reference = reference_for(config, args.image, version)
 
     if remote_exists(reference):
@@ -349,8 +399,14 @@ def publish_image(args: argparse.Namespace) -> None:
         "CEDAR_IMAGE_PREFIX": config["publicPrefix"],
         "CEDAR_BASE_IMAGE_PREFIX": config["internalPrefix"],
         "CEDAR_TRAIN_MANIFEST_SHA256": source_hash,
-        "CEDAR_FRONTEND_MANIFEST_SHA256": frontend_hash,
     })
+    # Do not inherit an unrelated frontend/backend digest from a caller's environment.
+    environment.pop('CEDAR_FRONTEND_MANIFEST_SHA256', None)
+    environment.pop('CEDAR_BACKEND_MANIFEST_SHA256', None)
+    if backend_hash:
+        environment['CEDAR_BACKEND_MANIFEST_SHA256'] = backend_hash
+    else:
+        environment['CEDAR_FRONTEND_MANIFEST_SHA256'] = frontend_hash
     inputs = load_json(args.workspace / ".cedar-frontend-inputs.json")
     environment.update({name: str(value) for name, value in inputs.items()})
     cli = args.workspace / "cedar-cli" / "cedar.py"
@@ -399,6 +455,11 @@ def verify(args: argparse.Namespace) -> None:
     frontend_hash = manifest_sha((json.dumps(embedded, indent=2, sort_keys=True) + "\n").encode())
     if plan.get("npmPlanSha256") != npm.get("planSha256"):
         raise RuntimeError("Docker plan and npm completion name different npm manifests")
+    backend_hash = None
+    if plan.get('schemaVersion') == 3:
+        backend_hash = backend_plan_hash(config, version, args.state)
+        if plan.get('backendManifestSha256') != backend_hash:
+            raise RuntimeError('Docker plan and backend inputs disagree')
     expected_images = core_images(config)
     if [entry.get("image") for entry in plan.get("images", [])] != expected_images:
         raise RuntimeError("recorded Docker plan does not contain the configured 27 core images")
@@ -414,7 +475,8 @@ def verify(args: argparse.Namespace) -> None:
         try:
             run(["docker", "pull", reference])
             inspected = inspect_image(reference)
-            verify_labels(reference, inspected, expected_labels(image, version, source_hash, frontend_hash))
+            verify_labels(reference, inspected, expected_labels(image, version, source_hash, frontend_hash,
+                          backend_hash if image not in FRONTEND_IMAGES else None))
             verify_embedded_manifest(image, reference, frontend_hash)
             return {
                 "image": image,
@@ -450,6 +512,9 @@ def verify(args: argparse.Namespace) -> None:
         "frontendManifestSha256": frontend_hash,
         "images": verified,
     }
+    if backend_hash:
+        completion['schemaVersion'] = 3
+        completion['backendManifestSha256'] = backend_hash
     write_json(args.state / "docker" / "completed" / f"{version}.json", completion)
     current_path = args.state / "docker" / "current.json"
     current = load_json(current_path) if current_path.exists() else None
@@ -475,6 +540,11 @@ def parser() -> argparse.ArgumentParser:
     matrix_parser.add_argument("--group", required=True)
     matrix_parser.set_defaults(handler=matrix)
 
+    backend_parser = commands.add_parser('record-backend-plan')
+    backend_parser.add_argument('--version', required=True)
+    backend_parser.add_argument('--state', type=Path, required=True)
+    backend_parser.set_defaults(handler=record_backend_plan)
+
     plan_parser = commands.add_parser("record-plan")
     plan_parser.add_argument("--version", required=True)
     plan_parser.add_argument("--state", type=Path, required=True)
@@ -484,6 +554,7 @@ def parser() -> argparse.ArgumentParser:
     checkout_parser.add_argument("--version", required=True)
     checkout_parser.add_argument("--workspace", type=Path, required=True)
     checkout_parser.add_argument("--state", type=Path)
+    checkout_parser.add_argument('--image')
     checkout_parser.set_defaults(handler=checkout)
 
     publish_parser = commands.add_parser("publish-image")

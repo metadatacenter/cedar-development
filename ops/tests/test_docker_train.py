@@ -193,6 +193,110 @@ class DockerTrainTest(unittest.TestCase):
             self.assertFalse((state / "docker" / "completed" / f"{VERSION}.json").exists())
             self.assertFalse((state / "docker" / "current.json").exists())
 
+    def test_backend_plan_and_checkout_need_no_npm_completion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / 'state'
+            workspace = Path(directory) / 'workspace'
+            self.make_state(state)
+            (state / 'npm/completed' / f'{VERSION}.json').unlink()
+            args = argparse.Namespace(config=docker_train.DEFAULT_CONFIG, version=VERSION,
+                state=state, workspace=workspace, image='cedar-server-repo')
+            docker_train.record_backend_plan(args)
+            plan = docker_train.load_json(state / 'docker/backend-trains' / f'{VERSION}.json')
+            self.assertEqual(20, len(plan['images']))
+            self.assertFalse(any(row['image'] in docker_train.FRONTEND_IMAGES for row in plan['images']))
+            with patch.object(docker_train, 'checkout_one') as checkout:
+                docker_train.checkout(args)
+            self.assertEqual(2, checkout.call_count)
+            self.assertTrue((workspace / '.cedar-backend-manifest-sha256').is_file())
+            self.assertFalse((workspace / '.cedar-frontend-manifest-sha256').exists())
+            self.assertEqual({}, docker_train.load_json(workspace / '.cedar-frontend-inputs.json'))
+            with self.assertRaises(FileNotFoundError):
+                docker_train.record_plan(args)
+            self.assertFalse((state / 'docker/current.json').exists())
+
+    def test_backend_plan_refuses_changed_source_or_registry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            self.make_state(state)
+            args = argparse.Namespace(config=docker_train.DEFAULT_CONFIG, version=VERSION, state=state)
+            docker_train.record_backend_plan(args)
+            source_path = state / 'trains' / f'{VERSION}.json'
+            source = docker_train.load_json(source_path)
+            source['repositories']['cedar-cli'] = 'c' * 40
+            write(source_path, source)
+            with self.assertRaisesRegex(RuntimeError, 'differs'):
+                docker_train.record_backend_plan(args)
+            with self.assertRaisesRegex(RuntimeError, 'differs'):
+                docker_train.backend_plan_hash(docker_train.load_json(args.config), VERSION, state)
+
+    def test_backend_publication_uses_backend_provenance_without_frontend_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / '.cedar-train-manifest-sha256').write_text('a' * 64)
+            (workspace / '.cedar-backend-manifest-sha256').write_text('b' * 64)
+            write(workspace / '.cedar-frontend-inputs.json', {})
+            image = 'cedar-server-repo'
+            labels = docker_train.expected_labels(image, VERSION, 'a' * 64, None, 'b' * 64)
+            with patch.dict(os.environ, {'CEDAR_FRONTEND_MANIFEST_SHA256': 'c' * 64}), \
+                 patch.object(docker_train, 'remote_exists', return_value=False), \
+                 patch.object(docker_train, 'inspect_image', return_value={'Config': {'Labels': labels}}), \
+                 patch.object(docker_train, 'run') as run:
+                docker_train.publish_image(argparse.Namespace(config=docker_train.DEFAULT_CONFIG,
+                    version=VERSION, workspace=workspace, image=image))
+            command = next(c for c in run.call_args_list if 'build' in c.args[0])
+            env = command.kwargs['environment']
+            self.assertNotIn('CEDAR_FRONTEND_MANIFEST_SHA256', env)
+            self.assertEqual('b' * 64, env['CEDAR_BACKEND_MANIFEST_SHA256'])
+            with self.assertRaisesRegex(RuntimeError, 'backend provenance'):
+                docker_train.expected_labels('cedar-frontend-workspace', VERSION, 'a' * 64, None, 'b' * 64)
+
+    def test_complete_split_train_still_pulls_and_verifies_all_images(self):
+        for corrupt in (False, True):
+            with self.subTest(corrupt=corrupt), tempfile.TemporaryDirectory() as directory:
+                state = Path(directory)
+                source_hash = self.make_state(state)
+                args = argparse.Namespace(config=docker_train.DEFAULT_CONFIG, version=VERSION, state=state)
+                docker_train.record_backend_plan(args)
+                docker_train.record_plan(args)
+                backend_hash = docker_train.backend_plan_hash(docker_train.load_json(args.config), VERSION, state)
+                frontend_hash = self.frontend_hash(source_hash)
+                def inspected(reference):
+                    image = reference.rsplit('/', 1)[1].split(':')[0]
+                    labels = docker_train.expected_labels(image, VERSION, source_hash, frontend_hash,
+                        backend_hash if image not in docker_train.FRONTEND_IMAGES else None)
+                    if corrupt and image == 'cedar-server-repo':
+                        labels['org.metadatacenter.cedar.backend-manifest-sha256'] = 'f' * 64
+                    return {'Config': {'Labels': labels}, 'RepoDigests': [reference.rsplit(':', 1)[0] + '@sha256:' + 'c' * 64],
+                            'Os': 'linux', 'Architecture': 'amd64'}
+                with patch.object(docker_train, 'inspect_image', side_effect=inspected), \
+                     patch.object(docker_train, 'run') as run:
+                    run.return_value.stdout = frontend_hash + '  manifest\n'
+                    if corrupt:
+                        with self.assertRaisesRegex(RuntimeError, 'incorrect provenance'):
+                            docker_train.verify(args)
+                        self.assertFalse((state / 'docker/current.json').exists())
+                    else:
+                        docker_train.verify(args)
+                        completion = docker_train.load_json(state / 'docker/completed' / f'{VERSION}.json')
+                        self.assertEqual(3, completion['schemaVersion'])
+                        self.assertEqual(backend_hash, completion['backendManifestSha256'])
+                        self.assertEqual(27, len(completion['images']))
+                        self.assertEqual(27, len([c for c in run.call_args_list if c.args[0][:2] == ['docker', 'pull']]))
+
+    def test_workflow_starts_backend_after_maven_and_keeps_complete_final_join(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/build-train.yml').read_text()
+        early = workflow.split('  record-backend-plan:', 1)[1].split('  record-docker-plan:', 1)[0]
+        self.assertIn('needs: publish-maven', early)
+        self.assertNotIn('publish-frontends', early)
+        backend = workflow.split('  java-base:', 1)[1].split('  frontends:', 1)[0]
+        self.assertNotIn('record-docker-plan', backend)
+        self.assertIn('needs: [record-backend-plan, microservice-base]', backend)
+        final = workflow.split('  verify-docker-train:', 1)[1]
+        self.assertIn('needs: [record-docker-plan, java-base, microservice-base, infrastructure, microservices, frontends]', final)
+        self.assertIn('Pull and verify all 27 core images', final)
+
+
 
 if __name__ == "__main__":
     unittest.main()

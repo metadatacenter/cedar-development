@@ -306,8 +306,11 @@ unchanged, to `npm-cedar-releases`, which has no cleanup policy and disables red
 these retained packages for shared-component and non-CEE model pins. The completion record lists
 them under `retainedPackages`; a release refuses a train without that evidence.
 
-Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
-order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
+Once Maven completes, the workflow records `docker/backend-trains/<TRAIN_ID>.json` and starts
+the twenty backend/base/infrastructure images while CEE and frontend gates run. That immutable
+plan binds the source manifest, CLI and Docker-builder commits, image inventory and registry
+references. It needs no npm completion. After npm completes, the full 27-image plan binds that
+backend-plan hash to the verified npm graph and starts the seven frontend images. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, eleven microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
 the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
@@ -315,8 +318,10 @@ defaults name published releases in the retained registry, so Docker CI remains 
 train-package cleanup. Release readiness refuses expiring compatibility defaults before a train.
 Development preserves the captured retained pins while the release tree adopts its own released
 packages, as the release runbook describes. Every
-image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
-npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
+image records the train, exact `cedar-docker-build` commit and source-manifest digest as OCI
+labels. Backend images additionally record their backend-plan digest; frontend images record the
+npm/frontend-manifest digest. Schema-3 plans/completions carry both digests. Verification of older
+schema-2 trains retains their original all-images frontend-label contract. Each frontend image also contains the complete graph at
 `/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
 tarball to that graph before extraction. The three source-package images install with `npm ci` from
 the vendored shrinkwrap; OpenView extracts the exact verified CEE tarball
@@ -346,7 +351,7 @@ upload, so a machine can pull a train's images only within three days of the tra
 ## Train Timing and State Writes
 
 Use `cedarcli publish train-status --watch` and the linked workflow to measure the selected train.
-Maven overlaps the npm chain; the Docker build waits for both. Timings from older serial workflows
+Maven overlaps the npm chain; backend Docker builds start after Maven, while frontend images wait for npm. Timings from older serial workflows
 or different image inventories are not estimates for the current train.
 
 Concurrent state-branch writers rebase independent evidence commits with bounded retries;
@@ -439,6 +444,7 @@ The `build-trains` branch is machine-owned operational state, separate from norm
 - `npm/cee/completed/<TRAIN_ID>.json` records the verified CEE publication;
 - `npm/completed/<TRAIN_ID>.json` records registry integrities and downloaded tarball hashes;
 - `npm/current.json` points to the most recently completed npm graph;
+- `docker/backend-trains/<TRAIN_ID>.json` records the twenty backend images and their independent provenance;
 - `docker/trains/<TRAIN_ID>.json` records the exact 27-image publication plan;
 - `docker/completed/<TRAIN_ID>.json` records the verified image digests; and
 - `docker/current.json` points to the most recently completed Docker train.

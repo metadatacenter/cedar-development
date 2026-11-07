@@ -1083,8 +1083,55 @@ jobs:
             python3 controller/ops/push_train_state.py --state build-trains
           fi
 
+  record-backend-plan:
+    needs: publish-maven
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      java_base: ${{ steps.matrix.outputs.java_base }}
+      microservice_base: ${{ steps.matrix.outputs.microservice_base }}
+      infrastructure: ${{ steps.matrix.outputs.infrastructure }}
+      microservices: ${{ steps.matrix.outputs.microservices }}
+      frontends: ${{ steps.matrix.outputs.frontends }}
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Record backend images before frontend completion
+        run: |
+          python3 controller/ops/docker_train.py record-backend-plan \
+            --version "$TRAIN_VERSION" \
+            --state build-trains
+          git -C build-trains add "docker/backend-trains/$TRAIN_VERSION.json"
+          if ! git -C build-trains diff --cached --quiet; then
+            git -C build-trains commit -m "Record backend Docker train $TRAIN_VERSION"
+            python3 controller/ops/push_train_state.py --state build-trains
+          fi
+
+      - name: Export build matrices
+        id: matrix
+        run: |
+          echo "java_base=$(python3 controller/ops/docker_train.py matrix --group javaBase)" >> "$GITHUB_OUTPUT"
+          echo "microservice_base=$(python3 controller/ops/docker_train.py matrix --group microserviceBase)" >> "$GITHUB_OUTPUT"
+          echo "infrastructure=$(python3 controller/ops/docker_train.py matrix --group infrastructure)" >> "$GITHUB_OUTPUT"
+          echo "microservices=$(python3 controller/ops/docker_train.py matrix --group microservices)" >> "$GITHUB_OUTPUT"
+          echo "frontends=$(python3 controller/ops/docker_train.py matrix --group frontends)" >> "$GITHUB_OUTPUT"
+
   record-docker-plan:
-    needs: [publish-maven, publish-frontends]
+    needs: [publish-maven, publish-frontends, record-backend-plan]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -1131,12 +1178,12 @@ jobs:
           echo "frontends=$(python3 controller/ops/docker_train.py matrix --group frontends)" >> "$GITHUB_OUTPUT"
 
   java-base:
-    needs: record-docker-plan
+    needs: record-backend-plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.java_base) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.java_base) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1149,12 +1196,12 @@ jobs:
         run: bash controller/ops/publish-docker-image-ci.sh "${{ matrix.image }}"
 
   microservice-base:
-    needs: [record-docker-plan, java-base]
+    needs: [record-backend-plan, java-base]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.microservice_base) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.microservice_base) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1167,14 +1214,14 @@ jobs:
         run: bash controller/ops/publish-docker-image-ci.sh "${{ matrix.image }}"
 
   infrastructure:
-    needs: record-docker-plan
+    needs: record-backend-plan
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 7
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.infrastructure) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.infrastructure) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1187,14 +1234,14 @@ jobs:
         run: bash controller/ops/publish-docker-image-ci.sh "${{ matrix.image }}"
 
   microservices:
-    needs: [record-docker-plan, microservice-base]
+    needs: [record-backend-plan, microservice-base]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 5
       matrix:
-        image: ${{ fromJSON(needs.record-docker-plan.outputs.microservices) }}
+        image: ${{ fromJSON(needs.record-backend-plan.outputs.microservices) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1257,7 +1304,7 @@ jobs:
           printf '%s' "$BMIR_NEXUS_PASSWORD" | docker login "$CEDAR_DOCKER_REGISTRY_HOST" \
             --username "$BMIR_NEXUS_USERNAME" --password-stdin
 
-      - name: Pull and verify all 28 core images
+      - name: Pull and verify all 27 core images
         run: |
           python3 controller/ops/docker_train.py verify \
             --version "$TRAIN_VERSION" \
