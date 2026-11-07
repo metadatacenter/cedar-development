@@ -498,6 +498,107 @@ the other three CED images differ only at 2, 10 and 14 border pixels by one colo
 Manual inspection confirms the same completed layout, controls and summaries. Measurements
 remain reporting-only local laboratory results, not production timings or real-user INP.
 
+<a id="cef-summary-performance"></a>
+
+### CEF summary initialization — 2026-11-07
+
+`cedar-embeddable-editor@8797a77e` removes a second model read from single-field
+initialization. CEF still strictly reads the supplied field, constructs its one-field
+template, and retains the canonical JSON source for validation. It passes the already-read
+model through the same model-to-component mapper used by ordinary templates, instead of
+reading its own serialized wrapper again. Each field still gets its own model, instance,
+validation state and translation service. Public embedding inputs, UI, styles and ordinary
+standalone CEE template parsing are unchanged.
+
+This is a small initialization saving, not a major page-load reduction. Five paired
+repetitions of frozen before/after builds show the following constrained medians:
+
+| 100-field page | Cold readiness, seconds | Warm readiness, seconds |
+| --- | --- | --- |
+| Standalone CEE | 4.152 → 4.151 | 0.667 → 0.668 |
+| Bare standalone CED | 3.617 → 3.619 | 0.835 → 0.835 |
+| Equivalent CED with real CEF summaries | 5.385 → 5.321 | 1.402 → 1.364 |
+| Template Designer | 6.619 → 6.584 | 3.183 → 3.114 |
+
+Equivalent CED is about 2.7% faster warm, and Designer about 2.2%. All five pairs favor the
+optimized path for both pages, cold and warm. Equivalent CED warm savings per pair are
+31–83 ms; Designer's are 16–122 ms. Unchanged standalone controls remain stable. These five
+observations do not establish population percentiles or production latency.
+
+Observed constrained blocking time beyond 50 ms also falls:
+
+| 100-field page | Cold, milliseconds | Warm, milliseconds |
+| --- | --- | --- |
+| Equivalent CED with CEF | 1122 → 1067 | 824 → 789 |
+| Template Designer | 1447 → 1406 | 1089 → 1017 |
+
+**Why the paired replay matters.** Fresh ordinary before and after runs each completed 160
+valid samples: five repetitions of eight editor scenarios, both profiles and cache states.
+Other browser activity coincided with the after capture; unchanged bare CED warm readiness
+shifted from 0.83 to 1.00 seconds and standalone CEE from 0.67 to 0.77 seconds. Equivalent CED
+shifted 1.39 → 1.56 seconds and Designer 3.17 → 3.22 seconds in those separate runs. Those
+comparisons cannot isolate this source change. All original samples are retained; none were
+removed as outliers.
+
+The supplemental replay alternates the frozen before/after artifact roots within each
+scenario/repetition, reverses version order on alternate repetitions, and rotates scenario
+order. It uses the existing suite's HTTPS/gzip server, real SSO/backend fixtures, readiness,
+font settling, instrumentation and action probes. Every version gets a fresh browser context,
+a cold navigation and then a warm navigation. Four large-form scenarios × five pairs × two
+versions × two cache states give 80 valid samples. No build, test or second benchmark ran
+alongside either ordinary capture or the paired replay. Paired controls settled near their
+original baselines. All three runs completed without sample or cleanup errors; temporary
+backend fixtures were deleted and GET-verified absent.
+
+Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
+
+- `cef-summary-before-20261107/`: 160 samples,
+  `2026-11-07T15:52:23.257Z`–`2026-11-07T15:59:51.553Z`.
+- `cef-summary-after-20261107/`: 160 samples,
+  `2026-11-07T16:17:12.871Z`–`2026-11-07T16:24:54.552Z`.
+- `cef-summary-paired-20261107/`: 80 samples,
+  `2026-11-07T16:25:20.084Z`–`2026-11-07T16:31:18.082Z`; `report.json`, `report.html`,
+  `samples.csv`, version-specific screenshots, full before/after artifact inventories,
+  fixture cleanup ledger, and `replay.mjs` retain the paired method and results.
+- `cef-summary-profile-before-20261107/`: stylesheet instrumentation and a diagnostic
+  alternating eight-pair clone experiment against the previous frozen integrated bundle.
+  Cloning a cached `<style>` node did not help: warm medians were 1,086 ms unchanged and
+  1,128 ms with cloning in that probe. No stylesheet change was adopted. This probe omits
+  the standard font/frame settling and is not directly comparable to readiness above.
+- `cef-summary-profile-after-20261107/`: CPU profiles of frozen bare/equivalent CED and a
+  language-isolation probe; English stays English after a Hungarian sibling is created.
+
+The ordinary suite inventory remains
+`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`
+(`cedar-development@4f1ab150`). Both ordinary runs use Chromium 156.0.8078.4, the same M4 Max
+and 1440×1000 viewport. The paired replay uses that same browser, viewport and constrained
+profile. It adds no performance gate and excludes legacy pages.
+
+The reactor graph changes from
+`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0` to
+`405dcf9e20f5cb6e6a379478913afc914f945b2221dc69cb21426f6060965dc2`.
+CEE package SHA256 changes from
+`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265` to
+`2f490c30da8c290a2922ddc1d0aca04ad526288b6e75d4ad524f8b97d6e48d75`.
+CED remains the identical package
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`;
+Designer host source remains `f9365046`. The reactor captured the optimized working-tree
+sources before their commit; its hashes identify the actual built and measured bytes.
+
+The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
+served-bundle verification and whole-stack smoke. CEE passed 1,265 unit, 5,926 domain,
+100 coordinator and 1,600 browser/visual tests (104 existing skips). The 101 new domain
+cases compare all 25 field kinds in required/optional and editable/read-only modes, including
+rendered metadata, instance data, validation reports and source immutability, plus independent
+instances sharing a supplied field object. The targeted single-field suite passes 231 tests.
+CED passed 14,454 unit, 1,137 browser tests (one existing skip), and 25 unchanged visual
+baselines; Designer passed 634 unit and 406 browser tests. No visual baseline was updated.
+Six of eight ordinary before/after screenshots are pixel-identical, including both Designer
+pages and all four standalone CEE/CED pages. The two equivalent-CED images differ only at 6 and 10
+border pixels by one colour level. Manual review confirms the same controls, field summaries,
+labels and layout. The retained cost includes real field rendering and stylesheet insertion;
+no further stylesheet optimization was established by this investigation.
+
 ## Browser Metadata Editing
 
 Workspace and the combined Template Editor use CEE exclusively for creating and editing
