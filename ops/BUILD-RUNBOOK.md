@@ -261,14 +261,22 @@ controller removes stale staging output before verification and publishes the re
 package only after checking its train identity, without running a second `dist` build.
 Legacy plans and components without that declaration retain their explicit build step.
 
-Frontend preparation uses two concurrent repository jobs and four workers per
-job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).
-Each repository waits only for its package and integration-bundle producers. The designer's
-verification overlaps Workspace and other independent applications; its template-designer host
-waits for the verified designer package. Commands within a repository stay ordered: dependency
-wiring, checks, then its prepared production build. Shared integration bundles are staged atomically.
-The coordinator records hashes and overlays only after every repository succeeds. A failed producer
-blocks its consumers, stops new work and leaves no frontend completion evidence.
+The hosted train builds CED once after its non-browser gates, then transfers that candidate to
+four browser shards and a separate ARM64 visual-baseline job. Chromium, WebKit and real CEF/picker
+inputs remain enabled exactly as in the full gate. Publication requires every shard's success,
+the exact union of the original test inventory (including declared skips), and matching candidate,
+source and dependency hashes. A missing, duplicate or foreign receipt refuses publication.
+Workspace runs its complete checks and production preparation on a separate runner. Its verified
+archive is restored by the final frontend job without rerunning those checks. All other applications
+retain their complete inventory gates and production builds. Local and serial paths still run the
+full gates; CED's `prepare` gate alone is not publication evidence.
+
+The remaining frontend preparation uses two concurrent repository jobs and four workers per job
+(`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path). Each repository
+waits only for its package and integration-bundle producers. Commands within a repository stay
+ordered: dependency wiring, checks, then its prepared production build. Shared integration bundles
+are staged atomically. The coordinator records hashes and overlays only after every repository
+succeeds. A failed producer blocks its consumers and leaves no frontend completion evidence.
 
 None of those version or dependency edits is written back to a source repository. They are
 controlled transformations in isolated exact-commit checkouts, and their hashes become part of the

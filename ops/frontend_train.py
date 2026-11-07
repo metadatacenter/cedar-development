@@ -850,6 +850,40 @@ def prepare_dependency_graph(dependencies, prepare, jobs):
     return results
 
 
+def prepare_repository(args, plan, config, repository):
+    components = {c['repository']: c for c in plan.get('components', [])}
+    source, _ = source_manifest(args.state, args.version)
+    workers = getattr(args, 'workers', 4)
+    if repository in components:
+        publish_component(args, plan, components[repository])
+        return {}, []
+    frontends = [f for f in plan['frontends'] if f['repository'] == repository]
+    changed = wire_components(args, plan, repository)
+    changed += wire_model(args, plan, repository, config)
+    overlays = {f['id']: list(changed) for f in frontends}
+    wiring = []
+    for consumer in plan['ceeConsumers']:
+        if consumer['repository'] != repository:
+            continue
+        repository_root(args.workspace, source, repository)
+        manifest_path = args.workspace / repository / consumer['manifest']
+        lock_path = args.workspace / repository / consumer['lock']
+        install_exact_alias(manifest_path.parent, 'cedar-embeddable-editor',
+                            plan['cee']['name'], plan['cee']['version'], consumer['legacyPeerDeps'])
+        require_exact_alias(manifest_path, lock_path, 'cedar-embeddable-editor',
+                            plan['cee']['name'], plan['cee']['version'])
+        wiring.append({**consumer, 'manifestSha256': path_sha256(manifest_path),
+                       'lockSha256': path_sha256(lock_path)})
+        if consumer.get('publishedFrontend'):
+            overlays.setdefault(consumer['publishedFrontend'], []).extend([
+                consumer['manifest'], consumer['lock']])
+    # Each repository has exclusive ownership of its installs and outputs. Only its own
+    # producers block it; unrelated applications can run while the designer is tested.
+    verify_surfaces(config, plan, args.workspace, 1, workers, repositories={repository})
+    build_prepared_frontends(frontends, args.workspace, 1, workers)
+    return overlays, wiring
+
+
 def prepare_frontends(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     plan_path = args.state / "npm" / "trains" / f"{version}.json"
@@ -880,37 +914,13 @@ def prepare_frontends(args: argparse.Namespace) -> None:
             if surface['repository'] in dependencies and item['repository'] in dependencies:
                 dependencies[surface['repository']].add(item['repository'])
 
-    def prepare_repository(repository):
-        if repository in components:
-            publish_component(args, plan, components[repository])
-            return {}, []
-        frontends = [f for f in plan['frontends'] if f['repository'] == repository]
-        changed = wire_components(args, plan, repository)
-        changed += wire_model(args, plan, repository, config)
-        overlays = {f['id']: list(changed) for f in frontends}
-        wiring = []
-        for consumer in plan['ceeConsumers']:
-            if consumer['repository'] != repository:
-                continue
-            repository_root(args.workspace, source, repository)
-            manifest_path = args.workspace / repository / consumer['manifest']
-            lock_path = args.workspace / repository / consumer['lock']
-            install_exact_alias(manifest_path.parent, 'cedar-embeddable-editor',
-                                plan['cee']['name'], plan['cee']['version'], consumer['legacyPeerDeps'])
-            require_exact_alias(manifest_path, lock_path, 'cedar-embeddable-editor',
-                                plan['cee']['name'], plan['cee']['version'])
-            wiring.append({**consumer, 'manifestSha256': path_sha256(manifest_path),
-                           'lockSha256': path_sha256(lock_path)})
-            if consumer.get('publishedFrontend'):
-                overlays.setdefault(consumer['publishedFrontend'], []).extend([
-                    consumer['manifest'], consumer['lock']])
-        # Each repository has exclusive ownership of its installs and outputs. Only its own
-        # producers block it; unrelated applications can run while the designer is tested.
-        verify_surfaces(config, plan, args.workspace, 1, workers, repositories={repository})
-        build_prepared_frontends(frontends, args.workspace, 1, workers)
-        return overlays, wiring
+    def prepare_one(repository):
+        if repository == 'cedar-workspace' and getattr(args, 'verified_workspace', None):
+            from frontend_train_shards import restore_workspace
+            return restore_workspace(args, plan)
+        return prepare_repository(args, plan, config, repository)
 
-    results = prepare_dependency_graph(dependencies, prepare_repository, jobs)
+    results = prepare_dependency_graph(dependencies, prepare_one, jobs)
     by_frontend = {}
     consumer_records = {}
     for overlays, records in results.values():
@@ -1146,6 +1156,7 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--state", type=Path, required=True)
     prepare.add_argument("--jobs", type=int, choices=range(1, 5), default=2)
     prepare.add_argument("--workers", type=int, choices=range(1, 17), default=4)
+    prepare.add_argument("--verified-workspace", type=Path)
     prepare.set_defaults(handler=prepare_frontends)
     publish = commands.add_parser("publish-frontends")
     publish.add_argument("--version", required=True)
