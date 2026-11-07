@@ -375,6 +375,129 @@ validation opening a lazy panel, and OpenView's delayed success and failure pres
 The suite remains reporting-only. These are local laboratory measurements under the stated
 network/CPU profiles, not production load times, Lighthouse TBT or real-user INP.
 
+<a id="designer-equivalent-performance"></a>
+
+### Designer startup and equivalent rendering — 2026-11-07
+
+The bare standalone CED page uses fallback summaries; Designer loads real CEF summaries,
+CEE preview and the term picker. The `ced-integrated-*` benchmark uses Designer's exact
+shared component bundle and fonts without authentication or repository reads. Comparing
+this page with Designer separates host startup from richer field rendering. Both wait for
+all five or 100 real summaries, so these results use a fresh matched baseline rather than
+reusing the earlier Designer readiness measurements.
+
+| Piece | Pushed source |
+| --- | --- |
+| Equivalent benchmark and large-only authenticated scenario selection | `cedar-development@0fa20014` |
+| Component download alongside SSO; authenticated artifact/permission reads alongside profile | `cedar-template-designer@ac958e8a` |
+| One bundled host module and stylesheet, including translations, with content-based cache identities | `cedar-template-designer@f9365046` |
+| Independent CEE/CEF translation roots, avoiding sibling language broadcasts | `cedar-embeddable-editor@299265b2` |
+
+The startup overlap preserves the authorization boundary: no private API reads before
+sign-in, and the designer stays hidden/inert until access is known. Early rejected work is
+observed and still reaches the existing error handling. Bundling preserves stylesheet
+order, existing hashed font URLs, deferred validation/RDF loading and host interactions.
+No tracked registry pin or release version changes are needed for the local reactor.
+
+The language change also fixes a demonstrated embedding defect. In the frozen before bundle,
+creating an English CEF followed by a Hungarian CEF changed the English instance to Hungarian
+(`en → hu`). The same probe against the after bundle leaves it English (`en → en`), while
+the second instance remains Hungarian. Browser tests also cover independent CEE and CEF
+instances together. Their public embedding inputs and standalone packaging remain intact.
+
+Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
+
+- `designer-equivalent-before-20261107/`: 160 valid samples, eight editor scenarios,
+  `2026-11-07T14:52:25.148Z`–`2026-11-07T15:00:31.714Z`.
+- `designer-equivalent-after-20261107/`: 340 valid samples, all 17 modern scenarios,
+  `2026-11-07T15:29:35.525Z`–`2026-11-07T15:45:14.003Z`.
+- `designer-overlap-after-20261107/`: intermediate diagnostic after startup overlap alone;
+  18 samples, three repetitions under the constrained profile, with unchanged component
+  bytes. Small/large Designer cold medians were 6.61/7.86 seconds. This shorter capture
+  isolates that piece but is not the final five-repetition comparison.
+- `designer-equivalent-profile-before-20261107/` and
+  `designer-equivalent-profile-after-20261107/`: warm CPU profiles and the language-isolation
+  probe against the respective frozen bundles; collected outside timing loops.
+
+Both main runs use five repetitions, normal/constrained profiles and cold/warm cache states,
+Chromium 156.0.8078.4 on the same Apple M4 Max, 1440×1000 viewport, and identical measurement
+suite `0fa20014` (inventory SHA256
+`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`).
+No builds or tests ran during measurement. All samples passed; both runs completed with no
+setup failures or cleanup errors, and temporary fixtures were deleted and GET-verified absent.
+Reports retain per-sample ranges, requests, source identities and screenshots. Legacy pages
+are excluded from this performance suite.
+
+**Constrained readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Standalone CEE, 5 fields | 3.93 → 3.97 | 0.48 → 0.49 |
+| Standalone CEE, 100 fields | 4.15 → 4.18 | 0.68 → 0.68 |
+| Bare standalone CED, 5 fields | 3.28 → 3.28 | 0.52 → 0.52 |
+| Bare standalone CED, 100 fields | 3.62 → 3.63 | 0.85 → 0.84 |
+| Equivalent CED with CEF, 5 fields | 4.56 → 4.56 | 0.63 → 0.62 |
+| Equivalent CED with CEF, 100 fields | 5.45 → 5.36 | 1.45 → 1.40 |
+| Template Designer, 5 fields | 8.13 → 5.54 | 2.63 → 2.14 |
+| Template Designer, 100 fields | 9.29 → 6.65 | 3.62 → 3.18 |
+
+**Normal readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Standalone CEE, 5 fields | 0.14 → 0.14 | 0.07 → 0.07 |
+| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Bare standalone CED, 5 fields | 0.16 → 0.16 | 0.09 → 0.09 |
+| Bare standalone CED, 100 fields | 0.24 → 0.24 | 0.17 → 0.17 |
+| Equivalent CED with CEF, 5 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Equivalent CED with CEF, 100 fields | 0.42 → 0.41 | 0.32 → 0.31 |
+| Template Designer, 5 fields | 0.89 → 0.36 | 0.84 → 0.35 |
+| Template Designer, 100 fields | 0.91 → 0.57 | 0.84 → 0.55 |
+
+Designer cold readiness fell 32% for five fields and 28% for 100; warm readiness fell 19%
+and 12%. Cold requests fell from 46 to 24 (warm 43 to 21). Large cold transfer fell from
+832,293 to 805,670 bytes, so eliminating request chains and overlapping work accounts for
+more of the gain than the roughly 27 KB transfer reduction. Cold constrained Designer CLS
+is now zero; warm CLS remains approximately 0.013.
+
+For 100 fields, constrained observed blocking time beyond 50 ms fell from 1,579 to 1,462 ms
+cold and 1,219 to 1,067 ms warm in Designer. Equivalent CED fell from 1,183 to 1,105 ms cold
+and 878 to 824 ms warm. The equivalent renderer's readiness change is small and its sample
+ranges overlap (warm before 1,433–1,578 ms; after 1,384–1,618 ms); this is not evidence of a
+large rendering speedup. Bare CED and standalone CEE remain essentially unchanged. Real CEF
+DOM/style construction still costs more than fallback summaries; the host additionally
+performs SSO and repository/permission reads. The page is therefore not just a negligible
+wrapper around the bare benchmark.
+
+The other nine modern scenarios were rerun as coverage/control measurements. Their after
+constrained cold/warm medians, in seconds, are Workspace dashboard 3.71/2.19, Monitoring
+3.67/2.05, Bridging 3.20/2.04, content index 0.39/0.22, term picker 1.53/0.25, Workspace editor
+5 fields 7.84/2.52 and 100 fields 8.12/3.20, OpenView 5 fields 4.88/0.52 and 100 fields
+5.08/0.68. These have no newly captured matched before run in this comparison. All 40
+OpenView samples retain zero CLS. All 40 Workspace editor samples omit the missing external
+translation request and record no network failures.
+
+The after reactor graph is
+`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0`, compared with before
+`5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
+CEE package SHA256 changed from
+`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b` to
+`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265`.
+Bare CED remains the identical package
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
+The report's artifact inventory identifies the host output and shared component bytes too.
+
+The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
+served-bundle verification and every whole-stack smoke tier. Designer passed 634 unit and
+406 browser tests; CEE passed 1,265 unit, 5,825 domain, 100 coordinator and 1,600 browser/visual
+tests (104 existing skips). CED passed 14,454 unit, 1,137 browser tests (one existing skip) and
+25 unchanged visual baselines. The benchmark's eight checks passed, including large-only
+authenticated selection. No visual baseline was updated. Five of eight matched performance
+screenshots are pixel-identical, including both Designer pages and both standalone CEE pages;
+the other three CED images differ only at 2, 10 and 14 border pixels by one colour level.
+Manual inspection confirms the same completed layout, controls and summaries. Measurements
+remain reporting-only local laboratory results, not production timings or real-user INP.
+
 ## Browser Metadata Editing
 
 Workspace and the combined Template Editor use CEE exclusively for creating and editing

@@ -473,3 +473,16 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
   transfers and enforce raw and compressed JavaScript/CSS limits. Trace real requests so
   copied-but-unused vendor files are not mistaken for downloads. Ensure new AMD dependencies
   cannot bypass the gate.
+
+## Modern Frontend Performance
+
+### 13. Profile Large CEF Summary Construction
+
+The [equivalent-rendering measurement](FRONTEND-RUNBOOK.md#designer-equivalent-performance)
+places 100-field warm readiness at 1.40 seconds with real CEF summaries versus 0.84 seconds
+with bare CED's fallback summaries under the constrained profile. Profile DOM/style
+construction and component initialization to identify further repeatable savings. Preserve
+real field summaries, per-instance language isolation, existing UI and independent CEE/CED
+embedding; do not substitute fallback summaries or remove controls to improve the number.
+Prove a candidate with matched before/after measurements, existing browser/visual gates and
+standalone consumer checks before adopting it.
