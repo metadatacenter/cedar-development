@@ -1,0 +1,22 @@
+{
+  "completedAt": "2026-11-07T12:35:00.401695+00:00",
+  "expected": {
+    "name": "@org.metadatacenter/cedar-embeddable-editor",
+    "repository": "cedar-embeddable-editor",
+    "revision": "d9fa301f2cb6672bae97826067d04f43636ec825",
+    "version": "2.0.33-dev.20261107.gd9fa301f2cb6.t1216"
+  },
+  "package": {
+    "integrity": "sha512-BlHjy3zSpVWhgjvq3/Jhc0ok9DWa3w0kGuhx9uB7DAqZk0VFKT46Yc7GtdsvndxjMdzJ2M10lN+3Lob9KvNYvw==",
+    "name": "@org.metadatacenter/cedar-embeddable-editor",
+    "repository": "cedar-embeddable-editor",
+    "revision": "d9fa301f2cb6672bae97826067d04f43636ec825",
+    "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-embeddable-editor/-/cedar-embeddable-editor-2.0.33-dev.20261107.gd9fa301f2cb6.t1216.tgz",
+    "tarballSha256": "cd71ce326758170dd2577de2b3efacf634611f649b57a733e1eb516faed3d43b",
+    "version": "2.0.33-dev.20261107.gd9fa301f2cb6.t1216"
+  },
+  "schemaVersion": 1,
+  "sourceManifestSha256": "795512605c0f8fde724ca27145cf0764472711d2e32c5f3bd159e52bee98978a",
+  "stage": "cee",
+  "version": "2.9.33-dev.20261107.1216"
+}
