@@ -37,9 +37,10 @@ and the main browser applications. Shared design values belong in
 ## Reporting-only performance suite
 
 `cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
-part of the frontend reactor, whole-stack smoke, train or release gates. No timing threshold
+part of the frontend reactor, whole-stack smoke, train or release gates. No performance budget
 fails a run. A broken page, unavailable account or failed fixture cleanup does produce a
 nonzero exit and an explicitly incomplete report; failed measurements never enter medians.
+Browser operations have a 90-second availability timeout, and sign-in setup has 60 seconds.
 
 Use the pinned Node version and a running local `.orgx` backend/Keycloak stack. Run it while
 builds, smoke tests and other benchmarks are idle. It neither restarts nor redeploys the stack.
@@ -73,7 +74,7 @@ In the copied Workspace/Designer `config/version.js`, `cedarDevelopmentMode` is 
 to select server cache behavior; otherwise native development's per-navigation URL cache
 busting would invalidate the warm measurement. These lab-only adjustments are recorded.
 
-A Chromium-private host mapping serves those files over an isolated loopback HTTPS server;
+A Chromium-private host mapping serves those files over an isolated loopback HTTPS/HTTP/1.1 server;
 normal local APIs and SSO still go through nginx. HTML uses `no-store`; assets use gzip when
 appropriate and a one-hour cache. These are explicit laboratory delivery settings, not a
 measurement of production nginx/CDN/TLS latency. Browser request interception is not used,
@@ -116,6 +117,87 @@ and any redirects. LCP can describe an early header rather than an editor becomi
 so always read it alongside readiness. `blockingOver50Ms` is the sum of long-task duration
 beyond 50 ms in that window, **not Lighthouse TBT**. Scripted action completion and observed
 Event Timing entries are **not real-user INP** or proof of Core Web Vitals compliance.
+The [Web Vitals reference](https://web.dev/articles/vitals) describes the real-user targets
+and their 75th-percentile assessment; these five-run laboratory distributions are diagnostic.
+In particular, the lab's HTTP/1.1 connection behavior can differ from a production HTTP/2 or
+HTTP/3 delivery. Compare identical lab settings, and verify deployment timings separately.
+
+<a id="frontend-performance-baseline"></a>
+
+### Baseline — 2026-11-07
+
+The 12:53–13:08 UTC run collected **280 valid samples**: 14 scenarios × two profiles × two
+cache states × five repetitions. All temporary templates and their folder were deleted and
+GET-verified absent. Monitoring has no valid sample: the test account lacks `MONITOR_READ`.
+The report is therefore explicitly incomplete and the command exits 1 for missing coverage,
+not for a timing budget. The denied page is never counted as a fast dashboard.
+
+Evidence is under `$CEDAR_HOME/.cedar/reports/frontend-performance/baseline-20261107/`:
+`report.html`, `report.json`, `samples.csv`, `fixtures.json` and `lab/artifacts.json`.
+Measurement code: `cedar-development@10387aaf`; CLI: `cedar-cli@323f7d0`.
+The machine was an Apple M4 Max, 16 logical CPUs, 64 GiB RAM, macOS/Darwin 25.6.0,
+Chromium 156.0.8078.4 and Node 24.22.1, at 1440×1000. Desktop applications remained running;
+a backup process used roughly one CPU before the run. One-minute load was 4.32 at the start
+and 3.35 at the end. No other build or test was launched by this suite during measurement.
+
+The selected reactor graph was
+`3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`.
+Standalone CEE used package `52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`;
+standalone CED used `f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847`.
+Workspace's staged reactor input was base `6a43eede` with source digest `cf092c45c6e8`,
+and Designer's was base `040db154` with source digest `0b3b2fa6c43b`; both reactor inputs
+included uncommitted edits when built. The retained output inventories identify the measured
+bytes, and the report separately records checkout heads at capture. Standalone components
+remain the self-contained package variants, including their fonts.
+
+**Page readiness, seconds: median (minimum–maximum).** Small means five text fields;
+large means 100. These are full navigations to the page, not an in-app route transition.
+Readiness includes useful controls and font readiness, with the exact predicate in the report.
+
+| Page | Normal, cold | Normal, warm | Constrained, cold | Constrained, warm |
+| --- | --- | --- | --- | --- |
+| Workspace dashboard | 0.32 (0.31–0.34) | 0.26 (0.24–0.27) | 3.67 (3.65–3.73) | 2.14 (2.13–2.21) |
+| Monitoring dashboard | Unavailable | Unavailable | Unavailable | Unavailable |
+| Bridging dashboard | 0.24 (0.24–0.24) | 0.24 (0.21–0.24) | 3.21 (3.20–3.23) | 2.03 (2.03–2.04) |
+| Content index | 0.04 (0.04–0.04) | 0.04 (0.04–0.04) | 0.38 (0.37–0.39) | 0.22 (0.21–0.22) |
+| Standalone term picker | 0.07 (0.07–0.09) | 0.06 (0.05–0.06) | 1.53 (1.50–1.53) | 0.25 (0.23–0.26) |
+| Standalone CEE, small | 0.14 (0.14–0.17) | 0.07 (0.07–0.07) | 3.93 (3.92–3.94) | 0.49 (0.48–0.49) |
+| Standalone CEE, large | 0.21 (0.21–0.21) | 0.12 (0.12–0.12) | 4.18 (4.16–4.20) | 0.69 (0.66–0.69) |
+| Standalone CED, small | 0.17 (0.17–0.21) | 0.12 (0.11–0.12) | 3.38 (3.35–3.40) | 0.61 (0.58–0.62) |
+| Standalone CED, large | 0.51 (0.51–0.52) | 0.42 (0.42–0.44) | 4.73 (4.70–4.76) | 1.90 (1.88–1.93) |
+| Template Designer, small | 0.94 (0.94–0.96) | 0.84 (0.84–0.86) | 10.23 (10.09–10.24) | 2.75 (2.71–2.77) |
+| Template Designer, large | 1.12 (1.09–1.12) | 0.92 (0.91–0.96) | 12.49 (12.32–13.24) | 4.92 (4.86–4.96) |
+| Workspace metadata editor, small | 0.87 (0.82–0.91) | 0.34 (0.34–0.37) | 7.85 (7.80–7.88) | 2.53 (2.51–2.54) |
+| Workspace metadata editor, large | 0.96 (0.84–0.98) | 0.84 (0.36–0.86) | 8.11 (8.03–8.14) | 3.17 (3.11–3.22) |
+| OpenView template, small | 0.19 (0.17–0.26) | 0.09 (0.09–0.24) | 4.88 (4.85–4.89) | 0.52 (0.51–0.53) |
+| OpenView template, large | 0.26 (0.24–0.26) | 0.14 (0.14–0.16) | 5.01 (5.00–5.03) | 0.67 (0.63–0.68) |
+
+The constrained medians expose several distinct costs:
+
+- **Designer loading/layout:** small/large readiness is 10.23/12.49 s cold and 2.75/4.92 s
+  warm. Recorded CLS is 0.884 for both sizes and cache states. The largest shift happens
+  before editing, changing a nearly unstyled 1424×55 rectangle at (8,8) into a 1440×1000
+  rectangle at (0,0). The host inserts its stylesheet dynamically and imports further
+  stylesheets; late styling is a candidate to trace, not a proved sole cause. An early
+  header can become LCP while the editor is still loading.
+- **Large-form CPU work:** standalone CED records 1,292 ms of long-task time over 50 ms cold
+  and 1,005 ms warm; the Designer host records 2,476/2,148 ms. Standalone CEE records
+  380/145 ms. These are the explicitly defined observation-window diagnostics, not TBT.
+  Warm scripted action medians are 395 ms for typing and blurring the CEE answer, 543 ms
+  for the CED label edit, 613 ms for the hosted Designer label edit and 578 ms for the
+  Workspace answer sequence. They cover different whole gestures, not comparable INP values.
+- **OpenView layout:** the small/large template records CLS 0.097/0.134 in both cold and
+  warm constrained loads. Capture the contributing render transitions before choosing a fix.
+- **An avoidable Workspace request:** every metadata-editor sample requests
+  `/assets/i18n-cee/en.json`, receives 404 and falls back to CEE's built-in English map.
+  This also returns 404 on the normally served local Workspace. The failed request takes
+  a median 163 ms under the constrained profile; its contribution to the critical path
+  needs tracing. The configured prefix should either name a real override or be omitted
+  when built-in translations are intended.
+
+The [modern performance roadmap](FRONTEND-ROADMAP.md#modern-page-performance) tracks follow-up
+investigation and the missing Monitoring measurement. None of these figures is a production
+SLA or a field Core Web Vitals verdict.
 
 ## Browser Metadata Editing
 

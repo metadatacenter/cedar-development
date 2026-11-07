@@ -131,9 +131,11 @@ export function htmlReport(report) {
       return `<td>${d.n ? `${(d.median / factor).toFixed(digits)} <small>(${(d.min / factor).toFixed(digits)}–${(d.max / factor).toFixed(digits)})</small>` : '—'}</td>`;
     }).join('') + '</tr>').join('\n');
   return `<!doctype html><meta charset="utf-8"><title>CEDAR frontend performance</title>
-    <style>body{font:15px system-ui;margin:32px;color:#173f3e}table{border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:right}td:first-child{text-align:left}small{color:#555}</style>
+    <style>body{font:15px system-ui;margin:32px;color:#173f3e}table{border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{padding:8px;border-bottom:1px solid #ddd;text-align:right}td:first-child{text-align:left}small{display:block;color:#555}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:1100px}</style>
     <h1>CEDAR frontend performance</h1><p>${escape(report.startedAt)} · Reporting only · ${report.finishedAt ? report.complete ? 'Complete' : 'Incomplete — see missing coverage below' : 'Running'} · Median (min–max)</p>
+    ${(report.setupFailures ?? []).map(f => `<p><strong>Missing coverage:</strong> ${escape(f.scenario)} — ${escape(f.error.split('\n')[0])}</p>`).join('')}
     <p>Readiness and action completion are CEDAR-specific lab timings. LCP and CLS cover the recorded observation window. Blocking is the sum of long-task time over 50 ms, not Lighthouse TBT. No field INP or percentile compliance is inferred.</p>
+    <p>Frontend assets use a local HTTP/1.1 HTTPS server with gzip and explicit caching. Production HTTP/2, HTTP/3, CDN and backend latency can differ. Sign-in setup is excluded; later silent SSO is included in readiness.</p>
     <table><thead><tr><th>Scenario / profile / cache</th><th>Valid</th><th>Ready ms</th><th>LCP ms</th><th>CLS</th><th>Blocking ms</th><th>Transfer KB</th><th>Action ms</th></tr></thead><tbody>${rows}</tbody></table>
     <h2>Run configuration and limits</h2><pre>${escape(JSON.stringify(report.metadata, null, 2))}</pre>
     <h2>Failures and missing coverage</h2><pre>${escape(JSON.stringify({setup:report.setupError,

@@ -41,7 +41,7 @@ if (values.plan) {
     machine:{platform:platform(),arch:arch(),release:release(),cpu:cpus()[0]?.model,logicalCpus:cpus().length,memoryBytes:totalmem(),loadAtStart:loadavg()},
     limits:['Local production-build lab, not production deployment latency or real-user Web Vitals.',
       'CPU slowdown is relative to this machine; it is not a calibrated device model.',
-      'HTTPS static files use gzip and one-hour cache; HTML is no-store. Real local APIs and SSO remain on nginx.',
+      'HTTP/1.1 HTTPS static files use gzip and one-hour cache; HTML is no-store. Real local APIs and SSO remain on nginx; production HTTP/2 or HTTP/3 behavior can differ.',
       'Fresh browser context per repetition; cold clears HTTP cache. Warm follows an about:blank navigation in the same tab. Actions run only after the warm load, avoiding retained drafts between load samples.',
       'Sign-in setup is excluded; any subsequent silent SSO/navigation redirects are included in readiness and CDP network totals.',
       'Paint/TTFB/CLS/long tasks describe the final top-level document, sampled one second after ready and fonts. Readiness includes navigation redirects.',
