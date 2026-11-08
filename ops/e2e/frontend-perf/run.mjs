@@ -7,10 +7,11 @@ import {chromium} from 'playwright';
 import {profiles, instrumentation, pageMetrics, summarize, htmlReport} from './metrics.mjs';
 import {modernLoadingFailures} from './loading.mjs';
 import {prepare, serve, inventory} from './lab.mjs';
+import {preparePackaged} from './packaged.mjs';
 import {standaloneFixtures, fixtures, scenarios, authenticate, scenarioFamily} from './scenarios.mjs';
 
 const {values} = parseArgs({options:{samples:{type:'string',default:'5'}, profiles:{type:'string',default:'normal,constrained'},
-  scenarios:{type:'string'}, output:{type:'string'}, plan:{type:'boolean'}, check:{type:'boolean'}}});
+  'deployment-manifest':{type:'string'}, scenarios:{type:'string'}, output:{type:'string'}, plan:{type:'boolean'}, check:{type:'boolean'}}});
 const repetitions = Number(values.samples), selectedProfiles = values.profiles.split(',');
 if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 30) throw new Error('samples must be 1–30');
 if (selectedProfiles.some(name => !Object.hasOwn(profiles,name))) throw new Error('profiles must be normal and/or constrained');
@@ -62,7 +63,9 @@ if (values.plan) {
   const stop = () => {interrupted = true; preparation.abort(); void browser?.close().catch(()=>{});};
   process.on('SIGINT',stop); process.on('SIGTERM',stop);
   try {
-    const prepared = await prepare(home,join(directory,'lab'),domain,{signal:preparation.signal});
+    const prepared = values['deployment-manifest']
+      ? await preparePackaged(resolve(values['deployment-manifest']),join(directory,'lab'),domain,{signal:preparation.signal})
+      : await prepare(home,join(directory,'lab'),domain,{signal:preparation.signal});
     preparation.signal.throwIfAborted();
     await standaloneFixtures(prepared.componentRoot,domain,prepared.integratedScript);
     prepared.evidence.outputs.standalone = await inventory(prepared.componentRoot);
@@ -70,6 +73,8 @@ if (values.plan) {
     await writeFile(join(directory,'lab/artifacts.json'),JSON.stringify(prepared.evidence,null,2)+'\n');
     report.metadata.artifacts = 'lab/artifacts.json';
     report.metadata.reactor = prepared.evidence.reactor;
+    report.metadata.deployment = prepared.evidence.deployment;
+    if (prepared.evidence.deployment) report.metadata.limits[0] = 'Published immutable train assets in an isolated Docker-backed CI lab; not production deployment latency or real-user Web Vitals.';
     report.metadata.sources = prepared.evidence.sources;
     report.metadata.adjustments = prepared.evidence.adjustments;
     report.metadata.suite = {revision:execFileSync('git',['rev-parse','HEAD'],{cwd:new URL('.',import.meta.url),encoding:'utf8'}).trim(),
