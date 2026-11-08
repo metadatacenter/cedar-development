@@ -519,7 +519,3 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
 - Characterize backend and authentication variability in the hosted CI 17-scenario
   full-stack sweep before considering timing enforcement. Exclude legacy applications.
-- Retain the hosted full-stack baseline's exact Docker images and npm inputs outside the
-  three-day development-artifact cleanup policy. The initial CI run passed, but ordinary train
-  retention cannot sustain the required 14 comparable daily runs. Preserve verified digests and
-  cohort identity when switching to retained inputs; a newly built train starts a new cohort.

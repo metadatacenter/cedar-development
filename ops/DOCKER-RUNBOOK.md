@@ -360,6 +360,7 @@ cedarcli docker start all --pull never
 Start resolves the current completed Docker train, which can lag the Maven pointer while images are
 still building. Use `--train <TRAIN_ID>` to select an exact Docker-complete train. When the images came
 from `docker build --local`, add `--local` to start so Compose selects the development tag instead.
+Except for the explicitly retained [hosted performance baseline](FRONTEND-RUNBOOK.md#hosted-full-stack-measurements),
 Nexus removes a train's images from both Docker repositories three days after upload, because every
 tag carries the train ID. An older train starts only on a machine that already holds its images.
 

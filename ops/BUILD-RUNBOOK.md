@@ -367,6 +367,10 @@ digest, and then starts Compose with pulling disabled. A tag that is absent, loc
 now resolves to different registry content is rejected before any service starts. Every image tag
 carries the train ID, and Nexus removes a `-dev.` tag from both Docker repositories three days after
 upload, so a machine can pull a train's images only within three days of the train.
+The fixed hosted performance baseline is explicitly exempted from cleanup; its exact retained
+inputs and retirement procedure are recorded in the
+[frontend runbook](FRONTEND-RUNBOOK.md#hosted-full-stack-measurements). This exception does not
+extend the lifetime of other development trains.
 
 <a id="what-a-train-costs"></a>
 
