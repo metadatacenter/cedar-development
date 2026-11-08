@@ -1,0 +1,136 @@
+name: Standalone frontend performance
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        type: string
+        required: true
+      baseline-ref:
+        type: string
+        required: true
+      candidate-artifact:
+        type: string
+        required: true
+      harness-ref:
+        description: Exact cedar-development commit, matching the reusable workflow pin
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Paired rendering (advisory timing, required loading)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
+      COMPONENT: ${{ inputs.component }}
+      BASELINE_REF: ${{ inputs.baseline-ref }}
+      CANDIDATE_REF: ${{ github.sha }}
+    steps:
+      - name: Validate component
+        run: |
+          case "$COMPONENT" in cee|ced) ;; *) exit 2 ;; esac
+
+      - name: Check out the pinned measurement harness
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-development
+          ref: ${{ inputs.harness-ref }}
+          path: cedar-development
+
+      - name: Check out the comparison base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.baseline-ref }}
+          path: baseline-source
+
+      - name: Use Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.22.1
+          cache: npm
+          cache-dependency-path: |
+            baseline-source/package-lock.json
+            cedar-development/ops/e2e/package-lock.json
+
+      # Candidate bytes come from the existing build job. No second candidate build,
+      # no registry publication and no changes to tracked package pins.
+      - name: Restore this workflow's candidate bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.candidate-artifact }}
+          path: candidate
+
+      - name: Build the baseline before starting measurements
+        working-directory: baseline-source
+        run: |
+          npm ci
+          if [ "$COMPONENT" = cee ]; then
+            npm --prefix visual ci
+            npm run build:production
+            npm --prefix visual run bundle
+            cp visual/public/cedar-embeddable-editor.js ../baseline.js
+          else
+            npm run build
+            npm run bundle
+            cp dist-bundle/cedar-embeddable-designer.js ../baseline.js
+          fi
+
+      - name: Install the locked harness and browser
+        working-directory: cedar-development/ops/e2e
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Measure five alternating pairs with cold and warm caches
+        working-directory: cedar-development/ops/e2e
+        run: |
+          case "$COMPONENT" in
+            cee) bundle=cedar-embeddable-editor.js ;;
+            ced) bundle=cedar-embeddable-designer.js ;;
+          esac
+          node frontend-perf/isolated.mjs --component="$COMPONENT" \
+            --baseline="$GITHUB_WORKSPACE/baseline.js" \
+            --candidate="$GITHUB_WORKSPACE/candidate/$bundle" \
+            --baseline-revision="$BASELINE_REF" --candidate-revision="$CANDIDATE_REF" \
+            --samples=5 --output="$GITHUB_WORKSPACE/performance-report"
+
+      - name: Publish comparison summary
+        if: always()
+        run: |
+          if [ -f performance-report/summary.md ]; then
+            cat performance-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Performance comparison incomplete: setup failed before measurement.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Annotate advisory findings
+        if: always()
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync, existsSync} from 'node:fs';
+          if (existsSync('performance-report/report.json')) {
+            const report = JSON.parse(readFileSync('performance-report/report.json', 'utf8'));
+            for (const row of report.comparison ?? []) {
+              if (row.status !== 'within-advisory-tolerance') {
+                console.log(`::warning::${row.scenario}/${row.cache} ${row.metric}: ${row.status}. See performance summary; timing budgets are advisory.`);
+              }
+            }
+          }
+          JS
+
+      - name: Retain measurements and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: standalone-${{ inputs.component }}-performance
+          path: |
+            performance-report/report.json
+            performance-report/summary.md
+            performance-report/*.png
+          if-no-files-found: warn
+          retention-days: 30

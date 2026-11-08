@@ -76,6 +76,21 @@ INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute fo
 Designer-equivalent CED+CEF measurement. The existing raw/gzip build budgets remain enforced
 independently. Run the full-stack suite below for authenticated hosts and real APIs.
 
+The CEE and CED `Test` workflows call the pinned reusable
+`.github/workflows/frontend-performance-paired.yml`. Pull requests compare their base SHA
+with the tested merge candidate; pushes compare the previous branch head with the candidate.
+The existing candidate build artifact is reused. Only the baseline is built in the comparison
+job, and all builds/installations finish before Chromium starts. Both versions are measured
+sequentially on the same Ubuntu 24.04 runner with the harness lockfile's Chromium.
+No performance job runs inside the development reactor, and no package pins are rewritten.
+
+Loading failures fail the CI job; CEE dev publication also waits for that job. Timing/CLS
+warnings and inconclusive assessments appear in the job summary and workflow annotations.
+Reports and screenshots are retained for 30 days. A baseline that cannot build is a setup
+failure, never a passing comparison. To update the harness, update both the reusable-workflow
+SHA and its `harness-ref` input together. The release-tooling CI tests measurement/failure
+semantics without a CEDAR stack on Linux and macOS.
+
 The initial local control check on 2026-11-08 ran 40 measurements for CEE and 40 for CED,
 comparing each production bundle with itself. All loads and editing checks passed; every
 paired readiness/blocking/CLS result was within its advisory tolerance. CEE's bundle SHA-256
