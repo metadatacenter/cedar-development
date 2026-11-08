@@ -98,3 +98,8 @@ procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
    compatibility mounts used by the hosted frontend performance baseline. Keep the old train's
    tags immutable. Require empty-volume startup and real authenticated frontend checks before
    promotion; successful image builds alone did not expose these deployment failures.
+
+   Make OpenView, Monitoring and Bridging honor the deployment domain at runtime. Their current
+   production bundles embed `.org` even when the container configures `.orgx`; the hosted lab
+   needs a recorded domain-only adjustment to avoid production authentication and API requests.
+   Verify both production and non-production configuration against the same packaged UI assets.
