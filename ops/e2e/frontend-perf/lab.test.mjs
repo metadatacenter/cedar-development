@@ -40,7 +40,8 @@ test('browser-private production origin serves gzip, preserves warm cache and ob
   try {
     await writeFile(join(directory,'index.html'), '<!doctype html><link rel="icon" href="data:,"><h1>Measurement fixture</h1><script src="/payload.js"></script>');
     await writeFile(join(directory,'payload.js'), 'window.payload=true;\n'+Array.from({length:10000},(_,i) => `// payload ${i}`).join('\n'));
-    lab = await serve({'perf.invalid':directory},directory);
+    await writeFile(join(directory,'font.woff2'),'font fixture');
+    lab = await serve({'perf.invalid':directory,'fonts.invalid':directory},directory);
     browser = await chromium.launch({args:['--host-resolver-rules='+lab.rules,'--no-proxy-server']});
     const context = await browser.newContext({ignoreHTTPSErrors:true});
     const page = await context.newPage();
@@ -61,6 +62,7 @@ test('browser-private production origin serves gzip, preserves warm cache and ob
     assert.ok(samples[0].transferBytes > samples[1].transferBytes);
     assert.ok(samples[1].cachedRequests > 0);
     assert.deepEqual(samples[0].networkFailures,[]);
+    assert.equal(await page.evaluate(async () => (await fetch('https://fonts.invalid/font.woff2')).text()),'font fixture');
     await context.close();
   } finally {
     await browser?.close();

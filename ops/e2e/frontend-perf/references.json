@@ -4,6 +4,7 @@
   "reason": "Post-optimization source references fixed on 2026-11-08; changes require a reviewed commit, never automatic replacement after a regression.",
   "components": {
     "cee": "bedf17dd6747af2c0dc48839678b2ecf48824989",
-    "ced": "7fe0c264c78bc9c5ec64d8756841b920fcbfd649"
+    "ced": "7fe0c264c78bc9c5ec64d8756841b920fcbfd649",
+    "designer": "a290539d6ba56752b98cc27113f658a198338ff2"
   }
 }

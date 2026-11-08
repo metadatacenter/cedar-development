@@ -38,13 +38,15 @@ export function assessPairs(samples, scenarioIds, repetitions) {
   return rows;
 }
 
-export function loadingFailures(network, origin) {
+export function loadingFailures(network, origin, deferred=[]) {
+  const origins=Array.isArray(origin)?origin:[origin];
   const errors = network.networkFailures.map(f => JSON.stringify(f));
   if (network.pendingRequests) errors.push(`${network.pendingRequests} requests still pending`);
   const scripts = new Set();
   for (const resource of network.resources) {
-    if (new URL(resource.url).origin !== origin) errors.push('Unexpected origin: '+resource.url);
+    if (!origins.includes(new URL(resource.url).origin)) errors.push('Unexpected origin: '+resource.url);
     if (resource.failed || !resource.complete) errors.push('Incomplete request: '+resource.url);
+    if (deferred.some(pattern=>pattern.test(new URL(resource.url).pathname))) errors.push('Deferred code loaded eagerly: '+resource.url);
     if (/\.m?js$/.test(new URL(resource.url).pathname)) {
       if (scripts.has(resource.url)) errors.push('Duplicate script request: '+resource.url);
       scripts.add(resource.url);
@@ -54,9 +56,9 @@ export function loadingFailures(network, origin) {
 }
 
 export function markdownReport(report) {
-  const lines = ['# Standalone frontend performance', '',
+  const lines = ['# Frontend rendering performance', '',
     `Measurement coverage: **${report.complete ? 'complete' : 'incomplete — check failed'}**. Timings and CLS are advisory, not calibrated budgets.`, '',
-    'Fixed 5/100-field fixtures; constrained profile; cold/warm cache; sequential alternating pairs. No backend or sign-in. Lab blocking time is not Lighthouse TBT; interaction timing is not INP.', '',
+    'Fixed 5/100-field fixtures; constrained profile; cold/warm cache; sequential alternating pairs. Fixed API/session fixtures where needed; no real backend or sign-in. Lab blocking time is not Lighthouse TBT; interaction timing is not INP.', '',
     '| Scenario / cache | Metric | Baseline median | Candidate median | Paired median change | Assessment |',
     '|---|---|---:|---:|---:|---|'];
   for (const r of report.comparison ?? []) {

@@ -479,10 +479,8 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
 
 ### 13. Extend and Calibrate Browser Performance Gates
 
-- Add backend-independent Template Designer and equivalent CED+CEF scenarios with fixed HTTP
-  API/auth fixtures. Preserve the real host UI and all-summary readiness; bare CED's fallback
-  summaries cannot stand in for this coverage. Extend deterministic loading checks to the other
-  modern hosts, including deferred dependencies and duplicate downloads.
+- Extend deterministic loading checks to the other modern hosts, including deferred dependencies
+  and duplicate downloads.
 - Collect paired CI history on the selected runner before enforcing readiness, blocking or CLS
   budgets. Review reference changes and calibrate budget increases against retained evidence.
   Keep machine-dependent timings outside the local reactor.

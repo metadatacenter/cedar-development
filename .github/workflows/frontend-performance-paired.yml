@@ -33,7 +33,7 @@ jobs:
     steps:
       - name: Validate component
         run: |
-          case "$COMPONENT" in cee|ced) ;; *) exit 2 ;; esac
+          case "$COMPONENT" in cee|ced|designer) ;; *) exit 2 ;; esac
 
       - name: Check out the pinned measurement harness
         uses: actions/checkout@v7
@@ -57,7 +57,7 @@ jobs:
           const sha=config.components[process.env.COMPONENT];
           if(!/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('Missing fixed reference');
           console.log('sha='+sha);
-          console.log('bundle='+(sha===process.env.BASELINE_REF?'baseline.js':'reference.js'));
+          console.log('bundle='+(sha===process.env.BASELINE_REF?'baseline-input':'reference-input'));
           JS
 
       - name: Check out the fixed reference when it differs from the comparison base
@@ -96,15 +96,18 @@ jobs:
               npm run build:production
               npm --prefix visual run bundle
               cp visual/public/cedar-embeddable-editor.js "$GITHUB_WORKSPACE/$2"
+            elif [ "$COMPONENT" = designer ]; then
+              npm run prepare:components
+              cp -R app "$GITHUB_WORKSPACE/$2"
             else
               npm run build
               npm run bundle
               cp dist-bundle/cedar-embeddable-designer.js "$GITHUB_WORKSPACE/$2"
             fi
           )
-          build_bundle baseline-source baseline.js
-          if [ "$REFERENCE_BUNDLE" = reference.js ]; then
-            build_bundle reference-source reference.js
+          build_bundle baseline-source baseline-input
+          if [ "$REFERENCE_BUNDLE" = reference-input ]; then
+            build_bundle reference-source reference-input
           fi
 
       - name: Install the locked harness and browser
@@ -122,9 +125,10 @@ jobs:
           case "$COMPONENT" in
             cee) bundle=cedar-embeddable-editor.js ;;
             ced) bundle=cedar-embeddable-designer.js ;;
+            designer) bundle=. ;;
           esac
           node frontend-perf/compare.mjs --component="$COMPONENT" \
-            --baseline="$GITHUB_WORKSPACE/baseline.js" \
+            --baseline="$GITHUB_WORKSPACE/baseline-input" \
             --candidate="$GITHUB_WORKSPACE/candidate/$bundle" \
             --baseline-revision="$BASELINE_REF" --candidate-revision="$CANDIDATE_REF" \
             --reference="$GITHUB_WORKSPACE/$REFERENCE_BUNDLE" --reference-revision="$REFERENCE_REF" \

@@ -90,19 +90,23 @@ export async function prepare(home, directory, domain) {
     await writeFile(join(componentRoot, short + '.js'), bundle);
   }
   roots[`performance.${domain}`] = componentRoot;
+  const integratedScript = await designerDelivery(join(directory,'designer'),domain);
+  evidence.outputs.standalone = await inventory(componentRoot);
+  await writeFile(join(directory,'artifacts.json'), JSON.stringify(evidence,null,2)+'\n');
+  return {roots, evidence, componentRoot, integratedScript};
+}
+
+export async function designerDelivery(directory,domain) {
   // The equivalent CED fixture uses precisely the host's shared CEE/CEF, CETP and CED bytes.
-  const manifest = JSON.parse(await readFile(join(directory, 'designer/components/manifest.json'), 'utf8'));
+  const manifest = JSON.parse(await readFile(join(directory, 'components/manifest.json'), 'utf8'));
   const deliveries = ['cedar-embeddable-editor','cedar-embeddable-term-picker','cedar-embeddable-designer']
     .map(name => manifest[name]?.delivery);
   const delivery = deliveries[0];
   if (!delivery || !/^[a-zA-Z0-9-]+\.js$/.test(delivery.file) ||
       deliveries.some(item => item?.file !== delivery.file || item?.sha256 !== delivery.sha256) ||
-      hash(await readFile(join(directory,'designer/components',delivery.file))) !== delivery.sha256)
+      hash(await readFile(join(directory,'components',delivery.file))) !== delivery.sha256)
     throw new Error('Equivalent CED benchmark requires one verified shared Designer component bundle');
-  const integratedScript = `https://designer.${domain}/components/${delivery.file}?v=${delivery.sha256}`;
-  evidence.outputs.standalone = await inventory(componentRoot);
-  await writeFile(join(directory,'artifacts.json'), JSON.stringify(evidence,null,2)+'\n');
-  return {roots, evidence, componentRoot, integratedScript};
+  return `https://designer.${domain}/components/${delivery.file}?v=${delivery.sha256}`;
 }
 
 const mime = {'.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css',
@@ -110,14 +114,16 @@ const mime = {'.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascr
 
 // A browser-private HTTPS origin mapping preserves the apps' real origins and SSO redirect URIs.
 // No Playwright request routing: it would disable the HTTP cache being measured.
-export async function serve(roots, directory) {
+export async function serve(roots, directory, respond) {
   const key = join(directory,'lab-key.pem'), cert = join(directory,'lab-cert.pem');
   execFileSync('openssl', ['req','-x509','-newkey','rsa:2048','-nodes','-keyout',key,'-out',cert,'-days','1','-subj','/CN=CEDAR performance lab'], {stdio:'ignore'});
   const cache = new Map();
   const server = createServer({key:await readFile(key), cert:await readFile(cert)}, async (req,res) => {
     try {
       const root = roots[req.headers.host?.split(':')[0]];
-      if (!root || !['GET','HEAD'].includes(req.method)) {res.writeHead(404).end(); return;}
+      if (!root) {res.writeHead(404).end(); return;}
+      if (respond && await respond(req,res)) return;
+      if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405).end(); return;}
       const path = decodeURIComponent(new URL(req.url,'https://lab').pathname);
       if (path.includes('\\') || path.includes('\0') || path.split('/').some(p => p.startsWith('.'))) {res.writeHead(403).end(); return;}
       let file = resolve(root, '.' + path);
@@ -134,6 +140,7 @@ export async function serve(roots, directory) {
       const body = compress ? asset.gzip : asset.raw;
       res.writeHead(200, {'Content-Type':type, 'Content-Length':body.length, 'Vary':'Accept-Encoding',
         'Cache-Control':extname(file) === '.html' ? 'no-store' : 'public, max-age=3600', ETag:asset.etag,
+        ...(/\.woff2?$/.test(file) ? {'Access-Control-Allow-Origin':'*'} : {}),
         ...(compress ? {'Content-Encoding':'gzip'} : {})});
       res.end(req.method === 'HEAD' ? undefined : body);
     } catch {res.writeHead(404).end();}

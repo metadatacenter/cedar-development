@@ -36,9 +36,9 @@ and the main browser applications. Shared design values belong in
 
 ## Paired standalone performance checks
 
-`cedarcli test frontend-performance-paired` compares two prebuilt standalone CEE or CED
-JavaScript bundles without backend services, Keycloak, accounts or repository fixtures.
-It does not build, deploy or publish anything. Use the normal reactor/CI production output;
+`cedarcli test frontend-performance-paired` compares prebuilt standalone CEE/CED JavaScript bundles, or two staged
+Template Designer `app/` directories with `--component designer`, without backend services, Keycloak, accounts or repository fixtures.
+The command does not build, deploy or publish anything. Use the normal reactor/CI production output;
 never pass a development-server bundle. Finish builds and other tests before measurement.
 
 ```bash
@@ -79,7 +79,28 @@ INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute fo
 Designer-equivalent CED+CEF measurement. The existing raw/gzip build budgets remain enforced
 independently. Run the full-stack suite below for authenticated hosts and real APIs.
 
-The CEE and CED `Test` workflows call the pinned reusable
+The Designer selection measures both the real host and the equivalent bare page with its
+exact shared CEE/CEF/CETP/CED bundle. Both wait for every real CEF summary. Only copied runtime
+configuration and the session boundary change; the shipped host JS/CSS/markup and components
+remain byte-identical. Fixed HTTP API responses have real deployment-shaped resource origins,
+ETags, CORS and no-store caching. Unknown API reads and every write are refused. This excludes
+real SSO/API latency; it must not be compared as an application speedup against the full-stack
+Designer results. Normal-load checks require recovery controls to remain absent and deferred
+RDF/compatibility-validator code to remain unloaded.
+
+The equivalent page's cross-origin fonts now receive CORS headers from the lab server. The
+2026-11-07 equivalent-page measurements below predate this correction: font requests failed and
+fallback fonts could render. Their within-fixture comparisons remain recorded, but they are not
+font-equivalent comparisons with Designer. Host and standalone CEE/CED measurements are
+unaffected. Use fresh pairs with this lab for equivalent-renderer comparisons.
+
+A corrected control on 2026-11-08 completed 80/80 Designer/equivalent measurements, with both
+inputs pointing to the same staged app. All loading, editing and normal-screen checks passed;
+all paired results were within advisory tolerances. Constrained warm medians were approximately
+0.62/1.40 s for the equivalent 5/100-field pages and 1.02/1.79 s for the fixture-backed Designer.
+These validate the new benchmark and do not represent an optimization to product code.
+
+The CEE and CED `Test` workflows and Designer's `Build and package` workflow call the pinned reusable
 `.github/workflows/frontend-performance-paired.yml`. Pull requests compare their base SHA
 with the tested merge candidate; pushes compare the previous branch head with the candidate.
 The existing candidate build artifact is reused. The comparison also builds the fixed source

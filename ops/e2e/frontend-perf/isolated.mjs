@@ -5,6 +5,7 @@ import {parseArgs} from 'node:util';
 import {cpus, platform, arch, loadavg} from 'node:os';
 import {chromium} from 'playwright';
 import {serve, hash, inventory} from './lab.mjs';
+import {prepareDesigner, designerApi, designerIds} from './designer-fixture.mjs';
 import {standaloneFixtures, scenarios} from './scenarios.mjs';
 import {profiles, instrumentation, pageMetrics} from './metrics.mjs';
 import {assessPairs, loadingFailures, markdownReport, tolerances} from './paired.mjs';
@@ -13,10 +14,14 @@ const {values} = parseArgs({options:{component:{type:'string'}, baseline:{type:'
   output:{type:'string'}, samples:{type:'string',default:'5'}, 'baseline-revision':{type:'string'},
   'candidate-revision':{type:'string'}, plan:{type:'boolean'}}});
 const repetitions = Number(values.samples);
-if (!['cee','ced'].includes(values.component)) throw new Error('component must be cee or ced');
+if (!['cee','ced','designer'].includes(values.component)) throw new Error('component must be cee, ced or designer');
 if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 30) throw new Error('samples must be 1–30');
 const domain = 'cedar-perf.invalid', origin = `https://performance.${domain}`;
-const cases = scenarios(domain,{small:'unused',large:'unused'}).filter(s => s.id.startsWith(values.component+'-standalone-'));
+const isDesigner=values.component==='designer';
+const cases = scenarios(domain,designerIds).filter(s => isDesigner
+  ? s.id.startsWith('designer-') || s.id.startsWith('ced-integrated-')
+  : s.id.startsWith(values.component+'-standalone-'));
+const origins=isDesigner?[origin,`https://designer.${domain}`,`https://resource.${domain}`]:[origin];
 if (values.plan) {
   console.log(JSON.stringify({scenarios:cases.map(s => s.id), repetitions, profile:profiles.constrained,
     cache:['cold','warm'], backend:false, timing:'advisory', loading:'required'},null,2));
@@ -41,16 +46,21 @@ if (values.plan) {
     for (const version of ['baseline','candidate']) {
       const root = join(directory,version);
       await mkdir(root);
-      const bytes = await readFile(resolve(values[version]));
-      if (!bytes.length) throw new Error('Empty '+version+' bundle');
-      await writeFile(join(root,values.component+'.js'),bytes);
-      await standaloneFixtures(root,domain,undefined,[values.component]);
-      variants[version] = root;
-      report.artifacts[version] = {sha256:hash(bytes),bytes:bytes.length,inventory:await inventory(root)};
+      if(isDesigner) {
+        const prepared=await prepareDesigner(resolve(values[version]),root,domain);
+        variants[version]=prepared.roots; report.artifacts[version]=prepared.evidence;
+      } else {
+        const bytes = await readFile(resolve(values[version]));
+        if (!bytes.length) throw new Error('Empty '+version+' bundle');
+        await writeFile(join(root,values.component+'.js'),bytes);
+        await standaloneFixtures(root,domain,undefined,[values.component]);
+        variants[version] = {[new URL(origin).hostname]:root};
+        report.artifacts[version] = {sha256:hash(bytes),bytes:bytes.length,inventory:await inventory(root)};
+      }
     }
     report.metadata.suite = await inventory(new URL('.',import.meta.url).pathname);
-    roots[new URL(origin).hostname] = variants.baseline;
-    lab = await serve(roots,directory);
+    Object.assign(roots,variants.baseline);
+    lab = await serve(roots,directory,isDesigner?designerApi(domain):undefined);
     // Unknown hostnames fail DNS; request routing is deliberately avoided so caching stays real.
     browser = await chromium.launch({headless:true,handleSIGINT:false,handleSIGTERM:false,
       args:['--host-resolver-rules='+lab.rules+', MAP * ~NOTFOUND','--no-proxy-server','--disable-background-networking']});
@@ -59,7 +69,7 @@ if (values.plan) {
       const ordered = repeat%2 ? cases : [...cases].reverse();
       for (const scenario of ordered) for (const version of repeat%2 ? ['baseline','candidate'] : ['candidate','baseline']) {
         if (interrupted) break;
-        roots[new URL(origin).hostname] = variants[version];
+        Object.assign(roots,variants[version]);
         const context = await browser.newContext({ignoreHTTPSErrors:true,viewport:report.metadata.viewport,serviceWorkers:'block'});
         context.setDefaultTimeout(30000);
         try {
@@ -83,8 +93,10 @@ if (values.plan) {
               const snapshot = await page.evaluate(() => window.__cedarPerf.snapshot());
               const network = meter.snapshot();
               sample.metrics = pageMetrics(snapshot,readyMs,network);
-              errors.push(...loadingFailures(network,origin));
+              errors.push(...loadingFailures(network,origins,isDesigner?[/\/cedar-rdf-/,/\/cedar-schema-validation\.mjs$/]:[]));
               meter.stop();
+              if(scenario.id.startsWith('designer-') && await page.locator('#check-save:visible, #recheck-access:visible, #sign-in-again:visible, #reload:visible, #draft-offer:visible, #draft-storage-error:visible, #server-issues:visible').count())
+                throw new Error('Unexpected recovery UI on a normal Designer load');
               if (cache === 'warm') {
                 const begun = performance.now();
                 await scenario.action(page);
