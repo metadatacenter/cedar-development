@@ -143,8 +143,16 @@ export function scenarios(domain, ids, folderId) {
   const base = name => `https://${name}.${domain}`;
   const rows = [
     {id:'workspace-dashboard',url:base('workspace')+'/dashboard?sort=name&view=list'+(folderId ? '&folderId='+enc(folderId) : ''), auth:true,
-      ready:visible('cedar-workspace-page .destinations'), readiness:'Dashboard destinations and listing finished',
-      async settled(page) {await page.waitForFunction(() => document.querySelector('.table-scroll')?.getAttribute('aria-busy') === 'false');}},
+      ready:visible('cedar-workspace-page .destinations'), readiness:'Dashboard destinations, listing and template action reports finished',
+      async settled(page) {
+        await page.waitForFunction(() => document.querySelector('.table-scroll')?.getAttribute('aria-busy') === 'false');
+        // The listing becomes interactive before its report enrichment finishes. Those
+        // responses populate row actions; include their real latency rather than sampling
+        // incomplete requests after an arbitrary one-second grace period.
+        const reports=Object.values(ids).map(id=>'/templates/'+enc(id.split('/').at(-1))+'/report');
+        await page.waitForFunction(expected => expected.every(path =>
+          performance.getEntriesByType('resource').some(entry => new URL(entry.name).pathname === path)), reports);
+      }},
     {id:'monitoring-dashboard',url:base('monitoring')+'/',auth:true,
       ready:async p => p.locator('mat-card-title',{hasText:'Health Checks'}).waitFor(), readiness:'Health Checks navigation card visible'},
     {id:'bridging-dashboard',url:base('bridging')+'/',auth:true,

@@ -407,6 +407,14 @@ contributed their own long tasks. Compare optimization results only against a re
 the same direct probes; a lower measurement after changing the probe is not an application
 speedup. The original baseline below remains historical evidence, including that overhead.
 
+Workspace dashboard readiness also waits for the two fixture templates' action-report responses.
+The listing's `aria-busy` clears before that background enrichment finishes, so listing readiness
+alone can truncate real requests on a cold deployment. The probe waits for completed Resource
+Timing entries, retaining failures for missing, failed or unfinished requests; it does not add a
+fixed delay or suppress loading errors. Do not compare this readiness value with the earlier
+listing-only probe as an application speed change. The pinned daily calibration harness remains
+unchanged and retains its existing cohort.
+
 Outputs default to `.cedar/reports/frontend-performance/<timestamp>/`: `report.html`,
 `report.json`, `samples.csv`, first-run screenshots and build/fixture evidence. `--output`
 selects an **empty** directory; earlier measurements are never overwritten. JSON retains
