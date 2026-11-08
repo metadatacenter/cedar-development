@@ -32,7 +32,7 @@ jobs:
       # This exact implementation is already on develop before the workflow reaches main.
       - uses: actions/checkout@v7
         with:
-          ref: 542eef252c7f8aebbef12f69ec61c5d203abdac4
+          ref: b981a931daa65e84b73a738d23bcf7a54aebcb3b
           persist-credentials: false
 
       - uses: actions/setup-python@v6
