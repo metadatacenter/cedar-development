@@ -12,3 +12,8 @@ export function modernLoadingFailures(network, scenario, domain) {
     deferred.push(/\/cedar-rdf-/,/\/cedar-schema-validation\.mjs$/);
   return loadingFailures(network,hosts.map(host=>`https://${host}.${domain}`),deferred);
 }
+
+// Block production DNS for every page and authentication frame. Playwright request routing
+// disables the HTTP cache, so use Chromium's resolver instead and preserve cold/warm semantics.
+export const modernHostResolverRules = labRules =>
+  'MAP metadatacenter.org ~NOTFOUND,MAP *.metadatacenter.org ~NOTFOUND,'+labRules;

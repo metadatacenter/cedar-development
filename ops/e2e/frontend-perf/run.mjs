@@ -5,7 +5,7 @@ import {parseArgs} from 'node:util';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
 import {profiles, instrumentation, pageMetrics, summarize, htmlReport} from './metrics.mjs';
-import {modernLoadingFailures} from './loading.mjs';
+import {modernLoadingFailures, modernHostResolverRules} from './loading.mjs';
 import {prepare, serve, inventory} from './lab.mjs';
 import {preparePackaged} from './packaged.mjs';
 import {standaloneFixtures, fixtures, scenarios, authenticate, scenarioFamily} from './scenarios.mjs';
@@ -86,7 +86,7 @@ if (values.plan) {
     let cases = choose(scenarios(domain,data.ids,data.folderId));
     report.metadata.scenarios = cases.map(({id,readiness,actionName}) => ({id,readiness,action:actionName ?? null}));
     browser = await chromium.launch({headless:true,handleSIGINT:false,handleSIGTERM:false,
-      args:['--host-resolver-rules='+lab.rules,'--no-proxy-server']});
+      args:['--host-resolver-rules='+modernHostResolverRules(lab.rules),'--no-proxy-server']});
     report.metadata.browser = browser.version();
     report.metadata.node = process.version;
     const sessions = await authenticate(browser,cases,directory);

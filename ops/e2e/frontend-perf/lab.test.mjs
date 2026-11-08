@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'playwright';
 import {serve} from './lab.mjs';
+import {modernHostResolverRules} from './loading.mjs';
 import {instrumentation, profiles, pageMetrics} from './metrics.mjs';
 import {template, scenarios, authenticationCases} from './scenarios.mjs';
 
@@ -42,7 +43,11 @@ test('browser-private production origin serves gzip, preserves warm cache and ob
     await writeFile(join(directory,'payload.js'), 'window.payload=true;\n'+Array.from({length:10000},(_,i) => `// payload ${i}`).join('\n'));
     await writeFile(join(directory,'font.woff2'),'font fixture');
     lab = await serve({'perf.invalid':directory,'fonts.invalid':directory},directory);
-    browser = await chromium.launch({args:['--host-resolver-rules='+lab.rules,'--no-proxy-server']});
+    // The fallback resolves only to this fixture if the production block regresses; the test
+    // must never contact an actual production server.
+    const rules=modernHostResolverRules(lab.rules+','+lab.rules.replace('perf.invalid','auth.metadatacenter.org'));
+    assert.ok(rules.includes('MAP auth.metadatacenter.org 127.0.0.1:'));
+    browser = await chromium.launch({args:['--host-resolver-rules='+rules,'--no-proxy-server']});
     const context = await browser.newContext({ignoreHTTPSErrors:true});
     const page = await context.newPage();
     const meter = await instrumentation(context,page,profiles.normal);
@@ -63,6 +68,7 @@ test('browser-private production origin serves gzip, preserves warm cache and ob
     assert.ok(samples[1].cachedRequests > 0);
     assert.deepEqual(samples[0].networkFailures,[]);
     assert.equal(await page.evaluate(async () => (await fetch('https://fonts.invalid/font.woff2')).text()),'font fixture');
+    await assert.rejects(page.goto('https://auth.metadatacenter.org/'),/ERR_NAME_NOT_RESOLVED/);
     await context.close();
   } finally {
     await browser?.close();

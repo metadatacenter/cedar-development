@@ -13,6 +13,8 @@ test('published deployment inputs preserve bytes and standalone bundles, rejecti
     for(const name of Object.keys(apps)) {
       const dir=join(root,name);await mkdir(dir);
       await writeFile(join(dir,'index.html'),'<h1>'+name+'</h1>');
+      if(['openview','monitoring','bridging'].includes(name))
+        await writeFile(join(dir,'main.js'),'var env={cedarDomain:"metadatacenter.org"};var website="https://metadatacenter.org";');
       if(name==='designer') {
         await mkdir(join(dir,'components'));
         const script='/* shared editors */',delivery={file:'cedar-editors.js',sha256:hash(script)};
@@ -28,6 +30,9 @@ test('published deployment inputs preserve bytes and standalone bundles, rejecti
     const path=join(root,'manifest.json');await writeFile(path,JSON.stringify(manifest));
     const prepared=await preparePackaged(path,join(root,'valid'),'metadatacenter.orgx');
     assert.equal(Object.keys(prepared.roots).length,7);
+    assert.equal(prepared.evidence.adjustments.length,3);
+    assert.equal(await readFile(join(root,'valid/openview/main.js'),'utf8'),'var env={cedarDomain:"metadatacenter.orgx"};var website="https://metadatacenter.org";');
+    assert.ok((await readFile(join(root,'openview/main.js'),'utf8')).includes('cedarDomain:"metadatacenter.org"'));
     assert.equal(await readFile(join(prepared.componentRoot,'ced.js'),'utf8'),'/* ced standalone */');
     assert.equal(prepared.evidence.deployment.train,manifest.train);
     await writeFile(join(root,'cee.js'),'changed');

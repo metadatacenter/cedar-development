@@ -20,7 +20,19 @@ export async function preparePackaged(manifestPath, directory, domain, {signal}=
     await cp(resolve(dirname(manifestPath),entry.directory),target,{recursive:true});
     const actual=await inventory(target);
     assert.deepEqual(actual.files,entry.files,`${name} deployment bytes changed after capture`);
-    roots[`${name}.${domain}`]=target; evidence.outputs[name]=actual;
+    if (['openview','monitoring','bridging'].includes(name)) {
+      let changed=0;
+      for (const file of Object.keys(actual.files).filter(file=>file.endsWith('.js'))) {
+        const path=join(target,file), before=await readFile(path,'utf8');
+        const after=before.replace(/\bcedarDomain\s*:\s*(["'])metadatacenter\.org\1/g,()=>{changed++;return 'cedarDomain:'+JSON.stringify(domain);});
+        if (before!==after) {
+          await writeFile(path,after);
+          evidence.adjustments.push({application:name,file,change:'Local deployment domain only in the published production environment',beforeSha256:hash(before),afterSha256:hash(after)});
+        }
+      }
+      assert.equal(changed,1,`${name} must have exactly one recognized production domain setting`);
+    }
+    roots[`${name}.${domain}`]=target; evidence.outputs[name]=await inventory(target);
     evidence.sources[name]=entry.source;
   }
   const componentRoot=join(directory,'standalone');await mkdir(componentRoot);
