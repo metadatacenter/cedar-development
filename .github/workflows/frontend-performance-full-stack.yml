@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: e35a19d09b41e456a00d08724266c2b621e6cc00
+          ref: 6eb906f44ceada11aba068e17f8e458f6920ec13
           path: CEDAR/cedar-development
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -103,15 +103,19 @@ jobs:
         if: always()
         run: |
           python - <<'PYTHON'
-          import json, os
+          import json, os, shutil
           from pathlib import Path
           report = Path(os.environ['RUNNER_TEMP'])/'full-stack-performance/report.json'
+          manifest = Path(os.environ['RUNNER_TEMP'])/'performance-inputs/manifest.json'
+          if manifest.exists():
+              report.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(manifest, report.parent/'deployment-manifest.json')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               summary.write('## Hosted full-stack frontend performance\n\nTiming values are reporting-only.\n\n')
               if report.exists():
                   data = json.loads(report.read_text())
                   passed = sum(sample['status'] == 'ok' for sample in data['samples'])
-                  summary.write(f"Complete: **{data['complete']}**; successful samples: **{passed}/{len(data['samples'])}**.\n\n")
+                  summary.write(f"Complete: **{data.get('complete', False)}**; successful samples: **{passed}/{len(data['samples'])}**.\n\n")
                   summary.write('Download `full-stack-performance` for HTML/JSON reports, CSV, screenshots and exact input identities.\n')
               else:
                   summary.write('Setup failed before measurements; inspect the sanitized stack diagnostics.\n')
@@ -127,7 +131,7 @@ jobs:
             ${{ runner.temp }}/full-stack-performance/fixtures.json
             ${{ runner.temp }}/full-stack-performance/*.png
             ${{ runner.temp }}/full-stack-performance/lab/artifacts.json
-            ${{ runner.temp }}/performance-inputs/manifest.json
+            ${{ runner.temp }}/full-stack-performance/deployment-manifest.json
           retention-days: 90
       - name: Record sanitized stack diagnostics
         if: always()
