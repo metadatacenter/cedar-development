@@ -226,6 +226,10 @@ immutable train `2.9.33-dev.20261107.2016`; image digests and standalone CEE/CED
 hashes are verified before measuring. The train’s resource image omitted its fresh-database
 bootstrap admin-tool JAR; CI mounts the matching train JAR read-only, verifies its pinned SHA-256,
 and records that dependency separately. New image builds fail if that JAR is missing or corrupt.
+CI also mounts the corrected Designer entrypoint from the pinned Docker tooling: it verifies
+the published page inventory and only generates runtime configuration, without recompiling UI
+assets. The train image’s older entrypoint attempted a build without the source lockfile. Both
+bootstrap additions are recorded as calibration inputs; train image tags remain unchanged.
 This is a fixed calibration baseline, not a moving develop
 build. Updating the train or pinned tooling intentionally starts a new comparable cohort.
 

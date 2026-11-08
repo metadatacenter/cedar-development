@@ -66,7 +66,13 @@ def initialize(home):
         raise ValueError('Bootstrap artifact digest mismatch')
     admin_path = state/'cedar-admin-tool.jar'; admin_path.write_bytes(admin)
     override['services']['server-resource']['volumes'] = [str(admin_path)+':/cedar/app/cedar-admin-tool.jar:ro']
-    (state/'ci-bootstrap.json').write_text(json.dumps({'url':admin_url,'sha256':ADMIN_SHA256,'train':TRAIN}))
+    designer_source = home/'cedar-docker-build/cedar-frontend-template-designer/scripts/docker-entrypoint.sh'
+    designer = designer_source.read_bytes()
+    entrypoint = state/'designer-entrypoint.sh'; entrypoint.write_bytes(designer); entrypoint.chmod(0o755)
+    frontend = {'services':{'frontend-template-designer':{'volumes':[str(entrypoint)+':/docker-entrypoint.sh:ro']}}}
+    (deploy/'cedar-frontend/docker-compose.override.yml').write_text(json.dumps(frontend))
+    (state/'ci-bootstrap.json').write_text(json.dumps({'url':admin_url,'sha256':ADMIN_SHA256,'train':TRAIN,
+        'designerEntrypointSha256':hashlib.sha256(designer).hexdigest()}))
     (deploy/'cedar-microservices/docker-compose.override.yml').write_text(json.dumps(override))
     infra = {'services': {
         'opensearch': {'mem_limit':'1536m','environment':{'OPENSEARCH_JAVA_OPTS':'-Xms512m -Xmx512m'}},
