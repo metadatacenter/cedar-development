@@ -90,12 +90,12 @@ procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
    resolved so an expiry, a withdrawn tag or a moved digest is attributable. The cadence matters
    more than the depth. A build that only proves the images still build would have caught this one.
 
-8. **Capture a corrected train and verify startup from empty volumes before promotion.** The
+8. **Verify corrected image startup from empty volumes before promotion.** The
    completed `2.9.33-dev.20261107.2016` images cannot start a fresh stack without two additions:
    the resource server needs its matching admin-tool JAR, and Template Designer needs an entrypoint
    that verifies and configures its frozen page assets instead of rebuilding them at runtime.
-   Capture the Docker source fixes in a new immutable train and prove that it starts without the
-   compatibility mounts used by the hosted frontend performance baseline. Keep the old train's
+   Prove that a train containing the Docker source fixes starts without the compatibility mounts
+   used by the hosted frontend performance baseline. Keep the old train's
    tags immutable. Require empty-volume startup and real authenticated frontend checks before
    promotion; successful image builds alone did not expose these deployment failures.
 

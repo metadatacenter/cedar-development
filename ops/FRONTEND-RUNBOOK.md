@@ -278,7 +278,7 @@ existing calibration cohort. Both the three-day and thirty-day policies exclude 
 the same exceptions retain the fixed isolated CEE control's exact model and design-token
 dependencies. The isolated CED and Designer controls already resolve their internal dependencies
 from the retained npm registry.
-downloads alone do not extend ordinary artifact retention. The reviewed policy changes and
+Downloads alone do not extend ordinary artifact retention. The reviewed policy changes and
 server-side preview evidence are in [frontend-performance-retention.json](frontend-performance-retention.json).
 The previews simulated all artifact ages and proved that every other cleanup selection remained
 unchanged. Retire these exceptions explicitly when this baseline is no longer needed; do not
