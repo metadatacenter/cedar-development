@@ -15,3 +15,17 @@ test('interruption stops a preparation child without treating emitted output as 
     await assert.rejects(prepare('/does-not-exist',join(root,'lab'),'local.invalid',{signal:controller.signal}),{name:'AbortError'});
   } finally {clearTimeout(timer);await rm(root,{recursive:true,force:true});}
 });
+
+
+test('setup failure preserves structured cleanup errors, including failure to refresh credentials', async()=>{
+  const {cleanupAfterSetupFailure} = await import('./scenarios.mjs');
+  for (const cleanup of [async()=>['fixture still exists'], async()=>{throw new Error('cleanup login unavailable');}, async()=>[]]) {
+    const setup=new Error('fixture creation failed');
+    await assert.rejects(cleanupAfterSetupFailure(setup,cleanup),error=>{
+      assert.equal(error,setup);
+      assert.ok(Array.isArray(error.cleanupErrors));
+      if(error.cleanupErrors.length) assert.match(error.message,/cleanup:/);
+      return true;
+    });
+  }
+});

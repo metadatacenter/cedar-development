@@ -147,11 +147,11 @@ if (values.plan) {
         if (interrupted) break;
       }
     }
-  } catch(error) {report.setupError = error.message; console.error(error.stack);}
+  } catch(error) {report.setupError = error.message; report.cleanupErrors = error.cleanupErrors ?? []; console.error(error.stack);}
   finally {
     await browser?.close().catch(()=>{});
     if (lab) await new Promise(resolve => lab.server.close(resolve));
-    try {report.cleanupErrors = data ? await data.cleanup() : [];}
+    try {report.cleanupErrors = data ? await data.cleanup() : (report.cleanupErrors ?? []);}
     catch(error) {report.cleanupErrors = [error.message];}
     report.interrupted = interrupted;
     report.finishedAt = new Date().toISOString(); report.metadata.machine.loadAtEnd = loadavg();

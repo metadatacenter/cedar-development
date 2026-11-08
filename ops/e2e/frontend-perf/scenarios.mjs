@@ -48,6 +48,15 @@ export async function standaloneFixtures(root, domain, integratedScript, selecte
   }
 }
 
+export async function cleanupAfterSetupFailure(error, cleanup) {
+  let errors;
+  try {errors = await cleanup();}
+  catch (cleanupError) {errors = [cleanupError.message];}
+  error.cleanupErrors = errors;
+  if (errors.length) error.message += '; cleanup: '+errors.join('; ');
+  throw error;
+}
+
 export async function fixtures(directory) {
   const {actors, call, mutate, mintId} = await import('../rest/lib.mjs');
   const {assertSafeTargets} = await import('../rest-perf/lib.mjs');
@@ -92,7 +101,7 @@ export async function fixtures(directory) {
       assert.equal(opened.status,200,opened.text);
     }
     return {ids,folderId,cleanup};
-  } catch(error) {const errors = await cleanup(); if (errors.length) error.message += '; cleanup: '+errors.join('; '); throw error;}
+  } catch(error) {await cleanupAfterSetupFailure(error, cleanup);}
 }
 
 const visible = selector => async page => page.locator(selector).first().waitFor({state:'visible'});
