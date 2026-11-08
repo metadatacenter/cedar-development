@@ -271,6 +271,12 @@ on 2026-11-08 passed all 340 samples with verified fixture cleanup. Its
 retained the evidence as the first comparable daily run. Hosted and workstation measurements are
 separate cohorts; their timings are not a before/after comparison.
 
+**Open retention constraint:** the pinned train's Docker images and development npm packages
+currently inherit Nexus's three-day cleanup policy, which does not extend their life when they
+are downloaded. Retaining the report for 90 days does not retain those executable inputs. The
+fixed hosted baseline needs retained, digest-verified copies before it can collect 14 comparable
+daily runs; this is tracked in the frontend performance roadmap.
+
 ### Optional workstation scheduling
 
 The unattended sweep uses hosted CI; the former workstation LaunchAgent is removed. The local
