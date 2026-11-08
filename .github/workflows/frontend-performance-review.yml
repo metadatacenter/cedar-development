@@ -1,0 +1,71 @@
+name: Frontend performance readiness review
+
+on:
+  push:
+    branches: [develop]
+    paths: ['.github/workflows/frontend-performance-review.yml']
+  workflow_run:
+    workflows: ['Frontend performance calibration']
+    types: [completed]
+  schedule:
+    - cron: '47 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize archive restoration and notification deduplication across every trigger.
+concurrency:
+  group: frontend-performance-readiness-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      # Never execute code from a workflow_run payload or downloaded calibration artifact.
+      # This exact implementation is already on develop before the workflow reaches main.
+      - uses: actions/checkout@v7
+        with:
+          ref: 85263a9a13a5eec6a0b073b29566d2172b74617d
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify review and notification semantics
+        run: python -m unittest discover -v -s ops/e2e/frontend-perf -p 'test_calibration_review.py'
+
+      - name: Collect history, review comparable daily controls and notify milestones
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python ops/e2e/frontend-perf/calibration_review.py             --repository "$GITHUB_REPOSITORY" --output review             --notify --recipient martinjoconnor
+
+      - name: Publish the current evidence review
+        if: always()
+        run: |
+          if [ -f review/summary.md ]; then
+            cat review/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Review failed before evidence was available; no readiness conclusion.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Each successful default-branch run carries forward prior reports before adding new ones.
+      # Thus the raw calibration artifacts expiring after 30 days cannot reset a slow cohort.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: performance-calibration-history
+          path: |
+            review/history.json
+            review/review.json
+            review/summary.md
+          if-no-files-found: error
+          retention-days: 90
