@@ -364,6 +364,8 @@ On the same ephemeral Ubuntu runner, the final job checks out the captured CLI, 
 Docker-build and test-harness sources. It starts the verified images from empty volumes with no
 admin-tool or entrypoint compatibility mounts. OpenView, Monitoring and Bridging must configure
 production and non-production domains with exactly one hostname change and byte-exact restoration.
+All six modern frontend images must serve ES modules with a JavaScript MIME type and return 404
+for a missing module while preserving the existing JavaScript, CSS and HTML response types.
 The real nginx-served applications then pass all 17 modern frontend scenarios (34 normal-profile
 cold/warm checks), including authenticated Workspace, Designer, Monitoring and Bridging, public
 OpenView, content, and standalone CEE/CED/CETP. Only standalone fixtures use the private static lab;

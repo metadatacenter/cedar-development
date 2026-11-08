@@ -331,7 +331,12 @@ bootstrap uses the resource image's own admin-tool JAR; Template Designer verifi
 its frozen payload without rebuilding it. OpenView, Monitoring and Bridging configure their single
 reachable compiled `cedarDomain` setting from `CEDAR_HOST` at startup, including imported chunks.
 Missing/ambiguous settings and invalid hostname suffixes stop startup. Repeated configuration is
-idempotent, and returning to the production domain restores the original packaged bytes.
+idempotent, and returning to the production domain restores the original packaged bytes. The six
+modern frontend nginx configurations explicitly serve `.mjs` as JavaScript and return 404 for a
+missing module; the base image's default MIME table only covers `.js`. Image CI and the train's
+acceptance gate check the real HTTP headers and unchanged response bytes, including the existing
+JavaScript, CSS and HTML types. This covers Designer's host module and deferred component modules
+without changing the packaged UI.
 
 ## One-Time Docker Setup
 

@@ -1632,6 +1632,14 @@ jobs:
             python "$CEDAR_HOME/cedar-docker-build/tests/check_angular_image.py" "$image"
           done
 
+      - name: Verify modern frontend JavaScript module responses
+        run: |
+          for application in workspace template-designer openview monitoring bridging content; do
+            image="$CEDAR_IMAGE_PREFIX/cedar-frontend-$application:$TRAIN_VERSION"
+            docker pull "$image"
+            python "$CEDAR_HOME/cedar-docker-build/tests/check_frontend_modules.py" "$image"
+          done
+
       - name: Initialize an empty installation without compatibility mounts
         run: |
           python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" initialize --candidate-state "$GITHUB_WORKSPACE/build-trains"
