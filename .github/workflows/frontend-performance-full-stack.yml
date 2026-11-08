@@ -1,9 +1,6 @@
 name: Full-stack frontend performance
 
 on:
-  push:
-    branches: [develop]
-    paths: ['.github/workflows/frontend-performance-full-stack.yml']
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -36,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 6eb906f44ceada11aba068e17f8e458f6920ec13
+          ref: 44b8a1fac3a37d7b0693ed2ea4e811d54ad4fa76
           path: CEDAR/cedar-development
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -97,7 +94,7 @@ jobs:
         run: python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" monitor-account
       - name: Measure every modern frontend with real APIs and SSO
         env:
-          SAMPLES: ${{ inputs.samples || (github.event_name == 'push' && '1' || '5') }}
+          SAMPLES: ${{ inputs.samples || '5' }}
         run: bash "$CEDAR_HOME/cedar-cli/cli.sh" test frontend-performance --samples "$SAMPLES" --deployment-manifest "$RUNNER_TEMP/performance-inputs/manifest.json" --output "$RUNNER_TEMP/full-stack-performance"
       - name: Summarize measurement coverage
         if: always()
