@@ -45,7 +45,10 @@ export function loadingFailures(network, origin, deferred=[]) {
   const scripts = new Set();
   for (const resource of network.resources) {
     if (!origins.includes(new URL(resource.url).origin)) errors.push('Unexpected origin: '+resource.url);
-    if (resource.failed || !resource.complete) errors.push('Incomplete request: '+resource.url);
+    // Chromium aborts navigation/iframe requests after a successful no-content response.
+    // This is distinct from cancellation before a response or during an asset download.
+    const noContent = resource.canceled && resource.status === 204;
+    if ((resource.failed || !resource.complete) && !noContent) errors.push('Incomplete request: '+resource.url);
     if (deferred.some(pattern=>pattern.test(new URL(resource.url).pathname))) errors.push('Deferred code loaded eagerly: '+resource.url);
     if (/\.m?js$/.test(new URL(resource.url).pathname)) {
       if (scripts.has(resource.url)) errors.push('Duplicate script request: '+resource.url);

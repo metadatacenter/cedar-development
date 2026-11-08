@@ -479,8 +479,6 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
 
 ### 13. Extend and Calibrate Browser Performance Gates
 
-- Extend deterministic loading checks to the other modern hosts, including deferred dependencies
-  and duplicate downloads.
 - Collect paired CI history on the selected runner before enforcing readiness, blocking or CLS
   budgets. Review reference changes and calibrate budget increases against retained evidence.
   Keep machine-dependent timings outside the local reactor.

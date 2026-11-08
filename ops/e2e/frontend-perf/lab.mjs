@@ -28,21 +28,24 @@ export async function inventory(root) {
   return {sha256:hash(JSON.stringify(files)), files};
 }
 
-async function command(executable, args, cwd, log) {
+export async function command(executable, args, cwd, log, signal) {
   const output = [];
-  const child = spawn(executable, args, {cwd, env:{...process.env, NG_BUILD_MAX_WORKERS:'4'}});
+  const child = spawn(executable, args, {cwd, signal, env:{...process.env, NG_BUILD_MAX_WORKERS:'4'}});
   child.stdout.on('data', b => output.push(b)); child.stderr.on('data', b => output.push(b));
-  const code = await new Promise((accept, reject) => {child.once('error', reject); child.once('close', accept);});
-  await writeFile(log, Buffer.concat(output));
+  let code;
+  try {code = await new Promise((accept, reject) => {child.once('error', reject); child.once('close', accept);});}
+  finally {await writeFile(log, Buffer.concat(output));}
   if (code !== 0) throw new Error(`Production build failed (${code}); see ${log}`);
 }
 
 // Copies/builds into the report directory. Never restarts, installs into or edits a checkout.
-export async function prepare(home, directory, domain) {
+export async function prepare(home, directory, domain, {signal}={}) {
+  signal?.throwIfAborted();
   await mkdir(directory, {recursive:true});
   const runtime = JSON.parse(await readFile(join(home, '.reactor/runtime.json'), 'utf8'));
   const roots = {}, evidence = {reactor:runtime, sources:{}, outputs:{}, domain, adjustments:[]};
   for (const [name, [repo, output]] of Object.entries(apps)) {
+    signal?.throwIfAborted();
     const source = join(home, repo), target = join(directory, name);
     evidence.sources[name] = {repository:repo,
       revision:execFileSync('git', ['rev-parse', 'HEAD'], {cwd:source,encoding:'utf8'}).trim(),
@@ -63,7 +66,7 @@ export async function prepare(home, directory, domain) {
         evidence.adjustments.push({application:name,file:'src/environments/environment.production.ts',change:'Local deployment domain only'});
       }
       await command(process.execPath, [join(source, 'node_modules/@angular/cli/bin/ng.js'), 'build', '--configuration=production'],
-        copy, join(directory, `${name}-build.log`));
+        copy, join(directory, `${name}-build.log`), signal);
       await cp(join(copy, output), target, {recursive:true});
     } else {
       await cp(join(source, output), target, {recursive:true});

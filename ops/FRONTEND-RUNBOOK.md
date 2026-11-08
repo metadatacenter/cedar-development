@@ -131,9 +131,19 @@ This validates the comparison machinery, not a speed improvement or a Linux CI b
 
 `cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
 part of the frontend reactor, whole-stack smoke, train or release gates. No performance budget
-fails a run. A broken page, unavailable account or failed fixture cleanup does produce a
-nonzero exit and an explicitly incomplete report; failed measurements never enter medians.
+fails a run. A broken page, failed/pending asset request, duplicate script request, unexpected external
+origin, unavailable account or failed fixture cleanup does produce a nonzero exit and an explicitly
+incomplete report; failed measurements never enter medians.
 Browser operations have a 90-second availability timeout, and sign-in setup has 60 seconds.
+Workspace and Bridging landing pages must keep the standalone editor deferred. Designer and
+the equivalent CED+CEF page must keep RDF and compatibility validation code deferred. These
+loading contracts cover every modern scenario in the full-stack sweep; they do not impose
+machine-dependent timing budgets. The old equivalent-page font CORS defect is fixed by the
+shared lab server and now fails the suite if it returns. Chromium marks successful HTTP 204
+iframe responses as canceled; these no-content responses are accepted, while interrupted
+asset downloads still fail. A 2026-11-08 verification covered all 17 modern scenarios with
+normal/constrained profiles and cold/warm loads: 68/68 passed, with no setup or cleanup errors.
+This one-repetition run verifies coverage and loading contracts, not timing budgets.
 
 Use the pinned Node version and a running local `.orgx` backend/Keycloak stack. Run it while
 builds, smoke tests and other benchmarks are idle. It neither restarts nor redeploys the stack.

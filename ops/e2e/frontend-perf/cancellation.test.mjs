@@ -1,0 +1,17 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp, rm, readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {command, prepare} from './lab.mjs';
+
+test('interruption stops a preparation child without treating emitted output as a successful build', async()=>{
+  const root=await mkdtemp(join(tmpdir(),'cedar-perf-cancel-'));
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),200);
+  try {
+    await assert.rejects(command(process.execPath,['-e',"console.log('started');setInterval(()=>{},1000)"],root,join(root,'build.log'),controller.signal),{name:'AbortError'});
+    assert.match(await readFile(join(root,'build.log'),'utf8'),/started/);
+    await assert.rejects(prepare('/does-not-exist',join(root,'lab'),'local.invalid',{signal:controller.signal}),{name:'AbortError'});
+  } finally {clearTimeout(timer);await rm(root,{recursive:true,force:true});}
+});

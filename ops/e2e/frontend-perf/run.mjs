@@ -5,6 +5,7 @@ import {parseArgs} from 'node:util';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
 import {profiles, instrumentation, pageMetrics, summarize, htmlReport} from './metrics.mjs';
+import {modernLoadingFailures} from './loading.mjs';
 import {prepare, serve, inventory} from './lab.mjs';
 import {standaloneFixtures, fixtures, scenarios, authenticate, scenarioFamily} from './scenarios.mjs';
 
@@ -36,6 +37,7 @@ if (values.plan) {
   await mkdir(directory,{recursive:true});
   if ((await readdir(directory)).length) throw new Error('Output directory must be empty; preserve earlier measurements');
   let browser, lab, data, interrupted = false;
+  const preparation = new AbortController();
   const report = {schemaVersion:1,startedAt:new Date().toISOString(),reportingOnly:true,samples:[],metadata:{
     repetitions,profiles:Object.fromEntries(selectedProfiles.map(name => [name,profiles[name]])), viewport:{width:1440,height:1000},
     machine:{platform:platform(),arch:arch(),release:release(),cpu:cpus()[0]?.model,logicalCpus:cpus().length,memoryBytes:totalmem(),loadAtStart:loadavg()},
@@ -57,10 +59,11 @@ if (values.plan) {
     const csv = [columns.join(','), ...report.samples.map(s => columns.map(k => JSON.stringify(s[k] ?? s.metrics?.[k] ?? '')).join(','))].join('\n');
     await writeFile(join(directory,'samples.csv'),csv+'\n');
   };
-  const stop = () => {interrupted = true; void browser?.close().catch(()=>{});};
+  const stop = () => {interrupted = true; preparation.abort(); void browser?.close().catch(()=>{});};
   process.on('SIGINT',stop); process.on('SIGTERM',stop);
   try {
-    const prepared = await prepare(home,join(directory,'lab'),domain);
+    const prepared = await prepare(home,join(directory,'lab'),domain,{signal:preparation.signal});
+    preparation.signal.throwIfAborted();
     await standaloneFixtures(prepared.componentRoot,domain,prepared.integratedScript);
     prepared.evidence.outputs.standalone = await inventory(prepared.componentRoot);
     prepared.evidence.suite = await inventory(new URL('.',import.meta.url).pathname);
@@ -72,7 +75,9 @@ if (values.plan) {
     report.metadata.suite = {revision:execFileSync('git',['rev-parse','HEAD'],{cwd:new URL('.',import.meta.url),encoding:'utf8'}).trim(),
       sha256:prepared.evidence.suite.sha256};
     lab = await serve(prepared.roots,join(directory,'lab'));
+    preparation.signal.throwIfAborted();
     data = await fixtures(directory);
+    preparation.signal.throwIfAborted();
     let cases = choose(scenarios(domain,data.ids,data.folderId));
     report.metadata.scenarios = cases.map(({id,readiness,actionName}) => ({id,readiness,action:actionName ?? null}));
     browser = await chromium.launch({headless:true,handleSIGINT:false,handleSIGTERM:false,
@@ -115,6 +120,7 @@ if (values.plan) {
                 await page.waitForTimeout(1000);
                 const snapshot = await page.evaluate(() => window.__cedarPerf.snapshot());
                 sample.metrics = pageMetrics(snapshot,readyMs,meter.snapshot()); meter.stop();
+                errors.push(...modernLoadingFailures(sample.metrics,scenario.id,domain));
                 sample.diagnostics = {layoutShifts:snapshot.entries['layout-shift'],longTasks:snapshot.entries.longtask,
                   largestContentfulPaint:snapshot.entries['largest-contentful-paint']};
                 if (scenario.action && cache === 'warm') {
