@@ -86,6 +86,11 @@ class HostedStackTest(unittest.TestCase):
             with patch.object(ci.subprocess,'check_output',side_effect=[json.dumps([container]),json.dumps([original])]):
                 ci.verify_unmodified_containers(completion,Path('/runner/CEDAR'))
         check()
+        container['Mounts'].append({'Type':'volume','Name':'resource_state','Destination':'/state'})
+        check()
+        container['Mounts'][-1]['Name']='unrecognized'
+        with self.assertRaisesRegex(ValueError,'overlay'):check()
+        container['Mounts'].pop()
         container['Mounts'].append({'Type':'bind','Destination':'/cedar/app/cedar-admin-tool.jar'})
         with self.assertRaisesRegex(ValueError,'overlay'):check()
         container['Mounts']=[];container['Config']={'Entrypoint':['/replacement.sh']}

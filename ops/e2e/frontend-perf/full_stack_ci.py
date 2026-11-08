@@ -177,7 +177,9 @@ def verify_unmodified_containers(completion, home):
             terminology = (container == 'server-terminology' and target == '/cedar/term'
                            and mount['Type'] == 'bind' and not mount.get('RW', True)
                            and Path(mount['Source']).resolve() == (home/'cedar-term').resolve())
-            if not terminology and (not allowed or mount['Type'] != 'volume'):
+            bootstrap_state = (container == 'server-resource' and target == '/state'
+                               and mount['Type'] == 'volume' and mount.get('Name') == 'resource_state')
+            if not terminology and not bootstrap_state and (not allowed or mount['Type'] != 'volume'):
                 raise ValueError('Unexpected application overlay in '+container+': '+target)
 
 
