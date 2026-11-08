@@ -484,9 +484,8 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
   summaries cannot stand in for this coverage. Extend deterministic loading checks to the other
   modern hosts, including deferred dependencies and duplicate downloads.
 - Collect paired CI history on the selected runner before enforcing readiness, blocking or CLS
-  budgets. Define an approved long-term baseline alongside PR-base comparisons so repeated small
-  regressions cannot accumulate. Add a bounded rerun for inconclusive timing and require explicit
-  review for budget/baseline increases. Keep machine-dependent timings outside the local reactor.
+  budgets. Review reference changes and calibrate budget increases against retained evidence.
+  Keep machine-dependent timings outside the local reactor.
 - Schedule the complete 17-scenario real-stack sweep on a controlled idle runner with authorized
   test accounts, report retention and cleanup verification. Keep it reporting-only until backend
   and authentication variability are characterized. Exclude legacy applications.

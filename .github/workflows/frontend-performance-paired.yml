@@ -24,7 +24,7 @@ jobs:
   compare:
     name: Paired rendering (advisory timing, required loading)
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
       COMPONENT: ${{ inputs.component }}
@@ -48,6 +48,25 @@ jobs:
           ref: ${{ inputs.baseline-ref }}
           path: baseline-source
 
+      - name: Read the fixed post-optimization reference
+        id: reference
+        run: |
+          node --input-type=module <<'JS' >> "$GITHUB_OUTPUT"
+          import {readFileSync} from 'node:fs';
+          const config=JSON.parse(readFileSync('cedar-development/ops/e2e/frontend-perf/references.json','utf8'));
+          const sha=config.components[process.env.COMPONENT];
+          if(!/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('Missing fixed reference');
+          console.log('sha='+sha);
+          console.log('bundle='+(sha===process.env.BASELINE_REF?'baseline.js':'reference.js'));
+          JS
+
+      - name: Check out the fixed reference when it differs from the comparison base
+        if: steps.reference.outputs.sha != inputs.baseline-ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.reference.outputs.sha }}
+          path: reference-source
+
       - name: Use Node 24
         uses: actions/setup-node@v7
         with:
@@ -65,19 +84,27 @@ jobs:
           name: ${{ inputs.candidate-artifact }}
           path: candidate
 
-      - name: Build the baseline before starting measurements
-        working-directory: baseline-source
+      - name: Build comparison inputs before starting measurements
+        env:
+          REFERENCE_BUNDLE: ${{ steps.reference.outputs.bundle }}
         run: |
-          npm ci
-          if [ "$COMPONENT" = cee ]; then
-            npm --prefix visual ci
-            npm run build:production
-            npm --prefix visual run bundle
-            cp visual/public/cedar-embeddable-editor.js ../baseline.js
-          else
-            npm run build
-            npm run bundle
-            cp dist-bundle/cedar-embeddable-designer.js ../baseline.js
+          build_bundle() (
+            cd "$1"
+            npm ci
+            if [ "$COMPONENT" = cee ]; then
+              npm --prefix visual ci
+              npm run build:production
+              npm --prefix visual run bundle
+              cp visual/public/cedar-embeddable-editor.js "$GITHUB_WORKSPACE/$2"
+            else
+              npm run build
+              npm run bundle
+              cp dist-bundle/cedar-embeddable-designer.js "$GITHUB_WORKSPACE/$2"
+            fi
+          )
+          build_bundle baseline-source baseline.js
+          if [ "$REFERENCE_BUNDLE" = reference.js ]; then
+            build_bundle reference-source reference.js
           fi
 
       - name: Install the locked harness and browser
@@ -86,18 +113,22 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           ./node_modules/.bin/playwright install --with-deps chromium
 
-      - name: Measure five alternating pairs with cold and warm caches
+      - name: Measure paired base and fixed-reference comparisons
+        env:
+          REFERENCE_BUNDLE: ${{ steps.reference.outputs.bundle }}
+          REFERENCE_REF: ${{ steps.reference.outputs.sha }}
         working-directory: cedar-development/ops/e2e
         run: |
           case "$COMPONENT" in
             cee) bundle=cedar-embeddable-editor.js ;;
             ced) bundle=cedar-embeddable-designer.js ;;
           esac
-          node frontend-perf/isolated.mjs --component="$COMPONENT" \
+          node frontend-perf/compare.mjs --component="$COMPONENT" \
             --baseline="$GITHUB_WORKSPACE/baseline.js" \
             --candidate="$GITHUB_WORKSPACE/candidate/$bundle" \
             --baseline-revision="$BASELINE_REF" --candidate-revision="$CANDIDATE_REF" \
-            --samples=5 --output="$GITHUB_WORKSPACE/performance-report"
+            --reference="$GITHUB_WORKSPACE/$REFERENCE_BUNDLE" --reference-revision="$REFERENCE_REF" \
+            --output="$GITHUB_WORKSPACE/performance-report"
 
       - name: Publish comparison summary
         if: always()
@@ -113,11 +144,13 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import {readFileSync, existsSync} from 'node:fs';
-          if (existsSync('performance-report/report.json')) {
-            const report = JSON.parse(readFileSync('performance-report/report.json', 'utf8'));
-            for (const row of report.comparison ?? []) {
-              if (row.status !== 'within-advisory-tolerance') {
-                console.log(`::warning::${row.scenario}/${row.cache} ${row.metric}: ${row.status}. See performance summary; timing budgets are advisory.`);
+          if (existsSync('performance-report/comparison.json')) {
+            const report = JSON.parse(readFileSync('performance-report/comparison.json', 'utf8'));
+            for (const [label, comparison] of Object.entries(report.comparisons)) {
+              for (const row of comparison.attempts[comparison.selected-1]?.report.comparison ?? []) {
+                if (row.status !== 'within-advisory-tolerance') {
+                  console.log(`::warning::${label}: ${row.scenario}/${row.cache} ${row.metric}: ${row.status}. See performance summary; timing budgets are advisory.`);
+                }
               }
             }
           }
@@ -129,8 +162,10 @@ jobs:
         with:
           name: standalone-${{ inputs.component }}-performance
           path: |
-            performance-report/report.json
+            performance-report/comparison.json
             performance-report/summary.md
-            performance-report/*.png
+            performance-report/*/report.json
+            performance-report/*/summary.md
+            performance-report/*/*.png
           if-no-files-found: warn
           retention-days: 30

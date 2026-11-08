@@ -68,8 +68,11 @@ A timing warning requires the median paired increase to exceed both 10% and 100 
 readiness, or both 15% and 50 ms for blocking. CLS uses a provisional 0.02 increase.
 These are investigation triggers, not approved budgets. Fewer than five pairs, missing metrics
 or median absolute deviation above the tolerance produce an explicit inconclusive assessment.
-Inconclusive timing requires another run; it is not evidence of a performance pass. A complete
-advisory run still exits zero. Load/measurement failures always exit nonzero.
+In CI, a complete but inconclusive comparison gets one further full paired run. Both attempts
+are retained, with the second selected; persistent noise stays explicitly inconclusive. Broken
+loading or incomplete coverage never retries into a pass. A clear regression does not rerun
+to seek a faster result. A complete advisory run still exits zero; load/measurement failures
+always exit nonzero.
 
 This measures standalone rendering, not sign-in, production latency, host integration, field
 INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute for the
@@ -79,14 +82,19 @@ independently. Run the full-stack suite below for authenticated hosts and real A
 The CEE and CED `Test` workflows call the pinned reusable
 `.github/workflows/frontend-performance-paired.yml`. Pull requests compare their base SHA
 with the tested merge candidate; pushes compare the previous branch head with the candidate.
-The existing candidate build artifact is reused. Only the baseline is built in the comparison
-job, and all builds/installations finish before Chromium starts. Both versions are measured
+The existing candidate build artifact is reused. The comparison also builds the fixed source
+reference in `ops/e2e/frontend-perf/references.json`, so small regressions cannot disappear by
+merging them one at a time. The reference never advances automatically: changing it requires
+an explicit reviewed source change and matching harness-pin updates. Byte-identical reference
+and PR-base outputs share measurements while both source revisions remain recorded. All
+comparison builds/installations finish before Chromium starts. Both versions are measured
 sequentially on the same Ubuntu 24.04 runner with the harness lockfile's Chromium.
 No performance job runs inside the development reactor, and no package pins are rewritten.
 
 Loading failures fail the CI job; CEE dev publication also waits for that job. Timing/CLS
 warnings and inconclusive assessments appear in the job summary and workflow annotations.
-Reports and screenshots are retained for 30 days. A baseline that cannot build is a setup
+Reports, every retry and screenshots are retained for 30 days. `comparison.json` records the
+selected attempts and source references; each attempt retains its complete `report.json`. A baseline that cannot build is a setup
 failure, never a passing comparison. To update the harness, update both the reusable-workflow
 SHA and its `harness-ref` input together. The release-tooling CI tests measurement/failure
 semantics without a CEDAR stack on Linux and macOS.
