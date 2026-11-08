@@ -1,0 +1,144 @@
+name: Full-stack frontend performance
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Repetitions per scenario/profile/cache
+        type: choice
+        options: ['5', '1']
+        default: '5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-performance-full-stack
+  cancel-in-progress: false
+
+env:
+  CEDAR_HOME: ${{ github.workspace }}/CEDAR
+  CEDAR_IMAGE_PREFIX: nexus.bmir.stanford.edu/docker-cedar
+  CEDAR_BASE_IMAGE_PREFIX: nexus.bmir.stanford.edu/docker-cedar-internal
+  CEDAR_TRAIN_VERSION: 2.9.33-dev.20261107.2016
+  # Direct fixture tokens stay on the runner loopback; browser SSO uses the real HTTPS vhost.
+  CEDAR_KEYCLOAK_BASE: http://127.0.0.1:8080
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 44b8a1fac3a37d7b0693ed2ea4e811d54ad4fa76
+          path: CEDAR/cedar-development
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-cli
+          ref: 6a2c628a0d889938267046c252856922013e8cd2
+          path: CEDAR/cedar-cli
+      - uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-docker-build
+          ref: 7d63793aa5a7988bbd01ec10fd62f1a982633a75
+          path: CEDAR/cedar-docker-build
+      - uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-docker-deploy
+          ref: 2a81de8bcd15a68668e3cddc7f9f496489158d7a
+          path: CEDAR/cedar-docker-deploy
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.22.1
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install the control CLI
+        run: |
+          python -m venv "$CEDAR_HOME/cedar-cli/.venv"
+          "$CEDAR_HOME/cedar-cli/.venv/bin/pip" install -r "$CEDAR_HOME/cedar-cli/requirements.txt"
+      - name: Install the browser harness
+        working-directory: CEDAR/cedar-development/ops/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Initialize an isolated installation
+        run: |
+          python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" initialize
+          bash "$CEDAR_HOME/cedar-cli/cli.sh" mode docker
+          bash "$CEDAR_HOME/cedar-cli/cli.sh" env artifact-key init
+          bash "$CEDAR_HOME/cedar-cli/cli.sh" docker setup one-time-setup
+          sudo sysctl -w vm.max_map_count=262144
+          python - <<'PY' | sudo tee -a /etc/hosts > /dev/null
+          names='auth resource user group messaging monitor bridge terminology open openview workspace designer monitoring bridging content cedar shared artifact worker repo'.split()
+          print('127.0.0.1 '+' '.join(n+'.metadatacenter.orgx' for n in names))
+          PY
+      - name: Authenticate to the immutable image registry
+        env:
+          BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+          BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+        run: printf '%s' "$BMIR_NEXUS_PASSWORD" | docker login nexus.bmir.stanford.edu --username "$BMIR_NEXUS_USERNAME" --password-stdin
+      - name: Start and verify the completed train
+        run: bash "$CEDAR_HOME/cedar-cli/cli.sh" docker start all --train "$CEDAR_TRAIN_VERSION" --pull always --timeout 600
+      - name: Capture verified published frontend assets
+        run: python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" assets --output "$RUNNER_TEMP/performance-inputs"
+      - name: Create the isolated read-only monitoring identity
+        run: python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" monitor-account
+      - name: Measure every modern frontend with real APIs and SSO
+        env:
+          SAMPLES: ${{ inputs.samples || '5' }}
+        run: bash "$CEDAR_HOME/cedar-cli/cli.sh" test frontend-performance --samples "$SAMPLES" --deployment-manifest "$RUNNER_TEMP/performance-inputs/manifest.json" --output "$RUNNER_TEMP/full-stack-performance"
+      - name: Summarize measurement coverage
+        if: always()
+        run: |
+          python - <<'PYTHON'
+          import json, os, shutil
+          from pathlib import Path
+          report = Path(os.environ['RUNNER_TEMP'])/'full-stack-performance/report.json'
+          manifest = Path(os.environ['RUNNER_TEMP'])/'performance-inputs/manifest.json'
+          if manifest.exists():
+              report.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(manifest, report.parent/'deployment-manifest.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('## Hosted full-stack frontend performance\n\nTiming values are reporting-only.\n\n')
+              if report.exists():
+                  data = json.loads(report.read_text())
+                  passed = sum(sample['status'] == 'ok' for sample in data['samples'])
+                  summary.write(f"Complete: **{data.get('complete', False)}**; successful samples: **{passed}/{len(data['samples'])}**.\n\n")
+                  summary.write('Download `full-stack-performance` for HTML/JSON reports, CSV, screenshots and exact input identities.\n')
+              else:
+                  summary.write('Setup failed before measurements; inspect the sanitized stack diagnostics.\n')
+          PYTHON
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: full-stack-performance
+          path: |
+            ${{ runner.temp }}/full-stack-performance/report.json
+            ${{ runner.temp }}/full-stack-performance/report.html
+            ${{ runner.temp }}/full-stack-performance/samples.csv
+            ${{ runner.temp }}/full-stack-performance/fixtures.json
+            ${{ runner.temp }}/full-stack-performance/*.png
+            ${{ runner.temp }}/full-stack-performance/lab/artifacts.json
+            ${{ runner.temp }}/full-stack-performance/deployment-manifest.json
+          retention-days: 90
+      - name: Record sanitized stack diagnostics
+        if: always()
+        run: python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" diagnostics --output "$RUNNER_TEMP/stack-diagnostics"
+      - name: Stop the ephemeral stack
+        if: always()
+        run: bash "$CEDAR_HOME/cedar-cli/cli.sh" docker stop all
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: full-stack-diagnostics
+          path: ${{ runner.temp }}/stack-diagnostics
+          retention-days: 14
