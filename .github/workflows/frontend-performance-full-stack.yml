@@ -4,6 +4,8 @@ on:
   push:
     branches: [develop]
     paths: ['.github/workflows/frontend-performance-full-stack.yml']
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       samples:
@@ -24,6 +26,8 @@ env:
   CEDAR_IMAGE_PREFIX: nexus.bmir.stanford.edu/docker-cedar
   CEDAR_BASE_IMAGE_PREFIX: nexus.bmir.stanford.edu/docker-cedar-internal
   CEDAR_TRAIN_VERSION: 2.9.33-dev.20261107.2016
+  # Direct fixture tokens stay on the runner loopback; browser SSO uses the real HTTPS vhost.
+  CEDAR_KEYCLOAK_BASE: http://127.0.0.1:8080
 
 jobs:
   measure:
@@ -32,6 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: e71118ce0de9008f184a9abb5667990db759b686
           path: CEDAR/cedar-development
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -92,8 +97,25 @@ jobs:
         run: python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" monitor-account
       - name: Measure every modern frontend with real APIs and SSO
         env:
-          SAMPLES: ${{ inputs.samples || '1' }}
+          SAMPLES: ${{ inputs.samples || (github.event_name == 'push' && '1' || '5') }}
         run: bash "$CEDAR_HOME/cedar-cli/cli.sh" test frontend-performance --samples "$SAMPLES" --deployment-manifest "$RUNNER_TEMP/performance-inputs/manifest.json" --output "$RUNNER_TEMP/full-stack-performance"
+      - name: Summarize measurement coverage
+        if: always()
+        run: |
+          python - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          report = Path(os.environ['RUNNER_TEMP'])/'full-stack-performance/report.json'
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('## Hosted full-stack frontend performance\n\nTiming values are reporting-only.\n\n')
+              if report.exists():
+                  data = json.loads(report.read_text())
+                  passed = sum(sample['status'] == 'ok' for sample in data['samples'])
+                  summary.write(f"Complete: **{data['complete']}**; successful samples: **{passed}/{len(data['samples'])}**.\n\n")
+                  summary.write('Download `full-stack-performance` for HTML/JSON reports, CSV, screenshots and exact input identities.\n')
+              else:
+                  summary.write('Setup failed before measurements; inspect the sanitized stack diagnostics.\n')
+          PYTHON
       - uses: actions/upload-artifact@v7
         if: always()
         with:
