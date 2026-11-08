@@ -103,7 +103,7 @@ jobs:
             ${{ runner.temp }}/full-stack-performance/report.html
             ${{ runner.temp }}/full-stack-performance/samples.csv
             ${{ runner.temp }}/full-stack-performance/fixtures.json
-            ${{ runner.temp }}/full-stack-performance/screenshots
+            ${{ runner.temp }}/full-stack-performance/*.png
             ${{ runner.temp }}/full-stack-performance/lab/artifacts.json
             ${{ runner.temp }}/performance-inputs/manifest.json
           retention-days: 90

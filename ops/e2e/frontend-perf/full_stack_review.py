@@ -35,6 +35,10 @@ def validate(report):
     if meta['repetitions'] != 5 or set(meta['profiles']) != {'normal', 'constrained'}:
         raise ValueError('Requires five repetitions and both profiles')
     cohort = {k:meta[k] for k in ('machine', 'browser', 'node', 'profiles', 'viewport', 'sources')}
+    cohort['machine'] = dict(meta['machine'])
+    # Kernel reservations can vary by a few MiB between otherwise identical hosted runners.
+    # Keep exact RAM in the raw report, but group by the physical memory class.
+    cohort['machine']['memoryGiB'] = round(cohort['machine'].pop('memoryBytes') / (1024**3))
     cohort['suite'] = meta['suite']['sha256']
     cohort['deployment'] = {k:deployment[k] for k in ('train', 'images', 'resourceLimits', 'tooling')}
     if not all(cohort[k] for k in ('browser', 'node', 'suite', 'sources')) or not all(cohort['machine'].values()):

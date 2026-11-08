@@ -145,7 +145,7 @@ changes start a new cohort rather than silently mixing distributions.
 ### Hosted readiness review and notifications
 
 `Frontend performance readiness review` runs entirely on GitHub-hosted Ubuntu runners after
-calibration workflows complete, daily at 05:47 UTC as a fallback, and on manual dispatch. Its
+calibration or full-stack measurement workflows complete, daily at 05:47 UTC as a fallback, and on manual dispatch. Its
 workflow lives identically on `main` and `develop` and checks out a pinned, tested review
 implementation. It never executes downloaded artifact contents as code. Updating the implementation
 requires updating that pin on both branches, keeping release integration consistent.
@@ -154,8 +154,8 @@ The review counts one earliest complete successful control per UTC date, separat
 component and comparable CPU/platform, browser, Node, suite, reference artifact and measurement
 settings. Failed/missing/expired reports, incomplete coverage and duplicate same-day runs cannot
 inflate the count. Noisy successful controls count and remain in the review. CEE, CED and Designer/
-equivalent CEF can reach readiness independently; authenticated workstation results are not required
-for these hosted recommendations.
+equivalent CEF can reach readiness independently; full-stack results are reviewed separately
+from these paired component controls.
 
 After 14 dates, a fixed rolling window of the latest 14 daily controls is assessed for readiness,
 blocking and CLS. It reports paired median changes, ranges, median absolute deviation, baseline
@@ -178,9 +178,16 @@ there is no history. If the review itself stops for longer than artifact retenti
 must be collected again. Repository code, package pins and gate settings are never modified by the
 review. The earlier app-based review is superseded by this hosted workflow.
 
-The local authenticated full-stack sweep remains reporting-only on the idle workstation. Moving
-its execution to CI would additionally require a hosted test stack and its authorized accounts;
-this readiness workflow neither starts that stack nor claims to assess its SSO/backend variability.
+`full-stack-performance-history` separately retains complete hosted full-stack reports and carries
+its archive forward on each successful default-branch review. A usable day requires all 340 samples
+(17 scenarios × two profiles × cold/warm × five repetitions), successful setup and verified fixture
+cleanup. Train images, standalone package sources, CLI/deployment tooling, suite, CPU, browser, Node
+and resource limits define a cohort; newly generated runtime configuration does not split it.
+The earliest complete run per UTC day counts, including slow observations. After 14 comparable
+dates, the review notifies the same GitHub issue that full-stack variability is ready for human
+review. Per-scenario daily medians, ranges, within-run and between-day median absolute deviations
+are retained in `full-stack-review.json`. These daily measurements are unpaired: they do not
+establish a false-positive rate or automatically approve timing thresholds.
 
 ## Reporting-only performance suite
 
@@ -210,6 +217,38 @@ cedarcli test frontend-performance --samples 5
 # A shorter investigation of the standalone components:
 cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,cee-standalone-large,ced-standalone-small,ced-standalone-large
 ```
+
+### Hosted full-stack measurements
+
+`Full-stack frontend performance` provisions a fresh Ubuntu 24.04 GitHub-hosted runner and runs
+all modern scenarios against real Docker-hosted CEDAR APIs and Keycloak. It consumes the completed
+immutable train `2.9.33-dev.20261107.2016`; image digests and standalone CEE/CED/term-picker tarball
+hashes are verified before measuring. This is a fixed calibration baseline, not a moving develop
+build. Updating the train or pinned tooling intentionally starts a new comparable cohort.
+
+The job generates private ephemeral datastore/service credentials and a fresh read-only monitoring
+identity, uses only synthetic fixtures, and contacts no production CEDAR deployment. It uses the
+existing Nexus image credentials to pull published images. No self-hosted runner, workstation
+session, local monitoring account or open application is needed. Fixed text-field scenarios need
+no production terminology corpus and do not benchmark external BioPortal searches.
+
+Published application assets are copied from the verified containers into the existing HTTPS
+performance lab, with real SSO/API calls still reaching the isolated stack. Standalone bundles come
+from the same train's verified npm completion record. `--deployment-manifest` selects these inputs
+without a local reactor build; the default developer command continues to use local sources.
+All resource ceilings, source identities, image digests, browser/Node versions and machine metadata
+are recorded. Java services have 512 MiB heaps / 768 MiB limits, OpenSearch and Neo4j 512 MiB heaps /
+1536 MiB limits, and Keycloak a 512 MiB heap / 1024 MiB limit. These are CI fixture settings, not
+production sizing guidance. Shared hosted hardware can be noisy; timings stay reporting-only.
+
+Reports, CSV, screenshots and immutable input evidence are retained as `full-stack-performance`
+for 90 days, sanitized service diagnostics for 14 days. The readiness review archives compact
+measurements beyond individual artifact retention. The job stops its stack even after failures;
+GitHub disposes of the runner and its temporary volumes. Broken pages, loading contracts and
+fixture cleanup still fail the job; timing values alone do not.
+
+Manual dispatch accepts five repetitions for calibration or one for a coverage check. A single-
+repetition run has 68 samples and never counts toward the 14-day full-stack review.
 
 ### Idle workstation schedule
 

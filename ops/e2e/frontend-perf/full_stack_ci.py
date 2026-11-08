@@ -18,6 +18,8 @@ TRAIN = '2.9.33-dev.20261107.2016'
 def guard(home):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted':
         raise ValueError('This initializer is restricted to an ephemeral GitHub-hosted runner')
+    if os.environ.get('CEDAR_TRAIN_VERSION', TRAIN) != TRAIN:
+        raise ValueError('Workflow and asset capture must select the same immutable train')
     workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
     if home.resolve() != workspace / 'CEDAR':
         raise ValueError('CI installation must be GITHUB_WORKSPACE/CEDAR')
