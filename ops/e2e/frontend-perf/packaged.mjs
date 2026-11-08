@@ -59,6 +59,13 @@ export async function preparePackaged(manifestPath, directory, domain, {signal}=
     evidence.sources[name]=entry.source;
   }
   roots[`performance.${domain}`]=componentRoot;
-  const integratedScript=await designerDelivery(join(directory,'designer'),domain);
+  let integratedScript=await designerDelivery(join(directory,'designer'),domain);
+  if (deployed) {
+    // The equivalent embedded fixture is a separate consumer, not a deployed application.
+    // Give it unchanged component assets on its own origin; production Designer does not
+    // promise cross-origin font serving. The actual Designer pages still use deployment nginx.
+    await cp(join(directory,'designer/components'),join(componentRoot,'components'),{recursive:true});
+    integratedScript=integratedScript.replace(`https://designer.${domain}/`,`https://performance.${domain}/`);
+  }
   return {roots,evidence,componentRoot,integratedScript};
 }

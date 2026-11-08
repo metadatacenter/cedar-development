@@ -49,6 +49,8 @@ test('published deployment inputs preserve bytes and standalone bundles, rejecti
     const direct=await preparePackaged(path,join(root,'direct'),'metadatacenter.orgx');
     assert.deepEqual(Object.keys(direct.roots),['performance.metadatacenter.orgx']);
     assert.equal(direct.evidence.deployment.mode,'direct');
+    assert.ok(direct.integratedScript.startsWith('https://performance.metadatacenter.orgx/components/'));
+    assert.equal(await readFile(join(direct.componentRoot,'components/cedar-editors.js'),'utf8'),'/* shared editors */');
     assert.deepEqual(direct.evidence.adjustments,[]);
     assert.equal(await readFile(join(direct.componentRoot,'cee.js'),'utf8'),'/* cee standalone */');
     manifest.bootstrap.compatibilityMounts=true; await writeFile(path,JSON.stringify(manifest));

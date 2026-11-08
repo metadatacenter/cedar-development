@@ -35,7 +35,7 @@ export async function standaloneFixtures(root, domain, integratedScript, selecte
     if (integrated && !integratedScript) throw new Error('Missing equivalent Designer component delivery');
     await writeFile(join(root,`${name}.html`), `<!doctype html><html lang="en"><meta charset="utf-8"><title>${name.toUpperCase()} performance fixture</title>
       <link rel="icon" href="data:,"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:24px} ${tag}{display:block;min-height:600px}</style>
-      ${integrated ? `<link rel="stylesheet" href="https://designer.${domain}/components/fonts.css"><link rel="stylesheet" href="https://designer.${domain}/components/custom-properties.css">` : ''}
+      ${integrated ? `<link rel="stylesheet" href="${new URL('fonts.css',integratedScript)}"><link rel="stylesheet" href="${new URL('custom-properties.css',integratedScript)}">` : ''}
       <${tag}></${tag}><script src="${integrated ? integratedScript : '/'+name+'.js'}"></script><script>
       (async () => {
         await customElements.whenDefined('${tag}'); const el = document.querySelector('${tag}');
