@@ -156,7 +156,7 @@ def markdown(result):
         for group in groups:
             lines.append(f"| {component} / `{group['id'][:12]}` | {group['count']} / {DAYS} | {group['status']} |")
     lines += ['', 'A ready cohort supports reviewing the existing provisional rules: readiness exceeds both 10% and 100 ms; blocking exceeds both 15% and 50 ms; CLS increases by 0.02. Zero false warnings and zero inconclusive rows in the latest 14 complete daily controls are required for this recommendation. This conservative screen is not a statistical guarantee or approval of thresholds.', '',
-              'The authenticated full-stack sweep remains workstation-based and reporting-only. Its availability does not block hosted component recommendations; this CI review does not claim to have assessed local SSO/backend variability.', '']
+              'Authenticated full-stack measurements have a separate hosted variability review. Their availability does not block isolated component recommendations; paired component controls do not establish full-stack SSO/backend variability.', '']
     for group in result['groups']:
         lines += [f"## {group['cohort']['component']} — {group['id'][:12]}", '',
                   f"CPU: {group['cohort']['cpu']}; browser: {group['cohort']['browser']}; suite: `{group['cohort']['suite']}`; artifact: `{group['cohort']['artifact']}`.", '',
@@ -262,7 +262,7 @@ def notify(repository, recipient, result, body):
     if not fresh:
         return 'Readiness milestone already reported; no duplicate notification.'
     message = (ISSUE_MARKER+'\n<!-- calibration-milestones: '+json.dumps(sorted(milestones))+' -->\n\n'
-               +f'@{recipient} — at least one component now has 14 comparable daily controls. See the assessment below; gates have not been enabled.\n\n'+body)
+               +f'@{recipient} — at least one performance cohort now has 14 comparable daily runs. See the assessment below; gates have not been enabled.\n\n'+body)
     if len(message) > 60000:
         raise ValueError('Review exceeds issue size; retain artifact and revise summary before notifying')
     if existing:
