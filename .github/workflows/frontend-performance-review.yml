@@ -5,7 +5,7 @@ on:
     branches: [develop]
     paths: ['.github/workflows/frontend-performance-review.yml']
   workflow_run:
-    workflows: ['Frontend performance calibration']
+    workflows: ['Frontend performance calibration', 'Full-stack frontend performance']
     types: [completed]
   schedule:
     - cron: '47 5 * * *'
@@ -32,7 +32,7 @@ jobs:
       # This exact implementation is already on develop before the workflow reaches main.
       - uses: actions/checkout@v7
         with:
-          ref: 85263a9a13a5eec6a0b073b29566d2172b74617d
+          ref: b981a931daa65e84b73a738d23bcf7a54aebcb3b
           persist-credentials: false
 
       - uses: actions/setup-python@v6
@@ -40,13 +40,18 @@ jobs:
           python-version: '3.12'
 
       - name: Verify review and notification semantics
-        run: python -m unittest discover -v -s ops/e2e/frontend-perf -p 'test_calibration_review.py'
+        run: python -m unittest discover -v -s ops/e2e/frontend-perf -p 'test_*.py'
 
       - name: Collect history, review comparable daily controls and notify milestones
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python ops/e2e/frontend-perf/calibration_review.py             --repository "$GITHUB_REPOSITORY" --output review             --notify --recipient martinjoconnor
+
+      - name: Review hosted full-stack daily variability and notify milestones
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ops/e2e/frontend-perf/full_stack_review.py --repository "$GITHUB_REPOSITORY" --output review --notify --recipient martinjoconnor
 
       - name: Publish the current evidence review
         if: always()
@@ -56,6 +61,7 @@ jobs:
           else
             echo 'Review failed before evidence was available; no readiness conclusion.' >> "$GITHUB_STEP_SUMMARY"
           fi
+          if [ -f review/full-stack-summary.md ]; then cat review/full-stack-summary.md >> "$GITHUB_STEP_SUMMARY"; fi
 
       # Each successful default-branch run carries forward prior reports before adding new ones.
       # Thus the raw calibration artifacts expiring after 30 days cannot reset a slow cohort.
@@ -67,5 +73,16 @@ jobs:
             review/history.json
             review/review.json
             review/summary.md
+          if-no-files-found: error
+          retention-days: 90
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: full-stack-performance-history
+          path: |
+            review/full-stack-history.json
+            review/full-stack-review.json
+            review/full-stack-summary.md
           if-no-files-found: error
           retention-days: 90
