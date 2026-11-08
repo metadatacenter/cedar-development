@@ -477,11 +477,10 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
 
 ## Modern Frontend Performance Gates
 
-### 13. Extend and Calibrate Browser Performance Gates
+### 13. Calibrate Browser Performance Gates
 
-- Collect paired CI history on the selected runner before enforcing readiness, blocking or CLS
-  budgets. Review reference changes and calibrate budget increases against retained evidence.
-  Keep machine-dependent timings outside the local reactor.
-- Schedule the complete 17-scenario real-stack sweep on a controlled idle runner with authorized
-  test accounts, report retention and cleanup verification. Keep it reporting-only until backend
-  and authentication variability are characterized. Exclude legacy applications.
+- Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
+  cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
+  increases against retained evidence. Keep machine-dependent timings outside the local reactor.
+- Characterize backend and authentication variability in the idle workstation's 17-scenario
+  full-stack sweep before considering timing enforcement. Exclude legacy applications.

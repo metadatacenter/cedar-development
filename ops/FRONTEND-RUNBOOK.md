@@ -127,6 +127,21 @@ was `ae1034b229734c180136573898c06c40f05ea1d6e8776ebda1aaa43d909ab485` and CED's
 `cf5f6442c5dd5720f88a0c5f03343f1a6bdfd0fe679a92372d8f6771b6147731`.
 This validates the comparison machinery, not a speed improvement or a Linux CI budget.
 
+The daily `Frontend performance calibration` workflow runs at 02:17 UTC on GitHub-hosted
+Ubuntu 24.04 runners. It pins the validated harness and source references, builds each input
+once, then compares identical bytes for standalone CEE, standalone CED and Designer/equivalent
+CEF. Each control retains every observation, including noisy results, without retrying. Reports
+and screenshots are retained for 30 days. The workflow must exist on the default branch,
+`main`, for GitHub's schedule to run; its identical file also lives on `develop` so release
+integration does not lose it. The pinned harness checkout keeps default-branch scheduling
+independent of the release source tree.
+
+Collect at least 14 distinct daily controls per stable machine/browser/suite/artifact cohort
+before reviewing hard timing limits. Inspect paired differences, noise, false warnings and
+host integration results together; a passing control alone does not approve a budget. Keep
+reviewed limits and reference updates explicit, with retained evidence. Runner or harness
+changes start a new cohort rather than silently mixing distributions.
+
 ## Reporting-only performance suite
 
 `cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
@@ -155,6 +170,47 @@ cedarcli test frontend-performance --samples 5
 # A shorter investigation of the standalone components:
 cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,cee-standalone-large,ced-standalone-small,ced-standalone-large
 ```
+
+### Idle workstation schedule
+
+The authorized local sweep uses this workstation at **03:30 Europe/Madrid**, with DST handled
+explicitly. Install or inspect it through the CLI:
+
+```bash
+cedarcli test frontend-performance-schedule --install
+cedarcli test frontend-performance-schedule --status
+cedarcli test frontend-performance-schedule --check
+# Stop future scheduled runs:
+cedarcli test frontend-performance-schedule --remove
+```
+
+The macOS user LaunchAgent checks hourly at minute 30 but runs measurements only during the
+03:30–03:39 Madrid window. It does not wake the machine or catch up outside that window.
+The user must be logged in and the local stack running. No GitHub self-hosted runner is installed.
+`--check` only reports the time/activity decision; it does not measure or modify state.
+
+A sweep needs ten minutes without keyboard/mouse input, other processes using at most 60% of
+one logical CPU, the local stack lock available, clean relevant source trees, current component
+bytes, the existing private monitoring account, and 10 GiB free disk space. It never stashes,
+pulls, deploys, publishes, starts the stack or changes permissions. It performs the normal
+isolated production preparation and five repetitions of all 17 modern scenarios (340 loads).
+Clean trees are an unattended measurement safeguard, not a prerequisite for development builds.
+
+Activity is checked every 15 seconds, excluding this sweep's own descendants. If work resumes,
+activity becomes unreadable or measurements reach 45 minutes, the suite is interrupted gracefully:
+preparation stops, Chromium closes and temporary fixtures are deleted and verified. Cleanup
+is allowed to finish. An unverified completion or cleanup error blocks later sweeps pending
+investigation; do not remove that guard without checking `fixtures.json` against the local stack.
+
+Evidence lives under `.cedar/reports/frontend-performance/scheduled/`: `latest.json` records the
+latest decision, `last-run.json` preserves the last started run and its cleanup status, and each
+`nightly-*` directory holds the report and `scheduled.json`. Skipped hours cannot erase an
+unverified run. `latest.log` records the latest sweep; `launchd.log` records scheduler invocations.
+Owned reports are retained for 30 days and their frozen lab files for seven days. Cleanup-failure
+evidence is retained for investigation. The LaunchAgent contains no credentials; the existing
+mode-0600 monitoring account file is read only into the child process environment.
+
+### Measurement coverage and method
 
 The default covers Workspace's dashboard and metadata editor, Template Designer, OpenView
 template pages, Bridging and Monitoring dashboards, the content index, standalone CEE and
