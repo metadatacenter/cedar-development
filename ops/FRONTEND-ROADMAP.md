@@ -180,19 +180,13 @@ Follow the product-design checkpoints in [AGENTS.md](../AGENTS.md#preserve-the-a
 Reliability work does not authorize new permanent controls: recovery actions must be conditional
 on an actual failure or retained unfinished work, and new UI requires agreement before implementation.
 
-- **Designer conflicts:** fetch the latest schema separately from the working draft and
-  provide review and reconciliation for templates, elements and fields, including unknown
-  content, server normalization and intervening writes; never attach its ETag to an
-  unreconciled draft. A new version that a status check reports unresolved can be neither
-  saved nor discarded. Save stays blocked, and Discard stays refused after every check.
-- **Changed metadata templates:** reconcile retained metadata against a changed template
-  through an explicit migration workflow, preserving unfinished input and unsupported values.
 - **Permitted copies:** recover retained work to another folder when the original artifact is
   inaccessible or deleted, checking destination permissions without silently recreating the
   original or mistaking a permission refusal for deletion.
 
-Keep status checks, access checks, review and explicit discard distinct. A failed recovery
-read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
+Keep status checks, access checks and explicit discard distinct. Preserve draft retention and
+stale-save protection without adding version comparison or merging. A failed recovery read must
+preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
 current draft-retention contract and operator verification commands.
 
 <a id="cee"></a>

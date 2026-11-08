@@ -4,7 +4,7 @@ import {editorStatus} from "./metadata-journey-fixtures.mjs";
 import assert from 'node:assert/strict';
 import {artifactBody, call, mutate, enc, RESOURCE} from './rest/lib.mjs';
 
-// Both journeys act as the runner's first test user. The sign-in case returns through the SSO
+// These journeys act as the runner's first test user. The sign-in case returns through the SSO
 // cookie. Separate expired-sso cases expire the browser's Keycloak cookies and require the real
 // credential form, while retaining the tab's application storage. Neither signs in as another account.
 export async function draftRecoveryJourney({page,base,designer,user,folderId,name,created,write,pass}) {
@@ -109,8 +109,8 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
   }
 }
 
-export async function metadataReconciliationJourney({page,base,user,folderId,name,created,write,pass}) {
-  folderId=await journeyFolder({user,folderId,name,created},'metadata reconciliation');
+export async function metadataConflictJourney({page,base,user,folderId,name,created,write,pass}) {
+  folderId=await journeyFolder({user,folderId,name,created},'metadata conflict');
   const template=artifactBody('template',name+' conflict');
   template.properties.Notes=artifactBody('field','Notes');template.properties['@context'].properties.Notes={enum:['https://example.org/draft/Notes']};
   template._ui.order.push('Notes');template._ui.propertyLabels.Notes='Notes';template.required.push('Notes');
@@ -121,18 +121,44 @@ export async function metadataReconciliationJourney({page,base,user,folderId,nam
   const id=await create('template-instances',body),path='/template-instances/'+enc(id);
   await page.goto(base+'/instances/edit/'+enc(id));
   const notes=page.locator('cedar-embeddable-editor').getByLabel('Notes',{exact:true});
-  await editorStatus(page,/^Unmodified$/).waitFor();await notes.fill('My choice');
+  const save=page.locator('#button-save-metadata');
+  const noComparison=async()=>{
+    assert.equal(await page.getByRole('button',{name:'Review latest saved version',exact:true}).count(),0);
+    assert.equal(await page.getByRole('button',{name:'Apply reviewed changes',exact:true}).count(),0);
+    assert.equal(await page.locator('main table').count(),0);
+  };
+  await editorStatus(page,/^Unmodified$/).waitFor();await noComparison();
+  await notes.fill('My retained draft');await noComparison();
   const before=await call(user.auth,'GET',path);
   const changed=await mutate(user.auth,'PUT',path,{...before.body,Notes:{'@value':'Other author'}});assert.equal(changed.status,200,changed.text);
-  await write(page,'PUT','/template-instances/',()=>page.locator('#button-save-metadata').click(),412,true);
-  await page.getByRole('button',{name:'Review latest saved version',exact:true}).click();
-  const apply=page.getByRole('button',{name:'Apply reviewed changes',exact:true});await apply.waitFor();assert.equal(await apply.isDisabled(),true);
-  await page.getByLabel('Keep my value',{exact:true}).check();await apply.click();
-  // Applying the review closes it and replaces the form with one that holds the chosen values.
-  await apply.waitFor({state:'detached'});
-  await editorStatus(page,/^Modified$/).waitFor();
-  assert.equal(await notes.inputValue(),'My choice');
-  await write(page,'PUT','/template-instances/',()=>page.locator('#button-save-metadata').click(),200,true);
-  assert.equal((await call(user.auth,'GET',path)).body.Notes['@value'],'My choice');
-  pass("metadata-reconcile", 'Metadata conflict: real 412, explicit comparison and choice, conditional save and authoritative readback');
+  const latest=await call(user.auth,'GET',path);assert.equal(latest.status,200,latest.text);
+  let writes=0;
+  const countWrites=request=>{if(request.method()==='PUT' && request.url().includes('/template-instances/'))writes++;};
+  page.on('request',countWrites);
+  try {
+    await write(page,'PUT','/template-instances/',()=>save.click(),412,true);
+    assert.equal(await save.isDisabled(),true);
+    assert.equal(await notes.inputValue(),'My retained draft');await noComparison();
+    await page.reload();
+    await page.getByRole('button',{name:'Restore draft',exact:true}).click();
+    await page.waitForFunction(element=>element.value==='My retained draft',await notes.elementHandle());
+    assert.equal(await save.isDisabled(),true);
+    await notes.fill('More work on the retained draft');
+    assert.equal(await save.isDisabled(),true);await noComparison();
+    const reload=page.getByRole('button',{name:'Reload metadata',exact:true});
+    const confirmation=page.locator('dialog.confirmation-dialog');
+    await reload.click();
+    await confirmation.getByRole('button',{name:'Cancel',exact:true}).click();
+    assert.equal(await notes.inputValue(),'More work on the retained draft');
+    assert.equal(await save.isDisabled(),true);
+    await reload.click();
+    await confirmation.getByRole('button',{name:'Yes',exact:true}).click();
+    await editorStatus(page,/^Unmodified$/).waitFor();
+    assert.equal(await notes.inputValue(),'Other author');await noComparison();
+    assert.equal(await page.getByRole('button',{name:'Restore draft',exact:true}).count(),0);
+    assert.equal(writes,1,'reload, restoration and confirmed discard never replay a stale write');
+    const stored=await call(user.auth,'GET',path);assert.equal(stored.status,200,stored.text);
+    assert.deepEqual(stored.body,latest.body,'the complete newer record remains unchanged');
+  } finally {page.off('request',countWrites);}
+  pass("metadata-conflict", 'Metadata conflict: real 412 retains the draft through reload and restoration, blocks stale writes, and requires confirmed discard to open the latest version');
 }

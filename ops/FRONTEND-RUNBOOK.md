@@ -4181,9 +4181,11 @@ the affected control; `revealValidationFinding(location)` reports whether a path
 Unknown paths remain visible as text. Warnings neither mark controls invalid nor block Save.
 An accepted document edit or replacement retires the supplied snapshot; invalid pending
 settings remain intact. Hosts must discard late reports about an older submitted snapshot.
-Conflicts and missing revision tokens preserve edits and block another write. Workspace offers
-**Review latest saved version** for existing metadata; Designer still needs explicit schema
-reconciliation or a confirmed reload that discards the working changes. A refused existing-artifact save (401/403), including
+Conflicts and missing revision tokens preserve edits and block another write. Workspace's metadata
+editor provides no version comparison or merge. **Reload metadata** opens the latest saved record
+after confirmation to discard unsaved edits; cancelling preserves the draft and the save guard.
+Designer also requires a confirmed reload to discard working changes after a conflict.
+A refused existing-artifact save (401/403), including
 an update assessment refused before writing, offers **Recheck access**. Both hosts read the
 artifact and permissions separately from the working draft; only restored update permission
 and unchanged opened content/revision enable saving again. A different revision remains blocked
@@ -4210,8 +4212,7 @@ guard. A missing revision, changed content or denied permission keeps Save block
 check retryable.
 A failed update assessment can be retried because it has not written an artifact. The CED
 host smoke commits real updates before dropping their replies to verify this distinction.
-Designer schema reconciliation and changed-template migration remain open in the
-[save-recovery roadmap](FRONTEND-ROADMAP.md#save-recovery).
+Retained drafts never authorize overwriting a changed record or adopting its newer revision.
 Both hosts retain unfinished work in the tab's `sessionStorage`, scoped to the deployment,
 signed-in account, artifact kind and identity, or the destination folder for a new artifact.
 The component APIs `captureDraft()` and `restoreDraft()` preserve unfinished control input,
@@ -4291,18 +4292,12 @@ A lookup cannot tell an identity that was never created from one that was create
 deleted. If the artifact is deleted while its author's tab still holds the unresolved outcome,
 the check reports it as not saved, and a retried create recreates it under the same identity.
 
-Workspace's **Review latest saved version** reads the artifact, access report and template without
-changing the form. It combines independent metadata edits and requires a choice for each conflict;
-repeated entries are compared together rather than paired by index. Repository identity and
-provenance come from the latest document. **Apply reviewed changes** updates the form only, and
-Save still performs a conditional write with the reviewed ETag. Editing during review invalidates
-its application. A changed template or unfinished raw input leaves the draft intact and explains
-why reconciliation cannot yet proceed.
-
-`npm run smoke:journey -- draft-recovery metadata-reconciliation` exercises the deployed component
+`npm run smoke:journey -- draft-recovery metadata-conflict` exercises the deployed component
 APIs and real stored artifacts: reload after an outage or lost committed reply, full sign-in,
 restoration, authoritative status checks, subsequent conditional saves and readback, plus a real
-metadata conflict followed by explicit reconciliation. The regular Workspace stack smoke includes
+metadata conflict that retains the draft through reload and restoration, keeps stale saves blocked,
+and opens the newer record only after confirmed discard. It also verifies that normal, edited and
+conflicted metadata screens have no comparison controls. The regular Workspace stack smoke includes
 these journeys too. Fixtures are removed when the run ends.
 
 Additional focused checks, also included in the regular modern smoke:
