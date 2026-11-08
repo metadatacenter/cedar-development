@@ -1,0 +1,125 @@
+name: Frontend performance calibration
+
+on:
+  push:
+    branches: [develop]
+    paths: ['.github/workflows/frontend-performance-calibration.yml']
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-performance-calibration
+  cancel-in-progress: false
+
+jobs:
+  control:
+    name: Identical-input control (${{ matrix.component }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: cee
+            repository: cedar-embeddable-editor
+          - component: ced
+            repository: cedar-embeddable-designer
+          - component: designer
+            repository: cedar-template-designer
+    env:
+      NPM_CONFIG_STRICT_ALLOW_SCRIPTS: 'true'
+      COMPONENT: ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 35bb2660b2470f4bfaac46fe37bb2e1079dea640
+          path: cedar-development
+
+      - name: Select the fixed source reference
+        id: reference
+        run: |
+          node --input-type=module <<'JS' >> "$GITHUB_OUTPUT"
+          import {readFileSync} from 'node:fs';
+          const refs=JSON.parse(readFileSync('cedar-development/ops/e2e/frontend-perf/references.json','utf8'));
+          const sha=refs.components[process.env.COMPONENT];
+          if(!/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('Missing calibration reference');
+          console.log('sha='+sha);
+          JS
+
+      - uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/${{ matrix.repository }}
+          ref: ${{ steps.reference.outputs.sha }}
+          path: source
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.22.1
+          cache: npm
+          cache-dependency-path: |
+            source/package-lock.json
+            cedar-development/ops/e2e/package-lock.json
+
+      - name: Build the control once, before any measurements
+        working-directory: source
+        run: |
+          npm ci
+          case "$COMPONENT" in
+            cee)
+              npm --prefix visual ci
+              npm run build:production
+              npm --prefix visual run bundle
+              cp visual/public/cedar-embeddable-editor.js ../control-input
+              ;;
+            ced)
+              npm run build
+              npm run bundle
+              cp dist-bundle/cedar-embeddable-designer.js ../control-input
+              ;;
+            designer)
+              npm run prepare:components
+              cp -R app ../control-input
+              ;;
+          esac
+
+      - name: Install the locked measurement browser
+        working-directory: cedar-development/ops/e2e
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      # Identical bytes isolate runner/browser noise from application changes. Do not retry or
+      # discard noisy controls: those are exactly the observations calibration needs.
+      - name: Measure five identical-input pairs
+        working-directory: cedar-development/ops/e2e
+        env:
+          REFERENCE: ${{ steps.reference.outputs.sha }}
+        run: |
+          node frontend-perf/isolated.mjs --component="$COMPONENT" \
+            --baseline="$GITHUB_WORKSPACE/control-input" --candidate="$GITHUB_WORKSPACE/control-input" \
+            --baseline-revision="$REFERENCE" --candidate-revision="$REFERENCE" \
+            --samples=5 --output="$GITHUB_WORKSPACE/calibration"
+
+      - name: Publish the control summary
+        if: always()
+        run: |
+          if [ -f calibration/summary.md ]; then
+            cat calibration/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Calibration incomplete: setup failed before measurement.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: calibration-${{ matrix.component }}
+          path: |
+            calibration/report.json
+            calibration/summary.md
+            calibration/*.png
+          if-no-files-found: warn
+          retention-days: 30
