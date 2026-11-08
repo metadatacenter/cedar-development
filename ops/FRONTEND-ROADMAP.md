@@ -482,5 +482,5 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
 - Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
   cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
-- Characterize backend and authentication variability in the idle workstation's 17-scenario
+- Characterize backend and authentication variability in the hosted CI 17-scenario
   full-stack sweep before considering timing enforcement. Exclude legacy applications.

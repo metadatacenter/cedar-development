@@ -220,18 +220,21 @@ cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,
 
 ### Hosted full-stack measurements
 
-`Full-stack frontend performance` provisions a fresh Ubuntu 24.04 GitHub-hosted runner and runs
-all modern scenarios against real Docker-hosted CEDAR APIs and Keycloak. It consumes the completed
-immutable train `2.9.33-dev.20261107.2016`; image digests and standalone CEE/CED/term-picker tarball
-hashes are verified before measuring. The train’s resource image omitted its fresh-database
+`Full-stack frontend performance` runs daily at **03:17 UTC** and on manual dispatch. Its
+identical workflow lives on `main` (required for GitHub scheduling) and `develop`, with a pinned
+harness checkout independent of release source changes. It provisions a fresh Ubuntu 24.04
+GitHub-hosted runner and runs all modern scenarios against real Docker-hosted CEDAR APIs and
+Keycloak. It consumes the completed immutable train `2.9.33-dev.20261107.2016`; image digests and
+standalone CEE/CED/term-picker tarball hashes are verified before measuring. The train’s resource
+image omitted its fresh-database
 bootstrap admin-tool JAR; CI mounts the matching train JAR read-only, verifies its pinned SHA-256,
 and records that dependency separately. New image builds fail if that JAR is missing or corrupt.
 CI also mounts the corrected Designer entrypoint from the pinned Docker tooling: it verifies
 the published page inventory and only generates runtime configuration, without recompiling UI
 assets. The train image’s older entrypoint attempted a build without the source lockfile. Both
 bootstrap additions are recorded as calibration inputs; train image tags remain unchanged.
-This is a fixed calibration baseline, not a moving develop
-build. Updating the train or pinned tooling intentionally starts a new comparable cohort.
+This is a fixed calibration baseline, not a moving develop build. Updating the train or pinned
+tooling intentionally starts a new comparable cohort.
 
 The job generates private ephemeral datastore/service credentials and a fresh read-only monitoring
 identity, uses only synthetic fixtures, and contacts no production CEDAR deployment. It uses the
@@ -244,9 +247,14 @@ performance lab, with real SSO/API calls still reaching the isolated stack. Stan
 from the same train's verified npm completion record. `--deployment-manifest` selects these inputs
 without a local reactor build; the default developer command continues to use local sources.
 All resource ceilings, source identities, image digests, browser/Node versions and machine metadata
-are recorded. Java services have 512 MiB heaps / 768 MiB limits, OpenSearch and Neo4j 512 MiB heaps /
-1536 MiB limits, and Keycloak a 512 MiB heap / 1024 MiB limit. These are CI fixture settings, not
-production sizing guidance. Shared hosted hardware can be noisy; timings stay reporting-only.
+are recorded. OpenView, Monitoring and Bridging in this train compile the production domain into
+one environment literal rather than reading the container's domain setting. The lab verifies the
+captured bytes first, changes only that literal to `.orgx` in its copy, and records before/after
+hashes. Chromium blocks production `.org` hostnames before authentication; this DNS guard preserves
+HTTP caching, unlike request interception. Java services have 512 MiB heaps / 768 MiB limits,
+OpenSearch and Neo4j 512 MiB heaps / 1536 MiB limits, and Keycloak a 512 MiB heap / 1024 MiB limit.
+These are CI fixture settings, not production sizing guidance. Shared hosted hardware can be
+noisy; timings stay reporting-only.
 
 Reports, CSV, screenshots and immutable input evidence are retained as `full-stack-performance`
 for 90 days, sanitized service diagnostics for 14 days. The readiness review archives compact
@@ -257,9 +265,17 @@ fixture cleanup still fail the job; timing values alone do not.
 Manual dispatch accepts five repetitions for calibration or one for a coverage check. A single-
 repetition run has 68 samples and never counts toward the 14-day full-stack review.
 
-### Idle workstation schedule
+The [initial hosted baseline](https://github.com/metadatacenter/cedar-development/actions/runs/42497465804)
+on 2026-11-08 passed all 340 samples with verified fixture cleanup. Its
+[automatic review](https://github.com/metadatacenter/cedar-development/actions/runs/42499993039)
+retained the evidence as the first comparable daily run. Hosted and workstation measurements are
+separate cohorts; their timings are not a before/after comparison.
 
-The authorized local sweep uses this workstation at **03:30 Europe/Madrid**, with DST handled
+### Optional workstation scheduling
+
+The unattended sweep uses hosted CI; the former workstation LaunchAgent is removed. The local
+CLI remains available for explicitly requested workstation investigations. If deliberately
+installed again, its sweep runs at **03:30 Europe/Madrid**, with DST handled
 explicitly. Install or inspect it through the CLI:
 
 ```bash
