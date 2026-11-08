@@ -142,6 +142,46 @@ host integration results together; a passing control alone does not approve a bu
 reviewed limits and reference updates explicit, with retained evidence. Runner or harness
 changes start a new cohort rather than silently mixing distributions.
 
+### Hosted readiness review and notifications
+
+`Frontend performance readiness review` runs entirely on GitHub-hosted Ubuntu runners after
+calibration workflows complete, daily at 05:47 UTC as a fallback, and on manual dispatch. Its
+workflow lives identically on `main` and `develop` and checks out a pinned, tested review
+implementation. It never executes downloaded artifact contents as code. Updating the implementation
+requires updating that pin on both branches, keeping release integration consistent.
+
+The review counts one earliest complete successful control per UTC date, separately for each
+component and comparable CPU/platform, browser, Node, suite, reference artifact and measurement
+settings. Failed/missing/expired reports, incomplete coverage and duplicate same-day runs cannot
+inflate the count. Noisy successful controls count and remain in the review. CEE, CED and Designer/
+equivalent CEF can reach readiness independently; authenticated workstation results are not required
+for these hosted recommendations.
+
+After 14 dates, a fixed rolling window of the latest 14 daily controls is assessed for readiness,
+blocking and CLS. It reports paired median changes, ranges, median absolute deviation, baseline
+ranges, false warnings and inconclusive rows. Zero false warnings and zero inconclusive rows in
+that window support reviewing the existing provisional thresholds; otherwise the result needs
+investigation and collection continues. This is a conservative automated screen, not a statistical
+guarantee, human approval or automatic activation of timing gates.
+
+The first eligible cohort opens a GitHub issue assigned to and mentioning `@martinjoconnor`.
+Subsequent newly eligible or newly stable cohorts comment on that issue once per milestone;
+daily unchanged results do not send duplicate issue notifications. GitHub delivers those through
+the account's notification settings. The issue includes the assessment and links to source runs.
+Every run also has a job summary and machine-readable `review.json`.
+
+`performance-calibration-history` retains compact measurement reports, exact cohort identities,
+source run/artifact IDs and canonical source-report digests for 90 days. Each successful default-
+branch review restores the prior archive and carries it forward, preserving collected evidence
+beyond raw reports' 30-day retention. Download/API failures fail the review instead of pretending
+there is no history. If the review itself stops for longer than artifact retention, missing evidence
+must be collected again. Repository code, package pins and gate settings are never modified by the
+review. The earlier app-based review is superseded by this hosted workflow.
+
+The local authenticated full-stack sweep remains reporting-only on the idle workstation. Moving
+its execution to CI would additionally require a hosted test stack and its authorized accounts;
+this readiness workflow neither starts that stack nor claims to assess its SSO/backend variability.
+
 ## Reporting-only performance suite
 
 `cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
