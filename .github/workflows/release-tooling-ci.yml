@@ -202,6 +202,7 @@ jobs:
           python -m unittest discover -v -s ops -t ops -p 'test_*.py'
           python -m unittest discover -v -s ops/tests -t ops/tests -p 'test_*.py'
           python -m unittest discover -v -s ops/repairs -t ops/repairs -p 'test_*.py'
+          python -m unittest discover -v -s ops/e2e/frontend-perf -p 'test_calibration_review.py'
 
   # The YAML conversion audit's end-to-end suite runs both model libraries for real, so it needs
   # what a workstation has beside this checkout: the Java artifact and validation libraries built,
