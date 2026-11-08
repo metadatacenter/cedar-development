@@ -357,9 +357,29 @@ Each worker owns a distinct image reference and records its elapsed time; comple
 written in plan order only after all workers succeed. Failed runs drain active workers
 and never advance the completion pointer. It verifies the
 labels, hashes the embedded manifest in every frontend container, and records the registry digest
-and platform for every image. Only then does it create
-`docker/completed/<TRAIN_ID>.json` and advance `docker/current.json`. The four administration images
-are optional and are not part of this pointer.
+and platform for every image. It stages `docker/completed/<TRAIN_ID>.json` and
+`docker/current.json` locally; neither is published until fresh-stack acceptance passes.
+
+On the same ephemeral Ubuntu runner, the final job checks out the captured CLI, deployment,
+Docker-build and test-harness sources. It starts the verified images from empty volumes with no
+admin-tool or entrypoint compatibility mounts. OpenView, Monitoring and Bridging must configure
+production and non-production domains with exactly one hostname change and byte-exact restoration.
+The real nginx-served applications then pass all 17 modern frontend scenarios (34 normal-profile
+cold/warm checks), including authenticated Workspace, Designer, Monitoring and Bridging, public
+OpenView, content, and standalone CEE/CED/CETP. Only standalone fixtures use the private static lab;
+application payloads are not patched or substituted. Production DNS is blocked in the browser.
+Timings remain reporting-only; failed loading, readiness, interactions or fixture cleanup fail the
+train. The completion record carries `freshStackAcceptance`, with the workflow URL, report hash,
+coverage and runtime identities; the `docker-fresh-stack-acceptance` artifact retains screenshots
+and reports for 30 days. Sanitized diagnostics remain for 14 days. The runner stops its stack on
+success or failure and never uses a workstation.
+
+The internal `docker start all --verified-state <workspace>/build-trains --train <TRAIN_ID>` option
+lets this GitHub-hosted gate read the controller's local verification record before publication;
+image digest checks still apply. It is rejected on workstations and self-hosted runners. Normal
+operators continue using the published completion record. The frozen daily calibration workflow
+keeps its original train and compatibility adjustments, so acceptance does not reset its cohort.
+The four administration images are optional and are not part of this pointer.
 
 At deployment time, `cedarcli docker start` reads that completion record again. It applies the
 selected pull policy, requires every selected local image tag to carry the recorded repository

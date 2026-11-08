@@ -75,6 +75,10 @@ if (values.plan) {
     report.metadata.reactor = prepared.evidence.reactor;
     report.metadata.deployment = prepared.evidence.deployment;
     if (prepared.evidence.deployment) report.metadata.limits[0] = 'Published immutable train assets in an isolated Docker-backed CI lab; not production deployment latency or real-user Web Vitals.';
+    if (prepared.evidence.deployment?.mode === 'direct') {
+      report.metadata.limits[0] = 'Fresh-stack acceptance of the real Docker-served modern pages and immutable standalone components; timing is reporting-only.';
+      report.metadata.limits[2] = 'Application pages and APIs use the deployment nginx. Only standalone component fixtures use the private HTTPS lab.';
+    }
     report.metadata.sources = prepared.evidence.sources;
     report.metadata.adjustments = prepared.evidence.adjustments;
     report.metadata.suite = {revision:execFileSync('git',['rev-parse','HEAD'],{cwd:new URL('.',import.meta.url),encoding:'utf8'}).trim(),

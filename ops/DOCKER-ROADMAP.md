@@ -89,17 +89,3 @@ procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
    owns the estate rather than to a train operator mid-release, and record which base each image
    resolved so an expiry, a withdrawn tag or a moved digest is attributable. The cadence matters
    more than the depth. A build that only proves the images still build would have caught this one.
-
-8. **Verify corrected image startup from empty volumes before promotion.** The
-   completed `2.9.33-dev.20261107.2016` images cannot start a fresh stack without two additions:
-   the resource server needs its matching admin-tool JAR, and Template Designer needs an entrypoint
-   that verifies and configures its frozen page assets instead of rebuilding them at runtime.
-   Prove that a train containing the Docker source fixes starts without the compatibility mounts
-   used by the hosted frontend performance baseline. Keep the old train's
-   tags immutable. Require empty-volume startup and real authenticated frontend checks before
-   promotion; successful image builds alone did not expose these deployment failures.
-
-   Make OpenView, Monitoring and Bridging honor the deployment domain at runtime. Their current
-   production bundles embed `.org` even when the container configures `.orgx`; the hosted lab
-   needs a recorded domain-only adjustment to avoid production authentication and API requests.
-   Verify both production and non-production configuration against the same packaged UI assets.

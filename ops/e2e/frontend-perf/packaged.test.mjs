@@ -35,6 +35,25 @@ test('published deployment inputs preserve bytes and standalone bundles, rejecti
     assert.ok((await readFile(join(root,'openview/main.js'),'utf8')).includes('cedarDomain:"metadatacenter.org"'));
     assert.equal(await readFile(join(prepared.componentRoot,'ced.js'),'utf8'),'/* ced standalone */');
     assert.equal(prepared.evidence.deployment.train,manifest.train);
+    manifest.kind='ephemeral-docker-acceptance';
+    manifest.bootstrap={compatibilityMounts:false,emptyVolumes:true};
+    await writeFile(path,JSON.stringify(manifest));
+    await assert.rejects(preparePackaged(path,join(root,'wrong-domain'),'metadatacenter.orgx'),/did not configure/);
+    for (const name of ['openview','monitoring','bridging']) {
+      const file=join(root,name,'main.js');
+      await writeFile(file,(await readFile(file,'utf8')).replace('cedarDomain:"metadatacenter.org"','cedarDomain:"metadatacenter.orgx"'));
+      const {rename}=await import('node:fs/promises'); await rename(file,join(root,name,'main-123.js'));
+      manifest.applications[name].files=(await inventory(join(root,name))).files;
+    }
+    await writeFile(path,JSON.stringify(manifest));
+    const direct=await preparePackaged(path,join(root,'direct'),'metadatacenter.orgx');
+    assert.deepEqual(Object.keys(direct.roots),['performance.metadatacenter.orgx']);
+    assert.equal(direct.evidence.deployment.mode,'direct');
+    assert.deepEqual(direct.evidence.adjustments,[]);
+    assert.equal(await readFile(join(direct.componentRoot,'cee.js'),'utf8'),'/* cee standalone */');
+    manifest.bootstrap.compatibilityMounts=true; await writeFile(path,JSON.stringify(manifest));
+    await assert.rejects(preparePackaged(path,join(root,'overlay'),'metadatacenter.orgx'));
+    manifest.bootstrap.compatibilityMounts=false; await writeFile(path,JSON.stringify(manifest));
     await writeFile(join(root,'cee.js'),'changed');
     await assert.rejects(preparePackaged(path,join(root,'tampered'),'metadatacenter.orgx'),/standalone bytes changed/);
     delete manifest.applications.monitoring;await writeFile(path,JSON.stringify(manifest));

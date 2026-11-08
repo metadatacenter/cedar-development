@@ -16,21 +16,35 @@ TRAIN = '2.9.33-dev.20261107.2016'
 ADMIN_SHA256 = '959ba151f5df786ad6f9b44c72f4ca49a50a785aaa065938e0b3826d6a20d302'
 
 
-def guard(home):
+def guard(home, candidate_state=None):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted':
         raise ValueError('This initializer is restricted to an ephemeral GitHub-hosted runner')
-    if os.environ.get('CEDAR_TRAIN_VERSION', TRAIN) != TRAIN:
+    train = os.environ.get('CEDAR_TRAIN_VERSION', TRAIN)
+    if candidate_state is None and train != TRAIN:
         raise ValueError('Workflow and asset capture must select the same immutable train')
     workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
     if home.resolve() != workspace / 'CEDAR':
         raise ValueError('CI installation must be GITHUB_WORKSPACE/CEDAR')
+    if candidate_state is not None:
+        if candidate_state.resolve() != workspace / 'build-trains' or not candidate_state.is_dir():
+            raise ValueError('Candidate state must be GITHUB_WORKSPACE/build-trains')
+        if not re.fullmatch(r'\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}', train):
+            raise ValueError('Invalid candidate train')
+        completion = json.loads((candidate_state/'docker/completed'/f'{train}.json').read_text())
+        if completion.get('version') != train or len(completion.get('images', [])) != 27:
+            raise ValueError('Candidate must have all 27 verified images')
+    return train
 
 
-def initialize(home):
-    guard(home)
+def initialize(home, candidate_state=None):
+    train = guard(home, candidate_state)
     for name in ('set-env-internal.sh', 'set-env-external.sh'):
         if (home/name).exists():
             raise ValueError('Refusing to replace existing installation settings')
+    if candidate_state is not None:
+        for arguments in (['docker','ps','-aq'], ['docker','volume','ls','-q']):
+            if subprocess.check_output(arguments, text=True).strip():
+                raise ValueError('Fresh-stack acceptance requires no existing containers or volumes')
     hidden = {}
     for name in ('set-env-internal.sh', 'set-env-external.sh'):
         text = (home/'cedar-development/bin/templates'/name).read_text()
@@ -57,22 +71,25 @@ def initialize(home):
     micro = (deploy/'cedar-microservices/docker-compose.yml').read_text()
     services = re.findall(r'^  (server-[a-z]+):$', micro, re.M)
     override = {'services': {name: {'mem_limit':'768m','environment':{'JAVA_TOOL_OPTIONS':'-Xms64m -Xmx512m -XX:ActiveProcessorCount=2'}} for name in services}}
-    # This completed train's resource image omitted its fresh-database bootstrap JAR. Supply
-    # the exact matching published artifact; do not rebuild or retag immutable train images.
-    admin_url = f'https://nexus.bmir.stanford.edu/repository/cedar-maven-dev/org/metadatacenter/cedar-admin-tool/{TRAIN}/cedar-admin-tool-{TRAIN}.jar'
-    with urllib.request.urlopen(admin_url, timeout=120) as response:
-        admin = response.read()
-    if hashlib.sha256(admin).hexdigest() != ADMIN_SHA256:
-        raise ValueError('Bootstrap artifact digest mismatch')
-    admin_path = state/'cedar-admin-tool.jar'; admin_path.write_bytes(admin)
-    override['services']['server-resource']['volumes'] = [str(admin_path)+':/cedar/app/cedar-admin-tool.jar:ro']
-    designer_source = home/'cedar-docker-build/cedar-frontend-template-designer/scripts/docker-entrypoint.sh'
-    designer = designer_source.read_bytes()
-    entrypoint = state/'designer-entrypoint.sh'; entrypoint.write_bytes(designer); entrypoint.chmod(0o755)
-    frontend = {'services':{'frontend-template-designer':{'volumes':[str(entrypoint)+':/docker-entrypoint.sh:ro']}}}
-    (deploy/'cedar-frontend/docker-compose.override.yml').write_text(json.dumps(frontend))
-    (state/'ci-bootstrap.json').write_text(json.dumps({'url':admin_url,'sha256':ADMIN_SHA256,'train':TRAIN,
-        'designerEntrypointSha256':hashlib.sha256(designer).hexdigest()}))
+    if candidate_state is None:
+        # This completed train's resource image omitted its fresh-database bootstrap JAR. Supply
+        # the exact matching published artifact; do not rebuild or retag immutable train images.
+        admin_url = f'https://nexus.bmir.stanford.edu/repository/cedar-maven-dev/org/metadatacenter/cedar-admin-tool/{TRAIN}/cedar-admin-tool-{TRAIN}.jar'
+        with urllib.request.urlopen(admin_url, timeout=120) as response:
+            admin = response.read()
+        if hashlib.sha256(admin).hexdigest() != ADMIN_SHA256:
+            raise ValueError('Bootstrap artifact digest mismatch')
+        admin_path = state/'cedar-admin-tool.jar'; admin_path.write_bytes(admin)
+        override['services']['server-resource']['volumes'] = [str(admin_path)+':/cedar/app/cedar-admin-tool.jar:ro']
+        designer_source = home/'cedar-docker-build/cedar-frontend-template-designer/scripts/docker-entrypoint.sh'
+        designer = designer_source.read_bytes()
+        entrypoint = state/'designer-entrypoint.sh'; entrypoint.write_bytes(designer); entrypoint.chmod(0o755)
+        frontend = {'services':{'frontend-template-designer':{'volumes':[str(entrypoint)+':/docker-entrypoint.sh:ro']}}}
+        (deploy/'cedar-frontend/docker-compose.override.yml').write_text(json.dumps(frontend))
+        (state/'ci-bootstrap.json').write_text(json.dumps({'url':admin_url,'sha256':ADMIN_SHA256,'train':TRAIN,
+            'designerEntrypointSha256':hashlib.sha256(designer).hexdigest()}))
+    else:
+        (state/'ci-bootstrap.json').write_text(json.dumps({'train':train, 'compatibilityMounts':False, 'emptyVolumes':True}))
     (deploy/'cedar-microservices/docker-compose.override.yml').write_text(json.dumps(override))
     infra = {'services': {
         'opensearch': {'mem_limit':'1536m','environment':{'OPENSEARCH_JAVA_OPTS':'-Xms512m -Xmx512m'}},
@@ -91,14 +108,18 @@ def read_json(url):
         return json.load(response)
 
 
-def snapshot_assets(home, output):
-    guard(home)
+def snapshot_assets(home, output, candidate_state=None):
+    train = guard(home, candidate_state)
     output.mkdir(parents=True, exist_ok=False)
     base='https://raw.githubusercontent.com/metadatacenter/cedar-development/build-trains/'
-    completion=read_json(base+'docker/completed/'+TRAIN+'.json')
-    packages=read_json(base+'npm/completed/'+TRAIN+'.json')
+    def state_record(relative):
+        return json.loads((candidate_state/relative).read_text()) if candidate_state is not None else read_json(base+relative)
+    completion=state_record('docker/completed/'+train+'.json')
+    packages=state_record('npm/completed/'+train+'.json')
+    if candidate_state is not None:
+        verify_unmodified_containers(completion, home)
     images={entry['image']:entry for entry in completion['images']}
-    manifest={'schemaVersion':1,'kind':'ephemeral-docker-train','train':TRAIN,'domain':'metadatacenter.orgx',
+    manifest={'schemaVersion':1,'kind':'ephemeral-docker-acceptance' if candidate_state is not None else 'ephemeral-docker-train','train':train,'domain':'metadatacenter.orgx',
               'images':completion['images'],'applications':{},'components':{},
               'bootstrap':json.loads((home/'.cedar/ci-bootstrap.json').read_text()),
               'tooling':{repo:subprocess.check_output(['git','rev-parse','HEAD'],cwd=home/repo,text=True).strip() for repo in ('cedar-cli','cedar-docker-build','cedar-docker-deploy')},
@@ -138,8 +159,30 @@ def snapshot_assets(home, output):
     (output/'manifest.json').write_text(json.dumps(manifest,sort_keys=True)+'\n')
 
 
-def monitor_account(home):
-    guard(home)
+def verify_unmodified_containers(completion, home):
+    """No executable overlays or entrypoint substitutions can mask a defective image."""
+    for image in completion['images']:
+        name=image['image']
+        if not name.startswith(('cedar-server-', 'cedar-frontend-')):
+            continue
+        container=name.removeprefix('cedar-')
+        inspected=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
+        original=json.loads(subprocess.check_output(['docker','image','inspect',image['reference']],text=True))[0]
+        if inspected['Image'] != original['Id'] or inspected['Config']['Entrypoint'] != original['Config']['Entrypoint']:
+            raise ValueError('Container does not use its verified image entrypoint: '+container)
+        for mount in inspected.get('Mounts', []):
+            target=mount['Destination'].rstrip('/')
+            allowed = (target == '/log' if name.startswith('cedar-frontend-') else
+                       target in ('/cedar/ca', '/cedar/terminology-store') or target.startswith('/cedar/log/'))
+            terminology = (container == 'server-terminology' and target == '/cedar/term'
+                           and mount['Type'] == 'bind' and not mount.get('RW', True)
+                           and Path(mount['Source']).resolve() == (home/'cedar-term').resolve())
+            if not terminology and (not allowed or mount['Type'] != 'volume'):
+                raise ValueError('Unexpected application overlay in '+container+': '+target)
+
+
+def monitor_account(home, candidate_state=None):
+    guard(home, candidate_state)
     hidden_path=home/'.cedar/ci-secrets.json'; hidden=json.loads(hidden_path.read_text())
     def request(path, *, token=None, data=None, form=None, origin='http://127.0.0.1:8080'):
         headers={}
@@ -177,8 +220,8 @@ def monitor_account(home):
         stream.write('CEDAR_PERF_MONITOR_LOGIN='+username+'\nCEDAR_PERF_MONITOR_PASSWORD='+password+'\n')
 
 
-def diagnostics(home, output):
-    guard(home)
+def diagnostics(home, output, candidate_state=None):
+    guard(home, candidate_state)
     output.mkdir(parents=True, exist_ok=True)
     hidden_path = home/'.cedar/ci-secrets.json'
     hidden = list(json.loads(hidden_path.read_text()).values()) if hidden_path.exists() else []
@@ -203,11 +246,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action',choices=['initialize','assets','monitor-account','diagnostics'])
     parser.add_argument('--output',type=Path)
+    parser.add_argument('--candidate-state',type=Path)
     args=parser.parse_args(); home=Path(os.environ['CEDAR_HOME'])
-    if args.action=='initialize': initialize(home)
-    elif args.action=='assets': snapshot_assets(home,args.output)
-    elif args.action=='monitor-account': monitor_account(home)
-    else: diagnostics(home,args.output)
+    if args.action=='initialize': initialize(home,args.candidate_state)
+    elif args.action=='assets': snapshot_assets(home,args.output,args.candidate_state)
+    elif args.action=='monitor-account': monitor_account(home,args.candidate_state)
+    else: diagnostics(home,args.output,args.candidate_state)
 
 
 if __name__=='__main__': main()

@@ -324,6 +324,15 @@ The full core build inventory is 27 images: seven infrastructure images, two Jav
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
 optional admin images, for 31 total.
 
+The train's final verification job also starts a fresh stack on a GitHub-hosted runner and
+checks real modern pages with local APIs and SSO before publishing completion. See
+[build-train acceptance](BUILD-RUNBOOK.md) for coverage and retained evidence. Empty-volume
+bootstrap uses the resource image's own admin-tool JAR; Template Designer verifies and configures
+its frozen payload without rebuilding it. OpenView, Monitoring and Bridging configure their single
+reachable compiled `cedarDomain` setting from `CEDAR_HOST` at startup, including imported chunks.
+Missing/ambiguous settings and invalid hostname suffixes stop startup. Repeated configuration is
+idempotent, and returning to the production domain restores the original packaged bytes.
+
 ## One-Time Docker Setup
 
 Run this before the first deployment, or after intentionally recreating the CEDAR network and
