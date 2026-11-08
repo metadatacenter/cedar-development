@@ -141,13 +141,13 @@ def snapshot_assets(home, output):
 def monitor_account(home):
     guard(home)
     hidden_path=home/'.cedar/ci-secrets.json'; hidden=json.loads(hidden_path.read_text())
-    def request(path, *, token=None, data=None, form=None):
+    def request(path, *, token=None, data=None, form=None, origin='http://127.0.0.1:8080'):
         headers={}
         if token: headers['Authorization']='Bearer '+token
         body=None
         if form is not None: body=urllib.parse.urlencode(form).encode();headers['Content-Type']='application/x-www-form-urlencoded'
         if data is not None: body=json.dumps(data).encode();headers['Content-Type']='application/json'
-        req=urllib.request.Request('http://127.0.0.1:8080'+path,data=body,headers=headers)
+        req=urllib.request.Request(origin+path,data=body,headers=headers)
         with urllib.request.urlopen(req,timeout=30) as response:
             raw=response.read()
             return json.loads(raw) if raw else None
@@ -161,6 +161,17 @@ def monitor_account(home):
     if len(users)!=1: raise ValueError('Dedicated monitor identity is ambiguous')
     roles=[request('/admin/realms/CEDAR/roles/'+role,token=token) for role in ('normal','monitorViewer')]
     request('/admin/realms/CEDAR/users/'+users[0]['id']+'/role-mappings/realm',token=token,data=roles)
+    # The train's user creation path applies the NORMAL blueprint. Realm role assignment alone
+    # does not refresh the CEDAR permissions stored in Neo4j. This stack contains only CI users.
+    for command in ('graphDb-createAllUsers', 'userProfile-updateAll-updatePermissions'):
+        subprocess.run(['docker','exec','server-resource','/cedar/app/cedarat.sh',command],
+                       capture_output=True, text=True, check=True, timeout=120)
+    viewer_token=request('/realms/CEDAR/protocol/openid-connect/token',form={'grant_type':'password',
+        'client_id':'cedar-angular-app','username':username,'password':password})['access_token']
+    profile=request('/users/'+users[0]['id'],token=viewer_token,origin='http://127.0.0.1:9005')
+    if 'monitorManager' not in profile.get('roles',[]) or 'userAdministrator' in profile.get('roles',[]):
+        raise ValueError('Dedicated CI monitoring profile lacks its read-only capability')
+    request('/health-check/monitor',token=viewer_token,origin='http://127.0.0.1:9014')
     hidden['CEDAR_PERF_MONITOR_PASSWORD']=password;hidden_path.write_text(json.dumps(hidden))
     with open(os.environ['GITHUB_ENV'],'a') as stream:
         stream.write('CEDAR_PERF_MONITOR_LOGIN='+username+'\nCEDAR_PERF_MONITOR_PASSWORD='+password+'\n')
