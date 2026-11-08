@@ -180,26 +180,61 @@ Follow the product-design checkpoints in [AGENTS.md](../AGENTS.md#preserve-the-a
 Reliability work does not authorize new permanent controls: recovery actions must be conditional
 on an actual failure or retained unfinished work, and new UI requires agreement before implementation.
 
-- **Designer conflicts:** fetch the latest schema separately from the working draft and
-  provide review and reconciliation for templates, elements and fields, including unknown
-  content, server normalization and intervening writes; never attach its ETag to an
-  unreconciled draft. A new version that a status check reports unresolved can be neither
-  saved nor discarded. Save stays blocked, and Discard stays refused after every check.
-- **Changed metadata templates:** reconcile retained metadata against a changed template
-  through an explicit migration workflow, preserving unfinished input and unsupported values.
 - **Permitted copies:** recover retained work to another folder when the original artifact is
   inaccessible or deleted, checking destination permissions without silently recreating the
   original or mistaking a permission refusal for deletion.
 
-Keep status checks, access checks, review and explicit discard distinct. A failed recovery
-read must preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
+Keep status checks, access checks and explicit discard distinct. Preserve draft retention and
+stale-save protection without adding version comparison or merging. A failed recovery read must
+preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
 current draft-retention contract and operator verification commands.
+
+<a id="chrome-automation-authentication"></a>
+
+### 5. Restore Automated Staging Sign-In in Chrome
+
+Resolve the **unfixed** staging sign-in failure when Browser Use controls Chrome navigation from
+the start. Workspace reports “Sign-in failed. Please reload.” Normal Chrome navigation followed
+by attaching automation after initialization is a workaround, not a fix.
+
+The 2026-11-08 fresh-chat reproduction receives HTTP 200 for the public Keycloak
+`3p-cookies/step1.html` and `step2.html` child documents, then leaves them at `about:blank` after
+`Fetch.requestPaused`, without their load events or expected messages. Local controls finish;
+`Page.getFrameTree` is refused while Browser Use is resolving a paused document response. A
+same-origin staging child also stalls, so the failure is not specifically cross-origin. The
+identical probe finishes within 677 ms in the built-in browser, which also reaches staging's
+normal sign-in form; authenticated dashboard use there remains unverified. The Chrome extension
+path, browser version and profile state remain possible causes, not an established root cause.
+
+- **Obtain a supported diagnosis and repair.** Use the sanitized reproduction to trace response
+  interception through body retrieval, review and continuation, and distinguish the Chrome
+  extension path from browser/profile differences. A fresh chat, the explicit authentication-host
+  allowance and initializing the built-in browser do not resolve the Chrome stall. Do not repeat
+  speculative permission changes, bypass interception, disable cookie checks or weaken CEDAR
+  authentication. Submit the prepared vendor report only with the user's authorization.
+- **Recheck available Mac Chrome updates before retesting.** The installed `157.0.8103.39` matches
+  Google's [November 3 stable release](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop.html).
+  No newer general Mac release was confirmed on 2026-11-08; the
+  [Chrome 158 early-release notice](https://chromereleases.googleblog.com/2026/11/early-stable-update-for-desktop.html)
+  names Windows and says Mac is coming shortly. Neither an available upgrade nor a fix for this
+  failure should be assumed. Coordinate any browser/app restart to preserve existing sessions.
+- **Verify the repair in the original Chrome profile.** First require both remote frames to load
+  and send their expected messages in the public probe, then require staging Workspace to
+  initialize successfully in a new tab controlled by automation from the start. Preserve normal
+  sign-in behavior. Attaching after initialization or reaching the built-in browser's login form
+  does not meet this completion criterion.
+
+Local evidence and the unsent escalation package are under
+`$CEDAR_HOME/.cedar/reports/signin-automation-20261108/fresh-chat/`: `support-report.txt`,
+`vendor-escalation.zip` and `probe/README.txt`. The probe needs no CEDAR bundles or credential
+entry. Keep cookies, tokens and unrelated session data out of any additional capture; stop its
+temporary server and close diagnostic tabs afterward.
 
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 5. Whole-Component Runtime Theme Overrides
+### 6. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -208,7 +243,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 6. Authoring Feedback for Unsupported Markup
+### 7. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -223,7 +258,7 @@ data images.
 
 ## Frontend Dependencies
 
-### 7. Take the Frontend Dependency Upgrades That Need Code Changes
+### 8. Take the Frontend Dependency Upgrades That Need Code Changes
 
 No dependency below can move by a lock update alone. Some wait on an upstream release, some have
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
@@ -282,7 +317,7 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ## Accessibility
 
-### 8. Fix the Failures the WCAG 2.2 Conformance Report Records
+### 9. Fix the Failures the WCAG 2.2 Conformance Report Records
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
 picker and Workspace against the 55 success criteria of WCAG 2.2 at levels A and AA. Its failures
@@ -410,7 +445,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -424,7 +459,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 11. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
@@ -447,7 +482,7 @@ that the fallback preserves work while the rejected write remains blocked.
 
 ## Legacy Workbench
 
-### 11. Retire the caDSR Form Import Interface and Tutorial
+### 12. Retire the caDSR Form Import Interface and Tutorial
 
 Remove the legacy Workbench's New → Import entry, XML upload dialog, progress/report polling,
 `import.service.js`, caDSR URL builders and the `ng-flow` dependency. They still call the retired
@@ -464,7 +499,7 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
 
 ## Bundle Delivery
 
-### 12. Reduce and Budget the Legacy Editor's Payload
+### 13. Reduce and Budget the Legacy Editor's Payload
 
 - **Reduce repeated model downloads in the legacy Template Editor.** Measure how the AngularJS
   application and its embedded CEE can share model code while preserving independent embedding,
@@ -473,3 +508,14 @@ translator in `cedar-cadsr-tools` needs a separate retirement decision.
   transfers and enforce raw and compressed JavaScript/CSS limits. Trace real requests so
   copied-but-unused vendor files are not mistaken for downloads. Ensure new AMD dependencies
   cannot bypass the gate.
+
+
+## Modern Frontend Performance Gates
+
+### 14. Calibrate Browser Performance Gates
+
+- Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
+  cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
+  increases against retained evidence. Keep machine-dependent timings outside the local reactor.
+- Characterize backend and authentication variability in the hosted CI 17-scenario
+  full-stack sweep before considering timing enforcement. Exclude legacy applications.

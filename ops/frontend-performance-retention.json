@@ -1,0 +1,611 @@
+{
+  "train": "2.9.33-dev.20261107.2016",
+  "protectedComponents": {
+    "docker-cedar": [
+      {
+        "name": "cedar-infra-redis-persistent",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-infra-redis-persistent/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-infra-nginx",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-infra-nginx/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-infra-neo4j",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-infra-neo4j/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-infra-opensearch",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-infra-opensearch/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-infra-mysql",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-infra-mysql/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-infra-mongo",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-infra-mongo/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-group",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-group/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-artifact",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-artifact/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-bridge",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-bridge/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-messaging",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-messaging/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-infra-keycloak",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-infra-keycloak/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-monitor",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-monitor/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-openview",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-openview/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-repo",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-repo/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-user",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-user/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-terminology",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-terminology/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-worker",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-worker/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-server-resource",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-server-resource/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-frontend-bridging",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-frontend-bridging/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-frontend-monitoring",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-frontend-monitoring/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-frontend-content",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-frontend-content/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-frontend-openview",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-frontend-openview/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-frontend-main",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-frontend-main/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-frontend-template-designer",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-frontend-template-designer/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-frontend-workspace",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-frontend-workspace/manifests/2.9.33-dev.20261107.2016"
+        ]
+      }
+    ],
+    "docker-cedar-internal": [
+      {
+        "name": "cedar-java",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-java/manifests/2.9.33-dev.20261107.2016"
+        ]
+      },
+      {
+        "name": "cedar-microservice",
+        "group": "",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/v2/cedar-microservice/manifests/2.9.33-dev.20261107.2016"
+        ]
+      }
+    ],
+    "npm-cedar": [
+      {
+        "name": "cedar-embeddable-editor",
+        "group": "org.metadatacenter",
+        "version": "2.0.34-dev.20261107.gbedf17dd6747.t2016",
+        "paths": [
+          "/@org.metadatacenter/cedar-embeddable-editor/-/cedar-embeddable-editor-2.0.34-dev.20261107.gbedf17dd6747.t2016.tgz"
+        ]
+      },
+      {
+        "name": "cedar-embeddable-term-picker",
+        "group": "org.metadatacenter",
+        "version": "0.1.0-dev.20261107.g3cac0259df22.t2016",
+        "paths": [
+          "/@org.metadatacenter/cedar-embeddable-term-picker/-/cedar-embeddable-term-picker-0.1.0-dev.20261107.g3cac0259df22.t2016.tgz"
+        ]
+      },
+      {
+        "name": "cedar-embeddable-designer",
+        "group": "org.metadatacenter",
+        "version": "0.1.0-dev.20261107.g40ea1b0c7f70.t2016",
+        "paths": [
+          "/@org.metadatacenter/cedar-embeddable-designer/-/cedar-embeddable-designer-0.1.0-dev.20261107.g40ea1b0c7f70.t2016.tgz"
+        ]
+      },
+      {
+        "name": "cedar-design-tokens",
+        "group": "org.metadatacenter",
+        "version": "0.1.0-dev.20261106.5294fab4",
+        "paths": [
+          "/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-0.1.0-dev.20261106.5294fab4.tgz"
+        ]
+      },
+      {
+        "name": "cedar-model-typescript-library",
+        "group": "org.metadatacenter",
+        "version": "1.0.28-dev.20261107.g06be587cca8c.t1858",
+        "paths": [
+          "/@org.metadatacenter/cedar-model-typescript-library/-/cedar-model-typescript-library-1.0.28-dev.20261107.g06be587cca8c.t1858.tgz"
+        ]
+      }
+    ],
+    "cedar-maven-dev": [
+      {
+        "name": "cedar-admin-tool",
+        "group": "org.metadatacenter",
+        "version": "2.9.33-dev.20261107.2016",
+        "paths": [
+          "/org/metadatacenter/cedar-admin-tool/2.9.33-dev.20261107.2016/cedar-admin-tool-2.9.33-dev.20261107.2016.jar",
+          "/org/metadatacenter/cedar-admin-tool/2.9.33-dev.20261107.2016/cedar-admin-tool-2.9.33-dev.20261107.2016.pom"
+        ]
+      }
+    ]
+  },
+  "changes": [
+    {
+      "before": {
+        "name": "cedar_docker_30day_release_purge",
+        "format": "docker",
+        "notes": "CEDAR Docker 30-day release purge",
+        "criteriaLastBlobUpdated": 30,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": null,
+        "criteriaAssetRegex": null,
+        "inUseCount": 2,
+        "repositories": [
+          "docker-cedar-internal",
+          "docker-cedar"
+        ]
+      },
+      "after": {
+        "name": "cedar_docker_30day_release_purge",
+        "format": "docker",
+        "notes": "CEDAR Docker 30-day release purge; retains exact hosted performance baseline 2.9.33-dev.20261107.2016",
+        "criteriaLastBlobUpdated": 30,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": null,
+        "criteriaAssetRegex": "^(?!(?:/?v2/cedar-[^/]+/manifests/2\\.9\\.33\\-dev\\.20261107\\.2016)$)(?:.*)$"
+      }
+    },
+    {
+      "before": {
+        "name": "cedar_docker_3day_prerelease_purge",
+        "format": "docker",
+        "notes": "CEDAR Docker 3-day prerelease purge",
+        "criteriaLastBlobUpdated": 3,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": null,
+        "criteriaAssetRegex": ".*-dev\\..*",
+        "inUseCount": 2,
+        "repositories": [
+          "docker-cedar-internal",
+          "docker-cedar"
+        ]
+      },
+      "after": {
+        "name": "cedar_docker_3day_prerelease_purge",
+        "format": "docker",
+        "notes": "CEDAR Docker 3-day prerelease purge; retains exact hosted performance baseline 2.9.33-dev.20261107.2016",
+        "criteriaLastBlobUpdated": 3,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": null,
+        "criteriaAssetRegex": "^(?!(?:/?v2/cedar-[^/]+/manifests/2\\.9\\.33\\-dev\\.20261107\\.2016)$)(?:.*-dev\\..*)$"
+      }
+    },
+    {
+      "before": {
+        "name": "cedar_maven_30day_release_purge",
+        "format": "maven2",
+        "notes": "CEDAR Maven 30-day release purge",
+        "criteriaLastBlobUpdated": 30,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "RELEASES",
+        "criteriaAssetRegex": null,
+        "inUseCount": 2,
+        "repositories": [
+          "cedar-maven-dev",
+          "maven-releases"
+        ]
+      },
+      "after": {
+        "name": "cedar_maven_30day_release_purge",
+        "format": "maven2",
+        "notes": "CEDAR Maven 30-day release purge; retains exact hosted performance baseline 2.9.33-dev.20261107.2016",
+        "criteriaLastBlobUpdated": 30,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "RELEASES",
+        "criteriaAssetRegex": "^(?!(?:/?org/metadatacenter/cedar-admin-tool/2\\.9\\.33\\-dev\\.20261107\\.2016/[^/]+)$)(?:.*)$"
+      }
+    },
+    {
+      "before": {
+        "name": "cedar_maven_3day_snapshot_purge",
+        "format": "maven2",
+        "notes": "CEDAR Maven 3-day snapshot purge",
+        "criteriaLastBlobUpdated": 3,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "PRERELEASES",
+        "criteriaAssetRegex": null,
+        "inUseCount": 2,
+        "repositories": [
+          "cedar-maven-dev",
+          "maven-snapshots"
+        ]
+      },
+      "after": {
+        "name": "cedar_maven_3day_snapshot_purge",
+        "format": "maven2",
+        "notes": "CEDAR Maven 3-day snapshot purge; retains exact hosted performance baseline 2.9.33-dev.20261107.2016",
+        "criteriaLastBlobUpdated": 3,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "PRERELEASES",
+        "criteriaAssetRegex": "^(?!(?:/?org/metadatacenter/cedar-admin-tool/2\\.9\\.33\\-dev\\.20261107\\.2016/[^/]+)$)(?:.*)$"
+      }
+    },
+    {
+      "before": {
+        "name": "cedar_npm_30day_release_purge",
+        "format": "npm",
+        "notes": "CEDAR npm 30-day release purge",
+        "criteriaLastBlobUpdated": 30,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "RELEASES",
+        "criteriaAssetRegex": null,
+        "inUseCount": 1,
+        "repositories": [
+          "npm-cedar"
+        ]
+      },
+      "after": {
+        "name": "cedar_npm_30day_release_purge",
+        "format": "npm",
+        "notes": "CEDAR npm 30-day release purge; retains exact hosted performance baseline 2.9.33-dev.20261107.2016",
+        "criteriaLastBlobUpdated": 30,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "RELEASES",
+        "criteriaAssetRegex": "^(?!(?:/?@org\\.metadatacenter/cedar\\-design\\-tokens/\\-/cedar\\-design\\-tokens\\-0\\.1\\.0\\-dev\\.20261106\\.5294fab4\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-designer/\\-/cedar\\-embeddable\\-designer\\-0\\.1\\.0\\-dev\\.20261107\\.g40ea1b0c7f70\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-editor/\\-/cedar\\-embeddable\\-editor\\-2\\.0\\.34\\-dev\\.20261107\\.gbedf17dd6747\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-term\\-picker/\\-/cedar\\-embeddable\\-term\\-picker\\-0\\.1\\.0\\-dev\\.20261107\\.g3cac0259df22\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-model\\-typescript\\-library/\\-/cedar\\-model\\-typescript\\-library\\-1\\.0\\.28\\-dev\\.20261107\\.g06be587cca8c\\.t1858\\.tgz)$)(?:.*)$"
+      }
+    },
+    {
+      "before": {
+        "name": "cedar_npm_3day_prerelease_purge",
+        "format": "npm",
+        "notes": "CEDAR npm 3-day prerelease purge",
+        "criteriaLastBlobUpdated": 3,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "PRERELEASES",
+        "criteriaAssetRegex": null,
+        "inUseCount": 1,
+        "repositories": [
+          "npm-cedar"
+        ]
+      },
+      "after": {
+        "name": "cedar_npm_3day_prerelease_purge",
+        "format": "npm",
+        "notes": "CEDAR npm 3-day prerelease purge; retains exact hosted performance baseline 2.9.33-dev.20261107.2016",
+        "criteriaLastBlobUpdated": 3,
+        "criteriaLastDownloaded": null,
+        "retain": null,
+        "sortBy": null,
+        "criteriaReleaseType": "PRERELEASES",
+        "criteriaAssetRegex": "^(?!(?:/?@org\\.metadatacenter/cedar\\-design\\-tokens/\\-/cedar\\-design\\-tokens\\-0\\.1\\.0\\-dev\\.20261106\\.5294fab4\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-designer/\\-/cedar\\-embeddable\\-designer\\-0\\.1\\.0\\-dev\\.20261107\\.g40ea1b0c7f70\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-editor/\\-/cedar\\-embeddable\\-editor\\-2\\.0\\.34\\-dev\\.20261107\\.gbedf17dd6747\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-term\\-picker/\\-/cedar\\-embeddable\\-term\\-picker\\-0\\.1\\.0\\-dev\\.20261107\\.g3cac0259df22\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-model\\-typescript\\-library/\\-/cedar\\-model\\-typescript\\-library\\-1\\.0\\.28\\-dev\\.20261107\\.g06be587cca8c\\.t1858\\.tgz)$)(?:.*)$"
+      }
+    }
+  ],
+  "previewChecks": [
+    {
+      "repository": "docker-cedar-internal",
+      "policy": "cedar_docker_30day_release_purge",
+      "before": 12,
+      "after": 10,
+      "retainedPaths": [
+        "/v2/cedar-java/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-microservice/manifests/2.9.33-dev.20261107.2016"
+      ]
+    },
+    {
+      "repository": "docker-cedar",
+      "policy": "cedar_docker_30day_release_purge",
+      "before": 150,
+      "after": 125,
+      "retainedPaths": [
+        "/v2/cedar-frontend-bridging/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-content/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-main/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-monitoring/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-openview/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-template-designer/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-workspace/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-keycloak/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-mongo/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-mysql/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-neo4j/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-nginx/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-opensearch/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-redis-persistent/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-artifact/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-bridge/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-group/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-messaging/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-monitor/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-openview/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-repo/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-resource/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-terminology/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-user/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-worker/manifests/2.9.33-dev.20261107.2016"
+      ]
+    },
+    {
+      "repository": "docker-cedar-internal",
+      "policy": "cedar_docker_3day_prerelease_purge",
+      "before": 12,
+      "after": 10,
+      "retainedPaths": [
+        "/v2/cedar-java/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-microservice/manifests/2.9.33-dev.20261107.2016"
+      ]
+    },
+    {
+      "repository": "docker-cedar",
+      "policy": "cedar_docker_3day_prerelease_purge",
+      "before": 150,
+      "after": 125,
+      "retainedPaths": [
+        "/v2/cedar-frontend-bridging/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-content/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-main/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-monitoring/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-openview/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-template-designer/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-frontend-workspace/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-keycloak/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-mongo/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-mysql/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-neo4j/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-nginx/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-opensearch/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-infra-redis-persistent/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-artifact/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-bridge/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-group/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-messaging/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-monitor/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-openview/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-repo/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-resource/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-terminology/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-user/manifests/2.9.33-dev.20261107.2016",
+        "/v2/cedar-server-worker/manifests/2.9.33-dev.20261107.2016"
+      ]
+    },
+    {
+      "repository": "cedar-maven-dev",
+      "policy": "cedar_maven_30day_release_purge",
+      "before": 2815,
+      "after": 2813,
+      "retainedPaths": [
+        "/org/metadatacenter/cedar-admin-tool/2.9.33-dev.20261107.2016/cedar-admin-tool-2.9.33-dev.20261107.2016.jar",
+        "/org/metadatacenter/cedar-admin-tool/2.9.33-dev.20261107.2016/cedar-admin-tool-2.9.33-dev.20261107.2016.pom"
+      ]
+    },
+    {
+      "repository": "maven-releases",
+      "policy": "cedar_maven_30day_release_purge",
+      "before": 0,
+      "after": 0,
+      "retainedPaths": []
+    },
+    {
+      "repository": "cedar-maven-dev",
+      "policy": "cedar_maven_3day_snapshot_purge",
+      "before": 0,
+      "after": 0,
+      "retainedPaths": []
+    },
+    {
+      "repository": "maven-snapshots",
+      "policy": "cedar_maven_3day_snapshot_purge",
+      "before": 0,
+      "after": 0,
+      "retainedPaths": []
+    },
+    {
+      "repository": "npm-cedar",
+      "policy": "cedar_npm_30day_release_purge",
+      "before": 177,
+      "after": 172,
+      "retainedPaths": [
+        "/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-0.1.0-dev.20261106.5294fab4.tgz",
+        "/@org.metadatacenter/cedar-embeddable-designer/-/cedar-embeddable-designer-0.1.0-dev.20261107.g40ea1b0c7f70.t2016.tgz",
+        "/@org.metadatacenter/cedar-embeddable-editor/-/cedar-embeddable-editor-2.0.34-dev.20261107.gbedf17dd6747.t2016.tgz",
+        "/@org.metadatacenter/cedar-embeddable-term-picker/-/cedar-embeddable-term-picker-0.1.0-dev.20261107.g3cac0259df22.t2016.tgz",
+        "/@org.metadatacenter/cedar-model-typescript-library/-/cedar-model-typescript-library-1.0.28-dev.20261107.g06be587cca8c.t1858.tgz"
+      ]
+    },
+    {
+      "repository": "npm-cedar",
+      "policy": "cedar_npm_3day_prerelease_purge",
+      "before": 0,
+      "after": 0,
+      "retainedPaths": []
+    }
+  ],
+  "schemaVersion": 1,
+  "sourceRecords": {
+    "docker": "https://raw.githubusercontent.com/metadatacenter/cedar-development/build-trains/docker/completed/2.9.33-dev.20261107.2016.json",
+    "npm": "https://raw.githubusercontent.com/metadatacenter/cedar-development/build-trains/npm/completed/2.9.33-dev.20261107.2016.json",
+    "adminToolSha256": "959ba151f5df786ad6f9b44c72f4ca49a50a785aaa065938e0b3826d6a20d302"
+  },
+  "verifiedAt": "2026-11-08T17:56:18.537597+00:00",
+  "purpose": "Retain immutable hosted full-stack and isolated CEE performance inputs until their calibration cohorts are explicitly retired.",
+  "isolatedCeeReference": {
+    "repository": "cedar-embeddable-editor",
+    "revision": "bedf17dd6747af2c0dc48839678b2ecf48824989",
+    "locks": [
+      "package-lock.json",
+      "visual/package-lock.json"
+    ],
+    "dependencyVersions": [
+      "0.1.0-dev.20261106.5294fab4",
+      "1.0.28-dev.20261107.g06be587cca8c.t1858"
+    ]
+  }
+}

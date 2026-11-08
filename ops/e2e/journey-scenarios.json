@@ -727,10 +727,10 @@
       "promise": "metadata: expired SSO cookies require credential login, preserve the draft without replaying its write, and allow a conditional save and clean reopen"
     }
   ],
-  "metadata-reconciliation": [
+  "metadata-conflict": [
     {
-      "id": "metadata-reconcile",
-      "promise": "Metadata conflict: real 412, explicit comparison and choice, conditional save and authoritative readback"
+      "id": "metadata-conflict",
+      "promise": "Metadata conflict: real 412 retains the draft through reload and restoration, blocks stale writes, and requires confirmed discard to open the latest version"
     }
   ],
   "content-deletion": [

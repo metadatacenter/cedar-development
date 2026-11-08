@@ -287,6 +287,16 @@ including the real CED/Java conformance cases. Publication requires the complete
 every shard receipt and unchanged app bytes. The final job restores the verified host and all
 other consumer outputs; it performs no browser rerun or rebuilding of transferred artifacts.
 
+Before frontend publication, the final job runs the captured CLI's `prod configure-frontends`
+twice and `prod reset-frontends` against temporary Git-backed copies of the actual assembled
+OpenView, Bridging and Monitoring payloads. The baseline is the newly built output, not the old
+dist committed in the source checkout. Configuration must change exactly one JavaScript module
+per application, and only its compiled hostname; repeating it must make no further change. Reset
+must restore every payload file and its permissions exactly. Missing or ambiguous configuration,
+command failures and any other file changes fail the job before publication. The source payloads
+are never modified. The `frontend-configuration` workflow artifact records the configuration
+modules and original file hashes. This check adds no frontend build or browser rerun.
+
 
 The remaining frontend preparation uses two concurrent repository jobs and four workers per job
 (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path). Each repository
@@ -347,9 +357,31 @@ Each worker owns a distinct image reference and records its elapsed time; comple
 written in plan order only after all workers succeed. Failed runs drain active workers
 and never advance the completion pointer. It verifies the
 labels, hashes the embedded manifest in every frontend container, and records the registry digest
-and platform for every image. Only then does it create
-`docker/completed/<TRAIN_ID>.json` and advance `docker/current.json`. The four administration images
-are optional and are not part of this pointer.
+and platform for every image. It stages `docker/completed/<TRAIN_ID>.json` and
+`docker/current.json` locally; neither is published until fresh-stack acceptance passes.
+
+On the same ephemeral Ubuntu runner, the final job checks out the captured CLI, deployment,
+Docker-build and test-harness sources. It starts the verified images from empty volumes with no
+admin-tool or entrypoint compatibility mounts. OpenView, Monitoring and Bridging must configure
+production and non-production domains with exactly one hostname change and byte-exact restoration.
+All six modern frontend images must serve ES modules with a JavaScript MIME type and return 404
+for a missing module while preserving the existing JavaScript, CSS and HTML response types.
+The real nginx-served applications then pass all 17 modern frontend scenarios (34 normal-profile
+cold/warm checks), including authenticated Workspace, Designer, Monitoring and Bridging, public
+OpenView, content, and standalone CEE/CED/CETP. Only standalone fixtures use the private static lab;
+application payloads are not patched or substituted. Production DNS is blocked in the browser.
+Timings remain reporting-only; failed loading, readiness, interactions or fixture cleanup fail the
+train. The completion record carries `freshStackAcceptance`, with the workflow URL, report hash,
+coverage and runtime identities; the `docker-fresh-stack-acceptance` artifact retains screenshots
+and reports for 30 days. Sanitized diagnostics remain for 14 days. The runner stops its stack on
+success or failure and never uses a workstation.
+
+The internal `docker start all --verified-state <workspace>/build-trains --train <TRAIN_ID>` option
+lets this GitHub-hosted gate read the controller's local verification record before publication;
+image digest checks still apply. It is rejected on workstations and self-hosted runners. Normal
+operators continue using the published completion record. The frozen daily calibration workflow
+keeps its original train and compatibility adjustments, so acceptance does not reset its cohort.
+The four administration images are optional and are not part of this pointer.
 
 At deployment time, `cedarcli docker start` reads that completion record again. It applies the
 selected pull policy, requires every selected local image tag to carry the recorded repository
@@ -357,6 +389,10 @@ digest, and then starts Compose with pulling disabled. A tag that is absent, loc
 now resolves to different registry content is rejected before any service starts. Every image tag
 carries the train ID, and Nexus removes a `-dev.` tag from both Docker repositories three days after
 upload, so a machine can pull a train's images only within three days of the train.
+The fixed hosted performance baseline is explicitly exempted from cleanup; its exact retained
+inputs and retirement procedure are recorded in the
+[frontend runbook](FRONTEND-RUNBOOK.md#hosted-full-stack-measurements). This exception does not
+extend the lifetime of other development trains.
 
 <a id="what-a-train-costs"></a>
 

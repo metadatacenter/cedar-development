@@ -95,6 +95,7 @@ export async function instrumentation(context, page, profile) {
   cdp.on('Network.loadingFailed', e => {
     if (active && requests.has(e.requestId)) {
       requests.get(e.requestId).failed = true;
+      requests.get(e.requestId).canceled = Boolean(e.canceled);
       if (!e.canceled) failures.push({error:e.errorText});
     }
   });

@@ -324,6 +324,20 @@ The full core build inventory is 27 images: seven infrastructure images, two Jav
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
 optional admin images, for 31 total.
 
+The train's final verification job also starts a fresh stack on a GitHub-hosted runner and
+checks real modern pages with local APIs and SSO before publishing completion. See
+[build-train acceptance](BUILD-RUNBOOK.md) for coverage and retained evidence. Empty-volume
+bootstrap uses the resource image's own admin-tool JAR; Template Designer verifies and configures
+its frozen payload without rebuilding it. OpenView, Monitoring and Bridging configure their single
+reachable compiled `cedarDomain` setting from `CEDAR_HOST` at startup, including imported chunks.
+Missing/ambiguous settings and invalid hostname suffixes stop startup. Repeated configuration is
+idempotent, and returning to the production domain restores the original packaged bytes. The six
+modern frontend nginx configurations explicitly serve `.mjs` as JavaScript and return 404 for a
+missing module; the base image's default MIME table only covers `.js`. Image CI and the train's
+acceptance gate check the real HTTP headers and unchanged response bytes, including the existing
+JavaScript, CSS and HTML types. This covers Designer's host module and deferred component modules
+without changing the packaged UI.
+
 ## One-Time Docker Setup
 
 Run this before the first deployment, or after intentionally recreating the CEDAR network and
@@ -360,6 +374,7 @@ cedarcli docker start all --pull never
 Start resolves the current completed Docker train, which can lag the Maven pointer while images are
 still building. Use `--train <TRAIN_ID>` to select an exact Docker-complete train. When the images came
 from `docker build --local`, add `--local` to start so Compose selects the development tag instead.
+Except for the explicitly retained [hosted performance baseline](FRONTEND-RUNBOOK.md#hosted-full-stack-measurements),
 Nexus removes a train's images from both Docker repositories three days after upload, because every
 tag carries the train ID. An older train starts only on a machine that already holds its images.
 

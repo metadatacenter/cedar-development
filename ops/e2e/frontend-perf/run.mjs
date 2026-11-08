@@ -5,11 +5,13 @@ import {parseArgs} from 'node:util';
 import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright';
 import {profiles, instrumentation, pageMetrics, summarize, htmlReport} from './metrics.mjs';
+import {modernLoadingFailures, modernHostResolverRules} from './loading.mjs';
 import {prepare, serve, inventory} from './lab.mjs';
+import {preparePackaged} from './packaged.mjs';
 import {standaloneFixtures, fixtures, scenarios, authenticate, scenarioFamily} from './scenarios.mjs';
 
 const {values} = parseArgs({options:{samples:{type:'string',default:'5'}, profiles:{type:'string',default:'normal,constrained'},
-  scenarios:{type:'string'}, output:{type:'string'}, plan:{type:'boolean'}, check:{type:'boolean'}}});
+  'deployment-manifest':{type:'string'}, scenarios:{type:'string'}, output:{type:'string'}, plan:{type:'boolean'}, check:{type:'boolean'}}});
 const repetitions = Number(values.samples), selectedProfiles = values.profiles.split(',');
 if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 30) throw new Error('samples must be 1–30');
 if (selectedProfiles.some(name => !Object.hasOwn(profiles,name))) throw new Error('profiles must be normal and/or constrained');
@@ -29,13 +31,14 @@ if (values.plan) {
     scenarios:planned.map(({id,readiness,actionName}) => ({id,readiness,action:actionName ?? null})),
     reportingOnly:true, legacy:false},null,2));
 } else if (values.check) {
-  execFileSync(process.execPath,['--test',new URL('./metrics.test.mjs',import.meta.url).pathname,
-    new URL('./lab.test.mjs',import.meta.url).pathname],{stdio:'inherit'});
+  const tests = (await readdir(new URL('.',import.meta.url))).filter(name => name.endsWith('.test.mjs')).sort();
+  execFileSync(process.execPath,['--test',...tests.map(name => new URL(name,import.meta.url).pathname)],{stdio:'inherit'});
 } else {
   const directory = resolve(values.output ?? join(home,'.cedar/reports/frontend-performance',new Date().toISOString().replace(/[:.]/g,'-')));
   await mkdir(directory,{recursive:true});
   if ((await readdir(directory)).length) throw new Error('Output directory must be empty; preserve earlier measurements');
   let browser, lab, data, interrupted = false;
+  const preparation = new AbortController();
   const report = {schemaVersion:1,startedAt:new Date().toISOString(),reportingOnly:true,samples:[],metadata:{
     repetitions,profiles:Object.fromEntries(selectedProfiles.map(name => [name,profiles[name]])), viewport:{width:1440,height:1000},
     machine:{platform:platform(),arch:arch(),release:release(),cpu:cpus()[0]?.model,logicalCpus:cpus().length,memoryBytes:totalmem(),loadAtStart:loadavg()},
@@ -57,26 +60,37 @@ if (values.plan) {
     const csv = [columns.join(','), ...report.samples.map(s => columns.map(k => JSON.stringify(s[k] ?? s.metrics?.[k] ?? '')).join(','))].join('\n');
     await writeFile(join(directory,'samples.csv'),csv+'\n');
   };
-  const stop = () => {interrupted = true; void browser?.close().catch(()=>{});};
+  const stop = () => {interrupted = true; preparation.abort(); void browser?.close().catch(()=>{});};
   process.on('SIGINT',stop); process.on('SIGTERM',stop);
   try {
-    const prepared = await prepare(home,join(directory,'lab'),domain);
+    const prepared = values['deployment-manifest']
+      ? await preparePackaged(resolve(values['deployment-manifest']),join(directory,'lab'),domain,{signal:preparation.signal})
+      : await prepare(home,join(directory,'lab'),domain,{signal:preparation.signal});
+    preparation.signal.throwIfAborted();
     await standaloneFixtures(prepared.componentRoot,domain,prepared.integratedScript);
     prepared.evidence.outputs.standalone = await inventory(prepared.componentRoot);
     prepared.evidence.suite = await inventory(new URL('.',import.meta.url).pathname);
     await writeFile(join(directory,'lab/artifacts.json'),JSON.stringify(prepared.evidence,null,2)+'\n');
     report.metadata.artifacts = 'lab/artifacts.json';
     report.metadata.reactor = prepared.evidence.reactor;
+    report.metadata.deployment = prepared.evidence.deployment;
+    if (prepared.evidence.deployment) report.metadata.limits[0] = 'Published immutable train assets in an isolated Docker-backed CI lab; not production deployment latency or real-user Web Vitals.';
+    if (prepared.evidence.deployment?.mode === 'direct') {
+      report.metadata.limits[0] = 'Fresh-stack acceptance of the real Docker-served modern pages and immutable standalone components; timing is reporting-only.';
+      report.metadata.limits[2] = 'Application pages and APIs use the deployment nginx. Only standalone component fixtures use the private HTTPS lab.';
+    }
     report.metadata.sources = prepared.evidence.sources;
     report.metadata.adjustments = prepared.evidence.adjustments;
     report.metadata.suite = {revision:execFileSync('git',['rev-parse','HEAD'],{cwd:new URL('.',import.meta.url),encoding:'utf8'}).trim(),
       sha256:prepared.evidence.suite.sha256};
     lab = await serve(prepared.roots,join(directory,'lab'));
+    preparation.signal.throwIfAborted();
     data = await fixtures(directory);
+    preparation.signal.throwIfAborted();
     let cases = choose(scenarios(domain,data.ids,data.folderId));
     report.metadata.scenarios = cases.map(({id,readiness,actionName}) => ({id,readiness,action:actionName ?? null}));
     browser = await chromium.launch({headless:true,handleSIGINT:false,handleSIGTERM:false,
-      args:['--host-resolver-rules='+lab.rules,'--no-proxy-server']});
+      args:['--host-resolver-rules='+modernHostResolverRules(lab.rules),'--no-proxy-server']});
     report.metadata.browser = browser.version();
     report.metadata.node = process.version;
     const sessions = await authenticate(browser,cases,directory);
@@ -115,6 +129,7 @@ if (values.plan) {
                 await page.waitForTimeout(1000);
                 const snapshot = await page.evaluate(() => window.__cedarPerf.snapshot());
                 sample.metrics = pageMetrics(snapshot,readyMs,meter.snapshot()); meter.stop();
+                errors.push(...modernLoadingFailures(sample.metrics,scenario.id,domain));
                 sample.diagnostics = {layoutShifts:snapshot.entries['layout-shift'],longTasks:snapshot.entries.longtask,
                   largestContentfulPaint:snapshot.entries['largest-contentful-paint']};
                 if (scenario.action && cache === 'warm') {
@@ -141,11 +156,11 @@ if (values.plan) {
         if (interrupted) break;
       }
     }
-  } catch(error) {report.setupError = error.message; console.error(error.stack);}
+  } catch(error) {report.setupError = error.message; report.cleanupErrors = error.cleanupErrors ?? []; console.error(error.stack);}
   finally {
     await browser?.close().catch(()=>{});
     if (lab) await new Promise(resolve => lab.server.close(resolve));
-    try {report.cleanupErrors = data ? await data.cleanup() : [];}
+    try {report.cleanupErrors = data ? await data.cleanup() : (report.cleanupErrors ?? []);}
     catch(error) {report.cleanupErrors = [error.message];}
     report.interrupted = interrupted;
     report.finishedAt = new Date().toISOString(); report.metadata.machine.loadAtEnd = loadavg();

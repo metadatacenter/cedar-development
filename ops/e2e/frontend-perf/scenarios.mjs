@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {actors, artifactBody, call, mutate, enc, mintId} from '../rest/lib.mjs';
-import {assertSafeTargets} from '../rest-perf/lib.mjs';
+import {readFileSync} from 'node:fs';
+const enc = encodeURIComponent;
+// Fixture generation is independent of authentication and REST harness initialization.
+function artifactBody(kind, name) {
+  const body = JSON.parse(readFileSync(new URL(`../fixtures/minimal-${kind}.json`, import.meta.url), 'utf8'));
+  body['@id'] = null;
+  body['schema:name'] = name;
+  return body;
+}
 
 export const sizes = {small:5, large:100};
 export function template(count) {
@@ -20,14 +27,15 @@ export function template(count) {
   return body;
 }
 
-export async function standaloneFixtures(root, domain, integratedScript) {
+export async function standaloneFixtures(root, domain, integratedScript, selected) {
   for (const [size,count] of Object.entries(sizes)) await writeFile(join(root,`${size}.json`), JSON.stringify(template(count)));
   for (const [name,tag,property] of [['cee','cedar-embeddable-editor','templateObject'], ['ced','cedar-embeddable-designer','template'], ['ced-integrated','cedar-embeddable-designer','template'], ['cetp','cedar-embeddable-term-picker',null]]) {
+    if (selected && !selected.includes(name)) continue;
     const integrated = name === 'ced-integrated';
     if (integrated && !integratedScript) throw new Error('Missing equivalent Designer component delivery');
     await writeFile(join(root,`${name}.html`), `<!doctype html><html lang="en"><meta charset="utf-8"><title>${name.toUpperCase()} performance fixture</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:24px} ${tag}{display:block;min-height:600px}</style>
-      ${integrated ? `<link rel="stylesheet" href="https://designer.${domain}/components/fonts.css"><link rel="stylesheet" href="https://designer.${domain}/components/custom-properties.css">` : ''}
+      <link rel="icon" href="data:,"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:24px} ${tag}{display:block;min-height:600px}</style>
+      ${integrated ? `<link rel="stylesheet" href="${new URL('fonts.css',integratedScript)}"><link rel="stylesheet" href="${new URL('custom-properties.css',integratedScript)}">` : ''}
       <${tag}></${tag}><script src="${integrated ? integratedScript : '/'+name+'.js'}"></script><script>
       (async () => {
         await customElements.whenDefined('${tag}'); const el = document.querySelector('${tag}');
@@ -40,7 +48,18 @@ export async function standaloneFixtures(root, domain, integratedScript) {
   }
 }
 
+export async function cleanupAfterSetupFailure(error, cleanup) {
+  let errors;
+  try {errors = await cleanup();}
+  catch (cleanupError) {errors = [cleanupError.message];}
+  error.cleanupErrors = errors;
+  if (errors.length) error.message += '; cleanup: '+errors.join('; ');
+  throw error;
+}
+
 export async function fixtures(directory) {
+  const {actors, call, mutate, mintId} = await import('../rest/lib.mjs');
+  const {assertSafeTargets} = await import('../rest-perf/lib.mjs');
   assertSafeTargets({allowRemote:false});
   const {user1:user} = await actors(), created = [], ids = {};
   const ledger = join(directory,'fixtures.json');
@@ -82,7 +101,7 @@ export async function fixtures(directory) {
       assert.equal(opened.status,200,opened.text);
     }
     return {ids,folderId,cleanup};
-  } catch(error) {const errors = await cleanup(); if (errors.length) error.message += '; cleanup: '+errors.join('; '); throw error;}
+  } catch(error) {await cleanupAfterSetupFailure(error, cleanup);}
 }
 
 const visible = selector => async page => page.locator(selector).first().waitFor({state:'visible'});
@@ -124,8 +143,16 @@ export function scenarios(domain, ids, folderId) {
   const base = name => `https://${name}.${domain}`;
   const rows = [
     {id:'workspace-dashboard',url:base('workspace')+'/dashboard?sort=name&view=list'+(folderId ? '&folderId='+enc(folderId) : ''), auth:true,
-      ready:visible('cedar-workspace-page .destinations'), readiness:'Dashboard destinations and listing finished',
-      async settled(page) {await page.waitForFunction(() => document.querySelector('.table-scroll')?.getAttribute('aria-busy') === 'false');}},
+      ready:visible('cedar-workspace-page .destinations'), readiness:'Dashboard destinations, listing and template action reports finished',
+      async settled(page) {
+        await page.waitForFunction(() => document.querySelector('.table-scroll')?.getAttribute('aria-busy') === 'false');
+        // The listing becomes interactive before its report enrichment finishes. Those
+        // responses populate row actions; include their real latency rather than sampling
+        // incomplete requests after an arbitrary one-second grace period.
+        const reports=Object.values(ids).map(id=>'/templates/'+enc(id.split('/').at(-1))+'/report');
+        await page.waitForFunction(expected => expected.every(path =>
+          performance.getEntriesByType('resource').some(entry => new URL(entry.name).pathname === path)), reports);
+      }},
     {id:'monitoring-dashboard',url:base('monitoring')+'/',auth:true,
       ready:async p => p.locator('mat-card-title',{hasText:'Health Checks'}).waitFor(), readiness:'Health Checks navigation card visible'},
     {id:'bridging-dashboard',url:base('bridging')+'/',auth:true,

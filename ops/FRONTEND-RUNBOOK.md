@@ -34,13 +34,178 @@ and the main browser applications. Shared design values belong in
 | Page load and interaction performance | [Reporting-only performance suite](#reporting-only-performance-suite) |
 | How each component measures against WCAG 2.2 | [Accessibility conformance](#accessibility-conformance) |
 
+## Paired standalone performance checks
+
+`cedarcli test frontend-performance-paired` compares prebuilt standalone CEE/CED JavaScript bundles, or two staged
+Template Designer `app/` directories with `--component designer`, without backend services, Keycloak, accounts or repository fixtures.
+The command does not build, deploy or publish anything. Use the normal reactor/CI production output;
+never pass a development-server bundle. Finish builds and other tests before measurement.
+
+```bash
+cedarcli test frontend-performance-paired --component cee \
+  --baseline /path/to/before/cedar-embeddable-editor.js \
+  --candidate /path/to/after/cedar-embeddable-editor.js \
+  --output /path/to/new-report --samples 5
+# Use --component ced with the standalone cedar-embeddable-designer.js bundle.
+```
+
+The runner freezes and hashes both inputs, uses the same fixed 5/100-field fixtures and
+readiness/editing checks as the full-stack suite, and records browser, Node, machine, suite
+and artifact identities. Five sequential pairs alternate baseline/candidate order and rotate
+fixture order. Each version has a fresh browser context, cold then warm cache, with the
+constrained profile (4× CPU, 1.6 Mbit/s down, 150 ms latency). The static HTTPS server uses
+gzip and browser caching without Playwright routing. Unknown hostnames fail DNS; unexpected
+origins are failures. There are no backend writes or cleanup credentials.
+
+Missing assets, failed requests, duplicate script requests, pending requests at the observation
+cutoff, broken rendering/editing, uncaught errors or incomplete coverage fail the command.
+Reports contain all attempts; failed samples cannot improve a median. Existing output directories
+are refused. `report.json`, `summary.md` and screenshots are retained; the local directory also
+keeps frozen inputs. CI uploads only reports/screenshots, not ephemeral TLS keys.
+
+Readiness, blocking time over 50 ms and CLS are **advisory**, pending runner calibration.
+A timing warning requires the median paired increase to exceed both 10% and 100 ms for
+readiness, or both 15% and 50 ms for blocking. CLS uses a provisional 0.02 increase.
+These are investigation triggers, not approved budgets. Fewer than five pairs, missing metrics
+or median absolute deviation above the tolerance produce an explicit inconclusive assessment.
+In CI, a complete but inconclusive comparison gets one further full paired run. Both attempts
+are retained, with the second selected; persistent noise stays explicitly inconclusive. Broken
+loading or incomplete coverage never retries into a pass. A clear regression does not rerun
+to seek a faster result. A complete advisory run still exits zero; load/measurement failures
+always exit nonzero.
+
+This measures standalone rendering, not sign-in, production latency, host integration, field
+INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute for the
+Designer-equivalent CED+CEF measurement. The existing raw/gzip build budgets remain enforced
+independently. Run the full-stack suite below for authenticated hosts and real APIs.
+
+The Designer selection measures both the real host and the equivalent bare page with its
+exact shared CEE/CEF/CETP/CED bundle. Both wait for every real CEF summary. Only copied runtime
+configuration and the session boundary change; the shipped host JS/CSS/markup and components
+remain byte-identical. Fixed HTTP API responses have real deployment-shaped resource origins,
+ETags, CORS and no-store caching. Unknown API reads and every write are refused. This excludes
+real SSO/API latency; it must not be compared as an application speedup against the full-stack
+Designer results. Normal-load checks require recovery controls to remain absent and deferred
+RDF/compatibility-validator code to remain unloaded.
+
+The equivalent page's cross-origin fonts now receive CORS headers from the lab server. The
+2026-11-07 equivalent-page measurements below predate this correction: font requests failed and
+fallback fonts could render. Their within-fixture comparisons remain recorded, but they are not
+font-equivalent comparisons with Designer. Host and standalone CEE/CED measurements are
+unaffected. Use fresh pairs with this lab for equivalent-renderer comparisons.
+
+A corrected control on 2026-11-08 completed 80/80 Designer/equivalent measurements, with both
+inputs pointing to the same staged app. All loading, editing and normal-screen checks passed;
+all paired results were within advisory tolerances. Constrained warm medians were approximately
+0.62/1.40 s for the equivalent 5/100-field pages and 1.02/1.79 s for the fixture-backed Designer.
+These validate the new benchmark and do not represent an optimization to product code.
+
+The CEE and CED `Test` workflows and Designer's `Build and package` workflow call the pinned reusable
+`.github/workflows/frontend-performance-paired.yml`. Pull requests compare their base SHA
+with the tested merge candidate; pushes compare the previous branch head with the candidate.
+The existing candidate build artifact is reused. The comparison also builds the fixed source
+reference in `ops/e2e/frontend-perf/references.json`, so small regressions cannot disappear by
+merging them one at a time. The reference never advances automatically: changing it requires
+an explicit reviewed source change and matching harness-pin updates. Byte-identical reference
+and PR-base outputs share measurements while both source revisions remain recorded. All
+comparison builds/installations finish before Chromium starts. Both versions are measured
+sequentially on the same Ubuntu 24.04 runner with the harness lockfile's Chromium.
+No performance job runs inside the development reactor, and no package pins are rewritten.
+
+Loading failures fail the CI job; CEE dev publication also waits for that job. Timing/CLS
+warnings and inconclusive assessments appear in the job summary and workflow annotations.
+Reports, every retry and screenshots are retained for 30 days. `comparison.json` records the
+selected attempts and source references; each attempt retains its complete `report.json`. A baseline that cannot build is a setup
+failure, never a passing comparison. To update the harness, update both the reusable-workflow
+SHA and its `harness-ref` input together. The release-tooling CI tests measurement/failure
+semantics without a CEDAR stack on Linux and macOS.
+
+The initial local control check on 2026-11-08 ran 40 measurements for CEE and 40 for CED,
+comparing each production bundle with itself. All loads and editing checks passed; every
+paired readiness/blocking/CLS result was within its advisory tolerance. CEE's bundle SHA-256
+was `ae1034b229734c180136573898c06c40f05ea1d6e8776ebda1aaa43d909ab485` and CED's was
+`cf5f6442c5dd5720f88a0c5f03343f1a6bdfd0fe679a92372d8f6771b6147731`.
+This validates the comparison machinery, not a speed improvement or a Linux CI budget.
+
+The daily `Frontend performance calibration` workflow runs at 02:17 UTC on GitHub-hosted
+Ubuntu 24.04 runners. It pins the validated harness and source references, builds each input
+once, then compares identical bytes for standalone CEE, standalone CED and Designer/equivalent
+CEF. Each control retains every observation, including noisy results, without retrying. Reports
+and screenshots are retained for 30 days. The workflow must exist on the default branch,
+`main`, for GitHub's schedule to run; its identical file also lives on `develop` so release
+integration does not lose it. The pinned harness checkout keeps default-branch scheduling
+independent of the release source tree.
+
+Collect at least 14 distinct daily controls per stable machine/browser/suite/artifact cohort
+before reviewing hard timing limits. Inspect paired differences, noise, false warnings and
+host integration results together; a passing control alone does not approve a budget. Keep
+reviewed limits and reference updates explicit, with retained evidence. Runner or harness
+changes start a new cohort rather than silently mixing distributions.
+
+### Hosted readiness review and notifications
+
+`Frontend performance readiness review` runs entirely on GitHub-hosted Ubuntu runners after
+calibration or full-stack measurement workflows complete, daily at 05:47 UTC as a fallback, and on manual dispatch. Its
+workflow lives identically on `main` and `develop` and checks out a pinned, tested review
+implementation. It never executes downloaded artifact contents as code. Updating the implementation
+requires updating that pin on both branches, keeping release integration consistent.
+
+The review counts one earliest complete successful control per UTC date, separately for each
+component and comparable CPU/platform, browser, Node, suite, reference artifact and measurement
+settings. Failed/missing/expired reports, incomplete coverage and duplicate same-day runs cannot
+inflate the count. Noisy successful controls count and remain in the review. CEE, CED and Designer/
+equivalent CEF can reach readiness independently; full-stack results are reviewed separately
+from these paired component controls.
+
+After 14 dates, a fixed rolling window of the latest 14 daily controls is assessed for readiness,
+blocking and CLS. It reports paired median changes, ranges, median absolute deviation, baseline
+ranges, false warnings and inconclusive rows. Zero false warnings and zero inconclusive rows in
+that window support reviewing the existing provisional thresholds; otherwise the result needs
+investigation and collection continues. This is a conservative automated screen, not a statistical
+guarantee, human approval or automatic activation of timing gates.
+
+The first eligible cohort opens a GitHub issue assigned to and mentioning `@martinjoconnor`.
+Subsequent newly eligible or newly stable cohorts comment on that issue once per milestone;
+daily unchanged results do not send duplicate issue notifications. GitHub delivers those through
+the account's notification settings. The issue includes the assessment and links to source runs.
+Every run also has a job summary and machine-readable `review.json`.
+
+`performance-calibration-history` retains compact measurement reports, exact cohort identities,
+source run/artifact IDs and canonical source-report digests for 90 days. Each successful default-
+branch review restores the prior archive and carries it forward, preserving collected evidence
+beyond raw reports' 30-day retention. Download/API failures fail the review instead of pretending
+there is no history. If the review itself stops for longer than artifact retention, missing evidence
+must be collected again. Repository code, package pins and gate settings are never modified by the
+review. The earlier app-based review is superseded by this hosted workflow.
+
+`full-stack-performance-history` separately retains complete hosted full-stack reports and carries
+its archive forward on each successful default-branch review. A usable day requires all 340 samples
+(17 scenarios × two profiles × cold/warm × five repetitions), successful setup and verified fixture
+cleanup. Train images, standalone package sources, CLI/deployment tooling, suite, CPU, browser, Node
+and resource limits define a cohort; newly generated runtime configuration does not split it.
+The earliest complete run per UTC day counts, including slow observations. After 14 comparable
+dates, the review notifies the same GitHub issue that full-stack variability is ready for human
+review. Per-scenario daily medians, ranges, within-run and between-day median absolute deviations
+are retained in `full-stack-review.json`. These daily measurements are unpaired: they do not
+establish a false-positive rate or automatically approve timing thresholds.
+
 ## Reporting-only performance suite
 
 `cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
 part of the frontend reactor, whole-stack smoke, train or release gates. No performance budget
-fails a run. A broken page, unavailable account or failed fixture cleanup does produce a
-nonzero exit and an explicitly incomplete report; failed measurements never enter medians.
+fails a run. A broken page, failed/pending asset request, duplicate script request, unexpected external
+origin, unavailable account or failed fixture cleanup does produce a nonzero exit and an explicitly
+incomplete report; failed measurements never enter medians.
 Browser operations have a 90-second availability timeout, and sign-in setup has 60 seconds.
+Workspace and Bridging landing pages must keep the standalone editor deferred. Designer and
+the equivalent CED+CEF page must keep RDF and compatibility validation code deferred. These
+loading contracts cover every modern scenario in the full-stack sweep; they do not impose
+machine-dependent timing budgets. The old equivalent-page font CORS defect is fixed by the
+shared lab server and now fails the suite if it returns. Chromium marks successful HTTP 204
+iframe responses as canceled; these no-content responses are accepted, while interrupted
+asset downloads still fail. A 2026-11-08 verification covered all 17 modern scenarios with
+normal/constrained profiles and cold/warm loads: 68/68 passed, with no setup or cleanup errors.
+This one-repetition run verifies coverage and loading contracts, not timing budgets.
 
 Use the pinned Node version and a running local `.orgx` backend/Keycloak stack. Run it while
 builds, smoke tests and other benchmarks are idle. It neither restarts nor redeploys the stack.
@@ -52,6 +217,116 @@ cedarcli test frontend-performance --samples 5
 # A shorter investigation of the standalone components:
 cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,cee-standalone-large,ced-standalone-small,ced-standalone-large
 ```
+
+### Hosted full-stack measurements
+
+`Full-stack frontend performance` runs daily at **03:17 UTC** and on manual dispatch. Its
+identical workflow lives on `main` (required for GitHub scheduling) and `develop`, with a pinned
+harness checkout independent of release source changes. It provisions a fresh Ubuntu 24.04
+GitHub-hosted runner and runs all modern scenarios against real Docker-hosted CEDAR APIs and
+Keycloak. It consumes the completed immutable train `2.9.33-dev.20261107.2016`; image digests and
+standalone CEE/CED/term-picker tarball hashes are verified before measuring. The train’s resource
+image omitted its fresh-database
+bootstrap admin-tool JAR; CI mounts the matching train JAR read-only, verifies its pinned SHA-256,
+and records that dependency separately. New image builds fail if that JAR is missing or corrupt.
+CI also mounts the corrected Designer entrypoint from the pinned Docker tooling: it verifies
+the published page inventory and only generates runtime configuration, without recompiling UI
+assets. The train image’s older entrypoint attempted a build without the source lockfile. Both
+bootstrap additions are recorded as calibration inputs; train image tags remain unchanged.
+This is a fixed calibration baseline, not a moving develop build. Updating the train or pinned
+tooling intentionally starts a new comparable cohort.
+
+The job generates private ephemeral datastore/service credentials and a fresh read-only monitoring
+identity, uses only synthetic fixtures, and contacts no production CEDAR deployment. It uses the
+existing Nexus image credentials to pull published images. No self-hosted runner, workstation
+session, local monitoring account or open application is needed. Fixed text-field scenarios need
+no production terminology corpus and do not benchmark external BioPortal searches.
+
+Published application assets are copied from the verified containers into the existing HTTPS
+performance lab, with real SSO/API calls still reaching the isolated stack. Standalone bundles come
+from the same train's verified npm completion record. `--deployment-manifest` selects these inputs
+without a local reactor build; the default developer command continues to use local sources.
+All resource ceilings, source identities, image digests, browser/Node versions and machine metadata
+are recorded. OpenView, Monitoring and Bridging in this train compile the production domain into
+one environment literal rather than reading the container's domain setting. The lab verifies the
+captured bytes first, changes only that literal to `.orgx` in its copy, and records before/after
+hashes. Chromium blocks production `.org` hostnames before authentication; this DNS guard preserves
+HTTP caching, unlike request interception. Java services have 512 MiB heaps / 768 MiB limits,
+OpenSearch and Neo4j 512 MiB heaps / 1536 MiB limits, and Keycloak a 512 MiB heap / 1024 MiB limit.
+These are CI fixture settings, not production sizing guidance. Shared hosted hardware can be
+noisy; timings stay reporting-only.
+
+Reports, CSV, screenshots and immutable input evidence are retained as `full-stack-performance`
+for 90 days, sanitized service diagnostics for 14 days. The readiness review archives compact
+measurements beyond individual artifact retention. The job stops its stack even after failures;
+GitHub disposes of the runner and its temporary volumes. Broken pages, loading contracts and
+fixture cleanup still fail the job; timing values alone do not.
+
+Manual dispatch accepts five repetitions for calibration or one for a coverage check. A single-
+repetition run has 68 samples and never counts toward the 14-day full-stack review.
+
+The [initial hosted baseline](https://github.com/metadatacenter/cedar-development/actions/runs/42497465804)
+on 2026-11-08 passed all 340 samples with verified fixture cleanup. Its
+[automatic review](https://github.com/metadatacenter/cedar-development/actions/runs/42499993039)
+retained the evidence as the first comparable daily run. Hosted and workstation measurements are
+separate cohorts; their timings are not a before/after comparison.
+
+The fixed baseline's executable inputs are retained in place under narrow Nexus cleanup
+exceptions: all 27 images of this exact train, its three standalone CEE/CED/term-picker packages,
+and its matching admin-tool component. Their URLs and bytes remain unchanged, preserving the
+existing calibration cohort. Both the three-day and thirty-day policies exclude these inputs;
+the same exceptions retain the fixed isolated CEE control's exact model and design-token
+dependencies. The isolated CED and Designer controls already resolve their internal dependencies
+from the retained npm registry.
+Downloads alone do not extend ordinary artifact retention. The reviewed policy changes and
+server-side preview evidence are in [frontend-performance-retention.json](frontend-performance-retention.json).
+The previews simulated all artifact ages and proved that every other cleanup selection remained
+unchanged. Retire these exceptions explicitly when this baseline is no longer needed; do not
+remove them merely because individual reports have been archived. A future baseline requires
+equivalent input retention before it begins collecting comparable daily runs.
+
+### Optional workstation scheduling
+
+The unattended sweep uses hosted CI; the former workstation LaunchAgent is removed. The local
+CLI remains available for explicitly requested workstation investigations. If deliberately
+installed again, its sweep runs at **03:30 Europe/Madrid**, with DST handled
+explicitly. Install or inspect it through the CLI:
+
+```bash
+cedarcli test frontend-performance-schedule --install
+cedarcli test frontend-performance-schedule --status
+cedarcli test frontend-performance-schedule --check
+# Stop future scheduled runs:
+cedarcli test frontend-performance-schedule --remove
+```
+
+The macOS user LaunchAgent checks hourly at minute 30 but runs measurements only during the
+03:30–03:39 Madrid window. It does not wake the machine or catch up outside that window.
+The user must be logged in and the local stack running. No GitHub self-hosted runner is installed.
+`--check` only reports the time/activity decision; it does not measure or modify state.
+
+A sweep needs ten minutes without keyboard/mouse input, other processes using at most 60% of
+one logical CPU, the local stack lock available, clean relevant source trees, current component
+bytes, the existing private monitoring account, and 10 GiB free disk space. It never stashes,
+pulls, deploys, publishes, starts the stack or changes permissions. It performs the normal
+isolated production preparation and five repetitions of all 17 modern scenarios (340 loads).
+Clean trees are an unattended measurement safeguard, not a prerequisite for development builds.
+
+Activity is checked every 15 seconds, excluding this sweep's own descendants. If work resumes,
+activity becomes unreadable or measurements reach 45 minutes, the suite is interrupted gracefully:
+preparation stops, Chromium closes and temporary fixtures are deleted and verified. Cleanup
+is allowed to finish. An unverified completion or cleanup error blocks later sweeps pending
+investigation; do not remove that guard without checking `fixtures.json` against the local stack.
+
+Evidence lives under `.cedar/reports/frontend-performance/scheduled/`: `latest.json` records the
+latest decision, `last-run.json` preserves the last started run and its cleanup status, and each
+`nightly-*` directory holds the report and `scheduled.json`. Skipped hours cannot erase an
+unverified run. `latest.log` records the latest sweep; `launchd.log` records scheduler invocations.
+Owned reports are retained for 30 days and their frozen lab files for seven days. Cleanup-failure
+evidence is retained for investigation. The LaunchAgent contains no credentials; the existing
+mode-0600 monitoring account file is read only into the child process environment.
+
+### Measurement coverage and method
 
 The default covers Workspace's dashboard and metadata editor, Template Designer, OpenView
 template pages, Bridging and Monitoring dashboards, the content index, standalone CEE and
@@ -131,6 +406,14 @@ that broad accessible-name queries in the original baseline walked all 100 field
 contributed their own long tasks. Compare optimization results only against a rerun using
 the same direct probes; a lower measurement after changing the probe is not an application
 speedup. The original baseline below remains historical evidence, including that overhead.
+
+Workspace dashboard readiness also waits for the two fixture templates' action-report responses.
+The listing's `aria-busy` clears before that background enrichment finishes, so listing readiness
+alone can truncate real requests on a cold deployment. The probe waits for completed Resource
+Timing entries, retaining failures for missing, failed or unfinished requests; it does not add a
+fixed delay or suppress loading errors. Do not compare this readiness value with the earlier
+listing-only probe as an application speed change. The pinned daily calibration harness remains
+unchanged and retains its existing cohort.
 
 Outputs default to `.cedar/reports/frontend-performance/<timestamp>/`: `report.html`,
 `report.json`, `samples.csv`, first-run screenshots and build/fixture evidence. `--output`
@@ -3914,9 +4197,11 @@ the affected control; `revealValidationFinding(location)` reports whether a path
 Unknown paths remain visible as text. Warnings neither mark controls invalid nor block Save.
 An accepted document edit or replacement retires the supplied snapshot; invalid pending
 settings remain intact. Hosts must discard late reports about an older submitted snapshot.
-Conflicts and missing revision tokens preserve edits and block another write. Workspace offers
-**Review latest saved version** for existing metadata; Designer still needs explicit schema
-reconciliation or a confirmed reload that discards the working changes. A refused existing-artifact save (401/403), including
+Conflicts and missing revision tokens preserve edits and block another write. Workspace's metadata
+editor provides no version comparison or merge. **Reload metadata** opens the latest saved record
+after confirmation to discard unsaved edits; cancelling preserves the draft and the save guard.
+Designer also requires a confirmed reload to discard working changes after a conflict.
+A refused existing-artifact save (401/403), including
 an update assessment refused before writing, offers **Recheck access**. Both hosts read the
 artifact and permissions separately from the working draft; only restored update permission
 and unchanged opened content/revision enable saving again. A different revision remains blocked
@@ -3943,8 +4228,7 @@ guard. A missing revision, changed content or denied permission keeps Save block
 check retryable.
 A failed update assessment can be retried because it has not written an artifact. The CED
 host smoke commits real updates before dropping their replies to verify this distinction.
-Designer schema reconciliation and changed-template migration remain open in the
-[save-recovery roadmap](FRONTEND-ROADMAP.md#save-recovery).
+Retained drafts never authorize overwriting a changed record or adopting its newer revision.
 Both hosts retain unfinished work in the tab's `sessionStorage`, scoped to the deployment,
 signed-in account, artifact kind and identity, or the destination folder for a new artifact.
 The component APIs `captureDraft()` and `restoreDraft()` preserve unfinished control input,
@@ -4024,18 +4308,12 @@ A lookup cannot tell an identity that was never created from one that was create
 deleted. If the artifact is deleted while its author's tab still holds the unresolved outcome,
 the check reports it as not saved, and a retried create recreates it under the same identity.
 
-Workspace's **Review latest saved version** reads the artifact, access report and template without
-changing the form. It combines independent metadata edits and requires a choice for each conflict;
-repeated entries are compared together rather than paired by index. Repository identity and
-provenance come from the latest document. **Apply reviewed changes** updates the form only, and
-Save still performs a conditional write with the reviewed ETag. Editing during review invalidates
-its application. A changed template or unfinished raw input leaves the draft intact and explains
-why reconciliation cannot yet proceed.
-
-`npm run smoke:journey -- draft-recovery metadata-reconciliation` exercises the deployed component
+`npm run smoke:journey -- draft-recovery metadata-conflict` exercises the deployed component
 APIs and real stored artifacts: reload after an outage or lost committed reply, full sign-in,
 restoration, authoritative status checks, subsequent conditional saves and readback, plus a real
-metadata conflict followed by explicit reconciliation. The regular Workspace stack smoke includes
+metadata conflict that retains the draft through reload and restoration, keeps stale saves blocked,
+and opens the newer record only after confirmed discard. It also verifies that normal, edited and
+conflicted metadata screens have no comparison controls. The regular Workspace stack smoke includes
 these journeys too. Fixtures are removed when the run ends.
 
 Additional focused checks, also included in the regular modern smoke:

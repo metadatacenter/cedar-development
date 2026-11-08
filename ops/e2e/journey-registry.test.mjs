@@ -46,7 +46,7 @@ test("browser authentication is classified, including same-user recovery", () =>
       `${file} authenticates, but none of its journeys declares why`);
   for (const key of ["draft-recovery", "uncertain-create"])
     assert.equal(journey(key).authentication, "reauthenticates the first user");
-  for (const key of ["metadata-reconciliation", "uncertain-workspace-create", "uncertain-version"])
+  for (const key of ["metadata-conflict", "uncertain-workspace-create", "uncertain-version"])
     assert.equal(journey(key).authentication, null, "non-authenticating siblings remain parallel");
 });
 
