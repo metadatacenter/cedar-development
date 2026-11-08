@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -48,10 +49,10 @@ class AcceptanceTest(unittest.TestCase):
                             self.assertEqual(proof['status'],'passed')
 
     def test_train_cannot_publish_before_acceptance(self):
-        import yaml
-        workflow=yaml.safe_load((Path(__file__).resolve().parents[2]/'.github/workflows/build-train.yml').read_text())
-        steps=workflow['jobs']['verify-docker-train']['steps']
-        names=[step.get('name','') for step in steps]
+        workflow=(Path(__file__).resolve().parents[2]/'.github/workflows/build-train.yml').read_text()
+        final=workflow.split('  verify-docker-train:',1)[1]
+        steps=re.split(r'^      - ',final,flags=re.M)[1:]
+        names=[step.splitlines()[0].removeprefix('name: ') for step in steps]
         ordered=['Pull and verify all 27 core images','Initialize an empty installation without compatibility mounts',
                  'Start the verified candidate from empty volumes',
                  'Check real deployed pages and standalone components with real APIs and SSO',
@@ -59,5 +60,4 @@ class AcceptanceTest(unittest.TestCase):
         positions=[names.index(name) for name in ordered]
         self.assertEqual(positions,sorted(positions))
         for position in positions:
-            self.assertNotIn('if',steps[position])
-            self.assertFalse(steps[position].get('continue-on-error',False))
+            self.assertNotRegex(steps[position],r'(?m)^        (?:if|continue-on-error):')
