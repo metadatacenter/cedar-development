@@ -245,6 +245,22 @@
         "paths": [
           "/@org.metadatacenter/cedar-embeddable-designer/-/cedar-embeddable-designer-0.1.0-dev.20261107.g40ea1b0c7f70.t2016.tgz"
         ]
+      },
+      {
+        "name": "cedar-design-tokens",
+        "group": "org.metadatacenter",
+        "version": "0.1.0-dev.20261106.5294fab4",
+        "paths": [
+          "/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-0.1.0-dev.20261106.5294fab4.tgz"
+        ]
+      },
+      {
+        "name": "cedar-model-typescript-library",
+        "group": "org.metadatacenter",
+        "version": "1.0.28-dev.20261107.g06be587cca8c.t1858",
+        "paths": [
+          "/@org.metadatacenter/cedar-model-typescript-library/-/cedar-model-typescript-library-1.0.28-dev.20261107.g06be587cca8c.t1858.tgz"
+        ]
       }
     ],
     "cedar-maven-dev": [
@@ -401,7 +417,7 @@
         "retain": null,
         "sortBy": null,
         "criteriaReleaseType": "RELEASES",
-        "criteriaAssetRegex": "^(?!(?:/?@org\\.metadatacenter/cedar\\-embeddable\\-designer/\\-/cedar\\-embeddable\\-designer\\-0\\.1\\.0\\-dev\\.20261107\\.g40ea1b0c7f70\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-editor/\\-/cedar\\-embeddable\\-editor\\-2\\.0\\.34\\-dev\\.20261107\\.gbedf17dd6747\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-term\\-picker/\\-/cedar\\-embeddable\\-term\\-picker\\-0\\.1\\.0\\-dev\\.20261107\\.g3cac0259df22\\.t2016\\.tgz)$)(?:.*)$"
+        "criteriaAssetRegex": "^(?!(?:/?@org\\.metadatacenter/cedar\\-design\\-tokens/\\-/cedar\\-design\\-tokens\\-0\\.1\\.0\\-dev\\.20261106\\.5294fab4\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-designer/\\-/cedar\\-embeddable\\-designer\\-0\\.1\\.0\\-dev\\.20261107\\.g40ea1b0c7f70\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-editor/\\-/cedar\\-embeddable\\-editor\\-2\\.0\\.34\\-dev\\.20261107\\.gbedf17dd6747\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-term\\-picker/\\-/cedar\\-embeddable\\-term\\-picker\\-0\\.1\\.0\\-dev\\.20261107\\.g3cac0259df22\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-model\\-typescript\\-library/\\-/cedar\\-model\\-typescript\\-library\\-1\\.0\\.28\\-dev\\.20261107\\.g06be587cca8c\\.t1858\\.tgz)$)(?:.*)$"
       }
     },
     {
@@ -429,7 +445,7 @@
         "retain": null,
         "sortBy": null,
         "criteriaReleaseType": "PRERELEASES",
-        "criteriaAssetRegex": "^(?!(?:/?@org\\.metadatacenter/cedar\\-embeddable\\-designer/\\-/cedar\\-embeddable\\-designer\\-0\\.1\\.0\\-dev\\.20261107\\.g40ea1b0c7f70\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-editor/\\-/cedar\\-embeddable\\-editor\\-2\\.0\\.34\\-dev\\.20261107\\.gbedf17dd6747\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-term\\-picker/\\-/cedar\\-embeddable\\-term\\-picker\\-0\\.1\\.0\\-dev\\.20261107\\.g3cac0259df22\\.t2016\\.tgz)$)(?:.*)$"
+        "criteriaAssetRegex": "^(?!(?:/?@org\\.metadatacenter/cedar\\-design\\-tokens/\\-/cedar\\-design\\-tokens\\-0\\.1\\.0\\-dev\\.20261106\\.5294fab4\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-designer/\\-/cedar\\-embeddable\\-designer\\-0\\.1\\.0\\-dev\\.20261107\\.g40ea1b0c7f70\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-editor/\\-/cedar\\-embeddable\\-editor\\-2\\.0\\.34\\-dev\\.20261107\\.gbedf17dd6747\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-embeddable\\-term\\-picker/\\-/cedar\\-embeddable\\-term\\-picker\\-0\\.1\\.0\\-dev\\.20261107\\.g3cac0259df22\\.t2016\\.tgz|/?@org\\.metadatacenter/cedar\\-model\\-typescript\\-library/\\-/cedar\\-model\\-typescript\\-library\\-1\\.0\\.28\\-dev\\.20261107\\.g06be587cca8c\\.t1858\\.tgz)$)(?:.*)$"
       }
     }
   ],
@@ -523,8 +539,8 @@
     {
       "repository": "cedar-maven-dev",
       "policy": "cedar_maven_30day_release_purge",
-      "before": 2709,
-      "after": 2707,
+      "before": 2815,
+      "after": 2813,
       "retainedPaths": [
         "/org/metadatacenter/cedar-admin-tool/2.9.33-dev.20261107.2016/cedar-admin-tool-2.9.33-dev.20261107.2016.jar",
         "/org/metadatacenter/cedar-admin-tool/2.9.33-dev.20261107.2016/cedar-admin-tool-2.9.33-dev.20261107.2016.pom"
@@ -554,12 +570,14 @@
     {
       "repository": "npm-cedar",
       "policy": "cedar_npm_30day_release_purge",
-      "before": 175,
+      "before": 177,
       "after": 172,
       "retainedPaths": [
+        "/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-0.1.0-dev.20261106.5294fab4.tgz",
         "/@org.metadatacenter/cedar-embeddable-designer/-/cedar-embeddable-designer-0.1.0-dev.20261107.g40ea1b0c7f70.t2016.tgz",
         "/@org.metadatacenter/cedar-embeddable-editor/-/cedar-embeddable-editor-2.0.34-dev.20261107.gbedf17dd6747.t2016.tgz",
-        "/@org.metadatacenter/cedar-embeddable-term-picker/-/cedar-embeddable-term-picker-0.1.0-dev.20261107.g3cac0259df22.t2016.tgz"
+        "/@org.metadatacenter/cedar-embeddable-term-picker/-/cedar-embeddable-term-picker-0.1.0-dev.20261107.g3cac0259df22.t2016.tgz",
+        "/@org.metadatacenter/cedar-model-typescript-library/-/cedar-model-typescript-library-1.0.28-dev.20261107.g06be587cca8c.t1858.tgz"
       ]
     },
     {
@@ -571,11 +589,23 @@
     }
   ],
   "schemaVersion": 1,
-  "verifiedAt": "2026-11-08T17:41:45.445637+00:00",
-  "purpose": "Retain immutable hosted performance inputs until the calibration cohort is explicitly retired.",
   "sourceRecords": {
     "docker": "https://raw.githubusercontent.com/metadatacenter/cedar-development/build-trains/docker/completed/2.9.33-dev.20261107.2016.json",
     "npm": "https://raw.githubusercontent.com/metadatacenter/cedar-development/build-trains/npm/completed/2.9.33-dev.20261107.2016.json",
     "adminToolSha256": "959ba151f5df786ad6f9b44c72f4ca49a50a785aaa065938e0b3826d6a20d302"
+  },
+  "verifiedAt": "2026-11-08T17:56:18.537597+00:00",
+  "purpose": "Retain immutable hosted full-stack and isolated CEE performance inputs until their calibration cohorts are explicitly retired.",
+  "isolatedCeeReference": {
+    "repository": "cedar-embeddable-editor",
+    "revision": "bedf17dd6747af2c0dc48839678b2ecf48824989",
+    "locks": [
+      "package-lock.json",
+      "visual/package-lock.json"
+    ],
+    "dependencyVersions": [
+      "0.1.0-dev.20261106.5294fab4",
+      "1.0.28-dev.20261107.g06be587cca8c.t1858"
+    ]
   }
 }

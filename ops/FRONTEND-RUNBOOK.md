@@ -275,6 +275,9 @@ The fixed baseline's executable inputs are retained in place under narrow Nexus 
 exceptions: all 27 images of this exact train, its three standalone CEE/CED/term-picker packages,
 and its matching admin-tool component. Their URLs and bytes remain unchanged, preserving the
 existing calibration cohort. Both the three-day and thirty-day policies exclude these inputs;
+the same exceptions retain the fixed isolated CEE control's exact model and design-token
+dependencies. The isolated CED and Designer controls already resolve their internal dependencies
+from the retained npm registry.
 downloads alone do not extend ordinary artifact retention. The reviewed policy changes and
 server-side preview evidence are in [frontend-performance-retention.json](frontend-performance-retention.json).
 The previews simulated all artifact ages and proved that every other cleanup selection remained
