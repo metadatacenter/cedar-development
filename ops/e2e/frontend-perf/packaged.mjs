@@ -11,7 +11,7 @@ export async function preparePackaged(manifestPath, directory, domain, {signal}=
   assert.equal(manifest.kind,'ephemeral-docker-train');
   assert.match(manifest.train,/^\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}$/);
   const roots={}, evidence={reactor:null, sources:{}, outputs:{}, domain, adjustments:[],
-    deployment:{train:manifest.train,manifestSha256:hash(raw),images:manifest.images,resourceLimits:manifest.resourceLimits,tooling:manifest.tooling}};
+    deployment:{train:manifest.train,manifestSha256:hash(raw),images:manifest.images,resourceLimits:manifest.resourceLimits,tooling:manifest.tooling,bootstrap:manifest.bootstrap}};
   await mkdir(directory,{recursive:true});
   for(const name of Object.keys(apps)) {
     signal?.throwIfAborted();

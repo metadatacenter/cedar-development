@@ -85,7 +85,7 @@ jobs:
           BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
         run: printf '%s' "$BMIR_NEXUS_PASSWORD" | docker login nexus.bmir.stanford.edu --username "$BMIR_NEXUS_USERNAME" --password-stdin
       - name: Start and verify the completed train
-        run: bash "$CEDAR_HOME/cedar-cli/cli.sh" docker start all --train "$CEDAR_TRAIN_VERSION" --pull always --timeout 1200
+        run: bash "$CEDAR_HOME/cedar-cli/cli.sh" docker start all --train "$CEDAR_TRAIN_VERSION" --pull always --timeout 600
       - name: Capture verified published frontend assets
         run: python "$CEDAR_HOME/cedar-development/ops/e2e/frontend-perf/full_stack_ci.py" assets --output "$RUNNER_TEMP/performance-inputs"
       - name: Create the isolated read-only monitoring identity

@@ -223,7 +223,10 @@ cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,
 `Full-stack frontend performance` provisions a fresh Ubuntu 24.04 GitHub-hosted runner and runs
 all modern scenarios against real Docker-hosted CEDAR APIs and Keycloak. It consumes the completed
 immutable train `2.9.33-dev.20261107.2016`; image digests and standalone CEE/CED/term-picker tarball
-hashes are verified before measuring. This is a fixed calibration baseline, not a moving develop
+hashes are verified before measuring. The train’s resource image omitted its fresh-database
+bootstrap admin-tool JAR; CI mounts the matching train JAR read-only, verifies its pinned SHA-256,
+and records that dependency separately. New image builds fail if that JAR is missing or corrupt.
+This is a fixed calibration baseline, not a moving develop
 build. Updating the train or pinned tooling intentionally starts a new comparable cohort.
 
 The job generates private ephemeral datastore/service credentials and a fresh read-only monitoring

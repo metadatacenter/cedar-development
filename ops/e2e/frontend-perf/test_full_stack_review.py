@@ -11,7 +11,7 @@ def report(day=1):
     meta=dict(repetitions=5,profiles={'normal':{},'constrained':{'cpu':4}},viewport={'width':1440,'height':1000},
               browser='156',node='24',suite={'sha256':'a'*64},sources={'cee':{'revision':'b'*40}},
               machine=dict(platform='linux',arch='x64',cpu='cpu-a',logicalCpus=4,memoryBytes=16000000000),
-              deployment=dict(train='fixed-train',images=['digest'],resourceLimits={'heap':512},tooling={'cli':'c'*40},manifestSha256='random-runtime-config'))
+              deployment=dict(train='fixed-train',images=['digest'],resourceLimits={'heap':512},tooling={'cli':'c'*40},bootstrap={'sha256':'fixed-bootstrap'},manifestSha256='random-runtime-config'))
     return dict(complete=True,interrupted=False,setupFailures=[],cleanupErrors=[],startedAt=f'2026-11-{day:02}T03:00:00Z',metadata=meta,
                 samples=[dict(scenario=s,profile=p,cache=c,repeat=r,status='ok',metrics=dict(readyMs=1000,blockingOver50Ms=50,cls=0,transferBytes=10000))
                          for s in review.SCENARIOS for p in ('normal','constrained') for c in ('cold','warm') for r in range(1,6)])

@@ -13,6 +13,7 @@ import subprocess
 import urllib.request
 
 TRAIN = '2.9.33-dev.20261107.2016'
+ADMIN_SHA256 = '959ba151f5df786ad6f9b44c72f4ca49a50a785aaa065938e0b3826d6a20d302'
 
 
 def guard(home):
@@ -56,13 +57,23 @@ def initialize(home):
     micro = (deploy/'cedar-microservices/docker-compose.yml').read_text()
     services = re.findall(r'^  (server-[a-z]+):$', micro, re.M)
     override = {'services': {name: {'mem_limit':'768m','environment':{'JAVA_TOOL_OPTIONS':'-Xms64m -Xmx512m -XX:ActiveProcessorCount=2'}} for name in services}}
+    # This completed train's resource image omitted its fresh-database bootstrap JAR. Supply
+    # the exact matching published artifact; do not rebuild or retag immutable train images.
+    admin_url = f'https://nexus.bmir.stanford.edu/repository/cedar-maven-dev/org/metadatacenter/cedar-admin-tool/{TRAIN}/cedar-admin-tool-{TRAIN}.jar'
+    with urllib.request.urlopen(admin_url, timeout=120) as response:
+        admin = response.read()
+    if hashlib.sha256(admin).hexdigest() != ADMIN_SHA256:
+        raise ValueError('Bootstrap artifact digest mismatch')
+    admin_path = state/'cedar-admin-tool.jar'; admin_path.write_bytes(admin)
+    override['services']['server-resource']['volumes'] = [str(admin_path)+':/cedar/app/cedar-admin-tool.jar:ro']
+    (state/'ci-bootstrap.json').write_text(json.dumps({'url':admin_url,'sha256':ADMIN_SHA256,'train':TRAIN}))
     (deploy/'cedar-microservices/docker-compose.override.yml').write_text(json.dumps(override))
     infra = {'services': {
         'opensearch': {'mem_limit':'1536m','environment':{'OPENSEARCH_JAVA_OPTS':'-Xms512m -Xmx512m'}},
         'neo4j': {'mem_limit':'1536m','environment':{'NEO4J_dbms_memory_heap_initial__size':'256m','NEO4J_dbms_memory_heap_max__size':'512m','NEO4J_dbms_memory_pagecache_size':'256m'}},
         'keycloak': {'mem_limit':'1024m','environment':{'JAVA_OPTS_APPEND':'-Xms64m -Xmx512m -XX:ActiveProcessorCount=2'}}}}
     (deploy/'cedar-infrastructure/docker-compose.override.yml').write_text(json.dumps(infra))
-    (state/'ci-resource-limits.json').write_text(json.dumps({'microservices':override,'infrastructure':infra}))
+    (state/'ci-resource-limits.json').write_text(json.dumps({'microservices':{'services':{name:{key:value for key,value in settings.items() if key != 'volumes'} for name,settings in override['services'].items()}},'infrastructure':infra}))
     # Nginx's read-only mounts must exist. These fixed-field measurements require no shared assets
     # or ontology index, and do not exercise external terminology integrations.
     for name in ('cedar-shared-data', 'cedar-swagger-ui', 'terminology-store'):
@@ -83,6 +94,7 @@ def snapshot_assets(home, output):
     images={entry['image']:entry for entry in completion['images']}
     manifest={'schemaVersion':1,'kind':'ephemeral-docker-train','train':TRAIN,'domain':'metadatacenter.orgx',
               'images':completion['images'],'applications':{},'components':{},
+              'bootstrap':json.loads((home/'.cedar/ci-bootstrap.json').read_text()),
               'tooling':{repo:subprocess.check_output(['git','rev-parse','HEAD'],cwd=home/repo,text=True).strip() for repo in ('cedar-cli','cedar-docker-build','cedar-docker-deploy')},
               'resourceLimits':json.loads((home/'.cedar/ci-resource-limits.json').read_text())}
     applications={'workspace':('workspace','cedar-workspace/app'), 'designer':('template-designer','cedar-template-designer/app'),
@@ -163,7 +175,7 @@ def diagnostics(home, output):
         return text
     listing = subprocess.run(['docker','ps','-a','--format','{{.Names}}'], capture_output=True,text=True,check=True)
     for name in listing.stdout.splitlines():
-        if not re.fullmatch(r'(infra|server|frontend)-[a-z-]+',name):
+        if not re.fullmatch(r'(infra|server|frontend)-[a-z0-9-]+',name):
             continue
         status = subprocess.run(['docker','inspect','--format','{{json .State}}',name],capture_output=True,text=True)
         logs = subprocess.run(['docker','logs','--tail','100',name],capture_output=True,text=True)

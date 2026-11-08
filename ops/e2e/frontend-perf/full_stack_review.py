@@ -40,7 +40,7 @@ def validate(report):
     # Keep exact RAM in the raw report, but group by the physical memory class.
     cohort['machine']['memoryGiB'] = round(cohort['machine'].pop('memoryBytes') / (1024**3))
     cohort['suite'] = meta['suite']['sha256']
-    cohort['deployment'] = {k:deployment[k] for k in ('train', 'images', 'resourceLimits', 'tooling')}
+    cohort['deployment'] = {k:deployment[k] for k in ('train', 'images', 'resourceLimits', 'tooling', 'bootstrap')}
     if not all(cohort[k] for k in ('browser', 'node', 'suite', 'sources')) or not all(cohort['machine'].values()):
         raise ValueError('Missing stable measurement identity')
     expected = {(s,p,c,r) for s in SCENARIOS for p in ('normal','constrained') for c in ('cold','warm') for r in range(1,6)}
