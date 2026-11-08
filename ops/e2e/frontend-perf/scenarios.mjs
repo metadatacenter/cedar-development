@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {actors, artifactBody, call, mutate, enc, mintId} from '../rest/lib.mjs';
-import {assertSafeTargets} from '../rest-perf/lib.mjs';
+import {readFileSync} from 'node:fs';
+const enc = encodeURIComponent;
+// Fixture generation is independent of authentication and REST harness initialization.
+function artifactBody(kind, name) {
+  const body = JSON.parse(readFileSync(new URL(`../fixtures/minimal-${kind}.json`, import.meta.url), 'utf8'));
+  body['@id'] = null;
+  body['schema:name'] = name;
+  return body;
+}
 
 export const sizes = {small:5, large:100};
 export function template(count) {
@@ -20,13 +27,14 @@ export function template(count) {
   return body;
 }
 
-export async function standaloneFixtures(root, domain, integratedScript) {
+export async function standaloneFixtures(root, domain, integratedScript, selected) {
   for (const [size,count] of Object.entries(sizes)) await writeFile(join(root,`${size}.json`), JSON.stringify(template(count)));
   for (const [name,tag,property] of [['cee','cedar-embeddable-editor','templateObject'], ['ced','cedar-embeddable-designer','template'], ['ced-integrated','cedar-embeddable-designer','template'], ['cetp','cedar-embeddable-term-picker',null]]) {
+    if (selected && !selected.includes(name)) continue;
     const integrated = name === 'ced-integrated';
     if (integrated && !integratedScript) throw new Error('Missing equivalent Designer component delivery');
     await writeFile(join(root,`${name}.html`), `<!doctype html><html lang="en"><meta charset="utf-8"><title>${name.toUpperCase()} performance fixture</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:24px} ${tag}{display:block;min-height:600px}</style>
+      <link rel="icon" href="data:,"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:24px} ${tag}{display:block;min-height:600px}</style>
       ${integrated ? `<link rel="stylesheet" href="https://designer.${domain}/components/fonts.css"><link rel="stylesheet" href="https://designer.${domain}/components/custom-properties.css">` : ''}
       <${tag}></${tag}><script src="${integrated ? integratedScript : '/'+name+'.js'}"></script><script>
       (async () => {
@@ -41,6 +49,8 @@ export async function standaloneFixtures(root, domain, integratedScript) {
 }
 
 export async function fixtures(directory) {
+  const {actors, call, mutate, mintId} = await import('../rest/lib.mjs');
+  const {assertSafeTargets} = await import('../rest-perf/lib.mjs');
   assertSafeTargets({allowRemote:false});
   const {user1:user} = await actors(), created = [], ids = {};
   const ledger = join(directory,'fixtures.json');

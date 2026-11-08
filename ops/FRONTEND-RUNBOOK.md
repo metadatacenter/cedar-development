@@ -34,6 +34,55 @@ and the main browser applications. Shared design values belong in
 | Page load and interaction performance | [Reporting-only performance suite](#reporting-only-performance-suite) |
 | How each component measures against WCAG 2.2 | [Accessibility conformance](#accessibility-conformance) |
 
+## Paired standalone performance checks
+
+`cedarcli test frontend-performance-paired` compares two prebuilt standalone CEE or CED
+JavaScript bundles without backend services, Keycloak, accounts or repository fixtures.
+It does not build, deploy or publish anything. Use the normal reactor/CI production output;
+never pass a development-server bundle. Finish builds and other tests before measurement.
+
+```bash
+cedarcli test frontend-performance-paired --component cee \
+  --baseline /path/to/before/cedar-embeddable-editor.js \
+  --candidate /path/to/after/cedar-embeddable-editor.js \
+  --output /path/to/new-report --samples 5
+# Use --component ced with the standalone cedar-embeddable-designer.js bundle.
+```
+
+The runner freezes and hashes both inputs, uses the same fixed 5/100-field fixtures and
+readiness/editing checks as the full-stack suite, and records browser, Node, machine, suite
+and artifact identities. Five sequential pairs alternate baseline/candidate order and rotate
+fixture order. Each version has a fresh browser context, cold then warm cache, with the
+constrained profile (4× CPU, 1.6 Mbit/s down, 150 ms latency). The static HTTPS server uses
+gzip and browser caching without Playwright routing. Unknown hostnames fail DNS; unexpected
+origins are failures. There are no backend writes or cleanup credentials.
+
+Missing assets, failed requests, duplicate script requests, pending requests at the observation
+cutoff, broken rendering/editing, uncaught errors or incomplete coverage fail the command.
+Reports contain all attempts; failed samples cannot improve a median. Existing output directories
+are refused. `report.json`, `summary.md` and screenshots are retained; the local directory also
+keeps frozen inputs. CI uploads only reports/screenshots, not ephemeral TLS keys.
+
+Readiness, blocking time over 50 ms and CLS are **advisory**, pending runner calibration.
+A timing warning requires the median paired increase to exceed both 10% and 100 ms for
+readiness, or both 15% and 50 ms for blocking. CLS uses a provisional 0.02 increase.
+These are investigation triggers, not approved budgets. Fewer than five pairs, missing metrics
+or median absolute deviation above the tolerance produce an explicit inconclusive assessment.
+Inconclusive timing requires another run; it is not evidence of a performance pass. A complete
+advisory run still exits zero. Load/measurement failures always exit nonzero.
+
+This measures standalone rendering, not sign-in, production latency, host integration, field
+INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute for the
+Designer-equivalent CED+CEF measurement. The existing raw/gzip build budgets remain enforced
+independently. Run the full-stack suite below for authenticated hosts and real APIs.
+
+The initial local control check on 2026-11-08 ran 40 measurements for CEE and 40 for CED,
+comparing each production bundle with itself. All loads and editing checks passed; every
+paired readiness/blocking/CLS result was within its advisory tolerance. CEE's bundle SHA-256
+was `ae1034b229734c180136573898c06c40f05ea1d6e8776ebda1aaa43d909ab485` and CED's was
+`cf5f6442c5dd5720f88a0c5f03343f1a6bdfd0fe679a92372d8f6771b6147731`.
+This validates the comparison machinery, not a speed improvement or a Linux CI budget.
+
 ## Reporting-only performance suite
 
 `cedarcli test frontend-performance` runs a separate local performance laboratory. It is not

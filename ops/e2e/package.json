@@ -6,6 +6,7 @@
   "description": "End-to-end smoke tests for CEDAR authentication, conditional mutations, artifact authoring, population, serialization, and OpenView",
   "scripts": {
     "perf:frontend": "node frontend-perf/run.mjs",
+    "perf:frontend:paired": "node frontend-perf/isolated.mjs",
     "test:frontend-performance": "node --test frontend-perf/*.test.mjs",
     "test:journey-runner": "node --test auth-activity.test.mjs journey-fixtures.test.mjs journey-registry.test.mjs split-lanes.test.mjs split-tier.test.mjs journey-contract.test.mjs journey-history.test.mjs token-refresh.test.mjs",
     "test:journey-harness": "npm run test:journey-runner && node --test journey-browser.test.mjs",

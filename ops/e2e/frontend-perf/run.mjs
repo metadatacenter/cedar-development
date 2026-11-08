@@ -29,8 +29,8 @@ if (values.plan) {
     scenarios:planned.map(({id,readiness,actionName}) => ({id,readiness,action:actionName ?? null})),
     reportingOnly:true, legacy:false},null,2));
 } else if (values.check) {
-  execFileSync(process.execPath,['--test',new URL('./metrics.test.mjs',import.meta.url).pathname,
-    new URL('./lab.test.mjs',import.meta.url).pathname],{stdio:'inherit'});
+  const tests = (await readdir(new URL('.',import.meta.url))).filter(name => name.endsWith('.test.mjs')).sort();
+  execFileSync(process.execPath,['--test',...tests.map(name => new URL(name,import.meta.url).pathname)],{stdio:'inherit'});
 } else {
   const directory = resolve(values.output ?? join(home,'.cedar/reports/frontend-performance',new Date().toISOString().replace(/[:.]/g,'-')));
   await mkdir(directory,{recursive:true});
