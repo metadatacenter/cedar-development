@@ -1,0 +1,22 @@
+{
+  "completedAt": "2026-11-08T18:17:48.775526+00:00",
+  "expected": {
+    "name": "@org.metadatacenter/cedar-embeddable-term-picker",
+    "repository": "cedar-embeddable-term-picker",
+    "revision": "bd877b7d0c5972cb41ffe17f001c6308b899296a",
+    "version": "0.1.0-dev.20261108.gbd877b7d0c59.t1806"
+  },
+  "package": {
+    "integrity": "sha512-2Z8VE55APvq1LOp+AnXvLqKJADwhHOHSTCUtMiBtO7AW7I0t8nY+uNJ/tE3JDch9WdND56zIswRpGQAawAZo+A==",
+    "name": "@org.metadatacenter/cedar-embeddable-term-picker",
+    "repository": "cedar-embeddable-term-picker",
+    "revision": "bd877b7d0c5972cb41ffe17f001c6308b899296a",
+    "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-embeddable-term-picker/-/cedar-embeddable-term-picker-0.1.0-dev.20261108.gbd877b7d0c59.t1806.tgz",
+    "tarballSha256": "339d9560b18b47b0ad7b674aa916baec5b9a0f2671383b29bda1b1e6d2921078",
+    "version": "0.1.0-dev.20261108.gbd877b7d0c59.t1806"
+  },
+  "schemaVersion": 1,
+  "sourceManifestSha256": "d278614305745439a04f956c6d65453d493c968c740a4d55a1f58248903e4d70",
+  "stage": "picker",
+  "version": "2.9.34-dev.20261108.1806"
+}
