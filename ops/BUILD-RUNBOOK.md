@@ -287,6 +287,16 @@ including the real CED/Java conformance cases. Publication requires the complete
 every shard receipt and unchanged app bytes. The final job restores the verified host and all
 other consumer outputs; it performs no browser rerun or rebuilding of transferred artifacts.
 
+Before frontend publication, the final job runs the captured CLI's `prod configure-frontends`
+twice and `prod reset-frontends` against temporary Git-backed copies of the actual assembled
+OpenView, Bridging and Monitoring payloads. The baseline is the newly built output, not the old
+dist committed in the source checkout. Configuration must change exactly one JavaScript module
+per application, and only its compiled hostname; repeating it must make no further change. Reset
+must restore every payload file and its permissions exactly. Missing or ambiguous configuration,
+command failures and any other file changes fail the job before publication. The source payloads
+are never modified. The `frontend-configuration` workflow artifact records the configuration
+modules and original file hashes. This check adds no frontend build or browser rerun.
+
 
 The remaining frontend preparation uses two concurrent repository jobs and four workers per job
 (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path). Each repository

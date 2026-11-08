@@ -1329,6 +1329,22 @@ jobs:
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
 
+      - name: Check deployment configuration against the assembled frontend payloads
+        run: |
+          python3 -m venv "$RUNNER_TEMP/payload-check-venv"
+          "$RUNNER_TEMP/payload-check-venv/bin/python" -m pip install -r "$RUNNER_TEMP/CEDAR/cedar-cli/requirements.txt"
+          "$RUNNER_TEMP/payload-check-venv/bin/python" controller/ops/check_frontend_configuration.py \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --report "$RUNNER_TEMP/frontend-configuration.json"
+
+      - name: Retain frontend configuration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-configuration
+          path: ${{ runner.temp }}/frontend-configuration.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Record exact frontend wiring before publication
         run: |
           git -C build-trains add "npm/trains/$TRAIN_VERSION.json"
