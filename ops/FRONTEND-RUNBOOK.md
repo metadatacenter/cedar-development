@@ -5260,7 +5260,9 @@ CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9
 1.4.11 was reassessed twice more, after a sixth and a seventh round, last at CED `0bb2eb7`, CEE
 `1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. On 2026-11-04 the criteria an
 eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were reassessed at CEE
-`d394026f` and Workspace `c6cb1227`. The assessment read code and tests. Nobody ran a
+`d394026f` and Workspace `c6cb1227`. On 2026-11-09 the criteria a ninth round touched, 2.1.1 and
+2.5.7 in CED and 4.1.3 in Workspace, were reassessed at CED `46977b0` and Workspace `720bd319`.
+The assessment read code and tests. Nobody ran a
 screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -5322,8 +5324,12 @@ word Warning, gave CEE's link-out icon a 4px gap and kept its cleared and revert
 the next edit. In Workspace it asked before removing access and closed menus when focus leaves
 them. That moved CEE's 1.4.1 from Fails to Partial, its 2.2.1 and 2.5.8 from Fails to Met, and
 Workspace's 2.4.3 from Fails to Partial. Workspace's 3.3.4 stays Partial, because no assessment
-has covered its other irreversible actions. The failures now stand at 18, and most of them need a
-visible change.
+has covered its other irreversible actions. The failures stood at 18 after it. A ninth round gave
+CED's sidebar divider a keyboard route, and Workspace's metadata review panel was removed with
+metadata reconciliation. No status moved. CED's 2.1.1 still fails on the sidebar's field list and
+its narrow layouts, and its 2.5.7 on the moves that need a drag or the arrow keys. Workspace's 4.1.3
+stays Partial. The failures still stand at 18, and most of
+them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
