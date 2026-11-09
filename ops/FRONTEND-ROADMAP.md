@@ -336,10 +336,6 @@ Many findings are recorded as exceptions in a component's `accessibility.spec.ts
 `layout-resilience.spec.ts`. An exception fails once its finding stops, so remove it in the same
 change as the fix. Remove each piece when its work is done, and the item once it holds none.
 
-- **Focus after an action (2.4.3, 2.4.7).**
-  - In CED, when Escape hides an insertion action that has keyboard focus, focus stays on a control
-    nobody can see, as it already did when a keyboard press on one opened the palette. Decide where
-    focus goes, or whether a focused action stays shown.
 - **Messages announced and kept long enough to read (4.1.3, 2.2.1).**
   - A Workspace notice identical to the one before it shows and says nothing, because the notice is
     never cleared. Fixing that is a visible change.

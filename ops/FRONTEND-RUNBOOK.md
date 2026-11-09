@@ -5263,7 +5263,8 @@ eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were
 `d394026f` and Workspace `c6cb1227`. On 2026-11-09 the criteria a ninth round touched, 2.1.1 and
 2.5.7 in CED and 4.1.3 in Workspace, were reassessed at CED `46977b0` and Workspace `720bd319`.
 Later that day the term picker's 2.1.1 and 4.1.2 were reassessed after a tenth round, at the term
-picker `20d1523`. The assessment read code and tests. Nobody ran a screen reader, and only the
+picker `20d1523`, and CED's 2.4.3 and 2.4.7 after an eleventh, at CED `c9f410d`. The assessment
+read code and tests. Nobody ran a screen reader, and only the
 English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -5292,7 +5293,7 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 22 | 10 | 7 | 0 | 16 | 22 of 39, 56% |
+| CED | 22 | 11 | 6 | 0 | 16 | 22 of 39, 56% |
 | CEE | 25 | 12 | 4 | 6 | 8 | 25 of 47, 53% |
 | Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
 | Workspace | 30 | 15 | 2 | 0 | 8 | 30 of 47, 64% |
@@ -5331,8 +5332,11 @@ metadata reconciliation. No status moved. CED's 2.1.1 still fails on the sidebar
 its narrow layouts, and its 2.5.7 on the moves that need a drag or the arrow keys. Workspace's 4.1.3
 stays Partial. A tenth round made the term picker's result tabs one Tab stop, moved between by the
 arrow keys and Home and End, and made the result list the shown tab's panel. No status moved there
-either. The term picker's 2.1.1 stays Partial, and its 4.1.2 still fails on its result rows. The
-failures still stand at 18, and most of them need a visible change.
+either. The term picker's 2.1.1 stays Partial, and its 4.1.2 still fails on its result rows. An eleventh
+round stopped CED leaving focus on insertion actions nobody could see. An Escape that hides them now
+moves focus to the card below, and an action used from the keyboard keeps them shown. That moved CED's
+2.4.7 from Fails to Partial, and its 2.4.3 stays Partial. The failures now stand at 17, and most of
+them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -5402,7 +5406,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Met |
 | 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
 | 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
-| 2.4.7 Focus Visible | AA | Fails | Partial | Partial | Partial |
+| 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
 | 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
 | 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
 | 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
