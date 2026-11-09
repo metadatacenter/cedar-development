@@ -243,7 +243,8 @@ The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~43
   versioned repos, front and back. The TypeScript model library, CEE, CED and CETP release to
   npmjs on versions of their own, as [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md)
-  describes, and the platform release pins their public packages.
+  describes, and the platform release pins their public packages. The design tokens publish their
+  own development packages and take no release commit either.
 - [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 

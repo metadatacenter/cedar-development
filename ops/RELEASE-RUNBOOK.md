@@ -555,9 +555,11 @@ On `AUTH_FAIL`, refresh the PAT on GitHub, authorizing it for SSO if the org req
 
 ## What Publishes Independently
 
-The TypeScript model library, CEE, CED and CETP release independently. The release versions and
-publishes none of them, and it writes none of their `main` branches or tags. It still writes one
-change to the library. On `develop`, it moves the two CEDAR
+The TypeScript model library, CEE, CED and CETP release independently, and so do the design
+tokens, whose development packages the trains and `cedarcli publish components` publish. The release
+versions and publishes none of them, and it writes none of their `main` branches or tags. The
+repository registry marks the same five `skip_from_release`, and a test holds the release's own list
+equal to it. The release still writes one change to the library. On `develop`, it moves the two CEDAR
 versions that `tools/conformance/pom.xml` names to `<NEXT>`, because CED's conformance gate
 resolves those libraries from Nexus. The library's `main`, tags and packages stay its own.
 `cedarcli release npm` publishes all four packages from `main` and restores their development

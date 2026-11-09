@@ -4693,8 +4693,8 @@ and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`
 and JaCoCo reports uploaded whatever the outcome, as the `surefire-reports` and `coverage-reports`
 artifacts. [Code Coverage](#code-coverage) describes the reports and the floors enforced at
 `verify`, including Monitor. The search-library and
-resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and an
-OpenSearch service; other component workflows remain backend-free.
+resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and
+start OpenSearch in a container with `docker run`; other component workflows remain backend-free.
 Jobs carry a hard timeout: twenty minutes for a component, thirty for those two OpenSearch jobs,
 forty-five for `cedar-project`, which builds sixteen repositories in one reactor.
 
@@ -4735,12 +4735,14 @@ compared them, so they had diverged — `cedar-monitor-server` carried 55 of the
 others. Nothing runs this in CI yet, because a check over every repository has no natural home in
 any one of their workflows; until it does, it is a local step.
 
-Most suites need no service container. Search-library and resource-server CI intentionally use
+No workflow runs a service container. Search-library and resource-server CI intentionally start
 OpenSearch to verify permission-filter semantics rather than merely the shape of a mocked request.
-Two other exceptions both come from a real dependency rather than from CEDAR code:
-`cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
-MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` and `cedar-admin-tool` boot
-is the 5.0 line the deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04
+`cedar-monitor-server`'s suites boot the embedded MariaDB and Neo4j that its other suites share,
+with the graph and OpenSearch on dead ports where a test needs neither, so a new dependence on a
+running store fails rather than reading the developer's. One other exception comes from a real
+dependency rather than from CEDAR code: the embedded MongoDB that `cedar-artifact-server` and
+`cedar-admin-tool` boot is the 5.0 line the deployment runs, whose only Linux build links against
+OpenSSL 1.1. Ubuntu 24.04
 and later ship OpenSSL 3, so those jobs, and the jobs of `cedar-project`, `cedar-openview-server`
 and `cedar-repo-server`, install `libssl1.1` on the runner first. Without it `mongod` cannot start
 and every resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at
