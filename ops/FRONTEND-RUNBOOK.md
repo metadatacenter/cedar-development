@@ -3639,15 +3639,17 @@ instead, where the dev versions do not exist.
 
 ### Release
 
-The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable CEE and model-library releases:
-prepare and test on `develop`, merge through green CI, rebuild and publish from `main`, tag the
-published commit, then restore development state. Never publish from the repository root.
+The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable CEE and model-library releases,
+which `cedarcli release npm` carries out. It prepares and gates each package on `develop`, merges it
+through green CI, publishes the gated tarball from `main`, tags the merge commit, and returns
+`develop` to development. Never publish by hand.
 
 | Task | Authoritative procedure |
 | --- | --- |
-| Credentials and version availability | [Shared prerequisites](NPMJS-RELEASE-RUNBOOK.md#shared-prerequisites) |
-| CEE version, model pin, tests and publication | [Release CEE](NPMJS-RELEASE-RUNBOOK.md#release-cee-with-an-explicit-model-version) |
-| Advance CEE after release | [Restore development state](NPMJS-RELEASE-RUNBOOK.md#restore-cee-development-state) |
+| Credentials and toolchain | [Prerequisites](NPMJS-RELEASE-RUNBOOK.md#prerequisites) |
+| Versions, model pin and release notes | [Choosing the inputs](NPMJS-RELEASE-RUNBOOK.md#choosing-the-inputs) |
+| What a release does, stage by stage | [The route](NPMJS-RELEASE-RUNBOOK.md#the-route) |
+| A release that waits or fails | [Where the route stops](NPMJS-RELEASE-RUNBOOK.md#where-the-route-stops) |
 | Update consumer pins and train baselines | [Propagate CEE](NPMJS-RELEASE-RUNBOOK.md#propagate-a-stable-cee-release) |
 | Adopt public CEE in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release) |
 | Write the announcement | [Release notes](NPMJS-RELEASE-RUNBOOK.md#release-notes) |
@@ -4066,8 +4068,6 @@ publication plan: version the snapshot against its source commit, run
 package with `npm publish ./dist-npm/cedar-embeddable-designer --tag dev --dry-run`
 and publish the same directory with `--tag dev`. Its `publishConfig` fixes Nexus
 as the destination. Never rebuild between the browser gate and publication.
-The general credential and tarball procedures are in
-[NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md).
 
 The published declaration is emitted from `src/app/ced-public-api.ts` alone,
 which is written without imports so its declarations stand alone. Adding an

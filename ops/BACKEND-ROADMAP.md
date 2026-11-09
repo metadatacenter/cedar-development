@@ -13,28 +13,24 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Features
 
-- **1. Give the public npm releases a CLI route.** Four packages publish outside the platform
-  release: `cedar-model-typescript-library`, `cedar-embeddable-editor` (CEE),
-  `cedar-embeddable-designer` (CED) and `cedar-embeddable-term-picker` (CETP). The model library and
-  CEE reach npmjs through the npmjs runbook. CEE's procedure alone is about twenty-five commands
-  across `develop`, a pull request, `main`, the registry, a tag, the development-state restore and
-  the train baseline refresh. CEE release 2.0.6 took an hour of operator attention for two minutes of
-  gate time, and CEE has shipped four public versions in a week. CED and CETP have no public release
-  yet, and CED's manifest still marks it private, so npm would refuse to publish it.
+- **1. Decide which `main` and tags a public CED or CETP release takes, then release them.**
+  `cedarcli release npm` publishes the model library and CEE. It gates a preparation commit on
+  `develop`, merges it to `main` through green CI, publishes the gated tarball from the merge commit
+  and tags that commit `release-<version>`. `cedar-embeddable-designer` (CED) and
+  `cedar-embeddable-term-picker` (CETP) stage public packages the same way, and both pin the model
+  library as CEE does. The route knows them but refuses both, because their `main` is not its to
+  merge into. The platform release writes it, with a `Prepare CEDAR <version>` and a
+  `Release CEDAR <version>` commit that `develop` never takes, and tags it `release-<CEDAR version>`.
+  On 2026-11-09 each `main` held 36 such commits. A pull request from `develop` would therefore merge
+  a tree nobody gated, and a `release-0.1.0` tag would share the platform release's namespace.
 
-  Build `cedarcli release npm <package>` as one resumable, ledger-backed route for all four, like the
-  platform release. For each package it pins the chosen public versions of the packages it builds
-  against, writes the changelog entry, runs the package's gate, and publishes from `main` after
-  merging the pull request. It then verifies the registry with a retry for the seconds npm's read
-  replicas lag behind a publish, tags the release, restores the next development version, refreshes
-  the lock baselines, and stops at each remote step it cannot prove. The route orders dependent
-  releases. CEE and CED both build against a pinned model library, so a model release comes first.
-  CETP builds against none of the other three, and a host page loads CED, CEE and CETP as separate
-  scripts, so none of those three waits for another. CEE, CED and CETP all compile in the design
-  tokens, so a token change reaches Nexus before any of them is built. The provenance comparison the
-  platform release already performs verifies the published CEE tarball, and the route applies the
-  same comparison to the other three. Once the command exists, rewrite the npmjs runbook into a
-  description of what it does and where it stops.
+  **Decide the branch and the tag namespace.** The platform release could stop writing their `main`,
+  as it already leaves CEE's and the model's alone, and pin a public CED and CETP the way it pins a
+  public CEE. Or the two could keep their place in the platform release and take their public
+  version from it, so the platform release publishes them to npmjs itself. Either way, set
+  `independent` on their definitions in `npm_release_support/definitions.py` to match, give each
+  `CHANGELOG.md` the shape the route writes, and choose their first public versions. Done when a
+  public CED and CETP are on npmjs, published by whichever route the decision gives them.
 
 - **2. Let an author renumber a draft.** A draft's version is the number its publication will
   carry. The Workspace asks for it when the draft is created, starting at the next patch and
@@ -249,10 +245,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   and `release/*` unprotected means the bypass covers `main` alone, so no other ref the release
   writes can be refused after its Maven and frontend builds have run.
 
-  The TypeScript model library and CEE reach `main` through a pull request their operator merges,
-  and a restriction on updates would refuse that merge. Give each repository whose npm release
-  works that way a ruleset that requires a pull request with no approvals instead, until item 1's
-  command can merge as the app.
+  The TypeScript model library and CEE reach `main` through a pull request that
+  `cedarcli release npm` merges as the operator, and a restriction on updates would refuse that
+  merge. Give each repository whose npm release works that way a ruleset that requires a pull
+  request with no approvals instead, until the route can merge as the app.
 
   **Fix the release preflight before any ruleset lands.** The preflight checks that each remote
   accepts every ref the release writes by running `git push --dry-run`

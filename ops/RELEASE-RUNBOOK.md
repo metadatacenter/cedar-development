@@ -550,8 +550,9 @@ The TypeScript model library and CEE release independently, and the release neit
 publishes either. It still writes one change to the library. On `develop`, it moves the two CEDAR
 versions that `tools/conformance/pom.xml` names to `<NEXT>`, because CED's conformance gate
 resolves those libraries from Nexus. The library's `main`, tags and packages stay its own.
-Follow [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md) to choose the model version CEE
-embeds, publish both verified packages from `main`, and restore their development channels.
+`cedarcli release npm` publishes both packages from `main` and restores their development channels,
+as [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md) describes. The operator chooses the model
+version CEE embeds.
 Publishing CEE is not complete operationally until its exact version has been propagated to all
 seven consumer manifests, including the extracted Workspace, and those changes are committed in
 their owning repositories. Require this gate before building a staging or production frontend

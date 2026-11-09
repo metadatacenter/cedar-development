@@ -200,8 +200,8 @@ The browser applications and embeddable components — `cedar-workspace`,
   editor theming and host contracts, authoring and lifecycle, and the model-library
   work those surfaces require.
 - [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md) — public TypeScript model
-  library and CEE releases, consumer pins, tarball verification, development channels,
-  and adoption by a train-backed release.
+  library and CEE releases through `cedarcli release npm`, where that route stops, consumer
+  pins, and adoption by a train-backed release.
 
 `cedar-design-tokens` owns the design vocabulary every browser application and embeddable
 component shares: the font stack, type scale, colours, control metrics, spacing, motion and

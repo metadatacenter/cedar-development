@@ -1,32 +1,30 @@
 # CEDAR npmjs Release Runbook
 
-How to publish the two independent public npm packages that sit outside the normal CEDAR release:
+Two packages reach public npmjs outside the normal CEDAR release, each on a version of its own:
 
-- `cedar-model-typescript-library`
+- `cedar-model-typescript-library`, the TypeScript model library
 - `cedar-embeddable-editor` (CEE)
 
-For development and test gates, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee).
-For the platform release that consumes a public
-CEE package, see [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
+`cedarcli release npm` publishes them. It records each run in a ledger, carries every package from
+its preparation on `develop` to its publication from `main` and back to the next development
+version, and stops wherever it cannot prove that a step succeeded.
+
+CED and CETP stage public packages the same way, and the route knows them, but it refuses to release
+either. The platform release writes their `main` and tags it with CEDAR's version, so a release
+merged from `develop` would meet the release commits `develop` never takes.
+
+For development and test gates, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee). For the
+platform release that consumes a public CEE package, see [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
 
 Publication is not a prerequisite for a development frontend build. Use `cedarcli build frontends`
 for the complete local SNAPSHOT workflow or `cedarcli test frontends` for source checks. Both
 include uncommitted sources and resolve component packages automatically. The explicit versions,
-clean trees, commits and registry waits here apply only to the requested publication or release.
+clean trees, commits and registry waits here apply only to the requested publication.
 
 ## Release Contract
 
-The model library and CEE have independent public versions. Do not infer one from the other and do
-not automatically substitute the newest public model into a CEE release.
-
-Choose all versions explicitly before changing a repository:
-
-```bash
-export MODEL_VERSION=<public-model-version>       # for example 1.0.3
-export CEE_VERSION=<public-cee-version>           # for example 2.0.2
-export MODEL_NEXT=<next-model-base>               # for example 1.0.5
-export CEE_NEXT=<next-cee-base>                   # for example 2.0.3
-```
+The model library and CEE have independent public versions. The route infers neither from the
+other, and it never substitutes the newest public model for one the operator did not name.
 
 A stable CEE build pins `cedar-model-typescript-library` exactly in both its root and visual
 manifests. The production bundle contains that library; CEE's published manifest does not leave it
@@ -34,6 +32,8 @@ as a runtime dependency for the embedding application to resolve. Consequently:
 
 - releasing the model does not change an existing CEE package;
 - CEE may deliberately embed an older public model version;
+- a CEE release that pins a new model version follows the model's release, in the same run or an
+  earlier one;
 - the CEDAR release needs an explicit public CEE version, not a second model-version argument; and
 - proving the public CEE executable byte-equivalent to the train CEE after the declared provenance
   substitutions also proves the bundled model code.
@@ -43,257 +43,148 @@ as a runtime dependency for the embedding application to resolve. Consequently:
 `@org.metadatacenter/cedar-design-tokens` supplies the shared font, type scale and palette from
 CEDAR Nexus. Sass compiles those values into the bundle.
 
-Keep the package as a build-time `devDependency`; public CEE must not require consumers to resolve
-CEDAR's Nexus packages. Check the staged `dist-npm/cedar-embeddable-editor/package.json`:
+The package stays a build-time `devDependency`, because public CEE must not require its consumers to
+resolve CEDAR's Nexus packages. The route refuses a staged manifest that lists any
+`@org.metadatacenter/` package among its dependencies.
 
-```bash
-node -e "const p=require('./dist-npm/cedar-embeddable-editor/package.json');
-console.log(Object.keys({...p.dependencies, ...p.peerDependencies}).filter(d => d.startsWith('@org.metadatacenter/')))"
-```
+A release builds with the token version CEE's lock names. Nexus deletes development packages a few
+days after they are published, so the route refuses to start when a lock names a Nexus package
+Nexus no longer serves. Move the pin with `cedarcli publish components --apply` and plan again. If
+token changes are required, publish them and move the pins before planning. Build trains enforce
+token-first ordering automatically.
 
-An empty list is the only passing answer.
+## Prerequisites
 
-A release build uses CEE's locked token version. If token changes are required, publish them and
-update CEE's pin and lock before building. Build trains enforce token-first ordering automatically.
+The route needs Node 24.22.1, which `cedarcli` puts first on `PATH` itself when the shell offers
+another version. It also needs Java 17 for the model library's parity checks, which it resolves the
+same way.
 
-## Shared Prerequisites
-
-Use Node 24.22.1 for both repositories. On the CEDAR development machine it is installed by
-Homebrew but is not the shell default:
-
-```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
-node --version                    # must print v24.22.1
-npm whoami                        # must print metadatacenter
-```
-
-Trust the version the binary prints, not the path it came from. Homebrew's `node@NN` opt
-directories on this machine are symlinks into whichever single `node` keg is installed, so
-`node@25/bin/node` can report v26.
-
-`npm whoami` must answer `metadatacenter`. Two-factor authentication makes an interactive login
-awkward at publish time, so the working route is a granular access token from the
-`metadatacenter` account with read and write permission on all packages, placed in `~/.npmrc` as
-`//registry.npmjs.org/:_authToken=`. A token bypasses the OTP prompt that `npm publish` would
-otherwise raise.
+`npm whoami --registry=https://registry.npmjs.org/` must answer `metadatacenter`. Two-factor
+authentication makes an interactive login awkward at publish time, so the working route is a
+granular access token from the `metadatacenter` account with read and write permission on all
+packages, placed in `~/.npmrc` as `//registry.npmjs.org/:_authToken=`. A token bypasses the OTP prompt
+that `npm publish` would otherwise raise.
 
 Keep npm credentials only in `~/.npmrc`. Never put a token, password, or OTP in a repository,
-command transcript, release note, or runbook. Resolve obsolete authentication settings such as
-`always-auth` before preparing the release: train and platform-release preflight reject them.
-Harmless author-metadata warnings are advisory; see the
+command transcript, release note, or runbook. Remove obsolete authentication settings such as
+`always-auth`, which the route refuses. Harmless author-metadata warnings are advisory; see the
 [shared install policy](RELEASE-RUNBOOK.md#what-plan-checks).
 
-Before each release:
+`gh` must be authenticated with write access to both repositories, since the route opens and merges
+a pull request, pushes a tag and drafts a GitHub release in each.
+
+## Choosing the Inputs
+
+A run names each package it releases as `<package>@<version>`, where the package is `model` or
+`cee`. Every version is explicit:
+
+- `--next <package>@<base>` gives the base of each package's next development version, which must
+  exceed the version being released.
+- `--model-version <version>` gives the public model version CEE pins, when the run does not release
+  the model. When it does, CEE pins the model version the run publishes.
+- `--notes <package>=<file>` gives the bullets of the package's release entry. CEE requires it,
+  since its `CHANGELOG.md` takes the entry. For the model, which keeps no changelog, it is optional
+  and supplies the GitHub release draft.
+
+A notes file holds bullet lines and nothing else. The route writes the heading, the date and, for
+CEE, the sentence naming the model it aligns with. The 2.0.33 entry shows the result:
+
+```markdown
+## [2.0.33] - 2026-11-07
+
+Aligns with `cedar-model-typescript-library@1.0.27`.
+
+- Defers RDF processors in coordinated host builds and adopts the hosted-font design tokens.
+- Isolates editor and field translation state and reuses strictly parsed field models during initialization.
+```
+
+`plan` checks every precondition and changes nothing:
 
 ```bash
-git status --short --branch       # clean working tree
-git fetch origin
-git tag --list "release-${MODEL_VERSION}"
-git tag --list "release-${CEE_VERSION}"
+cedarcli release npm plan model@1.0.28 cee@2.0.34 \
+  --next model@1.0.29 --next cee@2.0.35 \
+  --notes model=model-notes.md --notes cee=cee-notes.md
 ```
 
-The relevant tag must not already exist. Check the public target too: npm versions are immutable,
-so a published version cannot be corrected in place.
+It refuses a run when any of the following holds:
 
-```bash
-npm view "cedar-model-typescript-library@${MODEL_VERSION}" version \
-  --registry=https://registry.npmjs.org/
-npm view "cedar-embeddable-editor@${CEE_VERSION}" version \
-  --registry=https://registry.npmjs.org/
-```
+- a checkout is not on `develop`, holds uncommitted or untracked files, or differs from
+  `origin/develop`;
+- `main` holds commits `develop` lacks, since the release merge would then publish a tree nobody
+  gated;
+- the release tag already exists, a pull request from `develop` to `main` is already open, or the
+  version is already on npmjs or is not newer than the public `latest`;
+- CEE pins a model version npmjs does not serve, and the run does not release it;
+- a lock names a Nexus package Nexus no longer serves;
+- CEE's `develop` does not pin one development model that Nexus still serves, which the route
+  returns to after the release, and `--dev-model-version` names no other; or
+- Node, npm, `~/.npmrc` or `gh` is not as the prerequisites describe.
 
-An `E404` is expected for a new version. An authentication failure can also appear as `E404`, which
-is why `npm whoami` comes first.
+`start` takes the same arguments, runs the same checks and then drives the run.
 
-## Release the TypeScript Model Library
+## The Route
 
-Skip this section when CEE will embed an already-published model version. A model release is not a
-required preamble to every CEE release.
+The route releases the model first and CEE after it, one package at a time. Each package passes
+through the stages below, and each stage records the evidence of its outcome in the ledger before
+the next begins.
 
-### Prepare on `develop`
+On `develop`, the route prepares and gates the release:
 
-```bash
-cd "$CEDAR_HOME/cedar-model-typescript-library"
-git checkout develop
-git pull --ff-only origin develop
-git status --short
-node -p "require('./package.json').version"
-```
+1. **prepare** sets the release version with `npm version`, which also updates the model's
+   `package-dist.json` through its version hook, and gives that manifest the unscoped public name.
+   For CEE it instead pins the public model with `npm install --save-exact` in the root and visual
+   graphs, which must then resolve the same npmjs tarball. It also adds the changelog entry,
+   changing nothing else in the file, and stamps `INNER_VERSION` with the preparation time. Notes
+   under `## [Unreleased]` stay where they are, because the platform release cuts the new entry out
+   again to prove a public CEE is a promotion of its train's.
+2. **gate** runs `npm ci` in every directory the package installs, then `npm run test:ci`. For CEE
+   it also runs `cedarcli test cee-demos` against the staged package. The tree must be the one
+   prepared, before and after.
+3. **commit** commits the prepared paths, as `Prepare CEE release 2.0.34 with model library 1.0.28`
+   or `Prepare TypeScript model library release 1.0.28`.
+4. **push** pushes `develop`, which must not have moved on `origin` since the plan.
 
-If the root does not already have the requested version, set it through npm so the repository's
-version hook synchronizes `package-dist.json`:
+Through the pull request, the route waits for GitHub to test the commit:
 
-```bash
-npm version "$MODEL_VERSION" --no-git-tag-version
-```
+5. **pull-request** opens a pull request from `develop` to `main`.
+6. **checks** waits until every workflow run on the preparation commit, for the push and for the
+   pull request, has finished green, and every check the pull request reports has passed.
+7. **merge** merges with a merge commit, refusing if the pull request's head has moved, and proves
+   that `origin/main` is that merge commit and holds the gated tree.
 
-For a public release, `package-dist.json` must contain the unscoped name:
+On `main`, the route builds and publishes:
 
-```json
-"name": "cedar-model-typescript-library"
-```
+8. **build-main** checks out the merge commit and runs `npm run test:package`. The staged manifest
+   must carry the unscoped name and the release version, no `private` flag, no `publishConfig` and
+   no Nexus-only dependency, and its README must be the repository's. The route packs that directory
+   into a tarball, runs the CEE framework demos against the tarball, and makes a dry run that must
+   name npmjs and the `latest` tag.
+9. **publish** publishes the tarball itself, so the bytes on npmjs are the bytes the route gated and
+   recorded. A version already on npmjs is accepted only when its integrity is the recorded one.
+10. **verify** downloads the tarball npmjs serves and requires its SHA-512 and SHA-256 to be the
+    recorded ones, `latest` to name the version, and the registry README to open with the
+    repository's title. npmjs serves a new version a minute or two after the publish returns, so
+    the route asks again for several minutes before it stops.
+11. **tag** tags the merge commit `release-<version>` and proves `origin` holds the tag there.
+12. **notes** drafts the GitHub release on the tag from the notes, linking the npm package. The draft
+    stays unpublished.
 
-The scoped `@org.metadatacenter/cedar-model-typescript-library` name belongs only to Nexus dev
-snapshots. Confirm all three version locations and the publish identity:
+Back on `develop`, the route returns the repository to development:
 
-```bash
-node - <<'NODE'
-const root = require('./package.json');
-const lock = require('./package-lock.json');
-const dist = require('./package-dist.json');
-console.log({
-  root: `${root.name}@${root.version}`,
-  lock: lock.version,
-  lockedRoot: lock.packages[''].version,
-  published: `${dist.name}@${dist.version}`,
-});
-NODE
-```
+13. **develop** fast-forwards `develop` to the merge commit, or merges it when others pushed to
+    `develop` meanwhile, which changes no tree. It sets `<next>-dev.<date>.<sha>` as the version and,
+    for the model, restores the scoped Nexus name. CEE returns to the development model it pinned
+    before the release. The route then runs the package's own check, commits `Advance CEE to the
+    next development version` and pushes.
+14. **development-checks** waits for every workflow run on the advance commit to finish green. That
+    run publishes the development package to Nexus.
 
-Add or update the release notes required by the repository, then run the complete gate:
-
-```bash
-npm ci
-npm run lint
-npm run typecheck
-npm run test:coverage
-npm run parity:yaml
-npm run parity:json
-npm run test:package
-```
-
-A YAML parity failure that shows the fixture quoted (`type: "text-field"`) against plain output
-(`type: text-field`) is a half-updated working tree, with `src/` from one branch and
-`itest/resources/` fixtures from another. Let the checkout or merge finish and run it again
-rather than reading it as a real failure.
-
-`test:package` builds `dist/`, packs it, installs it into an isolated consumer, and exercises its
-CommonJS, ESM, and TypeScript declaration entry points. It also copies the repository `README.md`
-into the distributable. Confirm the exact identity and README before committing:
-
-```bash
-node -p "require('./dist/package.json').name + '@' + require('./dist/package.json').version"
-cmp -s README.md dist/README.md
-npm publish ./dist --access public --dry-run
-```
-
-The dry run must name `cedar-model-typescript-library@${MODEL_VERSION}`, public npmjs, `index.js` as
-`main`, the declared modular ESM entry as `module`, and the expected README. Always write `./dist`; bare `dist` is
-interpreted as an unrelated registry package name by npm 11.
-
-### Commit, Merge, and Publish from `main`
-
-Commit only the release preparation files, push `develop`, and open a pull request to `main`:
-
-```bash
-git add package.json package-lock.json package-dist.json README.md
-git commit -m "Prepare TypeScript model library release ${MODEL_VERSION}"
-git push origin develop
-export MODEL_PREP_COMMIT=$(git rev-parse HEAD)
-gh pr create --base main --head develop --title "Release ${MODEL_VERSION}"
-```
-
-Omit unchanged paths from `git add`. The push runs the Test workflow on the preparation commit
-itself, and the pull request runs it again against `main`. Do not merge until the run on the exact
-preparation commit has passed, because the steps after the merge publish what `main` holds:
-
-```bash
-MODEL_PREP_RUN=$(gh run list --workflow test.yml --commit "$MODEL_PREP_COMMIT" --event push \
-  --json databaseId --jq '.[0].databaseId')
-gh run watch "$MODEL_PREP_RUN" --exit-status
-gh pr checks --watch --fail-fast
-```
-
-A run that has not started yet leaves `MODEL_PREP_RUN` empty; list it again after a few seconds.
-Then merge the pull request and confirm `main` contains exactly the prepared tree:
-
-```bash
-gh pr merge --merge
-git checkout main
-git pull --ff-only origin main
-git diff --exit-code "$MODEL_PREP_COMMIT" HEAD
-git log -1 --oneline
-```
-
-Rebuild and recheck on `main`, then publish that exact directory:
-
-```bash
-npm run test:package
-cmp -s README.md dist/README.md
-npm publish ./dist --access public --dry-run
-npm publish ./dist --access public
-```
-
-Verify the registry rather than trusting only the publish command's exit status:
-
-```bash
-npm view "cedar-model-typescript-library@${MODEL_VERSION}" \
-  name version main module types license dist-tags dist --json \
-  --registry=https://registry.npmjs.org/
-npm view "cedar-model-typescript-library@${MODEL_VERSION}" readme \
-  --registry=https://registry.npmjs.org/
-```
-
-`latest` must name `${MODEL_VERSION}` and the README must begin with the repository's CEDAR Model
-TypeScript Library README, not generated package metadata or unrelated YAML documentation.
-
-npmjs does not serve a new version the moment `npm publish` returns. The publish prints that the
-package is being processed, and the first verification can answer `E404` for a minute or two while
-it is: 1.0.7 took about a hundred seconds to become visible. Retry the same query rather than
-concluding the publish failed, and treat an `E404` as settled only once a later attempt agrees.
-
-The repository keeps no changelog, so its release notes are the GitHub release on the tag. Write
-them when tagging, in the shape the previous release used.
-
-Tag the exact `main` commit that produced the tarball:
-
-```bash
-git tag "release-${MODEL_VERSION}"
-git push origin "release-${MODEL_VERSION}"
-```
-
-### Restore Model Development State
-
-Fast-forward `develop` through the release merge, then derive the next dev identity from that exact
-merge commit. The dev package is scoped so npm routes it to the CEDAR Nexus registry.
-
-```bash
-git checkout develop
-git merge --ff-only main
-export DEV_SHA=$(git rev-parse --short HEAD)
-export DEV_DATE=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
-npm version "${MODEL_NEXT}-dev.${DEV_DATE}.${DEV_SHA}" --no-git-tag-version
-```
-
-Restore this name in `package-dist.json`:
-
-```json
-"name": "@org.metadatacenter/cedar-model-typescript-library"
-```
-
-Run `npm run test:package`, confirm the staged identity is scoped, then commit and push. Do not
-publish the dev package merely because the stable release advanced; `cedarcli publish train`
-creates and records train-owned dev packages when a train needs one.
-
-```bash
-git add package.json package-lock.json package-dist.json
-git commit -m "Advance TypeScript model library to the next development version"
-git push origin develop
-```
-
-**The version committed here is not the version published.** The publishing workflow derives its own
-`<base>-dev.<date>.<sha>` from the commit it builds, which is this advance commit — and that commit
-does not exist while `npm version` is running, so the string written above can only name the release
-merge before it.
-
-Nothing there needs correcting. Every commit on `develop` gets a dev package of its own and none
-overwrites another, which is the property the workflow derives the version for. What it means is that
-the committed string is a placeholder rather than an address: a pin taken from `package.json` answers
-`E404`. Nor can the registry be asked — against Nexus, `npm view` answers only for an exact version,
-so `dist-tags` and `versions` both come back empty.
-
-Derive it instead, exactly as the workflow does, from the commit just pushed. The date is the commit
-date in UTC, which is not always the local one:
+The version committed in **develop** names the merge commit below it rather than the advance
+commit, which does not exist while `npm version` runs. The workflow that publishes the development
+package derives its own `<base>-dev.<date>.<sha>` from the commit it builds, so the committed string
+is a placeholder rather than an address. Against Nexus, `npm view` answers only for an exact
+version, so the registry cannot be asked for it either. Derive the published version from the
+advance commit, exactly as the workflow does:
 
 ```bash
 printf '%s-dev.%s.%s\n' \
@@ -302,265 +193,58 @@ printf '%s-dev.%s.%s\n' \
   "$(git rev-parse --short=7 HEAD)"
 ```
 
-## Release CEE with an Explicit Model Version
+Once every package is released, one closing stage runs for the whole run:
 
-The public model version is an input to the CEE release. It must already exist on npmjs and is
-pinned exactly in both CEE dependency graphs.
+15. **baselines** refreshes the reviewed lock baselines of the released repositories, as
+    `cedarcli publish baselines --refresh` does, and commits `ops/frontend-train.json` alone in
+    `cedar-development`, leaving any other edit in that checkout untouched. While a platform release
+    is active, the commit would move a repository its train captured, so the stage waits until that
+    release concludes. `--defer-baselines` leaves the refresh to the operator instead. Leave it
+    deferred, too, when a build train is waiting to back a CEDAR release that has not started, since
+    the release refuses a `cedar-development` whose `develop` has moved since the train.
 
-### Prepare on `develop`
+## Where the Route Stops
 
-```bash
-cd "$CEDAR_HOME/cedar-embeddable-editor"
-git checkout develop
-git pull --ff-only origin develop
-git status --short
-npm view "cedar-model-typescript-library@${MODEL_VERSION}" \
-  version dist.integrity --json --registry=https://registry.npmjs.org/
-```
+The route stops in one of two ways, and `cedarcli release npm resume` continues from the stage it
+stopped at.
 
-Incorporate `main` before preparing the release if the branches have diverged. Resolve that merge
-on `develop`, never while packaging or after publication.
+It **waits**, exiting with status 2, when something outside it has not happened yet: CI still
+running three hours after the route began asking, npmjs not yet serving a published version, or a
+platform release still active at the baselines stage. Nothing needs repairing; resume once the wait
+is over.
 
-Set the CEE version only when it is not already correct:
+It **fails**, exiting with status 1, when a stage's outcome is wrong: a red gate or CI run, a moved
+`develop` or pull request head, a merge commit that does not hold the gated tree, or a published
+version with other bytes. The ledger names the stage and the cause. Repair the cause and resume.
 
-```bash
-node -p "require('./package.json').version"
-npm version "$CEE_VERSION" --no-git-tag-version
-```
+Every stage first asks whether its outcome already holds, so a run interrupted anywhere resumes
+safely, including between a remote step and the record of it. A publish whose connection dropped
+after the upload, for example, is proved on resume by the integrity npmjs reports.
 
-Pin the chosen public model version in both graphs and regenerate both lockfiles:
+`cedarcli release npm status` shows the run's stages and any wait or failure. The ledger and each
+stage's command output are under `~/.cedar/npm-releases`, or the directory
+`CEDAR_NPM_RELEASE_STATE_DIR` names. One run is active at a time.
 
-```bash
-npm install --save-exact "cedar-model-typescript-library@${MODEL_VERSION}"
-npm --prefix visual install --save-exact "cedar-model-typescript-library@${MODEL_VERSION}"
-```
+`resume --dev-model-version <version>` names the development model CEE returns to, when Nexus has
+deleted the one it pinned before the release.
 
-Assert the two dependency graphs are identical rather than checking them by eye:
+`cedarcli release npm abandon --reason "<why>"` closes a run before any package has merged to `main`.
+It lists what the run already pushed: a preparation commit on `develop` to revert and a pull request
+to close. After a merge, `main` holds the release preparation, so the run can only be resumed.
 
-```bash
-node - <<'NODE'
-const expected = process.env.MODEL_VERSION;
-const root = require('./package.json');
-const visual = require('./visual/package.json');
-const rootLock = require('./package-lock.json');
-const visualLock = require('./visual/package-lock.json');
-const dependency = 'cedar-model-typescript-library';
-const rootResolved = rootLock.packages[`node_modules/${dependency}`];
-const visualResolved = visualLock.packages[`node_modules/${dependency}`];
+## After the Route
 
-if (root.dependencies[dependency] !== expected || visual.dependencies[dependency] !== expected) {
-  throw new Error('root and visual manifests do not pin the requested public model version');
-}
-if (rootResolved.version !== expected || visualResolved.version !== expected) {
-  throw new Error('root and visual lockfiles do not resolve the requested public model version');
-}
-if (!rootResolved.resolved.startsWith('https://registry.npmjs.org/') ||
-    !visualResolved.resolved.startsWith('https://registry.npmjs.org/')) {
-  throw new Error('a stable CEE model dependency did not resolve from public npmjs');
-}
-if (rootResolved.resolved !== visualResolved.resolved ||
-    rootResolved.integrity !== visualResolved.integrity) {
-  throw new Error('root and visual resolve different model tarballs');
-}
-console.log(`${dependency}@${expected}`, rootResolved.integrity);
-NODE
-```
+The route publishes and tags. Four steps remain the operator's:
 
-Both manifests now say the same exact unscoped version. Both lockfiles resolve the same npmjs
-tarball and integrity; neither resolves `@org.metadatacenter/...` or Nexus in a stable release.
-
-Add `## [${CEE_VERSION}] - <date>` to `CHANGELOG.md`. **Add it and change nothing else.** The release
-proves the public package is a promotion of the train's by cutting that one dated entry out of the
-public changelog, from its heading to the next `## [`, and requiring what remains to equal the
-train's changelog byte for byte. Anything else that moves breaks that equality: entries relocated
-from `## [Unreleased]` into the new section leave an empty `Unreleased` behind, which is not what the
-train captured, and the release refuses with `CEE promotion changes CHANGELOG.md outside the one
-current-release entry`.
-
-So the entry records what this release is — the public model version it aligns to, which it must
-declare exactly once — and the notes already under `## [Unreleased]` stay there. The 2.0.3 entry is
-the shape to copy: a heading, a sentence naming the model, and one bullet. Its diff is additions
-only.
-
-That constraint applies when the train was built before the release entry existed. Publish CEE
-first and build the train afterwards and it does not arise at all: the two changelogs are then
-identical, and the release compares bundle provenance instead. Either order is supported; the
-second is harder to get wrong, and its cost is that the train cannot be built in parallel with the
-release preparation. It also lets the release-intended train dry run rehearse the promotion proof
-against the public CEE before a train is spent.
-
-Update `CedarEmbeddableMetadataEditorComponent.INNER_VERSION` to the release preparation time. That
-stamp is only the load trace; `package.json` supplies the public runtime version.
-
-Run the complete release gate:
-
-```bash
-npm ci
-npm --prefix harness ci
-npm --prefix visual ci
-npm run test:ci
-cedarcli test cee-demos --cee-package "$CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor"
-```
-
-This covers lint, strict type checks, unit/coordinator/domain tests, a production build, all
-Playwright browsers and viewports, bundle size, public declarations, the packaged README example,
-and byte-for-byte staging under `dist-npm/cedar-embeddable-editor/`.
-
-Confirm the exact publish identity and inputs:
-
-```bash
-node - <<'NODE'
-const root = require('./package.json');
-const visual = require('./visual/package.json');
-const staged = require('./dist-npm/cedar-embeddable-editor/package.json');
-console.log({
-  cee: root.version,
-  rootModel: root.dependencies['cedar-model-typescript-library'],
-  visualModel: visual.dependencies['cedar-model-typescript-library'],
-  staged: `${staged.name}@${staged.version}`,
-});
-NODE
-cmp -s README.md dist-npm/cedar-embeddable-editor/README.md
-npm publish ./dist-npm/cedar-embeddable-editor --dry-run
-```
-
-The staged identity must be unscoped `cedar-embeddable-editor@${CEE_VERSION}`. The dry run must
-name `https://registry.npmjs.org/` and tag `latest`. The README comparison must succeed: the root
-GitHub README is intentionally the npm README.
-
-CEE deliberately has no `package-dist.json`. `scripts/npm-package.mjs` derives the public unscoped
-identity from a stable version and the scoped Nexus identity from a `-dev.` version. Do not add a
-second hand-maintained manifest.
-
-### Commit, Merge, and Publish from `main`
-
-Stage only the release files that actually changed. They normally include the two manifests, two
-lockfiles, changelog, and load-trace stamp; package-gate or README improvements may add more.
-
-```bash
-git add package.json package-lock.json visual/package.json visual/package-lock.json \
-  CHANGELOG.md \
-  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
-git commit -m "Prepare CEE release ${CEE_VERSION} with model library ${MODEL_VERSION}"
-git push origin develop
-export CEE_PREP_COMMIT=$(git rev-parse HEAD)
-gh pr create --base main --head develop --title "Release CEE ${CEE_VERSION}"
-```
-
-The token-adoption PR check compares against `main`, so a baseline that passes against the
-previous `develop` commit can still fail here. Check additions since the preceding release and use
-the shared tokens where required; do not raise the baseline to make a release PR green.
-
-Wait for the prepare job and every visual shard. Merge only when they are green:
-
-```bash
-gh pr merge --merge
-git checkout main
-git pull --ff-only origin main
-git diff --exit-code "$CEE_PREP_COMMIT" HEAD
-git log -1 --oneline
-```
-
-Rebuild and stage on `main`, repeat the identity/README/dry-run checks, and then publish the exact
-staged directory:
-
-```bash
-npm run test:package
-cedarcli test cee-demos --cee-package "$CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor"
-cmp -s README.md dist-npm/cedar-embeddable-editor/README.md
-npm publish ./dist-npm/cedar-embeddable-editor --dry-run
-npm publish ./dist-npm/cedar-embeddable-editor
-```
-
-Never run `npm publish` from the repository root. It would pack the source repository instead of
-the tested distributable.
-
-The demo command is mandatory before public publication, even if an earlier candidate
-passed. It tests the exact staged package in Angular, React and Ember without changing
-their checked-out pins. CEE CI also tests its staged artifact in all three frameworks;
-wait for **CEE framework consumers** alongside the prepare and visual jobs before merging
-a release PR. The runner lives in `cedar-component-demo`, which must contain the current
-`scripts/check-demos.py` before enabling this CEE workflow on the remote.
-
-Verify the public registry and README:
-
-```bash
-npm view "cedar-embeddable-editor@${CEE_VERSION}" \
-  name version main types license dist-tags dist --json \
-  --registry=https://registry.npmjs.org/
-npm view "cedar-embeddable-editor@${CEE_VERSION}" readme \
-  --registry=https://registry.npmjs.org/
-```
-
-`latest` must name `${CEE_VERSION}` and the README must begin `# CEDAR Embeddable Editor (CEE)`.
-The registry takes a minute or two to serve a freshly published version, as it does for the model.
-Record the tarball shasum/integrity and the bundle SHA-256 from `bundle-manifest.json` in the release
-evidence.
-
-Tag the exact published `main` commit:
-
-```bash
-git tag "release-${CEE_VERSION}"
-git push origin "release-${CEE_VERSION}"
-```
-
-### Restore CEE Development State
-
-Fast-forward `develop` through the release merge. Choose an exact, already-published scoped model
-snapshot for development; do not invent or reference a Nexus version that was never published. The
-model library's own `package.json` does not name it — derive the published version the way
-[Restore model development state](#restore-model-development-state) shows.
-
-CEE's advanced version has the same property: the string committed below names the release merge,
-while the push CI publishes one derived from the advance commit it builds.
-
-```bash
-export MODEL_DEV_VERSION=<published-model-dev-version>
-git checkout develop
-git merge --ff-only main
-export DEV_SHA=$(git rev-parse --short HEAD)
-export DEV_DATE=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
-npm version "${CEE_NEXT}-dev.${DEV_DATE}.${DEV_SHA}" --no-git-tag-version
-npm install --save-exact \
-  "cedar-model-typescript-library@npm:@org.metadatacenter/cedar-model-typescript-library@${MODEL_DEV_VERSION}"
-npm --prefix visual install --save-exact \
-  "cedar-model-typescript-library@npm:@org.metadatacenter/cedar-model-typescript-library@${MODEL_DEV_VERSION}"
-```
-
-Update `INNER_VERSION` to `<YYYY-MM-DD HH:MM> <DEV_SHA>`. Run the full gate, commit the five normal
-post-release files, push, and wait for the push CI to finish:
-
-```bash
-npm run test:ci
-git add package.json package-lock.json visual/package.json visual/package-lock.json \
-  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
-git commit -m "Advance CEE to the next development version"
-git push origin develop
-```
-
-The advanced version changes the root lockfile's own version entry, so the train's baseline for
-that lock is now stale and the next dispatch would refuse it. Refresh the CEE baselines and commit
-the result in `cedar-development`:
-
-```bash
-cedarcli publish baselines --refresh --repository cedar-embeddable-editor
-git -C $CEDAR_HOME/cedar-development commit -m "Refresh the CEE npm audit baselines" ops/frontend-train.json
-git -C $CEDAR_HOME/cedar-development push origin develop
-```
-
-That is CEE's own baseline alone. Pinning the release into its consumers moves their baselines too, so going
-straight on to [Propagate a stable CEE release](#propagate-a-stable-cee-release) means refreshing
-the complete set together there instead of committing the same file twice.
-
-When a build train is waiting to back a CEDAR release, leave this commit until that release is
-accepted. `cedar-development` is one of the repositories the train captured, and the release refuses
-one whose `develop` has moved. The CEE commits above are safe: CEE is outside the release's drift
-check.
-
-Once CEE's CI has published the advanced head, `cedarcli publish components --apply` moves every
-consumer from the public CEE onto that development package, and the model library's consumers onto
-the model's newest one. [Recording a Pin](FRONTEND-RUNBOOK.md#recording-a-pin) describes how it
-follows both.
+- Review and publish each GitHub release draft the route names, in the shape
+  [Release Notes](#release-notes) describes. The model's release notes are its GitHub release;
+  write them on the tag when the run had no model notes.
+- Pin a public CEE in its consumers, as the next section describes. Publishing is not deployment.
+- Once each advanced `develop` head has been published to Nexus, `cedarcli publish components
+  --apply` moves every consumer from the public CEE onto that development package, and the model's
+  consumers onto the model's newest one. [Recording a Pin](FRONTEND-RUNBOOK.md#recording-a-pin)
+  describes how it follows both.
+- Refresh and commit the lock baselines when the run deferred them.
 
 ## Propagate a Stable CEE Release
 
@@ -568,8 +252,8 @@ Publishing CEE does not update a frontend or an environment. Pin the exact stabl
 declared consumer manifests and lockfiles with the maintained inventory helper:
 
 ```bash
-node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --apply "$CEE_VERSION"
-node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --check "$CEE_VERSION"
+node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --apply <CEE_VERSION>
+node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --check <CEE_VERSION>
 ```
 
 Review and commit each owning repository separately. Rebuild every deployed CEE host and verify the
@@ -605,13 +289,13 @@ cedarcli release plan \
   --version <CEDAR_VERSION> \
   --next-version <NEXT_SNAPSHOT_VERSION> \
   --from-train <TRAIN_ID> \
-  --cee-version "$CEE_VERSION"
+  --cee-version <CEE_VERSION>
 
 cedarcli release start \
   --version <CEDAR_VERSION> \
   --next-version <NEXT_SNAPSHOT_VERSION> \
   --from-train <TRAIN_ID> \
-  --cee-version "$CEE_VERSION"
+  --cee-version <CEE_VERSION>
 ```
 
 The CLI owns its internal release manifest and resumes it with `cedarcli release resume`. The plan
@@ -668,25 +352,26 @@ frontends. Operational details and resume rules are in
 
 ## Release Notes
 
+The route drafts each GitHub release from the run's notes, opening with the npm package link and,
+for CEE, the sentence naming the model it aligns with. Edit the draft before publishing it.
+
 CEE release notes address embedders. Open with the version and npm package link, then a short
 paragraph describing the main change. Use the changelog's Added, Changed, Removed, Fixed and
 Security headings as applicable; lead bullets with the concrete change. Keep bullets to one or two
 sentences (normally 20–30 words), selecting changes embedders need to know about rather than copying
-the full changelog. Close with the prerelease-build information and full changelog link. Review the
-GitHub release draft before publishing it.
+the full changelog. Close with the prerelease-build information and full changelog link.
 
 ## Failure Rules
 
-- A version already on npmjs is immutable. Stop and choose a new version; never try to overwrite it.
-- A wrong package name or registry in a dry run is a stop condition, not a warning.
-- A dirty worktree is a stop condition because npm does not record which uncommitted bytes it packed.
-- `Version not changed` means the requested version is already in `package.json`; verify it and do
-  not rerun `npm version`.
+- A version already on npmjs is immutable. Choose a new version; never try to overwrite it.
+- Never publish by hand while a run is active. Resume the run, so the published bytes stay the ones
+  it gated and recorded.
 - Never run `npm audit fix --force` during a release. Review dependency updates separately.
-- If CEE staging says the browser bundle and manifest differ, rebuild and rerun the browser gate.
+- If CEE staging says the browser bundle and manifest differ, resume the run, which rebuilds and
+  reruns the gate.
 - If a local CEE production build crashes but the exact commit is green in CI, do not publish old
-  local output. Diagnose the host or recover the exact `cee-production-dist` artifact from that CI
-  run, regenerate the bundle/package from it, and confirm its SHA-256 matches the green gate before
-  publishing.
+  local output. Diagnose the host, or recover the exact `cee-production-dist` artifact from that CI
+  run, regenerate the bundle and package from it, and confirm its SHA-256 matches the green gate
+  before publishing.
 - Publishing is not deployment. Consumer propagation, rebuild, served-byte verification, and cache
   invalidation remain required before an environment is running the release.
