@@ -13,24 +13,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Features
 
-- **1. Decide which `main` and tags a public CED or CETP release takes, then release them.**
-  `cedarcli release npm` publishes the model library and CEE. It gates a preparation commit on
-  `develop`, merges it to `main` through green CI, publishes the gated tarball from the merge commit
-  and tags that commit `release-<version>`. `cedar-embeddable-designer` (CED) and
-  `cedar-embeddable-term-picker` (CETP) stage public packages the same way, and both pin the model
-  library as CEE does. The route knows them but refuses both, because their `main` is not its to
-  merge into. The platform release writes it, with a `Prepare CEDAR <version>` and a
-  `Release CEDAR <version>` commit that `develop` never takes, and tags it `release-<CEDAR version>`.
-  On 2026-11-09 each `main` held 36 such commits. A pull request from `develop` would therefore merge
-  a tree nobody gated, and a `release-0.1.0` tag would share the platform release's namespace.
-
-  **Decide the branch and the tag namespace.** The platform release could stop writing their `main`,
-  as it already leaves CEE's and the model's alone, and pin a public CED and CETP the way it pins a
-  public CEE. Or the two could keep their place in the platform release and take their public
-  version from it, so the platform release publishes them to npmjs itself. Either way, set
-  `independent` on their definitions in `npm_release_support/definitions.py` to match, give each
-  `CHANGELOG.md` the shape the route writes, and choose their first public versions. Done when a
-  public CED and CETP are on npmjs, published by whichever route the decision gives them.
+- **1. Publish the first public CED and CETP.** The platform release pins public CED and CETP
+  packages as it pins a public CEE, and `cedarcli release npm` publishes both. Neither has a public
+  version yet, so `cedarcli release plan` refuses every train until both do. Release them in one run
+  with CEE and the model all three embed, because the Template Designer's shared build takes the
+  three components only when they share one model runtime. Both carry `0.1.0-dev` versions, so
+  0.1.0 is the natural first version of each. Dispatch the next train only after the run, since a
+  commit to either repository between the two makes the plan refuse that package. Done when
+  `cedar-embeddable-designer` and `cedar-embeddable-term-picker` are on npmjs and a platform release
+  has pinned them.
 
 - **2. Let an author renumber a draft.** A draft's version is the number its publication will
   carry. The Workspace asks for it when the draft is created, starting at the next patch and
@@ -245,7 +236,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   and `release/*` unprotected means the bypass covers `main` alone, so no other ref the release
   writes can be refused after its Maven and frontend builds have run.
 
-  The TypeScript model library and CEE reach `main` through a pull request that
+  The TypeScript model library, CEE, CED and CETP reach `main` through a pull request that
   `cedarcli release npm` merges as the operator, and a restriction on updates would refuse that
   merge. Give each repository whose npm release works that way a ruleset that requires a pull
   request with no approvals instead, until the route can merge as the app.

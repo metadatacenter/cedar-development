@@ -3639,10 +3639,10 @@ instead, where the dev versions do not exist.
 
 ### Release
 
-The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable CEE and model-library releases,
-which `cedarcli release npm` carries out. It prepares and gates each package on `develop`, merges it
-through green CI, publishes the gated tarball from `main`, tags the merge commit, and returns
-`develop` to development. Never publish by hand.
+The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable model-library, CEE, CED and CETP
+releases, which `cedarcli release npm` carries out. It prepares and gates each package on `develop`,
+merges it through green CI, publishes the gated tarball from `main`, tags the merge commit, and
+returns `develop` to development. Never publish by hand.
 
 | Task | Authoritative procedure |
 | --- | --- |
@@ -3651,7 +3651,7 @@ through green CI, publishes the gated tarball from `main`, tags the merge commit
 | What a release does, stage by stage | [The route](NPMJS-RELEASE-RUNBOOK.md#the-route) |
 | A release that waits or fails | [Where the route stops](NPMJS-RELEASE-RUNBOOK.md#where-the-route-stops) |
 | Update consumer pins and train baselines | [Propagate CEE](NPMJS-RELEASE-RUNBOOK.md#propagate-a-stable-cee-release) |
-| Adopt public CEE in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release) |
+| Adopt public CEE, CED and CETP in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-packages-in-a-train-backed-cedar-release) |
 | Write the announcement | [Release notes](NPMJS-RELEASE-RUNBOOK.md#release-notes) |
 | Publish a registry development package | [Registry dev packages](#cee-releasing-a-dev-snapshot-locally) |
 
@@ -4060,14 +4060,14 @@ npmjs, unscoped. A snapshot therefore cannot reach npmjs by forgetting a flag,
 and the rule has tests of its own because publishing to npmjs is not an action
 anyone can take back.
 
-The first Nexus snapshot is
-`@org.metadatacenter/cedar-embeddable-designer@0.1.0-dev.20260916.2593d382`.
-CED is not released on npmjs. The component is outside `cedarcli`'s current
-publication plan: version the snapshot against its source commit, run
-`npm run test:ci` (set `CEF_BUNDLE` to a pinned CEE bundle), then verify the staged
-package with `npm publish ./dist-npm/cedar-embeddable-designer --tag dev --dry-run`
-and publish the same directory with `--tag dev`. Its `publishConfig` fixes Nexus
-as the destination. Never rebuild between the browser gate and publication.
+The first Nexus snapshot was
+`@org.metadatacenter/cedar-embeddable-designer@0.1.0-dev.20260916.2593d382`. CED's
+CI publishes nothing. `cedarcli publish components --apply` builds and publishes a
+development package from each pushed `develop` head, and each build train publishes
+the one it tests. A release reaches npmjs through `cedarcli release npm`, which
+gates the package, publishes it from `main` and tags it, as the
+[npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) describes. CETP is published the
+same way. Publish neither channel by hand.
 
 The published declaration is emitted from `src/app/ced-public-api.ts` alone,
 which is written without imports so its declarations stand alone. Adding an

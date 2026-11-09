@@ -1,20 +1,21 @@
 # CEDAR npmjs Release Runbook
 
-Two packages reach public npmjs outside the normal CEDAR release, each on a version of its own:
+Four packages reach public npmjs outside the normal CEDAR release, each on a version of its own:
 
 - `cedar-model-typescript-library`, the TypeScript model library
 - `cedar-embeddable-editor` (CEE)
+- `cedar-embeddable-designer` (CED)
+- `cedar-embeddable-term-picker` (CETP)
 
 `cedarcli release npm` publishes them. It records each run in a ledger, carries every package from
 its preparation on `develop` to its publication from `main` and back to the next development
-version, and stops wherever it cannot prove that a step succeeded.
-
-CED and CETP stage public packages the same way, and the route knows them, but it refuses to release
-either. The platform release writes their `main` and tags it with CEDAR's version, so a release
-merged from `develop` would meet the release commits `develop` never takes.
+version, and stops wherever it cannot prove that a step succeeded. The route alone writes each
+repository's `main` and its `release-<version>` tags. CED's and CETP's `release-2.9.x` tags are
+older: they mark CEDAR platform releases from before the two packages took versions of their own.
 
 For development and test gates, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee). For the
-platform release that consumes a public CEE package, see [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
+platform release that consumes the public CEE, CED and CETP packages, see
+[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
 
 Publication is not a prerequisite for a development frontend build. Use `cedarcli build frontends`
 for the complete local SNAPSHOT workflow or `cedarcli test frontends` for source checks. Both
@@ -23,32 +24,39 @@ clean trees, commits and registry waits here apply only to the requested publica
 
 ## Release Contract
 
-The model library and CEE have independent public versions. The route infers neither from the
-other, and it never substitutes the newest public model for one the operator did not name.
+The model library, CEE, CED and CETP have independent public versions. The route infers none from
+another, and it never substitutes the newest public model for one the operator did not name.
 
-A stable CEE build pins `cedar-model-typescript-library` exactly in both its root and visual
-manifests. The production bundle contains that library; CEE's published manifest does not leave it
-as a runtime dependency for the embedding application to resolve. Consequently:
+A stable build of CEE, CED or CETP pins `cedar-model-typescript-library` exactly in every manifest
+that names it: CEE's root and visual manifests, and the root manifest of CED and of CETP. The
+production bundle contains that library; the published manifest does not leave it as a runtime
+dependency for the embedding application to resolve. Consequently:
 
-- releasing the model does not change an existing CEE package;
-- CEE may deliberately embed an older public model version;
-- a CEE release that pins a new model version follows the model's release, in the same run or an
-  earlier one;
-- the CEDAR release needs an explicit public CEE version, not a second model-version argument; and
-- proving the public CEE executable byte-equivalent to the train CEE after the declared provenance
-  substitutions also proves the bundled model code.
+- releasing the model does not change an existing CEE, CED or CETP package;
+- a component may deliberately embed an older public model version;
+- a component release that pins a new model version follows the model's release, in the same run
+  or an earlier one;
+- the CEDAR release needs explicit public CEE, CED and CETP versions, not a model-version argument;
+  and
+- proving each public package executable byte-equivalent to the train's after the declared
+  provenance substitutions also proves the bundled model code.
+
+The Template Designer serves all three components from one shared build, and that build refuses a
+component whose integration manifest records a model runtime other than the one the host installs.
+Release CEE, CED and CETP against the same public model, therefore, or the Template Designer
+cannot take them together.
 
 ### The Design Tokens Are a Build-Time Dependency
 
 `@org.metadatacenter/cedar-design-tokens` supplies the shared font, type scale and palette from
 CEDAR Nexus. Sass compiles those values into the bundle.
 
-The package stays a build-time `devDependency`, because public CEE must not require its consumers to
-resolve CEDAR's Nexus packages. The route refuses a staged manifest that lists any
+The package stays a build-time `devDependency`, because a public package must not require its
+consumers to resolve CEDAR's Nexus packages. The route refuses a staged manifest that lists any
 `@org.metadatacenter/` package among its dependencies.
 
-A release builds with the token version CEE's lock names. Nexus deletes development packages a few
-days after they are published, so the route refuses to start when a lock names a Nexus package
+A release builds with the token version the package's lock names. Nexus deletes development packages
+a few days after they are published, so the route refuses to start when a lock names a Nexus package
 Nexus no longer serves. Move the pin with `cedarcli publish components --apply` and plan again. If
 token changes are required, publish them and move the pins before planning. Build trains enforce
 token-first ordering automatically.
@@ -70,24 +78,25 @@ command transcript, release note, or runbook. Remove obsolete authentication set
 `always-auth`, which the route refuses. Harmless author-metadata warnings are advisory; see the
 [shared install policy](RELEASE-RUNBOOK.md#what-plan-checks).
 
-`gh` must be authenticated with write access to both repositories, since the route opens and merges
-a pull request, pushes a tag and drafts a GitHub release in each.
+`gh` must be authenticated with write access to every repository a run releases, since the route
+opens and merges a pull request, pushes a tag and drafts a GitHub release in each.
 
 ## Choosing the Inputs
 
-A run names each package it releases as `<package>@<version>`, where the package is `model` or
-`cee`. Every version is explicit:
+A run names each package it releases as `<package>@<version>`, where the package is `model`,
+`cee`, `ced` or `cetp`. Every version is explicit:
 
 - `--next <package>@<base>` gives the base of each package's next development version, which must
   exceed the version being released.
-- `--model-version <version>` gives the public model version CEE pins, when the run does not release
-  the model. When it does, CEE pins the model version the run publishes.
-- `--notes <package>=<file>` gives the bullets of the package's release entry. CEE requires it,
-  since its `CHANGELOG.md` takes the entry. For the model, which keeps no changelog, it is optional
-  and supplies the GitHub release draft.
+- `--model-version <version>` gives the public model version CEE, CED and CETP pin, when the run
+  does not release the model. When it does, they pin the model version the run publishes.
+- `--notes <package>=<file>` gives the bullets of the package's release entry. CEE, CED and CETP
+  require it, since each one's `CHANGELOG.md` takes the entry. For the model, which keeps no
+  changelog, it is optional and supplies the GitHub release draft.
 
 A notes file holds bullet lines and nothing else. The route writes the heading, the date and, for
-CEE, the sentence naming the model it aligns with. The 2.0.33 entry shows the result:
+CEE, CED and CETP, the sentence naming the model the package aligns with. CEE's 2.0.33 entry shows
+the result:
 
 ```markdown
 ## [2.0.33] - 2026-11-07
@@ -101,9 +110,10 @@ Aligns with `cedar-model-typescript-library@1.0.27`.
 `plan` checks every precondition and changes nothing:
 
 ```bash
-cedarcli release npm plan model@1.0.28 cee@2.0.34 \
-  --next model@1.0.29 --next cee@2.0.35 \
-  --notes model=model-notes.md --notes cee=cee-notes.md
+cedarcli release npm plan model@1.0.28 cee@2.0.34 ced@0.1.0 cetp@0.1.0 \
+  --next model@1.0.29 --next cee@2.0.35 --next ced@0.1.1 --next cetp@0.1.1 \
+  --notes model=model-notes.md --notes cee=cee-notes.md \
+  --notes ced=ced-notes.md --notes cetp=cetp-notes.md
 ```
 
 It refuses a run when any of the following holds:
@@ -114,31 +124,32 @@ It refuses a run when any of the following holds:
   gated;
 - the release tag already exists, a pull request from `develop` to `main` is already open, or the
   version is already on npmjs or is not newer than the public `latest`;
-- CEE pins a model version npmjs does not serve, and the run does not release it;
+- a component pins a model version npmjs does not serve, and the run does not release it;
 - a lock names a Nexus package Nexus no longer serves;
-- CEE's `develop` does not pin one development model that Nexus still serves, which the route
-  returns to after the release, and `--dev-model-version` names no other; or
+- a component's `develop` does not pin one development model that Nexus still serves, which the
+  route returns to after the release, and `--dev-model-version` names no other; or
 - Node, npm, `~/.npmrc` or `gh` is not as the prerequisites describe.
 
 `start` takes the same arguments, runs the same checks and then drives the run.
 
 ## The Route
 
-The route releases the model first and CEE after it, one package at a time. Each package passes
-through the stages below, and each stage records the evidence of its outcome in the ledger before
-the next begins.
+The route releases the model first and then CEE, CED and CETP, one package at a time. Each package
+passes through the stages below, and each stage records the evidence of its outcome in the ledger
+before the next begins.
 
 On `develop`, the route prepares and gates the release:
 
 1. **prepare** sets the release version with `npm version`, which also updates the model's
    `package-dist.json` through its version hook, and gives that manifest the unscoped public name.
-   For CEE it instead pins the public model with `npm install --save-exact` in the root and visual
-   graphs, which must then resolve the same npmjs tarball. It also adds the changelog entry,
-   changing nothing else in the file, and stamps `INNER_VERSION` with the preparation time. Notes
-   under `## [Unreleased]` stay where they are, because the platform release cuts the new entry out
-   again to prove a public CEE is a promotion of its train's.
-2. **gate** runs `npm ci` in every directory the package installs, then `npm run test:ci`. For CEE
-   it also runs `cedarcli test cee-demos` against the staged package. The tree must be the one
+   For CEE, CED and CETP it instead pins the public model with `npm install --save-exact` in every
+   graph that names it, and each must then resolve the same npmjs tarball. It also adds the
+   changelog entry, changing nothing else in the file, and for CEE stamps `INNER_VERSION` with the
+   preparation time. Notes under `## [Unreleased]` stay where they are, because the platform
+   release cuts the new entry out again to prove each public package a promotion of its train's.
+2. **gate** runs `npm ci` in every directory the package installs, which for CED and CETP includes
+   `browser/`, then `npm run test:ci`. For CEE it also runs `cedarcli test cee-demos` against the
+   staged package. The tree must be the one
    prepared, before and after.
 3. **commit** commits the prepared paths, as `Prepare CEE release 2.0.34 with model library 1.0.28`
    or `Prepare TypeScript model library release 1.0.28`.
@@ -154,7 +165,8 @@ Through the pull request, the route waits for GitHub to test the commit:
 
 On `main`, the route builds and publishes:
 
-8. **build-main** checks out the merge commit and runs `npm run test:package`. The staged manifest
+8. **build-main** checks out the merge commit and runs `npm run test:package`, or `npm run dist`
+   for CED and CETP. The staged manifest
    must carry the unscoped name and the release version, no `private` flag, no `publishConfig` and
    no Nexus-only dependency, and its README must be the repository's. The route packs that directory
    into a tarball, runs the CEE framework demos against the tarball, and makes a dry run that must
@@ -173,16 +185,17 @@ Back on `develop`, the route returns the repository to development:
 
 13. **develop** fast-forwards `develop` to the merge commit, or merges it when others pushed to
     `develop` meanwhile, which changes no tree. It sets `<next>-dev.<date>.<sha>` as the version and,
-    for the model, restores the scoped Nexus name. CEE returns to the development model it pinned
-    before the release. The route then runs the package's own check, commits `Advance CEE to the
-    next development version` and pushes.
-14. **development-checks** waits for every workflow run on the advance commit to finish green. That
-    run publishes the development package to Nexus.
+    for the model, restores the scoped Nexus name. CEE, CED and CETP return to the development
+    model each pinned before the release. The route then runs the package's own check, commits
+    `Advance CEE to the next development version` and pushes.
+14. **development-checks** waits for every workflow run on the advance commit to finish green. For
+    the model and CEE, that run publishes the development package to Nexus. CED's and CETP's CI
+    publishes nothing.
 
 The version committed in **develop** names the merge commit below it rather than the advance
-commit, which does not exist while `npm version` runs. The workflow that publishes the development
-package derives its own `<base>-dev.<date>.<sha>` from the commit it builds, so the committed string
-is a placeholder rather than an address. Against Nexus, `npm view` answers only for an exact
+commit, which does not exist while `npm version` runs. Whatever publishes the development package
+derives its own `<base>-dev.<date>.<sha>` from the commit it builds, so the committed string is a
+placeholder rather than an address. Against Nexus, `npm view` answers only for an exact
 version, so the registry cannot be asked for it either. Derive the published version from the
 advance commit, exactly as the workflow does:
 
@@ -240,10 +253,13 @@ The route publishes and tags. Four steps remain the operator's:
   [Release Notes](#release-notes) describes. The model's release notes are its GitHub release;
   write them on the tag when the run had no model notes.
 - Pin a public CEE in its consumers, as the next section describes. Publishing is not deployment.
-- Once each advanced `develop` head has been published to Nexus, `cedarcli publish components
-  --apply` moves every consumer from the public CEE onto that development package, and the model's
-  consumers onto the model's newest one. [Recording a Pin](FRONTEND-RUNBOOK.md#recording-a-pin)
-  describes how it follows both.
+  A public CED or CETP needs no such step: the next platform release, which names it with
+  `--ced-version` or `--cetp-version`, pins it into the Template Designer.
+- Once CI has published CEE's and the model's advanced `develop` heads to Nexus, `cedarcli publish
+  components --apply` moves every CEE consumer from the public CEE onto that development package,
+  and the model's consumers onto the model's newest one. It also builds and publishes CED's and
+  CETP's advanced heads, which their CI does not, and moves the Template Designer onto them.
+  [Recording a Pin](FRONTEND-RUNBOOK.md#recording-a-pin) describes how it follows each.
 - Refresh and commit the lock baselines when the run deferred them.
 
 ## Propagate a Stable CEE Release
@@ -279,7 +295,7 @@ dependency review; unchanged totals alone do not prove that the advisory identit
 source. Order: propagate, commit consumers, refresh and commit baselines, rebuild deployed
 frontends, then run `cedarcli check ci` and `cedarcli test e2e`.
 
-## Use the Public CEE in a Train-Backed CEDAR Release
+## Use the Public Packages in a Train-Backed CEDAR Release
 
 The CEDAR release inputs are explicit. The CEDAR version is not parsed from the dev train string,
 and the operator does not track or pass a manifest path:
@@ -289,14 +305,22 @@ cedarcli release plan \
   --version <CEDAR_VERSION> \
   --next-version <NEXT_SNAPSHOT_VERSION> \
   --from-train <TRAIN_ID> \
-  --cee-version <CEE_VERSION>
+  --cee-version <CEE_VERSION> \
+  --ced-version <CED_VERSION> \
+  --cetp-version <CETP_VERSION>
 
 cedarcli release start \
   --version <CEDAR_VERSION> \
   --next-version <NEXT_SNAPSHOT_VERSION> \
   --from-train <TRAIN_ID> \
-  --cee-version <CEE_VERSION>
+  --cee-version <CEE_VERSION> \
+  --ced-version <CED_VERSION> \
+  --cetp-version <CETP_VERSION>
 ```
+
+Each public package must have been published from the source the train tested. A commit to CEE, CED
+or CETP on `develop` between its npm release and the train's capture changes what the train builds,
+and the plan then refuses that package. Release the packages first, then dispatch the train.
 
 The CLI owns its internal release manifest and resumes it with `cedarcli release resume`. The plan
 first verifies each tarball and its own bundle manifest. It then requires the same package file set
@@ -342,21 +366,33 @@ proof for the model-library code compiled into CEE. The train development base m
 the public version (for example, `2.0.4-dev…` versus `2.0.3`); version-name similarity is not release
 evidence and is deliberately not a prerequisite for running the proof.
 
+CED and CETP are proved by the same rules, with three differences. Their bundles carry no load trace
+and embed no `package.json`, so none of the embedded policies above applies. A CED bundle reports
+its version as one quoted literal, and a CETP bundle reports none. The proof is directional:
+replacing that literal in the train's bundle with the public version must reproduce the public
+bundle byte for byte. A short version such as `0.1.0` also occurs inside unrelated strings of the
+bundle, so the proof never searches the public bundle for it. Each bundle manifest records
+fingerprints of the build's inputs and output, which cover the package's `package.json` and its
+installed model and so change with the channel. Those two fingerprints alone are set aside; every
+other field of the manifest must match.
+
 On `start`, that proven public CEE is pinned in all declared frontend consumers before either source
-variant is stamped. Both the release and next-development Git trees retain the stable CEE pin; the
-next-development tree does not silently return to the train's development CEE. The route then
-integrates those exact trees into `main` and `develop`, publishes the stable frontend npm packages,
-and verifies their downloaded registry tarballs. Workspace publishes with the other platform
-frontends. Operational details and resume rules are in
+variant is stamped. The proven public CED and CETP are pinned into the Template Designer, their one
+consumer, in place of the train's retained development copies. Both the release and next-development
+Git trees retain the stable pins; the next-development tree does not silently return to the train's
+development packages. The route then integrates those exact trees into `main` and `develop`,
+publishes the stable frontend npm packages, and verifies their downloaded registry tarballs.
+Workspace publishes with the other platform frontends. Operational details and resume rules are in
 [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#the-route).
 
 ## Release Notes
 
 The route drafts each GitHub release from the run's notes, opening with the npm package link and,
-for CEE, the sentence naming the model it aligns with. Edit the draft before publishing it.
+for CEE, CED and CETP, the sentence naming the model the package aligns with. Edit the draft before
+publishing it.
 
-CEE release notes address embedders. Open with the version and npm package link, then a short
-paragraph describing the main change. Use the changelog's Added, Changed, Removed, Fixed and
+CEE, CED and CETP release notes address embedders. Open with the version and npm package link, then
+a short paragraph describing the main change. Use the changelog's Added, Changed, Removed, Fixed and
 Security headings as applicable; lead bullets with the concrete change. Keep bullets to one or two
 sentences (normally 20–30 words), selecting changes embedders need to know about rather than copying
 the full changelog. Close with the prerelease-build information and full changelog link.

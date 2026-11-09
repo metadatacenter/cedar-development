@@ -30,17 +30,19 @@ cedarcli release readiness --version <VER> --next-version <NEXT>
 It checks consumer inventories, Maven modules/artifacts, npm publication surfaces and version
 arithmetic, and packs each surface from a clean commit archive. A `prepack` depending on checkout
 `node_modules` fails here. Versions are optional; `--skip-packaging` omits packing. Allow about ten
-seconds. Registry inventories, digests and CEE equivalence require the completed train and remain
-in `plan`.
+seconds. Registry inventories, digests and the equivalence of the public CEE, CED and CETP require
+the completed train and remain in `plan`.
 
 For one combined read-only report, use:
 
 ```bash
 cedarcli release readiness --full --version <VER> --next-version <NEXT> \
-  --model-version <PUBLIC_MODEL> --cee-version <PUBLIC_CEE> --from-train <TRAIN_ID>
+  --model-version <PUBLIC_MODEL> --cee-version <PUBLIC_CEE> \
+  --ced-version <PUBLIC_CED> --cetp-version <PUBLIC_CETP> --from-train <TRAIN_ID>
 ```
 
-This reports public tarball integrity and identity, CEE's declared and embedded model pin,
+This reports public tarball integrity and identity, CEE's declared and embedded model pin, the
+model CED and CETP declare,
 consumer manifest/lock pins, exact-source CI, matching whole-stack smoke, clean/pushed
 sources, release prerequisites, and the train's artifact/equivalence and source-eligibility
 checks. Each gap includes a next action. Before a train exists, omit `--from-train`;
@@ -50,7 +52,7 @@ It does not dispatch, publish, accept exceptions, or replace `release plan|start
 
 ### The Plan
 
-Run a read-only plan with four explicit inputs. The CLI owns the immutable manifest under
+Run a read-only plan with six explicit inputs. The CLI owns the immutable manifest under
 `~/.cedar/train-releases/`; do not supply a manifest path or infer versions from the train ID.
 
 ```bash
@@ -58,13 +60,15 @@ cedarcli release plan \
   --version <VER> \
   --next-version <NEXT> \
   --from-train <TRAIN_ID> \
-  --cee-version <PUBLIC_CEE_VERSION>
+  --cee-version <PUBLIC_CEE_VERSION> \
+  --ced-version <PUBLIC_CED_VERSION> \
+  --cetp-version <PUBLIC_CETP_VERSION>
 ```
 
 `plan` changes nothing. It validates the completed train, the exact source commits, the artifact
 inventories—including the complete 27-image Docker plan and immutable registry digests—the explicit
-versions, and the byte-equivalence proof between the train's development
-CEE and the public npmjs CEE, and then runs the complete release gate. It must finish with
+versions, and the byte-equivalence proofs between the train's development CEE, CED and CETP and the
+public npmjs packages, and then runs the complete release gate. It must finish with
 `No changes made.`
 
 <a id="nothing-may-land-between-the-train-and-the-release"></a>
@@ -81,8 +85,8 @@ The TypeScript model library is the one repository the release writes to without
 since the train captured it.
 
 Use `cedarcli publish train-status` to check eligibility and identify moved repositories.
-CEE's public and development version bases need not match: eligibility depends on the
-[package equivalence proof](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release),
+The public and development version bases of CEE, CED and CETP need not match: eligibility depends
+on the [package equivalence proof](NPMJS-RELEASE-RUNBOOK.md#use-the-public-packages-in-a-train-backed-cedar-release),
 whose permitted normalizations are defined in the npmjs runbook.
 
 ## What Plan Checks
@@ -113,13 +117,13 @@ The plan settles four groups of question:
   prints a `Toolchain:` line for each substitution. When it finds neither, the plan names the export
   to run.
 - **The source is ready.** Every participating repository—including the independent repositories
-  whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
-  the train was built from is green wherever that commit defines a workflow. A whole-stack smoke
-  run recorded by `cedarcli test e2e` against exactly the train's source commits has passed every
-  tier. The immutable source
-  also contains every declared wrapper, manifest, lock, build, preserve, version, and Docker stamp
-  input before a long build is allowed to start. Every frontend lifecycle script in the captured
-  lockfiles has an exact true/false `allowScripts` decision.
+  whose public package wiring the release integrates—is clean and pushed, and the CI run for the
+  exact commit the train was built from is green wherever that commit defines a workflow. A
+  whole-stack smoke run recorded by `cedarcli test e2e` against exactly the train's source commits
+  has passed every tier. The immutable source also contains every declared wrapper, manifest, lock,
+  build, preserve, version, and Docker stamp input before a long build is allowed to start. Every
+  frontend lifecycle script in the captured lockfiles has an exact true/false `allowScripts`
+  decision.
 - **The writes will be accepted.** Both Nexus credentials are available and authenticate, npm holds an
   identity for both of CEDAR's Nexus npm registries, `npm-cedar` and `npm-cedar-releases`, the
   release version is absent from the Maven target and from both npm registries, and each remote
@@ -254,7 +258,9 @@ cedarcli release start \
   --version <VER> \
   --next-version <NEXT> \
   --from-train <TRAIN_ID> \
-  --cee-version <PUBLIC_CEE_VERSION>
+  --cee-version <PUBLIC_CEE_VERSION> \
+  --ced-version <PUBLIC_CED_VERSION> \
+  --cetp-version <PUBLIC_CETP_VERSION>
 ```
 
 Run in a `cedar` shell inside `tmux` to survive disconnects. Without the alias, export
@@ -304,19 +310,21 @@ available to resume. Older ledgers without this policy retain serial integration
 
 The release runs these phases, each verifying its work before the next begins:
 
-1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
-   seven frontend consumer manifests and lockfiles. Shared-component pins (tokens, picker and
-   designer) also follow the train's verified package graph, at the copies the train retained in
-   `npm-cedar-releases`. So does every other pin of the model library, in the designer and the
-   applications alike, because the train built each of them against the model it published
-   itself. CEE follows the model too, but the release pins the public CEE in its place. The copies carry the train's versions and bytes, at an
-   address Nexus does not clean up. Their exact registry tarball and integrity are checked before
-   and after lock generation, and preparation refuses a lockfile that still installs any tarball
-   from another Nexus repository.
+1. Clone every train source commit into isolated workspaces. Pin the public CEE version in all
+   seven frontend consumer manifests and lockfiles, and the public CED and CETP versions in the
+   Template Designer, their one consumer. The design-token pins follow the train's verified package
+   graph, at the copies the train retained in `npm-cedar-releases`. So does every pin of the model
+   library in the applications, because the train built each of them against the model it
+   published itself. CEE, CED and CETP follow the model too, but the release writes none of their
+   repositories: it pins their public packages, which embed a public model of their own. The
+   retained copies carry the train's versions and bytes, at an address Nexus does not clean up.
+   Each pinned package's registry tarball and integrity are checked before and after lock
+   generation, and preparation refuses a lockfile that still installs any tarball from another
+   Nexus repository.
 2. Stamp `<VER>` and `<NEXT>` from the same source commits, and move the copyright year in every
-   `license.txt` to the release year. Both variants retain the stable public CEE wiring. The
-   Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's
-   recorded inputs on the release tree. Next development preserves the captured retained
+   `license.txt` to the release year. Both variants retain the stable public CEE, CED and CETP
+   wiring. The Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the
+   train's recorded inputs on the release tree. Next development preserves the captured retained
    compatibility defaults, which already exist when integration triggers Docker CI, before new
    release packages are published. Release readiness rejects transient compatibility pins before
    a train; an operator can advance these defaults to an accepted release afterwards. The release
@@ -429,15 +437,15 @@ bytes and continues safely. Ledgers written by the earlier combined publication 
 by task identity, so their snapshot records do not inflate the release-artifact count.
 
 Acceptance is the last phase, and it is what makes the release self-proving. It asks, from outside
-the ledger that recorded the work, whether every repository carries the release tag, every remote ref
-stands where the ledger says, every published artifact still matches its recorded bytes, and the
-frontends pin the proven CEE. It also proves that OpenView's committed distribution and published
-npm artifact contain the normalized bytes of that exact public CEE, and that the complete prepared
-next-development workspace passes its captured Maven/frontend/Docker train configuration with the
-exact `<NEXT>` snapshot version. This is artifact and development-state acceptance;
-after deployment, the environment smoke check must still prove which artifact the web server is
-actually serving. A completed release reports `Release <VER> — COMPLETE` and shows acceptance at
-`1/1`.
+the ledger that recorded the work, whether every repository carries the release tag, every remote
+ref stands where the ledger says, every published artifact still matches its recorded bytes, the
+frontends pin the proven CEE, and the Template Designer pins the proven CED and CETP. It also proves
+that OpenView's committed distribution and published npm artifact contain the normalized bytes of
+that exact public CEE, and that the complete prepared next-development workspace passes its captured
+Maven/frontend/Docker train configuration with the exact `<NEXT>` snapshot version. This is artifact
+and development-state acceptance; after deployment, the environment smoke check must still prove
+which artifact the web server is actually serving. A completed release reports `Release <VER> —
+COMPLETE` and shows acceptance at `1/1`.
 
 An accepted release advances `develop` in every repository it integrated and leaves the local
 checkouts on the commits before it, so it prints what the next train needs: `cedarcli git pull`,
@@ -546,13 +554,15 @@ On `AUTH_FAIL`, refresh the PAT on GitHub, authorizing it for SSO if the org req
 
 ## What Publishes Independently
 
-The TypeScript model library and CEE release independently, and the release neither versions nor
-publishes either. It still writes one change to the library. On `develop`, it moves the two CEDAR
+The TypeScript model library, CEE, CED and CETP release independently. The release versions and
+publishes none of them, and it writes none of their `main` branches or tags. It still writes one
+change to the library. On `develop`, it moves the two CEDAR
 versions that `tools/conformance/pom.xml` names to `<NEXT>`, because CED's conformance gate
 resolves those libraries from Nexus. The library's `main`, tags and packages stay its own.
-`cedarcli release npm` publishes both packages from `main` and restores their development channels,
-as [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md) describes. The operator chooses the model
-version CEE embeds.
+`cedarcli release npm` publishes all four packages from `main` and restores their development
+channels, as [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md) describes. The operator chooses
+the model version CEE, CED and CETP embed. A public CED or CETP needs no propagation, because the
+release pins the version `--ced-version` or `--cetp-version` names into the Template Designer.
 Publishing CEE is not complete operationally until its exact version has been propagated to all
 seven consumer manifests, including the extracted Workspace, and those changes are committed in
 their owning repositories. Require this gate before building a staging or production frontend
@@ -577,14 +587,15 @@ directly, and the complete seven-target procedure is in
 
 ## Branch Layout for Publication
 
-The release repositories publish from `main`. The two independent public npmjs repositories—CEE and
-the TypeScript model library—build from `develop` for train work and follow their own npmjs runbook.
+The release repositories publish from `main`. The four independent public npmjs repositories—the
+TypeScript model library, CEE, CED and CETP—build from `develop` for train work and follow their
+own npmjs runbook.
 The release arranges its own isolated checkouts; ordinary working trees do not need a blanket branch
 change.
 
-`cedarcli git checkout main` is a blanket checkout of every repository, including the two independent
-npmjs repositories. Do not use it to prepare a release; the release controller owns isolated,
-manifest-bound workspaces for that purpose.
+`cedarcli git checkout main` is a blanket checkout of every repository, including the four
+independent npmjs repositories. Do not use it to prepare a release; the release controller owns
+isolated, manifest-bound workspaces for that purpose.
 
 ### Repeated Nexus transport failures
 

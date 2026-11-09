@@ -200,8 +200,8 @@ The browser applications and embeddable components — `cedar-workspace`,
   editor theming and host contracts, authoring and lifecycle, and the model-library
   work those surfaces require.
 - [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md) — public TypeScript model
-  library and CEE releases through `cedarcli release npm`, where that route stops, consumer
-  pins, and adoption by a train-backed release.
+  library, CEE, CED and CETP releases through `cedarcli release npm`, where that route stops,
+  consumer pins, and adoption by a train-backed release.
 
 `cedar-design-tokens` owns the design vocabulary every browser application and embeddable
 component shares: the font stack, type scale, colours, control metrics, spacing, motion and
@@ -239,9 +239,9 @@ resolve terms for and store CEDAR artifacts:
 
 The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~43
-  versioned repos, front and back. CEE, the TypeScript model library and three others are
-  `skip_from_release` and publish themselves; their public procedure is in
-  [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).
+  versioned repos, front and back. The TypeScript model library, CEE, CED and CETP release to
+  npmjs on versions of their own, as [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md)
+  describes, and the platform release pins their public packages.
 - [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
