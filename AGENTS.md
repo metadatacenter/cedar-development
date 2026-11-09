@@ -28,6 +28,8 @@ cedarcli native health         # exits non-zero unless every managed application
 cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
+cedarcli ci run <repo>         # run a repo's own CI here at origin/develop; gates accept the record
+cedarcli ci coverage           # which repos local CI answers for, and the registry's drift check
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
 cedarcli build frontends       # full frontend reactor; `build --jobs 3 --workers 12 frontends` on the 16-core workstation; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it

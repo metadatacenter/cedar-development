@@ -4754,6 +4754,66 @@ holds `de.flapdoodle.os` at 1.11.1, which recognizes 26.04 and leads 4.22.0 to t
 build. A runner release newer than the one `de.flapdoodle.os` knows brings the same failure back,
 and the remedy is a newer `de.flapdoodle.os`.
 
+### Local CI
+
+GitHub Actions answers slowly and is not always there. CETP's CI takes about four and a half
+minutes on a hosted runner and seventy seconds on the workstation, and 23 GitHub incidents touched
+Actions between 4 September and 9 November 2026. `cedarcli ci run` therefore runs a repository's own
+push-to-`develop` workflows on the workstation, at an exact commit, and records the result. Every
+gate that waits for green CI accepts that record in place of a green GitHub run: `cedarcli check
+ci`, the train dispatch preflight, `cedarcli release plan|start`, the release's development
+verification and both CI stages of `cedarcli release npm`. Actions keeps running beside it. It
+still publishes the snapshots and development packages, and its runs remain a second opinion and
+the checks on other people's pull requests.
+
+Local CI keeps no copy of what a workflow does. It reads the workflows at the commit and works out
+which of them a push to `develop` would start, applying their branch and path filters to the
+commit's changes against its first parent. It expands each job's matrix and runs every leg in a
+fresh workspace, checking repositories out from the local clones at exact commits. It implements the
+few actions the workflows use: checkout, Java, Node and Python setup, caching, which it treats as a
+no-op, and artifacts passed from one job to the next. Every `run:` step runs with the workflow's own
+condition, environment and working directory. A step's environment holds the toolchain that the
+release also resolves, Java 17 and Node 24.22.1, and a home directory, but nothing else from the
+shell that started it. Maven resolves into a repository of its own under `~/.cedar/local-ci/maven`,
+so a snapshot installed from a working tree can never stand in for the one Nexus serves. Jobs that
+boot the embedded stores on the shared test ports run one at a time, and a repository's
+independent jobs run in parallel, as GitHub schedules them.
+
+`ops/local-ci.json` records only what must differ on this machine, each difference with its reason.
+That means the steps local CI skips, such as publication or a Linux-only package install, and the
+steps it substitutes, such as an OpenSearch container moved off the native stack's port. It also
+records extra environment, what a job requires (Docker), which jobs exclude one another, and a
+cleanup that an ephemeral runner would not need. A repository or job the file does not name is one
+GitHub still answers for.
+
+`cedarcli ci coverage` is the file's drift check. A job is covered only when every step, action,
+expression and secret in it is one local CI runs exactly as GitHub would, or one the registry skips
+or substitutes. A workflow change that adds a step that publishes, an action local CI does not
+implement, a secret it does not hold, a job container or a service leaves that job, and with it the
+repository, to GitHub. The command exits non-zero when a repository the registry names has drifted
+that way. A job the registry itself declares uncovered is reported with its reason, for example
+CED's Linux WebKit job and `cedar-parent`'s OSV audit, which runs on pushes that change a POM.
+
+Each run writes its record to `~/.cedar/local-ci/evidence/<repository>/<commit>.json`. The record
+names the commit and its tree, every other commit the jobs checked out, the toolchain, the
+fingerprint of the registry entry it ran under, and each job's steps, outcome and log digest. A
+record answers only under the registry entry it was made under, so a change to that entry needs a
+fresh run. The run also posts a commit status, `cedar/local-ci`, which a pull request shows and a
+gate on another machine reads in place of the record.
+
+A gate that reads GitHub no longer takes GitHub's own failures for the code's. A run that concluded
+`startup_failure`, or `failure` without any of its jobs failing, never ran the code. `check ci` and
+`release plan` report it as pending, with the command that reruns it. The release's development
+verification and the npm route rerun it themselves and wait.
+
+```bash
+cedarcli ci coverage                                    # which repositories local CI answers for
+cedarcli ci run cedar-core-library                      # one repository at origin/develop
+cedarcli ci run --all --jobs 3                          # every repository the registry names
+cedarcli ci run cedar-workspace --revision cedar-workspace=<commit>
+cedarcli ci status                                      # local CI's answer for each develop head
+```
+
 ### Snapshot Freshness
 
 A merge to `develop` publishes that repository's snapshot to Nexus, and downstream CI and Docker

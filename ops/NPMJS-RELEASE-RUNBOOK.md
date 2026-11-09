@@ -158,8 +158,11 @@ On `develop`, the route prepares and gates the release:
 Through the pull request, the route waits for GitHub to test the commit:
 
 5. **pull-request** opens a pull request from `develop` to `main`.
-6. **checks** waits until every workflow run on the preparation commit, for the push and for the
-   pull request, has finished green, and every check the pull request reports has passed.
+6. **checks** runs the repository's CI here on the preparation commit, through `cedarcli ci run`,
+   when [local CI](BACKEND-RUNBOOK.md#local-ci) covers the repository, and posts the
+   `cedar/local-ci` status. Where it does not, the stage waits until every workflow run on the
+   commit, for the push and for the pull request, has finished green, and every check the pull
+   request reports has passed. A run GitHub failed to start is rerun rather than taken for red.
 7. **merge** merges with a merge commit, refusing if the pull request's head has moved, and proves
    that `origin/main` is that merge commit and holds the gated tree.
 
@@ -188,9 +191,10 @@ Back on `develop`, the route returns the repository to development:
     for the model, restores the scoped Nexus name. CEE, CED and CETP return to the development
     model each pinned before the release. The route then runs the package's own check, commits
     `Advance CEE to the next development version` and pushes.
-14. **development-checks** waits for every workflow run on the advance commit to finish green. For
-    the model and CEE, that run publishes the development package to Nexus. CED's and CETP's CI
-    publishes nothing.
+14. **development-checks** answers for the advance commit the same way: local CI where it covers
+    the repository, otherwise every workflow run on the commit finished green. GitHub's run on that
+    commit publishes the model's and CEE's development packages to Nexus, so when local CI answers,
+    those packages appear only once GitHub's run finishes. CED's and CETP's CI publishes nothing.
 
 The version committed in **develop** names the merge commit below it rather than the advance
 commit, which does not exist while `npm version` runs. Whatever publishes the development package
@@ -240,6 +244,12 @@ stage's command output are under `~/.cedar/npm-releases`, or the directory
 
 `resume --dev-model-version <version>` names the development model CEE returns to, when Nexus has
 deleted the one it pinned before the release.
+
+A run carries its packages one after another, and an earlier package can wait hours for CI. A later
+package's `develop` may move meanwhile, and its prepare stage then refuses a head the plan never
+checked. `resume --rebase` runs the preflight again for every package the run has not started and
+takes `develop`'s present head as its base. With `--notes <package>=<file>` it also replaces that
+package's notes, for instance to fold in an entry the new commits added under `## [Unreleased]`.
 
 `cedarcli release npm abandon --reason "<why>"` closes a run before any package has merged to `main`.
 It lists what the run already pushed: a preparation commit on `develop` to revert and a pull request

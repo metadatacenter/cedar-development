@@ -117,8 +117,9 @@ The plan settles four groups of question:
   prints a `Toolchain:` line for each substitution. When it finds neither, the plan names the export
   to run.
 - **The source is ready.** Every participating repository—including the independent repositories
-  whose public package wiring the release integrates—is clean and pushed, and the CI run for the
-  exact commit the train was built from is green wherever that commit defines a workflow. A
+  whose public package wiring the release integrates—is clean and pushed, and CI at the exact
+  commit the train was built from is green wherever that commit defines a workflow: a green GitHub
+  run, or a passing [local CI](BACKEND-RUNBOOK.md#local-ci) run of the same commit. A
   whole-stack smoke run recorded by `cedarcli test e2e` against exactly the train's source commits
   has passed every tier. The immutable source also contains every declared wrapper, manifest, lock,
   build, preserve, version, and Docker stamp input before a long build is allowed to start. Every
