@@ -5512,9 +5512,11 @@ a Markdown hierarchy or an abbreviated checklist does not satisfy this request.
 CEE/CEF and CED import `TextPolicy`, `IdentifierPolicy` and display helpers from the main
 model package they already use, so a second policy bundle is not included. CETP imports the
 lightweight `cedar-model-typescript-library/policy` entry. The legacy template editor copies
-`policy.umd.js` from its pinned dependency with `gulp copy:policy` and exposes it as the AMD
-module `CedarValidationPolicy`; its older full model bundle remains a separate consumer.
-The reactor inventories all of these model consumers in `ops/frontend-train.json`.
+`policy.umd.js` and the full `index.umd.js` bundle from its pinned dependency with
+`gulp copy:model`. It exposes them as the AMD modules `CedarValidationPolicy` and
+`CedarModelTypescriptLibrary`, and loads the full bundle only when an author opens or copies a
+YAML representation. The reactor inventories all of these model consumers in
+`ops/frontend-train.json`.
 
 The position-specific rules and corpus update procedure are in the backend runbook's
 “Shared text and identifier contract”. Keep display grapheme counts separate from JSON Schema
