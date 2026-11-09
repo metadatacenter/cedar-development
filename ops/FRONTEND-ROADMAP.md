@@ -169,28 +169,9 @@ tool's schema rebuild drops the bridge's uniqueness constraint on DOI records wi
 so teach it the constraint or restart the bridge after every rebuild. The verified recovery
 procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-doi-attachment).
 
-<a id="save-recovery"></a>
-
-### 4. Recover Failed Saves Without Losing Work in Designer and Editor
-
-Complete the recovery routes that still cannot resume saving or create a permitted copy:
-
-Follow the product-design checkpoints in [AGENTS.md](../AGENTS.md#preserve-the-agreed-product-design).
-Reliability work does not authorize new permanent controls: recovery actions must be conditional
-on an actual failure or retained unfinished work, and new UI requires agreement before implementation.
-
-- **Permitted copies:** recover retained work to another folder when the original artifact is
-  inaccessible or deleted, checking destination permissions without silently recreating the
-  original or mistaking a permission refusal for deletion.
-
-Keep status checks, access checks and explicit discard distinct. Preserve draft retention and
-stale-save protection without adding version comparison or merging. A failed recovery read must
-preserve current input. See the [frontend runbook](FRONTEND-RUNBOOK.md) for the
-current draft-retention contract and operator verification commands.
-
 <a id="chrome-automation-authentication"></a>
 
-### 5. Restore Automated Staging Sign-In in Chrome
+### 4. Restore Automated Staging Sign-In in Chrome
 
 Resolve the **unfixed** staging sign-in failure when Browser Use controls Chrome navigation from
 the start. Workspace reports “Sign-in failed. Please reload.” Normal Chrome navigation followed
@@ -259,7 +240,7 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 ## Embeddable Editor and Model Library
 
-### 6. Whole-Component Runtime Theme Overrides
+### 5. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -268,7 +249,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 7. Authoring Feedback for Unsupported Markup
+### 6. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in CED's markup input. Configure the input to produce
 supported markup and warn when CEE's
@@ -283,7 +264,7 @@ data images.
 
 ## Frontend Dependencies
 
-### 8. Take the Frontend Dependency Upgrades That Need Code Changes
+### 7. Take the Frontend Dependency Upgrades That Need Code Changes
 
 No dependency below can move by a lock update alone. Some wait on an upstream release, some have
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
@@ -342,7 +323,7 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ## Accessibility
 
-### 9. Fix the Failures the WCAG 2.2 Conformance Report Records
+### 8. Fix the Failures the WCAG 2.2 Conformance Report Records
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
 picker and Workspace against the 55 success criteria of WCAG 2.2 at levels A and AA. Its failures
@@ -470,7 +451,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 9. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -484,7 +465,7 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 11. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 10. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
@@ -492,12 +473,13 @@ generation or validation defect: CED must produce valid artifacts, and server va
 remain strict. An injected server finding tests the fallback; it does not establish that ordinary
 editing produces invalid documents. Keep already-invalid imported artifacts a separate case.
 
-Consider preserving the working state through the shared [save-recovery workflow](#save-recovery)
-and offering a user-reviewed diagnostic download or bug report. Include the submitted document,
-server validation response, component/build versions and reproduction steps where available.
-Exclude credentials and let the user review artifact content before sharing it. Explain that the
-failure needs investigation without asking the author to repair internal JSON Schema structures
-or implying that a recovery draft has been saved as a valid artifact.
+Consider preserving the working state through the hosts' existing [draft
+retention](FRONTEND-RUNBOOK.md#ced-in-the-split-designer-host) and offering a user-reviewed
+diagnostic download or bug report. Include the submitted document, server validation response,
+component/build versions and reproduction steps where available. Exclude credentials and let the
+user review artifact content before sharing it. Explain that the failure needs investigation without
+asking the author to repair internal JSON Schema structures or implying that a recovery draft has
+been saved as a valid artifact.
 
 Use a real reproducible case to decide whether this facility is needed and how much to build.
 Agree its interaction before implementation; this proposal does not authorize a permanent
@@ -507,7 +489,7 @@ that the fallback preserves work while the rejected write remains blocked.
 
 ## Modern Frontend Performance Gates
 
-### 12. Calibrate Browser Performance Gates
+### 11. Calibrate Browser Performance Gates
 
 - Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
   cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
