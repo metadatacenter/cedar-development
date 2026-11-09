@@ -359,21 +359,13 @@ change as the fix. Remove each piece when its work is done, and the item once it
     toggle's centre. Either the toggle or the header needs 24px.
   - In the term picker, the tree's 16px twists, its terms, 14px tall on a 16px pitch, the release
     count that opens a row's history, and the history's 22px release buttons are under the minimum.
-- **Keyboard routes (2.1.1, 2.5.7).** Some actions and information are reached only by a pointer,
-  and one keyboard route does not follow the pattern its roles set.
+- **Keyboard routes (2.1.1, 2.5.7).** Some actions and information are reached only by a pointer.
   - While CEE's validation is still running, Workspace's metadata editor shows Save as enabled, but
     Save ignores clicks and explains itself only in a hover tooltip. Marking it `aria-disabled`, as
     Save is when errors refuse it, would dim it, which is a visible change.
   - An element's description and property IRI marks in CEE sit inside its panel header, which is a
     button, so they cannot take focus, and only a pointer shows their tooltips. Either the marks move
     out of the header or the header shows the tooltip when it takes focus. Both are visible changes.
-  - The term picker's result scopes, which are Terms, Branches, Ontologies and Value sets when an
-    author chooses a constraint, form a `tablist` of `tab` buttons. Each button is its own Tab stop,
-    no arrow key moves between them, and nothing carries the `tabpanel` role. Follow the ARIA tabs
-    pattern: the current tab is the only Tab stop, the arrow keys and Home and End move between
-    tabs, and the result list is labelled as the current tab's panel. Showing a tab can fetch more
-    results, so decide whether an arrow key shows its tab at once or only moves focus until Enter or
-    Space. Pin the order in the browser suite.
   - In CED, a click on an entry in the sidebar's field list opens the container that holds the
     field, selects it and scrolls to it. The Overview offers reordering by keyboard, but going
     straight to a field has no keyboard route. The entry, `.draggable-field-item` in

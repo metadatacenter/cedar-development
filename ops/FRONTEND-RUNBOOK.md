@@ -5262,8 +5262,9 @@ CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9
 eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were reassessed at CEE
 `d394026f` and Workspace `c6cb1227`. On 2026-11-09 the criteria a ninth round touched, 2.1.1 and
 2.5.7 in CED and 4.1.3 in Workspace, were reassessed at CED `46977b0` and Workspace `720bd319`.
-The assessment read code and tests. Nobody ran a
-screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
+Later that day the term picker's 2.1.1 and 4.1.2 were reassessed after a tenth round, at the term
+picker `20d1523`. The assessment read code and tests. Nobody ran a screen reader, and only the
+English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
 A criterion counts as met only when every part of it is evidenced. Three kinds of evidence count:
@@ -5328,8 +5329,10 @@ has covered its other irreversible actions. The failures stood at 18 after it. A
 CED's sidebar divider a keyboard route, and Workspace's metadata review panel was removed with
 metadata reconciliation. No status moved. CED's 2.1.1 still fails on the sidebar's field list and
 its narrow layouts, and its 2.5.7 on the moves that need a drag or the arrow keys. Workspace's 4.1.3
-stays Partial. The failures still stand at 18, and most of
-them need a visible change.
+stays Partial. A tenth round made the term picker's result tabs one Tab stop, moved between by the
+arrow keys and Home and End, and made the result list the shown tab's panel. No status moved there
+either. The term picker's 2.1.1 stays Partial, and its 4.1.2 still fails on its result rows. The
+failures still stand at 18, and most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
