@@ -94,9 +94,9 @@ A run names each package it releases as `<package>@<version>`, where the package
   require it, since each one's `CHANGELOG.md` takes the entry. For the model, which keeps no
   changelog, it is optional and supplies the GitHub release draft.
 
-A notes file holds bullet lines and nothing else. The route writes the heading, the date and, for
-CEE, CED and CETP, the sentence naming the model the package aligns with. CEE's 2.0.33 entry shows
-the result:
+A notes file holds bullet lines, which may be grouped under Keep a Changelog subsection headings
+such as `### Added`, and nothing else. The route writes the heading, the date and, for CEE, CED and
+CETP, the sentence naming the model the package aligns with. CEE's 2.0.33 entry shows the result:
 
 ```markdown
 ## [2.0.33] - 2026-11-07
