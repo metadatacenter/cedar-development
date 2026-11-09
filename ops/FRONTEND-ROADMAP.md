@@ -199,25 +199,51 @@ by attaching automation after initialization is a workaround, not a fix.
 
 The 2026-11-08 fresh-chat reproduction receives HTTP 200 for the public Keycloak
 `3p-cookies/step1.html` and `step2.html` child documents, then leaves them at `about:blank` after
-`Fetch.requestPaused`, without their load events or expected messages. Local controls finish;
+`Fetch.requestPaused`, without their load events or expected messages. Local controls finish.
 `Page.getFrameTree` is refused while Browser Use is resolving a paused document response. A
-same-origin staging child also stalls, so the failure is not specifically cross-origin. The
-identical probe finishes within 677 ms in the built-in browser, which also reaches staging's
-normal sign-in form; authenticated dashboard use there remains unverified. The Chrome extension
-path, browser version and profile state remain possible causes, not an established root cause.
+same-origin staging child also stalls, so the failure is not specifically cross-origin. Workspace's
+message follows from the stall. The stalled `step1.html` never posts its message, so keycloak-js
+rejects initialization after its default 10-second wait. The identical probe finishes within 677 ms
+in the built-in browser, which also reaches staging's normal sign-in form. Authenticated dashboard
+use there remains unverified.
 
-- **Obtain a supported diagnosis and repair.** Use the sanitized reproduction to trace response
-  interception through body retrieval, review and continuation, and distinguish the Chrome
-  extension path from browser/profile differences. A fresh chat, the explicit authentication-host
-  allowance and initializing the built-in browser do not resolve the Chrome stall. Do not repeat
-  speculative permission changes, bypass interception, disable cookie checks or weaken CEDAR
-  authentication. Submit the prepared vendor report only with the user's authorization.
-- **Recheck available Mac Chrome updates before retesting.** The installed `157.0.8103.39` matches
-  Google's [November 3 stable release](https://chromereleases.googleblog.com/2026/11/stable-channel-update-for-desktop.html).
-  No newer general Mac release was confirmed on 2026-11-08; the
-  [Chrome 158 early-release notice](https://chromereleases.googleblog.com/2026/11/early-stable-update-for-desktop.html)
-  names Windows and says Mac is coming shortly. Neither an available upgrade nor a fix for this
-  failure should be assumed. Coordinate any browser/app restart to preserve existing sessions.
+Chrome handles Browser Use's interception correctly. The installed Chrome 157.0.8103.39, headless
+with a clean profile, loads both frames and the same-origin child when a direct DevTools connection
+applies that interception: Document responses paused at the response stage and continued unchanged,
+with iframes auto-attached in flattened mode. The same interception sent through `chrome.debugger`
+by a test extension also loads every frame. That test ran in Chrome for Testing 156.0.8078.4,
+because branded Chrome no longer loads an unpacked extension from the command line.
+
+That leaves the ChatGPT extension. Version 1.26.1102.11740 is installed, and the Chrome Web Store
+serves nothing newer. The extension's document-response interceptor releases a paused response only
+after `Fetch.continueResponse` succeeds, and it discards any failure of that call without retrying
+or failing the request. One failed or hung continuation therefore leaves its frame at `about:blank`
+and keeps raw CDP refused for the tab, which matches the reproduction.
+
+Why the continuation fails is not established. Every recorded stall involves a response that
+arrives late or a frame that a later command inserted. Local frames load within about 45 ms, and the
+local stack's own Keycloak check within 65 ms, while staging frames, whose responses take about
+500 ms to arrive, stall. One mechanism in the extension fits. A command the extension sends while no tool call is
+active carries cached session details, and its background refuses those unless their turn is still
+the current one. Whether the late continuations fail that way has not been demonstrated, and profile
+state has not been tested.
+
+- **Obtain a repair from OpenAI.** Whatever makes the continuation fail, the extension's silent
+  discard of the failure makes the stall permanent, so the repair has to come from OpenAI. Submit
+  the vendor report and its 2026-11-09 addendum only with the user's authorization. A fresh chat,
+  the explicit authentication-host allowance and initializing the built-in browser do not resolve
+  the stall. Do not repeat speculative permission changes, bypass interception, disable cookie
+  checks or weaken CEDAR authentication.
+- **Settle what makes the continuation fail.** Under Browser Use in Chrome, load a local child frame
+  whose server waits about two seconds before answering, beside an immediate one. If the delayed
+  local frame also stalls, timing rather than the remote host triggers the failure. Then repeat the
+  probe in a fresh Chrome profile with the extension connected, which only the user can set up. Add
+  both results to the vendor report.
+- **Retest when a newer extension build arrives.** On 2026-11-09 the Web Store served nothing newer
+  than 1.26.1102.11740. The installed Chrome 157.0.8103.39 was the fully rolled-out Mac stable
+  release, and Chrome 158.0.8127.18 was serving 0.5% of Macs as an early stable release. Neither an
+  available upgrade nor a fix for this failure should be assumed. Coordinate any browser/app restart
+  to preserve existing sessions.
 - **Verify the repair in the original Chrome profile.** First require both remote frames to load
   and send their expected messages in the public probe, then require staging Workspace to
   initialize successfully in a new tab controlled by automation from the start. Preserve normal
@@ -226,9 +252,9 @@ path, browser version and profile state remain possible causes, not an establish
 
 Local evidence and the unsent escalation package are under
 `$CEDAR_HOME/.cedar/reports/signin-automation-20261108/fresh-chat/`: `support-report.txt`,
-`vendor-escalation.zip` and `probe/README.txt`. The probe needs no CEDAR bundles or credential
-entry. Keep cookies, tokens and unrelated session data out of any additional capture; stop its
-temporary server and close diagnostic tabs afterward.
+`addendum-20261109.txt`, `vendor-escalation.zip` and `probe/README.txt`. The probe needs no CEDAR
+bundles or credential entry. Keep cookies, tokens and unrelated session data out of any additional
+capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 <a id="cee"></a>
 
