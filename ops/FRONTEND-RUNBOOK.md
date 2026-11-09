@@ -1390,8 +1390,7 @@ Measured complete payloads for those same builds, in decimal kB:
 CEE's packaged limits are separate: standalone 2,400,000 raw / 660,000 gzip bytes and host-fonts
 2,280,000 / 560,000. Its Angular initial budget is 2.3 MB warning / 2.4 MB failure; OpenView's
 is 800 / 850 kB, and Bridging's is 900 / 930 kB. These limits must not be raised to accommodate
-unexplained growth. The Template Designer and legacy AMD application's request-aware page
-budgets and shared-runtime integration remain in the [roadmap](FRONTEND-ROADMAP.md#bundle-delivery).
+unexplained growth.
 
 To repeat the analysis, build isolated source copies with the normal production prerequisites
 and add `--stats-json` to their Angular build invocation. Angular 22 writes `browser-stats.json`;

@@ -1,9 +1,9 @@
 # CEDAR Frontend — Roadmap
 
-Open work for the Workspace, the Template Designer, the Template Editor, OpenView,
-Monitoring, Bridging, the embeddable editor (CEE/CEF), the embeddable designer (CED), and
-their TypeScript model library. This roadmap also owns browser workflows whose completion
-spans a frontend and its supporting service.
+Open work for the Workspace, the Template Designer, OpenView, Monitoring, Bridging, the
+embeddable editor (CEE/CEF), the embeddable designer (CED), and their TypeScript model library.
+This roadmap also owns browser workflows whose completion spans a frontend and its supporting
+service. The legacy Template Editor will be retired, so no item here plans work on it.
 
 See [FRONTEND-RUNBOOK.md](FRONTEND-RUNBOOK.md) for operating procedures and
 [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md) for backend work outside browser workflows.
@@ -50,9 +50,9 @@ Refer to the concrete change by name in commits.
   meaningful changes and local divergence, before adding controls.
 - **Existing reuse and retirement of bubbling.** Inventory older embedded drafts with
   shared stored identifiers and missing derivation. Agree an honest unknown-origin state
-  and a deliberate association workflow. Add a read-permission-filtered usage endpoint;
-  retire the legacy editor's bubbling UI and REST mutation/preview endpoints once the
-  replacement workflow and its existing-data path are usable.
+  and a deliberate association workflow. Add a read-permission-filtered usage endpoint.
+  Retire bubbling's REST mutation and preview endpoints once the replacement workflow and its
+  existing-data path are usable.
 - **Further journey gates.** Add a journey for cross-tab outcome retrieval once retrieval of
   confirmed but unattached results is defined. Once version histories list only readable
   releases, extend `version-source-access` to a readable release between the author's and an
@@ -69,11 +69,10 @@ should reuse a file that an earlier build served. Neither holds on staging or pr
 Staging and production serve OpenView, Monitoring and Bridging with no `Cache-Control` header. A
 browser then judges from a file's age how long its copy stays fresh, and can reuse an un-hashed
 file for weeks without asking the server. OpenView's folder page showed raw translation keys for
-this reason, because browsers held the June 2024 `en.json`. Production's Workspace, Designer and
-Template Editor already answer their entry pages, deep links and `/config/` with `no-store`, but
-their other stable-name files are uneven. The Template Editor's stylesheets revalidate, while the
-Designer's scripts and every origin's `favicon.ico` carry no header, and so does the Template
-Editor's `/config/build-info.json`.
+this reason, because browsers held the June 2024 `en.json`. Production's Workspace and Designer
+already answer their entry pages, deep links and `/config/` with `no-store`, but their other
+stable-name files are uneven. The Designer's scripts and every origin's `favicon.ico` carry no
+header.
 
 The canonical policy is in the `os-mirror` vhosts, with
 `staging-centos/etc/nginx/sites-enabled/frontend-openview.inc.conf` as the model. Until 2026-10-07
@@ -82,16 +81,16 @@ no vhost for Workspace or the Designer yet; add both.
 
 `CEDAR_VERSION_MODIFIER` exists to tell apart two builds of one source commit, and no cached file
 needs it. Every file whose bytes depend on the deployment is written under `app/config/` and served
-from `/config/` with `no-store`, and the Template Editor's and Workspace's cache keys already contain
-the source commit. Production still sets one. Release 2.9.29 carries `-2026-10-03-1`, the
-modifier chosen for 2.9.23. Once every stable-name
-file revalidates, remove it from Workspace's build tooling, the Template Editor's Gulp build, the
-Designer's host script, the native build-info writer, the three Docker build entrypoints, the
-microservices Compose file, the config library's environment descriptor and `CedarBuildInfo`,
-Monitoring's deploy matrix, every repository's CI environment block, and the production runbook's
-step that chooses a modifier. Workspace's Settings page loses its "Version modifier" row with it,
-as agreed on 2026-10-07. Operators read a build's source commit from `/config/build-info.json` and
-from Monitoring's deploy matrix.
+from `/config/` with `no-store`, and Workspace's cache keys already contain the source commit.
+Production still sets one. Release 2.9.29 carries `-2026-10-03-1`, the modifier chosen for 2.9.23.
+Once every stable-name file revalidates, remove it from Workspace's build tooling, the Designer's
+host script, the native build-info writer, the three Docker build entrypoints, the microservices
+Compose file, the config library's environment descriptor and `CedarBuildInfo`, Monitoring's deploy
+matrix, every repository's CI environment block, and the production runbook's step that chooses a
+modifier. Workspace's Settings page loses its "Version modifier" row with it, as agreed on
+2026-10-07. The legacy Template Editor's build refuses to start without the variable, so the
+variable can leave the deployment only after that editor is retired. Operators read a build's source
+commit from `/config/build-info.json` and from Monitoring's deploy matrix.
 
 Apply the policy on staging (`cedr-stg-app-07`) first, then on production (`cedr-prd-app-05`), to
 each frontend vhost, as root:
@@ -271,8 +270,8 @@ documenting the properties as supported.
 
 ### 7. Authoring Feedback for Unsupported Markup
 
-Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
-CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
+Expose CEE's rendering policy to authors in CED's markup input. Configure the input to produce
+supported markup and warn when CEE's
 sanitization would remove content. Verify the authoring-to-CEE round trip for both supported
 formatting and rejected markup.
 
@@ -506,39 +505,9 @@ diagnostic or recovery button, banner or file picker on ordinary editing screens
 Any confirmed defect should lead to a generation or validation fix and a regression test; verify
 that the fallback preserves work while the rejected write remains blocked.
 
-## Legacy Workbench
-
-### 12. Retire the caDSR Form Import Interface and Tutorial
-
-Remove the legacy Workbench's New → Import entry, XML upload dialog, progress/report polling,
-`import.service.js`, caDSR URL builders and the `ng-flow` dependency. They still call the retired
-`/command/import-cadsr-forms` and `/command/import-cadsr-forms-status` endpoints, so the next major
-release must not offer that workflow. Remove its dedicated styles and translations after checking
-for other callers. Verify the ordinary New menu and JSON/YAML downloads still work.
-
-Update `cedar-mkdocs/docs/user-guide/cedar-for-cadsr.md` and its screenshot/navigation references so
-users are no longer instructed to export Form Builder XML and upload it to CEDAR. Keep guidance
-about existing caDSR-derived content and the separate CDE/category updater. The standalone form
-translator in `cedar-cadsr-tools` needs a separate retirement decision.
-
-<a id="bundle-delivery"></a>
-
-## Bundle Delivery
-
-### 13. Reduce and Budget the Legacy Editor's Payload
-
-- **Reduce repeated model downloads in the legacy Template Editor.** Measure how the AngularJS
-  application and its embedded CEE can share model code while preserving independent embedding,
-  authoring and instance editing. Prove normal loading and failure paths in browser journeys.
-- **Budget the legacy application's RequireJS request graph.** Distinguish initial from deferred
-  transfers and enforce raw and compressed JavaScript/CSS limits. Trace real requests so
-  copied-but-unused vendor files are not mistaken for downloads. Ensure new AMD dependencies
-  cannot bypass the gate.
-
-
 ## Modern Frontend Performance Gates
 
-### 14. Calibrate Browser Performance Gates
+### 12. Calibrate Browser Performance Gates
 
 - Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
   cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
