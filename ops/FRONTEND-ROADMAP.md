@@ -341,9 +341,6 @@ change as the fix. Remove each piece when its work is done, and the item once it
     nobody can see, as it already did when a keyboard press on one opened the palette. Decide where
     focus goes, or whether a focused action stays shown.
 - **Messages announced and kept long enough to read (4.1.3, 2.2.1).**
-  - Workspace's metadata editor inserts its review panel, a live region, together with its
-    explanation and comparison table, so a screen reader may not announce it. Decide what the panel
-    should announce before giving it a region that is present first.
   - A Workspace notice identical to the one before it shows and says nothing, because the notice is
     never cleared. Fixing that is a visible change.
 - **Lasting names in the right language (3.3.2, 3.1.2).**

@@ -5540,8 +5540,8 @@ were retained. This evidence covers text-policy adoption, not later parser or nu
 ### Exact values and bounded validation in browser hosts
 
 Workspace, the authenticated designer host, OpenView and Bridging use the lightweight policy entry
-at their artifact HTTP boundaries. Workspace and the designer host also use it for saved drafts,
-reconciliation and uncertain-save comparisons; an exact numeric atom is a scalar during comparison.
+at their artifact HTTP boundaries. Workspace and the designer host also use it for saved drafts and
+uncertain-save comparisons; an exact numeric atom is a scalar during comparison.
 OpenView preserves it when cloning artifact previews. The designer host stages the pinned ESM policy
 with a separate version/hash manifest in `app/components`; the legacy editor stages the UMD policy.
 All direct consumers are recorded in `ops/frontend-train.json`, so the reactor supplies current model
