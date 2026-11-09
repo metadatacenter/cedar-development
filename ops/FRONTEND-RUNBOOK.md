@@ -5263,8 +5263,8 @@ eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were
 `d394026f` and Workspace `c6cb1227`. On 2026-11-09 the criteria a ninth round touched, 2.1.1 and
 2.5.7 in CED and 4.1.3 in Workspace, were reassessed at CED `46977b0` and Workspace `720bd319`.
 Later that day the term picker's 2.1.1 and 4.1.2 were reassessed after a tenth round, at the term
-picker `20d1523`, and CED's 2.4.3 and 2.4.7 after an eleventh, at CED `c9f410d`. The assessment
-read code and tests. Nobody ran a screen reader, and only the
+picker `20d1523`, CED's 2.4.3 and 2.4.7 after an eleventh, at CED `c9f410d`, and CEE's 3.1.2 after a twelfth, at
+CEE `63d13ee2`. The assessment read code and tests. Nobody ran a screen reader, and only the
 English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -5294,7 +5294,7 @@ criteria do not apply.
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
 | CED | 22 | 11 | 6 | 0 | 16 | 22 of 39, 56% |
-| CEE | 25 | 12 | 4 | 6 | 8 | 25 of 47, 53% |
+| CEE | 26 | 11 | 4 | 6 | 8 | 26 of 47, 55% |
 | Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
 | Workspace | 30 | 15 | 2 | 0 | 8 | 30 of 47, 64% |
 
@@ -5335,8 +5335,11 @@ arrow keys and Home and End, and made the result list the shown tab's panel. No 
 either. The term picker's 2.1.1 stays Partial, and its 4.1.2 still fails on its result rows. An eleventh
 round stopped CED leaving focus on insertion actions nobody could see. An Escape that hides them now
 moves focus to the card below, and an action used from the keyboard keeps them shown. That moved CED's
-2.4.7 from Fails to Partial, and its 2.4.3 stays Partial. The failures now stand at 17, and most of
-them need a visible change.
+2.4.7 from Fails to Partial, and its 2.4.3 stays Partial. The failures stood at 17 after it. A
+twelfth round named each of CEE's boxes, and the group a read-only term is drawn as, from a hidden
+element that marks the field's label with the template's language, so the box keeps its value's
+language and the label is read in the template's. That moved CEE's 3.1.2 from Partial to Met. The
+failures still stand at 17, and most of them need a visible change.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -5415,7 +5418,7 @@ that touches it, and update the assessment date and commits with it.
 | 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
 | 2.5.8 Target Size (Minimum) | AA | Fails | Met | Fails | Met |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
-| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Met |
+| 3.1.2 Language of Parts | AA | Partial | Met | Met | Met |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |
 | 3.2.2 On Input | A | Met | Met | Met | Met |
 | 3.2.3 Consistent Navigation | AA | Host | Host | Host | Met |

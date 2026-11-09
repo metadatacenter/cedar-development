@@ -339,14 +339,9 @@ change as the fix. Remove each piece when its work is done, and the item once it
 - **Messages announced and kept long enough to read (4.1.3, 2.2.1).**
   - A Workspace notice identical to the one before it shows and says nothing, because the notice is
     never cleared. Fixing that is a visible change.
-- **Lasting names in the right language (3.3.2, 3.1.2).**
-  - CED's field-name and option boxes and its library search are labelled only by placeholders,
-    which disappear once the box holds text. Labels that stay are a visible change.
-  - CEE's text, email, phone, link, numeric, controlled-term and authority boxes, and its read-only
-    temporal and select boxes, take the field's label as their `aria-label`, so the label is read in
-    the value's language or CEE's. The term link group's name has the same fault. Naming each from a hidden label marked with the
-    template's language, as the editable temporal boxes are, changes nothing visible. Decide first
-    whether that fits the rule that a box carries its value's language and never the template's.
+- **Labels that stay (3.3.2).** CED's field-name and option boxes and its library search are
+  labelled only by placeholders, which disappear once the box holds text. Labels that stay are a
+  visible change.
 - **Targets of at least 24px (2.5.8).** Growing a target changes the layout around it, so each
   piece is a visible change. Each is recorded as an exception in its component's
   `accessibility.spec.ts`.
