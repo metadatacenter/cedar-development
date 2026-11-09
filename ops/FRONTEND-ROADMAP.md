@@ -385,11 +385,9 @@ change as the fix. Remove each piece when its work is done, and the item once it
     where focus lands in `focus-return.spec.ts`. The entry's line disables two of the template
     accessibility lint rules, so remove that exception in the same change.
   - Reordering in CED, on the canvas, in the Overview, in the child picker and in the sidebar, and
-    resizing the Overview, all need a drag or the arrow keys. WCAG 2.2 asks for a route that needs
-    only single clicks, such as Move up and Move down buttons, which is new UI to agree first. The
-    divider between the sidebar's field list and the panel below needs a drag alone, with no
-    keyboard route and no `separator` role. The Overview's resize separator is the pattern to
-    follow.
+    resizing the Overview and the sidebar's field list, all need a drag or the arrow keys. WCAG 2.2
+    asks for a route that needs only single clicks, such as Move up and Move down buttons, which is
+    new UI to agree first.
 - **Layout under reflow, zoom and text spacing (1.4.4, 1.4.10, 1.4.12).** Each component's layout
   check finds content cut short, scrolled sideways or drawn over other content at 320 CSS pixels, at
   200% zoom or under WCAG's text spacing. Each finding is recorded in its component's
