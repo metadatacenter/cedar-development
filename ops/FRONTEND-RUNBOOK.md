@@ -1875,6 +1875,15 @@ the separately pinned shipping composition.
 
 #### Reading reactor evidence
 
+`cedarcli check design-tokens --runtime --strict` combines source adoption with a
+read-only comparison of token sources and consumers against the selected reactor.
+It verifies the build-record digest, selected artifact hashes, dependency edges and
+current source fingerprints, including uncommitted inputs. `--json` includes a
+separate `runtime` result; `--repo` narrows consumers while still checking tokens.
+Missing, corrupt or stale evidence fails with `--strict`. It does not contact a
+deployment or replace the build's served-byte verification and smoke. Source-only
+CI omits `--runtime`; the flag cannot be combined with baseline/helper writes.
+
 `.reactor/runtime.json` names the selected package hashes and its `build` record under
 `.reactor/builds/<SHA256>.json`. That immutable record contains each built source's Git revision,
 fingerprint of tracked and nonignored source files (including uncommitted changes), executed
@@ -5307,8 +5316,12 @@ CETP 3, Workspace 13, OpenView 5, Monitoring 14 and Bridging 1; the Template
 Designer host and MCP session page have none. These retain approved component
 sizes, layout/brand/chart geometry, local stacking and CED's runtime-resized
 sections. They must not borrow unrelated roles simply to reduce the count.
-The seven rendered-color allowances identify approved host-derived or opt-in
-Monitoring colors. The global vocabulary remains 54 CSS tokens.
+The formerly seven rendered-color allowances are selector-scoped recipe contracts:
+CETP's host-derived tints and Monitoring's opt-in categories and copy feedback are
+compared with their owning Sass recipes, including host overrides. An unrelated
+element cannot reuse their allowance, and an unexercised selector fails. Remaining
+literal rendered allowances fail when no longer exercised by the fixture. The
+global vocabulary remains 54 CSS tokens.
 
 The first appearance-preserving cleanup reduced source allowances from 103 to 81. It
 uses focus recipes for focused segmented controls, a dashed variant of the selection
