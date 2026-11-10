@@ -484,9 +484,9 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **CEE text rhythm and adapter details.** Its 22px clock lines, 20px expansion-panel
-  lines, 26px occurrence chips and paginator geometry differ from the ordinary shared roles.
-  Substituting 21/18px lines or 28px rows changes presentation. Preserve these values until
+- **CEE expansion-panel text and adapter details.** Its 20px expansion-panel lines,
+  26px occurrence chips and paginator geometry differ from the ordinary shared roles.
+  Substituting a 21px body line or 28px rows changes presentation. Preserve these values until
   their individual design decisions; Material inputs belong in CEE's adapter, not in the
   framework-neutral token package.
 - **CETP actions and text rhythm.** Decide whether the constraint action's 22px height should

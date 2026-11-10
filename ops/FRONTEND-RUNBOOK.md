@@ -5374,6 +5374,23 @@ overrides, focus and invalid states at desktop and narrow widths. No screenshot
 baseline was changed. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-comfortable-outline/`.
 
+#### Clock text contract (2026-11-10)
+
+CEE and CEF clock digits and colons use the shared 21px body line in comfortable
+and default density, and the 18px authoring line in authoring density. Compact and
+authoring colons follow the same `--cedar-control-line-height` host override as the
+digits. The control boxes remain 48px, 36px and 32px respectively; clock widths,
+font sizes, AM/PM action sizes, precision and formatting are unchanged.
+
+The two local 22px line-height occurrences are removed from the baseline: CEE has
+22 source allowances and the estate has 78. Build, lint, type checking and strict
+adoption passed. The full browser/visual run passed 1,618 checks and reported two
+expected screenshot differences confined to clock colons, with 104 existing skips.
+The desktop and narrow nested-form images were reviewed and refreshed, then both
+checks passed again without updating snapshots. The added CEE/CEF cases cover all
+three densities, empty and populated clocks, AM/PM sizes and inherited overrides.
+Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-clock/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
