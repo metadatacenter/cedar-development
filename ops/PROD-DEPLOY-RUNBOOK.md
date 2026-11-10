@@ -164,6 +164,20 @@ SHOW SETTINGS YIELD name, value WHERE name = 'db.lock.acquisition.timeout' RETUR
 [When a Graph Write Waits for a Lock](BACKEND-RUNBOOK.md#when-a-graph-write-waits-for-a-lock)
 describes what a blocked write does once the limit is in force.
 
+### OpenSearch Request Statistics
+
+OpenSearch 2.19.1 logs two stack traces for every point in time a deep search opens, because its
+request statistics have no phase for creating one. Nothing in CEDAR reads those statistics. Switch
+them off once on each host. The setting is stored in the cluster state and needs no restart:
+
+```bash
+curl -s -XPUT "http://localhost:9200/_cluster/settings" -H 'Content-Type: application/json' \
+  -d '{"persistent":{"search.request_stats_enabled":false}}'
+```
+
+Confirm that the OpenSearch log no longer gains lines naming `SearchPhaseName.CREATE_PIT` after a
+deep search.
+
 ### A · Connect
 ```bash
 ssh youruser@<prod-app-host>

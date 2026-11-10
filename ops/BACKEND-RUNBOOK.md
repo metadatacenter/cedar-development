@@ -311,7 +311,9 @@ and a recopy in its own checkout rather than a restart:
 The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
 verified CEDAR process listening without this controller's pidfile — for example, one started in a
 terminal. `stop` may safely adopt that verified process, so `restart` brings it onto the current
-build. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
+build. On macOS launchd starts a submitted job again when it exits, under a new PID. The controller
+follows the process launchd is running for its own job, so a service whose first attempts failed is
+still shown as its own. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
 recognized through its running container because its application port is intentionally private to
 `cedarnet`, and its PORT column reads `internal`. These labels do not claim that a container is
 healthy: use `cedarcli docker status`, as the table footer says. `!pid` is reserved for a genuinely
@@ -853,18 +855,21 @@ Measured on the workstation on 2026-11-10, with another transaction holding the 
 | 45 s | Statement through `cypher-shell` | Succeeded after 44 s, on its retry |
 | 100 s | Statement through `cypher-shell` | Failed after 61 s, after one retry |
 | 45 s | Template save through nginx | 500 after 44 s, with the document put back and the write without effect |
-| 100 s | Template save through nginx | 504 from nginx after 60 s, and the request ended on the server a second later |
+| 100 s | Template save through nginx | 500 after 90 s |
 
 The save behind the 45-second hold failed on the restore relay's deadline and not on the limit.
 The relay puts a document back when its graph update has not committed after thirty seconds, as
 [When a Graph Update Does Not Commit](#when-a-graph-update-does-not-commit) describes. After each
 hold the next save succeeded and the artifact held that save's content. The limit changes one
-thing: a request thread waiting on a lock ends after about a minute, where it used to wait for as
-long as the lock was held.
+thing: a request thread waiting on a lock ends within a minute and a half, where it used to wait
+for as long as the lock was held.
 
-The 504 is the workstation's. Its nginx runs with the default 60-second read timeout, where the
-Docker image's configuration sets 180 seconds, so behind that configuration the client receives
-the server's own error about a second later.
+The save behind the 100-second hold was first measured behind the workstation's nginx as it then
+was, and got nginx's 504 at 60 seconds. That nginx lacked the three timeouts the Docker image's
+configuration carries. The workstation's `config-cedar-global.inc.conf` has had
+`proxy_connect_timeout 10s`, `proxy_read_timeout 180s` and `proxy_send_timeout 180s` since, and
+the table's figure is from after that change. No command installs that file, so a new workstation
+copies the three lines from `cedar-docker-build/cedar-infra-nginx/config/config-cedar-global.inc.conf`.
 
 Whether the limit would have ended the wait seen during the 2026-11-10 soak is not established.
 That transaction was in the wait loop that checks the limit. Terminating it did not end it, and the
@@ -4473,7 +4478,8 @@ September's 816 to 857 ms, at 15% more requests.
 Twenty-five of the soak's 38 timed routes have a lower p95 than in September. Folder listings fell
 from 485 ms to 219 ms and moves from 309 ms to 214 ms. The group routes rose from 52–108 ms to
 147–200 ms, and no route's p95 is below 147 ms at this load. The cause of that floor is not
-established. The OpenView toggle stays above September's at any load, because since 2026-10-01 it
+established. It did not recur after the stack was restarted. In the next morning's soak the routes
+other than conditional updates had a p95 of 44 to 262 ms, and the group routes 44 to 93 ms. The OpenView toggle stays above September's at any load, because since 2026-10-01 it
 reindexes the artifact before it answers: its p95 is 837 ms in the soak against 176 ms, and 180 ms
 in the quick profile against 31 ms. The burst profile's peak-phase update p95 is 193 to 229 ms,
 below September's 222 to 276 ms.
@@ -4497,6 +4503,29 @@ gives the cause and the fix.
 The app-log consumer drained 186 messages a second before it was batched and about 1,460 after.
 At 402,295 requests the soak enqueued about 120,000 a minute, 3.6 million over the run. The
 rate was not measured again at 708,425.
+
+**OpenSearch logged two stack traces for every point in time.** A deep search opens a point in
+time, and OpenSearch 2.19.1 keeps request statistics by search phase with no phase for creating
+one. Its statistics listener therefore fails at the start and at the end of each, with
+`No enum constant org.opensearch.action.search.SearchPhaseName.CREATE_PIT`, and logs the trace at
+WARN. The finding profile took the workstation's OpenSearch log to 2.9 GB overnight. The statistics
+are on by default, and nothing in CEDAR reads them. `search.request_stats_enabled=false` stops the
+failure, and one point in time then logs nothing. The workstation carries it as a persistent
+cluster setting, and the Docker stack sets it in the OpenSearch service's environment. The
+[production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) has the command for a
+native host.
+
+**The contention profile's medians are not comparable between runs.** It stages a race for one
+winner in 35 seconds and about 1,500 requests, so where a route's median falls depends on the
+schedule. Across five runs that night the group-record update had a median of 140, 40, 42, 36 and
+1,198 ms on builds that differ in nothing that route uses. Its thresholds are on the p95, which
+held in every run.
+
+**Neo4j replans constantly on a graph this small.** Its log held 46,743 "Discarded stale query"
+lines after the night. Each names a statistic that moved past the divergence threshold, such as an
+index selectivity going from 0.0020 to 0.0041. A profile creates and deletes thousands of
+artifacts in a graph of 143, so every count doubles and halves within minutes. On a graph of
+production size the same writes move the statistics by less than a percent.
 
 During the soak on the first fixed build, one save waited on the lifecycle lock inside Neo4j for
 24 minutes with no other transaction open, and its request never returned. Terminating the

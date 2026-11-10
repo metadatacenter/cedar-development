@@ -974,6 +974,7 @@ Retain these August 2026 experiments when evaluating another optimization:
 | Select tokens by FTS5 vocabulary counts | Across 300 labels from six ontologies, tested thresholds matched the shipped rule at best and made 29–39 queries over 50% slower. Doclist size alone did not predict intersection cost. |
 | Bound rows before grouping | The earlier slower verdict is invalid: one comparison used incorrectly bound parameters. Remeasure before drawing a conclusion. |
 | Use FTS5 relevance ordering | 2–3 times faster, but led `disease` with `disease-disease association` and `acid` with `acidipropionibacterium`. |
+| Memory-mapped reads and a larger page cache | On 2026-11-10, over 16 statements on connections of their own against a warm file, `mmap_size` of 16 GB took 4% off a first run and 7% off its repeat. With a 256 MB page cache as well it took 7% and 10%. Not adopted for a gain that small: SQLite cannot catch an I/O error on a mapped file, which reaches the process as a signal. |
 | Fill from prefix labels first | `cell` fell from 5,609 to 148 ms and `acid` from 850 to 28 ms for the same 25 labels. Withdrawn on 2026-08-26 because switching to full ranking on later pages duplicated four `leukaemia` labels. |
 
 The prefix experiment requires consistent ordering across pages. Computing the shortest-matching-name
