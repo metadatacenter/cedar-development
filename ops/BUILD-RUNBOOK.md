@@ -203,7 +203,6 @@ Maven in the dependency order already encoded by the CEDAR reactors:
 2. `cedar-libraries` and its declared library modules
 3. `cedar-project`, which contains the shared microservice libraries, tools, and services
 4. `cedar-clients`
-5. `cedar-model-library-roundtrip`
 
 Maven schedules modules within each phase with two threads by default (`build_train.py build
 --threads 1` is the serial diagnostic path, maximum eight). The parent/library/service

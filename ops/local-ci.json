@@ -237,13 +237,6 @@
         }
       }
     },
-    "cedar-model-library-roundtrip": {
-      "jobs": {
-        "ci.yml:test": {
-          "profile": "maven"
-        }
-      }
-    },
     "cedar-model-typescript-library": {
       "jobs": {
         "test.yml:test": {},
