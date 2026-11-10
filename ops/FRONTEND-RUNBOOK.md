@@ -5357,6 +5357,23 @@ the before/after compiled stylesheets and verification logs. `remaining-debt.jso
 gives every remaining declaration its location and disposition. Only resolved
 source allowances were pruned; no rendered allowance or screenshot was refreshed.
 
+#### Comfortable-control contract (2026-11-10)
+
+CEE and CEF retain the optional 48px comfortable profile. Its Material fields use
+the shared resting control outline, `control-border-default`, with the existing
+`--cedar-control-border` host override. Hover, focus and validation colors retain
+their independent Material states. The 36px default and 32px authoring profiles
+are unchanged. The comfortable height is an intentional control-profile value;
+it does not authorize reusing a control role for headers or paginators.
+
+The approved outline change removes the black-outline allowance: CEE has 24 source
+allowances and the estate has 80. Build, lint, type checking and strict token adoption
+passed. The containerized browser/visual suite passed 1,608 checks with 104 existing
+skips, including empty and populated comfortable CEE/CEF controls, inherited border
+overrides, focus and invalid states at desktop and narrow widths. No screenshot
+baseline was changed. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cee-comfortable-outline/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
