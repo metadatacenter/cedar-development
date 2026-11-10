@@ -484,19 +484,19 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **Selection treatments.** CETP derives its selection tint from 12% of the host primary color
-  over white; Workspace's drag-selection rectangle uses 13% over transparency. They serve
-  different interactions and differ from the fixed shared selection surface. Decide whether
-  either should change or receive an explicitly named reusable recipe. Preserve host palette
-  behavior; do not merge them by numerical similarity. CETP also uses its tint for search-match
-  marks and the property release panel; keep those semantic roles separate from selection
-  when deciding which uses belong in a shared recipe.
-- **Monitoring categories and emphasis.** Its purple category/secret colors and dark copy toast
-  are retained by existing policy. Removing their allowances needs a decision to keep them as
-  distinct semantic roles or change their appearance. Do not map categories to warning/error
-  colors, a dark toast to the primary-action role, or absent/empty rows to disabled-control
-  opacity. The 0.55/0.6/0.75 emphasis and 1.3/1.45 line heights likewise need review before
-  normalization. Review fresh, ordinary, empty and populated screens separately.
+- **Workspace drag-selection tint.** The drag rectangle uses 13% of its color over transparency.
+  Decide whether it should change or receive a dedicated drag-selection recipe. Its translucent
+  overlay and interaction differ from opaque selected surfaces; preserve that distinction.
+- **Monitoring category and secret colors.** Existing policy retains these purple colors.
+  Decide whether to keep them as distinct semantic roles or change their appearance; do not
+  map categories to warning or error colors.
+- **Monitoring copy toast.** Decide whether to retain its dark treatment as a distinct role
+  or change its appearance. A dark toast must not borrow the primary-action role.
+- **Monitoring row emphasis.** Review the 0.55/0.6/0.75 opacity values before normalization.
+  Absent or empty rows must not borrow disabled-control opacity. Review fresh, ordinary,
+  empty and populated screens separately.
+- **Monitoring text rhythm.** Review the remaining 1.3/1.45 line heights against the shared
+  text roles, including wrapping and layout effects, before changing their presentation.
 
 For any approved change, define its semantic ownership, verify supported host overrides,
 review before/after images, and remove only the allowances that the implementation resolves.

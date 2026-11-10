@@ -5486,6 +5486,33 @@ checks and four container screenshot checks pass without baseline changes.
 Source allowances remain four in CETP and 75 estate-wide. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-narrow-implementation/`.
 
+#### CETP host-derived surface roles (2026-11-10)
+
+Selected states retain the existing 12% host-primary blend over white through
+`patterns.selection-tint`. Search-match marks and matched-name chips use
+`search-match-tint`; hovered tree actions use `action-hover-tint`; the property
+release-history panel uses `term-picker-release-panel-tint`. These independently
+owned recipes currently emit the same blend. They do not alias selection or
+borrow the fixed `surface-selected` role. CETP's private surface properties
+keep the roles separate through its shadow tree. Default teal, purple and blue
+host palettes retain their rendered colors and geometry.
+
+The package is `0.1.0-dev.20261110.c8930a66`, published to the development
+registry with all nine declared token consumer pins updated. Existing compiled
+stylesheets, fonts, icons and other package assets are byte-identical to the
+previous package; the additions are opt-in Sass functions and documentation.
+The active local reactor and its served bundles were preserved.
+
+The shared package's 157 tests, CETP lint/type checks, strict estate adoption,
+all 189 CETP browser checks against the published package, and all four container
+screenshot checks pass. No visual baseline changed. The browser gate checks
+both host-palette preservation and independent selection, search-match, hover
+and panel roles. A preliminary tree-accessibility timeout passed on rerun and
+in the final complete suite. One source allowance was pruned, leaving three
+in CETP and 74 estate-wide. The two rendered tint allowances record the approved
+host-derived colors, which intentionally differ from the fixed shared surface.
+Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-tint/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
