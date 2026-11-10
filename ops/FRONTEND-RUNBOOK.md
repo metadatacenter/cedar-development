@@ -5242,6 +5242,121 @@ Local raw evidence is retained under
 including both Monitoring runs. Source styling, shared values, package pins and
 baselines were unchanged by this audit.
 
+#### Cross-consumer token re-audit (2026-11-10)
+
+The re-audit found no new source-adoption violations or rendered-contract drift after
+the frontend splits. The strict adoption gate scanned **872 source files** across
+the eight modern frontends and the MCP session page. It found 103 existing source
+allowances, no stale allowances, no missing or unknown token references, and no
+unused or single-reader tokens. Against the retained October 23 report, no consumer
+added a source allowance; CETP and OpenView each removed one. The current surface
+registries contain 166 entries, including 152 rendered contracts, with seven unchanged
+scale allowances: two CETP selection tints and five Monitoring categorical colors
+and toast colors.
+
+| Consumer | Existing source findings | Passing browser checks |
+| --- | ---: | ---: |
+| CED / CEFD | 2 | 83 |
+| CEE / CEF | 33 | 8 |
+| CETP | 13 | 19 |
+| Workspace | 18 | 125 |
+| OpenView | 5 | 32 |
+| Monitoring | 31 | 42 |
+| Bridging | 1 | 10 |
+| Template Designer host | 0 | 11 |
+| MCP session page | 0 | Not run |
+
+All **330 browser checks passed without retries**, at desktop and 375px widths,
+including CED's nested authoring surfaces, real CEF default-value rendering, host
+overrides, and the registered text, disabled-state, motion and focus checks. The
+central package's **151 tests passed**. CED, CETP, Workspace, OpenView, Monitoring
+and Bridging test outputs were rebuilt; the Template Designer host was restaged.
+CEE's existing test bundle passed its source/configuration/dependency freshness
+check before use. The successful runs used the pinned Node 24.22.1. Initial sandbox
+attempts could not launch local servers or Chromium and are retained separately;
+they were execution restrictions, not style verdicts.
+
+All eight modern consumers pin `0.1.0-dev.20261109.a4da5115`. Their installed Sass,
+compiled token assets, fonts and icon registry match the current central package
+byte for byte, even where an installed package retains an older version label.
+The MCP manifest is 19 token commits behind, but its three vendored stylesheets
+also match current compiled bytes. The separate `check components --all` reports
+24 of 24 comparisons current; this is its configured inventory, not verification
+of every deployed stylesheet.
+
+The remaining source allowances include CEE's Material sizing and local line
+heights, CETP's local sizing and selection tint, Monitoring's categorical colors,
+and application-specific layout. CED's two runtime-resized library sections remain
+by decision. These findings do not authorize changing approved presentation or
+substituting a token with a different semantic role merely because its value matches.
+Legacy AngularJS remains outside the adoption and rendered-contract gates. This
+audit is local source, package and computed-style evidence; it is not a production
+visual audit, the full screenshot suites, or whole-stack smoke.
+
+Evidence, source revisions, package comparisons, exact commands and build/browser
+logs are retained under `$CEDAR_HOME/.cedar/audits/2026-11-10-design-tokens/`.
+No application source, token values, dependency pins or baselines changed.
+
+<a id="token-debt-review"></a>
+
+#### Token debt review (2026-11-10)
+
+The appearance-preserving cleanup reduces source allowances from 103 to 81. It
+uses focus recipes for focused segmented controls, a dashed variant of the selection
+outline for eligible drop targets, shared default-control sizing and compact padding,
+and an occurrence-action size derived from that action's existing icon and inset.
+Relative text lines derive their ratio from the corresponding text and line roles;
+they retain inherited-font scaling. CETP now passes hierarchy depth to the finite
+indentation recipe instead of calculating padding in its templates. No token is
+reassigned to a different semantic category, and the 54-token vocabulary is unchanged.
+
+| Consumer | Source allowances before | Source allowances remaining |
+| --- | ---: | ---: |
+| CEE / CEF | 33 | 25 |
+| CED / CEFD | 2 | 2 |
+| CETP | 13 | 6 |
+| Workspace | 18 | 14 |
+| OpenView | 5 | 5 |
+| Monitoring | 31 | 28 |
+| Bridging | 1 | 1 |
+| Template Designer host and MCP session page | 0 | 0 |
+
+The remaining 81 findings have an explicit disposition: 32 need a presentation
+decision before substitution; 47 are component layout, content/brand geometry,
+alignment or local stacking with no matching shared role; and two are CED's
+runtime-resized library sections. These are review categories, not new baseline
+exemptions. The seven rendered-color allowances remain unchanged. The concrete
+design choices are in the frontend roadmap's shared-design-values item; local
+geometry must not be disguised as a control, spacing or icon role to reduce a count.
+
+Compiling the 28 stylesheets containing recorded source debt and the affected
+property-tree stylesheet produces identical compressed CSS in 27 of the 29.
+The only differences are the hierarchy-padding declarations added to the
+two CETP stylesheets. All other substitutions preserve emitted values, selectors
+and declaration order, including public host overrides. The hierarchy browser
+checks verify indentation before and after expansion and pagination at 16px and
+10px document roots with a 16px component font override.
+
+Verification passed: the strict adoption gate, all 156 token-package tests, package
+formatting, and `cedarcli test frontends --jobs 3 --workers 12`. The reactor built
+the edited local package and supplied it to every consumer. Its existing CEE,
+CETP, Workspace and CED screenshot gates passed without baseline changes, alongside
+the browser, integration and unit gates. The initial reactor attempt stopped at
+visual gates because Docker Desktop was not running; starting Docker and repeating
+the command completed verification. No runtime was activated or restarted, and
+this check-only run does not claim whole-stack smoke or deployment.
+
+The verified token artifact is
+`68fd9f4035904d5e43bc96c4aaea0661d2a8f47230bd376add3ff52d352ec5f1`.
+The complete source/dependency/artifact record is
+`$CEDAR_HOME/.reactor/builds/502d0b7a9ef3f5ee7682538d5eee2d4bf19ccfe2d346b0b1d4b3e6d76b0e8e66.json`.
+
+Local evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-token-debt/`:
+`before-adoption.json`, `after-adoption.json`, `changes.json`, `remaining-debt.json`,
+the before/after compiled stylesheets and verification logs. `remaining-debt.json`
+gives every remaining declaration its location and disposition. Only resolved
+source allowances were pruned; no rendered allowance or screenshot was refreshed.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance

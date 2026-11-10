@@ -474,3 +474,39 @@ that the fallback preserves work while the rejected write remains blocked.
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
 - Characterize backend and authentication variability in the hosted CI 17-scenario
   full-stack sweep before considering timing enforcement. Exclude legacy applications.
+
+## Shared Design Values
+
+### 12. Decide the Remaining Token Deviations Before Changing Their Presentation
+
+Keep component layout and runtime state separate from design vocabulary. Logo proportions,
+chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar percentages
+must not borrow control, spacing or icon roles merely because their numbers match. The
+[token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
+
+- **CEE density and adapter details.** Decide whether the supported comfortable profile keeps
+  its 48px fields and black resting outline, or adopts a different agreed density and outline.
+  Its 22px clock lines, 20px expansion-panel lines, 26px occurrence chips and paginator geometry
+  also differ from the ordinary shared roles. Substituting 36px controls, 21/18px lines or 28px
+  rows changes presentation. Preserve the current profiles until that decision; Material
+  inputs belong in CEE's adapter, not in the framework-neutral token package.
+- **CETP actions and text rhythm.** Decide whether the constraint action's 22px height should
+  grow to the 24px target minimum or a shared control density, and whether its detail text's
+  1.35 line height should change. Review the row as a whole at narrow widths and with host
+  font overrides before approving either change. Coordinate target changes with the
+  accessibility work above.
+- **Selection treatments.** CETP derives its selection tint from 12% of the host primary color
+  over white; Workspace's drag-selection rectangle uses 13% over transparency. They serve
+  different interactions and differ from the fixed shared selection surface. Decide whether
+  either should change or receive an explicitly named reusable recipe. Preserve host palette
+  behavior; do not merge them by numerical similarity.
+- **Monitoring categories and emphasis.** Its purple category/secret colors and dark copy toast
+  are retained by existing policy. Removing their allowances needs a decision to keep them as
+  distinct semantic roles or change their appearance. Do not map categories to warning/error
+  colors, a dark toast to the primary-action role, or absent/empty rows to disabled-control
+  opacity. The 0.55/0.6/0.75 emphasis and 1.3/1.45 line heights likewise need review before
+  normalization. Review fresh, ordinary, empty and populated screens separately.
+
+For any approved change, define its semantic ownership, verify supported host overrides,
+review before/after images, and remove only the allowances that the implementation resolves.
+Do not change screenshot baselines to authorize a design retrospectively.
