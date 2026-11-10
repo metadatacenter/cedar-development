@@ -7,7 +7,8 @@
 // that pages, on every service, is held to the same refusal of a bad limit or offset, and those that
 // also page by number to the rule that a request pages one way or the other.
 import {
-  suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
+  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, poll, enc, RUN,
+  ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
 } from '../lib.mjs';
 import { cedarErrorProblem } from './errors.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
@@ -15,6 +16,7 @@ import { responseContractProblem } from '../response-contract.mjs';
 export const name = 'pagination';
 
 const PAGE_TAG = `Paging${RUN.replace(/[^0-9]/g, '')}`;
+const MODIFIED_TAG = `Modified${RUN.replace(/[^0-9]/g, '')}`;
 const N = 5;
 
 function badQuery(res, what) {
@@ -267,6 +269,8 @@ export async function run({ user1, admin, folderId }) {
 
   // These routes declare the same typed query. Unknown parameters and arbitrary search text are
   // not invalid by definition; probe only values the declared sort and filter contracts reject.
+  // The modification-time bounds are epoch milliseconds. A window that closes before it opens is
+  // refused, and so is a bound given twice, even when the two values agree.
   const typedListings = [...endpoints.slice(0, 3), { name: 'search-deep', path: `/search-deep?q=${enc(PAGE_TAG)}` }];
   const badFilters = [
     ['an unknown sort field', 'sort=not-a-sort'],
@@ -277,6 +281,9 @@ export async function run({ user1, admin, folderId }) {
     ['a delimiter-only version filter', 'version=,'],
     ['an unknown publication filter', 'publication_status=not-a-status'],
     ['a delimiter-only publication filter', 'publication_status=,'],
+    ['a reversed modification-time window', 'modified_after=2000&modified_before=1000'],
+    ['modified_after given twice', 'modified_after=1000&modified_after=1000'],
+    ['modified_before given twice', 'modified_before=2000&modified_before=2000'],
   ];
   for (const listing of typedListings) {
     const sep = listing.path.includes('?') ? '&' : '?';
@@ -293,6 +300,89 @@ export async function run({ user1, admin, folderId }) {
     for (const [what, qs] of badFilters) {
       badQuery(await call(auth, 'GET', `${listing.path}${sep}${qs}`),
           `${listing.name} with ${what} is refused with 400`);
+    }
+  }
+
+  suite('pagination: typed listings filter by modification time');
+
+  // The two templates carry a term of their own, so the paging corpus keeps its exact counts. The
+  // second is updated in a later second than it was created. Its modification time then differs from
+  // its creation time, and a filter that read the creation time would fail at the bounds.
+  const dated = [];
+  for (const slug of ['first', 'second']) {
+    const label = `${MODIFIED_TAG} ${slug}`;
+    const post = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, artifactBody('template', label));
+    if (post.status === 201) {
+      dated.push({ id: post.body['@id'], at: `/templates/${enc(post.body['@id'])}`, body: post.body });
+      cleanup('template', `/templates/${enc(post.body['@id'])}`, label);
+    }
+  }
+  const modifiedOn = resource => Date.parse(resource?.['pav:lastUpdatedOn']);
+
+  // These are the four typed listings, with search also read in two of its graph-backed modes. Folder
+  // contents and a search with no term filter in the graph query, a term search filters in the index,
+  // and a search by id compares the one resource it found. The extract reports only the fields it is
+  // asked for, so it is asked for the modification time. The sharing views, a search by template and
+  // the special-folders view apply the same graph condition and are not read here.
+  const views = [
+    { name: 'folder contents', path: () => `/folders/${enc(folderId)}/contents?limit=100` },
+    { name: 'folder contents-extract',
+      path: () => `/folders/${enc(folderId)}/contents-extract?field_names=${enc('pav:lastUpdatedOn')}&limit=100` },
+    { name: 'search', path: () => `/search?q=${enc(MODIFIED_TAG)}&limit=20` },
+    { name: 'search-deep', path: () => `/search-deep?q=${enc(MODIFIED_TAG)}&limit=20` },
+    { name: 'search by id', path: id => `/search?id=${enc(id)}` },
+    { name: 'search with no term', path: () => '/search?resource_types=template&sort=-lastUpdatedOnTS&limit=100' },
+  ];
+  // This reads what a view answers about one template under the given bounds. An absence counts only
+  // in a page the view served, so a refused request never passes for a filtered one.
+  const read = async (view, id, bounds = '') => {
+    const res = await call(auth, 'GET', `${view.path(id)}${bounds}`);
+    return { status: res.status, row: (res.body?.resources ?? []).find(r => r['@id'] === id) };
+  };
+  const listed = answer => answer.status === 200 && !!answer.row;
+  const absent = answer => answer.status === 200 && !answer.row;
+  const said = answer => (answer.status !== 200 ? `the request answered ${answer.status}`
+    : `the template was ${answer.row ? 'listed' : 'not listed'}`);
+
+  if (check(dated.length === 2, 'two templates are created to filter by modification time',
+      `only ${dated.length} were created`)) {
+    const [first, second] = dated;
+    // A modification time is a whole second. The update is repeated until one lands in a later second
+    // than the template's creation, which takes one second at most.
+    const apart = await poll(async attempt => {
+      const current = await call(auth, 'GET', second.at);
+      const put = await updateArtifact(auth, second.at,
+          { ...current.body, 'schema:description': `Updated by the REST suites (${RUN}), attempt ${attempt}` },
+          { current });
+      const on = modifiedOn(put.body);
+      return { done: put.status === 200 && on > modifiedOn(second.body), status: put.status, on };
+    }, { tries: 8, delayMs: 300 });
+    if (check(apart.done, 'the second is then modified in a later second than either was created',
+        `the last update answered ${apart.status} after ${apart.attempts} attempts`)) {
+      for (const view of views) {
+        // The index follows an update through a queue, so each view is read until it reports the time
+        // of the update. The bounds are then taken from the times the view itself reports.
+        const seen = await poll(async () => {
+          const from = modifiedOn((await read(view, first.id)).row);
+          const to = modifiedOn((await read(view, second.id)).row);
+          return { done: to > from && to >= apart.on, from, to };
+        });
+        if (!check(seen.done, `${view.name} reports the second template as modified after the first`,
+            `it reported ${seen.from} and ${seen.to} after ${seen.attempts} attempts`)) continue;
+        const { from, to } = seen;
+        // The window opens a millisecond after the first template's modification time and closes a
+        // millisecond after the second's.
+        const window = `&modified_after=${from + 1}&modified_before=${to + 1}`;
+        const inside = await read(view, second.id, window);
+        check(listed(inside), `${view.name} lists a template modified inside the window`, said(inside));
+        const earlier = await read(view, first.id, window);
+        check(absent(earlier), `${view.name} does not list a template modified before the window`, said(earlier));
+        const atLower = await read(view, second.id, `&modified_after=${to}`);
+        check(listed(atLower), `${view.name} lists a template modified exactly at modified_after`, said(atLower));
+        const atUpper = await read(view, second.id, `&modified_before=${to}`);
+        check(absent(atUpper), `${view.name} does not list a template modified exactly at modified_before`,
+            said(atUpper));
+      }
     }
   }
 
