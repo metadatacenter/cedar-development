@@ -6,6 +6,7 @@ import {
   sameMembers, samePermissionActions,
 } from './permission-model.js';
 import { scheduledValue } from './schedule.js';
+import { authoringInstance, authoringValues } from './authoring-model.js';
 
 const manifestPath = __ENV.CEDAR_PERF_MANIFEST;
 if (!manifestPath) throw new Error('CEDAR_PERF_MANIFEST must name a prepared run.json');
@@ -16,6 +17,9 @@ if (!password) throw new Error('CEDAR_PERF_USER_PASSWORD is required');
 
 const resource = __ENV.CEDAR_RESOURCE_BASE || manifest.target.resource;
 const groupServer = __ENV.CEDAR_GROUP_BASE || manifest.target.group || 'https://group.metadatacenter.orgx';
+const terminologyServer = __ENV.CEDAR_TERMINOLOGY_BASE || manifest.target.terminology
+    || 'https://terminology.metadatacenter.orgx';
+const openViewServer = __ENV.CEDAR_OPENVIEW_BASE || manifest.target.openView || 'http://localhost:9013';
 const keycloak = __ENV.CEDAR_KEYCLOAK_BASE || 'http://127.0.0.1:8080';
 const realm = __ENV.CEDAR_KEYCLOAK_REALM || 'CEDAR';
 const client = __ENV.CEDAR_KEYCLOAK_CLIENT || 'cedar-angular-app';
@@ -27,6 +31,7 @@ const scheduleSeed = String(__ENV.CEDAR_PERF_SEED || manifest.scheduleSeed || ma
 const faultStartEpochMs = Number(__ENV.CEDAR_PERF_FAULT_START_EPOCH_MS || 0);
 const recoveryBudgetMs = Number(__ENV.CEDAR_PERF_RECOVERY_BUDGET_MS || 0);
 const churnRate = Number(__ENV.CEDAR_PERF_CHURN_RATE || 2);
+const lifecycleRate = Number(__ENV.CEDAR_PERF_LIFECYCLE_RATE || 1);
 const burstBaselineRate = Number(__ENV.CEDAR_PERF_BURST_BASELINE_RATE || 5);
 const burstPeakRate = Number(__ENV.CEDAR_PERF_BURST_PEAK_RATE || 40);
 const burstPhaseDuration = __ENV.CEDAR_PERF_BURST_PHASE_DURATION || '30s';
@@ -36,11 +41,13 @@ const slowRequestLogLimit = Number(__ENV.CEDAR_PERF_SLOW_REQUEST_LOG_LIMIT || 3)
 let slowRequestLogs = 0;
 
 const allowedHosts = ['localhost', '127.0.0.1', 'metadatacenter.orgx'];
-const targetHost = resource.replace(/^[a-z]+:\/\//i, '').split('/')[0].split(':')[0];
-if (__ENV.CEDAR_PERF_ALLOW_REMOTE !== '1'
-    && !allowedHosts.includes(targetHost)
-    && !targetHost.endsWith('.metadatacenter.orgx')) {
-  throw new Error(`refusing REST performance target ${targetHost}; set CEDAR_PERF_ALLOW_REMOTE=1 explicitly`);
+for (const target of [resource, groupServer, terminologyServer, openViewServer]) {
+  const targetHost = target.replace(/^[a-z]+:\/\//i, '').split('/')[0].split(':')[0];
+  if (__ENV.CEDAR_PERF_ALLOW_REMOTE !== '1'
+      && !allowedHosts.includes(targetHost)
+      && !targetHost.endsWith('.metadatacenter.orgx')) {
+    throw new Error(`refusing REST performance target ${targetHost}; set CEDAR_PERF_ALLOW_REMOTE=1 explicitly`);
+  }
 }
 
 const unexpectedResponses = new Rate('cedar_unexpected_responses');
@@ -50,6 +57,7 @@ const resilienceUnexpected = new Rate('cedar_resilience_unexpected');
 const resilienceOutageResponses = new Counter('cedar_resilience_outage_responses');
 const resilienceRecoveredResponses = new Counter('cedar_resilience_recovered_responses');
 const churnCompleted = new Counter('cedar_churn_completed');
+const lifecycleCompleted = new Counter('cedar_lifecycle_completed');
 const burstBaselineCompleted = new Counter('cedar_burst_baseline_completed');
 const burstPeakCompleted = new Counter('cedar_burst_peak_completed');
 const burstRecoveryCompleted = new Counter('cedar_burst_recovery_completed');
@@ -78,6 +86,52 @@ const soakOperations = [
 const hotsetOperations = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
 const resilienceOperations = ['read', 'read', 'read', 'update'];
 const burstOperations = ['read', 'read', 'read', 'update'];
+// Half of the formats cycle reads a representation the server renders on request, a quarter writes
+// YAML, and the rest asks for a verdict without storing anything.
+const formatsOperations = [
+  'yaml-read', 'yaml-read', 'yaml-read', 'yaml-read',
+  'compact-yaml-read', 'compact-yaml-read',
+  'instance-nquads', 'instance-jsonld', 'download',
+  'yaml-update', 'yaml-update', 'yaml-update',
+  'yaml-create', 'validate-json', 'validate-yaml', 'yaml-read',
+];
+const authoringOperations = [
+  'instance-read', 'instance-read', 'instance-read', 'instance-read',
+  'instance-update', 'instance-update', 'instance-update', 'instance-update',
+  'instance-lifecycle', 'instance-lifecycle',
+  'instance-validate', 'template-update',
+];
+const terminologyOperations = [
+  'integrated-exact', 'integrated-exact', 'integrated-exact', 'integrated-exact',
+  'integrated-prefix', 'integrated-prefix', 'integrated-prefix',
+  'search-scoped', 'search-scoped', 'search-corpus',
+  'hierarchy', 'hierarchy',
+  'validate-term', 'validate-term', 'validate-term', 'validate-term',
+  'validate-branch', 'validate-branch',
+  'class', 'class', 'children', 'children',
+];
+const findingOperations = [
+  'search-small', 'search-full', 'search-full', 'search-sorted', 'search-window',
+  'search-shared', 'search-shared', 'search-by-template', 'deep-walk',
+  'contents-sorted', 'contents-sorted', 'contents-extract',
+  'details', 'report', 'versions', 'category-tree',
+  'open-artifact', 'open-artifact', 'openview-artifact', 'openview-artifact', 'openview-folder',
+  'membership',
+];
+const yamlKinds = ['template', 'element', 'field', 'instance'];
+// The sources setup found served from the local store, smallest first. A source BioPortal would
+// answer is never in this list: the harness does not load a third party.
+const terminologySources = Object.keys(manifest.terminology?.sources || {});
+// A corpus-wide search ranks every matching name before it pages, so a short label that matches
+// millions of names costs seconds and one that matches a few costs tens of milliseconds. The
+// profile asks for the longer labels: a guardrail needs a cost that repeats, and the cost of broad
+// queries is measured where it can be read, in cedar_term_bench.py.
+const corpusWideTerms = Object.fromEntries(terminologySources.map(acronym => {
+  const terms = manifest.terminology.sources[acronym].terms;
+  const specific = terms.filter(term => term.label.length >= 12);
+  return [acronym, specific.length ? specific : terms];
+}));
+const yamlTemplateFixture = open('../fixtures/template-minimal.yml');
 const churnCollections = {
   template: '/templates',
   element: '/template-elements',
@@ -152,6 +206,34 @@ const measuredOperations = [
     `wildcard-delete ${kind} GET`, `wildcard-delete ${kind} DELETE`, `wildcard-delete ${kind} PUT`,
   ]),
   ...wildcardTypes.flatMap(type => [`${type} GET`, `${type} mutation`, `${type} verification`]),
+  ...yamlKinds.flatMap(kind => [
+    `formats ${kind} YAML GET`, `formats ${kind} compact YAML GET`, `formats ${kind} download GET`,
+    `formats ${kind} YAML update preflight`, `formats ${kind} YAML source GET`, `formats ${kind} YAML PUT`,
+    `formats ${kind} JSON source GET`, `formats ${kind} JSON validation`, `formats ${kind} YAML validation`,
+  ]),
+  'formats instance n-quads GET', 'formats instance JSON-LD GET',
+  'formats template YAML POST', 'formats template YAML DELETE',
+  'authoring instance GET', 'authoring instance update preflight', 'authoring instance PUT',
+  'authoring instance POST', 'authoring instance created GET', 'authoring instance DELETE',
+  'authoring instance deletion verification', 'authoring instance validation',
+  'authoring template update preflight', 'authoring template PUT',
+  ...terminologySources.flatMap(acronym => [
+    `terminology integrated exact ${acronym}`, `terminology integrated prefix ${acronym}`,
+  ]),
+  'terminology search scoped', 'terminology search corpus-wide', 'terminology hierarchy GET',
+  'terminology term check', 'terminology branch check',
+  'terminology class GET', 'terminology children GET',
+  'finding search of 10', 'finding search of 50', 'finding sorted search', 'finding search in a time window',
+  'finding shared-with-me search', 'finding search by template', 'finding deep search',
+  'finding sorted contents', 'finding contents extract', 'finding details GET', 'finding report GET',
+  'finding versions GET', 'finding category tree GET', 'finding open artifact GET',
+  'finding OpenView artifact GET', 'finding OpenView folder contents', 'finding group membership GET',
+  'lifecycle folder POST', 'lifecycle template POST', 'lifecycle instance POST',
+  'lifecycle first publish', 'lifecycle first draft', 'lifecycle first draft preflight',
+  'lifecycle first draft PUT', 'lifecycle second publish', 'lifecycle second draft',
+  'lifecycle second draft preflight', 'lifecycle second draft PUT', 'lifecycle versions GET',
+  'lifecycle copy', 'lifecycle deletion inventory GET', 'lifecycle recursive deletion',
+  'lifecycle deletion verification',
 ];
 const routeMetrics = Object.fromEntries(
     measuredOperations.map(operation => [operation, new Trend(routeMetricName(operation), true)]));
@@ -185,6 +267,22 @@ const profileRouteThresholds = {
   soak: routeThresholds(soakRouteOperations, 750, 1500),
   permissions: routeThresholds(
       measuredOperations.filter(operation => operation.startsWith('permission ')), 750, 2000),
+  formats: routeThresholds(measuredOperations.filter(operation => operation.startsWith('formats ')), 750, 1500),
+  authoring: routeThresholds(
+      measuredOperations.filter(operation => operation.startsWith('authoring ')), 750, 1500),
+  // A lookup is a read whatever its HTTP method, so every terminology route takes one limit. The
+  // two POST /search routes rank every matching name before they page, which costs a scoped query
+  // hundreds of milliseconds and a corpus-wide one more than a second at sixteen users.
+  terminology: {
+    ...routeThresholds(measuredOperations.filter(operation => operation.startsWith('terminology ')), 1500, 1500),
+    [routeMetricName('terminology search scoped')]: ['p(95)<2500'],
+    [routeMetricName('terminology search corpus-wide')]: ['p(95)<5000'],
+  },
+  // Every finding route is a read, including the ones whose names say what they search for.
+  finding: routeThresholds(measuredOperations.filter(operation => operation.startsWith('finding ')), 750, 750),
+  // A publication, a draft and a recursive deletion each touch several artifacts and both stores.
+  lifecycle: routeThresholds(
+      measuredOperations.filter(operation => operation.startsWith('lifecycle ')), 750, 3000),
 };
 
 function recordDuration(operation, response) {
@@ -342,6 +440,59 @@ const profiles = {
       },
     },
   },
+  formats: {
+    scenarios: {
+      formats: {
+        executor: 'constant-vus',
+        exec: 'formats',
+        vus: configuredVus,
+        duration: configuredDuration || '3m',
+      },
+    },
+  },
+  authoring: {
+    scenarios: {
+      authoring: {
+        executor: 'constant-vus',
+        exec: 'authoring',
+        vus: configuredVus,
+        duration: configuredDuration || '5m',
+      },
+    },
+  },
+  terminology: {
+    scenarios: {
+      terminology: {
+        executor: 'constant-vus',
+        exec: 'terminology',
+        vus: configuredVus,
+        duration: configuredDuration || '3m',
+      },
+    },
+  },
+  finding: {
+    scenarios: {
+      finding: {
+        executor: 'constant-vus',
+        exec: 'finding',
+        vus: configuredVus,
+        duration: configuredDuration || '3m',
+      },
+    },
+  },
+  lifecycle: {
+    scenarios: {
+      lifecycle: {
+        executor: 'constant-arrival-rate',
+        exec: 'lifecycle',
+        rate: lifecycleRate,
+        timeUnit: '1s',
+        duration: configuredDuration || '3m',
+        preAllocatedVUs: configuredVus,
+        maxVUs: configuredVus,
+      },
+    },
+  },
 };
 
 if (!profiles[profile]) throw new Error(`unknown CEDAR_PERF_PROFILE ${profile}`);
@@ -385,6 +536,10 @@ export const options = {
     } : {}),
     ...(profile === 'permissions' ? {
       cedar_permission_matrix_completed: [`count==${matrixRounds}`],
+    } : {}),
+    ...(profile === 'lifecycle' ? {
+      cedar_lifecycle_completed: ['count>10'],
+      dropped_iterations: ['count==0'],
     } : {}),
   },
 };
@@ -1887,6 +2042,630 @@ export function contention(data) {
     case 'wildcard-delete': wildcardDelete(data, testCase.kind, round); break;
     default: wildcardMutation(data, testCase.type);
   }
+}
+
+function header(response, wanted) {
+  for (const [name, value] of Object.entries(response.headers || {})) {
+    if (name.toLowerCase() === wanted) return value;
+  }
+  return null;
+}
+
+// A request whose body is already text, such as a YAML document, sent under the content type given.
+function cedarText(data, actorIndex, method, path, text, contentType, operation, extraHeaders = {},
+    expectedStatuses) {
+  const perform = token => http.request(method, `${resource}${path}`, text, {
+    headers: { Authorization: authorization(token), 'Content-Type': contentType, ...extraHeaders },
+    tags: { operation, name: operation },
+    ...(expectedStatuses ? { responseCallback: http.expectedStatuses(...expectedStatuses) } : {}),
+  });
+  let response = perform(tokenFor(data, actorIndex));
+  if (response.status === 401) {
+    const renewed = refresh(actorIndex);
+    if (renewed) response = perform(renewed);
+  }
+  recordDuration(operation, response);
+  return response;
+}
+
+function advancesOneRevision(before, response) {
+  const beforeRevision = revisionNumber(before);
+  const afterRevision = revisionNumber(etag(response));
+  return beforeRevision !== null && afterRevision === beforeRevision + 1;
+}
+
+const yamlAccept = { Accept: 'application/yaml' };
+
+function formatsFixture(actor, kind) {
+  const fixture = actor.formats?.artifacts?.[kind];
+  if (!fixture?.path) fail(`formats fixture is incomplete for ${actor.username}`);
+  return fixture;
+}
+
+function isYaml(response, fixture) {
+  const text = String(response.body || '');
+  return /yaml/i.test(header(response, 'content-type') || '') && !text.trimStart().startsWith('{')
+      && text.includes(fixture.id);
+}
+
+function formatsYamlRead(data, index, actor, kind, compact) {
+  const fixture = formatsFixture(actor, kind);
+  const operation = `formats ${kind} ${compact ? 'compact YAML' : 'YAML'} GET`;
+  const response = cedar(data, index, 'GET', `${fixture.path}${compact ? '?compact=true' : ''}`,
+      undefined, operation, yamlAccept);
+  if (!accepted(response, [200], `${operation} succeeds`)) return;
+  invariant(response, `${operation} is YAML and names the artifact`, result => isYaml(result, fixture));
+}
+
+function formatsInstanceRdf(data, index, actor, nquads) {
+  const fixture = formatsFixture(actor, 'instance');
+  const operation = nquads ? 'formats instance n-quads GET' : 'formats instance JSON-LD GET';
+  const response = nquads
+    ? cedar(data, index, 'GET', fixture.path, undefined, operation, { Accept: 'application/n-quads' })
+    : cedar(data, index, 'GET', `${fixture.path}?format=jsonld`, undefined, operation);
+  if (!accepted(response, [200], `${operation} succeeds`)) return;
+  invariant(response, `${operation} carries the instance in the requested form`, result => nquads
+    ? /n-quads/i.test(header(result, 'content-type') || '') && String(result.body).includes(`<${fixture.id}>`)
+    : result.json()?.['@id'] === fixture.id);
+}
+
+function formatsDownload(data, index, actor, kind) {
+  const fixture = formatsFixture(actor, kind);
+  const operation = `formats ${kind} download GET`;
+  const response = cedar(data, index, 'GET', `${fixture.path}/download`, undefined, operation, yamlAccept);
+  if (!accepted(response, [200], `${operation} succeeds`)) return;
+  invariant(response, `${operation} is a YAML attachment`, result =>
+      /attachment/i.test(header(result, 'content-disposition') || '') && isYaml(result, fixture));
+}
+
+// Read the full YAML form, change its description and write it back. The revision comes from the
+// JSON read: the YAML rendering has an ETag of its own, and a conditional write names the stored
+// revision rather than one of its renderings.
+function formatsYamlUpdate(data, index, actor, kind) {
+  const fixture = formatsFixture(actor, kind);
+  const preflightOperation = `formats ${kind} YAML update preflight`;
+  const sourceOperation = `formats ${kind} YAML source GET`;
+  const updateOperation = `formats ${kind} YAML PUT`;
+  const current = cedar(data, index, 'GET', fixture.path, undefined, preflightOperation);
+  const revision = requireEtag(current, preflightOperation);
+  if (!revision) return;
+  const source = cedar(data, index, 'GET', fixture.path, undefined, sourceOperation, yamlAccept);
+  if (!accepted(source, [200], `${sourceOperation} succeeds`)) return;
+  const marker = `${manifest.prefix} formats ${kind} ${__VU}-${__ITER}`;
+  const edited = String(source.body).replace(/^description: .*$/m, `description: ${JSON.stringify(marker)}`);
+  if (!invariant(source, `${sourceOperation} has a description to edit`, () => edited.includes(marker))) return;
+  const updated = cedarText(data, index, 'PUT', fixture.path, edited, 'application/yaml', updateOperation,
+      { 'If-Match': revision });
+  if (!accepted(updated, [200], `${updateOperation} succeeds`)) return;
+  invariant(updated, `${updateOperation} advances exactly one revision`,
+      result => advancesOneRevision(revision, result));
+  invariant(updated, `${updateOperation} stores the submitted description`,
+      result => result.json()?.['schema:description'] === marker);
+}
+
+function formatsYamlCreate(data, index, actor) {
+  const name = `${manifest.prefix} formats YAML ${manifest.runId} ${__VU}-${__ITER}`;
+  const text = yamlTemplateFixture.replace(/^name: .*$/m, `name: ${JSON.stringify(name)}`);
+  const created = cedarText(data, index, 'POST',
+      `/templates?folder_id=${encodeURIComponent(actor.rootFolderId)}`, text, 'application/yaml',
+      'formats template YAML POST');
+  if (!accepted(created, [201], 'formats template YAML POST succeeds')) return;
+  const id = created.json()?.['@id'];
+  if (!invariant(created, 'formats template YAML POST returns an identifier and its name',
+      result => Boolean(id) && result.json()?.['schema:name'] === name)) return;
+  const deleted = cedar(data, index, 'DELETE', `/templates/${encodeURIComponent(id)}`, undefined,
+      'formats template YAML DELETE', { 'If-Match': etag(created) || '*' });
+  accepted(deleted, [204], 'formats template YAML DELETE succeeds');
+}
+
+function formatsValidate(data, index, actor, kind, yaml) {
+  const fixture = formatsFixture(actor, kind);
+  const form = yaml ? 'YAML' : 'JSON';
+  const sourceOperation = `formats ${kind} ${form} source GET`;
+  const validateOperation = `formats ${kind} ${form} validation`;
+  const source = cedar(data, index, 'GET', fixture.path, undefined, sourceOperation, yaml ? yamlAccept : {});
+  if (!accepted(source, [200], `${sourceOperation} succeeds`)) return;
+  const path = `/command/validate?resource_type=${kind}`;
+  const report = yaml
+    ? cedarText(data, index, 'POST', path, String(source.body), 'application/yaml', validateOperation)
+    : cedar(data, index, 'POST', path, mutableResponseBody(source), validateOperation);
+  if (!accepted(report, [200], `${validateOperation} succeeds`)) return;
+  invariant(report, `${validateOperation} reports a stored artifact as one that can be saved`,
+      result => result.json()?.canSave === true);
+}
+
+// Every representation the server renders on request, and YAML as a way in. A JSON read returns the
+// stored document; each of these is produced per request by the artifact library, so they cost
+// processor time the JSON profiles never spend.
+export function formats(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  const kind = scheduledValue(yamlKinds, `${scheduleSeed}:kind`, index, __ITER);
+  switch (scheduledValue(formatsOperations, scheduleSeed, index, __ITER)) {
+    case 'yaml-read': formatsYamlRead(data, index, actor, kind, false); break;
+    case 'compact-yaml-read': formatsYamlRead(data, index, actor, kind, true); break;
+    case 'instance-nquads': formatsInstanceRdf(data, index, actor, true); break;
+    case 'instance-jsonld': formatsInstanceRdf(data, index, actor, false); break;
+    case 'download': formatsDownload(data, index, actor, kind); break;
+    case 'yaml-update': formatsYamlUpdate(data, index, actor, kind); break;
+    case 'yaml-create': formatsYamlCreate(data, index, actor); break;
+    case 'validate-json': formatsValidate(data, index, actor, kind, false); break;
+    case 'validate-yaml': formatsValidate(data, index, actor, kind, true); break;
+  }
+}
+
+function authoringFixture(actor) {
+  const fixture = actor.authoring;
+  if (!fixture?.template?.path || !fixture.instances?.length || !manifest.terms?.length) {
+    fail(`authoring fixture is incomplete for ${actor.username}`);
+  }
+  return fixture;
+}
+
+// Each write presents terms the previous write of that instance did not, so the server verifies
+// them again rather than repeating one answer.
+function authoringValueIndex() {
+  return __VU * 100003 + __ITER * 3;
+}
+
+function authoringInstanceUpdate(data, index, fixture) {
+  const instance = fixture.instances[(__ITER + index) % fixture.instances.length];
+  const current = cedar(data, index, 'GET', instance.path, undefined, 'authoring instance update preflight');
+  const revision = requireEtag(current, 'authoring instance update preflight');
+  if (!revision) return;
+  const marker = `${manifest.prefix} authoring ${__VU}-${__ITER}`;
+  const values = authoringValues(manifest.terms, authoringValueIndex());
+  const body = Object.assign(mutableResponseBody(current), values, { 'schema:description': marker });
+  const updated = cedar(data, index, 'PUT', instance.path, body, 'authoring instance PUT', { 'If-Match': revision });
+  if (!accepted(updated, [200], 'authoring instance PUT succeeds')) return;
+  invariant(updated, 'authoring instance PUT advances exactly one revision',
+      result => advancesOneRevision(revision, result));
+  // A write answers with the artifact's record rather than its document, so the description is the
+  // only submitted value the answer can confirm. The lifecycle operation reads its values back.
+  invariant(updated, 'authoring instance PUT returns the submitted description',
+      result => result.json()?.['schema:description'] === marker);
+}
+
+function authoringInstanceLifecycle(data, index, actor, fixture) {
+  const name = `${manifest.prefix} authoring instance ${manifest.runId} ${__VU}-${__ITER}`;
+  const body = authoringInstance(churnFixtures.instance, fixture.template.id, name,
+      `${manifest.prefix} bounded authoring fixture for ${manifest.runId}`,
+      authoringValues(manifest.terms, authoringValueIndex()));
+  const created = cedar(data, index, 'POST',
+      `/template-instances?folder_id=${encodeURIComponent(actor.rootFolderId)}`, body, 'authoring instance POST');
+  if (!accepted(created, [201], 'authoring instance POST succeeds')) return;
+  const id = created.json()?.['@id'];
+  if (!invariant(created, 'authoring instance POST returns an identifier', () => Boolean(id))) return;
+  const path = `/template-instances/${encodeURIComponent(id)}`;
+  const current = cedar(data, index, 'GET', path, undefined, 'authoring instance created GET');
+  accepted(current, [200], 'authoring instance created GET succeeds');
+  invariant(current, 'authoring instance created GET returns the submitted values', result => {
+    const stored = result.status === 200 ? result.json() : null;
+    return stored?.Disease?.['@id'] === body.Disease['@id'] && stored?.Related?.length === body.Related.length
+        && stored?.Count?.['@value'] === body.Count['@value'];
+  });
+  const deleted = cedar(data, index, 'DELETE', path, undefined, 'authoring instance DELETE',
+      { 'If-Match': etag(current) || '*' });
+  accepted(deleted, [204], 'authoring instance DELETE succeeds');
+  const absent = cedar(data, index, 'GET', path, undefined, 'authoring instance deletion verification',
+      {}, resource, [404]);
+  accepted(absent, [404], 'authoring instance deletion is durable');
+}
+
+function authoringInstanceValidate(data, index, fixture) {
+  const instance = fixture.instances[(__ITER + index) % fixture.instances.length];
+  const current = cedar(data, index, 'GET', instance.path, undefined, 'authoring instance GET');
+  if (!accepted(current, [200], 'authoring instance GET succeeds')) return;
+  const report = cedar(data, index, 'POST', '/command/validate?resource_type=instance',
+      mutableResponseBody(current), 'authoring instance validation');
+  if (!accepted(report, [200], 'authoring instance validation succeeds')) return;
+  invariant(report, 'authoring instance validation finds the stored instance valid', result => {
+    const verdict = result.json();
+    return verdict?.canSave === true && verdict?.isValid === true;
+  });
+}
+
+// A description edit leaves the definition alone, so the server may apply it in place however many
+// instances the template has. It still has to notice every one of them.
+function authoringTemplateUpdate(data, index, fixture) {
+  const current = cedar(data, index, 'GET', fixture.template.path, undefined,
+      'authoring template update preflight');
+  const revision = requireEtag(current, 'authoring template update preflight');
+  if (!revision) return;
+  const marker = `${manifest.prefix} authoring template ${__VU}-${__ITER}`;
+  const body = mutableResponseBody(current);
+  body['schema:description'] = marker;
+  const updated = cedar(data, index, 'PUT', fixture.template.path, body, 'authoring template PUT',
+      { 'If-Match': revision });
+  if (!accepted(updated, [200], 'authoring template PUT succeeds')) return;
+  invariant(updated, 'authoring template PUT advances exactly one revision',
+      result => advancesOneRevision(revision, result));
+}
+
+// Instances of a template with a pattern, numeric bounds and controlled terms. Every write here
+// runs the regular expression, the bounds and one terminology lookup per distinct term.
+export function authoring(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  const fixture = authoringFixture(actor);
+  switch (scheduledValue(authoringOperations, scheduleSeed, index, __ITER)) {
+    case 'instance-read': {
+      const instance = fixture.instances[(__ITER + index) % fixture.instances.length];
+      const response = cedar(data, index, 'GET', instance.path, undefined, 'authoring instance GET');
+      accepted(response, [200], 'authoring instance GET succeeds');
+      break;
+    }
+    case 'instance-update': authoringInstanceUpdate(data, index, fixture); break;
+    case 'instance-lifecycle': authoringInstanceLifecycle(data, index, actor, fixture); break;
+    case 'instance-validate': authoringInstanceValidate(data, index, fixture); break;
+    case 'template-update': authoringTemplateUpdate(data, index, fixture); break;
+  }
+}
+
+function terminologySource(index) {
+  const acronym = scheduledValue(terminologySources, `${scheduleSeed}:source`, index, __ITER);
+  const source = manifest.terminology.sources[acronym];
+  return { acronym, source, term: source.terms[(__ITER * 7 + index) % source.terms.length] };
+}
+
+function ontologyConstraint(acronym) {
+  return {
+    uri: `https://data.bioontology.org/ontologies/${acronym}`, acronym, numTerms: 0, name: acronym,
+  };
+}
+
+function terminologyCall(data, index, method, path, body, operation) {
+  return cedar(data, index, method, path, body, operation, {}, terminologyServer);
+}
+
+function integratedSearch(data, index, acronym, inputText, operation) {
+  return terminologyCall(data, index, 'POST', '/bioportal/integrated-search', {
+    parameterObject: {
+      valueConstraints: { ontologies: [ontologyConstraint(acronym)], branches: [], classes: [], valueSets: [] },
+      inputText,
+    },
+    page: 1,
+    pageSize: 25,
+  }, operation);
+}
+
+function termCheck(data, index, term, valueConstraints, operation) {
+  const verdict = terminologyCall(data, index, 'POST', '/bioportal/validate-term',
+      { iri: term.iri, valueConstraints }, operation);
+  if (!accepted(verdict, [200], `${operation} succeeds`)) return;
+  invariant(verdict, `${operation} finds a term of the source permitted`,
+      result => result.json()?.status === 'passed');
+}
+
+function classPath(acronym, term, suffix = '') {
+  return `/bioportal/ontologies/${acronym}/classes/${encodeURIComponent(term.iri)}${suffix}`;
+}
+
+// The lookups an author and a save cause, against sources the local store serves. Query text comes
+// from the served index, so every lookup matches something.
+export function terminology(data) {
+  if (!terminologySources.length) fail('the terminology profile found no locally served source');
+  const index = (__VU - 1) % manifest.actors.length;
+  const { acronym, source, term } = terminologySource(index);
+  const operation = scheduledValue(terminologyOperations, scheduleSeed, index, __ITER);
+  switch (operation) {
+    case 'integrated-exact': {
+      const name = `terminology integrated exact ${acronym}`;
+      const found = integratedSearch(data, index, acronym, term.label, name);
+      if (accepted(found, [200], `${name} succeeds`)) {
+        invariant(found, `${name} finds the term it asked for`,
+            result => (result.json()?.collection || []).some(entry => entry['@id'] === term.iri));
+      }
+      break;
+    }
+    case 'integrated-prefix': {
+      const name = `terminology integrated prefix ${acronym}`;
+      const found = integratedSearch(data, index, acronym, term.label.slice(0, 4), name);
+      if (accepted(found, [200], `${name} succeeds`)) {
+        invariant(found, `${name} matches at least one term`,
+            result => (result.json()?.collection || []).length > 0);
+      }
+      break;
+    }
+    case 'search-scoped':
+    case 'search-corpus': {
+      const scoped = operation === 'search-scoped';
+      const name = scoped ? 'terminology search scoped' : 'terminology search corpus-wide';
+      const specific = corpusWideTerms[acronym];
+      const found = terminologyCall(data, index, 'POST', '/search', {
+        query: scoped ? term.label : specific[(__ITER * 7 + index) % specific.length].label,
+        pageSize: 25,
+        ...(scoped ? { sources: [{ sourceAcronym: acronym }] } : {}),
+      }, name);
+      if (accepted(found, [200], `${name} succeeds`) && scoped) {
+        invariant(found, `${name} is answered from the local store`,
+            result => (result.json()?.sources || []).every(entry => entry.served === 'local'));
+      }
+      break;
+    }
+    case 'hierarchy': {
+      const found = terminologyCall(data, index, 'GET',
+          `/search/hierarchy?sourceAcronym=${encodeURIComponent(acronym)}&termIri=${encodeURIComponent(term.iri)}`,
+          undefined, 'terminology hierarchy GET');
+      if (accepted(found, [200], 'terminology hierarchy GET succeeds')) {
+        invariant(found, 'terminology hierarchy GET answers for the source it was asked about',
+            result => result.json()?.sourceAcronym === acronym);
+      }
+      break;
+    }
+    case 'validate-term':
+      termCheck(data, index, term, { ontologies: [ontologyConstraint(acronym)] }, 'terminology term check');
+      break;
+    case 'validate-branch': {
+      const child = source.children[(__ITER * 7 + index) % source.children.length];
+      termCheck(data, index, child, {
+        branches: [{ source: acronym, acronym, uri: child.parentIri, name: 'branch', maxDepth: 0 }],
+      }, 'terminology branch check');
+      break;
+    }
+    case 'class': {
+      const found = terminologyCall(data, index, 'GET', classPath(acronym, term), undefined,
+          'terminology class GET');
+      if (accepted(found, [200], 'terminology class GET succeeds')) {
+        invariant(found, 'terminology class GET returns the class it was asked for',
+            result => result.json()?.['@id'] === term.iri);
+      }
+      break;
+    }
+    case 'children': {
+      const parent = source.parents[(__ITER * 7 + index) % source.parents.length];
+      const found = terminologyCall(data, index, 'GET', classPath(acronym, parent, '/children'), undefined,
+          'terminology children GET');
+      if (accepted(found, [200], 'terminology children GET succeeds')) {
+        invariant(found, 'terminology children GET lists the children of a class that has some',
+            result => (result.json()?.collection || []).length > 0);
+      }
+      break;
+    }
+  }
+}
+
+// A request with no credential, as an OpenView reader makes it.
+function anonymous(url, operation) {
+  const response = http.get(url, { tags: { operation, name: operation } });
+  recordDuration(operation, response);
+  return response;
+}
+
+function findingFixture(actor) {
+  const fixture = actor.finding;
+  if (!fixture?.artifacts || !fixture.openFolder || !fixture.group || !fixture.sharedByPeer) {
+    fail(`finding fixture is incomplete for ${actor.username}`);
+  }
+  return fixture;
+}
+
+function findingSearch(data, index, query, operation, predicate, label) {
+  const found = cedar(data, index, 'GET', `/search?${query}`, undefined, operation);
+  if (!accepted(found, [200], `${operation} succeeds`)) return null;
+  if (predicate) invariant(found, `${operation} ${label}`, result => predicate(result.json()));
+  return found;
+}
+
+const runStartedMs = Date.parse(manifest.createdAt);
+
+// The ways a user finds things: term search at two page sizes, sorted and filtered listings, the
+// graph-backed views, deep paging, and what an anonymous reader may open. Nothing here writes.
+export function finding(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  const fixture = findingFixture(actor);
+  const term = encodeURIComponent(manifest.runId);
+  const template = actor.readTemplate;
+  const scheduled = scheduledValue(findingOperations, scheduleSeed, index, __ITER);
+  switch (scheduled) {
+    case 'search-small':
+      findingSearch(data, index, `q=${term}&limit=10`, 'finding search of 10',
+          body => Array.isArray(body?.resources) && body.resources.length <= 10, 'returns at most one page');
+      break;
+    case 'search-full':
+      findingSearch(data, index, `q=${term}&limit=50`, 'finding search of 50',
+          body => Array.isArray(body?.resources) && body.resources.length <= 50, 'returns at most one page');
+      break;
+    case 'search-sorted':
+      findingSearch(data, index,
+          `q=${term}&limit=50&sort=-lastUpdatedOnTS&resource_types=template,element,field`,
+          'finding sorted search',
+          body => (body?.resources || []).every(entry => ['template', 'element', 'field'].includes(entry.resourceType)),
+          'returns only the kinds it asked for');
+      break;
+    case 'search-window':
+      findingSearch(data, index, `q=${term}&limit=20&modified_after=${runStartedMs - 60000}`,
+          'finding search in a time window', body => Array.isArray(body?.resources), 'returns a page');
+      break;
+    case 'search-shared':
+      // Graph-backed, so the answer is current: the artifact a peer shared during setup is in it.
+      findingSearch(data, index, 'sharing=shared-with-me&limit=50', 'finding shared-with-me search',
+          body => (body?.resources || []).some(entry => entry['@id'] === fixture.sharedByPeer.id),
+          'lists the artifact a peer shared');
+      break;
+    case 'search-by-template':
+      findingSearch(data, index,
+          `is_based_on=${encodeURIComponent(actor.mutableTemplate.id)}&limit=20`, 'finding search by template',
+          body => (body?.resources || []).some(entry => entry['@id'] === fixture.artifacts.instance.id),
+          'lists the instance of that template');
+      break;
+    case 'deep-walk': {
+      let continuation = 'start';
+      for (let page = 0; page < 3 && continuation; page++) {
+        const found = cedar(data, index, 'GET',
+            `/search-deep?q=${term}&limit=10&continuation=${encodeURIComponent(continuation)}`,
+            undefined, 'finding deep search');
+        if (!accepted(found, [200], 'finding deep search succeeds')) break;
+        continuation = found.json()?.continuation;
+      }
+      break;
+    }
+    case 'contents-sorted': {
+      const listed = cedar(data, index, 'GET',
+          `/folders/${encodeURIComponent(fixture.corpusFolderId)}/contents?limit=50&sort=-lastUpdatedOnTS`
+          + '&resource_types=template,element,field,instance,folder', undefined, 'finding sorted contents');
+      if (accepted(listed, [200], 'finding sorted contents succeeds')) {
+        invariant(listed, 'finding sorted contents counts the whole folder',
+            result => result.json()?.totalCount === fixture.corpusSize);
+      }
+      break;
+    }
+    case 'contents-extract': {
+      const listed = cedar(data, index, 'GET',
+          `/folders/${encodeURIComponent(fixture.corpusFolderId)}/contents-extract?limit=50`
+          + `&field_names=${encodeURIComponent('schema:name,pav:lastUpdatedOn')}`, undefined,
+          'finding contents extract');
+      if (accepted(listed, [200], 'finding contents extract succeeds')) {
+        invariant(listed, 'finding contents extract counts the whole folder',
+            result => result.json()?.totalCount === fixture.corpusSize);
+      }
+      break;
+    }
+    case 'details':
+    case 'report':
+    case 'versions': {
+      const operation = `finding ${scheduled} GET`;
+      const response = cedar(data, index, 'GET', `${template.path}/${scheduled}`, undefined, operation);
+      accepted(response, [200], `${operation} succeeds`);
+      break;
+    }
+    case 'category-tree': {
+      const response = cedar(data, index, 'GET', '/categories/tree', undefined, 'finding category tree GET');
+      accepted(response, [200], 'finding category tree GET succeeds');
+      break;
+    }
+    case 'open-artifact': {
+      const response = anonymous(
+          `${resource}/open/templates/${encodeURIComponent(actor.openViewTemplate.id)}`, 'finding open artifact GET');
+      if (accepted(response, [200], 'finding open artifact GET succeeds')) {
+        invariant(response, 'finding open artifact GET returns the open template',
+            result => result.json()?.['@id'] === actor.openViewTemplate.id);
+      }
+      break;
+    }
+    case 'openview-artifact': {
+      // Half of these reach the template through the open folder that holds it, which the server
+      // has to establish by walking up from the template.
+      const target = __ITER % 2 === 0 ? actor.openViewTemplate : fixture.openFolder.template;
+      const response = anonymous(`${openViewServer}/templates/${encodeURIComponent(target.id)}`,
+          'finding OpenView artifact GET');
+      if (accepted(response, [200], 'finding OpenView artifact GET succeeds')) {
+        invariant(response, 'finding OpenView artifact GET returns the template',
+            result => result.json()?.['@id'] === target.id);
+      }
+      break;
+    }
+    case 'openview-folder': {
+      const response = anonymous(`${openViewServer}/folders/${encodeURIComponent(fixture.openFolder.id)}`,
+          'finding OpenView folder contents');
+      if (accepted(response, [200], 'finding OpenView folder contents succeeds')) {
+        invariant(response, 'finding OpenView folder contents lists the template inside',
+            result => (result.json()?.resources || []).some(entry => entry['@id'] === fixture.openFolder.template.id));
+      }
+      break;
+    }
+    case 'membership': {
+      const response = cedar(data, index, 'GET', `${fixture.group.path}/membership/me`, undefined,
+          'finding group membership GET', {}, groupServer);
+      if (accepted(response, [200], 'finding group membership GET succeeds')) {
+        invariant(response, 'finding group membership GET reports the group administrator as a member',
+            result => result.json()?.member === true && result.json()?.administrator === true);
+      }
+      break;
+    }
+  }
+}
+
+function lifecycleCommand(data, index, command, body, operation, statuses) {
+  const response = cedar(data, index, 'POST', `/command/${command}`, body, operation);
+  return accepted(response, statuses, `${operation} succeeds`) ? response : null;
+}
+
+function lifecycleDraftUpdate(data, index, draftId, stage) {
+  const path = `/templates/${encodeURIComponent(draftId)}`;
+  const current = cedar(data, index, 'GET', path, undefined, `lifecycle ${stage} draft preflight`);
+  const revision = requireEtag(current, `lifecycle ${stage} draft preflight`);
+  if (!revision) return false;
+  const body = mutableResponseBody(current);
+  body['schema:description'] = `${manifest.prefix} lifecycle ${stage} draft ${__VU}-${__ITER}`;
+  const updated = cedar(data, index, 'PUT', path, body, `lifecycle ${stage} draft PUT`, { 'If-Match': revision });
+  return accepted(updated, [200], `lifecycle ${stage} draft PUT succeeds`);
+}
+
+// A template's life in one folder: created, filled in twice, published, drafted, edited, published
+// and drafted again, copied, and removed with everything else by one recursive deletion. Every step
+// after the first publication works on a version chain, which no other profile builds. The folder
+// sits under the participant's stamped root, so cleanup finds whatever an interrupted iteration left.
+export function lifecycle(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  const label = `${manifest.prefix} lifecycle ${manifest.runId} ${__VU}-${__ITER}`;
+  const description = `${manifest.prefix} bounded lifecycle fixture for ${manifest.runId}`;
+
+  const folder = cedar(data, index, 'POST', '/folders',
+      { folderId: actor.rootFolderId, name: label, description }, 'lifecycle folder POST');
+  if (!accepted(folder, [201], 'lifecycle folder POST succeeds')) return;
+  const folderId = folder.json()?.['@id'];
+  const inFolder = `folder_id=${encodeURIComponent(folderId)}`;
+
+  const templateBody = churnBody('template', actor);
+  templateBody['schema:name'] = `${label} template`;
+  const created = cedar(data, index, 'POST', `/templates?${inFolder}`, templateBody, 'lifecycle template POST');
+  if (!accepted(created, [201], 'lifecycle template POST succeeds')) return;
+  const firstId = created.json()?.['@id'];
+
+  for (let number = 1; number <= 2; number++) {
+    const instanceBody = churnBody('instance', actor);
+    instanceBody['schema:isBasedOn'] = firstId;
+    instanceBody['schema:name'] = `${label} instance ${number}`;
+    const instance = cedar(data, index, 'POST', `/template-instances?${inFolder}`, instanceBody,
+        'lifecycle instance POST');
+    if (!accepted(instance, [201], 'lifecycle instance POST succeeds')) return;
+  }
+
+  if (!lifecycleCommand(data, index, 'publish-artifact', { '@id': firstId, newVersion: '1.0.0' },
+      'lifecycle first publish', [200])) return;
+  const firstDraft = lifecycleCommand(data, index, 'create-draft-artifact',
+      { '@id': firstId, folderId, newVersion: '1.1.0', propagateSharing: false }, 'lifecycle first draft', [201]);
+  const secondId = firstDraft?.json()?.['@id'];
+  if (!secondId || !lifecycleDraftUpdate(data, index, secondId, 'first')) return;
+
+  if (!lifecycleCommand(data, index, 'publish-artifact', { '@id': secondId, newVersion: '1.1.0' },
+      'lifecycle second publish', [200])) return;
+  const secondDraft = lifecycleCommand(data, index, 'create-draft-artifact',
+      { '@id': secondId, folderId, newVersion: '1.2.0', propagateSharing: false }, 'lifecycle second draft', [201]);
+  const thirdId = secondDraft?.json()?.['@id'];
+  if (!thirdId || !lifecycleDraftUpdate(data, index, thirdId, 'second')) return;
+
+  const versions = cedar(data, index, 'GET', `/templates/${encodeURIComponent(thirdId)}/versions`, undefined,
+      'lifecycle versions GET');
+  let complete = accepted(versions, [200], 'lifecycle versions GET succeeds')
+      && invariant(versions, 'lifecycle versions GET lists the three versions, newest first', result => {
+        const listing = result.json();
+        return listing?.totalCount === 3 && listing.resources?.[0]?.['@id'] === thirdId;
+      });
+
+  const copy = lifecycleCommand(data, index, 'copy-artifact-to-folder',
+      { '@id': thirdId, targetFolderId: folderId, nameTemplate: `${label} copy` }, 'lifecycle copy', [201]);
+  complete = Boolean(copy) && complete;
+
+  const deletionPath = `/folders/${encodeURIComponent(folderId)}/deletion`;
+  const plan = cedar(data, index, 'GET', deletionPath, undefined, 'lifecycle deletion inventory GET');
+  if (!accepted(plan, [200], 'lifecycle deletion inventory GET succeeds')) return;
+  const inventory = plan.json();
+  complete = invariant(plan, 'lifecycle deletion inventory GET counts everything the iteration made', () =>
+      inventory?.allowed === true && inventory.counts?.folder === 1
+      && inventory.counts?.template === (copy ? 4 : 3) && inventory.counts?.instance === 2) && complete;
+  const deleted = cedar(data, index, 'POST', deletionPath, { token: inventory?.token },
+      'lifecycle recursive deletion');
+  if (!accepted(deleted, [200], 'lifecycle recursive deletion succeeds')) return;
+  complete = invariant(deleted, 'lifecycle recursive deletion completes with nothing remaining',
+      result => result.json()?.status === 'completed' && result.json()?.remaining === 0) && complete;
+  const absent = cedar(data, index, 'GET', `/folders/${encodeURIComponent(folderId)}`, undefined,
+      'lifecycle deletion verification', {}, resource, [404]);
+  complete = accepted(absent, [404], 'lifecycle recursive deletion is durable') && complete;
+  if (complete) lifecycleCompleted.add(1);
 }
 
 export function handleSummary(data) {
