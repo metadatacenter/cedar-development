@@ -1467,3 +1467,33 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when the cost of a save's term checks is measured for served and unserved sources, and the
   save has a stated bound that does not depend on BioPortal answering.
+
+- **25. Settle four open dependency questions.** Each is a decision to take rather than a change
+  to make, and none is urgent.
+
+  - **Which JAX-RS implementation a server's static helpers use.** Every server carries Jersey for
+    its own resources and RESTEasy for the Keycloak admin client. Both register a
+    `jakarta.ws.rs.ext.RuntimeDelegate`, the class behind `Response`, `UriBuilder` and `Link`, and
+    the first registration on the classpath answers unless one is set in code. Maven's resolved
+    order puts RESTEasy's first in the artifact, messaging, resource and terminology servers and
+    Jersey's first in the other seven. No server states which it means, so the answer follows
+    from the order of dependency declarations. Establish which delegate each running server uses
+    and whether RESTEasy sets itself when the admin client is first built. Then decide whether the
+    servers name Jersey's at startup or the build checks the order.
+  - **One version for the Metrics artifacts.** `cedar-parent` manages `metrics-annotation` and
+    `metrics-healthchecks` at 4.2.40. The ten other Metrics artifacts resolve the 4.2.39 that
+    Dropwizard 5.0.2 names, so every server runs two releases of one family. Either manage the
+    family through `metrics-bom` or hold the two at Dropwizard's version.
+  - **Whether `cedar-parent` manages the 25 artifacts that modules import and it gives no version.**
+    Thirteen resolve at the version of an artifact the parent already manages under one property,
+    so an entry for each adds no version to maintain: the MongoDB driver core and BSON, four
+    OpenSearch artifacts, `dropwizard-util`, `resteasy-client-api`, `lucene-join`, `mariaDB4j-core`,
+    `hk2-api` and two Neo4j artifacts that come with the test harness. The other twelve take their
+    version from an owner's POM, and an entry would be a pin that has to follow it.
+  - **What to do with the 132 imports whose declaration would change jar order.** Declaring one
+    moves two jars that share a class, a resource or a package past each other on some runtime
+    classpath, or changes a resolved version. The runbook's dependency section describes the
+    conditions. Either leave them undeclared for good or reorder the declarations around them
+    module by module, with the same check.
+
+  Done when each question has an answer recorded here or in the runbook.

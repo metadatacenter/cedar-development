@@ -5389,18 +5389,26 @@ transitively, so the jar would leave the runtime classpath and the shaded jar. C
 module's `dependency:tree` before and after the change, which shows whether a removal took
 anything off another module's classpath. Then run the full build, a redeploy and the e2e smoke.
 
-The same goal lists the artifacts a module's classes use and its POM does not declare, 465 of them
-across 45 modules on 2026-11-10. Do not clear that list by declaring them. A direct declaration
-moves the artifact, and everything beneath it, to a new place in the classpath order of every
-module that consumes it. The first jar on a classpath or in a shaded jar wins a class two jars
-share, and supplies the first provider of a service two jars register. A trial that day declared
-the 319 whose versions `cedar-parent` already manages. It left every resolved set unchanged and
-changed the runtime order in 38 modules, 35 of them between jars that share a class or a service.
-In the bridge and repo servers it put RESTEasy's `jakarta.ws.rs.ext.RuntimeDelegate` ahead of
-Jersey's, and in three applications it changed the order of `org.jboss:jandex` and
-`io.smallrye:jandex`, which hold 115 classes of the same name. The trial was withdrawn. Declare an
-undeclared import one module at a time, and compare the order of each application's runtime
-classpath as well as its contents.
+The same goal lists the artifacts a module's classes use and its POM does not declare. Declaring
+one has a cost. A direct declaration moves the artifact, and everything beneath it, to a new place
+in the classpath order of every module that consumes it. The first jar on a classpath or in a
+shaded jar wins a class or a resource two jars share, and supplies the first provider of a service
+two jars register. On 2026-11-10 the list held 465 artifacts across 45 modules. A first trial
+declared the 319 whose versions `cedar-parent` already manages, at the end of each POM. It left
+every resolved set unchanged and changed the runtime order in 38 modules, 35 of them between jars
+that share a class or a service. In the bridge and repo servers it put RESTEasy's
+`jakarta.ws.rs.ext.RuntimeDelegate` ahead of Jersey's, and in three applications it changed the
+order of `org.jboss:jandex` and `io.smallrye:jandex`, which hold 115 classes of the same name. It
+was withdrawn.
+
+The declarations that stand met two conditions on every module's runtime classpath. No resolved
+version or scope changed. Every pair of jars that hold an entry of the same name, or classes in the
+same package, kept its relative order. Each declaration sits directly after the dependency that
+already brought the artifact, which moves it least. 187 of the 319 met both conditions. Of the 278
+artifacts still undeclared, 132 would change such an order or a version, 65 are JUnit artifacts that
+arrive through the `junit-jupiter` aggregator, 51 have no version in `cedar-parent`, 22 are in the
+MCP servers and the Keycloak provider, and 7 are Keycloak and Neo4j harness artifacts that another
+module declares with exclusions. Hold any new declaration to the same two conditions.
 
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.17-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
