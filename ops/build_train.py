@@ -733,17 +733,41 @@ def _captured_npm_policy(workspace: Path):
     return module
 
 
+def _captured_local_ci(workspace: Path) -> tuple[str, frozenset]:
+    """The commit status local CI posts, and the repositories whose CI it answers for.
+
+    Both come from the captured registry, as the gates on a workstation read them. A train captured
+    before the registry existed names no repository, so only GitHub Actions answers for it.
+    """
+    try:
+        registry = json.loads(
+            (workspace / "cedar-development" / "ops" / "local-ci.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "", frozenset()
+    if not isinstance(registry, dict) or not isinstance(registry.get("repositories"), dict):
+        return "", frozenset()
+    return str(registry.get("statusContext") or "cedar/local-ci"), frozenset(registry["repositories"])
+
+
 def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
         raise RuntimeError("GH_TOKEN is required for exact-source CI preflight")
     policy = policy or _captured_ci_policy(workspace)
+    local_ci_passed = getattr(policy, "local_ci_passed", None)
+    status_context, locally_covered = _captured_local_ci(workspace)
     def inspect_repository(item):
         repository, revision = item
         failures = []
         workflow_root = workspace / repository / ".github" / "workflows"
         if not workflow_root.is_dir() or not any(path.is_file() for path in workflow_root.iterdir()):
             print(f"CI advisory: {repository} has no workflow contract; train gates its outputs.")
+            return failures
+        # A passing local CI run answers as a green Actions run does. Its record stays on the
+        # machine that made it, so this runner reads the commit status that run posted.
+        if (local_ci_passed is not None and repository in locally_covered
+                and local_ci_passed(repository, revision, status_context)):
+            print(f"CI: {repository} {revision[:8]} passed local CI ({status_context} status)")
             return failures
         try:
             probe = policy.probe_exact_commit(
@@ -769,6 +793,13 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
                     f"{repository}: every CI run for {revision[:8]} was cancelled; rerun it" if ran
                     else f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
                 return failures
+            # Each workflow answers for itself: one whose every run was cancelled is not passed
+            # by another that finished beside it.
+            unanswered_workflows = getattr(policy, "unanswered_workflows", None)
+            if unanswered_workflows is not None:
+                failures.extend(
+                    f"{repository}: every {name} run for {revision[:8]} was cancelled; rerun it"
+                    for name in unanswered_workflows(ran))
         else:
             # A train captured before cedar-cli carried those filters keeps the rule it was
             # built with. The train workflow is the caller currently performing this check;

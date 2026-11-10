@@ -58,13 +58,16 @@ The dry run uses the real local dispatch gate, prints the dispatch command and a
 and changes nothing. The ID is not reserved; a real dispatch allocates again. It neither starts
 Actions nor publishes artifacts, changes client configuration or writes a manifest.
 
-Preflight runs two phases, collecting all findings within each. Fix local failures and rerun before
-remote checks become available:
+Preflight runs two phases and collects every finding within each:
 
 | Phase | Required checks |
 | --- | --- |
 | Local (seconds) | Maven/npm/27-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
 | Remote (roughly 90 seconds) | GitHub authentication and workflow; exact remote `develop` CI; cross-repository contracts covering their consumers; matching local/remote heads; idle train slot and unused ID; anonymous source access; passing smoke record for those heads; publication-target availability. |
+
+A rehearsal runs both phases whatever the first one finds. Clearing a remote finding can take
+minutes, a contract run or a smoke run for example, and that work can overlap the local repairs. A
+dispatch stops after a local refusal, because that refusal already decides it.
 
 The publication probe checks Nexus service/writable status, `cedar-maven-dev`, npm identity and
 Docker Registry v2 authentication. Credentials come from `BMIR_NEXUS_USERNAME` /
@@ -112,6 +115,17 @@ Local preflight also inspects npmrc key names once without reading values: an ob
 changes authentication semantics blocks, while harmless future-version author-setting warnings are
 reported once.
 
+Each workflow answers for itself. A workflow whose every run at the commit was cancelled holds
+the commit back until it is rerun, whatever another workflow concluded there.
+
+A commit passes the CI check on a green GitHub Actions run or on a passing
+[local CI](BACKEND-RUNBOOK.md#local-ci) run. The hosted preflight runs on GitHub's runner, which
+holds no workstation's records. It reads a local run from the `cedar/local-ci` commit status that
+the run posted. The dispatch preflight therefore refuses a commit whose only passing evidence is
+this workstation's record, because the runner would see neither a green run nor a status. A record
+made with `--no-status` is in that position wherever GitHub Actions is not green.
+`cedarcli ci status --post` publishes the status of each such record.
+
 The two repositories that own the release machinery are hard gates, too. `cedar-cli` must have a
 green `CI` run and `cedar-development` must have a green `Release tooling CI` run at their exact
 captured commits. The in-progress `Immutable development build train` workflow is deliberately
@@ -150,7 +164,8 @@ the captured design values. The CLI registry defines this order;
 The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
 and orchestration repository. Before it records train state or starts Maven, a hosted preflight
 validates every captured file and the complete cross-repository configuration, requires green CI
-for each exact source commit that defines a workflow, verifies every required build surface, and
+or a passing local CI status for each exact source commit that defines a workflow, verifies every
+required build surface, and
 requires `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
 `CEDAR_APPLICATION_VERSION` in the captured Docker defaults to equal the train's source snapshot.
 It authenticates to Nexus, proves writable status, and reads the `cedar-maven-dev` repository

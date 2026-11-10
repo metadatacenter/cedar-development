@@ -5012,7 +5012,9 @@ Actions between 4 September and 9 November 2026. `cedarcli ci run` therefore run
 push-to-`develop` workflows on the workstation, at an exact commit, and records the result. Every
 gate that waits for green CI accepts that record in place of a green GitHub run: `cedarcli check
 ci`, the train dispatch preflight, `cedarcli release plan|start`, the release's development
-verification and both CI stages of `cedarcli release npm`. Actions keeps running beside it. It
+verification and both CI stages of `cedarcli release npm`. The train's hosted preflight runs on
+GitHub's runner, where no record exists, and accepts the commit status the run posted. Actions
+keeps running beside it. It
 still publishes the snapshots and development packages, and its runs remain a second opinion and
 the checks on other people's pull requests.
 
@@ -5080,7 +5082,9 @@ names the commit and its tree, every other commit the jobs checked out, the tool
 fingerprint of the registry entry it ran under, and each job's steps, outcome and log digest. A
 record answers only under the registry entry it was made under, so a change to that entry needs a
 fresh run. The run also posts a commit status, `cedar/local-ci`, which a pull request shows and a
-gate on another machine reads in place of the record.
+gate on another machine reads in place of the record. A run made with `--no-status` posts none.
+`cedarcli ci status --post` publishes the status of each passing record that GitHub does not hold.
+A train needs it wherever GitHub Actions is not green at a commit that passed here.
 
 A gate that reads GitHub no longer takes GitHub's own failures for the code's. A run that concluded
 `startup_failure`, or `failure` without any of its jobs failing, never ran the code. `check ci` and
@@ -5093,6 +5097,7 @@ cedarcli ci run cedar-core-library                      # one repository at orig
 cedarcli ci run --all --jobs 3                          # every repository the registry names
 cedarcli ci run cedar-workspace --revision cedar-workspace=<commit>
 cedarcli ci status                                      # local CI's answer for each develop head
+cedarcli ci status --post                               # publish each passing record's commit status
 ```
 
 ### Snapshot Freshness
