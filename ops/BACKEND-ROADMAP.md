@@ -1372,31 +1372,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **21. Take a save to the lifecycle lock once.** Every artifact write in the installation
-  serializes on one Neo4j node, `CedarVersionLock`, and a save takes that lock three times: for its
-  graph mutation, to claim its projection job, and to remove the job. Each turn is its own
-  transaction and its own commit, about 7 ms on the workstation before the hand-off between
-  waiters. That caps the installation near 25 artifact writes a second however many callers there
-  are. The 50-user REST soak needs about 39, which is what it completed on 2026-09-26, so it queues:
-  on 2026-11-10 its conditional updates had a median of 1.5 s and a p95 of 3.7 s against a 1.5 s
-  limit, where September had 0.45 s and 0.85 s. Routes that do not take the lock were five to ten
-  times faster than in September in the same run.
-
-  The lock was added to a save so that a save could not overtake a projection in flight, and that
-  is now guaranteed by the claim and the generation on the job instead. Three changes are open, and
-  they combine. Let the mutation's own transaction claim the job it records, which removes the
-  claim's turn. Remove the lock from a save that changes no lifecycle field, which needs the restore
-  outbox's reliance on it settled first: the save reads its compensation record's decision and
-  removes the record in that transaction, and the restore relay decides the same record under the
-  lock. Remove finished jobs in batches from one transaction instead of one transaction for each
-  write. Publication, drafting and deletion keep the lock, because the successor check and the
-  series flags need it.
-
-  Done when the 50-user soak passes its write thresholds, the hot-set and contention profiles still
-  show exactly one winner for each race, and `ArtifactProjectionTransitionTest` and
-  `VersionProjectionServiceTest` pass unchanged in what they assert.
-
-- **22. Bound every graph transaction in time.** Nothing limits how long a graph transaction waits
+- **21. Bound every graph transaction in time.** Nothing limits how long a graph transaction waits
   for a lock: Neo4j's `db.lock.acquisition.timeout` and `db.transaction.timeout` are unset, and the
   driver's transactions carry no timeout. During the 50-user soak on 2026-11-10 one save's first
   statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for 24 minutes with no
@@ -1415,7 +1391,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when a lock wait that outlasts the limit fails its transaction in every environment, a
   retried save succeeds, and no request thread can wait on the graph without a deadline.
 
-- **23. Give the performance profiles a production-sized graph.** The workstation's graph holds
+- **22. Give the performance profiles a production-sized graph.** The workstation's graph holds
   143 artifacts, so every REST profile measures an almost empty store. A cost that grows with the
   data is invisible there: a label scan, a version-series traversal, a folder with tens of thousands
   of children, a search page drawn from 300,000 documents. Production holds about 150,000 schema
@@ -1426,7 +1402,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the profiles can run against a store of production size, and the runbook records which
   routes changed with the size of the store.
 
-- **24. Assert the modification-time filters in the REST smoke.** `/search`, `/search-deep` and
+- **23. Assert the modification-time filters in the REST smoke.** `/search`, `/search-deep` and
   `/folders/{id}/contents` accept `modified_after` and `modified_before`, and no REST suite sends
   either. The finding profile exercises a window under load and checks only that a page comes back.
   Add checks that an artifact modified inside the window is listed, one outside it is not, the lower
@@ -1435,7 +1411,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the search and pagination suites assert those results in each view that takes the
   bounds.
 
-- **25. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
+- **24. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
   server asks the terminology server about every distinct controlled-term value of a write, one
   request after another. Against a source the local store serves, a check takes a few milliseconds:
   at 10 users the authoring profile validates an instance holding three DOID terms in a median of

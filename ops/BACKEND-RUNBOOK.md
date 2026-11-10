@@ -858,6 +858,16 @@ current state, and leaves an artifact that is still moving to the relay. A write
 was deleted during the write removes the document it wrote. Every service that records mutations
 must run a build that increments the generation, so the services are upgraded together.
 
+Projections share their turns at the lock. Each turn is a transaction and a commit, and all of them
+queue on one node, so fifty writers that each claimed and removed a job alone waited for a hundred
+commits. The caller at the front takes the lock once, runs the claims and removals of every caller
+waiting by then in one transaction, up to 64 of them, and hands out the results after it commits.
+If that transaction fails, each caller's work runs in a transaction of its own, so one caller's
+failure stays its own. A caller waits two seconds for the one ahead of it and then takes a turn of
+its own, so a transaction stuck on the lock holds up one request, as it did before. Turns are
+shared within one resource-server process. A save's own graph mutation still takes the lock in a
+transaction of its own.
+
 Search replaces the document under its stable identifier without a delete-before-index gap, then
 removes legacy generated-ID copies. The durable path makes one index attempt per target instead of
 the interactive client's retry loop; a failed rebuild mirror also leaves the job pending.
@@ -4381,46 +4391,48 @@ makes the worker's acknowledgement fail, logs an error and marks the worker unhe
 A run of all thirteen profiles on 2026-11-10 gave the current figures. It was the first run since
 2026-09-26, and it found the soak failing. Each profile ran alone with its default shape and a
 named seed, held the local stack lock, and had the app-log queue emptied once a minute. The figures
-are from the build that carries the three changes described after the table.
+are from the build that carries the changes described after the table.
 
 | Profile | Seconds | Requests | Requests/s | HTTP p95 ms | p99 ms | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| permissions | 6 | 284 | 51.1 | 64.0 | 85.8 | Passed |
-| quick | 271 | 33,268 | 122.9 | 179.8 | 312.7 | Passed |
-| contention | 35 | 1,502 | 42.5 | 1,242.8 | 1,460.7 | Passed |
-| hotset | 602 | 121,042 | 201.2 | 468.9 | 1,094.9 | Passed |
-| churn | 301 | 3,015 | 10.0 | 169.9 | 188.3 | Passed |
-| burst | 107 | 2,126 | 19.9 | 154.4 | 187.4 | Passed; recovery p95 169.4 ms against a 267.8 ms limit |
-| resilience | 91 | 12,103 | 133.3 | 350.5 | 502.0 | Passed |
-| soak | 1,804 | 402,295 | 223.0 | 1,758.1 | 3,268.7 | Failed five write-route thresholds |
-| formats | 181 | 31,127 | 172.3 | 289.3 | 438.4 | Passed |
-| finding | 181 | 102,491 | 566.2 | 155.1 | 159.7 | Passed |
-| lifecycle | 183 | 3,070 | 16.8 | 734.7 | 886.3 | Passed |
-| authoring | 302 | 23,753 | 78.8 | 479.0 | 787.0 | Passed |
-| terminology | 187 | 19,618 | 104.8 | 585.1 | 1,859.4 | Passed |
+| permissions | 15 | 284 | 19.2 | 187.1 | 223.6 | Passed |
+| quick | 271 | 40,793 | 150.7 | 123.2 | 187.5 | Passed |
+| contention | 31 | 1,502 | 48.2 | 1,163.0 | 1,439.7 | Passed |
+| hotset | 602 | 155,168 | 257.8 | 282.9 | 1,042.5 | Passed |
+| churn | 301 | 3,015 | 10.0 | 177.7 | 198.4 | Passed |
+| burst | 107 | 2,116 | 19.8 | 165.8 | 205.8 | Passed; recovery p95 180.3 ms against a 267.2 ms limit |
+| resilience | 91 | 16,556 | 182.8 | 206.5 | 298.9 | Passed |
+| soak | 1,802 | 708,425 | 393.1 | 424.9 | 743.6 | Passed |
+| formats | 181 | 36,319 | 201.1 | 214.8 | 316.2 | Passed |
+| finding | 181 | 101,159 | 558.0 | 157.3 | 161.9 | Passed |
+| lifecycle | 183 | 3,070 | 16.8 | 824.4 | 1,069.1 | Passed |
+| authoring | 301 | 33,662 | 111.9 | 297.8 | 417.3 | Passed |
+| terminology | 185 | 21,590 | 116.6 | 524.4 | 1,622.2 | Passed |
 
 Every check passed in every profile, the upstream guard found no BioPortal request, and teardown
 left no residue. The first pass that night ran the September profiles against the build as it
 stood, and three findings came out of it and of the new profiles.
 
-**Writes that project queue on the lifecycle lock.** Against the 2026-09-26 soak, reads, listings,
-moves and ACL updates were five to ten times faster, at a p95 of 26 to 46 ms. Conditional artifact
-updates went the other way, from a median of 450 ms to 1,780 ms and a p95 of 850 ms to 5,200 ms,
-and the OpenView toggle from a p95 of 176 ms to 6,792 ms. The run completed 322,945 requests where
-September's completed 617,122. A projection held the lifecycle lock while it wrote the index
-document, and every graph mutation takes that lock first. Releasing the lock during those writes,
-as [After an Artifact Graph Update Commits](#after-an-artifact-graph-update-commits) now describes,
-brought the soak to the figures in the table: an update median of 1,610 ms and a p95 of 3,700 ms.
-Burst and quick recovered further. The peak-phase update p95 fell from 369–459 ms to 171–230 ms,
-below September's, and the quick profile's OpenView toggle from 616 ms to 312 ms. That toggle stays
-above September's 31 ms at any load, because since 2026-10-01 it reindexes the artifact before it
-answers.
+**Writes that project queue on the lifecycle lock.** The first pass completed 322,945 soak
+requests where the 2026-09-26 soak completed 617,122. Conditional artifact updates went from a
+median of 450 ms to 1,780 ms and a p95 of 850 ms to 5,200 ms, and the OpenView toggle from a p95 of
+176 ms to 6,792 ms. A projection held the lifecycle lock while it wrote the index document, and
+every graph mutation takes that lock first. Two changes followed, and
+[After an Artifact Graph Update Commits](#after-an-artifact-graph-update-commits) describes both.
+Releasing the lock during the downstream writes brought the soak to 402,295 requests with an update
+median of 1,610 ms and a p95 of 3,700 ms, which still failed five write-route thresholds. A save
+then took the lock three times, each turn a commit of its own, and that capped the installation
+near 25 artifact writes a second. Sharing the projections' turns at the lock removed the cap. The
+soak in the table has an update median of 400 ms and a p95 of 830 to 882 ms, level with
+September's 816 to 857 ms, at 15% more requests.
 
-The soak still fails because a save takes the lock three times, for its mutation, its claim and
-the removal of its job, and each turn is a commit of its own on one node. That caps the
-installation near 25 artifact writes a second, which is what the soak measured, and fifty users
-whose reads take 20 ms ask for more. The open work is on the
-[backend roadmap](BACKEND-ROADMAP.md).
+Twenty-five of the soak's 38 timed routes have a lower p95 than in September. Folder listings fell
+from 485 ms to 219 ms and moves from 309 ms to 214 ms. The group routes rose from 52–108 ms to
+147–200 ms, and no route's p95 is below 147 ms at this load. The cause of that floor is not
+established. The OpenView toggle stays above September's at any load, because since 2026-10-01 it
+reindexes the artifact before it answers: its p95 is 837 ms in the soak against 176 ms, and 180 ms
+in the quick profile against 31 ms. The burst profile's peak-phase update p95 is 193 to 229 ms,
+below September's 222 to 276 ms.
 
 **The terminology server shared one connection to its search index.** The terminology profile is
 the first concurrent load that server has had. At sixteen users it answered 51 requests a second,
@@ -4438,7 +4450,8 @@ smoke had passed. [Write Authorization and Immutability](#write-authorization-an
 gives the cause and the fix.
 
 The app-log consumer drained 186 messages a second before it was batched and about 1,460 after.
-The soak still enqueued about 120,000 a minute, 3.6 million over the run.
+At 402,295 requests the soak enqueued about 120,000 a minute, 3.6 million over the run. The
+rate was not measured again at 708,425.
 
 During the soak on the first fixed build, one save waited on the lifecycle lock inside Neo4j for
 24 minutes with no other transaction open, and its request never returned. Terminating the
