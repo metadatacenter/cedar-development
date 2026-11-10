@@ -22,7 +22,11 @@ SOCKET_LITERAL = re.compile(
 )
 YAML_PORT = re.compile(r'^\s*(?:testPort|port):\s*(?P<port>\d+)\s*$', re.MULTILINE)
 HTTP_CONNECTOR = re.compile(r'^(?P<indent>\s*)-\s*type:\s*http\s*$', re.MULTILINE)
-INET_SOCKET_ADDRESS = re.compile(r'new\s+InetSocketAddress\((?P<args>[^\n;]+?)\)')
+# The arguments may hold one level of calls, as in InetAddress.getLoopbackAddress(), whose closing
+# parenthesis would otherwise end the match before the port.
+INET_SOCKET_ADDRESS = re.compile(
+    r'new\s+InetSocketAddress\((?P<args>(?:[^()\n;]|\([^()\n;]*\))+?)\)'
+)
 WILDCARD_SERVER_SOCKET = re.compile(r'new\s+ServerSocket\(\s*0\s*\)')
 ZERO_PORT = re.compile(r'(?:^|,)\s*0\s*$')
 
@@ -141,15 +145,23 @@ class BackendTestPortPolicyTest(unittest.TestCase):
 """
         java = """new ServerSocket(0);
 HttpServer.create(new InetSocketAddress(0), 0);
+HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
+HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+new ServerSocket(0, 0, InetAddress.getByName("127.0.0.1"));
 """
 
         self.assertEqual(
             [(3, "HTTP connector does not bind 127.0.0.1")],
             listener_violations(Path("test-config.yml"), yaml),
         )
-        messages = [message for _, message in listener_violations(Path("Test.java"), java)]
-        self.assertIn("port-0 ServerSocket uses the wildcard address", messages)
-        self.assertIn("port-0 InetSocketAddress does not bind 127.0.0.1", messages)
+        self.assertEqual(
+            [(1, "port-0 ServerSocket uses the wildcard address"),
+             (2, "port-0 InetSocketAddress does not bind 127.0.0.1"),
+             (3, "port-0 InetSocketAddress does not bind 127.0.0.1"),
+             (4, "port-0 ServerSocket does not bind 127.0.0.1")],
+            sorted(listener_violations(Path("Test.java"), java)),
+        )
 
 
 if __name__ == "__main__":
