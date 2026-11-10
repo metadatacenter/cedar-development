@@ -5391,6 +5391,25 @@ checks passed again without updating snapshots. The added CEE/CEF cases cover al
 three densities, empty and populated clocks, AM/PM sizes and inherited overrides.
 Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-clock/`.
 
+#### Expansion-panel body text (2026-11-10)
+
+CEE's expansion-panel bodies use the existing shared 21px body line. Nested field
+labels remain 14px; panel headings retain their 24px text line and 48px header
+height. Editable control dimensions are independent of this body line. The
+approved extra space is one pixel per inherited line: the small nested fixture
+grows by 3px, and the large nested page by 138px. In the narrow comfortable
+read-only case, wrapped specification boxes also grow by 2–4px and the large
+page grows by 230px. These are accepted presentation changes, not regressions
+to compensate with smaller margins or other token categories.
+
+CEE has 21 source allowances and the estate has 77. Build, lint, type checking
+and strict adoption passed. All 24 measured combinations of fixture, width,
+density and read-only state match the approved preview exactly. The full
+browser/visual run passed 1,614 checks with six expected nested-form screenshot
+differences and 104 existing skips. The six reviewed baselines were refreshed;
+all six checks then passed again without snapshot updates. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cee-panels/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance

@@ -484,11 +484,12 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **CEE expansion-panel text and adapter details.** Its 20px expansion-panel lines,
-  26px occurrence chips and paginator geometry differ from the ordinary shared roles.
-  Substituting a 21px body line or 28px rows changes presentation. Preserve these values until
-  their individual design decisions; Material inputs belong in CEE's adapter, not in the
-  framework-neutral token package.
+- **CEE occurrence chips and pagination.** Its 26px occurrence chips and paginator
+  geometry differ from the ordinary shared roles. Review the occurrence index, template
+  page navigation, actions and their alignment as distinct roles before changing sizes.
+  Review the inherited Material 20px label line against the shared 18px secondary and
+  21px body lines. Preserve these values until their individual design decisions;
+  Material inputs belong in CEE's adapter, not in the framework-neutral token package.
 - **CETP actions and text rhythm.** Decide whether the constraint action's 22px height should
   grow to the 24px target minimum or a shared control density, and whether its detail text's
   1.35 line height should change. Review the row as a whole at narrow widths and with host
