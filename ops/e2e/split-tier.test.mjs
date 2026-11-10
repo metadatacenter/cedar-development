@@ -1,6 +1,6 @@
 import {test, before, after} from "node:test";
 import assert from "node:assert/strict";
-import {spawn} from "node:child_process";
+import {spawn, spawnSync} from "node:child_process";
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
@@ -161,13 +161,26 @@ function sweeper() {
   return {calls, sweep};
 }
 
+// A killed process remains a zombie until its parent, or the init process that adopts an orphan,
+// reaps it, and signal 0 still reaches a zombie. Under load the reaping can trail the kill, so a
+// process counts as stopped once it is gone or a zombie, and the test waits a bounded time for that.
 const alive = pid => {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
   }
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {encoding: "utf8"}).stdout.trim();
+  return state !== "" && !state.startsWith("Z");
+};
+
+const stopped = async (pid, waitMs = 5000) => {
+  const until = Date.now() + waitMs;
+  while (alive(pid)) {
+    if (Date.now() > until) return false;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  return true;
 };
 
 test("the lanes share the queue: every unit runs once, identity units only on the identity lane and never two at once", async () => {
@@ -247,7 +260,7 @@ test("a journey past its deadline is killed with its browser and swept, and the 
     ["b-pass-300", "c-pass-200", "d-pass-150", "e-pass-100", "f-pass-50", "modern-workspace-chain"]);
   assert.deepEqual(report.notRun, []);
   const browser = Number(readFileSync(join(run.directory, "browser-a-hang.pid"), "utf8"));
-  assert.equal(alive(browser), false, "the hung journey's browser was killed with it");
+  assert.ok(await stopped(browser), "the hung journey's browser was killed with it");
   assert.equal(report.unitTimeout.capSeconds, 10);
 });
 
