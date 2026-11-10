@@ -5410,6 +5410,26 @@ differences and 104 existing skips. The six reviewed baselines were refreshed;
 all six checks then passed again without snapshot updates. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-panels/`.
 
+#### CEE chip and pagination label contract (2026-11-10)
+
+Occurrence chips retain their 26px height and 12px type, with their label line
+moving from Material's 20px to the shared compact 18px line. Template page chips
+retain their 32px height and 14px type, with a shared body line of 21px instead of
+20px. Occurrence-range text uses the shared 18px line instead of 20px. The 32px
+occurrence actions, pagination bars, arrow sizes and responsive alignment keep
+their existing geometry. Component geometry stays explicitly owned by CEE; it
+does not borrow row, icon or control tokens solely because a number matches.
+
+The full browser/visual gate passed 1,624 checks with 104 existing skips and no
+baseline changes. All 18 measured combinations of pager kind, width and density
+match the approved preview exactly. Checks cover read-only and editable paging,
+including selecting an occurrence on the second page. Build, lint, type checking
+and strict token adoption pass. The source allowance counts remain 21 for CEE
+and 77 estate-wide: this decision overrides previously implicit Material text
+defaults and explicitly retains the component sizes. CEE's pending token design
+review is closed; its retained geometry remains visible in the adoption baseline.
+Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-chips/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
