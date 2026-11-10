@@ -5569,6 +5569,22 @@ change. Two source allowances were removed, leaving 21 in Monitoring and 66
 estate-wide. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/toast/`.
 
+#### Monitoring informational emphasis (2026-11-10)
+
+`monitoring.state-opacity` owns five independent roles: active filter removal
+(0.55), unreachable services (0.6), unavailable build data (0.6), empty values
+(0.6), and count notes (0.75). Each has its own optional override; none borrows
+disabled-control opacity. Filter removal remains enabled and reaches full opacity
+on hover. Ordinary, populated, empty and unavailable views keep their presentation.
+
+All measurements and 22 state screenshots at 1440px and 375px are identical to
+the pre-change build. The 157 central tests, 42 surface checks, three role checks,
+build and strict adoption pass. The log stylesheet remains within its unchanged
+10 kB error budget. The published package is followed by all nine development
+pins. Five source allowances were removed, leaving 16 in Monitoring and 61
+estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/emphasis/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance

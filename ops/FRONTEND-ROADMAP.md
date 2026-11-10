@@ -484,9 +484,6 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **Monitoring row emphasis.** Review the 0.55/0.6/0.75 opacity values before normalization.
-  Absent or empty rows must not borrow disabled-control opacity. Review fresh, ordinary,
-  empty and populated screens separately.
 - **Monitoring text rhythm.** Review the remaining 1.3/1.45 line heights against the shared
   text roles, including wrapping and layout effects, before changing their presentation.
 
