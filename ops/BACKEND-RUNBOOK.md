@@ -4543,8 +4543,10 @@ Conditional updates had a median of 611 ms where the table's run had 400 ms, and
 as fast. Five three-minute soaks then alternated the limit on and off, with Neo4j restarted before
 each. Their update medians were 558, 498, 697, 1,198 and 1,226 ms in the order run, which was on,
 off, on, off, on. The runs slowed with time whatever the setting, while Spotlight's indexer used
-one to two cores. Before reading a write latency as a regression, measure on a machine that has
-finished its indexing after an update.
+one to two cores. A sixth run two hours later, with the indexer idle and the limit on, had a
+median of 493 ms at 500 requests a second, level with the fastest of the five. Before reading a
+write latency as a regression, measure on a machine that has finished its indexing after an
+update.
 
 A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
 the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
