@@ -5389,6 +5389,19 @@ transitively, so the jar would leave the runtime classpath and the shaded jar. C
 module's `dependency:tree` before and after the change, which shows whether a removal took
 anything off another module's classpath. Then run the full build, a redeploy and the e2e smoke.
 
+The same goal lists the artifacts a module's classes use and its POM does not declare, 465 of them
+across 45 modules on 2026-11-10. Do not clear that list by declaring them. A direct declaration
+moves the artifact, and everything beneath it, to a new place in the classpath order of every
+module that consumes it. The first jar on a classpath or in a shaded jar wins a class two jars
+share, and supplies the first provider of a service two jars register. A trial that day declared
+the 319 whose versions `cedar-parent` already manages. It left every resolved set unchanged and
+changed the runtime order in 38 modules, 35 of them between jars that share a class or a service.
+In the bridge and repo servers it put RESTEasy's `jakarta.ws.rs.ext.RuntimeDelegate` ahead of
+Jersey's, and in three applications it changed the order of `org.jboss:jandex` and
+`io.smallrye:jandex`, which hold 115 classes of the same name. The trial was withdrawn. Declare an
+undeclared import one module at a time, and compare the order of each application's runtime
+classpath as well as its contents.
+
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.17-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
 names 1.18.8-jdk5. The managed pair is intentional, so that both share one version. Keep the core and

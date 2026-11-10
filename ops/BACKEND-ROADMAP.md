@@ -895,6 +895,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     changed formula-cell formatting defaults need the Excel and TSV renderers checked against
     representative workbooks before the major moves.
 
+  - **jsonld-java 0.13.6, to be removed from the validation library.** Its newest release dates
+    from November 2023. CEDAR's own code uses one type from it. `JsonLdDocument.asRdf()` in
+    `cedar-model-validation-library` converts through Titanium JSON-LD and reports a failure as
+    jsonld-java's `JsonLdError`, which the artifact and resource servers catch. Replacing that
+    exception changes the signature of a public method in a published library. It also lets the
+    library drop jsonld-java and the HttpClient 4 and caching declarations that exist for it.
+    OWLAPI still brings jsonld-java into the terminology ingest, so the parent's entry stays until
+    OWLAPI moves.
+  - **`org.glassfish:jakarta.json` 2.0.1 to Eclipse Parsson.** That artifact's last release was in
+    March 2021, and the implementation continued as `org.eclipse.parsson:parsson`, now at 1.1.9.
+    Titanium JSON-LD reads and writes through it in `RdfConverter`, so the swap is settled by
+    comparing the RDF the two providers produce for stored instances.
+
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
   9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
