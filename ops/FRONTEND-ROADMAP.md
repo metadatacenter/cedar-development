@@ -474,19 +474,3 @@ that the fallback preserves work while the rejected write remains blocked.
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
 - Characterize backend and authentication variability in the hosted CI 17-scenario
   full-stack sweep before considering timing enforcement. Exclude legacy applications.
-
-## Shared Design Values
-
-### 12. Decide the Remaining Token Deviations Before Changing Their Presentation
-
-Keep component layout and runtime state separate from design vocabulary. Logo proportions,
-chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar percentages
-must not borrow control, spacing or icon roles merely because their numbers match. The
-[token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
-
-- **Monitoring text rhythm.** Review the remaining 1.3/1.45 line heights against the shared
-  text roles, including wrapping and layout effects, before changing their presentation.
-
-For any approved change, define its semantic ownership, verify supported host overrides,
-review before/after images, and remove only the allowances that the implementation resolves.
-Do not change screenshot baselines to authorize a design retrospectively.

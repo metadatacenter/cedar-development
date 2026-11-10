@@ -5301,7 +5301,16 @@ No application source, token values, dependency pins or baselines changed.
 
 #### Token debt review (2026-11-10)
 
-The appearance-preserving cleanup reduces source allowances from 103 to 81. It
+The incremental review is complete: all 13 presentation decisions are implemented.
+The strict gate retains 59 reviewed source allowances: CEE/CEF 21, CED/CEFD 2,
+CETP 3, Workspace 13, OpenView 5, Monitoring 14 and Bridging 1; the Template
+Designer host and MCP session page have none. These retain approved component
+sizes, layout/brand/chart geometry, local stacking and CED's runtime-resized
+sections. They must not borrow unrelated roles simply to reduce the count.
+The seven rendered-color allowances identify approved host-derived or opt-in
+Monitoring colors. The global vocabulary remains 54 CSS tokens.
+
+The first appearance-preserving cleanup reduced source allowances from 103 to 81. It
 uses focus recipes for focused segmented controls, a dashed variant of the selection
 outline for eligible drop targets, shared default-control sizing and compact padding,
 and an occurrence-action size derived from that action's existing icon and inset.
@@ -5321,13 +5330,13 @@ reassigned to a different semantic category, and the 54-token vocabulary is unch
 | Bridging | 1 | 1 |
 | Template Designer host and MCP session page | 0 | 0 |
 
-The remaining 81 findings have an explicit disposition: 32 need a presentation
+That first pass left 81 findings with an explicit disposition: 32 needed a presentation
 decision before substitution; 47 are component layout, content/brand geometry,
 alignment or local stacking with no matching shared role; and two are CED's
 runtime-resized library sections. These are review categories, not new baseline
-exemptions. The seven rendered-color allowances remain unchanged. The concrete
-design choices are in the frontend roadmap's shared-design-values item; local
-geometry must not be disguised as a control, spacing or icon role to reduce a count.
+exemptions. The seven rendered-color allowances remain unchanged. The approved
+presentation contracts are recorded below; local geometry must not be disguised
+as a control, spacing or icon role to reduce a count.
 
 Compiling the 28 stylesheets containing recorded source debt and the affected
 property-tree stylesheet produces identical compressed CSS in 27 of the 29.
@@ -5584,6 +5593,25 @@ build and strict adoption pass. The log stylesheet remains within its unchanged
 pins. Five source allowances were removed, leaving 16 in Monitoring and 61
 estate-wide. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/emphasis/`.
+
+#### Monitoring shared text lines (2026-11-10)
+
+Environment matrix cells use the shared body ratio: their 14px text has a 21px
+line instead of 18.2px. Drift-tooltip prose uses the shared small-text ratio:
+12px text has an 18px line instead of 17.4px. Both ratios follow inherited font
+size. Text, font sizes, widths, wrapping and horizontal scrolling are preserved.
+At both 1440px and 375px, the sample matrix grows from 446.5px to 455.5px and the
+tooltip from 77.5625px to 80px. The 18 unaffected state screenshots are identical.
+
+All 213 Monitoring browser checks pass against the published token package
+`0.1.0-dev.20261110.a17fffab`, along with the 157 central tests, build and strict
+estate adoption. The package's existing compiled stylesheets, icons, fonts and
+other assets are unchanged; only its manifest, README and new opt-in Monitoring
+module differ from the preceding Workspace package. All nine consumer pins are
+pushed. No visual baseline was changed or runtime deployed. Two resolved source
+allowances were removed, leaving 14 in Monitoring and 59 estate-wide. No design
+decision remains from this review. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/text/`.
 
 <a id="accessibility-conformance"></a>
 
