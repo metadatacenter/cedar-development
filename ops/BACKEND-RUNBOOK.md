@@ -5036,18 +5036,44 @@ records extra environment, what a job requires (Docker), which jobs exclude one 
 cleanup that an ephemeral runner would not need. A repository or job the file does not name is one
 GitHub still answers for.
 
-Four of the repositories a train captures have no entry yet. The model library's browser job runs in
-a job container. `cedar-cli` and `cedar-development` test Ubuntu legs beside their macOS ones, and
-running those legs on macOS would prove nothing about Linux. `cedar-docker-build` builds every image,
-and the workstation would build them for arm64 rather than for the x86_64 of its GitHub runner.
+A leg that GitHub runs on Linux can run in a Linux container here. A job that names a `container:`
+runs in that image, as on GitHub. Any other leg on an Ubuntu runner runs in local CI's runner image,
+which the workstation builds from `cedar-cli/assets/local-ci/runner.Dockerfile` for the Ubuntu
+release the runner label names. Like GitHub's runner image, it carries a tool cache holding Java 17,
+Node 24.22.1 and Python 3.10 and 3.12, along with Maven, Git, the GitHub CLI, `lsof`, a C toolchain
+and a `runner` user with passwordless sudo. A leg reaches a container only when the registry's
+`linux` entry for its job says why an arm64 container answers for GitHub's runner, which for
+`ubuntu-latest` is an x86_64 virtual machine. Without that entry, a job's Ubuntu legs run on macOS,
+as the Maven and npm jobs do, and a job container leaves the job to GitHub. A container also gives a
+job ports of its own, as a separate runner would: CED's integration job and its test job both serve
+on port 4598.
+
+A container keeps its workspace and temporary directory at GitHub's paths on its own file system. A
+directory mounted from macOS would differ in case sensitivity, in path length and in how a few
+system calls behave. Only the files a step writes its outputs and environment to are mounted from
+the workstation. Checkout and the artifact actions run on the workstation and copy what they produce
+into the container or out of it, and each step runs as one `docker exec`. The record names the image
+and its identifier for every leg that ran in one. A macOS leg that asks setup-python for a version
+Homebrew lacks uses the interpreters uv manages, which `uv python install 3.10 3.12` adds.
+
+`cedar-docker-build` is the one repository a train captures that has no entry. It builds every
+image, and the workstation would build them for arm64 rather than for the x86_64 of its GitHub
+runner. A container that an interrupted run leaves behind carries the label
+`org.metadatacenter.local-ci`. This command removes every such container:
+
+```bash
+docker rm -f $(docker ps -aq --filter label=org.metadatacenter.local-ci)
+```
 
 `cedarcli ci coverage` is the file's drift check. A job is covered only when every step, action,
 expression and secret in it is one local CI runs exactly as GitHub would, or one the registry skips
-or substitutes. A workflow change that adds a step that publishes, an action local CI does not
-implement, a secret it does not hold, a job container or a service leaves that job, and with it the
-repository, to GitHub. The command exits non-zero when a repository the registry names has drifted
-that way. A job the registry itself declares uncovered is reported with its reason, for example
-CED's Linux WebKit job and `cedar-parent`'s OSV audit, which runs on pushes that change a POM.
+or substitutes. A step whose condition reads only the leg's matrix and runner, and is false for that
+leg, never runs on it and is not counted. A workflow change that adds a step that publishes, an
+action local CI does not implement, a secret it does not hold, a service, or a job container the
+registry has no `linux` entry for leaves that job, and with it the repository, to GitHub. The
+command exits non-zero when a repository the registry names has drifted that way. A job the
+registry itself declares uncovered is reported with its reason, for example `cedar-parent`'s OSV
+audit, which runs on pushes that change a POM.
 
 Each run writes its record to `~/.cedar/local-ci/evidence/<repository>/<commit>.json`. The record
 names the commit and its tree, every other commit the jobs checked out, the toolchain, the

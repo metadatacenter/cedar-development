@@ -80,6 +80,13 @@
         }
       }
     },
+    "cedar-cli": {
+      "jobs": {
+        "ci.yml:test": {
+          "linux": "the Ubuntu legs test what differs on Linux: GNU tools, a noexec tmpfs and Git 2.34.1 built from source; none of it depends on the processor, so arm64 Ubuntu answers for GitHub's x86_64 runner"
+        }
+      }
+    },
     "cedar-clients": {
       "jobs": {
         "ci.yml:test": {
@@ -122,6 +129,16 @@
         "token-readers.yml:readers": {}
       }
     },
+    "cedar-development": {
+      "jobs": {
+        "release-tooling-ci.yml:test": {
+          "linux": "the Ubuntu leg tests the controllers under GNU tools and Linux Chromium; none of it depends on the processor, so arm64 Ubuntu answers for GitHub's x86_64 runner"
+        },
+        "release-tooling-ci.yml:conversion-audit": {
+          "linux": "the audit writes Maven settings into its home directory, which only a container keeps apart from this machine's; its Java and TypeScript libraries behave the same on arm64"
+        }
+      }
+    },
     "cedar-docker-deploy": {
       "jobs": {
         "ci.yml:validate": {
@@ -140,9 +157,11 @@
           ]
         },
         "test.yml:performance": {},
-        "test.yml:cef-integration": {},
+        "test.yml:cef-integration": {
+          "linux": "runs on arm64 Ubuntu 24.04, the runner GitHub gives the job, and a container of its own keeps its Playwright server's port apart from the test job's, as separate runners do"
+        },
         "test.yml:webkit-interactions": {
-          "uncovered": "runs Playwright's Linux WebKit, which differs from the macOS build; local CI does not run jobs in a Linux container yet"
+          "linux": "runs Playwright's Linux WebKit on arm64 Ubuntu 24.04, the runner GitHub gives the job"
         }
       }
     },
@@ -222,6 +241,17 @@
       "jobs": {
         "ci.yml:test": {
           "profile": "maven"
+        }
+      }
+    },
+    "cedar-model-typescript-library": {
+      "jobs": {
+        "test.yml:test": {},
+        "test.yml:browser": {
+          "linux": "the browser conformance tests exercise each engine's JavaScript regular expressions, which behave the same in the arm64 build of Playwright's image as in the x86_64 build GitHub runs"
+        },
+        "test.yml:publish-dev": {
+          "omit": "publication, not verification: Actions publishes the development package after a push to develop"
         }
       }
     },
