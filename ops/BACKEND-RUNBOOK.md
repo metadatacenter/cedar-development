@@ -4548,6 +4548,13 @@ median of 493 ms at 500 requests a second, level with the fastest of the five. B
 write latency as a regression, measure on a machine that has finished its indexing after an
 update.
 
+A load run also writes gigabytes that Spotlight then indexes: the logs alone were 7.8 GB after
+that night. The workstation has excluded the stack's data from Spotlight since, under System
+Settings, Spotlight, Search Privacy: `$CEDAR_HOME/log`, `$CEDAR_HOME/neo4j`,
+`$CEDAR_HOME/cedar-term`, `$CEDAR_HOME/cedar-development/ops/e2e/reports` and `/opt/homebrew/var`,
+which holds the Mongo, MySQL and OpenSearch data. A workstation used for load runs wants the same
+exclusions. The source repositories stay indexed.
+
 A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
 the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
 far more efficiently. Use a six-to-eight-hour soak when investigating a suspected slow heap,
