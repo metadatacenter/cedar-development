@@ -667,12 +667,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   be the second shedding mechanism rather than the first, so it has to say whether the existing one
   stays. That one sheds whichever message happens to find the pool full, which is no policy at all.
 
-  Three things hold the drain rate down, and they compound. Each message is its own `@UnitOfWork`,
-  so one HTTP request costs several transactions rather than one. Every subtype after the first reads
-  the row back by `localRequestId` before merging into it, so most of those transactions carry a
+  Two things hold the drain rate down, and they compound. The consumer writes a claimed batch of up
+  to 200 messages in one transaction, but it still issues each message's statements one by one: a
+  receipt upsert and its row lock, then the request or Cypher row. Every request subtype after the
+  first also reads the row back by `localRequestId` before merging into it, so most messages carry a
   lookup as well as a write. The table then carries seventeen declared secondary indexes, each
   maintained on every insert, on a table too large to keep them cached. That count rose by three when
-  aggregation landed, so the write cost is growing rather than holding.
+  aggregation landed, so the write cost is growing rather than holding. On the native stack the
+  batched consumer drains about 1,460 messages a second, and the 50-user soak enqueues about 2,000.
+  Production pays about 7 ms for each statement, so there the statements dominate and the shared
+  commit saves little.
 
   The message count is larger than the usual request-filter START, request-handler and request-filter
   END triplet. `AbstractNeo4JProxy` also emits a `CYPHER_QUERY` message for every graph query. The
@@ -690,11 +694,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     Count and expose every shed message. All five durable queues share this Redis, so do not use an
     `allkeys-*` eviction policy that can evict security-sensitive permission work; a host-level limit,
     if added as a final guard, needs a deliberate `noeviction`/isolation decision and enough headroom.
-  - One transaction per bounded batch rather than per message. Group messages by `localRequestId`,
-    carry a START record forward inside the batch, fetch all cross-batch request ids in one query, and
-    write each request row once. Preserve the existing claim/processing/ack protocol: acknowledge only
-    after commit, make replay after a commit-before-ack crash idempotent, and isolate a poison message
-    without ambiguously replaying an already committed batch.
+  - Fewer statements per batch. Group a batch's messages by `localRequestId`, carry a START record
+    forward inside the batch, fetch all cross-batch request ids in one query, and write each request
+    row once. Keep the batch all or nothing with its single-message fallback, so a poison message is
+    still isolated and a batch that committed before its acknowledgement replays as no-ops.
   - Establish a bounded replay horizon and receipt-retention policy before expiring durable log
     receipts. Inventory and reconcile pre-upgrade rollup discrepancies before enabling raw pruning;
     a missing receipt cannot prove whether an old message's database write already committed.
@@ -1368,3 +1371,85 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   answered or explicitly abandoned for its tail, no constraint lacks a `sourceSystem` the sweep could
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
+
+- **21. Take a save to the lifecycle lock once.** Every artifact write in the installation
+  serializes on one Neo4j node, `CedarVersionLock`, and a save takes that lock three times: for its
+  graph mutation, to claim its projection job, and to remove the job. Each turn is its own
+  transaction and its own commit, about 7 ms on the workstation before the hand-off between
+  waiters. That caps the installation near 25 artifact writes a second however many callers there
+  are. The 50-user REST soak needs about 39, which is what it completed on 2026-09-26, so it queues:
+  on 2026-11-10 its conditional updates had a median of 1.5 s and a p95 of 3.7 s against a 1.5 s
+  limit, where September had 0.45 s and 0.85 s. Routes that do not take the lock were five to ten
+  times faster than in September in the same run.
+
+  The lock was added to a save so that a save could not overtake a projection in flight, and that
+  is now guaranteed by the claim and the generation on the job instead. Three changes are open, and
+  they combine. Let the mutation's own transaction claim the job it records, which removes the
+  claim's turn. Remove the lock from a save that changes no lifecycle field, which needs the restore
+  outbox's reliance on it settled first: the save reads its compensation record's decision and
+  removes the record in that transaction, and the restore relay decides the same record under the
+  lock. Remove finished jobs in batches from one transaction instead of one transaction for each
+  write. Publication, drafting and deletion keep the lock, because the successor check and the
+  series flags need it.
+
+  Done when the 50-user soak passes its write thresholds, the hot-set and contention profiles still
+  show exactly one winner for each race, and `ArtifactProjectionTransitionTest` and
+  `VersionProjectionServiceTest` pass unchanged in what they assert.
+
+- **22. Bound every graph transaction in time.** Nothing limits how long a graph transaction waits
+  for a lock: Neo4j's `db.lock.acquisition.timeout` and `db.transaction.timeout` are unset, and the
+  driver's transactions carry no timeout. During the 50-user soak on 2026-11-10 one save's first
+  statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for 24 minutes with no
+  other transaction open. Its request thread in the resource server never returned.
+  `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until the process
+  was killed. The thread dumps are in `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`.
+  Whether Neo4j 5.26.0 has a defect that fifty writers on one node expose is not established. One
+  stuck wait costs a request thread for the life of the process either way.
+
+  Set `db.lock.acquisition.timeout` in every environment's Neo4j configuration. A wait that exceeds
+  it fails as a transient error, which the driver's managed transactions retry, so the request
+  completes late instead of never. Decide whether the driver should also carry a transaction
+  timeout, and if so which graph operations legitimately run long: a recursive deletion, an index
+  rebuild's reads and a permission recalculation must not be cut short by a limit chosen for a save.
+
+  Done when a lock wait that outlasts the limit fails its transaction in every environment, a
+  retried save succeeds, and no request thread can wait on the graph without a deadline.
+
+- **23. Give the performance profiles a production-sized graph.** The workstation's graph holds
+  143 artifacts, so every REST profile measures an almost empty store. A cost that grows with the
+  data is invisible there: a label scan, a version-series traversal, a folder with tens of thousands
+  of children, a search page drawn from 300,000 documents. Production holds about 150,000 schema
+  artifacts and their instances, and `ops/cedar_snapshot.py` already keeps a verified archive of
+  them. Load a snapshot into a disposable local stack, with the owners and permissions the profiles
+  need, and run the finding, lifecycle and soak profiles against it.
+
+  Done when the profiles can run against a store of production size, and the runbook records which
+  routes changed with the size of the store.
+
+- **24. Assert the modification-time filters in the REST smoke.** `/search`, `/search-deep` and
+  `/folders/{id}/contents` accept `modified_after` and `modified_before`, and no REST suite sends
+  either. The finding profile exercises a window under load and checks only that a page comes back.
+  Add checks that an artifact modified inside the window is listed, one outside it is not, the lower
+  bound is inclusive and the upper exclusive, and a reversed or repeated bound answers 400.
+
+  Done when the search and pagination suites assert those results in each view that takes the
+  bounds.
+
+- **25. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
+  server asks the terminology server about every distinct controlled-term value of a write, one
+  request after another. Against a source the local store serves, a check takes a few milliseconds:
+  at 10 users the authoring profile validates an instance holding three DOID terms in a median of
+  18 ms. For a source the local store does not serve, the terminology server asks BioPortal, with
+  up to 256 lookups and 20 seconds for one check, inside a write's own budget of 256 checks and 30
+  seconds. A save of an instance whose terms come from such a source therefore waits on BioPortal,
+  and waits 30 seconds when BioPortal does not answer. No release has run this path: until
+  2026-11-10 the artifact server could not reach the terminology server at all. No profile measures
+  it either, because the harness does not load BioPortal.
+
+  Establish which sources production instances draw their terms from and which of those the
+  production store serves. Measure a save holding terms of an unserved source against a stub that
+  answers slowly. Then decide whether a save asks BioPortal at all, or records such a value as
+  unverified and leaves the check to the validation command.
+
+  Done when the cost of a save's term checks is measured for served and unserved sources, and the
+  save has a stated bound that does not depend on BioPortal answering.

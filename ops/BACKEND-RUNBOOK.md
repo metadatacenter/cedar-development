@@ -841,9 +841,23 @@ Publish, draft and deletion requests attempt their own affected version chain di
 pending job cannot leave their search actions stale. Deletion captures the affected identifiers
 before removing the graph node. The background batch still stops after one failed attempt, limiting
 dependency timeouts per pass.
-Graph updates, lifecycle transitions and these projections share the existing Neo4j lifecycle lock.
-This also serializes projection attempts across resource-server processes; a slow downstream call
-holds that lock until its configured timeout, so downstream latency can delay other graph writes.
+Graph updates and lifecycle transitions take the Neo4j lifecycle lock. A projection takes it twice,
+each time briefly: once to read its job together with the artifact state the job describes, and
+once to remove the job. It writes the version link, the inclusion edges and the index document
+between those two transactions with no graph lock held, so a slow downstream call delays that
+artifact's projection and no other graph write. An artifact with no pending job costs neither the
+lock nor a write.
+
+Two properties do what holding the lock across those writes used to do. A writer first claims the
+job, recording `claim` and `claimedAt` on the node, which leaves one writer for each artifact across
+resource-server processes. A second writer that finds a live claim leaves the artifact to its
+owner, and a claim older than two minutes is taken over. Every recorded mutation also increments the
+job's `generation`, and a writer removes the job only if the generation is the one it read. If a
+mutation was recorded during the write, the writer writes the artifact out once more from its
+current state, and leaves an artifact that is still moving to the relay. A writer whose artifact
+was deleted during the write removes the document it wrote. Every service that records mutations
+must run a build that increments the generation, so the services are upgraded together.
+
 Search replaces the document under its stable identifier without a delete-before-index gap, then
 removes legacy generated-ID copies. The durable path makes one index attempt per target instead of
 the interactive client's retry loop; a failed rebuild mirror also leaves the job pending.
@@ -855,11 +869,14 @@ idempotent and queue delivery is at least once: a lost acknowledgement can produ
 notification. Deletion removes pending update work under the same lock. This is recovery of derived
 state after a graph commit; failed-create cleanup is described below.
 
-Inspect `CedarVersionProjection` nodes for `resourceId`, `updatedAt`, `attempts`, `syncPrevious` and
-an optional `content` snapshot. A rising attempts count means the resource server's warning log
+Inspect `CedarVersionProjection` nodes for `resourceId`, `updatedAt`, `attempts`, `syncPrevious`,
+`generation`, `claim`, `claimedAt` and an optional `content` snapshot. A rising attempts count means the resource server's warning log
 should identify the unavailable stage. Do not discard a pending job to clear that symptom.
 `ArtifactProjectionTransitionTest` exercises reordered requests, downstream outages, lost enqueue
-acknowledgements, restart, rollback and delete/recreate against persisted state. The resource HTTP
+acknowledgements, restart, rollback and delete/recreate against persisted state.
+`VersionProjectionServiceTest` holds the lock free during a write, and covers a mutation recorded
+during a write, an artifact deleted during one, live and expired claims, and an artifact that keeps
+moving. The resource HTTP
 suite also verifies that a search outage preserves both the successful save and its recovery job.
 
 Verification on 2026-10-02 added fifteen regression cases. All Maven reactors in `cedarcli build java`
@@ -958,6 +975,15 @@ All three consumers use a claim/acknowledge protocol. A claim atomically moves t
 `<queue>-processing`; only successful handling removes it. On service restart, anything left in the
 processing list is restored ahead of newer messages in FIFO order. Each handler retries three times
 before atomically moving the raw message to `<queue>-dead-letter`.
+
+The application-log consumer claims the first message and up to 199 more that are already waiting,
+and writes them in one transaction. A failed batch is rolled back and its messages are then handled
+one at a time, each with its three attempts, so one unwritable message is dead-lettered alone. A
+message delivered twice finds its receipt already processed, in a batch as on its own. Measured on
+the native stack on 2026-11-10 against the backlog one minute of the quick REST profile leaves, the
+consumer drained 186 messages a second before batching and about 1,460 after. A request still logs
+about a dozen messages, so sustained load outruns even that: the 50-user soak enqueues about
+120,000 a minute.
 
 Queue transfers check the types of all participating Redis keys before changing them and append to
 the destination before removing the source. Lua excludes other clients, but does not roll back an
@@ -2908,6 +2934,15 @@ Wire field types map to existing bridge routes: `ext-pubmed` → `pmid`, `ext-pf
 authorization and use request-local caching keyed by endpoint and the complete request, a twenty-five-second
 per-call timeout, thirty-second request budget and 256 unique checks. There is no persistent success cache.
 
+The artifact server builds both addresses from `CEDAR_TERMINOLOGY_SERVER_HOST`,
+`CEDAR_TERMINOLOGY_HTTP_PORT`, `CEDAR_BRIDGE_SERVER_HOST` and `CEDAR_BRIDGE_HTTP_PORT`, which
+`CedarConfigEnvironmentDescriptor` declares for it. Before 2026-11-10 it declared none of them, so
+the host was held back, the port took the placeholder 0, and neither service could be requested:
+from 2026-10-18 every check answered `unavailable` in every environment, which a save tolerates.
+An unavailable check now logs its reason in the artifact server's log, at most once a minute with
+a count of the checks that failed in between. The REST smoke's validation suite saves a DOID term
+and requires it to come back verified, and skips that check when the local store does not serve DOID.
+
 Semantic facts distinguish `passed`, `failed`, `notChecked`, and `unavailable`. An outage, missing
 pinned release, partial source coverage or exhausted lookup budget cannot prove invalid membership;
 an omitted check cannot prove success. Known failed default membership blocks template saves; failed
@@ -4207,7 +4242,7 @@ command:
 npm run perf:rest:provision -- --count=50
 ```
 
-The eight load profiles are:
+The thirteen load profiles are:
 
 | Command | Default shape | What it exercises |
 |---|---:|---|
@@ -4219,6 +4254,11 @@ The eight load profiles are:
 | `npm run perf:rest:churn` | 10 identities, two complete lifecycles per second for 5 minutes | Low-rate POST → GET → conditional PUT → conditional DELETE → verified `404` turnover, distributed reproducibly across templates, elements, fields and instances |
 | `npm run perf:rest:burst` | 50 identities; 5/s baseline, 40/s burst, then 5/s recovery, 30 seconds each | Reproducible artifact reads and conditional updates across all four artifact kinds; requires no dropped arrivals and post-burst p95 to return near the measured pre-burst baseline; the full pool prevents a brief server stall from exhausting the load generator first |
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
+| `npm run perf:rest:formats` | 10 identities and 10 VUs for 3 minutes | Every representation the server renders on request: full and compact YAML for all four artifact kinds, n-quads and JSON-LD for instances, and YAML downloads. YAML as a way in: a conditional YAML update of each kind, a YAML create, and the validation command given JSON and YAML |
+| `npm run perf:rest:finding` | 20 identities and 20 VUs for 3 minutes | Read-only finding: term search at page sizes 10 and 50, sorted and type-filtered search, a modification-time window, the shared-with-me and by-template views, deep search with a continuation, sorted folder contents and the contents extract, details, report and versions, the category tree, anonymous reads of open artifacts through the resource server and the OpenView server, and the caller's group membership |
+| `npm run perf:rest:lifecycle` | 10 identities, one complete lifecycle per second for 3 minutes | A template's life in one folder: created with two instances, published, drafted, edited, published and drafted again, edited, listed by version, copied, and removed with everything else by one recursive folder deletion |
+| `npm run perf:rest:authoring` | 10 identities and 10 VUs for 5 minutes | Reads, conditional updates that present new terms, create/read/delete lifecycles and validation of instances whose template has a pattern, numeric bounds, and single and multiple controlled-term fields; and description edits of that template, which has instances |
+| `npm run perf:rest:terminology` | 16 identities and 16 VUs for 3 minutes | The terminology server's lookups against sources the local store serves: integrated search by exact label and by prefix, scoped and corpus-wide `POST /search`, the hierarchy of a term, term and branch membership checks, class lookup and children |
 
 `--users=N`, `--vus=N` and `--duration=10s` override those defaults. The permissions profile needs at
 least five identities and accepts `--rounds=N`; each round starts from known Viewer grants and ends
@@ -4245,6 +4285,14 @@ summary and fails unless recovery p95 is at most the greater of the configured p
 baseline (150% by default) or baseline plus 100 ms. That relative check distinguishes genuine
 post-load degradation from a universally slow or universally fast run.
 
+The lifecycle profile accepts `--lifecycle-rate=N` (default 1 and capped at 10 lifecycles per
+second). Like churn, it fails the run when the selected VUs cannot keep up. The authoring profile
+accepts `--authoring-instances=N` (default 20), the instances each participant's template starts
+with. The finding profile accepts `--finding-artifacts=N` (default 40), the fields each participant
+gets so that a search page of 50 is nearly full. The terminology profile accepts `--sources=A,B,C`
+(default `UO,EDAM,DOID,MONDO,NCIT,NCBITAXON`, a size ladder from hundreds of terms to millions) and
+`--terms-per-source=N` (default 40).
+
 Every profile reports server-wait and client-blocked p95/p99/max components in addition to route
 latency. Requests taking at least 500 ms emit a timestamped diagnostic with the operation, status,
 timing components, VU and iteration; `--slow-request-ms=N` changes that boundary and
@@ -4270,12 +4318,12 @@ lifecycles without interruption; dependency resilience completed 15,927 iteratio
 expected outage responses and 10,447 recovered operations, with no unexpected response. The final
 burst completed 1,501 iterations with no failed checks or dropped iterations; operation p95 was
 170.9 ms, server-wait p99 was 285.5 ms and the recovery p95 remained below its gate. Fixture cleanup
-reported no residue. Together with the completed 30-minute soak and 20-minute stress runs, this is
-the current native-stack performance baseline. The burst profile's 50-user pool is identity and VU
+reported no residue. Together with the completed 30-minute soak and 20-minute stress runs, this was
+the first native-stack performance baseline. The burst profile's 50-user pool is identity and VU
 capacity; it does not mean that fifty requests execute continuously throughout an arrival-rate run.
 
-A run of every profile on 2026-09-25, one at a time with default rates and named seeds, gave the
-current figures. The app-log queue was emptied after each run, and during the soak whenever Redis
+A run of every profile on 2026-09-25, one at a time with default rates and named seeds, gave these
+figures. The app-log queue was emptied after each run, and during the soak whenever Redis
 passed 1 GB:
 
 | Profile | Seconds | Requests | Requests/s | HTTP p95 ms | p99 ms | Result |
@@ -4329,6 +4377,74 @@ retained test logs do not dominate memory. This applies to the local test stack,
 `CEDAR-QUEUE-app-log-processing` holds the message the worker is consuming. Deleting it
 makes the worker's acknowledgement fail, logs an error and marks the worker unhealthy in
 `cedarcli native status`.
+
+A run of all thirteen profiles on 2026-11-10 gave the current figures. It was the first run since
+2026-09-26, and it found the soak failing. Each profile ran alone with its default shape and a
+named seed, held the local stack lock, and had the app-log queue emptied once a minute. The figures
+are from the build that carries the three changes described after the table.
+
+| Profile | Seconds | Requests | Requests/s | HTTP p95 ms | p99 ms | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| permissions | 6 | 284 | 51.1 | 64.0 | 85.8 | Passed |
+| quick | 271 | 33,268 | 122.9 | 179.8 | 312.7 | Passed |
+| contention | 35 | 1,502 | 42.5 | 1,242.8 | 1,460.7 | Passed |
+| hotset | 602 | 121,042 | 201.2 | 468.9 | 1,094.9 | Passed |
+| churn | 301 | 3,015 | 10.0 | 169.9 | 188.3 | Passed |
+| burst | 107 | 2,126 | 19.9 | 154.4 | 187.4 | Passed; recovery p95 169.4 ms against a 267.8 ms limit |
+| resilience | 91 | 12,103 | 133.3 | 350.5 | 502.0 | Passed |
+| soak | 1,804 | 402,295 | 223.0 | 1,758.1 | 3,268.7 | Failed five write-route thresholds |
+| formats | 181 | 31,127 | 172.3 | 289.3 | 438.4 | Passed |
+| finding | 181 | 102,491 | 566.2 | 155.1 | 159.7 | Passed |
+| lifecycle | 183 | 3,070 | 16.8 | 734.7 | 886.3 | Passed |
+| authoring | 302 | 23,753 | 78.8 | 479.0 | 787.0 | Passed |
+| terminology | 187 | 19,618 | 104.8 | 585.1 | 1,859.4 | Passed |
+
+Every check passed in every profile, the upstream guard found no BioPortal request, and teardown
+left no residue. The first pass that night ran the September profiles against the build as it
+stood, and three findings came out of it and of the new profiles.
+
+**Writes that project queue on the lifecycle lock.** Against the 2026-09-26 soak, reads, listings,
+moves and ACL updates were five to ten times faster, at a p95 of 26 to 46 ms. Conditional artifact
+updates went the other way, from a median of 450 ms to 1,780 ms and a p95 of 850 ms to 5,200 ms,
+and the OpenView toggle from a p95 of 176 ms to 6,792 ms. The run completed 322,945 requests where
+September's completed 617,122. A projection held the lifecycle lock while it wrote the index
+document, and every graph mutation takes that lock first. Releasing the lock during those writes,
+as [After an Artifact Graph Update Commits](#after-an-artifact-graph-update-commits) now describes,
+brought the soak to the figures in the table: an update median of 1,610 ms and a p95 of 3,700 ms.
+Burst and quick recovered further. The peak-phase update p95 fell from 369–459 ms to 171–230 ms,
+below September's, and the quick profile's OpenView toggle from 616 ms to 312 ms. That toggle stays
+above September's 31 ms at any load, because since 2026-10-01 it reindexes the artifact before it
+answers.
+
+The soak still fails because a save takes the lock three times, for its mutation, its claim and
+the removal of its job, and each turn is a commit of its own on one node. That caps the
+installation near 25 artifact writes a second, which is what the soak measured, and fifty users
+whose reads take 20 ms ask for more. The open work is on the
+[backend roadmap](BACKEND-ROADMAP.md).
+
+**The terminology server shared one connection to its search index.** The terminology profile is
+the first concurrent load that server has had. At sixteen users it answered 51 requests a second,
+with a corpus-wide search at a median of 2.9 s and an exact lookup in a 574-term ontology at a p95
+of 395 ms. The search index and the catalog were limited to eight reading connections each, and
+most worker threads shared the first. The
+[versioning runbook](VERSIONING-RUNBOOK.md) describes the change and its measurements. A search
+whose text holds a one-letter token and no word of eight letters, such as "Crohn's disease", still
+takes five to seven seconds by itself, which the
+[versioning roadmap](VERSIONING-ROADMAP.md#open) records.
+
+**The artifact server could not reach the terminology server.** The authoring profile's first run
+found every controlled-term value reported as unavailable, in a build where every profile and
+smoke had passed. [Write Authorization and Immutability](#write-authorization-and-immutability)
+gives the cause and the fix.
+
+The app-log consumer drained 186 messages a second before it was batched and about 1,460 after.
+The soak still enqueued about 120,000 a minute, 3.6 million over the run.
+
+During the soak on the first fixed build, one save waited on the lifecycle lock inside Neo4j for
+24 minutes with no other transaction open, and its request never returned. Terminating the
+transaction did not release it and Neo4j could not stop until its process was killed. Recovery
+replayed 3,033 transactions and the graph was intact. Nothing bounds a graph transaction in time,
+which the [backend roadmap](BACKEND-ROADMAP.md) records with the thread dumps' location.
 
 A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
 the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
@@ -4407,6 +4523,29 @@ direct Viewer, Classifier, Editor and Manager roles, an inherited role that is s
 role, and a Classifier role obtained through group membership. Category role transitions verify
 classification, category-record and ACL boundaries. A separate fixture verifies transfer to a new
 owner and transfer back to the original owner. All ACL fixtures use the `role` property.
+
+The formats and finding profiles give each participant an element, a field and an instance beside
+the four templates. Finding adds a folder of fields, an artifact shared by the neighbouring
+participant, an open template, an open folder holding a template, and a group. The lifecycle profile
+creates nothing in setup: each iteration works in a folder of its own under the participant's root
+and deletes it, so teardown finds whatever an interrupted iteration left.
+
+The authoring template has one field of each kind the minimal fixtures lack: a text field with a
+regular expression, an integer field with bounds, and two fields constrained to DOID, one of them
+multiple. `authoring-model.js` builds it, and the same builder serves setup, the load script and the
+REST smoke. A write of the minimal fixtures reaches none of the checks a real template pays for,
+which is how semantic verification stayed unreachable for three weeks while every profile passed.
+
+**The terminology and authoring profiles never load BioPortal.** The terminology server falls back to
+BioPortal, silently, for whatever its local store does not implement, and a source being on the
+local allowlist does not settle which lookups stay local. Setup therefore draws its query text from
+the served index, tries every kind of lookup once for each source, and reads the terminology
+server's own log for the BioPortal addresses it requested. A source that caused one is left out
+before k6 starts, and setup prints which and why. After the load, the runner reads the same log
+again and fails the run if the server asked BioPortal for anything. Both steps need
+`$CEDAR_HOME/log/cedar-terminology-server.log`, or the file `--terminology-log` names. A log that
+cannot be read fails the run, because "nothing was requested" would then be unproven. The class
+tree is not in the mix for this reason: the local store does not serve it, for any source.
 
 The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
 including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in

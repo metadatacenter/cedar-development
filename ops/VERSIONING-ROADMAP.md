@@ -1580,6 +1580,20 @@ leaves the head of the list arbitrary. That work lands here rather than in `/bio
 which is what makes it safe to do — see the term-ordering item in
 [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md).
 
+**A one-letter token still drives the match when no word has eight letters.** The planner holds
+tokens of one or two characters back only when some token has at least eight characters. A
+possessive supplies a one-letter token, because the index splits on the apostrophe, so
+"Crohn's disease" asks for `"crohn"* "s"* "disease"*` and walks every name that has a token
+beginning with s. Measured on 2026-11-10 against the served index, one request at a time,
+"Crohn's disease", "Gaucher's disease" and "Wilson's disease" took 5.0 to 5.8 s scoped to DOID and
+about 7 s corpus-wide. "Crohn disease" took 117 ms, and "Alzheimer's disease", whose first word has
+nine letters, took 186 ms. `"crohn"*` alone matches 2,000 names. With sixteen concurrent users in
+the REST terminology profile, single searches of this kind took 21 to 27 s. Holding a one-letter
+token back whenever a token of at least three characters remains would cover these names. It needs
+the comparison the present rule was accepted on: the same first page as the unconditional form over
+the 300 sampled labels, and timings for a query such as "vitamin d", where the token that remains
+is itself broad.
+
 ## The Term Picker
 
 What the picker is, what it replaces and what it has built. Findings rather than plans,

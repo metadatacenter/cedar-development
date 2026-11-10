@@ -812,11 +812,27 @@ What a serving process holds open is bounded twice over, because a connection co
 handle — SQLite gives each one its own page cache. A snapshot untouched for a minute is closed once
 more than sixty-four are open, the store just handed to a caller never among them; a minute because
 a lookup reads its store after the resolution returns, and the slowest measured is about a second.
-Reading connections are capped at 96 across every store rather than a store, since a per-store limit
-multiplies by the number of snapshots cached. Past the cap a thread reads on its store's first
-connection and waits, as it did before per-thread connections existed. Raise either where a
-deployment wants more, with `-Dcedar.terminology.openSnapshots.max`,
+Snapshot reading connections are capped at 96 across every snapshot rather than a snapshot, since a
+per-store limit multiplies by the number of snapshots cached. Past the cap a thread reads on its
+store's first connection and waits, as it did before per-thread connections existed. Raise either
+where a deployment wants more, with `-Dcedar.terminology.openSnapshots.max`,
 `-Dcedar.terminology.openSnapshots.quietMillis` and `-Dcedar.terminology.readConnections.total`.
+
+The catalog and the search index are outside that cap, because a process holds one of each and
+every lookup reads one or both. Each opens up to 64 connections of its own. Counted with the
+snapshots and limited to eight, they left most worker threads sharing the index's first connection,
+where a quick lookup waited behind whichever query held it, and a corpus-wide search holds it for
+seconds. Measured on 2026-11-10 with the REST terminology profile at sixteen users, one run before
+and four after with different seeds, the change took the server from 51 requests a second to
+between 105 and 194. A corpus-wide search went from a median of 2.9 s to between 0.3 and 0.6 s, a
+scoped search from 463 ms to between 130 and 266 ms, and an exact lookup in a small ontology from a
+p95 of about 350 ms to at most 32 ms. Resident memory rose from 1.9 GB to 2.5 GB with 28
+connections to each of the two stores.
+
+A connection belongs to the thread it was opened for, and a server's worker pool retires idle
+threads. A new thread therefore takes over the connection of a thread that has finished. Without
+that, each allowance ends up held by threads that no longer exist, and every living thread shares
+the first connection again.
 
 ## Which Store Answers
 
