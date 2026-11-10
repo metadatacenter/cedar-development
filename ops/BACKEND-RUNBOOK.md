@@ -5309,7 +5309,7 @@ links against. To dump such a server, start `mysqld` directly with `DYLD_LIBRARY
 `nohup` nor `mysqld_safe` can pass that variable on, because macOS strips `DYLD_*` variables from
 protected system binaries.
 
-**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.8.1, and
+**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.8.2, and
 the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
 25.0.3 in August 2024 — which the bearer-token path of all eleven servers is built on. Everything
 else that was thought to block it does not: the admin client, the event-listener SPI and the login
@@ -5373,9 +5373,21 @@ references, which makes it the starting point for finding declarations nothing u
 as candidates only. A JDBC driver, a
 logging backend, a JAXB or JAX-RS implementation, a Jackson module and a test fixture are all found
 at run time by name or service lookup, and classes generated into `target/generated-sources` count
-as the module's own. Confirm each candidate against sources, generated sources, resources and the
-jar's `META-INF/services` before removing it, then run the full build, a redeploy and the e2e
-smoke.
+as the module's own. The compiler inlines string constants, so a module that takes only constants
+from a dependency shows no reference to it. Five server applications use `CedarPathParameters`
+from `cedar-server-globals-library` that way, and the list reports the library unused in each. A
+declaration can also be the only route by which another module reaches an artifact.
+`cedar-server-globals-library` references nothing in `commons-codec`, and
+`cedar-auth-operations-library` compiles against it through that declaration alone. The parent sets
+`ignoreNonCompile`, so the list covers compile scope and reports nothing for test, runtime or
+provided declarations.
+
+Confirm each candidate against sources, generated sources, resources and the jar's
+`META-INF/services` before removing it. Do not narrow a declaration to test scope because only
+tests import it. A direct declaration's scope overrides the scope the artifact arrives with
+transitively, so the jar would leave the runtime classpath and the shaded jar. Compare every
+module's `dependency:tree` before and after the change, which shows whether a removal took
+anything off another module's classpath. Then run the full build, a redeploy and the e2e smoke.
 
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.17-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
@@ -5392,8 +5404,8 @@ otherwise fully removed — no module depends on it.
 
 The **Jakarta EE 10 framework migration (Dropwizard 5) is complete.** `dropwizard-sundial` had no
 Dropwizard 4 release and remains retired rather than forked: the worker's schedulers are plain
-`Managed` poll loops. Multipart upload uses
-`commons-fileupload2-jakarta-servlet6`, and CORS uses Jetty's EE10 servlet package.
+`Managed` poll loops. CORS uses Jetty's EE10 servlet package. No service accepts a multipart
+upload, and `cedar-parent` manages no file-upload library.
 
 Two compatibility settings are deliberate. CEDAR artifact identifiers are IRIs encoded into path
 segments and can contain `%2F`; Jetty 12 checks that ambiguity once at the HTTP connector and again

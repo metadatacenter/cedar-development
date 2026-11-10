@@ -66,7 +66,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
   ended at 22.0.5. On 2026-09-30 Dependabot reported 93 open advisories against the Keycloak
   artifacts `cedar-parent` manages, 25 of them high. No community 22 release fixes any of them, and
-  every release from 26.7.5 fixes all 93. The current release is 26.8.1. The fixed 22.0.x versions
+  every release from 26.7.5 fixes all 93. The current release is 26.8.2. The fixed 22.0.x versions
   some advisories name belong to Red Hat's subscription build rather than to the community line.
 
   The advisories concern the server rather than CEDAR's code. The microservices ship only
@@ -897,10 +897,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   **Versions that follow a locked server or framework.** Five sit here: the Neo4j driver 5.28.15 to
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
-  9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.1.
+  9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 11 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 3's own, and RESTEasy 6.2.19 to 7.0.5 is held by the
+  their own. Keycloak 22.0.4 to 25.0.3 is item 3's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
   Keycloak client stack, which item 3 owns.
 
   Maven 3.9.16 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
@@ -936,7 +936,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   built against logback-core 1.5, and 2.0.14 is the first built against 1.6. Both wait on Dropwizard
   shipping a line built against 1.6.
 
-  Dropwizard also holds the Jakarta EE 11 generation. Hibernate 6.6.59 to 7.4.14 and Jersey 3.1.12
+  Dropwizard also holds the Jakarta EE 11 generation. Hibernate 6.6.59 to 7.4.15 and Jersey 3.1.12
   to 4.0.3 have finals, as do the Jakarta Persistence 3.2.0, Servlet 6.1.0, Validation 3.1.1,
   RESTful Web Services 4.0.0 and Annotations 3.0.0 APIs, against the 3.1.0, 6.0.0, 3.0.2, 3.1.0 and
   2.1.1 the parent manages. Dropwizard 5.0.2 pins the Jakarta EE 10 line of every one of them, so
@@ -968,7 +968,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
   published metadata and turned out to have a current stable release — which is how the compiler
   plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every version this item names was
-  rechecked against the published metadata on 2026-11-04, with pre-releases set aside. Read an
+  rechecked against the published metadata on 2026-11-10, with pre-releases set aside. Read an
   artifact's `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest
   release a given Maven version can actually use, before concluding that something cannot move.
 
