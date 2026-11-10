@@ -5455,9 +5455,8 @@ The shared 21px body line divided by the 14px body font gives a unitless 1.5,
 replacing the local 1.35. A host's 16px font therefore gets a 24px line and a
 20px font gets a 30px line. Font sizes, content, icons, targets and collapsed
 row geometry stay unchanged. In the reviewed sample, the expanded row grows
-by about 6px in a wide host and 70px at 375px. The existing narrow label/value
-layout, including its behavior under larger host fonts, remains a separate
-design decision in the frontend roadmap.
+by about 6px in a wide host and 70px at 375px before the responsive detail
+layout described below is applied.
 
 Build, lint, type checking and strict token adoption pass. All 186 browser
 checks and four container screenshot checks pass without baseline changes.
@@ -5465,6 +5464,27 @@ All 18 measured combinations of width, host font and expansion state match
 the approved preview exactly. Removing the resolved line-height allowance
 leaves four in CETP and 75 estate-wide. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-body-line/`.
+
+#### CETP responsive constraint details (2026-11-10)
+
+Each expanded constraint's detail container follows its cell width. At 14em
+or narrower, labels stack above their values and use the existing shared
+spacing between groups. Wider cells retain the two-column layout. The em
+threshold follows host font size; it is component layout, not a borrowed
+control or spacing token. Text, icons, 24px action targets, table columns and
+the existing scroll region retain their contracts.
+
+At a 375px viewport with the default font, the reviewed identifier gains
+width from about 20px to 121px and the expanded row shrinks from 901px to
+432px. At the same width with a 20px Georgia host font, the row shrinks from
+2,782px to 666px. Default 540px and wide layouts are unchanged. All 24 measured
+cases match the approved preview exactly. Browser checks cover English and
+Hungarian labels, font overrides and returning from narrow to wide layouts.
+
+Build, lint, type checking and strict token adoption pass. All 188 browser
+checks and four container screenshot checks pass without baseline changes.
+Source allowances remain four in CETP and 75 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-narrow-implementation/`.
 
 <a id="accessibility-conformance"></a>
 

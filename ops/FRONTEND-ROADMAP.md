@@ -484,16 +484,13 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **CETP narrow constraint details.** The label/value grid remains inside the term column,
-  which takes 48% of the table. At a 375px viewport the default font leaves identifiers about
-  20px of width; a 20px Georgia host override leaves none. Long identifiers then wrap almost
-  character by character and greatly lengthen the scrolled section. Decide how labels and
-  values should reflow within a narrow cell; changing line height alone does not fix this.
 - **Selection treatments.** CETP derives its selection tint from 12% of the host primary color
   over white; Workspace's drag-selection rectangle uses 13% over transparency. They serve
   different interactions and differ from the fixed shared selection surface. Decide whether
   either should change or receive an explicitly named reusable recipe. Preserve host palette
-  behavior; do not merge them by numerical similarity.
+  behavior; do not merge them by numerical similarity. CETP also uses its tint for search-match
+  marks and the property release panel; keep those semantic roles separate from selection
+  when deciding which uses belong in a shared recipe.
 - **Monitoring categories and emphasis.** Its purple category/secret colors and dark copy toast
   are retained by existing policy. Removing their allowances needs a decision to keep them as
   distinct semantic roles or change their appearance. Do not map categories to warning/error
