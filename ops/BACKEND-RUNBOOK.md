@@ -4511,9 +4511,10 @@ one. Its statistics listener therefore fails at the start and at the end of each
 WARN. The finding profile took the workstation's OpenSearch log to 2.9 GB overnight. The statistics
 are on by default, and nothing in CEDAR reads them. `search.request_stats_enabled=false` stops the
 failure, and one point in time then logs nothing. The workstation carries it as a persistent
-cluster setting, and the Docker stack sets it in the OpenSearch service's environment. The
-[production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) has the command for a
-native host.
+cluster setting, and the Docker stack sets it in the OpenSearch service's environment. Staging
+runs OpenSearch 2.15.0, where the statistics are off by default, so the defect does not occur
+there. The [production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) says how to
+read the value on a native host and what to do when it is on.
 
 **The contention profile's medians are not comparable between runs.** It stages a race for one
 winner in 35 seconds and about 1,500 requests, so where a route's median falls depends on the

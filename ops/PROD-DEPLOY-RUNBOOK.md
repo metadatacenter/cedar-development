@@ -151,8 +151,9 @@ line to the host's `neo4j.conf`:
 db.lock.acquisition.timeout=30s
 ```
 
-Staging is provisioned by Puppet. If Puppet manages `neo4j.conf` there, the line belongs in the
-Puppet configuration, or the next run removes it. Neo4j reads the setting at start, so restart it
+On staging the file is `/etc/neo4j/neo4j.conf`, from the Debian package, and on 2026-11-10 it had
+no such line. Staging is provisioned by Puppet. If Puppet manages that file, the line belongs in
+the Puppet configuration, or the next run removes it. Neo4j reads the setting at start, so restart it
 while the microservices are stopped, during the deployment's outage. Then confirm, with the
 connection command from
 [Renumbering a Draft by Hand](BACKEND-RUNBOOK.md#renumbering-a-draft-by-hand):
@@ -167,16 +168,26 @@ describes what a blocked write does once the limit is in force.
 ### OpenSearch Request Statistics
 
 OpenSearch 2.19.1 logs two stack traces for every point in time a deep search opens, because its
-request statistics have no phase for creating one. Nothing in CEDAR reads those statistics. Switch
-them off once on each host. The setting is stored in the cluster state and needs no restart:
+request statistics have no phase for creating one. Nothing in CEDAR reads those statistics. The
+defect needs the statistics on, and whether they are depends on the version. Read the value in
+force:
+
+```bash
+curl -s "http://localhost:9200/_cluster/settings?include_defaults=true&flat_settings=true" \
+  | tr ',' '\n' | grep request_stats_enabled
+```
+
+Staging ran OpenSearch 2.15.0 on 2026-11-10, where the value is `false` by default, so nothing was
+changed there. On a host where it reads `true`, which is the default in 2.19.1, switch the
+statistics off. The setting is stored in the cluster state and needs no restart:
 
 ```bash
 curl -s -XPUT "http://localhost:9200/_cluster/settings" -H 'Content-Type: application/json' \
   -d '{"persistent":{"search.request_stats_enabled":false}}'
 ```
 
-Confirm that the OpenSearch log no longer gains lines naming `SearchPhaseName.CREATE_PIT` after a
-deep search.
+Then confirm that the OpenSearch log no longer gains lines naming `SearchPhaseName.CREATE_PIT`
+after a deep search. An upgrade of a host to 2.19 needs this step with it.
 
 ### A · Connect
 ```bash

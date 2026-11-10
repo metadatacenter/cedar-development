@@ -551,6 +551,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   These documents do not record production's MySQL version. Confirm it with `SELECT VERSION()`
   before planning its move.
 
+  The environments do not run the same versions. On 2026-11-10 staging ran OpenSearch 2.15.0 and
+  Neo4j 5.26.32, where the workstation and the Docker build manifest have 2.19.1 and 5.26.0.
+  Production's were not read. Two things follow. An OpenSearch upgrade to 2.19 needs
+  `search.request_stats_enabled=false` with it, as the
+  [production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) describes. And the
+  lock wait that never ended was seen on Neo4j 5.26.0 only, 32 patch releases behind staging.
+
   Production is the part this item owns for every store: each version rehearsed on a copy of
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
@@ -1378,6 +1385,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until the process
   was killed. The thread dumps are in `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`.
   Whether Neo4j 5.26.0 has a defect that fifty writers on one node expose is not established.
+  Staging runs 5.26.32, so a soak on that patch level would say whether the wait is specific to
+  the workstation's.
 
   `db.lock.acquisition.timeout=30s` bounds an ordinary lock wait, and
   [When a Graph Write Waits for a Lock](BACKEND-RUNBOOK.md#when-a-graph-write-waits-for-a-lock)
