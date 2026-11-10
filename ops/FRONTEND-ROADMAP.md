@@ -484,8 +484,6 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **Monitoring copy toast.** Decide whether to retain its dark treatment as a distinct role
-  or change its appearance. A dark toast must not borrow the primary-action role.
 - **Monitoring row emphasis.** Review the 0.55/0.6/0.75 opacity values before normalization.
   Absent or empty rows must not borrow disabled-control opacity. Review fresh, ordinary,
   empty and populated screens separately.

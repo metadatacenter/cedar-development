@@ -5551,6 +5551,24 @@ published package. Five source allowances were removed, leaving 23 in Monitoring
 and 68 estate-wide. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/category/`.
 
+#### Monitoring copy-confirmation colors (2026-11-10)
+
+`monitoring.copy-toast-colors` preserves the copy toast's dark surface and white
+text with dedicated, independent overrides. Copying still triggers the toast;
+ordinary screens have no toast and the existing 1.5-second dismissal remains.
+Repeated radius and weight declarations in the log stylesheet are grouped under
+their original selectors, keeping the stylesheet at 9.68 kB within its unchanged
+10 kB error budget. The default screenshots remain byte-identical at 1440px and
+375px, including fresh logs, copy feedback, methods, traces and masked values.
+
+The 157 central tests, 42 rendered surface checks, two role checks and both
+presentation walkthroughs pass. The clock test installs its timers before Angular
+initialization so dismissal is deterministic. Build and strict adoption pass;
+the published package and all nine pins are committed separately from the source
+change. Two source allowances were removed, leaving 21 in Monitoring and 66
+estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/toast/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
