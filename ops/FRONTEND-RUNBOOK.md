@@ -5532,6 +5532,25 @@ preview byte for byte. No visual baseline changed. Removing the resolved allowan
 leaves 13 in Workspace and 73 estate-wide. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-workspace-selection-implementation/`.
 
+#### Monitoring category and masked-secret roles (2026-11-10)
+
+The opt-in central `monitoring` Sass module owns HTTP method colors, request/Cypher
+trace text and bars, and masked secret text independently. Their defaults preserve
+Monitoring's existing palette. PUT/PATCH and DELETE no longer borrow warning and
+error roles; GET and request spans no longer borrow the primary-action role.
+Equal purple defaults for POST and Cypher text are independent roles. Dedicated
+`--cedar-monitor-*` overrides can change one category without changing another.
+The 54-token global vocabulary is unchanged. The four rendered categorical-color
+allowances identify these approved opt-in defaults rather than unowned literals.
+
+The central package's 157 tests and all 211 Monitoring browser checks pass; one
+lazy-route check required the isolated build's own metadata before its successful
+rerun. Method, trace and secret screenshots are byte-identical to the reviewed
+preview. Build and strict adoption pass. All nine development pins follow the
+published package. Five source allowances were removed, leaving 23 in Monitoring
+and 68 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/category/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
