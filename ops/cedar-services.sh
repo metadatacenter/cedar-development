@@ -1,8 +1,8 @@
 #!/bin/bash
 # ------------------------------------------------------------------------------
-# cedar-services.sh — start / stop / monitor the CEDAR app tier without 12 consoles.
+# cedar-services.sh — start / stop / monitor the CEDAR app tier without 11 consoles.
 #
-# Runs the 12 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
+# Runs the 11 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
 # apart from the like-named microservices: ui-main (the AngularJS monolith) and the two previews
 # being split out of it each use a Node host script; the other Angular applications use `ng serve`,
 # as detached background processes, each logging to $CEDAR_HOME/log/, PIDs in $CEDAR_HOME/log/run/.
