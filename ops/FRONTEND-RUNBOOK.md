@@ -5513,6 +5513,25 @@ in CETP and 74 estate-wide. The two rendered tint allowances record the approved
 host-derived colors, which intentionally differ from the fixed shared surface.
 Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-tint/`.
 
+#### Workspace drag-selection overlay (2026-11-10)
+
+The drag rectangle uses `patterns.drag-selection-tint`: 13% of the host primary
+over transparency. It is an independent overlay role, not an alias for an opaque
+selected surface. Workspace retains the 1px primary outline, rectangle geometry,
+pointer behavior and selection interaction. Content remains readable beneath it.
+
+The token package is `0.1.0-dev.20261110.9e8d8c2e`, published to the development
+registry with all nine declared consumer pins updated. Its compiled stylesheets,
+fonts, icons and other assets are unchanged; only the package version, opt-in Sass
+recipe and documentation differ. The active reactor's served bundles are preserved.
+
+The shared package's 157 tests, Workspace lint/build, strict estate adoption and
+all 18 targeted Chromium/WebKit selection checks pass. The published-package build
+emits byte-identical Workspace CSS, and its drag screenshot matches the approved
+preview byte for byte. No visual baseline changed. Removing the resolved allowance
+leaves 13 in Workspace and 73 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-workspace-selection-implementation/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance

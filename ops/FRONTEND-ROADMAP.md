@@ -484,12 +484,11 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **Workspace drag-selection tint.** The drag rectangle uses 13% of its color over transparency.
-  Decide whether it should change or receive a dedicated drag-selection recipe. Its translucent
-  overlay and interaction differ from opaque selected surfaces; preserve that distinction.
 - **Monitoring category and secret colors.** Existing policy retains these purple colors.
   Decide whether to keep them as distinct semantic roles or change their appearance; do not
-  map categories to warning or error colors.
+  map categories to warning or error colors. HTTP method labels already borrow warning for
+  PUT/PATCH and error for DELETE; separate those category roles too. Request and Cypher trace
+  labels/bars and masked secret values need their own semantic ownership.
 - **Monitoring copy toast.** Decide whether to retain its dark treatment as a distinct role
   or change its appearance. A dark toast must not borrow the primary-action role.
 - **Monitoring row emphasis.** Review the 0.55/0.6/0.75 opacity values before normalization.
