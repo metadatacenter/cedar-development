@@ -67,6 +67,12 @@
         }
       }
     },
+    "cedar-bridging": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:build": {}
+      }
+    },
     "cedar-cadsr-tools": {
       "jobs": {
         "ci.yml:test": {
@@ -81,6 +87,11 @@
         }
       }
     },
+    "cedar-component-demo": {
+      "jobs": {
+        "test.yml:demo": {}
+      }
+    },
     "cedar-config-library": {
       "jobs": {
         "ci.yml:test": {
@@ -88,10 +99,35 @@
         }
       }
     },
+    "cedar-content-distribution": {
+      "jobs": {
+        "ci.yml:package": {}
+      }
+    },
     "cedar-core-library": {
       "jobs": {
         "ci.yml:test": {
           "profile": "maven"
+        }
+      }
+    },
+    "cedar-design-tokens": {
+      "jobs": {
+        "consumers.yml:consumer": {
+          "requires": [
+            "docker"
+          ]
+        },
+        "test.yml:test": {},
+        "token-readers.yml:readers": {}
+      }
+    },
+    "cedar-docker-deploy": {
+      "jobs": {
+        "ci.yml:validate": {
+          "requires": [
+            "docker"
+          ]
         }
       }
     },
@@ -209,6 +245,18 @@
         }
       }
     },
+    "cedar-monitoring": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:build": {}
+      }
+    },
+    "cedar-openview": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:build": {}
+      }
+    },
     "cedar-openview-server": {
       "jobs": {
         "ci.yml:test": {
@@ -227,6 +275,23 @@
         },
         "dependency-audit.yml:scan": {
           "uncovered": "calls Google's osv-scanner reusable workflow, which local CI cannot run; GitHub answers for the pushes that change a POM"
+        }
+      }
+    },
+    "cedar-project": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven-tests",
+            "embedded-mongo-on-linux"
+          ],
+          "skip": {
+            "Set up Python for the coverage report": "reporting, not verification: the coverage summary is continue-on-error and never decides the conclusion, and it asks for a Python 3.12 this machine does not have",
+            "Report coverage credited by any test": "reporting, not verification: continue-on-error, so it never decides the conclusion",
+            "Upload the coverage summary": "uploads only the coverage report the skipped step writes",
+            "Open or update the issue when the nightly build fails": "runs only on the nightly schedule, and writes to GitHub",
+            "Close the issue once the nightly build passes": "runs only on the nightly schedule, and writes to GitHub"
+          }
         }
       }
     },
@@ -250,6 +315,18 @@
         }
       }
     },
+    "cedar-template-designer": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:package": {},
+        "ci.yml:performance": {}
+      }
+    },
+    "cedar-template-editor": {
+      "jobs": {
+        "ci.yml:package": {}
+      }
+    },
     "cedar-terminology-server": {
       "jobs": {
         "ci.yml:test": {
@@ -268,6 +345,17 @@
       "jobs": {
         "ci.yml:test": {
           "profile": "maven"
+        }
+      }
+    },
+    "cedar-workspace": {
+      "jobs": {
+        "ci.yml:adoption": {},
+        "ci.yml:package": {},
+        "ci.yml:browser": {
+          "requires": [
+            "docker"
+          ]
         }
       }
     }

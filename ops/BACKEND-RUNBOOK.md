@@ -4940,6 +4940,11 @@ records extra environment, what a job requires (Docker), which jobs exclude one 
 cleanup that an ephemeral runner would not need. A repository or job the file does not name is one
 GitHub still answers for.
 
+Four of the repositories a train captures have no entry yet. The model library's browser job runs in
+a job container. `cedar-cli` and `cedar-development` test Ubuntu legs beside their macOS ones, and
+running those legs on macOS would prove nothing about Linux. `cedar-docker-build` builds every image,
+and the workstation would build them for arm64 rather than for the x86_64 of its GitHub runner.
+
 `cedarcli ci coverage` is the file's drift check. A job is covered only when every step, action,
 expression and secret in it is one local CI runs exactly as GitHub would, or one the registry skips
 or substitutes. A workflow change that adds a step that publishes, an action local CI does not
