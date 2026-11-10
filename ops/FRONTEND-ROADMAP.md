@@ -484,9 +484,6 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **CETP detail text rhythm.** Decide whether the constraint details' 1.35 line height should
-  change to a shared text line. Review the expanded row at narrow widths and with host font
-  overrides before approving the change; preserve font scaling and the information shown.
 - **CETP narrow constraint details.** The label/value grid remains inside the term column,
   which takes 48% of the table. At a 375px viewport the default font leaves identifiers about
   20px of width; a 20px Georgia host override leaves none. Long identifiers then wrap almost

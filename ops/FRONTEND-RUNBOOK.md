@@ -5448,6 +5448,24 @@ five in CETP and 76 estate-wide. Other target-size findings in the accessibility
 roadmap concern different controls and remain open. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-target/`.
 
+#### CETP expanded detail text (2026-11-10)
+
+The constraint details use `patterns.relative-text-line` for their body text.
+The shared 21px body line divided by the 14px body font gives a unitless 1.5,
+replacing the local 1.35. A host's 16px font therefore gets a 24px line and a
+20px font gets a 30px line. Font sizes, content, icons, targets and collapsed
+row geometry stay unchanged. In the reviewed sample, the expanded row grows
+by about 6px in a wide host and 70px at 375px. The existing narrow label/value
+layout, including its behavior under larger host fonts, remains a separate
+design decision in the frontend roadmap.
+
+Build, lint, type checking and strict token adoption pass. All 186 browser
+checks and four container screenshot checks pass without baseline changes.
+All 18 measured combinations of width, host font and expansion state match
+the approved preview exactly. Removing the resolved line-height allowance
+leaves four in CETP and 75 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-body-line/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
