@@ -484,11 +484,14 @@ chart-bar geometry, viewport offsets, local stacking and CED's draggable sidebar
 must not borrow control, spacing or icon roles merely because their numbers match. The
 [token-debt review](FRONTEND-RUNBOOK.md#token-debt-review) records the remaining allowances.
 
-- **CETP actions and text rhythm.** Decide whether the constraint action's 22px height should
-  grow to the 24px target minimum or a shared control density, and whether its detail text's
-  1.35 line height should change. Review the row as a whole at narrow widths and with host
-  font overrides before approving either change. Coordinate target changes with the
-  accessibility work above.
+- **CETP detail text rhythm.** Decide whether the constraint details' 1.35 line height should
+  change to a shared text line. Review the expanded row at narrow widths and with host font
+  overrides before approving the change; preserve font scaling and the information shown.
+- **CETP narrow constraint details.** The label/value grid remains inside the term column,
+  which takes 48% of the table. At a 375px viewport the default font leaves identifiers about
+  20px of width; a 20px Georgia host override leaves none. Long identifiers then wrap almost
+  character by character and greatly lengthen the scrolled section. Decide how labels and
+  values should reflow within a narrow cell; changing line height alone does not fix this.
 - **Selection treatments.** CETP derives its selection tint from 12% of the host primary color
   over white; Workspace's drag-selection rectangle uses 13% over transparency. They serve
   different interactions and differ from the fixed shared selection surface. Decide whether

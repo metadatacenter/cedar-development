@@ -5430,6 +5430,24 @@ defaults and explicitly retains the component sizes. CEE's pending token design
 review is closed; its retained geometry remains visible in the adoption baseline.
 Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-chips/`.
 
+#### CETP constraint action target (2026-11-10)
+
+The constraint remove button uses `spacing.$target-size-minimum` for its minimum
+height. Its target is now 24×24px instead of 24×22px; the 20px glyph, text, colors
+and 24px width are unchanged. Short rows grow from 28px to 29px to accommodate
+the target, compact cell insets and table rule. Wrapped and expanded rows keep
+their existing height. All 18 measured combinations of width, host font and
+expansion state match the approved preview exactly.
+
+Build, lint, type checking and strict token adoption pass. The browser suite
+passed 185 checks; its old 28px row assertion was updated to the approved 29px,
+and that check passed on rerun. All four container screenshot checks passed
+without baseline changes. The rebuilt bundles are byte-identical before and
+after the assertion update. One resolved source allowance was pruned, leaving
+five in CETP and 76 estate-wide. Other target-size findings in the accessibility
+roadmap concern different controls and remain open. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-target/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
