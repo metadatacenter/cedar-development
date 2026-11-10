@@ -141,6 +141,29 @@ Run the sequence as `cedar` inside `tmux` so it survives a disconnect. Examples 
 `gocedar` and `goeditor` navigation aliases. Without the `cedarcli` alias, export `CEDAR_HOME` and
 use `bash "$CEDAR_HOME/cedar-cli/cli.sh" <args>`; the CLI loads its selected profile itself.
 
+### Neo4j Lock Acquisition Limit
+
+Neo4j lets a transaction wait for a lock without limit unless `db.lock.acquisition.timeout` is set.
+The workstation and the Docker image set it to 30 seconds. Staging and production do not. Add this
+line to the host's `neo4j.conf`:
+
+```
+db.lock.acquisition.timeout=30s
+```
+
+Staging is provisioned by Puppet. If Puppet manages `neo4j.conf` there, the line belongs in the
+Puppet configuration, or the next run removes it. Neo4j reads the setting at start, so restart it
+while the microservices are stopped, during the deployment's outage. Then confirm, with the
+connection command from
+[Renumbering a Draft by Hand](BACKEND-RUNBOOK.md#renumbering-a-draft-by-hand):
+
+```cypher
+SHOW SETTINGS YIELD name, value WHERE name = 'db.lock.acquisition.timeout' RETURN name, value
+```
+
+[When a Graph Write Waits for a Lock](BACKEND-RUNBOOK.md#when-a-graph-write-waits-for-a-lock)
+describes what a blocked write does once the limit is in force.
+
 ### A · Connect
 ```bash
 ssh youruser@<prod-app-host>

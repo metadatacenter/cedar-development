@@ -907,6 +907,51 @@ The query planner holds short tokens back when a longer token can narrow the sea
 `D-mannitol` costs about as much as `mannitol`; broad queries without a useful narrow token remain
 expensive.
 
+A token held back is checked against the names the rest of the query matches, by the same folding
+the index applies, so `e` reaches `échoendoscopie`. Two rules decide what is held back. A token of
+one or two characters waits whenever some token has at least eight. A single letter also waits
+beside a shorter word, while the rest of the query matches at most 50,000 names in the scope asked
+for. One count against the index decides that, and the server remembers the answer for each
+expression. A possessive is the common case, because the index splits on the apostrophe.
+`Crohn's disease` asks for `crohn`, `s` and `disease`. Past 50,000 names the query is put to the
+index whole, since reading every candidate name then costs more than the index pays to intersect
+the letter. `t cell` across the corpus is such a query, and so is any single letter beside a common
+word.
+
+Measured on 2026-11-10 against the served index, one statement at a time, each form on a
+connection of its own. The typed queries are short ones of the kind an author types, such as
+`crohn's disease`, `vitamin d` and `t cell`:
+
+| Queries | Scope | Whole form, median and maximum | With the rule, median and maximum |
+| --- | --- | ---: | ---: |
+| 60 sampled labels the rule changes | One ontology | 1,029 ms, 5,847 ms | 32 ms, 637 ms |
+| The same labels | Corpus | 1,048 ms, 6,262 ms | 70 ms, 787 ms |
+| 24 typed queries | One ontology | 824 ms, 2,461 ms | 47 ms, 369 ms |
+| The same queries | Corpus | 1,017 ms, 2,715 ms | 559 ms, 2,829 ms |
+
+The rule held the letter back for all of the scoped queries and for 10 of the 24 corpus-wide ones.
+The other 14 ran as before and paid for the count once, up to 400 ms. Three queries
+became slower with the letter held back, by 45 to 93 ms: `vitamin k` and `x ray` across the corpus,
+and one strain name. Over 453 queries drawn from six ontologies, every plan returned the page, the
+counts and the vocabulary list of the whole form. Of 300 labels sampled evenly, the rule changes
+five.
+
+A `POST /search` runs several such statements. Through the server, three requests each, before and
+after the rule:
+
+| Query | Within DOID, before | Within DOID, after | Corpus, before | Corpus, after |
+| --- | ---: | ---: | ---: | ---: |
+| `Crohn's disease` | 6.5–7.4 s | 0.12–0.38 s | 7.9–8.4 s | 0.30–0.47 s |
+| `Gaucher's disease` | 6.2–6.5 s | 0.13–0.14 s | 7.8–8.2 s | 0.25–0.33 s |
+| `Wilson's disease` | 5.7–6.7 s | 0.10–0.11 s | 14.8–24.1 s | 0.22–0.27 s |
+| `vitamin d` | 6.6–8.5 s | 0.12–0.13 s | 9.6–13.0 s | 1.5–2.2 s |
+| `e coli` | 2.4–2.7 s | 0.10–0.11 s | 3.6–4.2 s | 3.7–3.9 s |
+| `t cell` | 4.8–5.3 s | 0.52–0.61 s | 6.8–11.0 s | 6.9–8.5 s |
+| `Crohn disease` | 0.14–0.24 s | 0.12–0.13 s | 0.31–0.49 s | 0.25–0.29 s |
+
+`e coli` and `t cell` across the corpus are put whole, so they are unchanged. `Crohn disease` has
+no short token and is here for comparison.
+
 Corpus-wide label ranking groups all matching names before selecting the best 25 labels. A small
 page therefore does not make a query matching 1.7 million names cheap. Selecting one source limits
 the search to that ontology and commonly reduces latency to tens of milliseconds. The picker

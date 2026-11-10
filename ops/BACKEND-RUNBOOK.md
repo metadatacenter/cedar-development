@@ -826,6 +826,50 @@ and the relay stops rather than overwriting newer content. A parked job stays in
 an artifact that could not be put back is one the two stores still disagree about and someone has to
 be able to find it. `CedarArtifactRestoreOutbox` nodes are those records.
 
+### When a Graph Write Waits for a Lock
+
+Neo4j lets a transaction wait for a lock without limit unless `db.lock.acquisition.timeout` is set.
+With the setting at 30 seconds, a transaction that has waited that long fails with
+`Neo.TransientError.Transaction.LockAcquisitionTimeout`. The driver retries a managed transaction
+on a transient error for thirty seconds counted from its first failure, and it does not retry an
+explicit transaction. A save's graph update is managed. A projection's turn at the lifecycle lock
+is explicit, so a turn that cannot take the lock fails its callers and their jobs stay for the
+relay.
+
+The workstation's `$CEDAR_NEO4J_HOME/conf/neo4j.conf` and the `cedar-infra-neo4j` image carry the
+setting. Staging and production do not, and the [production runbook](PROD-DEPLOY-RUNBOOK.md#neo4j-lock-acquisition-limit)
+gives the step. The Community edition reads the setting at start, so a change takes a restart of
+Neo4j. Check a running server with:
+
+```cypher
+SHOW SETTINGS YIELD name, value WHERE name = 'db.lock.acquisition.timeout' RETURN name, value
+```
+
+Measured on the workstation on 2026-11-10, with another transaction holding the lifecycle lock:
+
+| Lock held for | Waiting write | Result |
+| --- | --- | --- |
+| 50 s | Explicit transaction | Failed after 30 s |
+| 45 s | Statement through `cypher-shell` | Succeeded after 44 s, on its retry |
+| 100 s | Statement through `cypher-shell` | Failed after 61 s, after one retry |
+| 45 s | Template save through nginx | 500 after 44 s, with the document put back and the write without effect |
+| 100 s | Template save through nginx | 504 from nginx after 60 s, and the request ended on the server a second later |
+
+The save behind the 45-second hold failed on the restore relay's deadline and not on the limit.
+The relay puts a document back when its graph update has not committed after thirty seconds, as
+[When a Graph Update Does Not Commit](#when-a-graph-update-does-not-commit) describes. After each
+hold the next save succeeded and the artifact held that save's content. The limit changes one
+thing: a request thread waiting on a lock ends after about a minute, where it used to wait for as
+long as the lock was held.
+
+The 504 is the workstation's. Its nginx runs with the default 60-second read timeout, where the
+Docker image's configuration sets 180 seconds, so behind that configuration the client receives
+the server's own error about a second later.
+
+Whether the limit would have ended the wait seen during the 2026-11-10 soak is not established.
+That transaction was in the wait loop that checks the limit. Terminating it did not end it, and the
+same loop checks for termination.
+
 ### After an Artifact Graph Update Commits
 
 Ordinary saves, DOI writes and inclusion propagation commit a `CedarVersionProjection` job in the
@@ -4440,9 +4484,10 @@ with a corpus-wide search at a median of 2.9 s and an exact lookup in a 574-term
 of 395 ms. The search index and the catalog were limited to eight reading connections each, and
 most worker threads shared the first. The
 [versioning runbook](VERSIONING-RUNBOOK.md) describes the change and its measurements. A search
-whose text holds a one-letter token and no word of eight letters, such as "Crohn's disease", still
-takes five to seven seconds by itself, which the
-[versioning roadmap](VERSIONING-ROADMAP.md#open) records.
+whose text holds a one-letter token and no word of eight letters, such as "Crohn's disease", took
+five to seven seconds by itself. The planner now holds such a letter back, and
+[When a Lookup Is Slow](VERSIONING-RUNBOOK.md#when-a-lookup-is-slow) gives the rule and the
+timings.
 
 **The artifact server could not reach the terminology server.** The authoring profile's first run
 found every controlled-term value reported as unavailable, in a build where every profile and
@@ -4456,8 +4501,20 @@ rate was not measured again at 708,425.
 During the soak on the first fixed build, one save waited on the lifecycle lock inside Neo4j for
 24 minutes with no other transaction open, and its request never returned. Terminating the
 transaction did not release it and Neo4j could not stop until its process was killed. Recovery
-replayed 3,033 transactions and the graph was intact. Nothing bounds a graph transaction in time,
-which the [backend roadmap](BACKEND-ROADMAP.md) records with the thread dumps' location.
+replayed 3,033 transactions and the graph was intact. The workstation and the Docker image have
+since been given a 30-second limit on a lock wait, which
+[When a Graph Write Waits for a Lock](#when-a-graph-write-waits-for-a-lock) describes. The
+[backend roadmap](BACKEND-ROADMAP.md) records what remains, with the thread dumps' location.
+
+The soak ran once more that morning with the limit in force and the terminology changes deployed,
+after a macOS update had restarted the machine. It completed 765,803 requests with no failed
+threshold, and no lock wait reached the limit. Its timings are not comparable with the table.
+Conditional updates had a median of 611 ms where the table's run had 400 ms, and reads were twice
+as fast. Five three-minute soaks then alternated the limit on and off, with Neo4j restarted before
+each. Their update medians were 558, 498, 697, 1,198 and 1,226 ms in the order run, which was on,
+off, on, off, on. The runs slowed with time whatever the setting, while Spotlight's indexer used
+one to two cores. Before reading a write latency as a regression, measure on a machine that has
+finished its indexing after an update.
 
 A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
 the same concurrency coverage: contention, churn, resilience and burst create useful failure modes

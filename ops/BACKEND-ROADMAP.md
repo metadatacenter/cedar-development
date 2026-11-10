@@ -1372,21 +1372,25 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **21. Bound every graph transaction in time.** Nothing limits how long a graph transaction waits
-  for a lock: Neo4j's `db.lock.acquisition.timeout` and `db.transaction.timeout` are unset, and the
-  driver's transactions carry no timeout. During the 50-user soak on 2026-11-10 one save's first
-  statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for 24 minutes with no
-  other transaction open. Its request thread in the resource server never returned.
+- **21. Bound every graph transaction in time.** During the 50-user soak on 2026-11-10 one save's
+  first statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for 24 minutes
+  with no other transaction open. Its request thread in the resource server never returned.
   `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until the process
   was killed. The thread dumps are in `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`.
-  Whether Neo4j 5.26.0 has a defect that fifty writers on one node expose is not established. One
-  stuck wait costs a request thread for the life of the process either way.
+  Whether Neo4j 5.26.0 has a defect that fifty writers on one node expose is not established.
 
-  Set `db.lock.acquisition.timeout` in every environment's Neo4j configuration. A wait that exceeds
-  it fails as a transient error, which the driver's managed transactions retry, so the request
-  completes late instead of never. Decide whether the driver should also carry a transaction
-  timeout, and if so which graph operations legitimately run long: a recursive deletion, an index
-  rebuild's reads and a permission recalculation must not be cut short by a limit chosen for a save.
+  `db.lock.acquisition.timeout=30s` bounds an ordinary lock wait, and
+  [When a Graph Write Waits for a Lock](BACKEND-RUNBOOK.md#when-a-graph-write-waits-for-a-lock)
+  gives what a blocked write then does. Staging and production do not carry the setting. The
+  [production runbook](PROD-DEPLOY-RUNBOOK.md#neo4j-lock-acquisition-limit) has the step, which
+  needs a restart of Neo4j. Whether the limit would have ended the wait above is not established
+  either. If such a wait recurs with the limit set, the lock manager is at fault and the limit is
+  not the remedy.
+
+  Nothing bounds a transaction that holds its locks and runs long: `db.transaction.timeout` is
+  unset, and the driver's transactions carry no timeout. Decide whether to set one, and which graph
+  operations legitimately run long. A recursive deletion, an index rebuild's reads and a permission
+  recalculation must not be cut short by a limit chosen for a save.
 
   Done when a lock wait that outlasts the limit fails its transaction in every environment, a
   retried save succeeds, and no request thread can wait on the graph without a deadline.
@@ -1421,6 +1425,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   and waits 30 seconds when BioPortal does not answer. No release has run this path: until
   2026-11-10 the artifact server could not reach the terminology server at all. No profile measures
   it either, because the harness does not load BioPortal.
+
+  The next release ships the checks as designed, so its first days in production are the first
+  measurement. After it is deployed, compare the durations of instance and template writes in the
+  artifact server's request log with the week before, and count the warnings
+  `SemanticValueVerification` logs, at most one a minute, when a check is unavailable.
 
   Establish which sources production instances draw their terms from and which of those the
   production store serves. Measure a save holding terms of an unserved source against a stub that
