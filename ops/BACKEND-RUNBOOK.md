@@ -4019,9 +4019,9 @@ whether the graph and the artifact server agree, and the things a real running s
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
-`contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
-`inclusion`, `negotiation`, `openness`, `pagination`, `pull-versions`, `search`, `sharing`, `validation` and
-`versioning`. The committed
+`contract`, `deletion`, `download`, `error-reports`, `errors`, `finding`, `folders`, `freeze`,
+`group-sharing`, `groups`, `inclusion`, `mcp`, `negotiation`, `openness`, `pagination`, `pull-versions`,
+`search`, `sharing`, `validation` and `versioning`. The committed
 `rest/expected-checks.json` inventory records exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
@@ -4030,6 +4030,14 @@ them. Only HTTP 404 from version discovery permits that skip; authentication err
 and malformed successful replies fail. Cleanup verifies HTTP 404 after deletion; an unsuccessful
 read is not evidence of absence. `download` includes JSON / YAML / compact-YAML export and
 read-negotiation across all four artifact kinds.
+
+`mcp` starts the built `cedar-artifact-rest-mcp` jar over stdio with the first test user's API key,
+read from that user's profile, and takes three canned templates from `cedar-artifact-library`'s test
+resources through `validate_artifact`, `create_template`, `get_template` and `delete_template`, and
+one template through `update_template`. Each step is confirmed through the resource server. The suite
+fails when the jar is missing or older than its sources, so run `mvn package` in
+`mcp/cedar-artifact-rest-mcp` first. `errors` sends each server only the kinds of refusal its
+operations allow, so a server whose operations take no JSON body gets no malformed-body check.
 
 `npm run test:rest-harness` runs every `rest/*.test.mjs` file without a running stack. Release tooling
 CI runs that same command after installing its dependencies and checking out the eleven servers'
