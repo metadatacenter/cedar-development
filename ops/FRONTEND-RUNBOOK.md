@@ -4495,8 +4495,8 @@ CED starts with the **Modular** profile. To test reusable artifact search as loc
 then open `http://localhost:4599/`. This loopback-only host reads Keycloak on 8080
 and the resource server on 9007; credentials and renewable access tokens stay in
 the demo server. Its API exposes reads only. The published component has no default
-repository or account. The opt-in browser check is
-`CED_LOCAL_REPOSITORY=1 npm --prefix browser test -- --grep 'local test1'`.
+repository or account. The whole-stack smoke tests the real search: its Template
+Designer journey imports, through CED, an element the run created.
 
 **Add Child** keeps the standard field palette and adds **Select existing fields and elements**.
 Its dialog stages multiple first-class artifacts above a searchable, paginated results table,
