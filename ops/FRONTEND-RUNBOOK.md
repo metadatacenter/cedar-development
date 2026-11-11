@@ -3954,9 +3954,8 @@ draw their chevron as a background gradient, which hides their text's contrast f
 axe. The text is 87% black on white, about 16:1. The template and element settings
 toggles are 36 by 14px, under WCAG 2.2's 24px minimum, but the header beside each
 opens the same settings and is the larger equivalent target criterion 2.5.8 allows.
-A field card's toggle has no such equivalent. The field header is 23px tall, and the
-settings panel's last control sits within 12px of the toggle's centre. The spec
-records it under `EXCEPTIONS` as a failure that waits on a visible change.
+A field card's toggle is the same size, and its field header is at least 24px tall
+for the same reason. `SETTLED` measures that header on every scan.
 
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
 been through `npm run dist` is not the thing under test. That used to be a
@@ -5648,7 +5647,9 @@ eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were
 2.5.7 in CED and 4.1.3 in Workspace, were reassessed at CED `46977b0` and Workspace `720bd319`.
 Later that day the term picker's 2.1.1 and 4.1.2 were reassessed after a tenth round, at the term
 picker `20d1523`, CED's 2.4.3 and 2.4.7 after an eleventh, at CED `c9f410d`, and CEE's 3.1.2 after a twelfth, at
-CEE `63d13ee2`. The assessment read code and tests. Nobody ran a screen reader, and only the
+CEE `63d13ee2`. On 2026-11-11 the criteria a thirteenth round touched were reassessed at CED
+`cb5d44a`, CEE `0e6f0eb8`, the term picker `45a5e22` and Workspace `b4afc4c4`. The assessment
+read code and tests. Nobody ran a screen reader, and only the
 English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
@@ -5677,10 +5678,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 22 | 11 | 6 | 0 | 16 | 22 of 39, 56% |
-| CEE | 26 | 11 | 4 | 6 | 8 | 26 of 47, 55% |
-| Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
-| Workspace | 30 | 15 | 2 | 0 | 8 | 30 of 47, 64% |
+| CED | 26 | 13 | 0 | 0 | 16 | 26 of 39, 67% |
+| CEE | 29 | 12 | 0 | 6 | 8 | 29 of 47, 62% |
+| Term picker | 28 | 11 | 0 | 0 | 16 | 28 of 39, 72% |
+| Workspace | 31 | 16 | 0 | 0 | 8 | 31 of 47, 66% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -5723,7 +5724,20 @@ moves focus to the card below, and an action used from the keyboard keeps them s
 twelfth round named each of CEE's boxes, and the group a read-only term is drawn as, from a hidden
 element that marks the field's label with the template's language, so the box keeps its value's
 language and the label is read in the template's. That moved CEE's 3.1.2 from Partial to Met. The
-failures still stand at 17, and most of them need a visible change.
+failures stood at 17 after it, and each needed a visible change.
+
+A thirteenth round made each of those changes, as agreed on 2026-11-10. Every layout check now
+passes with no recorded exception, which moved 1.4.4 and 1.4.10 in CED, CEE and the term picker,
+and 1.4.12 in CEE and Workspace, from Fails to Met. Every target now measures at least 24px, or
+has a larger equivalent target, which moved 2.5.8 in CED and the term picker from Fails to Met.
+CED's reordering and resizing take single clicks, which moved its 2.5.7 from Fails to Met. The
+keyboard now reaches CED's sidebar field list and its narrow Overview, CEE's element marks and
+Workspace's Save during validation, which moved 2.1.1 in those three from Fails to Partial. The
+term picker's results became a list of rows whose names are buttons, and CED's child-picker
+results a grid, which moved the picker's 1.3.1 and 4.1.2 and CED's 4.1.2 from Fails to Partial.
+Workspace's listing became a grid whose rows state their selection, and a repeated notice is
+announced again, but its 1.3.1, 4.1.2 and 4.1.3 stay Partial, because no screen reader has
+confirmed them. No criterion fails now.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -5735,24 +5749,18 @@ spec as a named exception, and an exception that stops occurring fails it.
 
 ### Failures Several Components Share
 
-One failure still recurs across components: targets under 24px. CED's field settings toggle and
-the term picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum
-target (2.5.8).
-
-Two others had shared causes, and each was fixed where its cause lives. Text inputs draw their
+No failure recurs across components now. Three had shared causes, and each was fixed where its
+cause lives. Every target is at least 24px tall, from the shared minimum target size, or has a
+larger equivalent target, as CED's field header is for its settings toggle. Text inputs draw their
 boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
 field sits on a panel. A selection tint of about
 1.2:1 is never a selection's only mark. A selected item takes `patterns.selected-outline` or, where
 the focus ring needs the outline, `patterns.selected-frame`. CEE's calendar gives the focused date
 the focus ring, and CED's errored settings tab carries the warning icon.
 
-The layout check's failures are each a component's own: CED's narrow layouts, CEE's PubMed and
-RRID instructions cut short at 320 pixels and its long read-only values cut short at 320 pixels, at
-200% zoom and under text spacing, the term picker's release history at 320 pixels and its truncated
-lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are
-open work in the
-[frontend roadmap's accessibility item](FRONTEND-ROADMAP.md#accessibility), the term picker's
-included.
+The layout check records no exception in any component. What no browser suite can settle is what a
+screen reader speaks, which the
+[frontend roadmap's accessibility item](FRONTEND-ROADMAP.md#accessibility) tracks.
 
 ### By Criterion
 
@@ -5767,7 +5775,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | N/A | Unverified | N/A | N/A |
 | 1.2.4 Captions (Live) | AA | N/A | Unverified | N/A | N/A |
 | 1.2.5 Audio Description (Prerecorded) | AA | N/A | Unverified | N/A | N/A |
-| 1.3.1 Info and Relationships | A | Partial | Met | Fails | Partial |
+| 1.3.1 Info and Relationships | A | Partial | Met | Partial | Partial |
 | 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
@@ -5775,13 +5783,13 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
-| 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
+| 1.4.4 Resize Text | AA | Met | Met | Met | Met |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
-| 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
+| 1.4.10 Reflow | AA | Met | Met | Met | Met |
 | 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
-| 1.4.12 Text Spacing | AA | Met | Fails | Met | Fails |
+| 1.4.12 Text Spacing | AA | Met | Met | Met | Met |
 | 1.4.13 Content on Hover or Focus | AA | Met | Partial | Met | Met |
-| 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
+| 2.1.1 Keyboard | A | Partial | Partial | Partial | Partial |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
 | 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
 | 2.2.1 Timing Adjustable | A | Met | Met | Met | Partial |
@@ -5799,8 +5807,8 @@ that touches it, and update the assessment date and commits with it.
 | 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
 | 2.5.3 Label in Name | A | Met | Met | Met | Met |
 | 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
-| 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
-| 2.5.8 Target Size (Minimum) | AA | Fails | Met | Fails | Met |
+| 2.5.7 Dragging Movements | AA | Met | Met | Met | Partial |
+| 2.5.8 Target Size (Minimum) | AA | Met | Met | Met | Met |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
 | 3.1.2 Language of Parts | AA | Partial | Met | Met | Met |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |
@@ -5814,7 +5822,7 @@ that touches it, and update the assessment date and commits with it.
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Host | Host | Host | Partial |
 | 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
 | 3.3.8 Accessible Authentication (Minimum) | AA | Host | Host | Host | N/A |
-| 4.1.2 Name, Role, Value | A | Fails | Partial | Fails | Partial |
+| 4.1.2 Name, Role, Value | A | Partial | Partial | Partial | Partial |
 | 4.1.3 Status Messages | AA | Partial | Met | Partial | Partial |
 
 ## Surface inventory and token coverage

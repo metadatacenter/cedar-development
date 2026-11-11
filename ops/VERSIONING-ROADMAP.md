@@ -988,8 +988,7 @@ The controls wait on the backend meaning of both actions, which item 7 settles.
 
 The numbered items continue here: the work that
 remains on the surface an author authors a versioned constraint through, on the server behind it,
-and on retiring what it replaces. The picker's accessibility work is on the
-[frontend roadmap](FRONTEND-ROADMAP.md#accessibility), grouped with the other components'.
+and on retiring what it replaces.
 
 ### The Template Designer
 

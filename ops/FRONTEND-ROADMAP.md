@@ -8,8 +8,7 @@ service. The legacy Template Editor will be retired, so no item here plans work 
 See [FRONTEND-RUNBOOK.md](FRONTEND-RUNBOOK.md) for operating procedures and
 [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md) for backend work outside browser workflows.
 Term-picker and terminology-versioning work remains in
-[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md), apart from the picker's accessibility work, which
-is grouped here with the other components'.
+[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md).
 
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
@@ -323,121 +322,16 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ## Accessibility
 
-### 8. Fix the Failures the WCAG 2.2 Conformance Report Records
+### 8. Run CED's Screen-Reader Protocol
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
-picker and Workspace against the 55 success criteria of WCAG 2.2 at levels A and AA. Its failures
-are grouped by the kind of fix rather than by component. The change each piece states was agreed on
-2026-11-10. Build that change and nothing wider, and agree any further visible change before making
-it. The screen-reader runs wait on a person.
+picker and Workspace against the 55 success criteria of WCAG 2.2 at levels A and AA. Every failure
+it recorded that a browser suite can measure has been fixed. What no suite can settle is what a
+screen reader speaks.
 
-Many findings are recorded as exceptions in a component's `accessibility.spec.ts` or
-`layout-resilience.spec.ts`. An exception fails once its finding stops, so remove it in the same
-change as the fix. Remove each piece when its work is done, and the item once it holds none.
-
-- **Messages announced and kept long enough to read (4.1.3, 2.2.1).**
-  - Workspace never clears its notice, so an action that repeats the notice before it gets no toast
-    and no announcement. Show the toast again for a fresh 6 seconds and announce it again, as the
-    metadata editor and the permissions dialog do.
-- **Labels that stay (3.3.2).** CED's field-name and option boxes and its library search are
-  labelled only by placeholders, which disappear once the box holds text. Draw a small "Name"
-  caption before the field-name box, a number before each option box and a magnifier in the search
-  box. Give the search box an accessible name, which it lacks. No card may grow taller.
-- **Targets of at least 24px (2.5.8).** Each finding is recorded as an exception in its
-  component's `accessibility.spec.ts`.
-  - CED's field settings toggle is 36 by 14px. The field header beside it opens the same settings
-    but is 23px tall, a pixel short, and the settings panel's last control sits within 12px of the
-    toggle's centre. Give the header 24px, which makes every card 1px taller. The toggle keeps its
-    size, with the header as its equivalent target.
-  - In the term picker, the tree's 16px twists, its terms, 14px tall on a 16px pitch, the release
-    count that opens a row's history, and the history's 22px release buttons are under the minimum.
-    Give all four the shared minimum target: tree rows on a 24px pitch, 24px releases and a 24px
-    release count.
-- **Keyboard routes (2.1.1, 2.5.7).** Some actions and information are reached only by a pointer.
-  - While CEE's validation is still running, Workspace's metadata editor shows Save as enabled, but
-    Save ignores clicks and explains itself only in a hover tooltip, whose text says that errors
-    need fixing. Keep Save looking enabled and make it act. A click or Enter during validation
-    waits for validation to finish, then saves or lists the errors. The status text reads
-    "Validating…" only while a requested save waits.
-  - An element's description and property IRI marks in CEE sit inside its panel header, which is a
-    button, so they cannot take focus, and only a pointer shows their tooltips. Move both marks out
-    of the button, where they take focus as they do on a field. Each element header gains up to two
-    Tab stops, and a click on a mark no longer opens or closes the panel. The marks keep the place
-    they are drawn in today. Agree any shift before making it.
-  - In CED, a click on an entry in the sidebar's field list opens the container that holds the
-    field, selects it and scrolls to it, and no keyboard route does the same. The entry,
-    `.draggable-field-item` in `field-library-sidebar.component.html`, has no `tabindex` and no key
-    handler. Make the list one Tab stop. Up and Down move among its entries, Enter chooses one, and
-    choosing moves focus to the field's card. Pin the resulting Tab order in
-    `keyboard-order.spec.ts` and where focus lands in `focus-return.spec.ts`. The entry's line
-    disables two of the template accessibility lint rules, so remove that exception in the same
-    change.
-  - Reordering in CED, on the canvas, in the Overview, in the child picker and in the sidebar, and
-    resizing the Overview and the sidebar's field list, all need a drag or the arrow keys. WCAG 2.2
-    asks for a route that needs only single clicks. Add Move up and Move down buttons to each
-    Overview row and to each chosen row in the child picker, beside the Reorder handle. Canvas cards
-    and the sidebar's list stay drag-only, with the Overview as their click route. A click on either
-    divider steps it through three preset sizes, which replaces the Overview divider's double-click
-    reset and adds no control.
-- **Layout under reflow, zoom and text spacing (1.4.4, 1.4.10, 1.4.12).** Each component's layout
-  check finds content cut short, scrolled sideways or drawn over other content at 320 CSS pixels, at
-  200% zoom or under WCAG's text spacing. Each finding is recorded in its component's
-  `layout-resilience.spec.ts`.
-  - Under text spacing, a Workspace grid card's type and date line, such as "Template · 1 day ago",
-    ends in an ellipsis. Let the line wrap and the card grow, through the token package's
-    resource-card recipe. A card whose line fits keeps its size, and a card whose line is cut today
-    grows.
-  - At 320px, CEE's PubMed and RRID placeholders need about 271 and 276px and get 264px, so their
-    last letters are cut. Drop "Start typing" from the six authority placeholders that open with
-    it, in English and Hungarian, which leaves "Publication name or PubMed ID" and its siblings.
-  - A long text, email or phone value in a read-only CEE box is cut at the box's edge with nothing to
-    show that more follows. At 320px all three are cut, and at 200% zoom and under text spacing the
-    text value is. Draw the value in the growing box a paragraph uses, so that it wraps onto further
-    lines. A short value looks as it does today.
-  - At 375px, the term picker's release-history head gives its count column no width, so "3
-    releases, newest first" overlaps "effective date", and a release row clips its tag. At 320px the
-    history scrolls sideways. At 200% zoom the selection's source line loses its acronym to an
-    ellipsis, a value set row cuts its matched terms, and the narrowing panel opens with about 96px
-    of room, clipping its list and its Clear all, Cancel and Apply buttons until the page is
-    scrolled. Give each release two lines on a narrow host. Give the source line and a value set
-    row's matched terms a title that shows their whole text, as the lines beside them have. Open the
-    narrowing panel above its chip when more room is there.
-  - Below 768px of width, CED hides the Overview (`app.component.scss`), and with it outline
-    navigation, Expand all, Collapse all and the only keyboard route for reordering, so all of them
-    are gone at 200% zoom as well (2.1.1). At 320px the Preferences field-type list scrolls sideways
-    by 8px, and the Define Presets body scrolls sideways. Already at 375px, the template's Types row
-    pushes Enter IRI manually past the card's edge and sets "No types selected." one letter to a
-    line. Keep the Overview toggle in the header below 768px, and let it open the Overview over the
-    canvas, closed by default. Set the Preferences field types in one column, let each preset table
-    scroll in a box of its own, and put the Types buttons beneath the list, each only where the row
-    would otherwise overflow.
-  - CED's sidebar divider also shows a layout defect that fails no WCAG criterion. Its shares leave
-    out the roughly 72px of insertion actions above the field list, so the sections below can
-    overrun the sidebar by about 78px, which `.main-content` clips. A pointer then cannot reach the
-    library's last button. Keyboard focus scrolls it into view, but that puts the Add field and
-    Import row out of reach above. Adding 15 fields from the sidebar causes this at the default
-    share, before any drag. Keep the field list's height and give the libraries section the space
-    left under it. The visible layout is meant to stay as it is, so measure both sections before and
-    after, and agree any shift a pixel or two cannot explain.
-- **Row semantics a screen reader can follow (1.3.1, 4.1.2).** Three components draw rows that act
-  on a click but whose roles do not say so.
-  - Workspace describes a selected row as Selected, because a plain table's rows take no
-    `aria-selected`. Make the table a grid whose rows carry `aria-selected`. It becomes one Tab
-    stop, and the arrow keys, which already move and select, lead from row to row. Nothing changes
-    on screen.
-  - CED's child-picker result rows are plain table rows, whose selected state Chromium ignores.
-    Make the results table a grid: one Tab stop, Up and Down between rows, Enter or Space to choose.
-    Nothing changes on screen. The smokes find a row by its name, Select and the artifact's name,
-    which the row keeps.
-  - A term picker result row is an `option` outside any `listbox`, carries `aria-expanded`, which an
-    option does not take, and holds buttons of its own. The browser suite's axe gate records these
-    as exceptions. Make each row a list item whose title is a button that opens the row's details,
-    with the release count as a second button. Rows stay Tab stops, as in the picker's tree, and the
-    focus ring stays on the row.
-- **CED's screen-reader protocol.** Run the
-  [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with VoiceOver and Safari
-  and with NVDA and Firefox, and fix what it finds. The browser suite cannot tell whether a screen
-  reader speaks the live region's messages, in what order, or whether one interrupts another.
+Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with VoiceOver and
+Safari and with NVDA and Firefox, and fix what it finds. The browser suite cannot tell whether a
+screen reader speaks the live region's messages, in what order, or whether one interrupts another.
 
 <a id="ced"></a>
 
