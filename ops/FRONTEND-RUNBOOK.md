@@ -1145,6 +1145,16 @@ Code; correction saves with the existing instance revision and reopens with othe
 The reopened Editor enforces the new regex locally before another write can be submitted.
 Run `npm run smoke:journey -- current-template-constraint`; it also runs in the modern Workspace
 smoke. Unlike the injected report checks above, this exercises deployed server validation.
+The pinned-branch journey follows a terminology release from authoring to a saved value. In
+Designer, the real term picker pins NCIT's Melanoma branch to release 24.01e, and the saved template
+must record that release. Editor must then offer the branch as 24.01e holds it, with
+"Melanomatosis" and without "Acral Melanoma", the reverse of the newest release, and every search
+it sends must name the pin. The chosen term saves, the server verifies it against the pinned
+release, and the record reopens with it. Publishing keeps the author's release, and a record of the
+published template reads the branch at that release too. The journey first asks the terminology
+server whether the local store still tells the two releases apart, and fails with a message about
+the store when it does not. Run `npm run smoke:journey -- pinned-branch`; it also runs in the modern
+Workspace smoke.
 The duplication journey copies templates, elements, standalone fields and metadata through
 Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
 It compares content, checks derivation and fresh draft-series identity, and verifies that neither

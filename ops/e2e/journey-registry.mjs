@@ -9,6 +9,7 @@ import { accessRecheckJourney } from "./access-recheck-journey.mjs";
 import { initialLoadJourney } from "./initial-load-journey.mjs";
 import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
 import { currentTemplateConstraintJourney } from "./current-template-constraint-journey.mjs";
+import { pinnedBranchJourney } from "./pinned-branch-journey.mjs";
 import { scalarRoundtripJourney } from "./scalar-roundtrip-journey.mjs";
 import { restoredValidationJourney } from "./restored-validation-journey.mjs";
 import { repeatedSchemaJourney } from "./repeated-schema-journey.mjs";
@@ -86,6 +87,7 @@ export const JOURNEYS = [
   { key: "initial-load", run: initialLoadJourney },
   { key: "validation-rejection", run: validationRejectionJourney },
   { key: "current-template-constraint", run: currentTemplateConstraintJourney },
+  { key: "pinned-branch", run: pinnedBranchJourney },
   { key: "scalar-roundtrip", run: scalarRoundtripJourney },
   { key: "restored-validation", run: restoredValidationJourney },
   { key: "repeated-schema", run: repeatedSchemaJourney },

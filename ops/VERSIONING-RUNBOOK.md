@@ -841,6 +841,16 @@ terms, has no explicit version constraint, and the index's release matches the c
 release. Otherwise it uses its snapshot or, outside the local allowlist, BioPortal. A pinned release
 always uses its snapshot; pin the current catalog version to compare both paths.
 
+Integrated search honours a pin only when the store serves every source the field names. Each
+constraint is then answered from its own release at its own branch depth, and the field is offered
+the union. When a pinned source is not served locally, or the store does not hold the pinned
+release, the request fails with HTTP 422 and the error key `pinnedVersionUnavailable`. It never
+falls back to the newest release or to BioPortal. A source outside BioPortal that the store does not
+serve is reported unavailable rather than proxied. A class constraint names one term, so its pin is
+recorded but does not change what integrated search offers. The pinned-branch journey in `ops/e2e`
+follows a pin from Designer's term picker through Editor's searches to the server's verdict on the
+saved value. [FRONTEND-RUNBOOK.md](FRONTEND-RUNBOOK.md#modern-split-workspace) describes it.
+
 The index keeps one release per ontology. Version constraints and catalog/index agreement prevent
 it from attributing terms to the wrong release after a re-ingest.
 
