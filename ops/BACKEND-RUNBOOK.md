@@ -3442,18 +3442,15 @@ Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mo
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
-MySQL). Nor does any suite need an external service. The tests that do call one are terminology's
-BioPortal tests (61 across six resource classes). They are tagged `bioportal`, and terminology's
-application POM excludes them from the default build. Clear the exclusion with `-DexcludedGroups=` to
-run them against BioPortal. Their CEDAR variables must still be set even when the tests are excluded,
+MySQL). Nor does any suite need an external service. Terminology's BioPortal resource tests run
+against a fake BioPortal that each test class starts. Their CEDAR variables must still be set,
 because the configuration substitutes them as it loads; a placeholder value is enough. The bridge's
 DOI suites call no DataCite. They run against a DataCite fake that keeps what it registers.
 
 A test that starts a Dropwizard application, an embedded store, embedded Redis, OpenSearch or a
 local socket server carries the `integration` tag. Every other test is a unit test. No POM excludes
 the tag, so the default build runs both kinds. Select one kind with `-Dgroups=integration` or
-`-DexcludedGroups=integration`. Terminology reads its exclusion from the `excludedGroups` property,
-so name both tags there (`-DexcludedGroups=bioportal,integration`) or the BioPortal tests run too.
+`-DexcludedGroups=integration`.
 A base class that starts a server carries the tag for its subclasses. A test that starts one itself
 needs the tag on its own class.
 The OpenSearch `*IT` suites carry the tag as well. Their names keep them out of the default build,
@@ -4760,13 +4757,13 @@ than stopping at the first, and fails on an empty table.
 
 Where the coverage is thin, stated plainly so nobody reads the class count as reassurance:
 
-- **Terminology has offline route and local-store coverage; live BioPortal behaviour remains
-  separate.** `TerminologyServerApplicationSmokeTest` discovers resources from Jersey's runtime
-  registration and probes protected routes for 401, with an explicit public-route exclusion list
-  and a separate valid-query probe for property search. `LocalStoreResourceTest` serves synthetic
-  SQLite snapshots through the real HTTP application without BioPortal. Tests tagged `bioportal`
-  remain excluded from the default build, and disabled tests provide no behavioural coverage.
-  Authentication probes do not establish the correctness of those external-service operations.
+- **Terminology's BioPortal routes are tested against a fake, not BioPortal.**
+  `TerminologyServerApplicationSmokeTest` discovers resources from Jersey's runtime registration
+  and probes protected routes for 401, with an explicit public-route exclusion list and a separate
+  valid-query probe for property search. `LocalStoreResourceTest` serves synthetic SQLite snapshots
+  through the real HTTP application without BioPortal. The BioPortal resource tests and
+  `BioPortalSuccessPathsTest` run every BioPortal-backed route against `FakeBioPortal`, a small
+  world answering as BioPortal does. No suite asks the real BioPortal.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
 - **Dependency coverage is partial but deliberate.**
@@ -4948,9 +4945,8 @@ cd $CEDAR_HOME && for d in cedar-*-server; do
 done
 ```
 
-The terminology server's tests that need BioPortal are tagged `bioportal` and excluded by default.
-The server keeps untagged coverage of its authenticated surface, so excluding the tagged tests does
-not silently drop a row to nothing.
+The terminology server's BioPortal-backed routes run against a fake BioPortal in the default
+build, so none of its tests is excluded.
 
 ## Continuous Integration
 
