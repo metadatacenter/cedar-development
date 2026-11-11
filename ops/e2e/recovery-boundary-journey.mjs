@@ -4,7 +4,7 @@ import {actors,artifactBody,call,mutate,enc,poll,RESOURCE} from './rest/lib.mjs'
 import {journeyFolder} from './journey-fixtures.mjs';
 
 // startup-recovery acts as the runner's first test user only. tab-isolation also signs the second
-// test user in to a browser context of its own, so it belongs in the identity lane.
+// test user in to a browser context of its own, so it declares an authentication reason.
 
 // These are the statuses either host shows once it has loaded what it opened, edited or not.
 const LOADED=/^(Unmodified|Modified|Saved|Read only|Reload required)$/;

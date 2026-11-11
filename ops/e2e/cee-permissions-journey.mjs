@@ -8,8 +8,8 @@ import { listed, menu, removePermission, setPermission, signInSecondUser } from 
 // changes the permission on the runner's page; the second person works in a browser context of their
 // own. The template has the fields the full smoke authors in Designer.
 //
-// The journey signs the second test user in to a browser context of their own, so it belongs in the
-// identity lane.
+// The journey signs the second test user in to a browser context of their own, so it declares an
+// authentication reason.
 export async function ceePermissionsJourney(args) {
   const { page, base, user, name, write, pass } = args;
   const templateName = name + " shared metadata template", instanceName = name + " shared metadata";

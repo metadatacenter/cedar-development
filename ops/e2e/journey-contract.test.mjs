@@ -22,19 +22,19 @@ test("omitting, repeating or substituting a scenario cannot produce a passing in
   omitted.finish();
 });
 
-test("seeded ordering is repeatable, changes with the seed, and still serializes identities", () => {
+test("seeded ordering is repeatable, changes with the seed, and is the order the queue hands out", () => {
   const journeys = Array.from({ length: 15 }, (_, i) => ({ key: `journey-${i}`, authentication: i % 3 === 0 }));
   const build = seed => plan({ journeys, scripts: [], seed });
   assert.deepEqual(build("one").units, build("one").units);
   assert.notDeepEqual(build("one").units.map(u => u.name), build("two").units.map(u => u.name));
   assert.deepEqual(new Set(shuffled(journeys, "one")), new Set(journeys));
-  const queue = createQueue(build("one").units);
-  const identity = queue.next({ identity: true });
-  assert.equal(identity.identity, true);
-  assert.equal(queue.next({ identity: true }).identity, false);
-  assert.equal(queue.next({ identity: false }).identity, false);
-  queue.requeue(identity);
-  assert.equal(queue.next({ identity: true }), identity);
+  const units = build("one").units;
+  const queue = createQueue(units);
+  const first = queue.next();
+  assert.equal(first.name, units[0].name);
+  assert.equal(queue.next().name, units[1].name);
+  queue.requeue(first);
+  assert.equal(queue.next(), first);
 });
 
 test("a passing retry never erases a failed first attempt or inflates its rate", () => {

@@ -9,9 +9,8 @@ import {
   latestReports, plan, simulate,
 } from "./split-lanes.mjs";
 
-// The split tier runs whatever the plan and its queue say. A journey the plan drops is never run, one
-// it hands out twice collides with itself on the names it creates, and an identity unit outside the
-// identity lane signs in alongside the others.
+// The split tier runs whatever the plan and its queue say. A journey the plan drops is never run, and
+// one it hands out twice collides with itself on the names it creates.
 const keys = JOURNEYS.map(entry => entry.key);
 const identityKeys = JOURNEYS.filter(entry => entry.authentication).map(entry => entry.key);
 const identityScripts = SCRIPTS.filter(script => script.identity).map(script => script.name);
@@ -33,18 +32,16 @@ for (const lanes of [2, 3, MAX_LANES]) {
     const layout = plan({lanes, durations, stamp: 1760000000000});
     assert.equal(layout.sequential, false);
     assert.deepEqual(layout.lanes.map(lane => lane.name),
-      ["core", "identity", ...Array.from({length: lanes}, (_, index) => `general-${index + 1}`)]);
+      ["core", ...Array.from({length: lanes}, (_, index) => `general-${index + 1}`)]);
     assert.deepEqual(layout.chain.args, [...CORE.args, "--chain-only"]);
     assert.equal(layout.chain.name, CHAIN.name);
     const queued = layout.units.map(unit => unit.name);
     assert.deepEqual([...queued].sort(), [...keys, ...SCRIPTS.map(script => script.name)].sort());
     assert.deepEqual(layout.units.filter(unit => unit.identity).map(unit => unit.name).sort(),
       [...identityKeys, ...identityScripts].sort());
-    // Every unit in the projection runs exactly once, and identity units only in the identity lane.
+    // Every unit in the projection runs exactly once.
     const projected = layout.projection.lanes.flatMap(lane => lane.units);
     assert.deepEqual([...projected].sort(), [...queued].sort());
-    for (const lane of layout.projection.lanes.filter(lane => lane.name !== "identity"))
-      assert.ok(lane.units.every(name => !layout.units.find(unit => unit.name === name).identity), lane.name);
   });
 }
 
@@ -54,7 +51,6 @@ test("same-user recovery is identity work and retains its reason in the executio
     const unit = layout.units.find(unit => unit.name === name);
     assert.equal(unit.identity, true);
     assert.equal(unit.authentication, "reauthenticates the first user");
-    assert.ok(layout.projection.lanes.find(lane => lane.name === "identity").units.includes(name));
   }
 });
 
@@ -67,47 +63,41 @@ test("each lane works under a root of its own that sorts after the core lane's f
 
 const unit = (name, seconds, identity = false, order = 0) => ({name, seconds, identity, order, kind: "journey", measured: true});
 
-test("the queue hands out the longest unit a lane may run, and only the identity lane takes identity units", () => {
+test("the queue hands out the longest unit to whichever lane asks, identity units included", () => {
   const queue = createQueue([unit("short", 1, false, 0), unit("long", 9, false, 1), unit("who", 5, true, 2),
     unit("whom", 7, true, 3), unit("tie-a", 4, false, 4), unit("tie-b", 4, false, 5)]);
-  const general = {name: "general-1", identity: false}, identity = {name: "identity", identity: true};
-  assert.equal(queue.next(general).name, "long");
-  const first = queue.next(identity);
-  assert.equal(first.name, "whom", "the identity lane takes its own units first, longest first");
-  assert.equal(queue.next(general).name, "tie-a", "units of the same length go in registry order");
+  assert.equal(queue.next().name, "long");
+  const first = queue.next();
+  assert.equal(first.name, "whom", "an identity unit goes in its place by length");
+  assert.equal(queue.next().name, "who", "a second identity unit may run while the first is in flight");
+  assert.equal(queue.next().name, "tie-a", "units of the same length go in registry order");
   queue.finish(first);
-  assert.equal(queue.next(identity).name, "who");
-  assert.equal(queue.next(general).name, "tie-b");
-  assert.equal(queue.next(identity).name, "short", "the identity lane takes general units once its own are gone");
-  assert.equal(queue.next(general), undefined);
+  assert.equal(queue.next().name, "tie-b");
+  assert.equal(queue.next().name, "short");
+  assert.equal(queue.next(), undefined);
   assert.deepEqual(queue.pending(), []);
 });
 
-test("no two identity units are ever in flight, and a unit that could not start goes back in order", () => {
+test("identity units may be in flight together, and a unit that could not start goes back in order", () => {
   const queue = createQueue([unit("a", 5, true, 0), unit("b", 4, true, 1), unit("g", 3, false, 2), unit("h", 2, false, 3)]);
-  const one = {name: "identity", identity: true}, two = {name: "second", identity: true};
-  const a = queue.next(one);
+  const a = queue.next();
   assert.equal(a.name, "a");
-  assert.equal(queue.next(two).name, "g", "while an identity unit is in flight, another identity lane gets a general one");
+  assert.equal(queue.next().name, "b", "the authentication lock serializes sign-ins, not the units around them");
   queue.requeue(a);
-  assert.deepEqual(queue.pending().map(entry => entry.name), ["a", "b", "h"]);
-  assert.deepEqual(queue.inFlight().map(entry => entry.name), ["g"]);
+  assert.deepEqual(queue.pending().map(entry => entry.name), ["a", "g", "h"]);
+  assert.deepEqual(queue.inFlight().map(entry => entry.name), ["b"]);
 });
 
-test("lanes that finish their own work take a share of everyone else's", () => {
+test("the core lane takes a share of the queue once its chain is done", () => {
   const units = [
     ...["g1", "g2", "g3", "g4", "g5", "g6"].map((name, order) => unit(name, 10, false, order)),
     unit("i1", 5, true, 6),
   ];
-  const lanes = [{name: "core", core: true}, {name: "identity", identity: true}, {name: "general-1"}];
+  const lanes = [{name: "core", core: true}, {name: "general-1"}, {name: "general-2"}];
   const projection = simulate({lanes, units, chainSeconds: 10});
-  const of = name => projection.lanes.find(lane => lane.name === name);
-  assert.deepEqual(of("identity").units.slice(0, 1), ["i1"]);
-  assert.ok(of("core").units.length >= 1, "the core lane joins once its chain is done");
-  assert.ok(of("identity").units.length >= 2, "the identity lane joins once its own units are done");
   assert.deepEqual(projection.lanes.map(lane => [lane.name, lane.units]),
-    [["core", ["g3", "g6"]], ["identity", ["i1", "g2", "g5"]], ["general-1", ["g1", "g4"]]]);
-  // A static split would leave the core and identity lanes idle while general-1 ran all six, for 60 s.
+    [["core", ["g3", "g6"]], ["general-1", ["g1", "g4", "i1"]], ["general-2", ["g2", "g5"]]]);
+  // Had the core lane stopped after its chain, the two general lanes would have needed 35 s.
   assert.equal(projection.finishSeconds, 30);
 });
 
@@ -129,12 +119,11 @@ test("a unit no report measured counts as the median of its kind", () => {
   const layout = plan({lanes: 2, durations: new Map([["a", 2], ["b", 4], ["c", 30]]), journeys, scripts: []});
   assert.deepEqual(layout.estimates.new, {seconds: 4, measured: false});
   assert.deepEqual(layout.estimates.c, {seconds: 30, measured: true});
-  assert.deepEqual(layout.lanes.map(lane => lane.name), ["core", "general-1", "general-2"],
-    "with no identity unit there is no identity lane");
+  assert.deepEqual(layout.lanes.map(lane => lane.name), ["core", "general-1", "general-2"]);
 });
 
-test("a lane setting outside 1 to 4 is refused", () => {
-  for (const lanes of [0, 5, 1.5, "2"]) assert.throws(() => plan({lanes}), RangeError);
+test(`a lane setting outside 1 to ${MAX_LANES} is refused`, () => {
+  for (const lanes of [0, MAX_LANES + 1, 1.5, "2"]) assert.throws(() => plan({lanes}), RangeError);
 });
 
 test("durations come from the newest report that measured each unit, never from a failure", () => {

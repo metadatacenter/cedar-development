@@ -183,7 +183,7 @@ const stopped = async (pid, waitMs = 5000) => {
   return true;
 };
 
-test("the lanes share the queue: every unit runs once, identity units only on the identity lane and never two at once", async () => {
+test("the lanes share the queue: every unit runs once, identity units in any lane", async () => {
   const run = workspace();
   const journeys = [["a-pass-300"], ["b-pass-250"], ["c-pass-200"], ["d-pass-150"], ["e-pass-100"], ["f-pass-100"],
     ["g-pass-80"], ["h-pass-60"], ["i-pass-120", true], ["j-pass-90", true]];
@@ -197,11 +197,8 @@ test("the lanes share the queue: every unit runs once, identity units only on th
   assert.equal(report.verdict, "PASS");
   const ran = report.units.map(unit => unit.name);
   assert.deepEqual([...ran].sort(), ["modern-workspace-chain", "s1", "s2", ...journeys.map(([key]) => key)].sort());
-  for (const unit of report.units.filter(entry => ["i-pass-120", "j-pass-90", "s2"].includes(entry.name)))
-    assert.equal(unit.lane, "identity", unit.name);
-  const identityRuns = run.log().filter(entry => entry.event === "start" && /^[ij]-/.test(entry.key));
-  const identityEnds = run.log().filter(entry => entry.event === "end" && /^[ij]-/.test(entry.key));
-  assert.ok(identityEnds[0].at <= identityRuns[1].at, "the second identity journey starts after the first ends");
+  assert.deepEqual(report.lanes.map(lane => lane.name), ["core", "general-1", "general-2"]);
+  assert.deepEqual(report.queue.identity.sort(), ["i-pass-120", "j-pass-90", "s2"]);
   // The core lane joins the queue once its chain is done.
   const core = report.lanes.find(lane => lane.name === "core");
   assert.equal(core.units[0].name, "modern-workspace-chain");

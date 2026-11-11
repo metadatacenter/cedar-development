@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {actors,call,mutate,enc} from './rest/lib.mjs';
 import {recoveryFixture,settled} from './recovery-boundary-journey.mjs';
 
-// Both journeys sign the second test user in to a browser context of their own, so they belong in
-// the identity lane. Every grant they make is on their own fixtures and folders.
+// Both journeys sign the second test user in to a browser context of their own, so they declare an
+// authentication reason. Every grant they make is on their own fixtures and folders.
 
 // Recheck access reads again what the opening read: the artifact's access report, or the folder a
 // create is destined for. The page has settled once that read is answered and its status shows the

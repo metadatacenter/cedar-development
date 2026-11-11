@@ -3763,15 +3763,17 @@ their work from one queue. A unit of that work is one journey or one script. Eac
 own fixtures, browser errors and current step, so a failure in one lane cannot be charged to
 another. The core lane first runs the inline chain of the Workspace journey alone, with
 `modern-workspace-smoke.mjs --chain-only`. The chain's six steps work on one template, and each
-reads what an earlier step made. The identity lane runs every journey that signs in, reauthenticates
-(including the same user), or logs out, one at a time. This includes `draft-recovery` and
-`uncertain-create`. The lane also runs three scripts: the account groups page, the
-lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
-grant to the second user. Sign-ins contend in Keycloak and in the graph writes each one triggers,
-and a logout ends the single sign-on session of its browser context, so no other lane takes an
-identity unit and no two run at once. Every other unit is general. The general lanes take general
-units from the start, the core lane once its chain has finished, and the identity lane once its own
-units are done.
+reads what an earlier step made. The general lanes take units from the queue from the start, and the
+core lane joins them once its chain has finished. Any lane takes any unit.
+
+An identity unit is a journey that signs in, reauthenticates (including the same user) or logs out,
+such as `draft-recovery` and `uncertain-create`, or one of three scripts: the account groups page,
+the lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
+grant to the second user. Identity units run at the same time as one another and as every other
+unit. Sign-ins contend in Keycloak and in the graph writes each one triggers, so every sign-in, in
+any lane, takes the authentication lock described below for the few seconds from the action that
+starts it until the signed-in page is ready. A logout ends the single sign-on session of its own
+lane, which no other lane shares, and the lane's runner signs in again before its next journey.
 
 A lane that is free takes the longest unit it may run. Each unit's length is its duration in the
 newest split report that measured it, cleanup included, and a unit no report has measured counts as
@@ -3920,9 +3922,9 @@ entries outside the selected set are preserved. A candidate run reports `CANDIDA
 cannot satisfy the full smoke gate; rerun with ordinary inventory enforcement before acceptance.
 The full tier also accepts `--record-inventory=<directory>` for a complete inventory migration.
 
-`--lanes=N`, from two to four, sets the number of general lanes beside the core and identity
-lanes. The default is two, because the 16-core workstation runs with its swap nearly full and every lane
-drives a browser of its own. `--lanes=1` runs the tier as it ran before lanes existed: all of
+`--lanes=N`, from two to six, sets the number of general lanes beside the core lane. Every lane
+drives a browser of its own. The default is five, which the measurements below explain. `--lanes=1`
+runs the tier as it ran before lanes existed: all of
 `modern-workspace-smoke.mjs`, its chain and then every journey, followed by the other scripts, one
 after another, stopping at the first failure.
 `cedarcli test e2e --split-lanes N` passes the setting through the gate.
@@ -3999,6 +4001,16 @@ starting and stopping a lane's journey runner cost it less than 2 seconds. With 
 advance, the same tier had taken 185 seconds, because the general lanes were busy for 182 and 178
 seconds while the identity lane finished at 103 and the core lane at 42. The load average peaked at
 14.6 in the queued run and at 9.6 in the sequential one.
+
+On 2026-11-11, with the swap nearly empty and 270 checks, two gate runs took 143.5 and 144.8 seconds
+under the earlier rule, which ran identity units in a lane of their own, one at a time. That lane was
+busy for about 140 seconds, of which its units spent 21.5 holding the authentication lock, while the
+other lanes were busy for 133 to 143. Adding general lanes therefore could not shorten the tier. With
+identity units free to run in any lane, four general lanes took 122.1 seconds, five took 107.7 and
+112.3, and six took 98.9 and 99.9. Every run passed. Each added lane slowed the units a little: the
+lanes' combined busy time was 585 seconds with four, 609 and 625 with five, and 635 and 656 with six,
+against 566 before. The load average peaked at 13.9, 12.3 and 14.0. Up to five identity units ran at
+once, and the longest wait for the authentication lock was 3.8 seconds, against its 60-second limit.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly (timings below), and reaches what no unit suite can: the artifact

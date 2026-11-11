@@ -8,8 +8,8 @@ import {actors, artifactBody, call, enc, mutate} from "./rest/lib.mjs";
 // draft. Two people can sign in, so the second takes one role per source template, as the REST
 // sharing suite does: no grant on the first, viewer of the second, and editor of the third.
 //
-// Each journey signs the second user in to a browser context of its own, so it belongs in the
-// identity lane.
+// Each journey signs the second user in to a browser context of its own, so it declares an
+// authentication reason.
 const ROLES = [null, "viewer", "editor"];
 const roleName = role => role ?? "unrelated";
 const uuid = id => id.split("/").at(-1);
