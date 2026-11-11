@@ -288,10 +288,15 @@ async function probeServer({ server, base }, credentials, coverage) {
   const keyless = server === 'artifact' && !env.CEDAR_ARTIFACT_SERVICE_API_KEY;
   const counts = [];
   for (const { kind, what } of KINDS) {
+    // A server with no operation of a kind has nothing to refuse, so it gets no check of that kind.
+    if (!byKind[kind].length) {
+      counts.push(`0 ${kind} (no operation takes ${kind === 'body' ? 'a JSON body'
+        : kind === 'identifier' ? 'an identifier' : 'credentials'})`);
+      continue;
+    }
     const probes = keyless && kind !== 'anonymous' && kind !== 'route' ? [] : byKind[kind];
     if (!probes.length) {
-      skip(`${server}: ${what}`, keyless && byKind[kind].length ? 'CEDAR_ARTIFACT_SERVICE_API_KEY is unset'
-        : `no operation takes ${kind === 'body' ? 'a JSON body' : kind === 'identifier' ? 'an identifier' : 'credentials'}`);
+      skip(`${server}: ${what}`, 'CEDAR_ARTIFACT_SERVICE_API_KEY is unset');
       continue;
     }
     const answers = await answerAll(base, probes, credentials);
