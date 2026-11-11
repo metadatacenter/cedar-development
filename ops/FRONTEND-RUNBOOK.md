@@ -5755,7 +5755,10 @@ has measured fails the gate. Each suite also runs `layout-resilience.spec`, one 
 reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text spacing at 1280 pixels,
 the contrast of every placeholder, and the contrast of every field boundary, icon, focus indicator
 and selection mark against what it is drawn on. A finding that needs a visible change is recorded in the
-spec as a named exception, and an exception that stops occurring fails it.
+spec as a named exception, and an exception that stops occurring fails it. The design-token adoption
+check refuses an exception the base revision does not record, whether a list entry, an axe rule
+switched off or a template accessibility lint rule disabled, so the recorded exceptions can only
+shrink.
 
 ### Failures Several Components Share
 
