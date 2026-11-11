@@ -204,8 +204,8 @@ jobs:
           # The YAML conversion audit's suite needs the toolchain the conversion-audit job builds, and
           # runs there. Here it could only skip.
           conversion_suite=test_cedar_yaml_conversion_audit.py
-          (cd ops/tests && python -m unittest -v $(for suite in test_*.py; do
-            [ "$suite" = "$conversion_suite" ] || echo "${suite%.py}"; done))
+          PYTHONPATH=ops/tests python -m unittest -v $(cd ops/tests && for suite in test_*.py; do
+            [ "$suite" = "$conversion_suite" ] || echo "${suite%.py}"; done)
           python -m unittest discover -v -s ops/repairs -t ops/repairs -p 'test_*.py'
           python -m unittest discover -v -s ops/e2e/frontend-perf -p 'test_*.py'
 
