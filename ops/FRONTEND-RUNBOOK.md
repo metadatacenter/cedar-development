@@ -5751,10 +5751,13 @@ confirmed them. No criterion fails now.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
-has measured fails the gate. Each suite also runs `layout-resilience.spec`, one method in all four:
-reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text spacing at 1280 pixels,
-the contrast of every placeholder, and the contrast of every field boundary, icon, focus indicator
-and selection mark against what it is drawn on. A finding that needs a visible change is recorded in the
+has measured fails the gate. Each suite also runs `layout-resilience.spec`, which imports one
+shared checker the design-token package generates for every frontend and tests against fixture
+pages that must fail: reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text
+spacing at 1280 pixels, the contrast of every placeholder, and the contrast of every field boundary,
+icon, focus indicator and selection mark against what it is drawn on. OpenView, Bridging,
+Monitoring and the Template Designer host run the same axe gate and layout check over their own
+pages, though this report does not score them. A finding that needs a visible change is recorded in the
 spec as a named exception, and an exception that stops occurring fails it. The design-token adoption
 check refuses an exception the base revision does not record, whether a list entry, an axe rule
 switched off or a template accessibility lint rule disabled, so the recorded exceptions can only
