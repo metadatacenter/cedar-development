@@ -71,6 +71,12 @@ versions, and the byte-equivalence proofs between the train's development CEE, C
 public npmjs packages, and then runs the complete release gate. It must finish with
 `No changes made.`
 
+Before the gate, the plan checks its own records of the public CEE, CED and CETP. Each must hold
+the tarball, integrity and SHA-256 its own package downloaded as, and a proof of its own bundles,
+and no two proofs may be the same. The plan prints each package's tarball beside its payload hash.
+Release 2.9.35's first two plans recorded CED's proof, and then CED's tarball, as CEE's. Only the
+release's preparation phase noticed, and each correction cost a train.
+
 <a id="nothing-may-land-between-the-train-and-the-release"></a>
 
 ### Source Freeze
