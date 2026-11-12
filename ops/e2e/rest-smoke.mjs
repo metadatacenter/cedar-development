@@ -89,20 +89,28 @@ let phaseStarted = Date.now();
 
 const stamp = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/;
 const nameOf = node => node?.['schema:name'] ?? node?.schema_name ?? '';
+// The gate runs this tier beside the browser tiers, whose smokes stamp the names they create the
+// same way. A stamp later than this run's own belongs to work that began after this run did, so it
+// is neither this run's leftover nor an earlier run's. The stamps have a fixed width, so they
+// compare as strings.
+const leftBehind = name => {
+  const found = name.match(stamp)?.[0];
+  return found !== undefined && found <= RUN;
+};
 
 async function stampedLeftovers(auth, homeFolderId) {
   const leftovers = [];
   const home = await call(auth, 'GET', `/folders/${enc(homeFolderId)}/contents?limit=500`);
   if (home.status !== 200) return [{ where: 'home listing', detail: `${home.status}: ${home.text}` }];
   for (const node of home.body?.resources ?? []) {
-    if (stamp.test(nameOf(node))) leftovers.push({ where: 'home', detail: nameOf(node) });
+    if (leftBehind(nameOf(node))) leftovers.push({ where: 'home', detail: nameOf(node) });
   }
   const categories = await call(auth, 'GET', '/categories/tree');
   if (categories.status !== 200) {
     leftovers.push({ where: 'category tree', detail: `${categories.status}: ${categories.text}` });
   } else {
     const walk = node => {
-      if (stamp.test(nameOf(node))) leftovers.push({ where: 'category', detail: nameOf(node) });
+      if (leftBehind(nameOf(node))) leftovers.push({ where: 'category', detail: nameOf(node) });
       for (const child of node?.children ?? []) walk(child);
     };
     walk(categories.body);

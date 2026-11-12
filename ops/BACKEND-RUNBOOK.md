@@ -3469,7 +3469,8 @@ run-unique index and delete only that index afterward, so concurrent runs share 
 index lifecycle or documents.
 
 The **artifact search acceptance matrix** lives under `ops/e2e/rest/search/` and is a required
-fourth tier of `cedarcli test e2e`, after REST, browser and split journeys. It runs the full REST
+fourth tier of `cedarcli test e2e`. It runs after the browser and split tiers, while the REST tier
+may still be running beside them. It runs the full REST
 matrix and seven browser scenarios against one shared corpus. The standalone `cedarcli test search`
 command still defaults to an offline inventory. Use the CLI:
 
@@ -4076,9 +4077,13 @@ budget, each retaining its own reverse creation order. The shared parent is dele
 last. A first interrupt stops new suites, drains active work and then cleans up;
 a second interrupt forces exit. Preflight, final leftover checks and worker health
 checks still surround the entire run. Do not run separate smoke processes or other
-fixture-mutating tests simultaneously against the same stack. The split tier's lanes are the one
-exception. They run inside one tier, after the REST tier has finished, and each works under a root
-folder of its own.
+fixture-mutating tests simultaneously against the same stack. The gate's own tiers are the
+exception. `cedarcli test e2e` runs the REST tier beside the browser, split and search tiers, and
+the split tier's lanes run beside one another, each under a root folder of its own. Every sign-in
+in those tiers takes one machine-wide authentication lock. The REST tier's two checks of global state
+allow for the others: its leftover checks ignore a stamp later than its own run's, which belongs to
+work that started after it, and it reads the three services' document counts again until they
+agree, at most ten times.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
 and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
@@ -4131,9 +4136,13 @@ likewise be built from the development sources under test and redeployed before 
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
-manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
-`npm run smoke`, `npm run smoke:workspace:modern:full` and `npm run smoke:search`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
-heads, beside a `latest.json` copy. The record names what the stack ran, so a checkout with another
+manage. It then records the `develop` head of every train repository, starts `npm run smoke:rest`
+in the background, runs `npm run smoke`, `npm run smoke:workspace:modern:full` and
+`npm run smoke:search` one after another beside it, and writes `reports/smoke-gate/<digest>.json`,
+where the digest names the set of heads, beside a `latest.json` copy. The split and search tiers
+cannot overlap, since both hold the split tier's lock. The REST tier's output goes to
+`rest-smoke-<digest>-<uuid>.log` beside its report rather than to the terminal, and the gate names
+the file when the tier fails. The record names what the stack ran, so a checkout with another
 commit than its `develop` head checked out stops the run before it records anything. A modified or
 untracked file marks its repository dirty, since the build compiled it, and the gates refuse a dirty
 repository. A train repository not checked out here is named, and the gates refuse a train or a

@@ -230,13 +230,24 @@ export async function run({ user1, admin, folderId }) {
   checkStatus(await call(auth, 'GET', countPath), 403, 'resource counts require monitor permission');
   checkStatus(await call(auth, 'GET', '/resources/counts', undefined, { base: monitorBase }), 403,
       'monitor counts require monitor permission');
-  const resourceCounts = await call(admin?.auth, 'GET', countPath);
-  const artifactCounts = await artifact(admin?.auth, 'GET', countPath);
-  const monitorCounts = await call(admin?.auth, 'GET', '/resources/counts', undefined, { base: monitorBase });
+  // The three reads happen one after another, and the gate runs the browser tiers beside this one,
+  // so an artifact created or deleted between two reads makes the counts differ for a moment. Read
+  // them again until they agree, ten times at most: counts that never agree are a real difference.
+  const kinds = ['field', 'element', 'template', 'instance'];
+  let resourceCounts, artifactCounts, monitorCounts;
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    resourceCounts = await call(admin?.auth, 'GET', countPath);
+    artifactCounts = await artifact(admin?.auth, 'GET', countPath);
+    monitorCounts = await call(admin?.auth, 'GET', '/resources/counts', undefined, { base: monitorBase });
+    const answered = [resourceCounts, artifactCounts, monitorCounts].every(res => res.status === 200);
+    if (!answered || kinds.every(kind => resourceCounts.body?.[kind] === artifactCounts.body?.[kind]
+        && monitorCounts.body?.mongo?.[kind] === artifactCounts.body?.[kind])) break;
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
   checkStatus(resourceCounts, 200, 'resource serves document counts');
   checkStatus(artifactCounts, 200, 'artifact serves document counts to the trusted monitor-authorized caller');
   checkStatus(monitorCounts, 200, 'monitor serves the combined counts report');
-  for (const kind of ['field', 'element', 'template', 'instance']) {
+  for (const kind of kinds) {
     const count = artifactCounts.body?.[kind];
     check(Number.isSafeInteger(count) && count >= 0
         && resourceCounts.body?.[kind] === count && monitorCounts.body?.mongo?.[kind] === count,
