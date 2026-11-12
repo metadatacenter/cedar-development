@@ -1,8 +1,8 @@
 #!/bin/bash
 # ------------------------------------------------------------------------------
-# cedar-services.sh — start / stop / monitor the CEDAR app tier without 12 consoles.
+# cedar-services.sh — start / stop / monitor the CEDAR app tier without 11 consoles.
 #
-# Runs the 12 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
+# Runs the 11 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
 # apart from the like-named microservices: ui-main (the AngularJS monolith) and the two previews
 # being split out of it each use a Node host script; the other Angular applications use `ng serve`,
 # as detached background processes, each logging to $CEDAR_HOME/log/, PIDs in $CEDAR_HOME/log/run/.
@@ -1003,13 +1003,31 @@ status() {
   return 0
 }
 
+# The process this script manages for a service: the one its pidfile names, or the one launchd is
+# running for the job this script submitted. launchd starts a submitted job again when it exits,
+# under a new PID, so a service whose first attempts failed runs as a process the pidfile never
+# named. It is still this script's job, and reporting it as started elsewhere sent the operator to
+# a restart that changed nothing.
+managed_pid() {
+  local name=$1 p
+  p=$(cat "$(pidfile "$name")" 2>/dev/null)
+  if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p"; then
+    echo "$p"
+    return 0
+  fi
+  [ "$(uname -s)" = Darwin ] || return 1
+  p=$(launchd_job_pid "$name")
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p" || return 1
+  echo "$p"
+}
+
 # Populate one row without formatting it. Keeping inspection here gives the human shell table and
 # cedarcli's richer table one source of truth instead of making the Python side scrape aligned text.
 inspect_status() {
     local name=$1 p own pid_disp docker_row=false
     STATUS_APP_PORT=$(app_port "$name")
-    p=$(cat "$(pidfile "$name")" 2>/dev/null)
-    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p"; then pid_disp="$p"; own="$p"
+    p=$(managed_pid "$name")
+    if [ -n "$p" ]; then pid_disp="$p"; own="$p"
     else
       own=$(service_port_owner "$name" "$(app_port "$name")")
       if [ -n "$own" ]; then

@@ -559,7 +559,7 @@ export async function runTier({
             await sleep(250);
         }
         while (ok && !interrupted) {
-          const unit = queue.next(lane);
+          const unit = queue.next();
           if (!unit) break;
           if (unit.kind === "journey" && !worker.worker.alive) {
             if (!(await worker.start())) {
@@ -579,11 +579,8 @@ export async function runTier({
       // The others wait inside laneRun for the core lane's lead.
       const otherPromises = others.map((lane, index) => laneRun(lane, records[index + 1]));
       await Promise.all([corePromise, ...otherPromises]);
-      // Only the identity lane may run an identity unit, so one left over is that lane's to have run.
+      // Every lane may run every unit, so a unit is left over only once every lane has stopped.
       notRun = queue.pending().map(unit => unit.name);
-      for (const record of records)
-        if (layout.lanes.find(lane => lane.name === record.name)?.identity)
-          record.notRun = queue.pending().filter(unit => unit.identity).map(unit => unit.name);
     }
     clearInterval(sampler);
 

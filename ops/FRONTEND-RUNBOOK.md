@@ -1145,6 +1145,17 @@ Code; correction saves with the existing instance revision and reopens with othe
 The reopened Editor enforces the new regex locally before another write can be submitted.
 Run `npm run smoke:journey -- current-template-constraint`; it also runs in the modern Workspace
 smoke. Unlike the injected report checks above, this exercises deployed server validation.
+The pinned-branch journey follows a terminology release from authoring to a saved value. In
+Designer, the real term picker pins NCIT's Melanoma branch to release 24.01e, and the saved template
+must record that release. Editor must then offer the branch as 24.01e holds it, with
+"Melanomatosis" and without "Acral Melanoma", the reverse of the newest release, and every search
+it sends must name the pin. The chosen term saves, the server verifies it against the pinned
+release, and the record reopens with it. Publishing keeps the author's release, and a record of the
+published template reads the branch at that release too. The journey first asks the terminology
+server whether the local store still tells the two releases apart, and fails with a message about
+the store when it does not. Run `npm run smoke:journey -- pinned-branch`; it also runs in the modern
+Workspace smoke. The REST tier's `term-search` suite checks the server's answers to the picker's
+other searches, for ontologies, value sets and properties, against the rule the picker applies.
 The duplication journey copies templates, elements, standalone fields and metadata through
 Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
 It compares content, checks derivation and fresh draft-series identity, and verifies that neither
@@ -1390,8 +1401,7 @@ Measured complete payloads for those same builds, in decimal kB:
 CEE's packaged limits are separate: standalone 2,400,000 raw / 660,000 gzip bytes and host-fonts
 2,280,000 / 560,000. Its Angular initial budget is 2.3 MB warning / 2.4 MB failure; OpenView's
 is 800 / 850 kB, and Bridging's is 900 / 930 kB. These limits must not be raised to accommodate
-unexplained growth. The Template Designer and legacy AMD application's request-aware page
-budgets and shared-runtime integration remain in the [roadmap](FRONTEND-ROADMAP.md#bundle-delivery).
+unexplained growth.
 
 To repeat the analysis, build isolated source copies with the normal production prerequisites
 and add `--stats-json` to their Angular build invocation. Angular 22 writes `browser-stats.json`;
@@ -1875,6 +1885,15 @@ contract also requires runtime verification and smoke; release and train gates s
 the separately pinned shipping composition.
 
 #### Reading reactor evidence
+
+`cedarcli check design-tokens --runtime --strict` combines source adoption with a
+read-only comparison of token sources and consumers against the selected reactor.
+It verifies the build-record digest, selected artifact hashes, dependency edges and
+current source fingerprints, including uncommitted inputs. `--json` includes a
+separate `runtime` result; `--repo` narrows consumers while still checking tokens.
+Missing, corrupt or stale evidence fails with `--strict`. It does not contact a
+deployment or replace the build's served-byte verification and smoke. Source-only
+CI omits `--runtime`; the flag cannot be combined with baseline/helper writes.
 
 `.reactor/runtime.json` names the selected package hashes and its `build` record under
 `.reactor/builds/<SHA256>.json`. That immutable record contains each built source's Git revision,
@@ -3640,17 +3659,19 @@ instead, where the dev versions do not exist.
 
 ### Release
 
-The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable CEE and model-library releases:
-prepare and test on `develop`, merge through green CI, rebuild and publish from `main`, tag the
-published commit, then restore development state. Never publish from the repository root.
+The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable model-library, CEE, CED and CETP
+releases, which `cedarcli release npm` carries out. It prepares and gates each package on `develop`,
+merges it through green CI, publishes the gated tarball from `main`, tags the merge commit, and
+returns `develop` to development. Never publish by hand.
 
 | Task | Authoritative procedure |
 | --- | --- |
-| Credentials and version availability | [Shared prerequisites](NPMJS-RELEASE-RUNBOOK.md#shared-prerequisites) |
-| CEE version, model pin, tests and publication | [Release CEE](NPMJS-RELEASE-RUNBOOK.md#release-cee-with-an-explicit-model-version) |
-| Advance CEE after release | [Restore development state](NPMJS-RELEASE-RUNBOOK.md#restore-cee-development-state) |
+| Credentials and toolchain | [Prerequisites](NPMJS-RELEASE-RUNBOOK.md#prerequisites) |
+| Versions, model pin and release notes | [Choosing the inputs](NPMJS-RELEASE-RUNBOOK.md#choosing-the-inputs) |
+| What a release does, stage by stage | [The route](NPMJS-RELEASE-RUNBOOK.md#the-route) |
+| A release that waits or fails | [Where the route stops](NPMJS-RELEASE-RUNBOOK.md#where-the-route-stops) |
 | Update consumer pins and train baselines | [Propagate CEE](NPMJS-RELEASE-RUNBOOK.md#propagate-a-stable-cee-release) |
-| Adopt public CEE in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release) |
+| Adopt public CEE, CED and CETP in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-packages-in-a-train-backed-cedar-release) |
 | Write the announcement | [Release notes](NPMJS-RELEASE-RUNBOOK.md#release-notes) |
 | Publish a registry development package | [Registry dev packages](#cee-releasing-a-dev-snapshot-locally) |
 
@@ -3944,9 +3965,8 @@ draw their chevron as a background gradient, which hides their text's contrast f
 axe. The text is 87% black on white, about 16:1. The template and element settings
 toggles are 36 by 14px, under WCAG 2.2's 24px minimum, but the header beside each
 opens the same settings and is the larger equivalent target criterion 2.5.8 allows.
-A field card's toggle has no such equivalent. The field header is 23px tall, and the
-settings panel's last control sits within 12px of the toggle's centre. The spec
-records it under `EXCEPTIONS` as a failure that waits on a visible change.
+A field card's toggle is the same size, and its field header is at least 24px tall
+for the same reason. `SETTLED` measures that header on every scan.
 
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
 been through `npm run dist` is not the thing under test. That used to be a
@@ -4059,16 +4079,14 @@ npmjs, unscoped. A snapshot therefore cannot reach npmjs by forgetting a flag,
 and the rule has tests of its own because publishing to npmjs is not an action
 anyone can take back.
 
-The first Nexus snapshot is
-`@org.metadatacenter/cedar-embeddable-designer@0.1.0-dev.20260916.2593d382`.
-CED is not released on npmjs. The component is outside `cedarcli`'s current
-publication plan: version the snapshot against its source commit, run
-`npm run test:ci` (set `CEF_BUNDLE` to a pinned CEE bundle), then verify the staged
-package with `npm publish ./dist-npm/cedar-embeddable-designer --tag dev --dry-run`
-and publish the same directory with `--tag dev`. Its `publishConfig` fixes Nexus
-as the destination. Never rebuild between the browser gate and publication.
-The general credential and tarball procedures are in
-[NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md).
+The first Nexus snapshot was
+`@org.metadatacenter/cedar-embeddable-designer@0.1.0-dev.20260916.2593d382`. CED's
+CI publishes nothing. `cedarcli publish components --apply` builds and publishes a
+development package from each pushed `develop` head, and each build train publishes
+the one it tests. A release reaches npmjs through `cedarcli release npm`, which
+gates the package, publishes it from `main` and tags it, as the
+[npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) describes. CETP is published the
+same way. Publish neither channel by hand.
 
 The published declaration is emitted from `src/app/ced-public-api.ts` alone,
 which is written without imports so its declarations stand alone. Adding an
@@ -4478,8 +4496,8 @@ CED starts with the **Modular** profile. To test reusable artifact search as loc
 then open `http://localhost:4599/`. This loopback-only host reads Keycloak on 8080
 and the resource server on 9007; credentials and renewable access tokens stay in
 the demo server. Its API exposes reads only. The published component has no default
-repository or account. The opt-in browser check is
-`CED_LOCAL_REPOSITORY=1 npm --prefix browser test -- --grep 'local test1'`.
+repository or account. The whole-stack smoke tests the real search: its Template
+Designer journey imports, through CED, an element the run created.
 
 **Add Child** keeps the standard field palette and adds **Select existing fields and elements**.
 Its dialog stages multiple first-class artifacts above a searchable, paginated results table,
@@ -4604,9 +4622,9 @@ below the toolbar with clearance. Field type icons are labels only: changing an
 existing field to another type or replacing it with a library field is not offered.
 
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
-Choose **semantic** in Preferences to expose Default Value. CED and CEE use the
-model snapshot `1.0.8-dev.20260909.f1fbbbc` for typed defaults and JSON/YAML
-serialization. Imported numeric constraints and temporal settings are retained;
+Choose **semantic** in Preferences to expose Default Value. CED and CEE take typed
+defaults and JSON/YAML serialization from the model library each of them pins.
+Imported numeric constraints and temporal settings are retained;
 temporal values are converted between the default's declared precision and CEF's
 complete instance literal without shifting timezones. Choices are stored with
 `selectedByDefault` on options, including multiple checkbox/list selections.
@@ -5243,6 +5261,381 @@ Local raw evidence is retained under
 including both Monitoring runs. Source styling, shared values, package pins and
 baselines were unchanged by this audit.
 
+#### Cross-consumer token re-audit (2026-11-10)
+
+The re-audit found no new source-adoption violations or rendered-contract drift after
+the frontend splits. The strict adoption gate scanned **872 source files** across
+the eight modern frontends and the MCP session page. It found 103 existing source
+allowances, no stale allowances, no missing or unknown token references, and no
+unused or single-reader tokens. Against the retained October 23 report, no consumer
+added a source allowance; CETP and OpenView each removed one. The current surface
+registries contain 166 entries, including 152 rendered contracts, with seven unchanged
+scale allowances: two CETP selection tints and five Monitoring categorical colors
+and toast colors.
+
+| Consumer | Existing source findings | Passing browser checks |
+| --- | ---: | ---: |
+| CED / CEFD | 2 | 83 |
+| CEE / CEF | 33 | 8 |
+| CETP | 13 | 19 |
+| Workspace | 18 | 125 |
+| OpenView | 5 | 32 |
+| Monitoring | 31 | 42 |
+| Bridging | 1 | 10 |
+| Template Designer host | 0 | 11 |
+| MCP session page | 0 | Not run |
+
+All **330 browser checks passed without retries**, at desktop and 375px widths,
+including CED's nested authoring surfaces, real CEF default-value rendering, host
+overrides, and the registered text, disabled-state, motion and focus checks. The
+central package's **151 tests passed**. CED, CETP, Workspace, OpenView, Monitoring
+and Bridging test outputs were rebuilt; the Template Designer host was restaged.
+CEE's existing test bundle passed its source/configuration/dependency freshness
+check before use. The successful runs used the pinned Node 24.22.1. Initial sandbox
+attempts could not launch local servers or Chromium and are retained separately;
+they were execution restrictions, not style verdicts.
+
+All eight modern consumers pin `0.1.0-dev.20261109.a4da5115`. Their installed Sass,
+compiled token assets, fonts and icon registry match the current central package
+byte for byte, even where an installed package retains an older version label.
+The MCP manifest is 19 token commits behind, but its three vendored stylesheets
+also match current compiled bytes. The separate `check components --all` reports
+24 of 24 comparisons current; this is its configured inventory, not verification
+of every deployed stylesheet.
+
+The remaining source allowances include CEE's Material sizing and local line
+heights, CETP's local sizing and selection tint, Monitoring's categorical colors,
+and application-specific layout. CED's two runtime-resized library sections remain
+by decision. These findings do not authorize changing approved presentation or
+substituting a token with a different semantic role merely because its value matches.
+Legacy AngularJS remains outside the adoption and rendered-contract gates. This
+audit is local source, package and computed-style evidence; it is not a production
+visual audit, the full screenshot suites, or whole-stack smoke.
+
+Evidence, source revisions, package comparisons, exact commands and build/browser
+logs are retained under `$CEDAR_HOME/.cedar/audits/2026-11-10-design-tokens/`.
+No application source, token values, dependency pins or baselines changed.
+
+<a id="token-debt-review"></a>
+
+#### Token debt review (2026-11-10)
+
+The incremental review is complete: all 13 presentation decisions are implemented.
+The strict gate retains 59 reviewed source allowances: CEE/CEF 21, CED/CEFD 2,
+CETP 3, Workspace 13, OpenView 5, Monitoring 14 and Bridging 1; the Template
+Designer host and MCP session page have none. These retain approved component
+sizes, layout/brand/chart geometry, local stacking and CED's runtime-resized
+sections. They must not borrow unrelated roles simply to reduce the count.
+The formerly seven rendered-color allowances are selector-scoped recipe contracts:
+CETP's host-derived tints and Monitoring's opt-in categories and copy feedback are
+compared with their owning Sass recipes, including host overrides. An unrelated
+element cannot reuse their allowance, and an unexercised selector fails. Remaining
+literal rendered allowances fail when no longer exercised by the fixture. The
+global vocabulary remains 54 CSS tokens.
+
+The first appearance-preserving cleanup reduced source allowances from 103 to 81. It
+uses focus recipes for focused segmented controls, a dashed variant of the selection
+outline for eligible drop targets, shared default-control sizing and compact padding,
+and an occurrence-action size derived from that action's existing icon and inset.
+Relative text lines derive their ratio from the corresponding text and line roles;
+they retain inherited-font scaling. CETP now passes hierarchy depth to the finite
+indentation recipe instead of calculating padding in its templates. No token is
+reassigned to a different semantic category, and the 54-token vocabulary is unchanged.
+
+| Consumer | Source allowances before | Source allowances remaining |
+| --- | ---: | ---: |
+| CEE / CEF | 33 | 25 |
+| CED / CEFD | 2 | 2 |
+| CETP | 13 | 6 |
+| Workspace | 18 | 14 |
+| OpenView | 5 | 5 |
+| Monitoring | 31 | 28 |
+| Bridging | 1 | 1 |
+| Template Designer host and MCP session page | 0 | 0 |
+
+That first pass left 81 findings with an explicit disposition: 32 needed a presentation
+decision before substitution; 47 are component layout, content/brand geometry,
+alignment or local stacking with no matching shared role; and two are CED's
+runtime-resized library sections. These are review categories, not new baseline
+exemptions. The seven rendered-color allowances remain unchanged. The approved
+presentation contracts are recorded below; local geometry must not be disguised
+as a control, spacing or icon role to reduce a count.
+
+Compiling the 28 stylesheets containing recorded source debt and the affected
+property-tree stylesheet produces identical compressed CSS in 27 of the 29.
+The only differences are the hierarchy-padding declarations added to the
+two CETP stylesheets. All other substitutions preserve emitted values, selectors
+and declaration order, including public host overrides. The hierarchy browser
+checks verify indentation before and after expansion and pagination at 16px and
+10px document roots with a 16px component font override.
+
+Verification passed: the strict adoption gate, all 156 token-package tests, package
+formatting, and `cedarcli test frontends --jobs 3 --workers 12`. The reactor built
+the edited local package and supplied it to every consumer. Its existing CEE,
+CETP, Workspace and CED screenshot gates passed without baseline changes, alongside
+the browser, integration and unit gates. The initial reactor attempt stopped at
+visual gates because Docker Desktop was not running; starting Docker and repeating
+the command completed verification. No runtime was activated or restarted, and
+this check-only run does not claim whole-stack smoke or deployment.
+
+The verified token artifact is
+`68fd9f4035904d5e43bc96c4aaea0661d2a8f47230bd376add3ff52d352ec5f1`.
+The complete source/dependency/artifact record is
+`$CEDAR_HOME/.reactor/builds/502d0b7a9ef3f5ee7682538d5eee2d4bf19ccfe2d346b0b1d4b3e6d76b0e8e66.json`.
+
+Local evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-token-debt/`:
+`before-adoption.json`, `after-adoption.json`, `changes.json`, `remaining-debt.json`,
+the before/after compiled stylesheets and verification logs. `remaining-debt.json`
+gives every remaining declaration its location and disposition. Only resolved
+source allowances were pruned; no rendered allowance or screenshot was refreshed.
+
+#### Comfortable-control contract (2026-11-10)
+
+CEE and CEF retain the optional 48px comfortable profile. Its Material fields use
+the shared resting control outline, `control-border-default`, with the existing
+`--cedar-control-border` host override. Hover, focus and validation colors retain
+their independent Material states. The 36px default and 32px authoring profiles
+are unchanged. The comfortable height is an intentional control-profile value;
+it does not authorize reusing a control role for headers or paginators.
+
+The approved outline change removes the black-outline allowance: CEE has 24 source
+allowances and the estate has 80. Build, lint, type checking and strict token adoption
+passed. The containerized browser/visual suite passed 1,608 checks with 104 existing
+skips, including empty and populated comfortable CEE/CEF controls, inherited border
+overrides, focus and invalid states at desktop and narrow widths. No screenshot
+baseline was changed. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cee-comfortable-outline/`.
+
+#### Clock text contract (2026-11-10)
+
+CEE and CEF clock digits and colons use the shared 21px body line in comfortable
+and default density, and the 18px authoring line in authoring density. Compact and
+authoring colons follow the same `--cedar-control-line-height` host override as the
+digits. The control boxes remain 48px, 36px and 32px respectively; clock widths,
+font sizes, AM/PM action sizes, precision and formatting are unchanged.
+
+The two local 22px line-height occurrences are removed from the baseline: CEE has
+22 source allowances and the estate has 78. Build, lint, type checking and strict
+adoption passed. The full browser/visual run passed 1,618 checks and reported two
+expected screenshot differences confined to clock colons, with 104 existing skips.
+The desktop and narrow nested-form images were reviewed and refreshed, then both
+checks passed again without updating snapshots. The added CEE/CEF cases cover all
+three densities, empty and populated clocks, AM/PM sizes and inherited overrides.
+Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-clock/`.
+
+#### Expansion-panel body text (2026-11-10)
+
+CEE's expansion-panel bodies use the existing shared 21px body line. Nested field
+labels remain 14px; panel headings retain their 24px text line and 48px header
+height. Editable control dimensions are independent of this body line. The
+approved extra space is one pixel per inherited line: the small nested fixture
+grows by 3px, and the large nested page by 138px. In the narrow comfortable
+read-only case, wrapped specification boxes also grow by 2–4px and the large
+page grows by 230px. These are accepted presentation changes, not regressions
+to compensate with smaller margins or other token categories.
+
+CEE has 21 source allowances and the estate has 77. Build, lint, type checking
+and strict adoption passed. All 24 measured combinations of fixture, width,
+density and read-only state match the approved preview exactly. The full
+browser/visual run passed 1,614 checks with six expected nested-form screenshot
+differences and 104 existing skips. The six reviewed baselines were refreshed;
+all six checks then passed again without snapshot updates. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cee-panels/`.
+
+#### CEE chip and pagination label contract (2026-11-10)
+
+Occurrence chips retain their 26px height and 12px type, with their label line
+moving from Material's 20px to the shared compact 18px line. Template page chips
+retain their 32px height and 14px type, with a shared body line of 21px instead of
+20px. Occurrence-range text uses the shared 18px line instead of 20px. The 32px
+occurrence actions, pagination bars, arrow sizes and responsive alignment keep
+their existing geometry. Component geometry stays explicitly owned by CEE; it
+does not borrow row, icon or control tokens solely because a number matches.
+
+The full browser/visual gate passed 1,624 checks with 104 existing skips and no
+baseline changes. All 18 measured combinations of pager kind, width and density
+match the approved preview exactly. Checks cover read-only and editable paging,
+including selecting an occurrence on the second page. Build, lint, type checking
+and strict token adoption pass. The source allowance counts remain 21 for CEE
+and 77 estate-wide: this decision overrides previously implicit Material text
+defaults and explicitly retains the component sizes. CEE's pending token design
+review is closed; its retained geometry remains visible in the adoption baseline.
+Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cee-chips/`.
+
+#### CETP constraint action target (2026-11-10)
+
+The constraint remove button uses `spacing.$target-size-minimum` for its minimum
+height. Its target is now 24×24px instead of 24×22px; the 20px glyph, text, colors
+and 24px width are unchanged. Short rows grow from 28px to 29px to accommodate
+the target, compact cell insets and table rule. Wrapped and expanded rows keep
+their existing height. All 18 measured combinations of width, host font and
+expansion state match the approved preview exactly.
+
+Build, lint, type checking and strict token adoption pass. The browser suite
+passed 185 checks; its old 28px row assertion was updated to the approved 29px,
+and that check passed on rerun. All four container screenshot checks passed
+without baseline changes. The rebuilt bundles are byte-identical before and
+after the assertion update. One resolved source allowance was pruned, leaving
+five in CETP and 76 estate-wide. Other target-size findings in the accessibility
+roadmap concern different controls and remain open. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-target/`.
+
+#### CETP expanded detail text (2026-11-10)
+
+The constraint details use `patterns.relative-text-line` for their body text.
+The shared 21px body line divided by the 14px body font gives a unitless 1.5,
+replacing the local 1.35. A host's 16px font therefore gets a 24px line and a
+20px font gets a 30px line. Font sizes, content, icons, targets and collapsed
+row geometry stay unchanged. In the reviewed sample, the expanded row grows
+by about 6px in a wide host and 70px at 375px before the responsive detail
+layout described below is applied.
+
+Build, lint, type checking and strict token adoption pass. All 186 browser
+checks and four container screenshot checks pass without baseline changes.
+All 18 measured combinations of width, host font and expansion state match
+the approved preview exactly. Removing the resolved line-height allowance
+leaves four in CETP and 75 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-body-line/`.
+
+#### CETP responsive constraint details (2026-11-10)
+
+Each expanded constraint's detail container follows its cell width. At 14em
+or narrower, labels stack above their values and use the existing shared
+spacing between groups. Wider cells retain the two-column layout. The em
+threshold follows host font size; it is component layout, not a borrowed
+control or spacing token. Text, icons, 24px action targets, table columns and
+the existing scroll region retain their contracts.
+
+At a 375px viewport with the default font, the reviewed identifier gains
+width from about 20px to 121px and the expanded row shrinks from 901px to
+432px. At the same width with a 20px Georgia host font, the row shrinks from
+2,782px to 666px. Default 540px and wide layouts are unchanged. All 24 measured
+cases match the approved preview exactly. Browser checks cover English and
+Hungarian labels, font overrides and returning from narrow to wide layouts.
+
+Build, lint, type checking and strict token adoption pass. All 188 browser
+checks and four container screenshot checks pass without baseline changes.
+Source allowances remain four in CETP and 75 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-narrow-implementation/`.
+
+#### CETP host-derived surface roles (2026-11-10)
+
+Selected states retain the existing 12% host-primary blend over white through
+`patterns.selection-tint`. Search-match marks and matched-name chips use
+`search-match-tint`; hovered tree actions use `action-hover-tint`; the property
+release-history panel uses `term-picker-release-panel-tint`. These independently
+owned recipes currently emit the same blend. They do not alias selection or
+borrow the fixed `surface-selected` role. CETP's private surface properties
+keep the roles separate through its shadow tree. Default teal, purple and blue
+host palettes retain their rendered colors and geometry.
+
+The package is `0.1.0-dev.20261110.c8930a66`, published to the development
+registry with all nine declared token consumer pins updated. Existing compiled
+stylesheets, fonts, icons and other package assets are byte-identical to the
+previous package; the additions are opt-in Sass functions and documentation.
+The active local reactor and its served bundles were preserved.
+
+The shared package's 157 tests, CETP lint/type checks, strict estate adoption,
+all 189 CETP browser checks against the published package, and all four container
+screenshot checks pass. No visual baseline changed. The browser gate checks
+both host-palette preservation and independent selection, search-match, hover
+and panel roles. A preliminary tree-accessibility timeout passed on rerun and
+in the final complete suite. One source allowance was pruned, leaving three
+in CETP and 74 estate-wide. The two rendered tint allowances record the approved
+host-derived colors, which intentionally differ from the fixed shared surface.
+Evidence is under `$CEDAR_HOME/.cedar/audits/2026-11-10-cetp-tint/`.
+
+#### Workspace drag-selection overlay (2026-11-10)
+
+The drag rectangle uses `patterns.drag-selection-tint`: 13% of the host primary
+over transparency. It is an independent overlay role, not an alias for an opaque
+selected surface. Workspace retains the 1px primary outline, rectangle geometry,
+pointer behavior and selection interaction. Content remains readable beneath it.
+
+The token package is `0.1.0-dev.20261110.9e8d8c2e`, published to the development
+registry with all nine declared consumer pins updated. Its compiled stylesheets,
+fonts, icons and other assets are unchanged; only the package version, opt-in Sass
+recipe and documentation differ. The active reactor's served bundles are preserved.
+
+The shared package's 157 tests, Workspace lint/build, strict estate adoption and
+all 18 targeted Chromium/WebKit selection checks pass. The published-package build
+emits byte-identical Workspace CSS, and its drag screenshot matches the approved
+preview byte for byte. No visual baseline changed. Removing the resolved allowance
+leaves 13 in Workspace and 73 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-workspace-selection-implementation/`.
+
+#### Monitoring category and masked-secret roles (2026-11-10)
+
+The opt-in central `monitoring` Sass module owns HTTP method colors, request/Cypher
+trace text and bars, and masked secret text independently. Their defaults preserve
+Monitoring's existing palette. PUT/PATCH and DELETE no longer borrow warning and
+error roles; GET and request spans no longer borrow the primary-action role.
+Equal purple defaults for POST and Cypher text are independent roles. Dedicated
+`--cedar-monitor-*` overrides can change one category without changing another.
+The 54-token global vocabulary is unchanged. The four rendered categorical-color
+allowances identify these approved opt-in defaults rather than unowned literals.
+
+The central package's 157 tests and all 211 Monitoring browser checks pass; one
+lazy-route check required the isolated build's own metadata before its successful
+rerun. Method, trace and secret screenshots are byte-identical to the reviewed
+preview. Build and strict adoption pass. All nine development pins follow the
+published package. Five source allowances were removed, leaving 23 in Monitoring
+and 68 estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/category/`.
+
+#### Monitoring copy-confirmation colors (2026-11-10)
+
+`monitoring.copy-toast-colors` preserves the copy toast's dark surface and white
+text with dedicated, independent overrides. Copying still triggers the toast;
+ordinary screens have no toast and the existing 1.5-second dismissal remains.
+Repeated radius and weight declarations in the log stylesheet are grouped under
+their original selectors, keeping the stylesheet at 9.68 kB within its unchanged
+10 kB error budget. The default screenshots remain byte-identical at 1440px and
+375px, including fresh logs, copy feedback, methods, traces and masked values.
+
+The 157 central tests, 42 rendered surface checks, two role checks and both
+presentation walkthroughs pass. The clock test installs its timers before Angular
+initialization so dismissal is deterministic. Build and strict adoption pass;
+the published package and all nine pins are committed separately from the source
+change. Two source allowances were removed, leaving 21 in Monitoring and 66
+estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/toast/`.
+
+#### Monitoring informational emphasis (2026-11-10)
+
+`monitoring.state-opacity` owns five independent roles: active filter removal
+(0.55), unreachable services (0.6), unavailable build data (0.6), empty values
+(0.6), and count notes (0.75). Each has its own optional override; none borrows
+disabled-control opacity. Filter removal remains enabled and reaches full opacity
+on hover. Ordinary, populated, empty and unavailable views keep their presentation.
+
+All measurements and 22 state screenshots at 1440px and 375px are identical to
+the pre-change build. The 157 central tests, 42 surface checks, three role checks,
+build and strict adoption pass. The log stylesheet remains within its unchanged
+10 kB error budget. The published package is followed by all nine development
+pins. Five source allowances were removed, leaving 16 in Monitoring and 61
+estate-wide. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/emphasis/`.
+
+#### Monitoring shared text lines (2026-11-10)
+
+Environment matrix cells use the shared body ratio: their 14px text has a 21px
+line instead of 18.2px. Drift-tooltip prose uses the shared small-text ratio:
+12px text has an 18px line instead of 17.4px. Both ratios follow inherited font
+size. Text, font sizes, widths, wrapping and horizontal scrolling are preserved.
+At both 1440px and 375px, the sample matrix grows from 446.5px to 455.5px and the
+tooltip from 77.5625px to 80px. The 18 unaffected state screenshots are identical.
+
+All 213 Monitoring browser checks pass against the published token package
+`0.1.0-dev.20261110.a17fffab`, along with the 157 central tests, build and strict
+estate adoption. The package's existing compiled stylesheets, icons, fonts and
+other assets are unchanged; only its manifest, README and new opt-in Monitoring
+module differ from the preceding Workspace package. All nine consumer pins are
+pushed. No visual baseline was changed or runtime deployed. Two resolved source
+allowances were removed, leaving 14 in Monitoring and 59 estate-wide. No design
+decision remains from this review. Evidence is under
+`$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/text/`.
+
 <a id="accessibility-conformance"></a>
 
 ## Accessibility Conformance
@@ -5261,8 +5654,14 @@ CED `dd034da`, CEE `fed2441c`, the term picker `1c4a4e9` and Workspace `69d64fe9
 1.4.11 was reassessed twice more, after a sixth and a seventh round, last at CED `0bb2eb7`, CEE
 `1461488f`, the term picker `ee2d479` and Workspace `eaa99ea2`. On 2026-11-04 the criteria an
 eighth round touched, 1.4.1, 2.2.1 and 2.5.8 in CEE and 2.4.3 in Workspace, were reassessed at CEE
-`d394026f` and Workspace `c6cb1227`. The assessment read code and tests. Nobody ran a
-screen reader, and only the English text was judged, not the Hungarian translations. Zoom, reflow
+`d394026f` and Workspace `c6cb1227`. On 2026-11-09 the criteria a ninth round touched, 2.1.1 and
+2.5.7 in CED and 4.1.3 in Workspace, were reassessed at CED `46977b0` and Workspace `720bd319`.
+Later that day the term picker's 2.1.1 and 4.1.2 were reassessed after a tenth round, at the term
+picker `20d1523`, CED's 2.4.3 and 2.4.7 after an eleventh, at CED `c9f410d`, and CEE's 3.1.2 after a twelfth, at
+CEE `63d13ee2`. On 2026-11-11 the criteria a thirteenth round touched were reassessed at CED
+`cb5d44a`, CEE `0e6f0eb8`, the term picker `45a5e22` and Workspace `b4afc4c4`. The assessment
+read code and tests. Nobody ran a screen reader, and only the
+English text was judged, not the Hungarian translations. Zoom, reflow
 and text spacing are measured by each suite's layout check rather than by a person.
 
 A criterion counts as met only when every part of it is evidenced. Three kinds of evidence count:
@@ -5290,10 +5689,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 22 | 10 | 7 | 0 | 16 | 22 of 39, 56% |
-| CEE | 25 | 12 | 4 | 6 | 8 | 25 of 47, 53% |
-| Term picker | 25 | 9 | 5 | 0 | 16 | 25 of 39, 64% |
-| Workspace | 30 | 15 | 2 | 0 | 8 | 30 of 47, 64% |
+| CED | 26 | 13 | 0 | 0 | 16 | 26 of 39, 67% |
+| CEE | 29 | 12 | 0 | 6 | 8 | 29 of 47, 62% |
+| Term picker | 28 | 11 | 0 | 0 | 16 | 28 of 39, 72% |
+| Workspace | 31 | 16 | 0 | 0 | 8 | 31 of 47, 66% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -5323,37 +5722,62 @@ word Warning, gave CEE's link-out icon a 4px gap and kept its cleared and revert
 the next edit. In Workspace it asked before removing access and closed menus when focus leaves
 them. That moved CEE's 1.4.1 from Fails to Partial, its 2.2.1 and 2.5.8 from Fails to Met, and
 Workspace's 2.4.3 from Fails to Partial. Workspace's 3.3.4 stays Partial, because no assessment
-has covered its other irreversible actions. The failures now stand at 18, and most of them need a
-visible change.
+has covered its other irreversible actions. The failures stood at 18 after it. A ninth round gave
+CED's sidebar divider a keyboard route, and Workspace's metadata review panel was removed with
+metadata reconciliation. No status moved. CED's 2.1.1 still fails on the sidebar's field list and
+its narrow layouts, and its 2.5.7 on the moves that need a drag or the arrow keys. Workspace's 4.1.3
+stays Partial. A tenth round made the term picker's result tabs one Tab stop, moved between by the
+arrow keys and Home and End, and made the result list the shown tab's panel. No status moved there
+either. The term picker's 2.1.1 stays Partial, and its 4.1.2 still fails on its result rows. An eleventh
+round stopped CED leaving focus on insertion actions nobody could see. An Escape that hides them now
+moves focus to the card below, and an action used from the keyboard keeps them shown. That moved CED's
+2.4.7 from Fails to Partial, and its 2.4.3 stays Partial. The failures stood at 17 after it. A
+twelfth round named each of CEE's boxes, and the group a read-only term is drawn as, from a hidden
+element that marks the field's label with the template's language, so the box keeps its value's
+language and the label is read in the template's. That moved CEE's 3.1.2 from Partial to Met. The
+failures stood at 17 after it, and each needed a visible change.
+
+A thirteenth round made each of those changes, as agreed on 2026-11-10. Every layout check now
+passes with no recorded exception, which moved 1.4.4 and 1.4.10 in CED, CEE and the term picker,
+and 1.4.12 in CEE and Workspace, from Fails to Met. Every target now measures at least 24px, or
+has a larger equivalent target, which moved 2.5.8 in CED and the term picker from Fails to Met.
+CED's reordering and resizing take single clicks, which moved its 2.5.7 from Fails to Met. The
+keyboard now reaches CED's sidebar field list and its narrow Overview, CEE's element marks and
+Workspace's Save during validation, which moved 2.1.1 in those three from Fails to Partial. The
+term picker's results became a list of rows whose names are buttons, and CED's child-picker
+results a grid, which moved the picker's 1.3.1 and 4.1.2 and CED's 4.1.2 from Fails to Partial.
+Workspace's listing became a grid whose rows state their selection, and a repeated notice is
+announced again, but its 1.3.1, 4.1.2 and 4.1.3 stay Partial, because no screen reader has
+confirmed them. No criterion fails now.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
-has measured fails the gate. Each suite also runs `layout-resilience.spec`, one method in all four:
-reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text spacing at 1280 pixels,
-the contrast of every placeholder, and the contrast of every field boundary, icon, focus indicator
-and selection mark against what it is drawn on. A finding that needs a visible change is recorded in the
-spec as a named exception, and an exception that stops occurring fails it.
+has measured fails the gate. Each suite also runs `layout-resilience.spec`, which imports one
+shared checker the design-token package generates for every frontend and tests against fixture
+pages that must fail: reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text
+spacing at 1280 pixels, the contrast of every placeholder, and the contrast of every field boundary,
+icon, focus indicator and selection mark against what it is drawn on. OpenView, Bridging,
+Monitoring and the Template Designer host run the same axe gate and layout check over their own
+pages, though this report does not score them. A finding that needs a visible change is recorded in the
+spec as a named exception, and an exception that stops occurring fails it. The design-token adoption
+check refuses an exception the base revision does not record, whether a list entry, an axe rule
+switched off or a template accessibility lint rule disabled, so the recorded exceptions can only
+shrink.
 
 ### Failures Several Components Share
 
-One failure still recurs across components: targets under 24px. CED's field settings toggle and
-the term picker's tree twists, tree terms and history releases fall under WCAG 2.2's minimum
-target (2.5.8).
-
-Two others had shared causes, and each was fixed where its cause lives. Text inputs draw their
+No failure recurs across components now. Three had shared causes, and each was fixed where its
+cause lives. Every target is at least 24px tall, from the shared minimum target size, or has a
+larger equivalent target, as CED's field header is for its settings toggle. Text inputs draw their
 boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
 field sits on a panel. A selection tint of about
 1.2:1 is never a selection's only mark. A selected item takes `patterns.selected-outline` or, where
 the focus ring needs the outline, `patterns.selected-frame`. CEE's calendar gives the focused date
 the focus ring, and CED's errored settings tab carries the warning icon.
 
-The layout check's failures are each a component's own: CED's narrow layouts, CEE's PubMed and
-RRID instructions cut short at 320 pixels and its long read-only values cut short at 320 pixels, at
-200% zoom and under text spacing, the term picker's release history at 320 pixels and its truncated
-lines and narrowing panel at 200% zoom, and Workspace's grid card under text spacing. The fixes are
-open work in the
-[frontend roadmap's accessibility item](FRONTEND-ROADMAP.md#accessibility), the term picker's
-included.
+The layout check records no exception in any component. What no browser suite can settle is what a
+screen reader speaks, which the
+[frontend roadmap's accessibility item](FRONTEND-ROADMAP.md#accessibility) tracks.
 
 ### By Criterion
 
@@ -5368,7 +5792,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | N/A | Unverified | N/A | N/A |
 | 1.2.4 Captions (Live) | AA | N/A | Unverified | N/A | N/A |
 | 1.2.5 Audio Description (Prerecorded) | AA | N/A | Unverified | N/A | N/A |
-| 1.3.1 Info and Relationships | A | Partial | Met | Fails | Partial |
+| 1.3.1 Info and Relationships | A | Partial | Met | Partial | Partial |
 | 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
@@ -5376,13 +5800,13 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
-| 1.4.4 Resize Text | AA | Fails | Fails | Fails | Met |
+| 1.4.4 Resize Text | AA | Met | Met | Met | Met |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
-| 1.4.10 Reflow | AA | Fails | Fails | Fails | Met |
+| 1.4.10 Reflow | AA | Met | Met | Met | Met |
 | 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
-| 1.4.12 Text Spacing | AA | Met | Fails | Met | Fails |
+| 1.4.12 Text Spacing | AA | Met | Met | Met | Met |
 | 1.4.13 Content on Hover or Focus | AA | Met | Partial | Met | Met |
-| 2.1.1 Keyboard | A | Fails | Fails | Partial | Fails |
+| 2.1.1 Keyboard | A | Partial | Partial | Partial | Partial |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Met | Met |
 | 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
 | 2.2.1 Timing Adjustable | A | Met | Met | Met | Partial |
@@ -5394,16 +5818,16 @@ that touches it, and update the assessment date and commits with it.
 | 2.4.4 Link Purpose (In Context) | A | N/A | Met | N/A | Met |
 | 2.4.5 Multiple Ways | AA | Host | Host | Host | Partial |
 | 2.4.6 Headings and Labels | AA | Met | Partial | Partial | Met |
-| 2.4.7 Focus Visible | AA | Fails | Partial | Partial | Partial |
+| 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
 | 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
 | 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
 | 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
 | 2.5.3 Label in Name | A | Met | Met | Met | Met |
 | 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
-| 2.5.7 Dragging Movements | AA | Fails | Met | Met | Partial |
-| 2.5.8 Target Size (Minimum) | AA | Fails | Met | Fails | Met |
+| 2.5.7 Dragging Movements | AA | Met | Met | Met | Partial |
+| 2.5.8 Target Size (Minimum) | AA | Met | Met | Met | Met |
 | 3.1.1 Language of Page | A | Host | Host | Host | Met |
-| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Met |
+| 3.1.2 Language of Parts | AA | Partial | Met | Met | Met |
 | 3.2.1 On Focus | A | Partial | Met | Met | Met |
 | 3.2.2 On Input | A | Met | Met | Met | Met |
 | 3.2.3 Consistent Navigation | AA | Host | Host | Host | Met |
@@ -5415,7 +5839,7 @@ that touches it, and update the assessment date and commits with it.
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | Host | Host | Host | Partial |
 | 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
 | 3.3.8 Accessible Authentication (Minimum) | AA | Host | Host | Host | N/A |
-| 4.1.2 Name, Role, Value | A | Fails | Partial | Fails | Partial |
+| 4.1.2 Name, Role, Value | A | Partial | Partial | Partial | Partial |
 | 4.1.3 Status Messages | AA | Partial | Met | Partial | Partial |
 
 ## Surface inventory and token coverage
@@ -5512,9 +5936,11 @@ a Markdown hierarchy or an abbreviated checklist does not satisfy this request.
 CEE/CEF and CED import `TextPolicy`, `IdentifierPolicy` and display helpers from the main
 model package they already use, so a second policy bundle is not included. CETP imports the
 lightweight `cedar-model-typescript-library/policy` entry. The legacy template editor copies
-`policy.umd.js` from its pinned dependency with `gulp copy:policy` and exposes it as the AMD
-module `CedarValidationPolicy`; its older full model bundle remains a separate consumer.
-The reactor inventories all of these model consumers in `ops/frontend-train.json`.
+`policy.umd.js` and the full `index.umd.js` bundle from its pinned dependency with
+`gulp copy:model`. It exposes them as the AMD modules `CedarValidationPolicy` and
+`CedarModelTypescriptLibrary`, and loads the full bundle only when an author opens or copies a
+YAML representation. The reactor inventories all of these model consumers in
+`ops/frontend-train.json`.
 
 The position-specific rules and corpus update procedure are in the backend runbook's
 “Shared text and identifier contract”. Keep display grapheme counts separate from JSON Schema
@@ -5539,8 +5965,8 @@ were retained. This evidence covers text-policy adoption, not later parser or nu
 ### Exact values and bounded validation in browser hosts
 
 Workspace, the authenticated designer host, OpenView and Bridging use the lightweight policy entry
-at their artifact HTTP boundaries. Workspace and the designer host also use it for saved drafts,
-reconciliation and uncertain-save comparisons; an exact numeric atom is a scalar during comparison.
+at their artifact HTTP boundaries. Workspace and the designer host also use it for saved drafts and
+uncertain-save comparisons; an exact numeric atom is a scalar during comparison.
 OpenView preserves it when cloning artifact previews. The designer host stages the pinned ESM policy
 with a separate version/hash manifest in `app/components`; the legacy editor stages the UMD policy.
 All direct consumers are recorded in `ops/frontend-train.json`, so the reactor supplies current model

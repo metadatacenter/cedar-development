@@ -9,7 +9,7 @@ import {promisify} from 'node:util';
 // An availability stub tests the runner's failure semantics. Real packaged CEE/CED
 // are measured by the reusable CI workflow, not replaced with this test stub.
 const stub = `customElements.define('cedar-embeddable-editor',class extends HTMLElement {
-  set templateObject(value) {this.innerHTML='<input aria-label="Field 001">';}
+  set templateObject(value) {this.innerHTML='<app-cedar-input-text><input></app-cedar-input-text>';}
 });`;
 test('runner preserves evidence and fails missing assets even when the editor is usable', async () => {
   const root = await mkdtemp(join(tmpdir(),'cedar-isolated-test-'));

@@ -28,10 +28,12 @@ by name in commits.
 
   - Build the three Maven servers with the rest. When `cedar-artifact-library` advances, bump its
     two MCP consumers in the same delivery and build them after the declared library release, so a
-    signature break fails before a client sees it.
+    signature break fails before a client sees it. The REST smoke's `mcp` suite already refuses a
+    `cedar-artifact-rest-mcp` jar older than its sources, and until the build produces that jar, a
+    smoke run needs a manual `mvn package` first.
   - Give `bioportal-term-mcp` the Python equivalent: `uv run pytest` and `uv run pyright` on every
-    push, and a nightly `uv run pytest -m live` to catch BioPortal shape drift early. Both precede
-    any publication to PyPI, should that ever be wanted.
+    push. `pyright` reports 17 errors in `server.py` today. Both precede any publication to PyPI,
+    should that ever be wanted.
   - Decide whether they join the train-backed release or stay outside it, as CEE and the
     TypeScript model library do. Dependency resolution no longer decides that question:
     `cedar-artifact-rest-mcp` resolves from Maven Central alone, while `cedar-artifact-mcp` and

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { acquire, release, lockPath, holderOf, describeHolder } from '../../split-lock.mjs';
+import { withAuthentication } from '../../auth-activity.mjs';
 import { Fixtures } from './fixtures.mjs';
 import { plan } from './matrix.mjs';
 import { journeyScenarios } from './queries.mjs';
@@ -73,12 +74,16 @@ export async function runLive({ isolated = false, tier = 'rest', reportPath, wor
         const page = await context.newPage();
         page.setDefaultTimeout(25000);
         const base = process.env.CEDAR_BASE || 'https://workspace.metadatacenter.orgx';
-        await page.goto(base + '/dashboard');
-        await page.locator('#username').waitFor();
-        await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || 'test2@test.com');
-        await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || 'test2');
-        await page.locator('#kc-login').click();
-        await page.getByRole('button', { name: 'New', exact: true }).waitFor();
+        // The gate may still run the REST tier beside this one, so the sign-in holds the machine-wide
+        // authentication lock that every tier's sign-ins take.
+        await withAuthentication('search journey sign-in', async () => {
+          await page.goto(base + '/dashboard');
+          await page.locator('#username').waitFor();
+          await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN || 'test2@test.com');
+          await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || 'test2');
+          await page.locator('#kc-login').click();
+          await page.getByRole('button', { name: 'New', exact: true }).waitFor();
+        });
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         // The journey's type filter is saved to the reader's profile, which every lane signs in as, so

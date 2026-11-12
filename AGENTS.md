@@ -28,6 +28,8 @@ cedarcli native health         # exits non-zero unless every managed application
 cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
+cedarcli ci run <repo>         # run a repo's own CI here at origin/develop; gates accept the record
+cedarcli ci coverage           # which repos local CI answers for, and the registry's drift check
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
 cedarcli build frontends       # full frontend reactor; `build --jobs 3 --workers 12 frontends` on the 16-core workstation; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
@@ -200,8 +202,8 @@ The browser applications and embeddable components — `cedar-workspace`,
   editor theming and host contracts, authoring and lifecycle, and the model-library
   work those surfaces require.
 - [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md) — public TypeScript model
-  library and CEE releases, consumer pins, tarball verification, development channels,
-  and adoption by a train-backed release.
+  library, CEE, CED and CETP releases through `cedarcli release npm`, where that route stops,
+  consumer pins, and adoption by a train-backed release.
 
 `cedar-design-tokens` owns the design vocabulary every browser application and embeddable
 component shares: the font stack, type scale, colours, control metrics, spacing, motion and
@@ -238,10 +240,11 @@ resolve terms for and store CEDAR artifacts:
   the calling model ever reads.
 
 The rest:
-- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~43
-  versioned repos, front and back. CEE, the TypeScript model library and three others are
-  `skip_from_release` and publish themselves; their public procedure is in
-  [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~40
+  versioned repos, front and back. The TypeScript model library, CEE, CED and CETP release to
+  npmjs on versions of their own, as [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md)
+  describes, and the platform release pins their public packages. The design tokens publish their
+  own development packages and take no release commit either.
 - [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 

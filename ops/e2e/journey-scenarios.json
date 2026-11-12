@@ -205,6 +205,24 @@
       "promise": "A newly tightened template regex permits stale and fresh Editor saves, reports value-quality warnings on reload, and permits correction without losing other content"
     }
   ],
+  "pinned-branch": [
+    {
+      "id": "pin-branch-release",
+      "promise": "Designer's term picker pins NCIT's Melanoma branch to release 24.01e, and the saved template records that release's identifier, date and declared version"
+    },
+    {
+      "id": "pinned-branch-values",
+      "promise": "Editor offers the branch as release 24.01e holds it: \"Melanomatosis\" and not \"Acral Melanoma\", the reverse of the newest release, and every search names the pin"
+    },
+    {
+      "id": "pinned-value-saved",
+      "promise": "A term only release 24.01e places in the branch saves, the server verifies it against the pinned release, and the record reopens with it"
+    },
+    {
+      "id": "published-pin-kept",
+      "promise": "Publishing keeps the branch at release 24.01e, and a record of the published template offers the branch as that release holds it"
+    }
+  ],
   "scalar-roundtrip": [
     {
       "id": "exact-scalars",

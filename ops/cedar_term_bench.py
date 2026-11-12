@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Latency and concurrency benchmark for the terminology server's lookup paths.
+"""Latency benchmark for the terminology server's lookup paths, one request at a time.
 
 Query strings are drawn from the served index itself, so every lookup matches
 something and the timings are of real work rather than of empty result sets. Run
@@ -7,10 +7,12 @@ it against a warm server, and not while anything else is using the stack: a
 benchmark and the e2e smoke competing for one deployment reads as a regression in
 whichever finishes second.
 
+It measures no concurrency. The k6 `terminology` profile under `ops/e2e/rest-perf`
+puts sixteen users on the same lookups.
+
     python3 cedar_term_bench.py [repetitions]
 """
 import json, os, sqlite3, statistics, sys, time, urllib.request, urllib.error
-from concurrent.futures import ThreadPoolExecutor
 
 BASE = os.environ.get("CEDAR_TERM_BASE", "http://localhost:9004")
 STORE = os.environ.get("CEDAR_TERMINOLOGY_STORE_INDEX",
@@ -46,18 +48,6 @@ def integrated(acronym, text, page_size=25):
                 "ontologies": [{"uri": f"http://data.bioontology.org/ontologies/{acronym}",
                                 "acronym": acronym, "numTerms": 0, "name": acronym}],
                 "branches": [], "classes": [], "valueSets": []},
-            "inputText": text},
-        "page": 1, "pageSize": page_size})
-
-
-def integrated_branch(acronym, branch_iri, text, page_size=25):
-    return post("/bioportal/integrated-search", {
-        "parameterObject": {
-            "valueConstraints": {
-                "ontologies": [],
-                "branches": [{"source": acronym, "acronym": acronym, "uri": branch_iri,
-                              "name": "branch", "maxDepth": 0}],
-                "classes": [], "valueSets": []},
             "inputText": text},
         "page": 1, "pageSize": page_size})
 

@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { suite, check, checkStatus, call, updateArtifact, artifactBody, cleanup, enc, RUN, BRIDGE, TERMINOLOGY } from '../lib.mjs';
+import {
+  suite, check, checkStatus, skip, call, updateArtifact, artifactBody, cleanup, enc, RUN, BRIDGE, TERMINOLOGY,
+} from '../lib.mjs';
+import { authoringInstance, authoringTemplate } from '../../rest-perf/authoring-model.js';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
@@ -179,10 +182,80 @@ async function semanticVerification(auth) {
     'malformed authority requests are rejected before verification');
 }
 
+// The checks above ask the terminology server directly. These ask through a save, which is the
+// only place the artifact server's own request to it is exercised: for three weeks that request
+// could not be made, every check answered "unavailable", and a save tolerates that answer, so
+// nothing failed. A term of an ontology the local store serves must come back verified.
+async function semanticVerificationOnWrite(auth, folderId) {
+  suite('validate: a stored controlled-term value is checked against the terminology server');
+  const checks = [
+    'a template with a field constrained to DOID is created',
+    'an instance holding a DOID term is saved',
+    'the stored term is verified by the terminology server rather than reported unavailable',
+    'a term outside DOID is a failed membership that leaves the instance saveable',
+  ];
+  const served = await call(auth, 'GET', '/bioportal/ontologies/DOID/versions/current', undefined, { base: TERMINOLOGY });
+  const found = served.status === 200 ? await call(auth, 'POST', '/bioportal/integrated-search', {
+    parameterObject: {
+      valueConstraints: {
+        ontologies: [{ uri: 'https://data.bioontology.org/ontologies/DOID', acronym: 'DOID', numTerms: 0, name: 'DOID' }],
+        branches: [], classes: [], valueSets: [],
+      },
+      inputText: 'disease',
+    },
+    page: 1,
+    pageSize: 5,
+  }, { base: TERMINOLOGY }) : null;
+  const terms = (found?.body?.collection ?? []).filter(entry => entry['@id'] && entry.prefLabel)
+      .map(entry => ({ iri: entry['@id'], label: entry.prefLabel }));
+  if (terms.length < 3) {
+    const reason = `the local terminology store does not serve DOID (current version ${served.status}, `
+        + `${terms.length} terms found)`;
+    for (const what of checks) skip(what, reason);
+    return;
+  }
+
+  const created = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      authoringTemplate(load('minimal-template.json'), load('minimal-field.json'),
+          `Verified terms ${RUN}`, `Created by the REST suites (${RUN})`));
+  if (!checkStatus(created, 201, checks[0])) return;
+  cleanup('template', `/templates/${enc(created.body['@id'])}`, `Verified terms ${RUN}`);
+
+  const values = {
+    Title: { '@value': 'Verified terms' },
+    Code: { '@value': 'REST-1' },
+    Count: { '@value': '1', '@type': 'xsd:int' },
+    Disease: { '@id': terms[0].iri, 'rdfs:label': terms[0].label },
+    Related: [terms[1], terms[2]].map(term => ({ '@id': term.iri, 'rdfs:label': term.label })),
+  };
+  const saved = await call(auth, 'POST', `/template-instances?folder_id=${enc(folderId)}`,
+      authoringInstance(load('minimal-instance.json'), created.body['@id'], `Verified term answers ${RUN}`,
+          `Created by the REST suites (${RUN})`, values));
+  if (!checkStatus(saved, 201, checks[1])) return;
+  const path = `/template-instances/${enc(saved.body['@id'])}`;
+  cleanup('instance', path, `Verified term answers ${RUN}`);
+
+  const stored = await call(auth, 'GET', path);
+  const report = await call(auth, 'POST', '/command/validate?resource_type=instance', stored.body);
+  const verdicts = (report.body?.findings ?? []).filter(finding => finding.category === 'verification');
+  check(report.status === 200 && report.body?.isValid === true && verdicts.length === 3
+      && verdicts.every(finding => finding.verificationStatus === 'passed' && finding.code === 'controlledTermVerified'),
+      checks[2], report.text);
+
+  const foreign = structuredClone(stored.body);
+  foreign.Disease = { '@id': 'https://example.org/not-a-disease', 'rdfs:label': 'not a disease' };
+  const refused = await call(auth, 'POST', '/command/validate?resource_type=instance', foreign);
+  const membership = (refused.body?.findings ?? []).find(finding => finding.path === '/Disease/@id');
+  check(refused.status === 200 && refused.body?.canSave === true && refused.body?.isValid === false
+      && membership?.verificationStatus === 'failed' && membership?.code === 'controlledTermMembership',
+      checks[3], refused.text);
+}
+
 export async function run({ user1, folderId }) {
   const auth = user1.auth;
   await numericRangeJourney(auth, folderId);
   await semanticVerification(auth);
+  await semanticVerificationOnWrite(auth, folderId);
   suite('validation');
 
   // Validating an instance is not a purely syntactic check: the server resolves the template the

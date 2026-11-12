@@ -38,6 +38,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import * as S from './selectors.mjs';
+import { withAuthentication } from './auth-activity.mjs';
 // REST helpers, used to seed setup fixtures (folder, standalone field) without driving the UI, and
 // to tear them down. The browser drives only the gestures under test (designer, metadata editor).
 import { actors, call as restCall, mutate as restMutate, artifactBody,
@@ -586,7 +587,7 @@ async function deleteRow(page, name, folderId) {
   throw new Error(`"${name}" was never deleted: 5 gestures, none of which sent a DELETE request`);
 }
 
-// ── controlled-term helpers ────────────────────────────────────────────────
+// ── text-entry and Designer helpers ────────────────────────────────────────
 
 // A load still in flight when the typing happens can repopulate the input once its response
 // lands, so the typing waits until the page has nothing outstanding.
@@ -1098,21 +1099,25 @@ async function newAuthenticatedContext(browser, user, password, statePath) {
   });
   await context.route('**://*:35729/**', route => route.abort());
   const page = await context.newPage();
-  await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
-  const loginForm = page.locator(S.KC_USERNAME).first();
-  const newButton = page.getByRole('button', { name: 'New' });
-  const seen = await Promise.race([
-    loginForm.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'login').catch(() => null),
-    newButton.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'reused').catch(() => null),
-  ]);
-  if (seen === 'login') {
-    await loginForm.fill(user);
-    await page.locator(S.KC_PASSWORD).first().fill(password);
-    await page.locator(S.KC_SUBMIT).first().click();
-    await newButton.waitFor({ timeout: 60_000 });
-    await mkdir(AUTH_DIR, { recursive: true });
-    await context.storageState({ path: statePath });
-  } else if (seen !== 'reused') {
+  const seen = await withAuthentication(`browser smoke sign-in as ${user}`, async () => {
+    await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
+    const loginForm = page.locator(S.KC_USERNAME).first();
+    const newButton = page.getByRole('button', { name: 'New' });
+    const outcome = await Promise.race([
+      loginForm.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'login').catch(() => null),
+      newButton.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'reused').catch(() => null),
+    ]);
+    if (outcome === 'login') {
+      await loginForm.fill(user);
+      await page.locator(S.KC_PASSWORD).first().fill(password);
+      await page.locator(S.KC_SUBMIT).first().click();
+      await newButton.waitFor({ timeout: 60_000 });
+      await mkdir(AUTH_DIR, { recursive: true });
+      await context.storageState({ path: statePath });
+    }
+    return outcome;
+  });
+  if (seen !== 'login' && seen !== 'reused') {
     await context.close();
     throw new Error(`neither the Keycloak login form nor Workspace appeared for ${user}`);
   }
@@ -1995,24 +2000,32 @@ try {
   //    Keycloak and save the state for the next run. Unauthenticated visitors are redirected to the
   //    Keycloak form, so the form's presence (vs the "New" button) tells the two paths apart.
   step = 'login';
-  // `domcontentloaded` for the same reason as `gotoListing`; the race below is the readiness wait.
-  await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
-  const loginForm = page.locator(S.KC_USERNAME).first();
-  const newButton = page.getByRole('button', { name: 'New' });
-  // A reused session lands on the dashboard; a missing/stale one is redirected to the Keycloak form.
-  // Race the two so neither path pays the other's timeout (`isVisible` can't be used here — it is an
-  // immediate check and would fire mid-redirect).
-  const seen = await Promise.race([
-    loginForm.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'login').catch(() => null),
-    newButton.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'reused').catch(() => null),
-  ]);
+  // Signing in also initializes the user's backend state, so this smoke's sign-ins hold the
+  // machine-wide authentication lock that the REST and split tiers' sign-ins take. The gate runs the
+  // REST tier beside this one.
+  const seen = await withAuthentication(`browser smoke sign-in as ${USER}`, async () => {
+    // `domcontentloaded` for the same reason as `gotoListing`; the race below is the readiness wait.
+    await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
+    const loginForm = page.locator(S.KC_USERNAME).first();
+    const newButton = page.getByRole('button', { name: 'New' });
+    // A reused session lands on the dashboard; a missing/stale one is redirected to the Keycloak
+    // form. Race the two so neither path pays the other's timeout (`isVisible` can't be used here —
+    // it is an immediate check and would fire mid-redirect).
+    const outcome = await Promise.race([
+      loginForm.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'login').catch(() => null),
+      newButton.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'reused').catch(() => null),
+    ]);
+    if (outcome === 'login') {
+      await loginForm.fill(USER);
+      await page.locator(S.KC_PASSWORD).first().fill(PASSWORD);
+      await page.locator(S.KC_SUBMIT).first().click();
+      await newButton.waitFor({ timeout: 60_000 });
+      await mkdir(AUTH_DIR, { recursive: true });
+      await context.storageState({ path: AUTH_STATE }); // pay the login once; reuse next run
+    }
+    return outcome;
+  });
   if (seen === 'login') {
-    await loginForm.fill(USER);
-    await page.locator(S.KC_PASSWORD).first().fill(PASSWORD);
-    await page.locator(S.KC_SUBMIT).first().click();
-    await newButton.waitFor({ timeout: 60_000 });
-    await mkdir(AUTH_DIR, { recursive: true });
-    await context.storageState({ path: AUTH_STATE }); // pay the login once; reuse next run
     console.log(`✓ logged in as ${USER} (session saved for reuse)`);
   } else if (seen === 'reused') {
     console.log(`✓ reused saved session for ${USER}`);

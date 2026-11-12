@@ -145,7 +145,7 @@ def check_ced(args):
         # The original ARM64 container and baseline selection are unchanged.
         command = ['bash', 'browser/run-in-container.sh', 'visual']
         report_config(root / 'browser', 'train-report.json')
-        command += ['--config=train-report.config.cjs']
+        command += ['--config=train-report.config.ts']
         expected = receipt['data']['visual']
     else:
         shard = int(args.lane)
@@ -157,7 +157,7 @@ def check_ced(args):
         expected = inventory(root, env, 'browser', [f'--shard={shard}/{SHARDS}'])
         report_config(root / 'browser', 'train-report.json')
         command = ['npm', 'run', 'test:browser:prebuilt', '--', f'--shard={shard}/{SHARDS}',
-                   '--config=train-report.config.cjs']
+                   '--config=train-report.config.ts']
     train.run_command(command, root, env)
     completed = test_inventory(train.load_json(report))
     if sorted(completed) != expected or any(t.get('status') not in {'expected', 'skipped', 'flaky'} for t in completed.values()):
@@ -170,10 +170,13 @@ def check_ced(args):
 
 
 def report_config(directory, output):
-    # Playwright loads TypeScript config through its own loader, including in the container.
-    (directory / 'train-report.config.cjs').write_text(
-        "const base = require('./playwright.config.ts').default;\n"
-        "module.exports = {...base, reporter: [['line'], ['json', {outputFile: "
+    # Playwright loads TypeScript config through its own loader, including in the container. The
+    # wrapper is TypeScript too, so the package's own module type decides how the config and the
+    # modules it imports load. A CommonJS wrapper required them as CommonJS, and a spec in an ES
+    # module package that imported one of those modules then found none of its named exports.
+    (directory / 'train-report.config.ts').write_text(
+        "import base from './playwright.config';\n"
+        "export default {...base, reporter: [['line'], ['json', {outputFile: "
         + json.dumps(output) + "}]]};\n")
 
 
@@ -275,7 +278,7 @@ def check_cee(args):
     report = root / 'visual/train-report.json'
     report.unlink(missing_ok=True)
     train.run_command(['bash', 'visual/run-in-container.sh', '--prebuilt',
-        f'--shard={shard}/{SHARDS}', '--config=train-report.config.cjs'], root, env)
+        f'--shard={shard}/{SHARDS}', '--config=train-report.config.ts'], root, env)
     completed = test_inventory(train.load_json(report))
     if sorted(completed) != expected or any(t.get('status') not in {'expected', 'skipped', 'flaky'} for t in completed.values()):
         raise RuntimeError('CEE shard did not complete its entire test inventory')

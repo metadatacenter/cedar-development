@@ -28,7 +28,6 @@
     "cedar-messaging-server",
     "cedar-microservice-libraries",
     "cedar-model-library",
-    "cedar-model-library-roundtrip",
     "cedar-model-typescript-library",
     "cedar-model-validation-library",
     "cedar-monitor-server",
@@ -70,8 +69,7 @@
     "cedar-monitor-server",
     "cedar-bridge-server",
     "cedar-cadsr-tools",
-    "cedar-clients",
-    "cedar-model-library-roundtrip"
+    "cedar-clients"
   ],
   "phases": [
     {
@@ -89,10 +87,6 @@
     {
       "name": "clients",
       "repository": "cedar-clients"
-    },
-    {
-      "name": "roundtrip",
-      "repository": "cedar-model-library-roundtrip"
     }
   ],
   "requiredArtifacts": [

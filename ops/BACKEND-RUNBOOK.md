@@ -311,7 +311,9 @@ and a recopy in its own checkout rather than a restart:
 The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
 verified CEDAR process listening without this controller's pidfile — for example, one started in a
 terminal. `stop` may safely adopt that verified process, so `restart` brings it onto the current
-build. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
+build. On macOS launchd starts a submitted job again when it exits, under a new PID. The controller
+follows the process launchd is running for its own job, so a service whose first attempts failed is
+still shown as its own. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
 recognized through its running container because its application port is intentionally private to
 `cedarnet`, and its PORT column reads `internal`. These labels do not claim that a container is
 healthy: use `cedarcli docker status`, as the table footer says. `!pid` is reserved for a genuinely
@@ -826,6 +828,53 @@ and the relay stops rather than overwriting newer content. A parked job stays in
 an artifact that could not be put back is one the two stores still disagree about and someone has to
 be able to find it. `CedarArtifactRestoreOutbox` nodes are those records.
 
+### When a Graph Write Waits for a Lock
+
+Neo4j lets a transaction wait for a lock without limit unless `db.lock.acquisition.timeout` is set.
+With the setting at 30 seconds, a transaction that has waited that long fails with
+`Neo.TransientError.Transaction.LockAcquisitionTimeout`. The driver retries a managed transaction
+on a transient error for thirty seconds counted from its first failure, and it does not retry an
+explicit transaction. A save's graph update is managed. A projection's turn at the lifecycle lock
+is explicit, so a turn that cannot take the lock fails its callers and their jobs stay for the
+relay.
+
+The workstation's `$CEDAR_NEO4J_HOME/conf/neo4j.conf` and the `cedar-infra-neo4j` image carry the
+setting. Staging and production do not, and the [production runbook](PROD-DEPLOY-RUNBOOK.md#neo4j-lock-acquisition-limit)
+gives the step. The Community edition reads the setting at start, so a change takes a restart of
+Neo4j. Check a running server with:
+
+```cypher
+SHOW SETTINGS YIELD name, value WHERE name = 'db.lock.acquisition.timeout' RETURN name, value
+```
+
+Measured on the workstation on 2026-11-10, with another transaction holding the lifecycle lock:
+
+| Lock held for | Waiting write | Result |
+| --- | --- | --- |
+| 50 s | Explicit transaction | Failed after 30 s |
+| 45 s | Statement through `cypher-shell` | Succeeded after 44 s, on its retry |
+| 100 s | Statement through `cypher-shell` | Failed after 61 s, after one retry |
+| 45 s | Template save through nginx | 500 after 44 s, with the document put back and the write without effect |
+| 100 s | Template save through nginx | 500 after 90 s |
+
+The save behind the 45-second hold failed on the restore relay's deadline and not on the limit.
+The relay puts a document back when its graph update has not committed after thirty seconds, as
+[When a Graph Update Does Not Commit](#when-a-graph-update-does-not-commit) describes. After each
+hold the next save succeeded and the artifact held that save's content. The limit changes one
+thing: a request thread waiting on a lock ends within a minute and a half, where it used to wait
+for as long as the lock was held.
+
+The save behind the 100-second hold was first measured behind the workstation's nginx as it then
+was, and got nginx's 504 at 60 seconds. That nginx lacked the three timeouts the Docker image's
+configuration carries. The workstation's `config-cedar-global.inc.conf` has had
+`proxy_connect_timeout 10s`, `proxy_read_timeout 180s` and `proxy_send_timeout 180s` since, and
+the table's figure is from after that change. No command installs that file, so a new workstation
+copies the three lines from `cedar-docker-build/cedar-infra-nginx/config/config-cedar-global.inc.conf`.
+
+Whether the limit would have ended the wait seen during the 2026-11-10 soak is not established.
+That transaction was in the wait loop that checks the limit. Terminating it did not end it, and the
+same loop checks for termination.
+
 ### After an Artifact Graph Update Commits
 
 Ordinary saves, DOI writes and inclusion propagation commit a `CedarVersionProjection` job in the
@@ -841,9 +890,33 @@ Publish, draft and deletion requests attempt their own affected version chain di
 pending job cannot leave their search actions stale. Deletion captures the affected identifiers
 before removing the graph node. The background batch still stops after one failed attempt, limiting
 dependency timeouts per pass.
-Graph updates, lifecycle transitions and these projections share the existing Neo4j lifecycle lock.
-This also serializes projection attempts across resource-server processes; a slow downstream call
-holds that lock until its configured timeout, so downstream latency can delay other graph writes.
+Graph updates and lifecycle transitions take the Neo4j lifecycle lock. A projection takes it twice,
+each time briefly: once to read its job together with the artifact state the job describes, and
+once to remove the job. It writes the version link, the inclusion edges and the index document
+between those two transactions with no graph lock held, so a slow downstream call delays that
+artifact's projection and no other graph write. An artifact with no pending job costs neither the
+lock nor a write.
+
+Two properties do what holding the lock across those writes used to do. A writer first claims the
+job, recording `claim` and `claimedAt` on the node, which leaves one writer for each artifact across
+resource-server processes. A second writer that finds a live claim leaves the artifact to its
+owner, and a claim older than two minutes is taken over. Every recorded mutation also increments the
+job's `generation`, and a writer removes the job only if the generation is the one it read. If a
+mutation was recorded during the write, the writer writes the artifact out once more from its
+current state, and leaves an artifact that is still moving to the relay. A writer whose artifact
+was deleted during the write removes the document it wrote. Every service that records mutations
+must run a build that increments the generation, so the services are upgraded together.
+
+Projections share their turns at the lock. Each turn is a transaction and a commit, and all of them
+queue on one node, so fifty writers that each claimed and removed a job alone waited for a hundred
+commits. The caller at the front takes the lock once, runs the claims and removals of every caller
+waiting by then in one transaction, up to 64 of them, and hands out the results after it commits.
+If that transaction fails, each caller's work runs in a transaction of its own, so one caller's
+failure stays its own. A caller waits two seconds for the one ahead of it and then takes a turn of
+its own, so a transaction stuck on the lock holds up one request, as it did before. Turns are
+shared within one resource-server process. A save's own graph mutation still takes the lock in a
+transaction of its own.
+
 Search replaces the document under its stable identifier without a delete-before-index gap, then
 removes legacy generated-ID copies. The durable path makes one index attempt per target instead of
 the interactive client's retry loop; a failed rebuild mirror also leaves the job pending.
@@ -855,11 +928,14 @@ idempotent and queue delivery is at least once: a lost acknowledgement can produ
 notification. Deletion removes pending update work under the same lock. This is recovery of derived
 state after a graph commit; failed-create cleanup is described below.
 
-Inspect `CedarVersionProjection` nodes for `resourceId`, `updatedAt`, `attempts`, `syncPrevious` and
-an optional `content` snapshot. A rising attempts count means the resource server's warning log
+Inspect `CedarVersionProjection` nodes for `resourceId`, `updatedAt`, `attempts`, `syncPrevious`,
+`generation`, `claim`, `claimedAt` and an optional `content` snapshot. A rising attempts count means the resource server's warning log
 should identify the unavailable stage. Do not discard a pending job to clear that symptom.
 `ArtifactProjectionTransitionTest` exercises reordered requests, downstream outages, lost enqueue
-acknowledgements, restart, rollback and delete/recreate against persisted state. The resource HTTP
+acknowledgements, restart, rollback and delete/recreate against persisted state.
+`VersionProjectionServiceTest` holds the lock free during a write, and covers a mutation recorded
+during a write, an artifact deleted during one, live and expired claims, and an artifact that keeps
+moving. The resource HTTP
 suite also verifies that a search outage preserves both the successful save and its recovery job.
 
 Verification on 2026-10-02 added fifteen regression cases. All Maven reactors in `cedarcli build java`
@@ -958,6 +1034,15 @@ All three consumers use a claim/acknowledge protocol. A claim atomically moves t
 `<queue>-processing`; only successful handling removes it. On service restart, anything left in the
 processing list is restored ahead of newer messages in FIFO order. Each handler retries three times
 before atomically moving the raw message to `<queue>-dead-letter`.
+
+The application-log consumer claims the first message and up to 199 more that are already waiting,
+and writes them in one transaction. A failed batch is rolled back and its messages are then handled
+one at a time, each with its three attempts, so one unwritable message is dead-lettered alone. A
+message delivered twice finds its receipt already processed, in a batch as on its own. Measured on
+the native stack on 2026-11-10 against the backlog one minute of the quick REST profile leaves, the
+consumer drained 186 messages a second before batching and about 1,460 after. A request still logs
+about a dozen messages, so sustained load outruns even that: the 50-user soak enqueues about
+120,000 a minute.
 
 Queue transfers check the types of all participating Redis keys before changing them and append to
 the destination before removing the source. Lua excludes other clients, but does not roll back an
@@ -2908,6 +2993,15 @@ Wire field types map to existing bridge routes: `ext-pubmed` → `pmid`, `ext-pf
 authorization and use request-local caching keyed by endpoint and the complete request, a twenty-five-second
 per-call timeout, thirty-second request budget and 256 unique checks. There is no persistent success cache.
 
+The artifact server builds both addresses from `CEDAR_TERMINOLOGY_SERVER_HOST`,
+`CEDAR_TERMINOLOGY_HTTP_PORT`, `CEDAR_BRIDGE_SERVER_HOST` and `CEDAR_BRIDGE_HTTP_PORT`, which
+`CedarConfigEnvironmentDescriptor` declares for it. Before 2026-11-10 it declared none of them, so
+the host was held back, the port took the placeholder 0, and neither service could be requested:
+from 2026-10-18 every check answered `unavailable` in every environment, which a save tolerates.
+An unavailable check now logs its reason in the artifact server's log, at most once a minute with
+a count of the checks that failed in between. The REST smoke's validation suite saves a DOID term
+and requires it to come back verified, and skips that check when the local store does not serve DOID.
+
 Semantic facts distinguish `passed`, `failed`, `notChecked`, and `unavailable`. An outage, missing
 pinned release, partial source coverage or exhausted lookup budget cannot prove invalid membership;
 an omitted check cannot prove success. Known failed default membership blocks template saves; failed
@@ -3348,18 +3442,15 @@ Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mo
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
-MySQL). Nor does any suite need an external service. The tests that do call one are terminology's
-BioPortal tests (61 across six resource classes). They are tagged `bioportal`, and terminology's
-application POM excludes them from the default build. Clear the exclusion with `-DexcludedGroups=` to
-run them against BioPortal. Their CEDAR variables must still be set even when the tests are excluded,
+MySQL). Nor does any suite need an external service. Terminology's BioPortal resource tests run
+against a fake BioPortal that each test class starts. Their CEDAR variables must still be set,
 because the configuration substitutes them as it loads; a placeholder value is enough. The bridge's
 DOI suites call no DataCite. They run against a DataCite fake that keeps what it registers.
 
 A test that starts a Dropwizard application, an embedded store, embedded Redis, OpenSearch or a
 local socket server carries the `integration` tag. Every other test is a unit test. No POM excludes
 the tag, so the default build runs both kinds. Select one kind with `-Dgroups=integration` or
-`-DexcludedGroups=integration`. Terminology reads its exclusion from the `excludedGroups` property,
-so name both tags there (`-DexcludedGroups=bioportal,integration`) or the BioPortal tests run too.
+`-DexcludedGroups=integration`.
 A base class that starts a server carries the tag for its subclasses. A test that starts one itself
 needs the tag on its own class.
 The OpenSearch `*IT` suites carry the tag as well. Their names keep them out of the default build,
@@ -3378,7 +3469,8 @@ run-unique index and delete only that index afterward, so concurrent runs share 
 index lifecycle or documents.
 
 The **artifact search acceptance matrix** lives under `ops/e2e/rest/search/` and is a required
-fourth tier of `cedarcli test e2e`, after REST, browser and split journeys. It runs the full REST
+fourth tier of `cedarcli test e2e`. It runs after the browser and split tiers, while the REST tier
+may still be running beside them. It runs the full REST
 matrix and seven browser scenarios against one shared corpus. The standalone `cedarcli test search`
 command still defaults to an offline inventory. Use the CLI:
 
@@ -3669,15 +3761,17 @@ their work from one queue. A unit of that work is one journey or one script. Eac
 own fixtures, browser errors and current step, so a failure in one lane cannot be charged to
 another. The core lane first runs the inline chain of the Workspace journey alone, with
 `modern-workspace-smoke.mjs --chain-only`. The chain's six steps work on one template, and each
-reads what an earlier step made. The identity lane runs every journey that signs in, reauthenticates
-(including the same user), or logs out, one at a time. This includes `draft-recovery` and
-`uncertain-create`. The lane also runs three scripts: the account groups page, the
-lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
-grant to the second user. Sign-ins contend in Keycloak and in the graph writes each one triggers,
-and a logout ends the single sign-on session of its browser context, so no other lane takes an
-identity unit and no two run at once. Every other unit is general. The general lanes take general
-units from the start, the core lane once its chain has finished, and the identity lane once its own
-units are done.
+reads what an earlier step made. The general lanes take units from the queue from the start, and the
+core lane joins them once its chain has finished. Any lane takes any unit.
+
+An identity unit is a journey that signs in, reauthenticates (including the same user) or logs out,
+such as `draft-recovery` and `uncertain-create`, or one of three scripts: the account groups page,
+the lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
+grant to the second user. Identity units run at the same time as one another and as every other
+unit. Sign-ins contend in Keycloak and in the graph writes each one triggers, so every sign-in, in
+any lane, takes the authentication lock described below for the few seconds from the action that
+starts it until the signed-in page is ready. A logout ends the single sign-on session of its own
+lane, which no other lane shares, and the lane's runner signs in again before its next journey.
 
 A lane that is free takes the longest unit it may run. Each unit's length is its duration in the
 newest split report that measured it, cleanup included, and a unit no report has measured counts as
@@ -3826,9 +3920,9 @@ entries outside the selected set are preserved. A candidate run reports `CANDIDA
 cannot satisfy the full smoke gate; rerun with ordinary inventory enforcement before acceptance.
 The full tier also accepts `--record-inventory=<directory>` for a complete inventory migration.
 
-`--lanes=N`, from two to four, sets the number of general lanes beside the core and identity
-lanes. The default is two, because the 16-core workstation runs with its swap nearly full and every lane
-drives a browser of its own. `--lanes=1` runs the tier as it ran before lanes existed: all of
+`--lanes=N`, from two to six, sets the number of general lanes beside the core lane. Every lane
+drives a browser of its own. The default is five, which the measurements below explain. `--lanes=1`
+runs the tier as it ran before lanes existed: all of
 `modern-workspace-smoke.mjs`, its chain and then every journey, followed by the other scripts, one
 after another, stopping at the first failure.
 `cedarcli test e2e --split-lanes N` passes the setting through the gate.
@@ -3906,6 +4000,16 @@ advance, the same tier had taken 185 seconds, because the general lanes were bus
 seconds while the identity lane finished at 103 and the core lane at 42. The load average peaked at
 14.6 in the queued run and at 9.6 in the sequential one.
 
+On 2026-11-11, with the swap nearly empty and 270 checks, two gate runs took 143.5 and 144.8 seconds
+under the earlier rule, which ran identity units in a lane of their own, one at a time. That lane was
+busy for about 140 seconds, of which its units spent 21.5 holding the authentication lock, while the
+other lanes were busy for 133 to 143. Adding general lanes therefore could not shorten the tier. With
+identity units free to run in any lane, four general lanes took 122.1 seconds, five took 107.7 and
+112.3, and six took 98.9 and 99.9. Every run passed. Each added lane slowed the units a little: the
+lanes' combined busy time was 585 seconds with four, 609 and 625 with five, and 635 and 656 with six,
+against 566 before. The load average peaked at 13.9, 12.3 and 14.0. Up to five identity units ran at
+once, and the longest wait for the authentication lock was 3.8 seconds, against its 60-second limit.
+
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly (timings below), and reaches what no unit suite can: the artifact
 write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
@@ -3913,17 +4017,29 @@ whether the graph and the artifact server agree, and the things a real running s
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
-`contract`, `deletion`, `download`, `errors`, `finding`, `folders`, `freeze`, `group-sharing`, `groups`,
-`inclusion`, `negotiation`, `openness`, `pagination`, `pull-versions`, `search`, `sharing`, `validation` and
-`versioning`. The committed
+`contract`, `deletion`, `download`, `error-reports`, `errors`, `finding`, `folders`, `freeze`,
+`group-sharing`, `groups`, `inclusion`, `mcp`, `negotiation`, `openness`, `pagination`, `pull-versions`,
+`search`, `sharing`, `term-search`, `validation` and `versioning`. The committed
 `rest/expected-checks.json` inventory records exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
 them. Only HTTP 404 from version discovery permits that skip; authentication errors, server errors
-and malformed successful replies fail. Cleanup verifies HTTP 404 after deletion; an unsuccessful
+and malformed successful replies fail. `term-search` follows the same rule for its twelve checks. It
+asks the terminology server one search of each kind the term picker makes, for classes, branches,
+an ontology, value sets and properties, and holds each answer to the rule the picker applies before
+it reads one. The picker's own tests answer from responses written by hand, so this is the one place
+a change in the server's answers meets what the picker accepts. Cleanup verifies HTTP 404 after deletion; an unsuccessful
 read is not evidence of absence. `download` includes JSON / YAML / compact-YAML export and
 read-negotiation across all four artifact kinds.
+
+`mcp` starts the built `cedar-artifact-rest-mcp` jar over stdio with the first test user's API key,
+read from that user's profile, and takes three canned templates from `cedar-artifact-library`'s test
+resources through `validate_artifact`, `create_template`, `get_template` and `delete_template`, and
+one template through `update_template`. Each step is confirmed through the resource server. The suite
+fails when the jar is missing or older than its sources, so run `mvn package` in
+`mcp/cedar-artifact-rest-mcp` first. `errors` sends each server only the kinds of refusal its
+operations allow, so a server whose operations take no JSON body gets no malformed-body check.
 
 `npm run test:rest-harness` runs every `rest/*.test.mjs` file without a running stack. Release tooling
 CI runs that same command after installing its dependencies and checking out the eleven servers'
@@ -3951,7 +4067,7 @@ measured setting. Use `--rest-workers 1` for the serial diagnostic path. For an 
 `npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
 REST invocation does not replace the release smoke gate.
 
-Fourteen audited suites may overlap. Each has its own working folder, asynchronous
+Fifteen audited suites may overlap. Each has its own working folder, asynchronous
 check context, creation tracking and cleanup registry. The `folders`, `groups`,
 `categories`, `authentication`, `pagination` and `contract` suites run exclusively
 after that parallel batch: their home guards, protected group operations, category
@@ -3965,9 +4081,13 @@ budget, each retaining its own reverse creation order. The shared parent is dele
 last. A first interrupt stops new suites, drains active work and then cleans up;
 a second interrupt forces exit. Preflight, final leftover checks and worker health
 checks still surround the entire run. Do not run separate smoke processes or other
-fixture-mutating tests simultaneously against the same stack. The split tier's lanes are the one
-exception. They run inside one tier, after the REST tier has finished, and each works under a root
-folder of its own.
+fixture-mutating tests simultaneously against the same stack. The gate's own tiers are the
+exception. `cedarcli test e2e` runs the REST tier beside the browser, split and search tiers, and
+the split tier's lanes run beside one another, each under a root folder of its own. Every sign-in
+in those tiers takes one machine-wide authentication lock. The REST tier's two checks of global state
+allow for the others: its leftover checks ignore a stamp later than its own run's, which belongs to
+work that started after it, and it reads the three services' document counts again until they
+agree, at most ten times.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
 and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
@@ -4005,6 +4125,21 @@ eight seconds to the recorded time. A gate record is named by the digest of the 
 so a second run against unchanged sources replaces the first run's record, which is how the third
 run's breakdown was lost.
 
+On 2026-11-12, against clean sources and an otherwise idle workstation, a gate that ran the four
+tiers in sequence took 363.5 seconds. Two gates that ran the REST tier beside the others took 256.4
+and 257.9, about 29% less. All three passed. The REST tier now finishes inside the browser and split
+tiers, so a run lasts as long as the browser, split and search tiers end to end, plus the CLI's
+preflight. Two gates on 2026-11-11, before the split tier's lanes changed, had taken 412.0 and 416.7
+seconds.
+
+| Tier | Checks | In sequence, seconds | REST beside the others, seconds |
+| --- | ---: | ---: | --- |
+| REST, four workers | 2,332 | 106 | 86, 88 |
+| Browser smoke | | 62 | 64, 63 |
+| Split-frontend journeys, five general lanes | 270 | 114 | 115, 115 |
+| Artifact search matrix | 1,248 | 81 | 77, 80 |
+| Whole run, as recorded | | 363.5 | 256.4, 257.9 |
+
 Development E2E requires **packages from the current development sources of ALL components**, including every
 frontend library and embedded component in every host. Follow the
 [mandatory reactor freshness contract](FRONTEND-RUNBOOK.md#the-reactor) before running this gate.
@@ -4020,9 +4155,13 @@ likewise be built from the development sources under test and redeployed before 
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
-manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
-`npm run smoke`, `npm run smoke:workspace:modern:full` and `npm run smoke:search`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
-heads, beside a `latest.json` copy. The record names what the stack ran, so a checkout with another
+manage. It then records the `develop` head of every train repository, starts `npm run smoke:rest`
+in the background, runs `npm run smoke`, `npm run smoke:workspace:modern:full` and
+`npm run smoke:search` one after another beside it, and writes `reports/smoke-gate/<digest>.json`,
+where the digest names the set of heads, beside a `latest.json` copy. The split and search tiers
+cannot overlap, since both hold the split tier's lock. The REST tier's output goes to
+`rest-smoke-<digest>-<uuid>.log` beside its report rather than to the terminal, and the gate names
+the file when the tier fails. The record names what the stack ran, so a checkout with another
 commit than its `develop` head checked out stops the run before it records anything. A modified or
 untracked file marks its repository dirty, since the build compiled it, and the gates refuse a dirty
 repository. A train repository not checked out here is named, and the gates refuse a train or a
@@ -4207,7 +4346,7 @@ command:
 npm run perf:rest:provision -- --count=50
 ```
 
-The eight load profiles are:
+The thirteen load profiles are:
 
 | Command | Default shape | What it exercises |
 |---|---:|---|
@@ -4219,6 +4358,11 @@ The eight load profiles are:
 | `npm run perf:rest:churn` | 10 identities, two complete lifecycles per second for 5 minutes | Low-rate POST → GET → conditional PUT → conditional DELETE → verified `404` turnover, distributed reproducibly across templates, elements, fields and instances |
 | `npm run perf:rest:burst` | 50 identities; 5/s baseline, 40/s burst, then 5/s recovery, 30 seconds each | Reproducible artifact reads and conditional updates across all four artifact kinds; requires no dropped arrivals and post-burst p95 to return near the measured pre-burst baseline; the full pool prevents a brief server stall from exhausting the load generator first |
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
+| `npm run perf:rest:formats` | 10 identities and 10 VUs for 3 minutes | Every representation the server renders on request: full and compact YAML for all four artifact kinds, n-quads and JSON-LD for instances, and YAML downloads. YAML as a way in: a conditional YAML update of each kind, a YAML create, and the validation command given JSON and YAML |
+| `npm run perf:rest:finding` | 20 identities and 20 VUs for 3 minutes | Read-only finding: term search at page sizes 10 and 50, sorted and type-filtered search, a modification-time window, the shared-with-me and by-template views, deep search with a continuation, sorted folder contents and the contents extract, details, report and versions, the category tree, anonymous reads of open artifacts through the resource server and the OpenView server, and the caller's group membership |
+| `npm run perf:rest:lifecycle` | 10 identities, one complete lifecycle per second for 3 minutes | A template's life in one folder: created with two instances, published, drafted, edited, published and drafted again, edited, listed by version, copied, and removed with everything else by one recursive folder deletion |
+| `npm run perf:rest:authoring` | 10 identities and 10 VUs for 5 minutes | Reads, conditional updates that present new terms, create/read/delete lifecycles and validation of instances whose template has a pattern, numeric bounds, and single and multiple controlled-term fields; and description edits of that template, which has instances |
+| `npm run perf:rest:terminology` | 16 identities and 16 VUs for 3 minutes | The terminology server's lookups against sources the local store serves: integrated search by exact label and by prefix, scoped and corpus-wide `POST /search`, the hierarchy of a term, term and branch membership checks, class lookup and children |
 
 `--users=N`, `--vus=N` and `--duration=10s` override those defaults. The permissions profile needs at
 least five identities and accepts `--rounds=N`; each round starts from known Viewer grants and ends
@@ -4245,6 +4389,14 @@ summary and fails unless recovery p95 is at most the greater of the configured p
 baseline (150% by default) or baseline plus 100 ms. That relative check distinguishes genuine
 post-load degradation from a universally slow or universally fast run.
 
+The lifecycle profile accepts `--lifecycle-rate=N` (default 1 and capped at 10 lifecycles per
+second). Like churn, it fails the run when the selected VUs cannot keep up. The authoring profile
+accepts `--authoring-instances=N` (default 20), the instances each participant's template starts
+with. The finding profile accepts `--finding-artifacts=N` (default 40), the fields each participant
+gets so that a search page of 50 is nearly full. The terminology profile accepts `--sources=A,B,C`
+(default `UO,EDAM,DOID,MONDO,NCIT,NCBITAXON`, a size ladder from hundreds of terms to millions) and
+`--terms-per-source=N` (default 40).
+
 Every profile reports server-wait and client-blocked p95/p99/max components in addition to route
 latency. Requests taking at least 500 ms emit a timestamped diagnostic with the operation, status,
 timing components, VU and iteration; `--slow-request-ms=N` changes that boundary and
@@ -4270,12 +4422,12 @@ lifecycles without interruption; dependency resilience completed 15,927 iteratio
 expected outage responses and 10,447 recovered operations, with no unexpected response. The final
 burst completed 1,501 iterations with no failed checks or dropped iterations; operation p95 was
 170.9 ms, server-wait p99 was 285.5 ms and the recovery p95 remained below its gate. Fixture cleanup
-reported no residue. Together with the completed 30-minute soak and 20-minute stress runs, this is
-the current native-stack performance baseline. The burst profile's 50-user pool is identity and VU
+reported no residue. Together with the completed 30-minute soak and 20-minute stress runs, this was
+the first native-stack performance baseline. The burst profile's 50-user pool is identity and VU
 capacity; it does not mean that fifty requests execute continuously throughout an arrival-rate run.
 
-A run of every profile on 2026-09-25, one at a time with default rates and named seeds, gave the
-current figures. The app-log queue was emptied after each run, and during the soak whenever Redis
+A run of every profile on 2026-09-25, one at a time with default rates and named seeds, gave these
+figures. The app-log queue was emptied after each run, and during the soak whenever Redis
 passed 1 GB:
 
 | Profile | Seconds | Requests | Requests/s | HTTP p95 ms | p99 ms | Result |
@@ -4329,6 +4481,124 @@ retained test logs do not dominate memory. This applies to the local test stack,
 `CEDAR-QUEUE-app-log-processing` holds the message the worker is consuming. Deleting it
 makes the worker's acknowledgement fail, logs an error and marks the worker unhealthy in
 `cedarcli native status`.
+
+A run of all thirteen profiles on 2026-11-10 gave the current figures. It was the first run since
+2026-09-26, and it found the soak failing. Each profile ran alone with its default shape and a
+named seed, held the local stack lock, and had the app-log queue emptied once a minute. The figures
+are from the build that carries the changes described after the table.
+
+| Profile | Seconds | Requests | Requests/s | HTTP p95 ms | p99 ms | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| permissions | 15 | 284 | 19.2 | 187.1 | 223.6 | Passed |
+| quick | 271 | 40,793 | 150.7 | 123.2 | 187.5 | Passed |
+| contention | 31 | 1,502 | 48.2 | 1,163.0 | 1,439.7 | Passed |
+| hotset | 602 | 155,168 | 257.8 | 282.9 | 1,042.5 | Passed |
+| churn | 301 | 3,015 | 10.0 | 177.7 | 198.4 | Passed |
+| burst | 107 | 2,116 | 19.8 | 165.8 | 205.8 | Passed; recovery p95 180.3 ms against a 267.2 ms limit |
+| resilience | 91 | 16,556 | 182.8 | 206.5 | 298.9 | Passed |
+| soak | 1,802 | 708,425 | 393.1 | 424.9 | 743.6 | Passed |
+| formats | 181 | 36,319 | 201.1 | 214.8 | 316.2 | Passed |
+| finding | 181 | 101,159 | 558.0 | 157.3 | 161.9 | Passed |
+| lifecycle | 183 | 3,070 | 16.8 | 824.4 | 1,069.1 | Passed |
+| authoring | 301 | 33,662 | 111.9 | 297.8 | 417.3 | Passed |
+| terminology | 185 | 21,590 | 116.6 | 524.4 | 1,622.2 | Passed |
+
+Every check passed in every profile, the upstream guard found no BioPortal request, and teardown
+left no residue. The first pass that night ran the September profiles against the build as it
+stood, and three findings came out of it and of the new profiles.
+
+**Writes that project queue on the lifecycle lock.** The first pass completed 322,945 soak
+requests where the 2026-09-26 soak completed 617,122. Conditional artifact updates went from a
+median of 450 ms to 1,780 ms and a p95 of 850 ms to 5,200 ms, and the OpenView toggle from a p95 of
+176 ms to 6,792 ms. A projection held the lifecycle lock while it wrote the index document, and
+every graph mutation takes that lock first. Two changes followed, and
+[After an Artifact Graph Update Commits](#after-an-artifact-graph-update-commits) describes both.
+Releasing the lock during the downstream writes brought the soak to 402,295 requests with an update
+median of 1,610 ms and a p95 of 3,700 ms, which still failed five write-route thresholds. A save
+then took the lock three times, each turn a commit of its own, and that capped the installation
+near 25 artifact writes a second. Sharing the projections' turns at the lock removed the cap. The
+soak in the table has an update median of 400 ms and a p95 of 830 to 882 ms, level with
+September's 816 to 857 ms, at 15% more requests.
+
+Twenty-five of the soak's 38 timed routes have a lower p95 than in September. Folder listings fell
+from 485 ms to 219 ms and moves from 309 ms to 214 ms. The group routes rose from 52–108 ms to
+147–200 ms, and no route's p95 is below 147 ms at this load. The cause of that floor is not
+established. It did not recur after the stack was restarted. In the next morning's soak the routes
+other than conditional updates had a p95 of 44 to 262 ms, and the group routes 44 to 93 ms. The OpenView toggle stays above September's at any load, because since 2026-10-01 it
+reindexes the artifact before it answers: its p95 is 837 ms in the soak against 176 ms, and 180 ms
+in the quick profile against 31 ms. The burst profile's peak-phase update p95 is 193 to 229 ms,
+below September's 222 to 276 ms.
+
+**The terminology server shared one connection to its search index.** The terminology profile is
+the first concurrent load that server has had. At sixteen users it answered 51 requests a second,
+with a corpus-wide search at a median of 2.9 s and an exact lookup in a 574-term ontology at a p95
+of 395 ms. The search index and the catalog were limited to eight reading connections each, and
+most worker threads shared the first. The
+[versioning runbook](VERSIONING-RUNBOOK.md) describes the change and its measurements. A search
+whose text holds a one-letter token and no word of eight letters, such as "Crohn's disease", took
+five to seven seconds by itself. The planner now holds such a letter back, and
+[When a Lookup Is Slow](VERSIONING-RUNBOOK.md#when-a-lookup-is-slow) gives the rule and the
+timings.
+
+**The artifact server could not reach the terminology server.** The authoring profile's first run
+found every controlled-term value reported as unavailable, in a build where every profile and
+smoke had passed. [Write Authorization and Immutability](#write-authorization-and-immutability)
+gives the cause and the fix.
+
+The app-log consumer drained 186 messages a second before it was batched and about 1,460 after.
+At 402,295 requests the soak enqueued about 120,000 a minute, 3.6 million over the run. The
+rate was not measured again at 708,425.
+
+**OpenSearch logged two stack traces for every point in time.** A deep search opens a point in
+time, and OpenSearch 2.19.1 keeps request statistics by search phase with no phase for creating
+one. Its statistics listener therefore fails at the start and at the end of each, with
+`No enum constant org.opensearch.action.search.SearchPhaseName.CREATE_PIT`, and logs the trace at
+WARN. The finding profile took the workstation's OpenSearch log to 2.9 GB overnight. The statistics
+are on by default, and nothing in CEDAR reads them. `search.request_stats_enabled=false` stops the
+failure, and one point in time then logs nothing. The workstation carries it as a persistent
+cluster setting, and the Docker stack sets it in the OpenSearch service's environment. Staging
+runs OpenSearch 2.15.0, where the statistics are off by default, so the defect does not occur
+there. The [production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) says how to
+read the value on a native host and what to do when it is on.
+
+**The contention profile's medians are not comparable between runs.** It stages a race for one
+winner in 35 seconds and about 1,500 requests, so where a route's median falls depends on the
+schedule. Across five runs that night the group-record update had a median of 140, 40, 42, 36 and
+1,198 ms on builds that differ in nothing that route uses. Its thresholds are on the p95, which
+held in every run.
+
+**Neo4j replans constantly on a graph this small.** Its log held 46,743 "Discarded stale query"
+lines after the night. Each names a statistic that moved past the divergence threshold, such as an
+index selectivity going from 0.0020 to 0.0041. A profile creates and deletes thousands of
+artifacts in a graph of 143, so every count doubles and halves within minutes. On a graph of
+production size the same writes move the statistics by less than a percent.
+
+During the soak on the first fixed build, one save waited on the lifecycle lock inside Neo4j for
+24 minutes with no other transaction open, and its request never returned. Terminating the
+transaction did not release it and Neo4j could not stop until its process was killed. Recovery
+replayed 3,033 transactions and the graph was intact. The workstation and the Docker image have
+since been given a 30-second limit on a lock wait, which
+[When a Graph Write Waits for a Lock](#when-a-graph-write-waits-for-a-lock) describes. The
+[backend roadmap](BACKEND-ROADMAP.md) records what remains, with the thread dumps' location.
+
+The soak ran once more that morning with the limit in force and the terminology changes deployed,
+after a macOS update had restarted the machine. It completed 765,803 requests with no failed
+threshold, and no lock wait reached the limit. Its timings are not comparable with the table.
+Conditional updates had a median of 611 ms where the table's run had 400 ms, and reads were twice
+as fast. Five three-minute soaks then alternated the limit on and off, with Neo4j restarted before
+each. Their update medians were 558, 498, 697, 1,198 and 1,226 ms in the order run, which was on,
+off, on, off, on. The runs slowed with time whatever the setting, while Spotlight's indexer used
+one to two cores. A sixth run two hours later, with the indexer idle and the limit on, had a
+median of 493 ms at 500 requests a second, level with the fastest of the five. Before reading a
+write latency as a regression, measure on a machine that has finished its indexing after an
+update.
+
+A load run also writes gigabytes that Spotlight then indexes: the logs alone were 7.8 GB after
+that night. The workstation has excluded the stack's data from Spotlight since, under System
+Settings, Spotlight, Search Privacy: `$CEDAR_HOME/log`, `$CEDAR_HOME/neo4j`,
+`$CEDAR_HOME/cedar-term`, `$CEDAR_HOME/cedar-development/ops/e2e/reports` and `/opt/homebrew/var`,
+which holds the Mongo, MySQL and OpenSearch data. A workstation used for load runs wants the same
+exclusions. The source repositories stay indexed.
 
 A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
 the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
@@ -4407,6 +4677,29 @@ direct Viewer, Classifier, Editor and Manager roles, an inherited role that is s
 role, and a Classifier role obtained through group membership. Category role transitions verify
 classification, category-record and ACL boundaries. A separate fixture verifies transfer to a new
 owner and transfer back to the original owner. All ACL fixtures use the `role` property.
+
+The formats and finding profiles give each participant an element, a field and an instance beside
+the four templates. Finding adds a folder of fields, an artifact shared by the neighbouring
+participant, an open template, an open folder holding a template, and a group. The lifecycle profile
+creates nothing in setup: each iteration works in a folder of its own under the participant's root
+and deletes it, so teardown finds whatever an interrupted iteration left.
+
+The authoring template has one field of each kind the minimal fixtures lack: a text field with a
+regular expression, an integer field with bounds, and two fields constrained to DOID, one of them
+multiple. `authoring-model.js` builds it, and the same builder serves setup, the load script and the
+REST smoke. A write of the minimal fixtures reaches none of the checks a real template pays for,
+which is how semantic verification stayed unreachable for three weeks while every profile passed.
+
+**The terminology and authoring profiles never load BioPortal.** The terminology server falls back to
+BioPortal, silently, for whatever its local store does not implement, and a source being on the
+local allowlist does not settle which lookups stay local. Setup therefore draws its query text from
+the served index, tries every kind of lookup once for each source, and reads the terminology
+server's own log for the BioPortal addresses it requested. A source that caused one is left out
+before k6 starts, and setup prints which and why. After the load, the runner reads the same log
+again and fails the run if the server asked BioPortal for anything. Both steps need
+`$CEDAR_HOME/log/cedar-terminology-server.log`, or the file `--terminology-log` names. A log that
+cannot be read fails the run, because "nothing was requested" would then be unproven. The class
+tree is not in the mix for this reason: the local store does not serve it, for any source.
 
 The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
 including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in
@@ -4492,13 +4785,13 @@ than stopping at the first, and fails on an empty table.
 
 Where the coverage is thin, stated plainly so nobody reads the class count as reassurance:
 
-- **Terminology has offline route and local-store coverage; live BioPortal behaviour remains
-  separate.** `TerminologyServerApplicationSmokeTest` discovers resources from Jersey's runtime
-  registration and probes protected routes for 401, with an explicit public-route exclusion list
-  and a separate valid-query probe for property search. `LocalStoreResourceTest` serves synthetic
-  SQLite snapshots through the real HTTP application without BioPortal. Tests tagged `bioportal`
-  remain excluded from the default build, and disabled tests provide no behavioural coverage.
-  Authentication probes do not establish the correctness of those external-service operations.
+- **Terminology's BioPortal routes are tested against a fake, not BioPortal.**
+  `TerminologyServerApplicationSmokeTest` discovers resources from Jersey's runtime registration
+  and probes protected routes for 401, with an explicit public-route exclusion list and a separate
+  valid-query probe for property search. `LocalStoreResourceTest` serves synthetic SQLite snapshots
+  through the real HTTP application without BioPortal. The BioPortal resource tests and
+  `BioPortalSuccessPathsTest` run every BioPortal-backed route against `FakeBioPortal`, a small
+  world answering as BioPortal does. No suite asks the real BioPortal.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
 - **Dependency coverage is partial but deliberate.**
@@ -4680,9 +4973,8 @@ cd $CEDAR_HOME && for d in cedar-*-server; do
 done
 ```
 
-The terminology server's tests that need BioPortal are tagged `bioportal` and excluded by default.
-The server keeps untagged coverage of its authenticated surface, so excluding the tagged tests does
-not silently drop a row to nothing.
+The terminology server's BioPortal-backed routes run against a fake BioPortal in the default
+build, so none of its tests is excluded.
 
 ## Continuous Integration
 
@@ -4693,8 +4985,8 @@ and `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`
 and JaCoCo reports uploaded whatever the outcome, as the `surefire-reports` and `coverage-reports`
 artifacts. [Code Coverage](#code-coverage) describes the reports and the floors enforced at
 `verify`, including Monitor. The search-library and
-resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and an
-OpenSearch service; other component workflows remain backend-free.
+resource-server workflows also upload their Failsafe reports, add the `opensearch-it` profile and
+start OpenSearch in a container with `docker run`; other component workflows remain backend-free.
 Jobs carry a hard timeout: twenty minutes for a component, thirty for those two OpenSearch jobs,
 forty-five for `cedar-project`, which builds sixteen repositories in one reactor.
 
@@ -4735,12 +5027,14 @@ compared them, so they had diverged — `cedar-monitor-server` carried 55 of the
 others. Nothing runs this in CI yet, because a check over every repository has no natural home in
 any one of their workflows; until it does, it is a local step.
 
-Most suites need no service container. Search-library and resource-server CI intentionally use
+No workflow runs a service container. Search-library and resource-server CI intentionally start
 OpenSearch to verify permission-filter semantics rather than merely the shape of a mocked request.
-Two other exceptions both come from a real dependency rather than from CEDAR code:
-`cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
-MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` and `cedar-admin-tool` boot
-is the 5.0 line the deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04
+`cedar-monitor-server`'s suites boot the embedded MariaDB and Neo4j that its other suites share,
+with the graph and OpenSearch on dead ports where a test needs neither, so a new dependence on a
+running store fails rather than reading the developer's. One other exception comes from a real
+dependency rather than from CEDAR code: the embedded MongoDB that `cedar-artifact-server` and
+`cedar-admin-tool` boot is the 5.0 line the deployment runs, whose only Linux build links against
+OpenSSL 1.1. Ubuntu 24.04
 and later ship OpenSSL 3, so those jobs, and the jobs of `cedar-project`, `cedar-openview-server`
 and `cedar-repo-server`, install `libssl1.1` on the runner first. Without it `mongod` cannot start
 and every resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at
@@ -4753,6 +5047,102 @@ embedded store fails there with `could not resolve package for V5_0`. `cedar-par
 holds `de.flapdoodle.os` at 1.11.1, which recognizes 26.04 and leads 4.22.0 to the Ubuntu 20.04
 build. A runner release newer than the one `de.flapdoodle.os` knows brings the same failure back,
 and the remedy is a newer `de.flapdoodle.os`.
+
+### Local CI
+
+GitHub Actions answers slowly and is not always there. CETP's CI takes about four and a half
+minutes on a hosted runner and seventy seconds on the workstation, and 23 GitHub incidents touched
+Actions between 4 September and 9 November 2026. `cedarcli ci run` therefore runs a repository's own
+push-to-`develop` workflows on the workstation, at an exact commit, and records the result. Every
+gate that waits for green CI accepts that record in place of a green GitHub run: `cedarcli check
+ci`, the train dispatch preflight, `cedarcli release plan|start`, the release's development
+verification and both CI stages of `cedarcli release npm`. The train's hosted preflight runs on
+GitHub's runner, where no record exists, and accepts the commit status the run posted. Actions
+keeps running beside it. It
+still publishes the snapshots and development packages, and its runs remain a second opinion and
+the checks on other people's pull requests.
+
+Local CI keeps no copy of what a workflow does. It reads the workflows at the commit and works out
+which of them a push to `develop` would start, applying their branch and path filters to the
+commit's changes against its first parent. It expands each job's matrix and runs every leg in a
+fresh workspace, checking repositories out from the local clones at exact commits. It implements the
+few actions the workflows use: checkout, Java, Node and Python setup, caching, which it treats as a
+no-op, and artifacts passed from one job to the next. Every `run:` step runs with the workflow's own
+condition, environment and working directory. A step's environment holds the toolchain that the
+release also resolves, Java 17 and Node 24.22.1, and a home directory, but nothing else from the
+shell that started it. Maven resolves into a repository of its own under `~/.cedar/local-ci/maven`,
+so a snapshot installed from a working tree can never stand in for the one Nexus serves. Jobs that
+boot the embedded stores on the shared test ports run one at a time, and a repository's
+independent jobs run in parallel, as GitHub schedules them.
+
+`ops/local-ci.json` records only what must differ on this machine, each difference with its reason.
+That means the steps local CI skips, such as publication or a Linux-only package install, and the
+steps it substitutes, such as an OpenSearch container moved off the native stack's port. It also
+records extra environment, what a job requires (Docker), which jobs exclude one another, and a
+cleanup that an ephemeral runner would not need. A repository or job the file does not name is one
+GitHub still answers for.
+
+A leg that GitHub runs on Linux can run in a Linux container here. A job that names a `container:`
+runs in that image, as on GitHub. Any other leg on an Ubuntu runner runs in local CI's runner image,
+which the workstation builds from `cedar-cli/assets/local-ci/runner.Dockerfile` for the Ubuntu
+release the runner label names. Like GitHub's runner image, it carries a tool cache holding Java 17,
+Node 24.22.1 and Python 3.10 and 3.12, along with Maven, Git, the GitHub CLI, `lsof`, a C toolchain
+and a `runner` user with passwordless sudo. A leg reaches a container only when the registry's
+`linux` entry for its job says why an arm64 container answers for GitHub's runner, which for
+`ubuntu-latest` is an x86_64 virtual machine. Without that entry, a job's Ubuntu legs run on macOS,
+as the Maven and npm jobs do, and a job container leaves the job to GitHub. A container also gives a
+job ports of its own, as a separate runner would: CED's integration job and its test job both serve
+on port 4598.
+
+A container keeps its workspace and temporary directory at GitHub's paths on its own file system. A
+directory mounted from macOS would differ in case sensitivity, in path length and in how a few
+system calls behave. Only the files a step writes its outputs and environment to are mounted from
+the workstation. Checkout and the artifact actions run on the workstation and copy what they produce
+into the container or out of it, and each step runs as one `docker exec`. The record names the image
+and its identifier for every leg that ran in one. A macOS leg that asks setup-python for a version
+Homebrew lacks uses the interpreters uv manages, which `uv python install 3.10 3.12` adds.
+
+`cedar-docker-build` is the one repository a train captures that has no entry. It builds every
+image, and the workstation would build them for arm64 rather than for the x86_64 of its GitHub
+runner. A container that an interrupted run leaves behind carries the label
+`org.metadatacenter.local-ci`. This command removes every such container:
+
+```bash
+docker rm -f $(docker ps -aq --filter label=org.metadatacenter.local-ci)
+```
+
+`cedarcli ci coverage` is the file's drift check. A job is covered only when every step, action,
+expression and secret in it is one local CI runs exactly as GitHub would, or one the registry skips
+or substitutes. A step whose condition reads only the leg's matrix and runner, and is false for that
+leg, never runs on it and is not counted. A workflow change that adds a step that publishes, an
+action local CI does not implement, a secret it does not hold, a service, or a job container the
+registry has no `linux` entry for leaves that job, and with it the repository, to GitHub. The
+command exits non-zero when a repository the registry names has drifted that way. A job the
+registry itself declares uncovered is reported with its reason, for example `cedar-parent`'s OSV
+audit, which runs on pushes that change a POM.
+
+Each run writes its record to `~/.cedar/local-ci/evidence/<repository>/<commit>.json`. The record
+names the commit and its tree, every other commit the jobs checked out, the toolchain, the
+fingerprint of the registry entry it ran under, and each job's steps, outcome and log digest. A
+record answers only under the registry entry it was made under, so a change to that entry needs a
+fresh run. The run also posts a commit status, `cedar/local-ci`, which a pull request shows and a
+gate on another machine reads in place of the record. A run made with `--no-status` posts none.
+`cedarcli ci status --post` publishes the status of each passing record that GitHub does not hold.
+A train needs it wherever GitHub Actions is not green at a commit that passed here.
+
+A gate that reads GitHub no longer takes GitHub's own failures for the code's. A run that concluded
+`startup_failure`, or `failure` without any of its jobs failing, never ran the code. `check ci` and
+`release plan` report it as pending, with the command that reruns it. The release's development
+verification and the npm route rerun it themselves and wait.
+
+```bash
+cedarcli ci coverage                                    # which repositories local CI answers for
+cedarcli ci run cedar-core-library                      # one repository at origin/develop
+cedarcli ci run --all --jobs 3                          # every repository the registry names
+cedarcli ci run cedar-workspace --revision cedar-workspace=<commit>
+cedarcli ci status                                      # local CI's answer for each develop head
+cedarcli ci status --post                               # publish each passing record's commit status
+```
 
 ### Snapshot Freshness
 
@@ -4963,7 +5353,7 @@ links against. To dump such a server, start `mysqld` directly with `DYLD_LIBRARY
 `nohup` nor `mysqld_safe` can pass that variable on, because macOS strips `DYLD_*` variables from
 protected system binaries.
 
-**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.8.1, and
+**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.8.2, and
 the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
 25.0.3 in August 2024 — which the bearer-token path of all eleven servers is built on. Everything
 else that was thought to block it does not: the admin client, the event-listener SPI and the login
@@ -5027,9 +5417,42 @@ references, which makes it the starting point for finding declarations nothing u
 as candidates only. A JDBC driver, a
 logging backend, a JAXB or JAX-RS implementation, a Jackson module and a test fixture are all found
 at run time by name or service lookup, and classes generated into `target/generated-sources` count
-as the module's own. Confirm each candidate against sources, generated sources, resources and the
-jar's `META-INF/services` before removing it, then run the full build, a redeploy and the e2e
-smoke.
+as the module's own. The compiler inlines string constants, so a module that takes only constants
+from a dependency shows no reference to it. Five server applications use `CedarPathParameters`
+from `cedar-server-globals-library` that way, and the list reports the library unused in each. A
+declaration can also be the only route by which another module reaches an artifact.
+`cedar-server-globals-library` references nothing in `commons-codec`, and
+`cedar-auth-operations-library` compiles against it through that declaration alone. The parent sets
+`ignoreNonCompile`, so the list covers compile scope and reports nothing for test, runtime or
+provided declarations.
+
+Confirm each candidate against sources, generated sources, resources and the jar's
+`META-INF/services` before removing it. Do not narrow a declaration to test scope because only
+tests import it. A direct declaration's scope overrides the scope the artifact arrives with
+transitively, so the jar would leave the runtime classpath and the shaded jar. Compare every
+module's `dependency:tree` before and after the change, which shows whether a removal took
+anything off another module's classpath. Then run the full build, a redeploy and the e2e smoke.
+
+The same goal lists the artifacts a module's classes use and its POM does not declare. Declaring
+one has a cost. A direct declaration moves the artifact, and everything beneath it, to a new place
+in the classpath order of every module that consumes it. The first jar on a classpath or in a
+shaded jar wins a class or a resource two jars share, and supplies the first provider of a service
+two jars register. On 2026-11-10 the list held 465 artifacts across 45 modules. A first trial
+declared the 319 whose versions `cedar-parent` already manages, at the end of each POM. It left
+every resolved set unchanged and changed the runtime order in 38 modules, 35 of them between jars
+that share a class or a service. In the bridge and repo servers it put RESTEasy's
+`jakarta.ws.rs.ext.RuntimeDelegate` ahead of Jersey's, and in three applications it changed the
+order of `org.jboss:jandex` and `io.smallrye:jandex`, which hold 115 classes of the same name. It
+was withdrawn.
+
+The declarations that stand met two conditions on every module's runtime classpath. No resolved
+version or scope changed. Every pair of jars that hold an entry of the same name, or classes in the
+same package, kept its relative order. Each declaration sits directly after the dependency that
+already brought the artifact, which moves it least. 187 of the 319 met both conditions. Of the 278
+artifacts still undeclared, 132 would change such an order or a version, 65 are JUnit artifacts that
+arrive through the `junit-jupiter` aggregator, 51 have no version in `cedar-parent`, 22 are in the
+MCP servers and the Keycloak provider, and 7 are Keycloak and Neo4j harness artifacts that another
+module declares with exclusions. Hold any new declaration to the same two conditions.
 
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.17-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
@@ -5046,8 +5469,8 @@ otherwise fully removed — no module depends on it.
 
 The **Jakarta EE 10 framework migration (Dropwizard 5) is complete.** `dropwizard-sundial` had no
 Dropwizard 4 release and remains retired rather than forked: the worker's schedulers are plain
-`Managed` poll loops. Multipart upload uses
-`commons-fileupload2-jakarta-servlet6`, and CORS uses Jetty's EE10 servlet package.
+`Managed` poll loops. CORS uses Jetty's EE10 servlet package. No service accepts a multipart
+upload, and `cedar-parent` manages no file-upload library.
 
 Two compatibility settings are deliberate. CEDAR artifact identifiers are IRIs encoded into path
 segments and can contain `%2F`; Jetty 12 checks that ambiguity once at the HTTP connector and again

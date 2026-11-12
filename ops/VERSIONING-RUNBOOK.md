@@ -812,11 +812,27 @@ What a serving process holds open is bounded twice over, because a connection co
 handle — SQLite gives each one its own page cache. A snapshot untouched for a minute is closed once
 more than sixty-four are open, the store just handed to a caller never among them; a minute because
 a lookup reads its store after the resolution returns, and the slowest measured is about a second.
-Reading connections are capped at 96 across every store rather than a store, since a per-store limit
-multiplies by the number of snapshots cached. Past the cap a thread reads on its store's first
-connection and waits, as it did before per-thread connections existed. Raise either where a
-deployment wants more, with `-Dcedar.terminology.openSnapshots.max`,
+Snapshot reading connections are capped at 96 across every snapshot rather than a snapshot, since a
+per-store limit multiplies by the number of snapshots cached. Past the cap a thread reads on its
+store's first connection and waits, as it did before per-thread connections existed. Raise either
+where a deployment wants more, with `-Dcedar.terminology.openSnapshots.max`,
 `-Dcedar.terminology.openSnapshots.quietMillis` and `-Dcedar.terminology.readConnections.total`.
+
+The catalog and the search index are outside that cap, because a process holds one of each and
+every lookup reads one or both. Each opens up to 64 connections of its own. Counted with the
+snapshots and limited to eight, they left most worker threads sharing the index's first connection,
+where a quick lookup waited behind whichever query held it, and a corpus-wide search holds it for
+seconds. Measured on 2026-11-10 with the REST terminology profile at sixteen users, one run before
+and four after with different seeds, the change took the server from 51 requests a second to
+between 105 and 194. A corpus-wide search went from a median of 2.9 s to between 0.3 and 0.6 s, a
+scoped search from 463 ms to between 130 and 266 ms, and an exact lookup in a small ontology from a
+p95 of about 350 ms to at most 32 ms. Resident memory rose from 1.9 GB to 2.5 GB with 28
+connections to each of the two stores.
+
+A connection belongs to the thread it was opened for, and a server's worker pool retires idle
+threads. A new thread therefore takes over the connection of a thread that has finished. Without
+that, each allowance ends up held by threads that no longer exist, and every living thread shares
+the first connection again.
 
 ## Which Store Answers
 
@@ -824,6 +840,16 @@ An ontology uses the cross-snapshot index only when it is locally enabled, has a
 terms, has no explicit version constraint, and the index's release matches the catalog's current
 release. Otherwise it uses its snapshot or, outside the local allowlist, BioPortal. A pinned release
 always uses its snapshot; pin the current catalog version to compare both paths.
+
+Integrated search honours a pin only when the store serves every source the field names. Each
+constraint is then answered from its own release at its own branch depth, and the field is offered
+the union. When a pinned source is not served locally, or the store does not hold the pinned
+release, the request fails with HTTP 422 and the error key `pinnedVersionUnavailable`. It never
+falls back to the newest release or to BioPortal. A source outside BioPortal that the store does not
+serve is reported unavailable rather than proxied. A class constraint names one term, so its pin is
+recorded but does not change what integrated search offers. The pinned-branch journey in `ops/e2e`
+follows a pin from Designer's term picker through Editor's searches to the server's verdict on the
+saved value. [FRONTEND-RUNBOOK.md](FRONTEND-RUNBOOK.md#modern-split-workspace) describes it.
 
 The index keeps one release per ontology. Version constraints and catalog/index agreement prevent
 it from attributing terms to the wrong release after a re-ingest.
@@ -891,6 +917,51 @@ The query planner holds short tokens back when a longer token can narrow the sea
 `D-mannitol` costs about as much as `mannitol`; broad queries without a useful narrow token remain
 expensive.
 
+A token held back is checked against the names the rest of the query matches, by the same folding
+the index applies, so `e` reaches `échoendoscopie`. Two rules decide what is held back. A token of
+one or two characters waits whenever some token has at least eight. A single letter also waits
+beside a shorter word, while the rest of the query matches at most 50,000 names in the scope asked
+for. One count against the index decides that, and the server remembers the answer for each
+expression. A possessive is the common case, because the index splits on the apostrophe.
+`Crohn's disease` asks for `crohn`, `s` and `disease`. Past 50,000 names the query is put to the
+index whole, since reading every candidate name then costs more than the index pays to intersect
+the letter. `t cell` across the corpus is such a query, and so is any single letter beside a common
+word.
+
+Measured on 2026-11-10 against the served index, one statement at a time, each form on a
+connection of its own. The typed queries are short ones of the kind an author types, such as
+`crohn's disease`, `vitamin d` and `t cell`:
+
+| Queries | Scope | Whole form, median and maximum | With the rule, median and maximum |
+| --- | --- | ---: | ---: |
+| 60 sampled labels the rule changes | One ontology | 1,029 ms, 5,847 ms | 32 ms, 637 ms |
+| The same labels | Corpus | 1,048 ms, 6,262 ms | 70 ms, 787 ms |
+| 24 typed queries | One ontology | 824 ms, 2,461 ms | 47 ms, 369 ms |
+| The same queries | Corpus | 1,017 ms, 2,715 ms | 559 ms, 2,829 ms |
+
+The rule held the letter back for all of the scoped queries and for 10 of the 24 corpus-wide ones.
+The other 14 ran as before and paid for the count once, up to 400 ms. Three queries
+became slower with the letter held back, by 45 to 93 ms: `vitamin k` and `x ray` across the corpus,
+and one strain name. Over 453 queries drawn from six ontologies, every plan returned the page, the
+counts and the vocabulary list of the whole form. Of 300 labels sampled evenly, the rule changes
+five.
+
+A `POST /search` runs several such statements. Through the server, three requests each, before and
+after the rule:
+
+| Query | Within DOID, before | Within DOID, after | Corpus, before | Corpus, after |
+| --- | ---: | ---: | ---: | ---: |
+| `Crohn's disease` | 6.5–7.4 s | 0.12–0.38 s | 7.9–8.4 s | 0.30–0.47 s |
+| `Gaucher's disease` | 6.2–6.5 s | 0.13–0.14 s | 7.8–8.2 s | 0.25–0.33 s |
+| `Wilson's disease` | 5.7–6.7 s | 0.10–0.11 s | 14.8–24.1 s | 0.22–0.27 s |
+| `vitamin d` | 6.6–8.5 s | 0.12–0.13 s | 9.6–13.0 s | 1.5–2.2 s |
+| `e coli` | 2.4–2.7 s | 0.10–0.11 s | 3.6–4.2 s | 3.7–3.9 s |
+| `t cell` | 4.8–5.3 s | 0.52–0.61 s | 6.8–11.0 s | 6.9–8.5 s |
+| `Crohn disease` | 0.14–0.24 s | 0.12–0.13 s | 0.31–0.49 s | 0.25–0.29 s |
+
+`e coli` and `t cell` across the corpus are put whole, so they are unchanged. `Crohn disease` has
+no short token and is here for comparison.
+
 Corpus-wide label ranking groups all matching names before selecting the best 25 labels. A small
 page therefore does not make a query matching 1.7 million names cheap. Selecting one source limits
 the search to that ontology and commonly reduces latency to tens of milliseconds. The picker
@@ -913,6 +984,7 @@ Retain these August 2026 experiments when evaluating another optimization:
 | Select tokens by FTS5 vocabulary counts | Across 300 labels from six ontologies, tested thresholds matched the shipped rule at best and made 29–39 queries over 50% slower. Doclist size alone did not predict intersection cost. |
 | Bound rows before grouping | The earlier slower verdict is invalid: one comparison used incorrectly bound parameters. Remeasure before drawing a conclusion. |
 | Use FTS5 relevance ordering | 2–3 times faster, but led `disease` with `disease-disease association` and `acid` with `acidipropionibacterium`. |
+| Memory-mapped reads and a larger page cache | On 2026-11-10, over 16 statements on connections of their own against a warm file, `mmap_size` of 16 GB took 4% off a first run and 7% off its repeat. With a 256 MB page cache as well it took 7% and 10%. Not adopted for a gain that small: SQLite cannot catch an I/O error on a mapped file, which reaches the process as a signal. |
 | Fill from prefix labels first | `cell` fell from 5,609 to 148 ms and `acid` from 850 to 28 ms for the same 25 labels. Withdrawn on 2026-08-26 because switching to full ranking on later pages duplicated four `leukaemia` labels. |
 
 The prefix experiment requires consistent ordering across pages. Computing the shortest-matching-name

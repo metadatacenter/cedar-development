@@ -9,6 +9,7 @@ import { env } from 'node:process';
 import {
   absolute, arg, assertSafeTargets, burstRecoveryAssessment, durationSeconds, intArg, readJson, runId,
 } from './lib.mjs';
+import { logSize, upstreamCallsSince } from './terminology-sample.mjs';
 
 assertSafeTargets();
 
@@ -16,10 +17,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const profile = arg('profile', 'quick');
 const defaultUsers = {
   permissions: 5, quick: 10, contention: 20, hotset: 20, resilience: 10, churn: 10, burst: 50, soak: 50,
+  formats: 10, authoring: 10, terminology: 16, finding: 20, lifecycle: 10,
 };
 if (!defaultUsers[profile]) {
-  throw new Error(`--profile must be permissions, quick, contention, hotset, resilience, churn, burst or soak; got ${profile}`);
+  throw new Error(`--profile must be one of ${Object.keys(defaultUsers).join(', ')}; got ${profile}`);
 }
+// The profiles whose requests reach the terminology server, directly or through a save. Their runs
+// fail if that server asked BioPortal for anything: this harness loads the local stack only.
+const terminologyBound = profile === 'terminology' || profile === 'authoring';
+const terminologyLog = arg('terminology-log',
+    env.CEDAR_HOME ? resolve(env.CEDAR_HOME, 'log', 'cedar-terminology-server.log') : '');
+const lifecycleRate = intArg('lifecycle-rate', 1, { max: 10 });
+const passThrough = ['authoring-instances', 'finding-artifacts', 'sources', 'terms-per-source', 'terminology-log']
+    .filter(name => arg(name) !== undefined)
+    .map(name => `--${name}=${arg(name)}`);
 const users = intArg('users', defaultUsers[profile], { max: 500 });
 const rounds = intArg('rounds', 3, { max: 20 });
 const poolSize = intArg('pool-size', 50, { min: 50, max: 500 });
@@ -138,6 +149,7 @@ try {
     `--run-id=${id}`,
     `--seed=${seed}`,
     `--manifest=${manifest}`,
+    ...passThrough,
   ], { env });
   if (prepared.code !== 0) throw new Error(`fixture preparation failed with exit ${prepared.code}`);
 
@@ -151,6 +163,7 @@ try {
     CEDAR_PERF_ROUNDS: String(rounds),
     CEDAR_PERF_SEED: seed,
     CEDAR_PERF_CHURN_RATE: String(churnRate),
+    CEDAR_PERF_LIFECYCLE_RATE: String(lifecycleRate),
     CEDAR_PERF_BURST_BASELINE_RATE: String(burstBaselineRate),
     CEDAR_PERF_BURST_PEAK_RATE: String(burstPeakRate),
     CEDAR_PERF_BURST_PHASE_DURATION: burstPhaseDuration,
@@ -169,11 +182,26 @@ try {
       `--recovery-budget-seconds=${recoveryBudgetSeconds}`,
     ], { env });
   }
+  const logOffset = terminologyBound ? logSize(terminologyLog) : null;
   const loaded = await run('k6', ['run', resolve(HERE, 'cedar-rest.k6.js')], { env: loadEnvironment });
   const pendingFault = faultResultPromise;
   faultResultPromise = undefined;
   const faulted = pendingFault ? await pendingFault : { code: 0 };
   testExit = loaded.code || faulted.code ? 1 : 0;
+  if (terminologyBound) {
+    const upstream = upstreamCallsSince(terminologyLog, logOffset);
+    if (upstream === null) {
+      console.error(`Upstream guard: ${terminologyLog || 'the terminology log'} cannot be read, so the run `
+          + 'cannot show that it stayed off BioPortal');
+      testExit = 1;
+    } else if (upstream.length) {
+      console.error(`Upstream guard: the terminology server asked BioPortal ${upstream.length} time(s) `
+          + `during the load, first ${upstream[0]}`);
+      testExit = 1;
+    } else {
+      console.log('Upstream guard: the terminology server asked BioPortal for nothing during the load');
+    }
+  }
   if (profile === 'burst' && existsSync(summary)) {
     const assessment = burstRecoveryAssessment(readJson(summary), burstRecoveryPercent);
     const baseline = Number.isFinite(assessment.baseline) ? `${assessment.baseline.toFixed(1)} ms` : 'missing';

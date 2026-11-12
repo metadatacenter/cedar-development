@@ -5,8 +5,8 @@ import { recoveryFixture, settled } from "./recovery-boundary-journey.mjs";
 import { comparable } from "./metadata-journey-fixtures.mjs";
 
 // The journey logs out and signs in as each test user in turn, in a browser context of its own, so
-// it belongs in the identity lane. A logout ends that context's single sign-on session, which is
-// why no other journey may share the context.
+// it declares an authentication reason. A logout ends that context's single sign-on session, which
+// is why no other journey may share the context.
 export async function accountSwitchJourney(args) {
   const { base, user, pass } = args,
     { user2 } = await actors();

@@ -11,8 +11,8 @@ import {
 // move its ownership to them and back. The owner works on the runner's page. The second person works
 // in a browser context of their own, so both people are signed in at once, as in two browsers.
 //
-// Both journeys sign the second test user in to a browser context of their own, so they belong in the
-// identity lane.
+// Both journeys sign the second test user in to a browser context of their own, so they declare an
+// authentication reason.
 
 /** Makes a template with the fields the full smoke authors in Designer, in a folder the second user cannot read. */
 async function sharedTemplate(args, suffix) {

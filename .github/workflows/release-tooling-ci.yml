@@ -201,16 +201,20 @@ jobs:
         run: |
           python -m pip install -r ../cedar-cli/requirements.txt
           python -m unittest discover -v -s ops -t ops -p 'test_*.py'
-          python -m unittest discover -v -s ops/tests -t ops/tests -p 'test_*.py'
+          # The YAML conversion audit's suite needs the toolchain the conversion-audit job builds, and
+          # runs there. Here it could only skip.
+          conversion_suite=test_cedar_yaml_conversion_audit.py
+          PYTHONPATH=ops/tests python -m unittest -v $(cd ops/tests && for suite in test_*.py; do
+            [ "$suite" = "$conversion_suite" ] || echo "${suite%.py}"; done)
           python -m unittest discover -v -s ops/repairs -t ops/repairs -p 'test_*.py'
           python -m unittest discover -v -s ops/e2e/frontend-perf -p 'test_*.py'
 
   # The YAML conversion audit's end-to-end suite runs both model libraries for real, so it needs
   # what a workstation has beside this checkout: the Java artifact and validation libraries built,
-  # the TypeScript library's dist, and the shared corpus. The job above has none of them and skips
-  # the suite, which is how a corpus definition the libraries had begun to refuse went unnoticed.
-  # This job lays the repositories out as CEDAR_HOME would, builds them, and requires the suite
-  # to run rather than skip.
+  # the TypeScript library's dist, and the shared corpus. The job above has none of them, so it
+  # leaves the suite out. A skip there once hid a corpus definition the libraries had begun to
+  # refuse. This job lays the repositories out as CEDAR_HOME would, builds them, and requires the
+  # suite to run rather than skip.
   conversion-audit:
     name: YAML conversion audit with both model libraries (ubuntu-latest, Python 3.12)
     runs-on: ubuntu-latest

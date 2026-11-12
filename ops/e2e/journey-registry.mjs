@@ -9,6 +9,7 @@ import { accessRecheckJourney } from "./access-recheck-journey.mjs";
 import { initialLoadJourney } from "./initial-load-journey.mjs";
 import { validationRejectionJourney } from "./validation-rejection-journey.mjs";
 import { currentTemplateConstraintJourney } from "./current-template-constraint-journey.mjs";
+import { pinnedBranchJourney } from "./pinned-branch-journey.mjs";
 import { scalarRoundtripJourney } from "./scalar-roundtrip-journey.mjs";
 import { restoredValidationJourney } from "./restored-validation-journey.mjs";
 import { repeatedSchemaJourney } from "./repeated-schema-journey.mjs";
@@ -55,10 +56,10 @@ import { workspaceKeyboardFoldersJourney, workspaceKeyboardSelectionJourney, wor
 // journey made, so any set of them can run in any process. modern-workspace-smoke.mjs runs all of
 // them in this order after its inline chain, and focused-journey-smoke.mjs runs the keys it is given.
 //
-// `authentication` gives the reason a journey signs in, reauthenticates, or logs out. All such
-// journeys belong in the identity lane, including same-user SSO redirects. Their short auth flows
-// also share a machine-wide lock with worker setup and the core chain. The runners enforce this
-// declaration when a journey invokes a browser authentication helper.
+// `authentication` gives the reason a journey signs in, reauthenticates, or logs out, same-user SSO
+// redirects included. Such a journey's sign-ins take a machine-wide lock, shared with worker setup
+// and the core chain, so no two run at once; the rest of the journey runs beside any other. The
+// runners enforce this declaration when a journey invokes a browser authentication helper.
 //
 // `shares` names state a journey changes that is not its own: something kept per account rather than
 // in the journey's folder, which every lane signs in as. No two journeys that share the same state run
@@ -86,6 +87,7 @@ export const JOURNEYS = [
   { key: "initial-load", run: initialLoadJourney },
   { key: "validation-rejection", run: validationRejectionJourney },
   { key: "current-template-constraint", run: currentTemplateConstraintJourney },
+  { key: "pinned-branch", run: pinnedBranchJourney },
   { key: "scalar-roundtrip", run: scalarRoundtripJourney },
   { key: "restored-validation", run: restoredValidationJourney },
   { key: "repeated-schema", run: repeatedSchemaJourney },

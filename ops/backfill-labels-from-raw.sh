@@ -13,7 +13,7 @@
 #
 # Terminology is stopped for the run (giant re-extractions are RAM-heavy) and restarted after, unless told
 # otherwise. Snapshots with no matching retained raw are reported as `no-matching-raw` and left untouched
-# (they need their source re-fetched — see VERSIONING-ROADMAP item 17).
+# (they need their source re-fetched — see "Give FLOPO its labels" in VERSIONING-ROADMAP.md).
 #
 # Usage:
 #   backfill-labels-from-raw.sh <catalog.sqlite> <snapshotDir> [ACRONYM ...] [options]

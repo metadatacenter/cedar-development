@@ -6,10 +6,12 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from 'node:process';
 import {
-  PERF_PREFIX, RESOURCE, GROUP_SERVER, absolute, arg, assertSafeTargets, currentMutation, enc,
+  HOST, PERF_PREFIX, RESOURCE, GROUP_SERVER, absolute, arg, assertSafeTargets, currentMutation, enc,
   intArg, parallelLimit, readJson, request, runId, userProfile, userToken, writeJson,
 } from './lib.mjs';
 import { categoryAcl, filesystemAcl } from './permission-model.js';
+import { authoringInstance, authoringOntology, authoringTemplate, authoringValues } from './authoring-model.js';
+import { sampleTerminology } from './terminology-sample.mjs';
 
 assertSafeTargets();
 
@@ -23,6 +25,15 @@ const userCount = intArg('users', 10, { max: 500 });
 const concurrency = intArg('concurrency', 4, { max: 20 });
 const matrixRounds = intArg('rounds', 3, { max: 20 });
 const scheduleSeed = arg('seed', id);
+const authoringInstances = intArg('authoring-instances', 20, { max: 500 });
+const findingArtifacts = intArg('finding-artifacts', 40, { min: 0, max: 400 });
+const terminologyAcronyms = arg('sources', 'UO,EDAM,DOID,MONDO,NCIT,NCBITAXON').split(',').filter(Boolean);
+const termsPerSource = intArg('terms-per-source', 40, { min: 6, max: 500 });
+const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
+const OPENVIEW = env.CEDAR_OPENVIEW_BASE
+  ?? `http://${env.CEDAR_OPENVIEW_SERVER_HOST ?? 'localhost'}:${env.CEDAR_OPENVIEW_HTTP_PORT ?? '9013'}`;
+const terminologyLog = arg('terminology-log',
+    env.CEDAR_HOME ? resolve(env.CEDAR_HOME, 'log', 'cedar-terminology-server.log') : '');
 const password = env.CEDAR_PERF_USER_PASSWORD;
 if (!password) throw new Error('CEDAR_PERF_USER_PASSWORD is required');
 const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
@@ -49,7 +60,7 @@ const manifest = {
   scheduleSeed,
   prefix: PERF_PREFIX,
   createdAt: new Date().toISOString(),
-  target: { resource: RESOURCE, group: GROUP_SERVER },
+  target: { resource: RESOURCE, group: GROUP_SERVER, terminology: TERMINOLOGY, openView: OPENVIEW },
   usersFile: usersPath,
   actors: [],
   resources: [],
@@ -211,6 +222,13 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
   };
   writeJson(output, manifest);
   const root = await createFolder(actor, cedarProfile.homeFolderId, `User ${record.sequence}`);
+  if (profile === 'terminology') {
+    // The terminology profile asks about terms and stores nothing. The root keeps the manifest
+    // and the cleanup audit the same shape as every other profile's.
+    manifest.actors[index] = { ...manifest.actors[index], rootFolderId: root };
+    writeJson(output, manifest);
+    return { ...manifest.actors[index], token };
+  }
   const source = await createFolder(actor, root, 'Source');
   const destination = await createFolder(actor, root, 'Destination');
   const readOnly = await createArtifact(actor, root, 'Read');
@@ -219,8 +237,8 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
   const publicToggle = await createArtifact(actor, root, 'OpenView');
   let extendedArtifacts;
   let soakFolders;
-  if (profile === 'soak' || profile === 'burst') {
-    const label = profile === 'soak' ? 'Soak' : 'Burst';
+  if (profile === 'soak' || profile === 'burst' || profile === 'formats' || profile === 'finding') {
+    const label = { soak: 'Soak', burst: 'Burst', formats: 'Formats', finding: 'Finding' }[profile];
     const element = await createArtifact(actor, root, `${label} element`, 'element');
     const field = await createArtifact(actor, root, `${label} field`, 'field');
     const instance = await createArtifact(actor, root, `${label} instance`, 'instance', {
@@ -261,6 +279,8 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
       },
     } : {}),
     ...(profile === 'burst' ? { burst: { artifacts: extendedArtifacts } } : {}),
+    ...(profile === 'formats' ? { formats: { artifacts: extendedArtifacts } } : {}),
+    ...(profile === 'finding' ? { finding: { artifacts: extendedArtifacts } } : {}),
   };
   manifest.actors[index] = saved;
   writeJson(output, manifest);
@@ -269,6 +289,114 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
 });
 
 const owner = actors[0];
+
+if (profile === 'terminology' || profile === 'authoring') {
+  const acronyms = profile === 'authoring' ? [authoringOntology.acronym] : terminologyAcronyms;
+  console.log(`Sampling ${acronyms.join(', ')} from ${env.CEDAR_TERMINOLOGY_STORE_INDEX}`);
+  const sampled = await sampleTerminology({
+    indexPath: env.CEDAR_TERMINOLOGY_STORE_INDEX,
+    base: TERMINOLOGY,
+    token: owner.token,
+    acronyms,
+    perSource: profile === 'authoring' ? Math.max(termsPerSource, 60) : termsPerSource,
+    logPath: terminologyLog,
+  });
+  for (const { acronym, reason } of sampled.dropped) console.log(`  left out ${acronym}: ${reason}`);
+  if (!Object.keys(sampled.sources).length) {
+    throw new Error(`no requested source is served from the local terminology store: ${acronyms.join(', ')}`);
+  }
+  if (profile === 'terminology') {
+    manifest.terminology = sampled;
+  } else {
+    // A write verifies each controlled-term value against the terminology server, so the values
+    // are terms that server has already confirmed from its local store.
+    manifest.terms = sampled.sources[authoringOntology.acronym].terms;
+  }
+  writeJson(output, manifest);
+}
+
+if (profile === 'authoring') {
+  const minimalTemplate = JSON.parse(readFileSync(artifactFixtures.template, 'utf8'));
+  const minimalField = JSON.parse(readFileSync(artifactFixtures.field, 'utf8'));
+  const minimalInstance = JSON.parse(readFileSync(artifactFixtures.instance, 'utf8'));
+  const description = `${PERF_PREFIX} fixture for ${id}`;
+  await parallelLimit(actors, concurrency, async actor => {
+    const post = async (kind, body) => {
+      const collection = artifactCollections[kind];
+      const response = await request(actor.token, 'POST',
+          `${collection}?folder_id=${enc(actor.rootFolderId)}`, body);
+      if (response.status !== 201) {
+        throw new Error(`${actor.username}: create ${body['schema:name']}: ${response.status} ${response.text}`);
+      }
+      const created = {
+        kind, id: response.body['@id'], path: `${collection}/${enc(response.body['@id'])}`, name: body['schema:name'],
+      };
+      remember({ ...created, actor: actor.index });
+      return created;
+    };
+    const template = await post('template', authoringTemplate(minimalTemplate, minimalField,
+        `${PERF_PREFIX} Authoring template ${actor.sequence} ${id}`, description));
+    const instances = [];
+    for (let number = 0; number < authoringInstances; number++) {
+      instances.push(await post('instance', authoringInstance(minimalInstance, template.id,
+          `${PERF_PREFIX} Authoring instance ${actor.sequence}-${number + 1} ${id}`, description,
+          authoringValues(manifest.terms, actor.index * 1009 + number * 3))));
+    }
+    manifest.actors[actor.index].authoring = { template, instances };
+    writeJson(output, manifest);
+    console.log(`  prepared ${instances.length} authoring instances for ${actor.username}`);
+  });
+}
+
+if (profile === 'finding') {
+  // A search page costs the server work for every hit it returns, so each participant gets enough
+  // artifacts to fill one. The rest of the fixture gives every kind of listing something to find:
+  // an artifact a peer shared, an open artifact, an open folder and a group the participant is in.
+  await parallelLimit(actors, concurrency, async actor => {
+    const peer = actors[(actor.index + 1) % actors.length];
+    const corpusId = await createFolder(actor, actor.rootFolderId, 'Finding corpus');
+    for (let number = 0; number < findingArtifacts; number++) {
+      await createArtifact(actor, corpusId, `Finding field ${number + 1}`, 'field');
+    }
+    await shareFilesystemRoles(actor, actor.readTemplate.path, [{ id: peer.cedarUserId, role: 'viewer' }]);
+
+    const opened = await currentMutation(actor.token, 'POST', '/command/make-artifact-open',
+        { '@id': actor.openViewTemplate.id }, { etagPath: `${actor.openViewTemplate.path}/details` });
+    if (opened.status !== 200) {
+      throw new Error(`${actor.username}: open the OpenView template: ${opened.status} ${opened.text}`);
+    }
+    const openFolderId = await createFolder(actor, actor.rootFolderId, 'Finding open folder');
+    const openFolderPath = `/folders/${enc(openFolderId)}`;
+    const inOpenFolder = await createArtifact(actor, openFolderId, 'Finding open folder template');
+    const folderOpened = await currentMutation(actor.token, 'POST', '/command/make-folder-open',
+        { '@id': openFolderId }, { etagPath: openFolderPath });
+    if (folderOpened.status !== 200) {
+      throw new Error(`${actor.username}: open the folder: ${folderOpened.status} ${folderOpened.text}`);
+    }
+
+    const group = await createGroup(actor, `Finding group ${actor.sequence}`);
+    const groupMembers = await currentMutation(actor.token, 'PUT', `${group.path}/users`, {
+      users: [{ user: { '@id': actor.cedarUserId }, administrator: true, member: true }],
+    }, { base: GROUP_SERVER });
+    if (groupMembers.status !== 200) {
+      throw new Error(`${actor.username}: initialize finding group: ${groupMembers.status} ${groupMembers.text}`);
+    }
+
+    Object.assign(manifest.actors[actor.index].finding, {
+      corpusFolderId: corpusId,
+      corpusSize: findingArtifacts,
+      sharedByPeer: {
+        // What this participant can find because the previous participant shared it.
+        id: actors[(actor.index + actors.length - 1) % actors.length].readTemplate.id,
+      },
+      openFolder: { kind: 'folder', id: openFolderId, path: openFolderPath, template: inOpenFolder },
+      group,
+    });
+    writeJson(output, manifest);
+    console.log(`  prepared finding fixtures for ${actor.username}`);
+  });
+}
+
 if (profile === 'soak') {
   await parallelLimit(actors, concurrency, async actor => {
     const peer = actors[(actor.index + 1) % actors.length];

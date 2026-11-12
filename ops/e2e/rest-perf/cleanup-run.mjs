@@ -65,8 +65,15 @@ for (let actorIndex = 0; actorIndex < manifest.actors.length; actorIndex++) {
   }
   for (const resource of descendants.filter(candidate => !knownIds.has(candidate.id))) {
     try {
-      const deletion = await currentMutation(token, 'DELETE', resource.path);
-      if (![200, 204, 404].includes(deletion.status)) {
+      // An interrupted lifecycle iteration leaves a version chain. Deleting one version rewrites
+      // its successor's link to it, which moves the successor's revision on a moment later, so a
+      // revision read just before that can be stale by the time the delete arrives.
+      let deletion = await currentMutation(token, 'DELETE', resource.path);
+      for (let attempt = 1; deletion.status === 412 && attempt < 4; attempt++) {
+        await new Promise(resolveDelay => setTimeout(resolveDelay, 500 * attempt));
+        deletion = await currentMutation(token, 'DELETE', resource.path);
+      }
+      if (![200, 202, 204, 404].includes(deletion.status)) {
         throw new Error(`DELETE ${deletion.status} ${deletion.text}`);
       }
       const after = await request(token, 'GET', resource.path);

@@ -1,6 +1,6 @@
 import {test, before, after} from "node:test";
 import assert from "node:assert/strict";
-import {spawn} from "node:child_process";
+import {spawn, spawnSync} from "node:child_process";
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
@@ -161,16 +161,29 @@ function sweeper() {
   return {calls, sweep};
 }
 
+// A killed process remains a zombie until its parent, or the init process that adopts an orphan,
+// reaps it, and signal 0 still reaches a zombie. Under load the reaping can trail the kill, so a
+// process counts as stopped once it is gone or a zombie, and the test waits a bounded time for that.
 const alive = pid => {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
   }
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {encoding: "utf8"}).stdout.trim();
+  return state !== "" && !state.startsWith("Z");
 };
 
-test("the lanes share the queue: every unit runs once, identity units only on the identity lane and never two at once", async () => {
+const stopped = async (pid, waitMs = 5000) => {
+  const until = Date.now() + waitMs;
+  while (alive(pid)) {
+    if (Date.now() > until) return false;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  return true;
+};
+
+test("the lanes share the queue: every unit runs once, identity units in any lane", async () => {
   const run = workspace();
   const journeys = [["a-pass-300"], ["b-pass-250"], ["c-pass-200"], ["d-pass-150"], ["e-pass-100"], ["f-pass-100"],
     ["g-pass-80"], ["h-pass-60"], ["i-pass-120", true], ["j-pass-90", true]];
@@ -184,11 +197,8 @@ test("the lanes share the queue: every unit runs once, identity units only on th
   assert.equal(report.verdict, "PASS");
   const ran = report.units.map(unit => unit.name);
   assert.deepEqual([...ran].sort(), ["modern-workspace-chain", "s1", "s2", ...journeys.map(([key]) => key)].sort());
-  for (const unit of report.units.filter(entry => ["i-pass-120", "j-pass-90", "s2"].includes(entry.name)))
-    assert.equal(unit.lane, "identity", unit.name);
-  const identityRuns = run.log().filter(entry => entry.event === "start" && /^[ij]-/.test(entry.key));
-  const identityEnds = run.log().filter(entry => entry.event === "end" && /^[ij]-/.test(entry.key));
-  assert.ok(identityEnds[0].at <= identityRuns[1].at, "the second identity journey starts after the first ends");
+  assert.deepEqual(report.lanes.map(lane => lane.name), ["core", "general-1", "general-2"]);
+  assert.deepEqual(report.queue.identity.sort(), ["i-pass-120", "j-pass-90", "s2"]);
   // The core lane joins the queue once its chain is done.
   const core = report.lanes.find(lane => lane.name === "core");
   assert.equal(core.units[0].name, "modern-workspace-chain");
@@ -247,7 +257,7 @@ test("a journey past its deadline is killed with its browser and swept, and the 
     ["b-pass-300", "c-pass-200", "d-pass-150", "e-pass-100", "f-pass-50", "modern-workspace-chain"]);
   assert.deepEqual(report.notRun, []);
   const browser = Number(readFileSync(join(run.directory, "browser-a-hang.pid"), "utf8"));
-  assert.equal(alive(browser), false, "the hung journey's browser was killed with it");
+  assert.ok(await stopped(browser), "the hung journey's browser was killed with it");
   assert.equal(report.unitTimeout.capSeconds, 10);
 });
 

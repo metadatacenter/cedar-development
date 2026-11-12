@@ -886,6 +886,48 @@ class NativeProcessSafetyTest(unittest.TestCase):
             result.stdout,
         )
 
+    def test_status_follows_a_job_launchd_started_again_under_a_new_pid(self):
+        # The first attempt, which the pidfile names, has exited. launchd runs the job as 4242.
+        result = self.run_library(
+            'names() { echo ui-workspace; }; '
+            'pidfile() { echo "$CEDAR_HOME/ui-workspace.pid"; }; '
+            'echo 1111 > "$CEDAR_HOME/ui-workspace.pid"; '
+            'app_port() { echo 4201; }; uname() { echo Darwin; }; '
+            'launchd_job_pid() { echo 4242; }; '
+            'kill() { [ "$2" = 4242 ]; }; '
+            'is_service_process() { [ "$2" = 4242 ]; }; '
+            'service_port_owner() { echo 4242; }; '
+            'port_open() { return 0; }; '
+            'health_of() { echo healthy; }; '
+            'binary_of() { echo current; }; '
+            'logfile() { echo "$CEDAR_HOME/missing.log"; }; '
+            'status_tsv'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            "service\tpid\tport\tlistener\thealth\tbinary\tlog_errors\n"
+            "ui-workspace\t4242\t4201\tup\thealthy\tcurrent\t0\n",
+            result.stdout,
+        )
+
+    def test_status_still_marks_a_process_launchd_does_not_run_as_started_elsewhere(self):
+        result = self.run_library(
+            'names() { echo ui-workspace; }; '
+            'pidfile() { echo "$CEDAR_HOME/ui-workspace.pid"; }; '
+            'app_port() { echo 4201; }; uname() { echo Darwin; }; '
+            'launchd_job_pid() { :; }; '
+            'service_port_owner() { echo 4242; }; '
+            'port_open() { return 0; }; '
+            'health_of() { echo healthy; }; '
+            'binary_of() { echo current; }; '
+            'logfile() { echo "$CEDAR_HOME/missing.log"; }; '
+            'status_tsv'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("ui-workspace\t~4242\t4201", result.stdout)
+
     def test_log_error_count_counts_error_events_not_exception_words(self):
         result = self.run_library(
             'log="$CEDAR_HOME/service.log"; '

@@ -77,13 +77,16 @@ server's name/version and does not verify the destination deployment.
 ```bash
 mvn test              # unit tests: in-process, no browser, no network, no CEDAR server
 mvn verify            # + the end-to-end IT: spawns the shaded jar and speaks real JSON-RPC over stdio
-mvn verify -Plive     # cedar-artifact-rest-mcp only: hits a real server; needs CEDAR_API_KEY
-uv run pytest         # bioportal-term-mcp
-uv run pytest -m live # + the tests that call BioPortal; needs BIOPORTAL_API_KEY
+uv run pytest         # bioportal-term-mcp, against recorded BioPortal answers
 ```
 
-Live tests are opt-in everywhere and excluded by default, so an ordinary build needs no key and no
-server. A live test must delete whatever it creates, in a `finally`, and assert that it did.
+No suite needs a key or a server. `bioportal-term-mcp` replays answers recorded from BioPortal,
+which `tests/record_bioportal_answers.py` records again when BioPortal's shapes are in question.
+`cedar-artifact-rest-mcp` meets a real server in the whole-stack smoke instead: the REST tier's
+`mcp` suite starts its built jar over stdio as the first test user and takes templates through
+validation, creation, reading, update and deletion on the local stack. That suite fails when the
+jar is older than its sources, so run `mvn package` in `mcp/cedar-artifact-rest-mcp` before a smoke
+run.
 
 For `cedar-cee-mcp`, also open a form and check rendering and the browser console. CEE warns about
 unrecognized configuration keys and ignores them. The unit suite checks the server's configuration

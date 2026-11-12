@@ -107,8 +107,11 @@ export async function fixtures(directory) {
 const visible = selector => async page => page.locator(selector).first().waitFor({state:'visible'});
 // Target the fixture controls directly. Broad accessible-name queries walk every field and
 // can themselves create long tasks under CPU throttling, contaminating the measurement.
+// Field 001 is the fixture's first text field. CEE names its box through `aria-labelledby`,
+// so the box is found by its place rather than by an attribute holding the label.
+const firstAnswer = page => page.locator('cedar-embeddable-editor app-cedar-input-text input').first();
 const editorReady = async page => {
-  const field = page.locator('cedar-embeddable-editor input[aria-label="Field 001"]');
+  const field = firstAnswer(page);
   await field.waitFor({state:'visible'});
   assert.equal(await field.isEnabled(),true);
 };
@@ -129,7 +132,7 @@ const fieldSummariesReady = count => async page => page.waitForFunction(expected
   return summaries.length === expected && summaries.every(field => (field.shadowRoot ?? field).querySelector('.cee-spec-box'));
 }, count);
 const typeAnswer = async page => {
-  const field = page.locator('cedar-embeddable-editor input[aria-label="Field 001"]');
+  const field = firstAnswer(page);
   await field.pressSequentially('Performance answer'); await field.press('Tab');
   assert.equal(await field.inputValue(),'Performance answer');
 };

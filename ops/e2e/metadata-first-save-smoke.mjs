@@ -25,6 +25,7 @@ import { dirname, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import * as S from './selectors.mjs';
 import { actors, call, mutate, enc } from './rest/lib.mjs';
+import { withAuthentication } from './auth-activity.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASE = process.env.CEDAR_BASE ?? `https://cedar.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
@@ -74,15 +75,18 @@ try {
     }).observe(document, { childList: true, subtree: true });
   });
   const page = await context.newPage();
-  await page.goto(`${BASE}/instances/create/${enc(templateId)}?folderId=${enc(folderId)}`);
-  await page.locator(S.KC_USERNAME).first().waitFor({ timeout: 30_000 });
-  await page.locator(S.KC_USERNAME).first().fill(USER);
-  await page.locator(S.KC_PASSWORD).first().fill(PASSWORD);
-  await page.locator(S.KC_SUBMIT).first().click();
-
   const cee = page.locator('cedar-embeddable-editor');
   const field = cee.getByLabel('Text Field', { exact: true }).first();
-  await field.waitFor({ timeout: 30_000 });
+  // Signing in also initializes the user's backend state, so the sign-in holds the machine-wide
+  // authentication lock that the REST and split tiers' sign-ins take.
+  await withAuthentication(`metadata first-save sign-in as ${USER}`, async () => {
+    await page.goto(`${BASE}/instances/create/${enc(templateId)}?folderId=${enc(folderId)}`);
+    await page.locator(S.KC_USERNAME).first().waitFor({ timeout: 30_000 });
+    await page.locator(S.KC_USERNAME).first().fill(USER);
+    await page.locator(S.KC_PASSWORD).first().fill(PASSWORD);
+    await page.locator(S.KC_SUBMIT).first().click();
+    await field.waitFor({ timeout: 30_000 });
+  });
   await field.fill(VALUE);
 
   const create = page.waitForResponse((r) => /\/template-instances(\?|$)/.test(r.url()) && r.request().method() === 'POST');

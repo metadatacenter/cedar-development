@@ -4,8 +4,8 @@
 //
 //   node split-tier.mjs [--lanes=N] [--timeout-cap=SECONDS] [--report=PATH] [--plan]
 //
-// N is the number of general lanes beside the core and identity lanes, from 1 to 4. The default is 2,
-// and 1 means the sequential run. split-lanes.mjs says what each lane may run and how the queue hands
+// N is the number of general lanes beside the core lane, from 1 to 6. The default is 5, and 1 means
+// the sequential run. split-lanes.mjs says what each lane may run and how the queue hands
 // out its units. `--plan` prints the queue, its rules and the projected finish, and runs nothing.
 //
 // Every unit has a deadline derived from its measured duration, never longer than the cap, which
@@ -68,11 +68,11 @@ if (argv.includes("--plan")) {
     console.log(`  Projected: ${layout.lanes[0].plannedSeconds} s`);
     process.exit(0);
   }
-  console.log(`${layout.generalLanes} general lanes beside the core and identity lanes, sharing one queue.`);
-  console.log(`  core runs the chain first, ${describe(layout.chain)}, and then takes general units.`);
-  console.log("  identity takes identity units one at a time while any remain, then general units. No other lane");
-  console.log("  takes an identity unit, so no two run at once.");
-  console.log("  general lanes take general units. They start once the core lane has made its fixtures.");
+  console.log(`${layout.generalLanes} general lanes beside the core lane, sharing one queue.`);
+  console.log(`  core runs the chain first, ${describe(layout.chain)}, and then takes units from the queue.`);
+  console.log("  general lanes take units from the queue. They start once the core lane has made its fixtures.");
+  console.log("  Any lane takes any unit. Identity units run at the same time as others, and the authentication");
+  console.log("  lock serializes their sign-ins. Units that share state kept per account never overlap.");
   console.log("  A lane that fails or times out takes no further units. Each unit runs once.");
   console.log(layout.seed === null ? "Queue, longest first. A free lane takes the first unit it may run:" : `Queue shuffled with seed ${layout.seed}:`);
   for (const unit of layout.units)

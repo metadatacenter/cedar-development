@@ -10,15 +10,19 @@ import { JOURNEYS } from "./journey-registry.mjs";
 // scripts, one after another, as the tier always has. Any other plan runs these lanes at once:
 //
 //   core       modern-workspace-smoke.mjs with its inline chain alone, and then units from the queue.
-//   identity   every unit that signs the second test user in, logs out or administers a group, one
-//              at a time, and then units from the queue.
 //   general-N  units from the queue.
 //
-// The lanes share one queue. A lane that is free takes the next unit it may run, so the lanes that
-// finish their own work early take a share of everyone else's, and which lane runs which unit is
+// The lanes share one queue. A lane that is free takes the next unit it may run, so the core lane,
+// once its chain is done, takes a share of everyone else's work, and which lane runs which unit is
 // decided while the tier runs. The queue hands out the unit with the longest measured duration first.
-// Identity units go to the identity lane alone, one at a time, because sign-ins contend in Keycloak
-// and in the graph writes each one triggers, and a logout ends its context's single sign-on session.
+//
+// An identity unit signs a user in, reauthenticates, logs out or administers a group. It runs in any
+// lane, at the same time as any other unit. Sign-ins contend in Keycloak and in the graph writes each
+// one triggers, so auth-activity.mjs holds one machine-wide lock from the action that starts a sign-in
+// until the signed-in page is ready, whichever lane signs in. A logout ends the single sign-on session
+// of its own lane, which no other lane shares, and the lane's runner signs in again before its next
+// journey. A unit that changes state kept per account says so with `shares`, and no two units sharing
+// the same state run at once.
 //
 // A lane runs its journeys in one focused-journey-smoke.mjs process that stays up and takes them one
 // at a time, under a root folder of its own, and runs each script as a process of its own.
@@ -33,8 +37,8 @@ export const CORE = Object.freeze({ name: "modern-workspace", args: ["modern-wor
 export const CHAIN = Object.freeze({ name: "modern-workspace-chain", args: [...CORE.args, "--chain-only"] });
 
 /**
- * The split tier's other scripts, in the order a sequential run takes them. `identity` says why a
- * script belongs to the identity lane.
+ * The split tier's other scripts, in the order a sequential run takes them. `identity` gives the
+ * reason a script is an identity unit, which the plan and the report name.
  */
 export const SCRIPTS = Object.freeze([
   { name: "ced-host", args: ["ced-host-smoke.mjs"] },
@@ -48,9 +52,13 @@ export const SCRIPTS = Object.freeze([
     identity: "grants to the second user and writes in their home" },
 ].map(script => Object.freeze(script)));
 
-/** General lanes by default. The machine runs with nearly full swap, and each lane is a browser. */
-export const DEFAULT_LANES = 2;
-export const MAX_LANES = 4;
+/**
+ * General lanes by default, beside the core lane. Each lane is a browser. On the 16-core workstation
+ * five took the tier from 144 to about 110 seconds at a peak load of 12; six saved ten seconds more at
+ * a peak of 14, which leaves little room for anything else the machine is doing.
+ */
+export const DEFAULT_LANES = 5;
+export const MAX_LANES = 6;
 
 /**
  * How a unit's deadline follows from its measured duration:
@@ -160,30 +168,22 @@ export const longestFirst = (a, b) => a.shuffleRank !== undefined && b.shuffleRa
   ? a.shuffleRank - b.shuffleRank : b.seconds - a.seconds || a.order - b.order;
 
 /**
- * The queue the lanes share. `next(lane)` hands the lane the longest unit it may run, or undefined
- * when none is left for it. The identity lane takes identity units while any remain, and never while
- * another is in flight; every other lane takes only general units. A unit that `shares` state waits
- * while another sharing the same state is in flight. `finish(unit)` marks a unit done, and
- * `requeue(unit)` returns one a lane took but could not start.
+ * The queue the lanes share. `next()` hands the asking lane the longest unit it may run, or undefined
+ * when none is left for it. Every lane may run every unit, identity units included. A unit that
+ * `shares` state waits while another sharing the same state is in flight. `finish(unit)` marks a unit
+ * done, and `requeue(unit)` returns one a lane took but could not start.
  */
 export function createQueue(units) {
   const pending = [...units].sort(longestFirst);
   const inFlight = new Set();
   const free = candidate => !candidate.shares || ![...inFlight].some(unit => unit.shares === candidate.shares);
-  const take = predicate => {
-    const index = pending.findIndex(candidate => predicate(candidate) && free(candidate));
-    if (index < 0) return undefined;
-    const [unit] = pending.splice(index, 1);
-    inFlight.add(unit);
-    return unit;
-  };
   return {
-    next(lane) {
-      if (lane.identity && ![...inFlight].some(unit => unit.identity)) {
-        const unit = take(candidate => candidate.identity);
-        if (unit) return unit;
-      }
-      return take(candidate => !candidate.identity);
+    next() {
+      const index = pending.findIndex(free);
+      if (index < 0) return undefined;
+      const [unit] = pending.splice(index, 1);
+      inFlight.add(unit);
+      return unit;
     },
     finish(unit) {
       inFlight.delete(unit);
@@ -211,7 +211,7 @@ export function simulate({ lanes, units, chainSeconds = 0, leadSeconds = 0 }) {
     const free = state.filter(entry => !entry.done);
     if (!free.length) break;
     const entry = free.reduce((earliest, candidate) => candidate.at < earliest.at ? candidate : earliest);
-    const unit = queue.next(entry.lane);
+    const unit = queue.next();
     if (!unit) {
       entry.done = true;
       continue;
@@ -231,7 +231,7 @@ export function simulate({ lanes, units, chainSeconds = 0, leadSeconds = 0 }) {
 /**
  * The plan for a lane setting. One lane means the sequential run: the processes it runs in order,
  * each with its estimate and deadline. A higher setting means that many general lanes beside the core
- * and identity lanes, the chain the core lane runs first, the queue's units longest first, and when
+ * lane, the chain the core lane runs first, the queue's units longest first, and when
  * each lane would finish. A unit no report has measured counts as the median of the measured units of
  * its kind for balancing, and its deadline is the cap.
  */
@@ -278,9 +278,8 @@ export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Dat
   const chain = unit({ kind: "chain", name: CHAIN.name, args: [...CHAIN.args], identity: false, fallback: scriptDefault, order: -1 });
   delete chain.order;
   const laneList = [
-    { name: "core", core: true, identity: false },
-    ...(units.some(entry => entry.identity) ? [{ name: "identity", core: false, identity: true }] : []),
-    ...Array.from({ length: lanes }, (_, index) => ({ name: `general-${index + 1}`, core: false, identity: false })),
+    { name: "core", core: true },
+    ...Array.from({ length: lanes }, (_, index) => ({ name: `general-${index + 1}`, core: false })),
   ].map(lane => ({ ...lane, root: rootName(stamp, lane.name) }));
   if (seed !== null) shuffled(units, seed).forEach((unit, rank) => { unit.shuffleRank = rank; });
   const queued = [...units].sort(longestFirst);

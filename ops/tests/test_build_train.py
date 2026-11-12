@@ -345,6 +345,12 @@ class BuildTrainTest(unittest.TestCase):
              [("push", "develop", "cancelled"), ("push", "develop", "failure")], False),
             ("a cancelled dispatch after a push that succeeded",
              [("workflow_dispatch", "develop", "cancelled"), ("push", "develop", "success")], True),
+            ("a cancelled workflow beside another that succeeded",
+             [("push", "develop", "cancelled", "Test"), ("push", "develop", "success", "Lint")], False),
+            ("a cancelled workflow that was rerun and succeeded, beside another that succeeded",
+             [("push", "develop", "cancelled", "Test"),
+              ("workflow_dispatch", "develop", "success", "Test"),
+              ("push", "develop", "success", "Lint")], True),
         ]
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
@@ -353,11 +359,13 @@ class BuildTrainTest(unittest.TestCase):
             (workflows / "ci.yml").write_text("name: CI\n", encoding="utf-8")
             source = {"repositories": {"repository": revision}}
             for name, case, passes in cases:
-                runs = tuple({"name": "CI", "status": "completed", "conclusion": conclusion,
-                              "id": 7 - index, "event": event, "head_branch": branch,
-                              "head_sha": revision, "path": ".github/workflows/ci.yml",
+                # One run per entry, newest first; an entry names its workflow, or it is CI.
+                runs = tuple({"name": (entry[3:] or ("CI",))[0], "status": "completed",
+                              "conclusion": entry[2], "id": 7 - index, "event": entry[0],
+                              "head_branch": entry[1], "head_sha": revision,
+                              "path": ".github/workflows/ci.yml",
                               "html_url": f"https://github.example/runs/{7 - index}"}
-                             for index, (event, branch, conclusion) in enumerate(case))
+                             for index, entry in enumerate(case))
                 with self.subTest(name), \
                         patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
                         patch.object(policy, "probe_exact_commit",
@@ -368,6 +376,56 @@ class BuildTrainTest(unittest.TestCase):
                     else:
                         with self.assertRaises(RuntimeError):
                             build_train._github_ci_preflight(source, workspace, policy=policy)
+
+    def _commit_github_actions_failed(self, directory, registry):
+        """A workspace whose one repository has a red Actions run, beside a captured registry."""
+        workspace = Path(directory)
+        workflows = workspace / "repository" / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "ci.yml").write_text("name: CI\n", encoding="utf-8")
+        if registry is not None:
+            ops = workspace / "cedar-development" / "ops"
+            ops.mkdir(parents=True)
+            (ops / "local-ci.json").write_text(json.dumps(registry), encoding="utf-8")
+        policy = FakeCIPolicy([{
+            "name": "CI", "status": "completed", "conclusion": "failure",
+            "path": ".github/workflows/ci.yml",
+        }])
+        policy.asked = []
+
+        def local_ci_passed(repository, revision, context):
+            policy.asked.append((repository, revision, context))
+            return True
+
+        policy.local_ci_passed = local_ci_passed
+        return workspace, {"repositories": {"repository": "a" * 40}}, policy
+
+    def test_a_passing_local_ci_status_answers_where_github_actions_did_not_pass(self):
+        """The runner holds no workstation's record, so it reads the status the local run posted."""
+        registry = {"statusContext": "cedar/local-ci", "repositories": {"repository": {}}}
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, source, policy = self._commit_github_actions_failed(directory, registry)
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), patch("builtins.print"):
+                build_train._github_ci_preflight(source, workspace, policy=policy)
+        self.assertEqual([("repository", "a" * 40, "cedar/local-ci")], policy.asked)
+
+    def test_local_ci_answers_only_for_a_repository_the_captured_registry_names(self):
+        for registry in ({"statusContext": "cedar/local-ci", "repositories": {"another": {}}}, None):
+            with self.subTest(registry=registry), tempfile.TemporaryDirectory() as directory:
+                workspace, source, policy = self._commit_github_actions_failed(directory, registry)
+                with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
+                    with self.assertRaisesRegex(RuntimeError, "CI concluded failure"):
+                        build_train._github_ci_preflight(source, workspace, policy=policy)
+                self.assertEqual([], policy.asked)
+
+    def test_a_captured_cli_without_the_status_reader_keeps_the_actions_rule(self):
+        registry = {"statusContext": "cedar/local-ci", "repositories": {"repository": {}}}
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, source, policy = self._commit_github_actions_failed(directory, registry)
+            del policy.local_ci_passed
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
+                with self.assertRaisesRegex(RuntimeError, "CI concluded failure"):
+                    build_train._github_ci_preflight(source, workspace, policy=policy)
 
     def test_exact_source_without_a_workflow_is_advisory(self):
         with tempfile.TemporaryDirectory() as directory:

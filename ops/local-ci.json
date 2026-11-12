@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 1,
+  "statusContext": "cedar/local-ci",
+  "profiles": {
+    "maven-tests": {
+      "exclusive": "java-test-ports"
+    },
+    "maven": {
+      "skip": {
+        "Publish the snapshot": "publication, not verification: Actions publishes the snapshot after a push to develop"
+      },
+      "exclusive": "java-test-ports"
+    },
+    "embedded-mongo-on-linux": {
+      "skip": {
+        "Install OpenSSL 1.1 for the embedded MongoDB": "Linux only: the Ubuntu runner lacks the OpenSSL 1.1 the embedded MongoDB 5.0 binary links against, and macOS needs nothing"
+      }
+    },
+    "opensearch": {
+      "substitute": {
+        "Start OpenSearch": {
+          "run": "docker rm -f cedar-local-ci-opensearch >/dev/null 2>&1 || true\ndocker run --detach --name cedar-local-ci-opensearch --publish 29200:9200 --env discovery.type=single-node --env plugins.security.disabled=true --env DISABLE_INSTALL_DEMO_CONFIG=true --env \"OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m\" opensearchproject/opensearch:2.19.1 > \"$RUNNER_TEMP/opensearch-start.log\" 2>&1\n",
+          "reason": "the native stack's OpenSearch holds port 9200, so the test instance listens on 29200 under a container name of its own"
+        }
+      },
+      "env": {
+        "CEDAR_OPENSEARCH_REST_PORT": "29200"
+      },
+      "requires": [
+        "docker"
+      ],
+      "cleanup": "docker rm -f cedar-local-ci-opensearch >/dev/null 2>&1 || true"
+    }
+  },
+  "repositories": {
+    "cedar-admin-tool": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven",
+            "embedded-mongo-on-linux"
+          ]
+        }
+      }
+    },
+    "cedar-artifact-library": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-artifact-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven",
+            "embedded-mongo-on-linux"
+          ]
+        }
+      }
+    },
+    "cedar-bridge-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-bridging": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:build": {}
+      }
+    },
+    "cedar-cadsr-tools": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-cli": {
+      "jobs": {
+        "ci.yml:test": {
+          "linux": "the Ubuntu legs test what differs on Linux: GNU tools, a noexec tmpfs and Git 2.34.1 built from source; none of it depends on the processor, so arm64 Ubuntu answers for GitHub's x86_64 runner"
+        }
+      }
+    },
+    "cedar-clients": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-component-demo": {
+      "jobs": {
+        "test.yml:demo": {}
+      }
+    },
+    "cedar-config-library": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-content-distribution": {
+      "jobs": {
+        "ci.yml:package": {}
+      }
+    },
+    "cedar-core-library": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-design-tokens": {
+      "jobs": {
+        "consumers.yml:consumer": {
+          "requires": [
+            "docker"
+          ]
+        },
+        "test.yml:test": {},
+        "token-readers.yml:readers": {}
+      }
+    },
+    "cedar-development": {
+      "jobs": {
+        "release-tooling-ci.yml:test": {
+          "linux": "the Ubuntu leg tests the controllers under GNU tools and Linux Chromium; none of it depends on the processor, so arm64 Ubuntu answers for GitHub's x86_64 runner"
+        },
+        "release-tooling-ci.yml:conversion-audit": {
+          "linux": "the audit writes Maven settings into its home directory, which only a container keeps apart from this machine's; its Java and TypeScript libraries behave the same on arm64"
+        }
+      }
+    },
+    "cedar-docker-deploy": {
+      "jobs": {
+        "ci.yml:validate": {
+          "requires": [
+            "docker"
+          ]
+        }
+      }
+    },
+    "cedar-embeddable-designer": {
+      "jobs": {
+        "design-tokens.yml:adoption": {},
+        "test.yml:test": {
+          "requires": [
+            "docker"
+          ]
+        },
+        "test.yml:performance": {},
+        "test.yml:cef-integration": {
+          "linux": "runs on arm64 Ubuntu 24.04, the runner GitHub gives the job, and a container of its own keeps its Playwright server's port apart from the test job's, as separate runners do"
+        },
+        "test.yml:webkit-interactions": {
+          "linux": "runs Playwright's Linux WebKit on arm64 Ubuntu 24.04, the runner GitHub gives the job"
+        }
+      }
+    },
+    "cedar-embeddable-editor": {
+      "jobs": {
+        "design-tokens.yml:adoption": {},
+        "test.yml:prepare": {},
+        "test.yml:gates": {},
+        "test.yml:visual": {
+          "requires": [
+            "docker"
+          ]
+        },
+        "test.yml:cee-demos": {},
+        "test.yml:performance": {},
+        "test.yml:publish-dev": {
+          "omit": "publication, not verification: Actions publishes the development package after a push to develop"
+        }
+      }
+    },
+    "cedar-embeddable-term-picker": {
+      "jobs": {
+        "design-tokens.yml:adoption": {},
+        "test.yml:test": {
+          "requires": [
+            "docker"
+          ]
+        }
+      }
+    },
+    "cedar-group-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-keycloak-event-listener": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-libraries": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven-tests"
+        }
+      }
+    },
+    "cedar-messaging-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-microservice-libraries": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven",
+            "opensearch"
+          ]
+        }
+      }
+    },
+    "cedar-model-library": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-model-typescript-library": {
+      "jobs": {
+        "test.yml:test": {},
+        "test.yml:browser": {
+          "linux": "the browser conformance tests exercise each engine's JavaScript regular expressions, which behave the same in the arm64 build of Playwright's image as in the x86_64 build GitHub runs"
+        },
+        "test.yml:publish-dev": {
+          "omit": "publication, not verification: Actions publishes the development package after a push to develop"
+        }
+      }
+    },
+    "cedar-model-validation-library": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven",
+          "substitute": {
+            "Check the meta-schemas against their fragments": {
+              "run": "(cd scripts && ./generate-meta-schemas.sh)\ngit diff --exit-code -- src/main/resources\n",
+              "reason": "the step installs moreutils with apt for sponge; this machine has sponge and jq already, so it runs the same generation and diff without the install"
+            }
+          }
+        }
+      }
+    },
+    "cedar-monitor-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-monitoring": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:build": {}
+      }
+    },
+    "cedar-openview": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:build": {}
+      }
+    },
+    "cedar-openview-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven",
+            "embedded-mongo-on-linux"
+          ]
+        }
+      }
+    },
+    "cedar-parent": {
+      "jobs": {
+        "ci.yml:pairing": {},
+        "ci.yml:test": {
+          "profile": "maven"
+        },
+        "dependency-audit.yml:scan": {
+          "uncovered": "calls Google's osv-scanner reusable workflow, which local CI cannot run; GitHub answers for the pushes that change a POM"
+        }
+      }
+    },
+    "cedar-project": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven-tests",
+            "embedded-mongo-on-linux"
+          ],
+          "skip": {
+            "Set up Python for the coverage report": "reporting, not verification: the coverage summary is continue-on-error and never decides the conclusion, and it asks for a Python 3.12 this machine does not have",
+            "Report coverage credited by any test": "reporting, not verification: continue-on-error, so it never decides the conclusion",
+            "Upload the coverage summary": "uploads only the coverage report the skipped step writes",
+            "Open or update the issue when the nightly build fails": "runs only on the nightly schedule, and writes to GitHub",
+            "Close the issue once the nightly build passes": "runs only on the nightly schedule, and writes to GitHub"
+          }
+        }
+      }
+    },
+    "cedar-repo-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven",
+            "embedded-mongo-on-linux"
+          ]
+        }
+      }
+    },
+    "cedar-resource-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": [
+            "maven",
+            "opensearch"
+          ]
+        }
+      }
+    },
+    "cedar-template-designer": {
+      "jobs": {
+        "ci.yml:design-token-adoption": {},
+        "ci.yml:package": {},
+        "ci.yml:performance": {}
+      }
+    },
+    "cedar-template-editor": {
+      "jobs": {
+        "ci.yml:package": {}
+      }
+    },
+    "cedar-terminology-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-user-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-worker-server": {
+      "jobs": {
+        "ci.yml:test": {
+          "profile": "maven"
+        }
+      }
+    },
+    "cedar-workspace": {
+      "jobs": {
+        "ci.yml:adoption": {},
+        "ci.yml:package": {},
+        "ci.yml:browser": {
+          "requires": [
+            "docker"
+          ]
+        }
+      }
+    }
+  }
+}
