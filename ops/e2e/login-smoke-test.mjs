@@ -587,7 +587,7 @@ async function deleteRow(page, name, folderId) {
   throw new Error(`"${name}" was never deleted: 5 gestures, none of which sent a DELETE request`);
 }
 
-// ── controlled-term helpers ────────────────────────────────────────────────
+// ── text-entry and Designer helpers ────────────────────────────────────────
 
 // A load still in flight when the typing happens can repopulate the input once its response
 // lands, so the typing waits until the page has nothing outstanding.
