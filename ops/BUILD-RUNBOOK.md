@@ -627,7 +627,9 @@ cedarcli publish train --release-version 2.9.19 --next-version 2.9.20-SNAPSHOT -
 ```
 
 Remove `--dry-run` to dispatch after the same checks pass. The release target must
-match the train base, and the next development version must advance. Release
+match the train base, and the next development version must advance. As `release plan` does,
+the check first puts Java 17 and Node 24 on PATH when the shell offers other versions, and
+prints a `Toolchain:` line for each substitution. Release
 credentials, target refs and registry occupancy, toolchain and source contracts
 are checked before the expensive train. A failed or unreadable prerequisite
 refuses dispatch. Ordinary development trains need none of these options.
