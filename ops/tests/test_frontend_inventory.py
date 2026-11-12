@@ -67,7 +67,8 @@ class FrontendInventoryTest(unittest.TestCase):
                 commands = frontend_inventory.commands(self.config, repository, repository + '-src')
                 built = commands.index(['npm', 'run', 'build'])
                 self.assertLess(commands.index(['npm', '--prefix', '../browser', 'ci']), built)
-                self.assertLess(commands.index(['../browser/node_modules/.bin/playwright', 'install', '--with-deps', 'chromium']), built)
+                self.assertLess(commands.index(['../browser/node_modules/.bin/playwright', 'install', '--with-deps',
+                                                'chromium', 'firefox', 'webkit']), built)
                 self.assertLess(built, commands.index(['npm', '--prefix', '../browser', 'test']))
 
     def test_reusing_output_requires_its_build_command_in_the_full_gate(self):
@@ -97,10 +98,10 @@ class FrontendInventoryTest(unittest.TestCase):
         self.assertLess(commands.index(['npm', 'test']), built)
         self.assertLess(built, commands.index(['npm', 'run', 'test:visual']))
 
-    def test_designer_installs_both_engines_before_its_complete_gate(self):
+    def test_designer_installs_all_three_engines_before_its_complete_gate(self):
         commands = frontend_inventory.commands(self.config, 'cedar-embeddable-designer')
         self.assertLess(commands.index(['./browser/node_modules/.bin/playwright', 'install',
-                                        '--with-deps', 'chromium', 'webkit']),
+                                        '--with-deps', 'chromium', 'firefox', 'webkit']),
                         commands.index(['npm', 'run', 'test:ci']))
 
     def test_all_three_framework_demos_have_lint_and_tests(self):
