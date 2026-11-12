@@ -5671,8 +5671,9 @@ picker `20d1523`, CED's 2.4.3 and 2.4.7 after an eleventh, at CED `c9f410d`, and
 CEE `63d13ee2`. On 2026-11-11 the criteria a thirteenth round touched were reassessed at CED
 `cb5d44a`, CEE `0e6f0eb8`, the term picker `45a5e22` and Workspace `b4afc4c4`. The assessment
 read code and tests. Nobody ran a screen reader, and only the
-English text was judged, not the Hungarian translations. Zoom, reflow
-and text spacing are measured by each suite's layout check rather than by a person.
+English text was judged, not the Hungarian translations. Reflow and text spacing are measured by each suite's layout check. The reduced-viewport
+check is a proxy for zoom, not evidence of native browser zoom; the 2026-11-12 reassessment below
+corrects that distinction.
 
 A criterion counts as met only when every part of it is evidenced. Three kinds of evidence count:
 
@@ -5699,10 +5700,10 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 26 | 13 | 0 | 0 | 16 | 26 of 39, 67% |
-| CEE | 29 | 12 | 0 | 6 | 8 | 29 of 47, 62% |
-| Term picker | 28 | 11 | 0 | 0 | 16 | 28 of 39, 72% |
-| Workspace | 31 | 16 | 0 | 0 | 8 | 31 of 47, 66% |
+| CED | 25 | 14 | 0 | 0 | 16 | 25 of 39, 64% |
+| CEE | 28 | 13 | 0 | 6 | 8 | 28 of 47, 60% |
+| Term picker | 27 | 12 | 0 | 0 | 16 | 27 of 39, 69% |
+| Workspace | 30 | 17 | 0 | 0 | 8 | 30 of 47, 64% |
 
 CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
 its captions and descriptions are the template author's.
@@ -5764,7 +5765,7 @@ The gates now scan hover and focus states, open menus, overlays and dialogs, and
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
 has measured fails the gate. Each suite also runs `layout-resilience.spec`, which imports one
 shared checker the design-token package generates for every frontend and tests against fixture
-pages that must fail: reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text
+pages that must fail: reflow at 320 CSS pixels, a 640 by 400 viewport as a proxy for 200% zoom, WCAG's text
 spacing at 1280 pixels, the contrast of every placeholder, and the contrast of every field boundary,
 icon, focus indicator and selection mark against what it is drawn on. OpenView, Bridging,
 Monitoring and the Template Designer host run the same axe gate and layout check over their own
@@ -5773,6 +5774,62 @@ spec as a named exception, and an exception that stops occurring fails it. The d
 check refuses an exception the base revision does not record, whether a list entry, an axe rule
 switched off or a template accessibility lint rule disabled, so the recorded exceptions can only
 shrink.
+
+### Browser Coverage and Native Zoom
+
+Every modern frontend runs dedicated accessibility and layout projects in Chromium, Firefox and
+WebKit. Focus and keyboard specs join those projects where the repository has them; pixel
+baselines stay in their original projects. CI, the frontend reactor and the design-token consumer
+gate install the required engines. The shared layout checker itself runs its 70 regression fixtures
+in all three engines (210 passing tests), including shadow-root hit testing and controls covered by
+overlays. A browser-specific undecided axe result still needs a reviewed, measured explanation;
+this does not waive a violation or lower a contrast threshold.
+
+The expanded browser inventory adds **3,824 project cases**: CEE 598, CED 512, term picker 212,
+Workspace 448, OpenView 392, Bridging 370, Monitoring 626 and Template Designer host 666. The
+application suites total 9,895 cases, with the shared checker's 210 regressions counted separately.
+These are test executions across configured projects, not distinct WCAG criteria or defects.
+
+Keyboard-order fixtures use explicit host-boundary markers where Playwright cannot reliably Tab
+out to browser chrome and back. They verify application control order and modal behavior; they do
+not claim to verify the browser toolbar. The Firefox limitation was also reproduced on plain HTML
+and is tracked in [Playwright issue 39268](https://github.com/microsoft/playwright/issues/39268).
+Native Firefox scroll containers remain reachable while the tests compare application controls.
+
+The broader gates exposed and drove fixes to term-picker placeholder contrast, Material menu
+focus contrast, CEE clock/version/property glyph clipping, CED identity clipping, Firefox modal
+navigation and native-dialog Escape handling, narrow Monitoring rebuild tables, Bridging notice scroll alignment, repeated Workspace
+save announcements, and the Designer host's nested-route module startup in WebKit. The header
+line boxes retain the existing logo, text, gap and width; rendered checks verify the alignment.
+No new UI controls or browser-failure waivers were introduced.
+
+The 2026-11-12 full frontend reactor passed, including the three framework consumer demos,
+local deployment, served-component verification and every whole-stack smoke tier. The deployed
+build graph is `03865aa0a6082fcfbb74841dd8ab32c4305eca0a422419e1b458c0564eb19e2b`;
+smoke covers 41 sources with digest `f2a766f073e924a7`. This records the tested working-tree
+sources and artifacts, not release/train eligibility for a later committed head. The eight updated
+designer visual baselines differ only in the header identity's 72px-wide text area; every pixel
+outside it is unchanged, and all 25 visual cases pass.
+
+**Resize Text (1.4.4) is Partial in all eight scorecards.** A 640×400 viewport does not enlarge
+text and does not prove browser-menu zoom. The score correction reflects missing evidence, not a
+newly observed application regression. On 2026-11-12 Workspace was visually checked at Safari's
+native 200% page zoom, but that single screen does not settle every workflow. Native Firefox zoom
+was not verified. Reflow at 320 CSS pixels and WCAG text spacing remain separate automated checks.
+
+For native zoom verification, use the browser's own page-zoom control and confirm its displayed
+percentage. Start at 100%, visit intermediate levels through 200%, and check ordinary editing,
+long values, menus, errors and nested content. Use the browser's full keyboard navigation (Option-Tab/Option-Shift-Tab under Safari's default
+Mac settings, Tab/Shift+Tab with full keyboard navigation enabled) and activation keys to reach and
+operate every control, scroll to the end, and check that no content or function is clipped or
+covered. Check component embeds as well as host chrome. Record browser/version, OS, page/state,
+zoom setting and outcome; retain screenshots for findings, then restore 100%. Repeat with browser
+text-only zoom where supported. Also check native 400% page zoom from a 1280px-wide window for
+Reflow (1.4.10), recording the resulting CSS viewport and any permitted two-dimensional content.
+Device scale factors, CSS zoom and viewport resizing do not
+substitute for this record. Spoken focus and live-region behavior require the separate screen-reader
+protocol. Safari's navigation keys are documented in the
+[Apple keyboard reference](https://support.apple.com/en-gb/guide/safari/cpsh003/27.0/mac/27).
 
 ### Failures Several Components Share
 
@@ -5810,7 +5867,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
-| 1.4.4 Resize Text | AA | Met | Met | Met | Met |
+| 1.4.4 Resize Text | AA | Partial | Partial | Partial | Partial |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
 | 1.4.10 Reflow | AA | Met | Met | Met | Met |
 | 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
@@ -5883,10 +5940,10 @@ accessible authentication.
 
 | Application | Met | Partial | Fails | Unverified | N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| OpenView | 28 | 19 | 0 | 7 | 1 | 28 of 54, 52% |
-| Bridging | 28 | 20 | 0 | 7 | 0 | 28 of 55, 51% |
-| Monitoring | 28 | 14 | 4 | 1 | 8 | 28 of 47, 60% |
-| Template Designer host | 27 | 21 | 0 | 7 | 0 | 27 of 55, 49% |
+| OpenView | 27 | 20 | 0 | 7 | 1 | 27 of 54, 50% |
+| Bridging | 27 | 21 | 0 | 7 | 0 | 27 of 55, 49% |
+| Monitoring | 27 | 15 | 4 | 1 | 8 | 27 of 47, 57% |
+| Template Designer host | 26 | 22 | 0 | 7 | 0 | 26 of 55, 47% |
 
 #### Evidence and limits
 
@@ -5951,7 +6008,7 @@ The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) carries the remai
 | 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | Met | Met | N/A | Met |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
-| 1.4.4 Resize Text | AA | Met | Met | Met | Met |
+| 1.4.4 Resize Text | AA | Partial | Partial | Partial | Partial |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
 | 1.4.10 Reflow | AA | Met | Met | Met | Met |
 | 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |

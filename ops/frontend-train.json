@@ -785,7 +785,9 @@
           "./browser/node_modules/.bin/playwright",
           "install",
           "--with-deps",
-          "chromium"
+          "chromium",
+          "firefox",
+          "webkit"
         ]
       ],
       "packageDirectories": [
@@ -840,7 +842,9 @@
           "../browser/node_modules/.bin/playwright",
           "install",
           "--with-deps",
-          "chromium"
+          "chromium",
+          "firefox",
+          "webkit"
         ]
       ],
       "packageDirectories": [
@@ -905,7 +909,9 @@
           "../browser/node_modules/.bin/playwright",
           "install",
           "--with-deps",
-          "chromium"
+          "chromium",
+          "firefox",
+          "webkit"
         ]
       ],
       "packageDirectories": [
@@ -973,7 +979,9 @@
           "../browser/node_modules/.bin/playwright",
           "install",
           "--with-deps",
-          "chromium"
+          "chromium",
+          "firefox",
+          "webkit"
         ]
       ],
       "packageDirectories": [
@@ -1121,12 +1129,25 @@
         [
           "npm",
           "ci"
+        ],
+        [
+          "./node_modules/.bin/playwright",
+          "install",
+          "--with-deps",
+          "chromium",
+          "firefox",
+          "webkit"
         ]
       ],
       "verify": [
         [
           "npm",
           "test"
+        ],
+        [
+          "npm",
+          "run",
+          "test:browser"
         ]
       ]
     },
@@ -1244,6 +1265,7 @@
           "install",
           "--with-deps",
           "chromium",
+          "firefox",
           "webkit"
         ]
       ],

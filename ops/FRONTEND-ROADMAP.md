@@ -376,6 +376,9 @@ screen reader speaks the live region's messages, in what order, or whether one i
   a running rebuild's state, and that resuming shows current data.
 - Announce Monitoring's log loading, query failures and result counts without moving focus or
   repeating unchanged polling results. Extend the screen-reader protocol to verify actual speech.
+- Complete the [native zoom protocol](FRONTEND-RUNBOOK.md#browser-coverage-and-native-zoom)
+  across all eight frontends and supported browsers, including intermediate levels through 200%.
+  The reduced-viewport checks do not settle Resize Text; preserve evidence per workflow.
 - Verify each host's real sign-in, password-manager/paste use, session expiry and work-preserving
   recovery. The current browser fixtures replace the identity provider and do not settle 3.3.8.
 - Close the Partial host ratings with criterion-level evidence, including integrated host/component
