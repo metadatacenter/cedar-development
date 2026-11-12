@@ -4019,13 +4019,17 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
 `contract`, `deletion`, `download`, `error-reports`, `errors`, `finding`, `folders`, `freeze`,
 `group-sharing`, `groups`, `inclusion`, `mcp`, `negotiation`, `openness`, `pagination`, `pull-versions`,
-`search`, `sharing`, `validation` and `versioning`. The committed
+`search`, `sharing`, `term-search`, `validation` and `versioning`. The committed
 `rest/expected-checks.json` inventory records exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
 them. Only HTTP 404 from version discovery permits that skip; authentication errors, server errors
-and malformed successful replies fail. Cleanup verifies HTTP 404 after deletion; an unsuccessful
+and malformed successful replies fail. `term-search` follows the same rule for its twelve checks. It
+asks the terminology server one search of each kind the term picker makes, for classes, branches,
+an ontology, value sets and properties, and holds each answer to the rule the picker applies before
+it reads one. The picker's own tests answer from responses written by hand, so this is the one place
+a change in the server's answers meets what the picker accepts. Cleanup verifies HTTP 404 after deletion; an unsuccessful
 read is not evidence of absence. `download` includes JSON / YAML / compact-YAML export and
 read-negotiation across all four artifact kinds.
 
@@ -4063,7 +4067,7 @@ measured setting. Use `--rest-workers 1` for the serial diagnostic path. For an 
 `npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
 REST invocation does not replace the release smoke gate.
 
-Fourteen audited suites may overlap. Each has its own working folder, asynchronous
+Fifteen audited suites may overlap. Each has its own working folder, asynchronous
 check context, creation tracking and cleanup registry. The `folders`, `groups`,
 `categories`, `authentication`, `pagination` and `contract` suites run exclusively
 after that parallel batch: their home guards, protected group operations, category

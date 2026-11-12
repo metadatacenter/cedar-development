@@ -1154,7 +1154,8 @@ release, and the record reopens with it. Publishing keeps the author's release, 
 published template reads the branch at that release too. The journey first asks the terminology
 server whether the local store still tells the two releases apart, and fails with a message about
 the store when it does not. Run `npm run smoke:journey -- pinned-branch`; it also runs in the modern
-Workspace smoke.
+Workspace smoke. The REST tier's `term-search` suite checks the server's answers to the picker's
+other searches, for ontologies, value sets and properties, against the rule the picker applies.
 The duplication journey copies templates, elements, standalone fields and metadata through
 Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
 It compares content, checks derivation and fresh draft-series identity, and verifies that neither
