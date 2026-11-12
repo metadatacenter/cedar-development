@@ -455,8 +455,22 @@ which artifact the web server is actually serving. A completed release reports `
 COMPLETE` and shows acceptance at `1/1`.
 
 An accepted release advances `develop` in every repository it integrated and leaves the local
-checkouts on the commits before it, so it prints what the next train needs: `cedarcli git pull`,
-then `cedarcli check ci` and `cedarcli test e2e` at the new heads.
+checkouts on the commits before it, the consumers on the packages it pinned, the lock baselines
+stale and the running services on jars of the released version. One command finishes all of it on
+this workstation:
+
+```bash
+cedarcli release follow-through --jobs 3 --workers 12
+```
+
+It pulls every checkout, returns the consumers to the development packages with `publish components
+--apply --push --settle`, refreshes the lock baselines and commits and pushes them, dispatches the
+design-token contracts those pushes left stale, builds Java, restarts the microservices, and runs
+the frontend reactor, whose whole-stack smoke records the run the next train needs. It stops at the
+first step that fails and names the `--from <step>` that resumes after the repair. `--dry-run`
+lists the steps. It refuses to commit the baselines when someone else holds uncommitted changes to
+`ops/frontend-train.json`, or when an advisory count moved, which needs a dependency review. After
+release 2.9.35 these steps took about an hour by hand.
 
 After successful acceptance, the controller retains the current `release/pre-<version>` and
 `release/post-<next>` branches and removes older pairs, whose trees remain tagged. A refused delete
