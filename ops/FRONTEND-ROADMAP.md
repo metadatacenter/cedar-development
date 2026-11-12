@@ -358,16 +358,29 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ## Accessibility
 
-### 10. Run CED's Screen-Reader Protocol
+### 10. Complete Accessibility Verification and Monitoring Keyboard Support
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
-picker and Workspace against the 55 success criteria of WCAG 2.2 at levels A and AA. Every failure
-it recorded that a browser suite can measure has been fixed. What no suite can settle is what a
-screen reader speaks.
+picker, Workspace and all four modern host applications against the 55 success criteria of WCAG
+2.2 at levels A and AA. Complete the following remaining work; green axe scans do not settle it.
 
 Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with VoiceOver and
 Safari and with NVDA and Firefox, and fix what it finds. The browser suite cannot tell whether a
 screen reader speaks the live region's messages, in what order, or whether one interrupts another.
+
+- Give Monitoring's log row expansion, cell copying and trace opening keyboard routes and expose
+  the controls' names, roles and states. Give the trace overlay named-dialog semantics and verify
+  focus entry, containment, Escape and return. Preserve the agreed normal layout.
+- Agree and add a pause/frequency control for Health Checks, Queue Counts and Search Index, using
+  the existing Worker Lag/JVM refresh pattern. Prove that pausing stops updates without losing
+  a running rebuild's state, and that resuming shows current data.
+- Announce Monitoring's log loading, query failures and result counts without moving focus or
+  repeating unchanged polling results. Extend the screen-reader protocol to verify actual speech.
+- Verify each host's real sign-in, password-manager/paste use, session expiry and work-preserving
+  recovery. The current browser fixtures replace the identity provider and do not settle 3.3.8.
+- Close the Partial host ratings with criterion-level evidence, including integrated host/component
+  focus order, color-independent cues, error suggestions and DOI creation's error prevention.
+
 
 <a id="ced"></a>
 

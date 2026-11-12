@@ -5758,7 +5758,7 @@ pages that must fail: reflow at 320 CSS pixels, a 640 by 400 viewport for 200% z
 spacing at 1280 pixels, the contrast of every placeholder, and the contrast of every field boundary,
 icon, focus indicator and selection mark against what it is drawn on. OpenView, Bridging,
 Monitoring and the Template Designer host run the same axe gate and layout check over their own
-pages, though this report does not score them. A finding that needs a visible change is recorded in the
+pages; their full criterion assessment appears below. A finding that needs a visible change is recorded in the
 spec as a named exception, and an exception that stops occurring fails it. The design-token adoption
 check refuses an exception the base revision does not record, whether a list entry, an axe rule
 switched off or a template accessibility lint rule disabled, so the recorded exceptions can only
@@ -5841,6 +5841,147 @@ that touches it, and update the assessment date and commits with it.
 | 3.3.8 Accessible Authentication (Minimum) | AA | Host | Host | Host | N/A |
 | 4.1.2 Name, Role, Value | A | Partial | Partial | Partial | Partial |
 | 4.1.3 Status Messages | AA | Partial | Met | Partial | Partial |
+
+### Modern Host Application Assessment
+
+Assessed on 2026-11-12 against the source and browser suites of OpenView, Bridging, Monitoring
+and the Template Designer host. This extends the four component scorecards above; their older
+zero-failure result does not include the Monitoring failures below. These scores use the same
+55 criteria and statuses. They describe the tested application journeys, not a production-wide
+conformance claim or a screen-reader assessment.
+
+The scope includes OpenView's folder, artifact, preview, try-out and error pages; Bridging's DOI
+opening, draft save, creation and failure paths; Monitoring's registered reports, log explorer,
+trace and rebuild paths; and the Template Designer host's opening, editing, validation, save,
+version, recovery and access-change paths. Legacy Template Editor is excluded.
+
+An embedded component is not exempt because the host's axe scan excludes its shadow root. OpenView
+and Bridging inherit CEE's applicable limits; the Template Designer host inherits CED, CEE/CEF and
+CETP limits. The host suites prove their boundary and state transitions, and the component suites
+prove their own controls. Their separate green runs do not prove integrated keyboard order or spoken
+announcements, which remain Partial. Template-authored media and input purposes inherit CEE's
+Unverified verdicts. Monitoring has no media or personal-data entry. OpenView's try-out does not
+write data, so 3.3.4 is N/A there; Monitoring's report/reindex controls do not edit user-authored
+records, so it is N/A there too. DOI creation and Designer saves require further error-prevention
+review and remain Partial.
+
+The real Keycloak login, password-manager/paste behavior, session expiry and recovery are outside the
+fixture suites: Bridging and Monitoring stub Keycloak; the Designer host supplies a fixture user;
+OpenView's login action leaves the public viewer. Authentication is therefore **Unverified**, not
+N/A, for all four complete journeys, and timing stays Partial. A signed-in fixture does not prove
+accessible authentication.
+
+| Application | Met | Partial | Fails | Unverified | N/A | Score |
+| --- | --- | --- | --- | --- | --- | --- |
+| OpenView | 28 | 19 | 0 | 7 | 1 | 28 of 54, 52% |
+| Bridging | 28 | 20 | 0 | 7 | 0 | 28 of 55, 51% |
+| Monitoring | 28 | 14 | 4 | 1 | 8 | 28 of 47, 60% |
+| Template Designer host | 27 | 21 | 0 | 7 | 0 | 27 of 55, 49% |
+
+#### Evidence and limits
+
+The 2026-11-12 frontend reactor build `d280f4dc47ebb6f8fa836f164dd72ee6dc821c62571341f0dc62102c4ba0c632`
+passed the four host browser suites: OpenView 379, Bridging 229, Monitoring 532 and Template Designer
+739 tests. It also passed deployment and served-bundle verification. The graph retains exact source
+digests and component artifacts, including the uncommitted Bridging and Monitoring fixes assessed
+here. Bridging's ordinary form and returned-DOI notice were rendered and visually reviewed; the
+normal page has no notification, and the result retains the existing layout and Dismiss control.
+Whole-stack smoke subsequently passed for all 41 captured sources (digest `707fbf3d4da2e1df`),
+after rebuilding and restarting the local terminology service to match its current source. This
+checks the working tree; the dirty-source record is not release/train eligibility evidence.
+
+Paths below are relative to the named repository. Each application has `browser/tests/accessibility.spec.mjs`
+and `browser/tests/layout-resilience.spec.mjs`. Their scans cover names, roles, labels, text contrast
+and target size; the shared layout checks cover reflow, resize, spacing, placeholders, boundaries and
+indicators. Those are evidence for 1.1.1, 1.4.3–1.4.12, 2.5.3 and the measured targets in 2.5.8.
+The resize check is a viewport proxy for zoom; actual browser zoom remains a separate verification.
+
+| Evidence | Criteria it informs and remaining limits |
+| --- | --- |
+| OpenView `browser/tests/folder-cards.spec.mjs`, `translations.spec.mjs`, `response-matrix.spec.mjs`; `cedar-openview-src/src/app/app.component.{ts,html}` | Preview opening, Escape and focus return; translated page language/title and marked English-only fragments; load/refusal states; main landmark. Informs 2.4.1–2.4.4, 3.1.1–3.1.2, 3.3.1 and 4.1.3. Template content and speech still need review. |
+| Bridging `browser/tests/doi-matrix.spec.mjs`, `notices.spec.mjs`; `cedar-bridging-src/src/app/modules/shared/components/doi-{requester,saver}/` | Both DOI actions, server answers, persistent live regions, retained success DOI, dismissal and focus return. The five-second success timeout is removed by agreement; session timing remains Partial. Creation's prevention/reversibility is not established by a successful POST. |
+| Monitoring `browser/tests/response-matrix.spec.mjs`, `store-unavailable.spec.mjs`, `no-access.spec.mjs`, `accessibility.spec.mjs`; `cedar-monitoring-src/src/app/modules/resources/pages/` | Refusals, unavailable reports, named tables and scroll regions; copy status and rebuild state/error/progress semantics. These do not settle every dynamically updated report or make mouse-only log interactions keyboard accessible. |
+| Template Designer `browser/tests/host-states.mjs`, `opening-access.spec.mjs`, `save-matrix.spec.mjs`, `save-recovery.spec.mjs`, `save-uncertainty.spec.mjs`, `draft-recovery.spec.mjs`; `app/index.html` | Named native version dialog, persistent status/error regions, retained drafts, uncertain writes, access changes and version confirmation. Embedded editing and real sign-in retain the limits described above. |
+| All four application templates, event handlers and styles | Document order, landmarks, titles/language, shared navigation and explicit click activation; no orientation lock, motion activation, multipoint gestures, character-only shortcuts or application-authored flashing. Gives source evidence for the applicable Met rows. Arbitrary embedded media is covered separately by the media rows. |
+
+Monitoring has four confirmed failing ratings:
+
+- **2.1.1 Keyboard:** `log-explorer.component.html` delegates row expansion and cell copying to
+  `tbody (click)`; the caret and copyable cells have no keyboard activation. This also blocks the
+  route into request traces.
+- **2.2.2 Pause, Stop, Hide:** `health-checks.component.ts`, `queue-counts.component.ts` and
+  `search-index.component.ts` schedule automatic refresh with no pause/frequency control. Worker Lag
+  and JVM Insight do have a refresh checkbox; that does not cover the other reports.
+- **4.1.2 Name, Role, Value:** the log caret and copy cells expose table content rather than their
+  interactive role/state, and the trace scrim/pane is not a named dialog.
+- **4.1.3 Status Messages:** the copy and rebuild fixes cover those paths, but the log query's
+  loading/error/result-count updates still have no status semantics. No claim of complete
+  announcement support follows from the targeted fixes.
+
+Monitoring's target-size verdict stays Partial because an axe scan of recognised controls cannot
+establish the target size of those unrecognised click handlers. All four applications retain Partial
+keyboard/focus, color-cue and error-suggestion ratings where tests have not settled every interaction.
+The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) carries the remaining work.
+
+#### Host Applications by Criterion
+
+| Criterion | Level | OpenView | Bridging | Monitoring | Template Designer host |
+| --- | --- | --- | --- | --- | --- |
+| 1.1.1 Non-text Content | A | Met | Met | Met | Met |
+| 1.2.1 Audio-only and Video-only (Prerecorded) | A | Unverified | Unverified | N/A | Unverified |
+| 1.2.2 Captions (Prerecorded) | A | Unverified | Unverified | N/A | Unverified |
+| 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | Unverified | Unverified | N/A | Unverified |
+| 1.2.4 Captions (Live) | AA | Unverified | Unverified | N/A | Unverified |
+| 1.2.5 Audio Description (Prerecorded) | AA | Unverified | Unverified | N/A | Unverified |
+| 1.3.1 Info and Relationships | A | Partial | Partial | Partial | Partial |
+| 1.3.2 Meaningful Sequence | A | Partial | Partial | Met | Partial |
+| 1.3.3 Sensory Characteristics | A | Partial | Partial | Partial | Partial |
+| 1.3.4 Orientation | AA | Met | Met | Met | Met |
+| 1.3.5 Identify Input Purpose | AA | Unverified | Unverified | N/A | Unverified |
+| 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
+| 1.4.2 Audio Control | A | Met | Met | N/A | Met |
+| 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
+| 1.4.4 Resize Text | AA | Met | Met | Met | Met |
+| 1.4.5 Images of Text | AA | Met | Met | Met | Met |
+| 1.4.10 Reflow | AA | Met | Met | Met | Met |
+| 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
+| 1.4.12 Text Spacing | AA | Met | Met | Met | Met |
+| 1.4.13 Content on Hover or Focus | AA | Partial | Partial | Partial | Partial |
+| 2.1.1 Keyboard | A | Partial | Partial | Fails | Partial |
+| 2.1.2 No Keyboard Trap | A | Partial | Partial | Partial | Partial |
+| 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
+| 2.2.1 Timing Adjustable | A | Partial | Partial | Partial | Partial |
+| 2.2.2 Pause, Stop, Hide | A | Met | Met | Fails | Met |
+| 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
+| 2.4.1 Bypass Blocks | A | Met | Met | Met | Met |
+| 2.4.2 Page Titled | A | Met | Met | Met | Met |
+| 2.4.3 Focus Order | A | Partial | Partial | Partial | Partial |
+| 2.4.4 Link Purpose (In Context) | A | Met | Met | Met | Met |
+| 2.4.5 Multiple Ways | AA | Partial | Partial | Partial | Partial |
+| 2.4.6 Headings and Labels | AA | Partial | Partial | Partial | Partial |
+| 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
+| 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
+| 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
+| 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
+| 2.5.3 Label in Name | A | Met | Met | Met | Met |
+| 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
+| 2.5.7 Dragging Movements | AA | Met | Met | Met | Met |
+| 2.5.8 Target Size (Minimum) | AA | Met | Met | Partial | Met |
+| 3.1.1 Language of Page | A | Met | Met | Met | Met |
+| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Partial |
+| 3.2.1 On Focus | A | Met | Met | Met | Partial |
+| 3.2.2 On Input | A | Met | Met | Met | Met |
+| 3.2.3 Consistent Navigation | AA | Met | Met | Met | Met |
+| 3.2.4 Consistent Identification | AA | Partial | Partial | Partial | Partial |
+| 3.2.6 Consistent Help | A | Met | Met | Met | Met |
+| 3.3.1 Error Identification | A | Met | Met | Met | Met |
+| 3.3.2 Labels or Instructions | A | Partial | Partial | Met | Partial |
+| 3.3.3 Error Suggestion | AA | Partial | Partial | Partial | Partial |
+| 3.3.4 Error Prevention (Legal, Financial, Data) | AA | N/A | Partial | N/A | Partial |
+| 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
+| 3.3.8 Accessible Authentication (Minimum) | AA | Unverified | Unverified | Unverified | Unverified |
+| 4.1.2 Name, Role, Value | A | Partial | Partial | Fails | Partial |
+| 4.1.3 Status Messages | AA | Partial | Partial | Fails | Partial |
 
 ## Surface inventory and token coverage
 
