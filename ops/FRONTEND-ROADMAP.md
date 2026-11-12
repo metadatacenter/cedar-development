@@ -379,6 +379,12 @@ screen reader speaks the live region's messages, in what order, or whether one i
 - Complete the [native zoom protocol](FRONTEND-RUNBOOK.md#browser-coverage-and-native-zoom)
   across all eight frontends and supported browsers, including intermediate levels through 200%.
   The reduced-viewport checks do not settle Resize Text; preserve evidence per workflow.
+- Add an explicit CEE author/host declaration of personal input purpose, with scoped autocomplete
+  tokens for covered current-user fields. Preserve the existing default for generic metadata and
+  fields about other people; verify repeated/nested instances and browser autofill before enabling it.
+- Review actual template-authored media, including caption accuracy, transcripts or alternatives,
+  audio description and live captions. Record the video, language and deployed player outcome;
+  the stubbed YouTube iframe checks cannot settle these five criteria.
 - Verify each host's real sign-in, password-manager/paste use, session expiry and work-preserving
   recovery. The current browser fixtures replace the identity provider and do not settle 3.3.8.
 - Close the Partial host ratings with criterion-level evidence, including integrated host/component

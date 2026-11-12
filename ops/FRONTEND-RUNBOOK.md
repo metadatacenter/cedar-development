@@ -5701,12 +5701,14 @@ criteria do not apply.
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
 | CED | 25 | 14 | 0 | 0 | 16 | 25 of 39, 64% |
-| CEE | 28 | 13 | 0 | 6 | 8 | 28 of 47, 60% |
+| CEE | 28 | 13 | 1 | 5 | 8 | 28 of 47, 60% |
 | Term picker | 27 | 12 | 0 | 0 | 16 | 27 of 39, 69% |
 | Workspace | 30 | 17 | 0 | 0 | 8 | 30 of 47, 64% |
 
-CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
-its captions and descriptions are the template author's.
+CEE's five Unverified criteria are media-content checks. The 2026-11-12 source review establishes
+that 1.3.5 fails when a form collects covered personal information; it does not establish the
+quality or availability of a particular video's captions or alternatives. The review below records
+that distinction and the author/host responsibilities.
 
 On 2026-10-19 the four scored 41%, 34%, 51% and 43%, with 39 failures between them. The first round
 of fixes cut the failures to 26. Most of the criteria it touched moved from Fails to Partial rather
@@ -5759,7 +5761,8 @@ term picker's results became a list of rows whose names are buttons, and CED's c
 results a grid, which moved the picker's 1.3.1 and 4.1.2 and CED's 4.1.2 from Fails to Partial.
 Workspace's listing became a grid whose rows state their selection, and a repeated notice is
 announced again, but its 1.3.1, 4.1.2 and 4.1.3 stay Partial, because no screen reader has
-confirmed them. No criterion fails now.
+confirmed them. No criterion failed in that thirteenth-round assessment. The later input-purpose
+review below records a known failure in CEE when personal-information fields apply.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
@@ -5774,6 +5777,41 @@ spec as a named exception, and an exception that stops occurring fails it. The d
 check refuses an exception the base revision does not record, whether a list entry, an axe rule
 switched off or a template accessibility lint rule disabled, so the recorded exceptions can only
 shrink.
+
+### CEE Media and Input-Purpose Review
+
+The 2026-11-12 review covers the current CEE/CEF source and public embedding contract, excluding
+legacy code. It resolves what the code establishes without treating a stubbed external player as
+content verification. Five media criteria remain Unverified; 1.3.5 moves from Unverified to Fails
+for forms collecting the current user's covered personal information. No Met count rises from this
+review. Inherited host failures are the same component limitation, not three additional defects.
+
+| Criterion | Evidence in the current implementation | Verdict and remaining verification |
+| --- | --- | --- |
+| 1.2.1 Audio-only and Video-only (Prerecorded) | Static rich text can carry an adjacent transcript or link. The default sanitizer does not admit native audio/video markup. A YouTube field can still contain audio-only or silent video. | Unverified: review the actual media and the completeness of its alternative. |
+| 1.2.2 Captions (Prerecorded) | The standard YouTube iframe is retained; CEE does not provide caption tracks, validate them or retain supplied player query parameters. | Unverified: check that accurate synchronized captions are available in the deployed player. |
+| 1.2.3 Audio Description or Media Alternative (Prerecorded) | Adjacent descriptive text or a link can be authored, and an already described video can be embedded. | Unverified: assess whether the alternative conveys the whole presentation, including relevant visual information. |
+| 1.2.4 Captions (Live) | The video-ID parser accepts `/live/` URLs; live synchronized content is supported in principle. | Unverified, not N/A: verify live captions for each live use. |
+| 1.2.5 Audio Description (Prerecorded) | CEE can embed a video with description in its soundtrack; it exposes no separate description-track contract or content check. | Unverified: listen to the actual soundtrack or identified described version. A transcript alone does not meet this AA criterion. |
+| 1.3.5 Identify Input Purpose | Text, email and phone templates set `autocomplete="off"`. The public config and runtime config schema provide no purpose mapping; the text-input harness enforces the off attribute. | Fails when covered user-information fields apply. An explicit declaration must distinguish the current user from another person before purpose tokens can be rendered. |
+
+Source evidence in `cedar-embeddable-editor`: `cedar-static-youtube.component.ts/html`,
+`youtube-video-id.ts`, `template-markup-policy.ts`, `cee-public-api.ts`, `config-reader.ts`,
+`config-validation.ts`, the `cedar-input-text/email/phone` templates, and
+`harness/test/text-inputs.spec.ts`. The YouTube case in
+`visual/tests/cross-browser-smoke.spec.ts` intercepts the iframe with a blank document: its title,
+URL and sizing assertions cannot establish captions, audio descriptions or the real player's
+keyboard operation. The field description renders as ordinary text below the iframe.
+`trustTemplateRichText: true` bypasses the default sanitizer and expands the host's review scope.
+
+The [CEE README](https://github.com/metadatacenter/cedar-embeddable-editor/blob/develop/README.md#accessibility-responsibilities)
+gives the author checklist. The distinctions follow W3C's
+[Identify Input Purpose](https://www.w3.org/WAI/WCAG22/Understanding/identify-input-purpose.html) and
+[Audio Description](https://www.w3.org/WAI/WCAG22/Understanding/audio-description-prerecorded.html)
+guidance. YouTube's [player parameters](https://developers.google.com/youtube/player_parameters)
+describe available player controls; they do not establish that an individual video has the required
+tracks. A future media assessment must record the actual video, language, alternatives, player and
+review outcome before any of these five ratings can become Met.
 
 ### Browser Coverage and Native Zoom
 
@@ -5833,9 +5871,10 @@ protocol. Safari's navigation keys are documented in the
 
 ### Failures Several Components Share
 
-No failure recurs across components now. Three had shared causes, and each was fixed where its
-cause lives. Every target is at least 24px tall, from the shared minimum target size, or has a
-larger equivalent target, as CED's field header is for its settings toggle. Text inputs draw their
+The component-level 1.3.5 failure also applies to hosts embedding CEE for personal-information
+entry. Earlier visual failures had three shared causes, each fixed where its cause lives. Every
+target is at least 24px tall, from the shared minimum target size, or has a larger equivalent target,
+as CED's field header is for its settings toggle. Text inputs draw their
 boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
 field sits on a panel. A selection tint of about
 1.2:1 is never a selection's only mark. A selected item takes `patterns.selected-outline` or, where
@@ -5863,7 +5902,7 @@ that touches it, and update the assessment date and commits with it.
 | 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
-| 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
+| 1.3.5 Identify Input Purpose | AA | N/A | Fails | N/A | N/A |
 | 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
@@ -5926,9 +5965,11 @@ An embedded component is not exempt because the host's axe scan excludes its sha
 and Bridging inherit CEE's applicable limits; the Template Designer host inherits CED, CEE/CEF and
 CETP limits. The host suites prove their boundary and state transitions, and the component suites
 prove their own controls. Their separate green runs do not prove integrated keyboard order or spoken
-announcements, which remain Partial. Template-authored media and input purposes inherit CEE's
-Unverified verdicts. Monitoring has no media or personal-data entry. OpenView's try-out does not
-write data, so 3.3.4 is N/A there; Monitoring's report/reindex controls do not edit user-authored
+announcements, which remain Partial. Template-authored media inherits CEE's five Unverified
+verdicts. Personal-information entry inherits its 1.3.5 failure when applicable; the host scorecards
+conservatively include that supported use rather than assuming every template asks only about
+specimens or other people. Monitoring has no media or personal-data entry. OpenView's try-out does
+not write data, so 3.3.4 is N/A there; Monitoring's report/reindex controls do not edit user-authored
 records, so it is N/A there too. DOI creation and Designer saves require further error-prevention
 review and remain Partial.
 
@@ -5940,10 +5981,16 @@ accessible authentication.
 
 | Application | Met | Partial | Fails | Unverified | N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| OpenView | 27 | 20 | 0 | 7 | 1 | 27 of 54, 50% |
-| Bridging | 27 | 21 | 0 | 7 | 0 | 27 of 55, 49% |
+| OpenView | 27 | 20 | 1 | 6 | 1 | 27 of 54, 50% |
+| Bridging | 27 | 21 | 1 | 6 | 0 | 27 of 55, 49% |
 | Monitoring | 27 | 15 | 4 | 1 | 8 | 27 of 47, 57% |
-| Template Designer host | 26 | 22 | 0 | 7 | 0 | 26 of 55, 47% |
+| Template Designer host | 26 | 22 | 1 | 6 | 0 | 26 of 55, 47% |
+
+Across all eight scorecards, 383 criterion/application ratings apply: **217 Met, 134 Partial,
+8 Fails and 24 Unverified**. The other 57 ratings are 24 Host and 33 N/A. These are ratings, not
+independent defects: the eight failures consist of four Monitoring criteria and CEE's input-purpose
+limitation counted in CEE and its three hosts. The aggregate is not a conformance certification or
+a like-for-like comparison with the earlier four-component release assessment.
 
 #### Evidence and limits
 
@@ -6004,7 +6051,7 @@ The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) carries the remai
 | 1.3.2 Meaningful Sequence | A | Partial | Partial | Met | Partial |
 | 1.3.3 Sensory Characteristics | A | Partial | Partial | Partial | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
-| 1.3.5 Identify Input Purpose | AA | Unverified | Unverified | N/A | Unverified |
+| 1.3.5 Identify Input Purpose | AA | Fails | Fails | N/A | Fails |
 | 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | Met | Met | N/A | Met |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
