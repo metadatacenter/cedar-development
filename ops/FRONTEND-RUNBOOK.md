@@ -1938,6 +1938,7 @@ The commit/CI requirements in this section apply to this publication command onl
 cedarcli publish components                # report what would move
 cedarcli publish components --apply        # publish, repoint, re-stage
 cedarcli publish components --component ced
+cedarcli publish components --apply --push --settle   # after a release: every pass, committed
 ```
 
 Each component is declared in `cedar-development/ops/frontend-train.json` under `components`. A
@@ -1994,7 +1995,16 @@ composition; verify served
 bundle identities again after any packaging or publication work.
 
 Reporting is the default because an npm version once taken cannot be republished. Every repository it would write to must be clean in its tracked
-files first, so the diffs left behind are its own, and nothing is committed.
+files first, so the diffs left behind are its own. By default nothing is committed.
+
+`--commit` commits each repository's moves, with a subject naming the pins it moved and a body
+listing each package and version. A later pass amends the command's own commit while that commit is
+unpushed, so a consumer takes one commit however many passes move it. `--push` commits and pushes.
+`--settle`, which needs `--push`, runs the passes a release's aftermath takes. A pass that moves a
+component's own pins pushes that component, waits up to thirty minutes for CI to publish what its
+consumers follow, and passes again until nothing moves, at most four times. Consumers are pushed
+after the last pass. After release 2.9.35 this took two passes, with CEE's CI publishing in
+between.
 
 Run the consumers' suites before committing what a run moved. A library change that passes its own
 CI can still fail a consumer whose fixtures or size budgets it tightens, because a consumer's CI runs
