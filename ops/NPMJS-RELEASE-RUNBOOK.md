@@ -124,6 +124,8 @@ It refuses a run when any of the following holds:
   gated;
 - the release tag already exists, a pull request from `develop` to `main` is already open, or the
   version is already on npmjs or is not newer than the public `latest`;
+- a changelog holds notes under `## [Unreleased]`, which the release entry would leave above it,
+  so they belong in `--notes` and the section comes off `develop` first;
 - a component pins a model version npmjs does not serve, and the run does not release it;
 - a lock names a Nexus package Nexus no longer serves;
 - a component's `develop` does not pin one development model that Nexus still serves, which the
