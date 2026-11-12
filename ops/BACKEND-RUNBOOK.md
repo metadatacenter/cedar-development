@@ -4125,6 +4125,21 @@ eight seconds to the recorded time. A gate record is named by the digest of the 
 so a second run against unchanged sources replaces the first run's record, which is how the third
 run's breakdown was lost.
 
+On 2026-11-12, against clean sources and an otherwise idle workstation, a gate that ran the four
+tiers in sequence took 363.5 seconds. Two gates that ran the REST tier beside the others took 256.4
+and 257.9, about 29% less. All three passed. The REST tier now finishes inside the browser and split
+tiers, so a run lasts as long as the browser, split and search tiers end to end, plus the CLI's
+preflight. Two gates on 2026-11-11, before the split tier's lanes changed, had taken 412.0 and 416.7
+seconds.
+
+| Tier | Checks | In sequence, seconds | REST beside the others, seconds |
+| --- | ---: | ---: | --- |
+| REST, four workers | 2,332 | 106 | 86, 88 |
+| Browser smoke | | 62 | 64, 63 |
+| Split-frontend journeys, five general lanes | 270 | 114 | 115, 115 |
+| Artifact search matrix | 1,248 | 81 | 77, 80 |
+| Whole run, as recorded | | 363.5 | 256.4, 257.9 |
+
 Development E2E requires **packages from the current development sources of ALL components**, including every
 frontend library and embedded component in every host. Follow the
 [mandatory reactor freshness contract](FRONTEND-RUNBOOK.md#the-reactor) before running this gate.
