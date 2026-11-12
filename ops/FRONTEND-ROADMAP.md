@@ -360,30 +360,48 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ### 10. Complete Accessibility Verification
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
-picker, Workspace and all four modern host applications against the 55 success criteria of WCAG
-2.2 at levels A and AA. Complete the following remaining work; green axe scans do not settle it.
+Close the remaining Fails, Partial and Unverified ratings in the
+[conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance), against all 55 WCAG 2.2 A/AA
+criteria for CED, CEE, the term picker, Workspace, OpenView, Bridging, Monitoring and the Template
+Designer host. Keep legacy Template Editor and legacy code outside this work. Verify complete
+host/component journeys: a component's Host rating assigns responsibility to its embedding page,
+and does not exempt that page. Keep justified N/A ratings distinct from missing evidence.
 
-Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with VoiceOver and
-Safari and with NVDA and Firefox, and fix what it finds. The browser suite cannot tell whether a
-screen reader speaks the live region's messages, in what order, or whether one interrupts another.
-
-- Run the [Monitoring screen-reader protocol](FRONTEND-RUNBOOK.md#monitoring-screen-reader-protocol)
-  with VoiceOver/Safari and NVDA/Firefox. Verify spoken query results and failures, row/cell names,
-  trace entry and focus return, and quiet unchanged polling; DOM semantics do not establish speech.
-- Complete the [native zoom protocol](FRONTEND-RUNBOOK.md#browser-coverage-and-native-zoom)
-  across all eight frontends and supported browsers, including intermediate levels through 200%.
-  The reduced-viewport checks do not settle Resize Text; preserve evidence per workflow.
+- Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) and
+  [Monitoring protocol](FRONTEND-RUNBOOK.md#monitoring-screen-reader-protocol) with VoiceOver/Safari
+  and NVDA/Firefox, and fix what they find. Cover editing, validation, saving, dialogs, query results
+  and failures, row/cell names, trace entry and focus return, and quiet unchanged polling. Verify
+  actual speech, order and interruption; DOM semantics and separate green component suites do not
+  establish the integrated experience.
 - Add an explicit CEE author/host declaration of personal input purpose, with scoped autocomplete
   tokens for covered current-user fields. Preserve the existing default for generic metadata and
-  fields about other people; verify repeated/nested instances and browser autofill before enabling it.
-- Review actual template-authored media, including caption accuracy, transcripts or alternatives,
-  audio description and live captions. Record the video, language and deployed player outcome;
-  the stubbed YouTube iframe checks cannot settle these five criteria.
+  fields about other people; verify repeated/nested instances and browser autofill before enabling
+  it. Verify the fix in CEE and its three affected hosts; these ratings share one underlying defect.
+- Complete the [native zoom protocol](FRONTEND-RUNBOOK.md#browser-coverage-and-native-zoom)
+  across all eight frontends and supported browsers: intermediate levels through 200%, text-only
+  zoom where supported, and 400% page zoom for reflow. Check ordinary editing, long values, nested
+  content, menus and errors. Reduced viewports and one checked screen do not settle whole workflows.
 - Verify each host's real sign-in, password-manager/paste use, session expiry and work-preserving
-  recovery. The current browser fixtures replace the identity provider and do not settle 3.3.8.
-- Close the Partial host ratings with criterion-level evidence, including integrated host/component
-  focus order, color-independent cues, error suggestions and DOI creation's error prevention.
+  recovery. Identity-provider fixtures and functional smoke do not settle accessible authentication
+  or timing; record the real journey and its accessibility outcome.
+- Review actual template-authored media, including caption accuracy, transcripts or alternatives,
+  audio description, live captions and player keyboard operation. Record the video, language,
+  alternatives and deployed player outcome; stubbed iframe checks cannot settle the five media
+  criteria. Include the wider content surface when a host permits trusted rich text.
+- Close the remaining Partial ratings with criterion-level evidence across components and hosts:
+  complete keyboard paths, integrated focus order, visible and unobscured focus, programmatic names
+  and states, color-independent cues, headings, instructions and error suggestions. Review error
+  prevention for DOI creation, Designer saves and Workspace destructive actions, and finish
+  Workspace timing, moving-content and drag-alternative verification.
+- Have a competent Hungarian reviewer assess translated labels, instructions, errors and spoken
+  announcements in real journeys. Layout coverage does not establish translation quality or speech.
+
+For each closure, record the affected criterion and surface, source/build identity, browser and
+assistive-technology versions where relevant, journey/state, expected and observed outcome, and
+retained evidence in the runbook. Add reproducible regressions to the appropriate existing browser
+projects, preserving measured thresholds and the guard against new unreviewed exceptions. Leave a
+rating Partial or Unverified wherever evidence is incomplete; green automated checks alone do not
+justify a complete conformance claim. Remove finished sub-parts from this item as they close.
 
 
 <a id="ced"></a>
