@@ -358,7 +358,7 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ## Accessibility
 
-### 10. Complete Accessibility Verification and Monitoring Keyboard Support
+### 10. Complete Accessibility Verification
 
 The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
 picker, Workspace and all four modern host applications against the 55 success criteria of WCAG
@@ -368,14 +368,9 @@ Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol)
 Safari and with NVDA and Firefox, and fix what it finds. The browser suite cannot tell whether a
 screen reader speaks the live region's messages, in what order, or whether one interrupts another.
 
-- Give Monitoring's log row expansion, cell copying and trace opening keyboard routes and expose
-  the controls' names, roles and states. Give the trace overlay named-dialog semantics and verify
-  focus entry, containment, Escape and return. Preserve the agreed normal layout.
-- Agree and add a pause/frequency control for Health Checks, Queue Counts and Search Index, using
-  the existing Worker Lag/JVM refresh pattern. Prove that pausing stops updates without losing
-  a running rebuild's state, and that resuming shows current data.
-- Announce Monitoring's log loading, query failures and result counts without moving focus or
-  repeating unchanged polling results. Extend the screen-reader protocol to verify actual speech.
+- Run the [Monitoring screen-reader protocol](FRONTEND-RUNBOOK.md#monitoring-screen-reader-protocol)
+  with VoiceOver/Safari and NVDA/Firefox. Verify spoken query results and failures, row/cell names,
+  trace entry and focus return, and quiet unchanged polling; DOM semantics do not establish speech.
 - Complete the [native zoom protocol](FRONTEND-RUNBOOK.md#browser-coverage-and-native-zoom)
   across all eight frontends and supported browsers, including intermediate levels through 200%.
   The reduced-viewport checks do not settle Resize Text; preserve evidence per workflow.

@@ -5952,7 +5952,7 @@ that touches it, and update the assessment date and commits with it.
 
 Assessed on 2026-11-12 against the source and browser suites of OpenView, Bridging, Monitoring
 and the Template Designer host. This extends the four component scorecards above; their older
-zero-failure result does not include the Monitoring failures below. These scores use the same
+zero-failure result preceded the Monitoring findings and follow-up below. These scores use the same
 55 criteria and statuses. They describe the tested application journeys, not a production-wide
 conformance claim or a screen-reader assessment.
 
@@ -5983,13 +5983,13 @@ accessible authentication.
 | --- | --- | --- | --- | --- | --- | --- |
 | OpenView | 27 | 20 | 1 | 6 | 1 | 27 of 54, 50% |
 | Bridging | 27 | 21 | 1 | 6 | 0 | 27 of 55, 49% |
-| Monitoring | 27 | 15 | 4 | 1 | 8 | 27 of 47, 57% |
+| Monitoring | 28 | 18 | 0 | 1 | 8 | 28 of 47, 60% |
 | Template Designer host | 26 | 22 | 1 | 6 | 0 | 26 of 55, 47% |
 
-Across all eight scorecards, 383 criterion/application ratings apply: **217 Met, 134 Partial,
-8 Fails and 24 Unverified**. The other 57 ratings are 24 Host and 33 N/A. These are ratings, not
-independent defects: the eight failures consist of four Monitoring criteria and CEE's input-purpose
-limitation counted in CEE and its three hosts. The aggregate is not a conformance certification or
+Across all eight scorecards, 383 criterion/application ratings apply: **218 Met, 137 Partial,
+4 Fails and 24 Unverified**. The other 57 ratings are 24 Host and 33 N/A. These are ratings, not
+independent defects: the four failures are CEE's input-purpose limitation counted in CEE and its
+three hosts. The aggregate is not a conformance certification or
 a like-for-like comparison with the earlier four-component release assessment.
 
 #### Evidence and limits
@@ -6014,28 +6014,83 @@ The resize check is a viewport proxy for zoom; actual browser zoom remains a sep
 | --- | --- |
 | OpenView `browser/tests/folder-cards.spec.mjs`, `translations.spec.mjs`, `response-matrix.spec.mjs`; `cedar-openview-src/src/app/app.component.{ts,html}` | Preview opening, Escape and focus return; translated page language/title and marked English-only fragments; load/refusal states; main landmark. Informs 2.4.1–2.4.4, 3.1.1–3.1.2, 3.3.1 and 4.1.3. Template content and speech still need review. |
 | Bridging `browser/tests/doi-matrix.spec.mjs`, `notices.spec.mjs`; `cedar-bridging-src/src/app/modules/shared/components/doi-{requester,saver}/` | Both DOI actions, server answers, persistent live regions, retained success DOI, dismissal and focus return. The five-second success timeout is removed by agreement; session timing remains Partial. Creation's prevention/reversibility is not established by a successful POST. |
-| Monitoring `browser/tests/response-matrix.spec.mjs`, `store-unavailable.spec.mjs`, `no-access.spec.mjs`, `accessibility.spec.mjs`; `cedar-monitoring-src/src/app/modules/resources/pages/` | Refusals, unavailable reports, named tables and scroll regions; copy status and rebuild state/error/progress semantics. These do not settle every dynamically updated report or make mouse-only log interactions keyboard accessible. |
+| Monitoring `browser/tests/response-matrix.spec.mjs`, `store-unavailable.spec.mjs`, `no-access.spec.mjs`, `accessibility.spec.mjs`, `monitoring-interactions-accessibility.spec.mjs`; `cedar-monitoring-src/src/app/modules/resources/pages/` | Refusals, unavailable reports, named tables and scroll regions; copy and query status, rebuild state/error/progress semantics; keyboard cell/row actions, native trace dialog, cancellable report refresh. Actual speech and every dynamically updated report still need review. |
 | Template Designer `browser/tests/host-states.mjs`, `opening-access.spec.mjs`, `save-matrix.spec.mjs`, `save-recovery.spec.mjs`, `save-uncertainty.spec.mjs`, `draft-recovery.spec.mjs`; `app/index.html` | Named native version dialog, persistent status/error regions, retained drafts, uncertain writes, access changes and version confirmation. Embedded editing and real sign-in retain the limits described above. |
 | All four application templates, event handlers and styles | Document order, landmarks, titles/language, shared navigation and explicit click activation; no orientation lock, motion activation, multipoint gestures, character-only shortcuts or application-authored flashing. Gives source evidence for the applicable Met rows. Arbitrary embedded media is covered separately by the media rows. |
 
-Monitoring has four confirmed failing ratings:
+#### Monitoring Follow-up
 
-- **2.1.1 Keyboard:** `log-explorer.component.html` delegates row expansion and cell copying to
-  `tbody (click)`; the caret and copyable cells have no keyboard activation. This also blocks the
-  route into request traces.
-- **2.2.2 Pause, Stop, Hide:** `health-checks.component.ts`, `queue-counts.component.ts` and
-  `search-index.component.ts` schedule automatic refresh with no pause/frequency control. Worker Lag
-  and JVM Insight do have a refresh checkbox; that does not cover the other reports.
-- **4.1.2 Name, Role, Value:** the log caret and copy cells expose table content rather than their
-  interactive role/state, and the trace scrim/pane is not a named dialog.
-- **4.1.3 Status Messages:** the copy and rebuild fixes cover those paths, but the log query's
-  loading/error/result-count updates still have no status semantics. No claim of complete
-  announcement support follows from the targeted fixes.
+The 2026-11-12 implementation resolves the four failures identified in the host assessment:
 
-Monitoring's target-size verdict stays Partial because an axe scan of recognised controls cannot
-establish the target size of those unrecognised click handlers. All four applications retain Partial
-keyboard/focus, color-cue and error-suggestion ratings where tests have not settled every interaction.
-The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) carries the remaining work.
+- **2.1.1 Keyboard — Partial:** row carets and copyable cells are native buttons, retaining the
+  existing table and pointer behavior. Enter and Space work; full values remain available in the
+  title and clipboard. Keyboard journeys reach the trace, whose native modal contains focus and
+  restores it on Escape or Close. Closing a loading trace cancels the read, so a late answer cannot
+  reopen it. Complete report journeys and assistive-technology operation still need review.
+- **2.2.2 Pause, Stop, Hide — Met:** Health Checks, Queue Counts and Search Index have the approved
+  Reload button and refresh checkbox, using the existing Worker Lag/JVM pattern. Intervals remain
+  5, 2 and 3 seconds. Unchecking cancels pending reads and freezes the displayed report; rechecking
+  fetches current data immediately. Reload fetches once while paused. Pausing never stops a server
+  rebuild. Worker Lag and JVM Insight also cancel in-flight reads when paused or destroyed, while
+  retaining their previous defaults and intervals. Only one refresh chain runs per report.
+- **4.1.2 Name, Role, Value — Partial:** native cell/row buttons expose their action and expansion
+  state, and Request trace is a named modal dialog. Actual spoken names and states, and controls
+  outside these journeys, still need review.
+- **4.1.3 Status Messages — Partial:** persistent query status/error regions expose loading,
+  result count, page, approximation and API failures. Repeating a query passes through Loading
+  before repeating its result. Trace loading/results/errors and copy confirmations remain inside
+  the active modal; status changes do not move focus. Unchanged rebuild polling does not mutate
+  the status message. Actual speech remains unverified.
+
+The normal log table and trace retain their existing visual design. The three new refresh-control
+rows are the agreed visible change. Screenshots of the ordinary reports, log table and trace were
+reviewed separately from functional checks; no trace or failure controls appear on an ordinary
+closed report. Monitoring retains Partial target-size, keyboard/focus, color-cue and error-suggestion
+ratings where the complete application has not been established by the covered journeys.
+
+Verification passed **299 Monitoring unit tests and 1,200 browser cases**, including 42 new
+interaction cases across Chromium, Firefox and WebKit. The full frontend reactor completed with
+build graph `47332a596a5b50a000d90e34fd45f3af60e3708900cf3389175151cbc936d21c` and Monitoring source
+digest `6bb45710a95a3541206c0c739d31e8c8ee3706c8fd124252f0fcf2321502ee02`. Consumer integration gates,
+local deployment, served-bundle verification and whole-stack smoke passed; the smoke record covers
+41 sources with digest `a94353f32553cd4c`. These are working-tree results, including uncommitted
+changes, rather than release/train eligibility evidence.
+
+The full build also exposed a Bridging fixture that started its form-render deadline before mocked
+authentication and the opening DOI read had finished. Its helper now waits for that read to settle.
+The final Bridging gate completed 599 cases, with four timeout cases passing on retry; OpenView's
+771 cases passed after reducing concurrent browser workers. No accessibility assertion was relaxed.
+Logs and rendered-review screenshots are retained locally under
+`.cedar/audits/2026-11-12-monitoring-accessibility/` at the CEDAR workspace root.
+
+<a id="monitoring-screen-reader-protocol"></a>
+
+##### Monitoring Screen-Reader Protocol
+
+Run with VoiceOver/Safari and NVDA/Firefox against the built Monitoring application, with a user
+allowed to read reports. Record browser and reader versions, report state, expected/actual speech
+and focus. Browser fixtures can supply deterministic query failures and delayed trace responses;
+they do not verify real sign-in. This protocol has not yet been run with either reader.
+
+1. Open Live Log Explorer. Hear Loading and then the result count/page once, without focus moving.
+   Repeat Reload with the same results and confirm the result is announced again. Return an API
+   failure, hear its message, then retry successfully and confirm the old error is no longer read.
+2. Navigate the table by row and column. Hear each cell as table content and its button's copy
+   instruction. Activate a cell with Enter and Space; check the full copied value and confirmation.
+   Expand and collapse a row and hear its name and expanded state.
+3. Reach Open trace using Tab. Hear Request trace as a modal, with focus on Close. Navigate its
+   waterfall table and copy the request ID; the confirmation must be heard inside the modal.
+4. Tab and Shift-Tab stay inside the trace. Escape and Close each return to the invoking Open trace
+   button. Close a delayed trace and verify that its eventual response neither reopens it nor speaks.
+5. On Health Checks, Queue Counts and Search Index, hear the refresh checkbox's interval and state.
+   Uncheck during an active read: values stay fixed. Reload updates once while it remains unchecked;
+   rechecking immediately fetches current data. Repeat pause on Worker Lag and JVM Insight.
+6. Pause while a search rebuild is running. The display stays fixed while the server keeps working;
+   resuming reports current progress or completion. Unchanged polls must not repeatedly announce
+   the same state. Check failures and recovery as well as successful reads.
+
+The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) retains this manual verification and
+all other incomplete criterion evidence.
 
 #### Host Applications by Criterion
 
@@ -6061,11 +6116,11 @@ The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) carries the remai
 | 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
 | 1.4.12 Text Spacing | AA | Met | Met | Met | Met |
 | 1.4.13 Content on Hover or Focus | AA | Partial | Partial | Partial | Partial |
-| 2.1.1 Keyboard | A | Partial | Partial | Fails | Partial |
+| 2.1.1 Keyboard | A | Partial | Partial | Partial | Partial |
 | 2.1.2 No Keyboard Trap | A | Partial | Partial | Partial | Partial |
 | 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
 | 2.2.1 Timing Adjustable | A | Partial | Partial | Partial | Partial |
-| 2.2.2 Pause, Stop, Hide | A | Met | Met | Fails | Met |
+| 2.2.2 Pause, Stop, Hide | A | Met | Met | Met | Met |
 | 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
 | 2.4.1 Bypass Blocks | A | Met | Met | Met | Met |
 | 2.4.2 Page Titled | A | Met | Met | Met | Met |
@@ -6094,8 +6149,8 @@ The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) carries the remai
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | N/A | Partial | N/A | Partial |
 | 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
 | 3.3.8 Accessible Authentication (Minimum) | AA | Unverified | Unverified | Unverified | Unverified |
-| 4.1.2 Name, Role, Value | A | Partial | Partial | Fails | Partial |
-| 4.1.3 Status Messages | AA | Partial | Partial | Fails | Partial |
+| 4.1.2 Name, Role, Value | A | Partial | Partial | Partial | Partial |
+| 4.1.3 Status Messages | AA | Partial | Partial | Partial | Partial |
 
 ## Surface inventory and token coverage
 
