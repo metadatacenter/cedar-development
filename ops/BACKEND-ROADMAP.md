@@ -1511,23 +1511,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the profiles can run against a store of production size, and the runbook records which
   routes changed with the size of the store.
 
-- **23. Assert the modification-time filters in the remaining views.** The REST smoke asserts
-  `modified_after` and `modified_before` in folder contents, the contents extract, a term search, a
-  deep search, a search by id and a search with no term. Four views that take the bounds are not
-  read: shared with me, shared with everybody, a search by template and the special-folders view.
-  They apply the same graph condition as folder contents, so a defect there would lie in how the
-  view passes the bounds on. Each needs a fixture of its own, a share or an instance, modified at a
-  known time.
-
-  Two behaviours a client can trip over have no check and no decision. A bound given in epoch
-  seconds is accepted and read as milliseconds, where it filters nothing. The 400 for a bad bound
-  does not say which bound was at fault.
-
-  Done when each of the four views lists an artifact modified inside the window and none modified
-  before it, and each of the two behaviours is refused, reported to the client, or recorded as
-  intended.
-
-- **24. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
+- **23. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
   server asks the terminology server about every distinct controlled-term value of a write, one
   request after another. Against a source the local store serves, a check takes a few milliseconds:
   at 10 users the authoring profile validates an instance holding three DOID terms in a median of
@@ -1551,7 +1535,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the cost of a save's term checks is measured for served and unserved sources, and the
   save has a stated bound that does not depend on BioPortal answering.
 
-- **25. Settle five open dependency questions.** Each is a decision to take rather than a change
+- **24. Settle five open dependency questions.** Each is a decision to take rather than a change
   to make, and none is urgent.
 
   - **Which JAX-RS implementation a server's static helpers use.** Every server carries Jersey for
