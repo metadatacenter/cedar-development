@@ -88,9 +88,30 @@ validation, creation, reading, update and deletion on the local stack. That suit
 jar is older than its sources, so run `mvn package` in `mcp/cedar-artifact-rest-mcp` before a smoke
 run.
 
-For `cedar-cee-mcp`, also open a form and check rendering and the browser console. CEE warns about
-unrecognized configuration keys and ignores them. The unit suite checks the server's configuration
-keys against those CEE accepts.
+`cedar-cee-mcp` also has a production-browser gate. After `mvn verify`, run `npm ci` and
+`npx playwright install chromium firefox webkit` in its `browser/` directory, then `npm test`.
+Linux hosts need the browser system libraries (`npx playwright install-deps chromium firefox webkit`);
+CI installs them explicitly. `CEDAR_TEST_WORKERS` bounds parallel browser cases, defaulting to twelve
+on local hosts with at least sixteen logical cores, up to four on smaller hosts, and two in CI.
+One packaged JVM serves all workers through real MCP JSON-RPC and its real
+session HTTP server; every case owns its sessions and browser contexts. A stale jar is refused.
+
+The gate covers read-only templates and instances, editing and exact JSON-LD collection, replacement
+submissions, refused-submission retry, simultaneous-session isolation, and bundle/session-data
+failure and reload recovery in all three engines. It uses local fixtures and blocks external browser
+requests. Browser JSON results, server logs and failure traces remain in `browser/reports/`.
+This does not certify the MCP client's own UI, native Safari, mobile browsers, assistive technology,
+or live terminology/authority providers. The unit suite additionally checks the server's configuration
+keys against those CEE accepts. For the whole client experience, also open a form through the MCP
+client and check rendering, submission and the browser console.
+
+Measured on the 16-core macOS workstation on 2026-11-13: `mvn verify` passed 25 unit tests and four
+packaged-server integration tests in 11.4 seconds. All 21 browser cases passed in 10.6 seconds with
+four workers and 7.1 seconds with twelve. Five copies of the matrix passed all 105 cases in 26.0
+seconds at twelve workers versus 28.4 seconds at eight; neither run retried or skipped a case, and
+swap did not grow. These browser timings include JVM startup and teardown. The twelve-worker
+stress run's peak one-minute load was 27.7, so worker count is a throughput budget, not a guarantee
+that the host stays idle. CI retains its smaller allocation.
 
 ## Upgrading the CEE Bundle
 
