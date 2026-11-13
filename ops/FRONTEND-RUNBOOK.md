@@ -1590,8 +1590,8 @@ verification evidence, remove `.reactor/results/`, `.reactor/task-results/` and
 `test frontends` and precede `frontends` under `build`. Development still consumes the latest local
 sources automatically; caching does not change SNAPSHOT resolution or release requirements.
 
-CEE and Workspace trace only the first existing retry, instead of recording every passing browser
-test. The retry count and test matrix are unchanged. For first-attempt diagnosis, run
+CEE runs without retries and keeps full failure traces opt-in. Workspace traces its first existing
+retry instead of recording every passing browser test. For first-attempt diagnosis, run
 `CEDAR_TEST_TRACE=on cedarcli test frontends` or set that variable on the owning npm visual command.
 Screenshots retain zero allowed differing pixels and a 0.02 color threshold.
 Workspace's Chromium project disables partial rasterization (`--disable-partial-raster`): each
@@ -2749,11 +2749,54 @@ on reflex.
 
 `.github/workflows/test.yml` runs the same release gate on every pull request and
 on pushes to `main`, `develop` and the `cee-angular-**` branches. It is split for
-latency, not semantics: the `prepare` job builds once, runs lint, type checking,
-unit, coordinator and domain coverage, verifies the staged npm package, audits the
-runtime tree and uploads `dist`; four `visual` jobs restore that exact build and run
-Playwright with `--shard=1/4` through `--shard=4/4`. A shard failure fails the gate,
-and `fail-fast` is off so one failure does not hide results from the other three.
+latency, not semantics: `prepare` builds once, verifies the staged npm package and
+uploads `dist`; `gates` runs lint, type checking, unit, coordinator and domain coverage
+and the runtime dependency audit concurrently with the build. Four `visual` jobs restore
+that exact build and run Playwright with `--shard=1/4` through `--shard=4/4`. A shard
+failure fails the gate, and `fail-fast` is off so one failure does not hide results
+from the other three.
+
+CEE's `visual/shards/reporter.ts` assigns the complete discovered inventory using Playwright's
+public preprocessing hook. The longest estimated cases go to the least-loaded shard; the estimates
+are mean durations per browser project/spec in `visual/shards/durations.json`. New cases always
+enter the plan, using an existing group's estimate or a fallback. Stable test identities break ties,
+and tests keep their normal project order inside each shard so workers reuse browsers. The suite
+remains fully parallel; do not spread a shared-state serial journey across separate test cases.
+
+Every shard retains its inventory hash, selected cases and execution results. The `visual-coverage`
+job checks all four reports: their union must equal the complete discovered inventory exactly once,
+with matching duration profiles and no failed or retried execution. Publication depends on this
+check as well as the four shards. CEE now uses zero retries locally and in CI; CI captures failure
+screenshots, while `CEDAR_TEST_TRACE=on` enables full failure traces when investigating. Neither
+the screenshot thresholds nor test assertions are relaxed. Reports and failure evidence remain
+in the `cee-visual-shard-*` workflow artifacts for fourteen days. To refresh estimates deliberately,
+download all four reports from one passing run, validate them with `visual/shards/check-results.mjs`,
+then run `visual/shards/update-durations.mjs` over those reports. The visual README gives the commands.
+
+The 2026-11-13 inventory comparison proved all 2,630 original cases occur exactly once in the new
+plan, with every project and baseline unchanged. At four containers with two workers each on the
+16-core workstation, two count-based controls took 489 and 493 seconds; the balanced runs took 366
+and 373 seconds. Mean matrix wall time fell from 491.4 to 369.1 seconds, **24.9%**, without adding
+workers. The old shard spreads were 243 and 247 seconds; the balanced spreads were 22 seconds in
+both runs. All 10,520 executions passed without retries or skips, used the same production bytes
+and pinned Linux image, and added no swap usage. Nineteen scheduler/inventory/worker-pool checks
+also passed. These local observations include container setup and dependency installation; they
+are separate from the hosted CI measurements. Raw reports, input identities, inventory proofs and
+timing samples are under `.cedar/audits/2026-11-13-cee-shards/`.
+
+Hosted [run 43398079163](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43398079163)
+passed all gates at `3a260e23`, including the exact 2,630-case union with no skips or retries.
+Its four visual jobs took 565, 563, 577 and 559 seconds: the longest fell to 577 seconds from
+777 and 803 seconds in the two preceding measured controls, a **27.0%** reduction against their
+790-second mean. The spread fell from 392/440 seconds to 18 seconds. The full workflow, including
+the new twelve-second inventory gate and development publication, took 691 seconds versus
+880 and 901 seconds before (**22.4%** below their mean). These hosted observations include runner
+setup and artifact transfer, and comprise two historical controls and one balanced run; the four
+local matrices above provide the repeated same-host comparison. The controls are
+[43385934102](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43385934102) and
+[43340276452](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43340276452).
+The local CI registry also includes `test.yml:visual-coverage`, so local CI checks the same union.
+
 The local `npm run test:ci` runs the same checks with a bounded stage scheduler;
 `CEDAR_TEST_WORKERS=1` serializes it. Two of CI's
 choices are deliberate and expensive to rediscover.
@@ -2814,8 +2857,8 @@ toolchain moved, deliberate violations of `eqeqeq`, `banana-in-box`,
 TypeScript three majors past what its parser declared support for. The same four
 probes pass now. Re-run them after any future toolchain move.
 
-Nothing is published from CI. Releasing the npm package is a separate, manual
-procedure — see [Release](#cee-release) below.
+After every required gate passes, development commits publish their staged scoped package to
+Nexus. Public npmjs releases remain a separate procedure — see [Release](#cee-release) below.
 
 <a id="cee-running-the-domain-test-harness"></a>
 
@@ -6028,8 +6071,8 @@ picker’s otherwise unchanged 324 unit tests passed in 15.4 seconds when repeat
 average alone is not CPU utilization: the slowdown included high load readings alongside substantial
 idle CPU. When measuring the worker pool, count reservations whose owner PID is alive; cancelled
 holders can leave stale directories until the next claimant reclaims them. No abandoned browser
-containers remained. CI stops after a test exhausts its retry, following CED's existing policy,
-rather than spending the remaining budget on a known-red run.
+containers remained. CEE now stops on the first failure with zero retries; CED retains its policy
+of stopping after a test exhausts its retry rather than spending the remaining budget on a known-red run.
 
 The expanded checks require explicit language metadata on the term picker's shadow-tree roots:
 engines differ in inherited `:lang()` behavior when a host's language changes. The attributes preserve

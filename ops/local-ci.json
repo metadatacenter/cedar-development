@@ -175,6 +175,7 @@
             "docker"
           ]
         },
+        "test.yml:visual-coverage": {},
         "test.yml:cee-demos": {},
         "test.yml:performance": {},
         "test.yml:publish-dev": {
