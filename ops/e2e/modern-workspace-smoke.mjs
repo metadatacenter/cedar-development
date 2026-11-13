@@ -8,13 +8,14 @@ import { withBrowserAuthentication, withJourneyAuthentication } from "./auth-act
 // made. Everything after the chain is a journey with fixtures of its own, run in the order
 // journey-registry.mjs lists them.
 //
-//   node modern-workspace-smoke.mjs [--chain-only]
+//   node modern-workspace-smoke.mjs [--chain-only] [--browser=chromium|firefox|webkit]
 //
 // `--chain-only` runs the chain and skips the journeys. The split tier's core lane runs it that way
 // while other lanes run the journeys through focused-journey-smoke.mjs.
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
-import { chromium } from "playwright";
+import { randomUUID } from "node:crypto";
+import { chromium, firefox, webkit } from "playwright";
 import { actors, artifactBody, call, mutate, enc, poll } from "./rest/lib.mjs";
 import { captureCreates, recordCreate, rendered } from "./journey-fixtures.mjs";
 import { editorStatus } from "./metadata-journey-fixtures.mjs";
@@ -29,15 +30,20 @@ import { scenarioTracker } from "./journey-contract.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
 import { enter, evidencePath, record } from "./split-steps.mjs";
 const chainOnly = process.argv.slice(2).includes("--chain-only");
+const browserName = process.argv.slice(2).find(arg => arg.startsWith("--browser="))?.slice(10) ?? "chromium";
+const browserType = new Map(Object.entries({ chromium, firefox, webkit })).get(browserName);
+if (!browserType) throw new Error(`Unknown browser: ${browserName}`);
 const base = process.env.CEDAR_BASE || "https://workspace.metadatacenter.orgx";
 const designer =
   process.env.CEDAR_DESIGNER_BASE || "https://designer.metadatacenter.orgx";
-const stamp = Date.now();
+// Each browser owns independent records even if two lane processes start in the same millisecond.
+const stamp = `${Date.now()}-${browserName}-${randomUUID().slice(0, 8)}`;
 const names = Object.fromEntries(
   ["folder", "template", "element", "instance"].map((k) => [k, `Angular journey ${k} ${stamp}`]),
 );
 const { user1, user2 } = await actors();
-const browser = await chromium.launch({ headless: !process.env.HEADED });
+const browser = await browserType.launch({ headless: !process.env.HEADED });
+record({ event: "browser", browser: browserName, version: browser.version() });
 const created = [];
 const bodies = new Map();
 const errors = [];
@@ -650,7 +656,7 @@ try {
   }
   await writeFile(
     evidencePath("result.json"),
-    JSON.stringify({ step, checks, errors, cleanupErrors }, null, 2),
+    JSON.stringify({ browser: browserName, browserVersion: browser.version(), step, checks, errors, cleanupErrors }, null, 2),
   );
   record({ event: "end", step, checks: checks.length, errors, cleanupErrors });
   // Do not replace the journey's original failure with a secondary teardown failure.

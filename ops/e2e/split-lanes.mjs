@@ -41,6 +41,14 @@ export const CHAIN = Object.freeze({ name: "modern-workspace-chain", args: [...C
  * reason a script is an identity unit, which the plan and the report name.
  */
 export const SCRIPTS = Object.freeze([
+  // Chromium runs in the core lane. These selected real-stack journeys use ordinary queue slots,
+  // fixture ledgers and authentication locks, never a separate pool of browser processes.
+  ...["firefox", "webkit"].map(browser => ({
+    name: `modern-workspace-chain-${browser}`,
+    args: [...CHAIN.args, `--browser=${browser}`],
+    identity: "signs both users in through Keycloak",
+    estimateFrom: CHAIN.name,
+  })),
   { name: "ced-host", args: ["ced-host-smoke.mjs"] },
   { name: "account-profile", args: ["account-pages-smoke.mjs", "profile"] },
   { name: "account-settings", args: ["account-pages-smoke.mjs", "settings"] },
@@ -252,7 +260,8 @@ export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Dat
     ...journeys.map((entry, order) => unit({ kind: "journey", name: entry.key, identity: Boolean(entry.authentication), authentication: entry.authentication ?? null,
       shares: entry.shares ?? null, fallback: journeyDefault, order })),
     ...scripts.map((script, order) => unit({ kind: "script", name: script.name, args: [...script.args],
-      identity: Boolean(script.identity), fallback: scriptDefault, order: journeys.length + order })),
+      identity: Boolean(script.identity), fallback: durations.get(script.estimateFrom) ?? scriptDefault,
+      order: journeys.length + order })),
   ];
   const estimates = Object.fromEntries(units.map(entry => [entry.name, { seconds: round(entry.seconds), measured: entry.measured }]));
   if (lanes === 1) {

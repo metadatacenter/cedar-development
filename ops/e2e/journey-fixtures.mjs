@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {call, enc, USER_SERVER} from "./rest/lib.mjs";
+import {call, enc, poll, USER_SERVER} from "./rest/lib.mjs";
 import {noteFixture, noteRestore, noteRestored} from "./split-steps.mjs";
 import {listingPreferencesRestore, restore} from "./user-state.mjs";
 
@@ -64,7 +64,7 @@ export const listingOf = folderId => response => {
 
 /** Waits until Workspace's listing table reports that it is no longer loading or moving anything. */
 export const listingIdle = page =>
-  page.waitForFunction(() => document.querySelector(".table-scroll")?.getAttribute("aria-busy") === "false");
+  page.locator('.table-scroll[aria-busy="false"]').waitFor({state: "attached"});
 
 /** Selects list view for fixture setup through the address, without saving account preferences. */
 export async function listView(page) {
@@ -107,8 +107,11 @@ export async function listedIn(page, base, folderId, row, what, attempts = 16) {
 /** Waits until a control holds the focus of its own document or shadow root. */
 export async function focused(locator, failure) {
   const control = await locator.elementHandle();
-  await locator.page().waitForFunction(element => element.getRootNode().activeElement === element, control)
-    .catch(error => { throw new Error(`${failure}: ${error.message}`); });
+  // Poll from Node: an embedded CEE patches Promise, which can make Firefox/WebKit return a
+  // page-side wait's thenable before it has settled.
+  const result = await poll(async () => ({done: await locator.page().evaluate(
+    element => element.getRootNode().activeElement === element, control)}), {tries: 301, delayMs: 100});
+  assert.ok(result.done, failure);
 }
 
 /**
@@ -118,7 +121,8 @@ export async function focused(locator, failure) {
  * assertion that it started nothing means something.
  */
 export const rendered = page =>
-  page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  // Native async wrapping makes the browser await even a Zone-patched Promise.
+  page.evaluate(async () => await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
 const COLLECTIONS = new Set(["folders", "templates", "template-elements", "template-fields", "template-instances"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

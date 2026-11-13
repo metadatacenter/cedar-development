@@ -54,6 +54,30 @@ test("same-user recovery is identity work and retains its reason in the executio
   }
 });
 
+test("every engine runs the real-stack chain once within the existing lanes", () => {
+  for (const lanes of [1, 2, DEFAULT_LANES]) {
+    const layout = plan({ lanes });
+    const processes = layout.sequential ? layout.lanes[0].processes : [layout.chain, ...layout.units];
+    const chains = processes.filter(unit => unit.args?.[0] === "modern-workspace-smoke.mjs");
+    const browser = unit => unit.args.find(arg => arg.startsWith("--browser="))?.slice(10) ?? "chromium";
+    assert.deepEqual(chains.map(browser).sort(), ["chromium", "firefox", "webkit"]);
+    for (const chain of chains.filter(unit => browser(unit) !== "chromium"))
+      assert.ok(chain.args.includes("--chain-only"), "additional engines run the selected chain, not every journey");
+    assert.equal(layout.lanes.length, lanes === 1 ? 1 : lanes + 1, "additional engines do not create additional lanes");
+  }
+});
+
+test("new browser chains borrow the core timing for queue order without claiming a measured deadline", () => {
+  const layout = plan({ lanes: 2, durations: new Map([[CHAIN.name, 75], ["ced-host", 8]]) });
+  for (const browser of ["firefox", "webkit"]) {
+    const chain = layout.units.find(unit => unit.name === `${CHAIN.name}-${browser}`);
+    assert.equal(chain.seconds, 75);
+    assert.equal(chain.measured, false);
+    assert.equal(chain.deadlineSeconds, DEADLINE.capSeconds);
+    assert.ok(layout.units.indexOf(chain) < layout.units.findIndex(unit => unit.name === "ced-host"));
+  }
+});
+
 test("each lane works under a root of its own that sorts after the core lane's fixtures", () => {
   const layout = plan({lanes: DEFAULT_LANES, durations, stamp: 1760000000000});
   const roots = layout.lanes.map(lane => lane.root);

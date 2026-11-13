@@ -3764,10 +3764,19 @@ another. The core lane first runs the inline chain of the Workspace journey alon
 reads what an earlier step made. The general lanes take units from the queue from the start, and the
 core lane joins them once its chain has finished. Any lane takes any unit.
 
+The core chain uses Chromium. Two additional queue units run that same dependent chain in Firefox
+and WebKit, using `--chain-only --browser=firefox|webkit`. They cover real Keycloak sign-in,
+template creation and conditional editing, metadata save/reopen, permissions, uncertain writes,
+draft restoration and access-token refresh. They do not repeat the entire independent journey
+registry. Each engine uses separate browser contexts and artifacts whose names include the engine
+and a random run suffix. Its result records the engine and version. Both additional units use the
+existing general lanes, authentication lock, fixture ledger, deadlines and cleanup; they add no
+lanes or separate pool of processes.
+
 An identity unit is a journey that signs in, reauthenticates (including the same user) or logs out,
-such as `draft-recovery` and `uncertain-create`, or one of three scripts: the account groups page,
-the lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
-grant to the second user. Identity units run at the same time as one another and as every other
+such as `draft-recovery` and `uncertain-create`, or a script that does so: the account groups page,
+the lifecycle routes, the recursive folder deletion smoke and the additional browser chains.
+Identity units run at the same time as one another and as every other
 unit. Sign-ins contend in Keycloak and in the graph writes each one triggers, so every sign-in, in
 any lane, takes the authentication lock described below for the few seconds from the action that
 starts it until the signed-in page is ready. A logout ends the single sign-on session of its own
@@ -3775,7 +3784,10 @@ lane, which no other lane shares, and the lane's runner signs in again before it
 
 A lane that is free takes the longest unit it may run. Each unit's length is its duration in the
 newest split report that measured it, cleanup included, and a unit no report has measured counts as
-the median of its kind. Which lane runs which unit is decided while the tier runs, so the lanes that
+the median of its kind. An unmeasured browser chain borrows the core chain's measured duration for
+queue ordering instead, so a long chain does not fall behind short scripts. That estimate is still
+marked unmeasured and retains the unmeasured deadline cap until its own successful result exists.
+Which lane runs which unit is decided while the tier runs, so the lanes that
 would otherwise finish early take a share of everyone else's work. A lane runs its journeys in one
 `focused-journey-smoke.mjs --worker` process that stays up until the queue has nothing left for it.
 The runner sends that process one journey key at a time over the IPC channel it opened when it
@@ -7635,6 +7647,7 @@ they do not replace the full CLI smoke gate or its development freshness prerequ
 ```bash
 cd ops/e2e
 npm install            # once per machine
+npx playwright install --with-deps chromium firefox webkit
 npm run smoke          # headless, ~60 s
 npm run smoke:headed   # watch it in a real browser
 ```

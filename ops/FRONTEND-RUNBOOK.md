@@ -1581,7 +1581,10 @@ It does not activate a runtime, restart applications or record a whole-stack smo
 failure leaves the previous runtime selection intact; a deployment or smoke failure leaves the
 new selection available for diagnosis and does not report completion.
 
-Both commands accept `--no-reuse` to execute every repository and stage again. To discard local
+Both commands accept `--no-reuse` to execute every repository and stage again. That option disables
+both reading and writing passing-result caches; it still records the build graph and command
+timings. After changing an external input such as a Java conformance JAR, a subsequent normal run
+must populate the new cache entry before another unchanged run can reuse it. To discard local
 verification evidence, remove `.reactor/results/`, `.reactor/task-results/` and
 `.reactor/stage-results/`; missing evidence is rebuilt automatically. Concurrency options follow
 `test frontends` and precede `frontends` under `build`. Development still consumes the latest local
@@ -1718,6 +1721,11 @@ in. It is taken back once that process has exited, once the machine has restarte
 hours, longer than any command holds a slot. A pool found idle with another size, as after moving
 an estate to a new machine, takes the host's core count. Removing the directory while no build
 runs resets it.
+
+Plain Playwright and `npm --prefix browser test` invocations do not acquire reactor worker leases.
+Use `cedarcli test frontends` for bulk verification across sessions. Keep focused direct runs within
+the workers left free on the host, and run timing comparisons without another uncoordinated browser
+suite. A reactor staying within its own pool does not bound processes a separate runner starts.
 
 A surface in `frontend-train.json` may declare a `package` phase between `setup` and
 `verify`: the commands that build and stage what it publishes. The model library and CEE
@@ -5868,6 +5876,149 @@ Device scale factors, CSS zoom and viewport resizing do not
 substitute for this record. Spoken focus and live-region behavior require the separate screen-reader
 protocol. Safari's navigation keys are documented in the
 [Apple keyboard reference](https://support.apple.com/en-gb/guide/safari/cpsh003/27.0/mac/27).
+
+### Functional Browser Coverage and Test Cost
+
+Dedicated `firefox-functional` and `webkit-functional` projects extend selected component and host
+contracts beyond the existing Chromium coverage. They share each Playwright invocation's worker
+budget and `fullyParallel` scheduling. Pixel baselines keep their original projects. Workspace's
+additional WebKit selection excludes specifications its earlier WebKit project already covers.
+
+| Surface | Selected functional contracts | Additional engine cases |
+| --- | --- | ---: |
+| CEE/CEF | Bootstrap, host notifications, nested validation and stored data, temporal fields, authorities, language isolation and quiet previews | 178 |
+| CED | Editing, embedding, instance isolation, read-only behavior, validation, reordering, CEF parity, imports and version upgrades | 386 |
+| Term picker | Selection, properties, stale responses, hierarchy paging and language changes | 150 |
+| Workspace | Routing, permissions, publication, save/conflict/draft recovery, bulk actions and account state | 118 |
+| OpenView | Response states and translations | 286 |
+| Bridging | DOI response and recovery states | 68 |
+| Monitoring | Response states, unavailable stores and denied access | 248 |
+| Template Designer host | Opening/access, saves and uncertain outcomes, draft recovery, overlapping requests and shared editors | 764 |
+| **Total** | | **2,198** |
+
+The additional engine executions are about 22% of the previous 9,937 application browser cases.
+Two Chromium executions also cover a new delayed-artifact readiness guard. CEE's 90 fixture-state
+scans, CED's twenty controlled-term scans and the picker's ten property-detail scans are partitioned
+into independently scheduled cases; all scans remain, without increasing a timeout. Partitioning adds
+196, 51 and 15 executions respectively. Partitioning itself adds no coverage; correcting CEE's
+fixture associations additionally exercises the two previously missed instances. The configured application total is
+**12,399**, including CED's real CEF/picker integration inputs. The shared layout checker's 210 regressions and CED's 25 containerized
+pixel cases are separate. Counts mean executions, not distinct requirements or accessibility criteria.
+
+CEE associates instances with templates through `schema:isBasedOn`, with a guard that every instance
+has exactly one template. Filename matching had treated the markup instance as a template and missed
+the date-format instance. Both now run editable and read only against their templates. The synthetic
+empty image carrying the markup sanitization probe declares `alt=""`; the security check still proves
+its event handler is removed and its authored decorative alternative survives. This does not verify
+alternatives in user-authored rich text, which remains part of the manual content audit.
+
+Browser waits also need to survive an embedded component patching the page's `Promise`. With the
+installed Playwright and CEE bundle, a `waitForFunction` predicate that was always false returned a
+thenable in about 10 ms in Firefox and WebKit; Chromium correctly reached its 500 ms timeout.
+Component and host readiness checks now use `expect.poll` from the runner. Shared stack helpers use
+locator waits or runner polling, and native async wrapping where they await animation frames. The
+100 repeated Firefox/WebKit readiness cases passed without retries, including a deliberately delayed
+artifact; the stack harness also proves waits remain blocked with a non-native page Promise in all
+three engines. Keep this distinction when adding another browser to an existing test.
+
+A later full Designer host repeat exposed an additional startup race: one WebKit opening case
+passed only on retry, so the cache refused to retain that run. A focused repeat reproduced the same
+destroyed-context error in Firefox after 48 passes. The two startup helpers now wait for the new
+document's editor element to attach before polling its sign-in callback. All 450 subsequent
+repetitions passed without retries across the three engines at twelve workers, in 1.9 minutes.
+The complete 2,169-case host suite then passed without retries in 2.7 minutes.
+Waiting for the intended document and waiting for its application state are separate barriers.
+
+Workspace, the Template Designer host, Bridging and the term picker run tagged WCAG rules and
+Label in Name in one axe analysis per state. They explicitly enable the experimental rule and assert
+that it ran. This replaces two sequential analyses, preserving exclusions, undecided-result checks
+and contrast measurements. A negative-fixture comparison in Chromium, Firefox and WebKit evaluated
+the same 64 rules with identical verdicts and caught the deliberately mismatched control name.
+
+A paired native macOS Firefox measurement uses the same fixed picker bundle, the same 29
+accessibility cases and four workers. Alternating single/double/double/single helper runs all passed
+without retries. The single-analysis helper took 16.3 and 16.5 seconds; the double-analysis helper
+took 20.7 and 20.4 seconds: about 20% less command time for this project. This is a measured suite
+improvement, not an end-to-end reactor speedup claim.
+
+Worker counts must be compared on complete projects as well as repeated expensive states. Three
+48-case Monitoring Firefox runs at each setting all passed without retries: median command time was
+12.5 seconds at four workers and 21.4 seconds at twelve. The complete 124-case functional project,
+however, took 16.5 seconds at four and 13.8 seconds at twelve. Browser startup costs weigh more
+heavily in the smaller repeated sample. The picker’s 24 repeated WebKit property-detail cases passed
+twice at each setting: 6.4–7.1 seconds at twelve workers and 10.3 seconds at four. CEE’s complete
+348-case Firefox accessibility project passed without retries in the pinned Linux container at both
+settings: 50.3 seconds with twelve workers and 127.8 seconds with four. The provisional project ceilings were removed; projects share the
+existing invocation budget, and the reactor retains three concurrent repositories, up to twelve
+workers per invocation and the sixteen-slot host pool.
+
+On 2026-11-13, all 12,399 application browser executions passed twice without retries. The first
+run used the normal twelve-worker ceiling; the second forced all checks with an eight-worker
+ceiling. Actual allocations depended on other active stages:
+
+| Application browser suite | Normal ceiling: workers / elapsed | Eight-worker ceiling: workers / elapsed |
+| --- | --- | --- |
+| CEE | 12 / 4.9 min | 8 / 7.7 min |
+| CED | 10 / 10.0 min | 6 / 12.3 min |
+| Term picker | 12 / 53.9 s | 6 / 1.6 min |
+| Workspace | 12 / 2.0 min | 5 / 5.2 min |
+| OpenView | 6 / 4.2 min | 8 / 3.3 min |
+| Bridging | 6 / 4.0 min | 8 / 3.0 min |
+| Monitoring | 12 / 2.3 min | 8 / 2.9 min |
+| Template Designer host | 12 / 3.4 min | 8 / 3.3 min |
+
+Build and verification took 25.7 and 27.6 minutes respectively. These are not a controlled
+whole-reactor A/B: the first reused unchanged producer/check results; the second reran them all
+after a full Java build refreshed the conformance oracle. The controlled project measurements
+above and these actual allocations support retaining the existing twelve-worker ceiling. Live
+owner-PID sampling reached sixteen reserved slots and never exceeded that host pool in either run.
+
+The forced run completed the full deployment contract in 33.3 minutes: local deployment 27.8 s,
+served-bundle verification 1.0 s and whole-stack smoke 296.2 s. Its build graph is
+`1863d503dd992e1abe09744c5fe59f8b0b5ee5c5089dfb41ef8b5ccb7bdb061d`, and its smoke covers
+41 working-tree sources under digest `5d21767e70c4a1bb`. The six-lane split tier took 137 s;
+the fifteen-check authoring chains took 16.9 s in Chromium, 25.3 s in Firefox and 29.4 s in
+WebKit, with fixture cleanup passing in each. The initial run's smoke had stopped before journeys
+because backend JARs predated their source commits; rebuilding Java and redeploying all eleven
+microservices resolved that prerequisite. Neither run changed Java sources.
+
+The final unchanged `cedarcli test frontends --jobs 3 --workers 12` took **28.6 seconds**
+wall clock (28.3 s reported by the CLI), reusing all twelve repository results and the unchanged
+consumer-demo result. Cache preparation had correctly rerun CED and its host after the Java build:
+their only changed cache-input group was `javaConformance`, containing the three rebuilt CEDAR
+library JARs. The forced `--no-reuse` run had not written replacement cache entries. The host's
+retrying startup run was also correctly excluded; the final measurement reused its clean pass
+after the navigation fix. Worker allocations are not cache inputs.
+
+Logs, inventories, paired measurements and live-pool samples are retained under
+`$CEDAR_HOME/.cedar/audits/2026-11-12-cross-browser-functional/`; reactor phase and command
+reports are under `.cedar/build-reports/`. The two complete application matrices and focused
+repetitions establish observed repeatability, not a guarantee that no future run can flake.
+
+Early interrupted runs and runs during a system-wide slowdown are not throughput baselines. The
+picker’s otherwise unchanged 324 unit tests passed in 15.4 seconds when repeated in isolation. Load
+average alone is not CPU utilization: the slowdown included high load readings alongside substantial
+idle CPU. When measuring the worker pool, count reservations whose owner PID is alive; cancelled
+holders can leave stale directories until the next claimant reclaims them. No abandoned browser
+containers remained. CI stops after a test exhausts its retry, following CED's existing policy,
+rather than spending the remaining budget on a known-red run.
+
+The expanded checks require explicit language metadata on the term picker's shadow-tree roots:
+engines differ in inherited `:lang()` behavior when a host's language changes. The attributes preserve
+the interface and descendant language overrides. This is the only application source change in the
+functional expansion: the picker bundle grew by 177 bytes, or 30 bytes with gzip at level 9;
+no application polling, network requests or scheduling were added. CEE's test host waits for the public ready callback
+before DOM/font settling, and inline text clipping checks distinguish inline spans from boxes with
+client widths. The picker pagination test uses the native scroll event rather than also dispatching
+a second one, and its property-detail fixture waits for configuration and search completion before
+opening results. These fixes keep the assertions and eliminate avoidable timing assumptions.
+
+The [whole-stack queue](BACKEND-RUNBOOK.md#end-to-end-smoke-test-opse2e) runs the selected authoring
+chain in all three engines while retaining the existing lane count. Functional checks do not settle
+native browser zoom, spoken screen-reader output, accessible authentication, authored media or
+translation quality. The remaining criterion-level work stays in the single
+[Accessibility roadmap item](FRONTEND-ROADMAP.md#accessibility); these additional functional cases
+do not change its conformance ratings.
 
 ### Failures Several Components Share
 
