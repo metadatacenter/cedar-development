@@ -312,9 +312,25 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
-- **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
-  Angular release accepts 7. The model library, which has no Angular, waits as well: its tests run
-  through ts-jest, and ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`.
+- **TypeScript 7.** TypeScript 7.0 ships without the JavaScript compiler API, and Angular's
+  compiler, ts-jest and typescript-eslint are all built on that API. None accepted TypeScript 7 on
+  2026-11-13.
+  - Angular's compiler, `@angular/build` and ng-packagr accept only `>=6.0 <6.1`, in 22.2.6 and in
+    22.3.0-rc.0. Every Angular project builds with them.
+  - ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`. The model library, which has no
+    Angular, runs its tests through it.
+  - typescript-eslint 8.72.2 accepts only `>=4.8.4 <6.1.0`. CEE, CED, CETP, Workspace, the Angular
+    demo and the model library lint with it.
+
+  TypeScript 7.1 is expected to ship a new API. Its
+  [iteration plan](https://github.com/microsoft/TypeScript/issues/63703) set the stable release for
+  2026-11-24, the beta then slipped two weeks, and no revised date is posted. Angular closed the
+  request to widen the 22.x range as not planned. The team is
+  [writing a compiler front end](https://blog.angular.dev/an-update-on-angulars-typescript-7-powered-compiler-9619a35e2b0a)
+  that uses the 7.1 API for type-checking, and has named no release for it. The post expects
+  breaking changes, so the likely release is Angular 23, listed for about June 2027. The model
+  library can move once ts-jest and typescript-eslint each release against the 7.1 API, and neither
+  has announced one. Measure the three ranges again before acting on any of these dates.
 - **`@types/node` 26.** The types follow the supported runtime's major, and the projects target Node 24.
 - **deepmerge in Jest.** The TypeScript model library's test-only `jest-config` dependency
   brings `deepmerge` 4.3.1, affected by GHSA-gcqx-w48m-w2h4. Adopt a patched upstream release
