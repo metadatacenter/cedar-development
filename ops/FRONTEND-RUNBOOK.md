@@ -1666,6 +1666,25 @@ PRs, before dev publication. Build trains and platform release verification reta
 all three demo surfaces. Before publishing a public CEE release, explicitly test
 the final staged package as described in the npmjs release runbook.
 
+The demo gate reserves one allocation from the shared host pool, divides it between at most
+three concurrent framework builds, then gives the allocation to one Playwright matrix over their
+production output. A twelve-worker allocation means three builds with four workers each, followed
+by up to twelve browser workers. Angular, React and Ember each run three consumer contracts in
+Chromium, Firefox and WebKit: object inputs/configured rendering, change-event and serialized-value
+agreement, and a fresh mount after navigation. All 27 cases must pass without skips or retries.
+The gate checks the report's nine framework/engine projects before recording success. A forced
+failure removes previous passing evidence. Browser sources and lockfile plus Node/npm/platform
+identity participate in reuse; scheduling changes do not. Command logs, per-stage timings, browser
+results and failure traces remain under `.cedar/cee-demos/runs/`, outside the disposable copies.
+Consumer CI runs all three engines per framework; CEE candidate CI runs the complete matrix.
+
+On the 16-core macOS workstation, the pinned-package gate took 42.2 seconds and the local
+reactor-candidate gate took 37.7 seconds (2026-11-13, warm npm/browser caches, twelve workers).
+Both passed all 27 browser cases on the first attempt; the browser stage took 7.8–7.9 seconds.
+Unchanged candidate reuse took 0.38 seconds. Swap usage did not increase in either full run.
+These are complete demo-gate wall times, including installs, framework checks and production
+builds; they are not estimates for a cold CI runner.
+
 On hosts with at least 16 logical cores, `cedarcli build frontends` defaults to three
 repository jobs and twelve workers per repository, the same as
 `cedarcli build --jobs 3 --workers 12 frontends`. The shared pool still bounds total workers
