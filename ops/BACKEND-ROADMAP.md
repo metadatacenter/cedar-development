@@ -11,9 +11,114 @@ Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROA
 the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
+## CEDAR 3.0.0
+
+- **1. Finish converging on the body paging envelope.** Every route that pages by offset answers
+  CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
+  `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
+  `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
+  still accept beside the envelope, and settling what the estate has not yet made uniform.
+
+  **Withdraw the page-number forms once their clients move.** The terminology server still accepts a
+  one-based `page` with `pageSize` or `page_size`, and still answers BioPortal's flat `page`,
+  `pageCount`, `pageSize`, `prevPage` and `nextPage` beside the envelope, on its GET routes, on
+  integrated search and retrieve, on the versioned `POST /search` and on the property search. Four
+  clients still use them: the Template Editor, whose controlled-term autocomplete pages by `nextPage`
+  (`autocomplete.service.js:303`); CEE, which asks integrated search for page 1 and reads only
+  `collection` (`controlled-field-data.service.ts:47`); cadsr-tools, which walks integrated search by
+  page number (`TemplateFieldsHandler.java:122`); and the artifact library's
+  `TerminologyServerClient`, which walks integrated retrieve the same way. The bridge's
+  `search-by-name` still accepts a zero-based `page` and `pageSize` and still answers `found`,
+  `page` and `pageSize`; no client in the estate sends or reads the paging pair, though CEE reads
+  `found`. CEE is published, so moving it costs a public release; price that against the release
+  calendar before choosing when. Record a withdrawal date for each form once its last client has
+  moved.
+
+  **Make the rest uniform.** Defaults and maxima are still set per surface: 100/500 on the resource
+  server, the monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500
+  on the artifact server and on categories (`cedar-main.yml:360`), 100/500 on the bridge, the
+  configured default up to 1,000 on the terminology server's BioPortal routes, 20/200 on its
+  versioned and property searches, and 50/500 on a hierarchy's children. Choose one default and one
+  maximum. The terminology server's `page_size`/`pageSize` alias still resolves by argument position,
+  and its route families pass the arguments in opposite orders (`AbstractTerminologyServerResource.java`,
+  `resolvePageSize`), so a request sending both spellings gets a route-dependent answer; resolve it
+  centrally, or let it go with the page-number forms. Three variations on the envelope are worth
+  documenting where the API is described rather than removing: a POST route carries no `paging`
+  links, since it has no URL to link to, and a client asks for the next page by sending the offset;
+  a listing that cannot afford or cannot know an exact total answers `countCapped` and leaves out the
+  `last` link, as the monitor's raw logs, the bridge's ROR and NIH RePORTER, integrated search past
+  its 1,000-result window and the property hierarchies do; and the bridge keys its rows by term IRI
+  rather than listing them, which is what CEE reads.
+
+  **Document the two cursor walks as the exception.** `?continuation=` on `/search-deep`, and the
+  monitor's log query with its `"<iso>,<id>"` keyset `cursor` (`SearchContinuation.java`,
+  `LogQuerySpec.java:29`), page a whole result set at one request per page, which an offset cannot.
+  They are two cursor encodings rather than one, and the API documentation should say both are the
+  stated exception to the envelope.
+
+  Done when every page-number form is withdrawn or carries a recorded withdrawal date, one default and
+  one maximum page size apply everywhere, and the variations and cursor walks are documented. The
+  REST smoke has to assert the envelope on a route from each application that serves one. Today
+  `rest/suites/pagination.mjs` asserts `request`, `totalCount` and the `paging` links on the
+  resource server's listings, and the `paging` links alone on the bridge's authority search. For
+  the artifact server, messaging and the monitor it checks only that a valid page answers and that
+  an invalid argument is refused. `rest/suites/term-search.mjs` checks `totalCount` on the
+  terminology server's versioned search and nothing else of the envelope. No suite asserts
+  `currentOffset` on any route.
+
+- **2. Rename the legacy role relationships in production Neo4j.** The application currently
+  interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
+  deployed without changing the stored graph. The category permission model follows the same initial
+  approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
+  Category Viewer and Editor grants already use the canonical `VIEWER_ROLE` and `EDITOR_ROLE` names.
+
+  Neither family writes the canonical names yet. `RelationLabel` resolves four roles to legacy names:
+  Viewer to `CANREAD` and Manager to `CANWRITE` for resources, Classifier to `CANATTACHCATEGORY` and
+  Manager to `CANWRITECATEGORY` for categories. Both `replacePermissions` builders also create the
+  legacy types directly. Before migrating, add `CLASSIFIER_ROLE` as the canonical Classifier
+  relationship. Make the application read both the legacy and the canonical name of each role, and
+  write only the canonical names. Deploy that compatibility code to every environment before changing
+  stored relationships, or a patched graph collects legacy grants again.
+
+  Patch the production graph to rename artifact and folder `CANREAD` relationships to `VIEWER_ROLE`
+  and `CANWRITE` relationships to `MANAGER_ROLE`. In the same migration, rename category
+  `CANATTACHCATEGORY` relationships to `CLASSIFIER_ROLE` and `CANWRITECATEGORY` relationships to
+  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family. Neo4j cannot change
+  a relationship's type, so the patch merges the canonical relationship between the same two nodes
+  and deletes the legacy one. The patch must preserve each grant's endpoints, make no access changes,
+  and be safe to run again. Merging rather than creating keeps a second run from duplicating a grant
+  the application has since written under its canonical name.
+
+  On 2026-10-03 production held 5,220 legacy grants: 1,755 `CANREAD`, 3,464 `CANWRITE`, one
+  `CANWRITECATEGORY` and no `CANATTACHCATEGORY`. That is few enough for one short transaction. The
+  builders create grants without properties, so a grant's type and the `_id` of its two endpoints
+  describe it completely.
+
+  The patch needs no full dump. Production runs Neo4j 5.23.0 Community, which dumps a database only
+  while it is stopped, so a dump would take the graph away from every server for as long as it ran.
+  The patch matches only the four legacy types and touches no node, so a read-only export of every
+  legacy grant, taken immediately before it runs, records everything it can delete. If a committed
+  patch proves wrong, the export says exactly which grants to recreate. Write the export to `/srv`,
+  not to the 4 GB `/var` volume on `cedr-prd-app-05`.
+
+  Apply the patch in a single transaction. In `cypher-shell`, open it with `:begin`, run the patch,
+  compare the relationship counts with those recorded beforehand, and finish with `:commit` or
+  `:rollback`. A failure rolls back the whole patch, and nothing becomes durable until the counts
+  agree. The open transaction locks every endpoint node and blocks writes to them, so keep it to
+  seconds. Ending the same transaction with `:rollback` rehearses the patch against current
+  production data without a copy.
+
+  After applying the patch, regenerate the search index from Neo4j. The rebuild reads every
+  filesystem resource from the folder server, 310,463 of them on 2026-10-03, at a rate nobody has
+  measured, so time a rebuild on staging before choosing a window. Users do not wait for it, because
+  search keeps serving the old index until the new one is complete. Then verify the role counts and
+  representative direct, group and inherited access paths for artifacts, folders and categories.
+  Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
+  `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
+
 ## Features
 
-- **1. Let an author renumber a draft.** A draft's version is the number its publication will
+- **3. Let an author renumber a draft.** A draft's version is the number its publication will
   carry. The Workspace asks for it when the draft is created, starting at the next patch and
   accepting anything higher, and asks again at publication, where it accepts anything no lower.
   Between the two, nothing can change it. An ordinary update refuses any change to `pav:version`,
@@ -41,7 +146,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   agree afterwards, and the command refuses a published artifact, a draft with a successor and a
   version not above its predecessor's.
 
-- **2. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+- **4. Validate and encode the DOI the DataCite metadata route resolves.** **Production
   consequence:** some path values accepted today answer 400. No data migration.
 
   `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
@@ -62,7 +167,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Security
 
-- **3. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
+- **5. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
   22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
   ended at 22.0.5. On 2026-09-30 Dependabot reported 93 open advisories against the Keycloak
   artifacts `cedar-parent` manages, 25 of them high. No community 22 release fixes any of them, and
@@ -241,7 +346,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     identity provider, and CVE-2026-2575 lets an unauthenticated caller exhaust the server's memory
     through the SAML redirect binding regardless.
   - Cap the request size on the token endpoint, and rate limit it and the login endpoints on the
-    terms item 6 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
+    terms item 8 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
     oversized `scope` parameter, and the limit slows the parallel guessing CVE-2024-4629 describes.
 
   Four changes belong in the realm and server configuration:
@@ -277,7 +382,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   CVE-2023-6841. They keep the upgrade itself urgent. Red Hat's subscription build carries fixes on
   the 22 line through 22.0.13, and it is the only way to patch Keycloak without leaving that line.
 
-- **4. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+- **6. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-two repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
@@ -347,7 +452,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   an ordinary push to `main`, a release lands `main` as the app, and the preflight refuses a
   repository whose rules would refuse the release.
 
-- **5. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **7. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Four terminology routes answer an anonymous caller, and that stays.** `GET /bioportal/search`,
   the class-descendants route, `POST /bioportal/integrated-search` and `POST
@@ -361,7 +466,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Descendants was opened for OpenView in 2019. No CEDAR client calls integrated retrieve without a
   key; it stays anonymous because every release since 2024 has served it so, and a gate could break
   callers outside CEDAR. Requiring a credential is therefore not the remedy. What bounds the cost is
-  the edge rate limit in item 6, which covers `/ext-auth/*` and should cover these four on the same
+  the edge rate limit in item 8, which covers `/ext-auth/*` and should cover these four on the same
   terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
@@ -400,11 +505,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **6. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+- **8. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
   anonymous caller can spend the deployment's third-party quota, and only the development host
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. The four
-  anonymous BioPortal routes item 5 lists belong in the same limit, since each spends the
+  anonymous BioPortal routes item 7 lists belong in the same limit, since each spends the
   deployment's BioPortal key.
 
   A limit rather than a credential is deliberate. The embeddable editor calls integrated search from a
@@ -479,7 +584,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   environment states the mode and rates its authenticated quotas run at, both are recorded where the
   deployment is documented rather than only in the config, and a probe shows each taking effect.
 
-- **7. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+- **9. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
   messaging, monitor and worker restart into the change. No schema migration.
 
@@ -511,7 +616,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
   certificate, and the timezone is set by the profile that owns the data it was chosen for.
 
-- **8. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+- **10. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
   consequence:** a browser application fails cross-origin unless its exact origins are configured
   first, so every environment needs its list before the default changes.
 
@@ -524,7 +629,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
   hosted by third parties and calls `POST /bioportal/integrated-search` from origins CEDAR does not
-  know, which is one reason item 5 keeps that route anonymous. A deny-by-default list closes it
+  know, which is one reason item 7 keeps that route anonymous. A deny-by-default list closes it
   unless the policy names it.
 
   Default to no CORS headers rather than to `*`, require the allow-list in each deployment profile,
@@ -533,7 +638,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fallback, each environment's origins are recorded where it is documented, and tests cover blank,
   exact, multiple and wildcard configurations.
 
-- **9. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+- **11. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
   **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
   data and invalidates keys people and integrations hold, so it needs a rotation plan,
   rollback and operator communication. A backup taken before it still contains usable keys and has
@@ -562,60 +667,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Maintenance
 
-- **10. Rename the legacy role relationships in production Neo4j.** The application currently
-  interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
-  deployed without changing the stored graph. The category permission model follows the same initial
-  approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
-  Category Viewer and Editor grants already use the canonical `VIEWER_ROLE` and `EDITOR_ROLE` names.
-
-  Neither family writes the canonical names yet. `RelationLabel` resolves four roles to legacy names:
-  Viewer to `CANREAD` and Manager to `CANWRITE` for resources, Classifier to `CANATTACHCATEGORY` and
-  Manager to `CANWRITECATEGORY` for categories. Both `replacePermissions` builders also create the
-  legacy types directly. Before migrating, add `CLASSIFIER_ROLE` as the canonical Classifier
-  relationship. Make the application read both the legacy and the canonical name of each role, and
-  write only the canonical names. Deploy that compatibility code to every environment before changing
-  stored relationships, or a patched graph collects legacy grants again.
-
-  Patch the production graph to rename artifact and folder `CANREAD` relationships to `VIEWER_ROLE`
-  and `CANWRITE` relationships to `MANAGER_ROLE`. In the same migration, rename category
-  `CANATTACHCATEGORY` relationships to `CLASSIFIER_ROLE` and `CANWRITECATEGORY` relationships to
-  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family. Neo4j cannot change
-  a relationship's type, so the patch merges the canonical relationship between the same two nodes
-  and deletes the legacy one. The patch must preserve each grant's endpoints, make no access changes,
-  and be safe to run again. Merging rather than creating keeps a second run from duplicating a grant
-  the application has since written under its canonical name.
-
-  On 2026-10-03 production held 5,220 legacy grants: 1,755 `CANREAD`, 3,464 `CANWRITE`, one
-  `CANWRITECATEGORY` and no `CANATTACHCATEGORY`. That is few enough for one short transaction. The
-  builders create grants without properties, so a grant's type and the `_id` of its two endpoints
-  describe it completely.
-
-  The patch needs no full dump. Production runs Neo4j 5.23.0 Community, which dumps a database only
-  while it is stopped, so a dump would take the graph away from every server for as long as it ran.
-  The patch matches only the four legacy types and touches no node, so a read-only export of every
-  legacy grant, taken immediately before it runs, records everything it can delete. If a committed
-  patch proves wrong, the export says exactly which grants to recreate. Write the export to `/srv`,
-  not to the 4 GB `/var` volume on `cedr-prd-app-05`.
-
-  Apply the patch in a single transaction. In `cypher-shell`, open it with `:begin`, run the patch,
-  compare the relationship counts with those recorded beforehand, and finish with `:commit` or
-  `:rollback`. A failure rolls back the whole patch, and nothing becomes durable until the counts
-  agree. The open transaction locks every endpoint node and blocks writes to them, so keep it to
-  seconds. Ending the same transaction with `:rollback` rehearses the patch against current
-  production data without a copy.
-
-  After applying the patch, regenerate the search index from Neo4j. The rebuild reads every
-  filesystem resource from the folder server, 310,463 of them on 2026-10-03, at a rate nobody has
-  measured, so time a rebuild on staging before choosing a window. Users do not wait for it, because
-  search keeps serving the old index until the new one is complete. Then verify the role counts and
-  representative direct, group and inherited access paths for artifacts, folders and categories.
-  Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
-  `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
-
-- **11. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **12. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock. This item owns the
-  remaining server upgrades except Keycloak's, which item 3 owns. Order them by risk, lowest first.
+  remaining server upgrades except Keycloak's, which item 5 owns. Order them by risk, lowest first.
   Rehearse each upgrade on a copy of production data and gate on the end-to-end smoke.
 
   Containerizing the production data stores needs each image pin moved up to the version already
@@ -645,7 +700,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **12. Make database schema evolution an explicit, privileged release operation.** Application
+- **13. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -706,7 +761,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **13. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **14. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -735,7 +790,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **14. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **15. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -815,7 +870,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **15. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **16. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -827,7 +882,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: nine services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 14. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 15. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -838,53 +893,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   services rather than one per configuration file. Done when no shipped configuration sets DEBUG for
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
-
-- **16. Finish converging on the body paging envelope.** Every route that pages by offset answers
-  CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
-  `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
-  `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
-  still accept beside the envelope, and settling what the estate has not yet made uniform.
-
-  **Withdraw the page-number forms once their clients move.** The terminology server still accepts a
-  one-based `page` with `pageSize` or `page_size`, and still answers BioPortal's flat `page`,
-  `pageCount`, `pageSize`, `prevPage` and `nextPage` beside the envelope, on its GET routes, on
-  integrated search and retrieve, on the versioned `POST /search` and on the property search. Four
-  clients still use them: the Template Editor, whose controlled-term autocomplete pages by `nextPage`
-  (`autocomplete.service.js:303`); CEE, which asks integrated search for page 1 and reads only
-  `collection` (`controlled-field-data.service.ts:47`); cadsr-tools, which walks integrated search by
-  page number (`TemplateFieldsHandler.java:122`); and the artifact library's
-  `TerminologyServerClient`, which walks integrated retrieve the same way. The bridge's
-  `search-by-name` still accepts a zero-based `page` and `pageSize` and still answers `found`,
-  `page` and `pageSize`; no client in the estate sends or reads the paging pair, though CEE reads
-  `found`. CEE is published, so moving it costs a public release; price that against the release
-  calendar before choosing when. Record a withdrawal date for each form once its last client has
-  moved.
-
-  **Make the rest uniform.** Defaults and maxima are still set per surface: 100/500 on the resource
-  server, the monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500
-  on the artifact server and on categories (`cedar-main.yml:360`), 100/500 on the bridge, the
-  configured default up to 1,000 on the terminology server's BioPortal routes, 20/200 on its
-  versioned and property searches, and 50/500 on a hierarchy's children. Choose one default and one
-  maximum. The terminology server's `page_size`/`pageSize` alias still resolves by argument position,
-  and its route families pass the arguments in opposite orders (`AbstractTerminologyServerResource.java`,
-  `resolvePageSize`), so a request sending both spellings gets a route-dependent answer; resolve it
-  centrally, or let it go with the page-number forms. Three variations on the envelope are worth
-  documenting where the API is described rather than removing: a POST route carries no `paging`
-  links, since it has no URL to link to, and a client asks for the next page by sending the offset;
-  a listing that cannot afford or cannot know an exact total answers `countCapped` and leaves out the
-  `last` link, as the monitor's raw logs, the bridge's ROR and NIH RePORTER, integrated search past
-  its 1,000-result window and the property hierarchies do; and the bridge keys its rows by term IRI
-  rather than listing them, which is what CEE reads.
-
-  **Document the two cursor walks as the exception.** `?continuation=` on `/search-deep`, and the
-  monitor's log query with its `"<iso>,<id>"` keyset `cursor` (`SearchContinuation.java`,
-  `LogQuerySpec.java:29`), page a whole result set at one request per page, which an offset cannot.
-  They are two cursor encodings rather than one, and the API documentation should say both are the
-  stated exception to the envelope.
-
-  Done when every page-number form is withdrawn or carries a recorded withdrawal date, one default and
-  one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
-  that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
 - **17. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
@@ -995,9 +1003,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
   9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 11 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 3's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
-  Keycloak client stack, which item 3 owns.
+  against the pinned server it talks to, so these are sequenced behind item 12 rather than taken on
+  their own. Keycloak 22.0.4 to 25.0.3 is item 5's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
+  Keycloak client stack, which item 5 owns.
 
   Maven 3.9.16 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
   own wrapper, so the move is one change across all of them, gated on the full build and a train
@@ -1013,7 +1021,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   cost on Linux. Its operating-system detection predates Ubuntu 26.04, so `cedar-parent` overrides
   `de.flapdoodle.os` to 1.11.1 for the CI runners, and the upgrade would drop that override. Taking the upgrade therefore
   means running the suites against a different major from the deployed 5.0.31, which is the one
-  thing `EmbeddedCedarMongo` exists to avoid. It moves with item 11. Version 5.0.0 also costs one
+  thing `EmbeddedCedarMongo` exists to avoid. It moves with item 12. Version 5.0.0 also costs one
   import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and
   `EmbeddedCedarMongo` is the estate's only consumer.
 
