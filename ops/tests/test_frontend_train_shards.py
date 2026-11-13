@@ -174,6 +174,18 @@ class DistributedEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'recipe changed'):
             shards.host_preparation_config(config)
 
+    def test_host_shards_install_the_browsers_the_host_setup_declares(self):
+        # The shards installed Chromium alone after the host's suite gained Firefox and WebKit,
+        # and three of four failed to launch a browser in train 2.9.36-dev.20261113.2215.
+        config = train.load_json(train.DEFAULT_CONFIG)
+        row = next(s for s in config['surfaces'] if s['repository'] == shards.HOST)
+        install = shards.host_browser_install(config)
+        self.assertIn(install, row['setup'])
+        self.assertEqual(['install', '--with-deps', 'chromium', 'firefox', 'webkit'], install[1:])
+        row['setup'] = [c for c in row['setup'] if c != install]
+        with self.assertRaisesRegex(RuntimeError, 'exactly one Playwright browser install'):
+            shards.host_browser_install(config)
+
     def test_host_coverage_rejects_omissions_duplicates_and_foreign_candidates(self):
         receipt = self.candidate()
         receipt['data']['visual'] = []

@@ -379,8 +379,22 @@ def host_report_config(directory):
         "export default {...base, reporter: [['line'], ['json', {outputFile: 'train-report.json'}]]};\n")
 
 
+def host_browser_install(config):
+    """The Playwright install that the host's own setup declares.
+
+    A shard launches every engine the host's browser suite names. It therefore installs what the
+    reactor and the release install for the host, and keeps no list of its own.
+    """
+    row = next(s for s in config['surfaces'] if s['repository'] == HOST)
+    installs = [command for command in row.get('setup', [])
+                if command[0].endswith('playwright') and 'install' in command]
+    if len(installs) != 1:
+        raise RuntimeError('Designer host setup must declare exactly one Playwright browser install')
+    return installs[0]
+
+
 def check_host(args):
-    plan, _, _ = context(args)
+    plan, _, config = context(args)
     receipt = restore(args, plan, HOST)
     root = args.workspace / HOST
     shard = int(args.lane)
@@ -389,7 +403,7 @@ def check_host(args):
     env = environment(args, plan, HOST)
     train.run_command(['npm', 'ci'], root, env)
     train.run_command(['npm', '--prefix', 'browser', 'ci'], root, env)
-    train.run_command(['./browser/node_modules/.bin/playwright', 'install', '--with-deps', 'chromium'], root, env)
+    train.run_command(host_browser_install(config), root, env)
     expected = inventory(root, env, 'browser', [f'--shard={shard}/{SHARDS}'])
     host_report_config(root / 'browser')
     report = root / 'browser/train-report.json'
