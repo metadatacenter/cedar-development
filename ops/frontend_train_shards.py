@@ -126,7 +126,7 @@ def prepare_ced(args):
     built = train.load_json(package / 'package.json')
     if (built['name'], built['version']) != (component['name'], component['version']):
         raise RuntimeError('CED candidate has wrong identity')
-    browser = inventory(root, {**env, 'CED_WEBKIT': '1'}, 'browser')
+    browser = inventory(root, env, 'browser')
     visual = inventory(root, {**env, 'CED_VISUAL': '1'}, 'browser', ['visual.spec.ts'])
     archive_candidate(args, plan, CED, {'packageSha256': train.path_sha256(package),
         'packagePath': component['stagedPackage'], 'browser': browser, 'visual': visual})
@@ -151,9 +151,8 @@ def check_ced(args):
         shard = int(args.lane)
         if not 1 <= shard <= SHARDS:
             raise ValueError('Invalid CED shard')
-        env['CED_WEBKIT'] = '1'
         train.run_command(['./browser/node_modules/.bin/playwright', 'install', '--with-deps',
-                           'chromium', 'webkit'], root, env)
+                           'chromium', 'firefox', 'webkit'], root, env)
         expected = inventory(root, env, 'browser', [f'--shard={shard}/{SHARDS}'])
         report_config(root / 'browser', 'train-report.json')
         command = ['npm', 'run', 'test:browser:prebuilt', '--', f'--shard={shard}/{SHARDS}',

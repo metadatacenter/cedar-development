@@ -158,10 +158,13 @@
         },
         "test.yml:performance": {},
         "test.yml:cef-integration": {
-          "linux": "runs on arm64 Ubuntu 24.04, the runner GitHub gives the job, and a container of its own keeps its Playwright server's port apart from the test job's, as separate runners do"
+          "linux": "runs each integration engine in its own arm64 Ubuntu 24.04 container, sharing the verified CED build and real-component artifacts"
         },
-        "test.yml:webkit-interactions": {
-          "linux": "runs Playwright's Linux WebKit on arm64 Ubuntu 24.04, the runner GitHub gives the job"
+        "test.yml:browser": {
+          "linux": "runs each engine and shard in its own arm64 Ubuntu 24.04 container, matching the six separate hosted test servers"
+        },
+        "test.yml:cef-bundles": {
+          "linux": "build the supported real-component bundles once on the same arm64 Ubuntu 24.04 platform as their consumers"
         }
       }
     },
@@ -272,7 +275,10 @@
     "cedar-monitoring": {
       "jobs": {
         "ci.yml:design-token-adoption": {},
-        "ci.yml:build": {}
+        "ci.yml:build": {},
+        "ci.yml:browser": {
+          "linux": "matches Ubuntu 24.04 browser and native-control behavior; each engine reuses the single production artifact with two workers"
+        }
       }
     },
     "cedar-openview": {
@@ -343,7 +349,10 @@
       "jobs": {
         "ci.yml:design-token-adoption": {},
         "ci.yml:package": {},
-        "ci.yml:performance": {}
+        "ci.yml:performance": {},
+        "ci.yml:browser": {
+          "linux": "matches the Ubuntu 24.04 browser jobs; each engine shares the staged host and uses two workers"
+        }
       }
     },
     "cedar-template-editor": {

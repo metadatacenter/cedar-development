@@ -86,6 +86,12 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 ### 2. Calibrate Browser Performance Gates
 
+- Investigate the Designer host's warm small-document layout shift against the fixed reference:
+  the 2026-11-13 paired report measures median CLS 0.5083 versus 0.0127, with all five candidate
+  samples at 0.5083 in the latest run. The immediate before/after bundles are identical and both show the shift.
+  Attribute the shifted elements and distinguish application behavior from harness/navigation
+  effects before changing layout or calibration. Retain the warning until the cause is established;
+  see the [browser audit evidence](FRONTEND-RUNBOOK.md#default-three-engine-coverage).
 - Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
   cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
@@ -389,12 +395,6 @@ and does not exempt that page. Keep justified N/A ratings distinct from missing 
   and failures, row/cell names, trace entry and focus return, and quiet unchanged polling. Verify
   actual speech, order and interruption; DOM semantics and separate green component suites do not
   establish the integrated experience.
-- Extend the targeted engine coverage identified in the
-  [remaining inventory](FRONTEND-RUNBOOK.md#remaining-engine-coverage-inventory): CEE help-tooltip
-  keyboard behaviour, label-in-name and language semantics; Workspace interaction/focus recovery;
-  and CED child-picker, constraints and field-library interactions. Review mixed presentation
-  assertions before adding Firefox/WebKit selections. Keep pixel baselines in their controlled
-  environment, retain the current worker budget, and compare repeated zero-retry runs and timings.
 - Add an explicit CEE author/host declaration of personal input purpose, with scoped autocomplete
   tokens for covered current-user fields. Preserve the existing default for generic metadata and
   fields about other people; verify repeated/nested instances and browser autofill before enabling
