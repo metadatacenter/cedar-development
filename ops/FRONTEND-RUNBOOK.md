@@ -6091,7 +6091,59 @@ translation quality. The remaining criterion-level work stays in the single
 [Accessibility roadmap item](FRONTEND-ROADMAP.md#accessibility); these additional functional cases
 do not change its conformance ratings.
 
+### Remaining Engine Coverage Inventory
+
+The 2026-11-13 `playwright test --list --reporter=json` inventory covers all eight modern application
+suites, including CED's real CEF/picker inputs, additional WebKit project and 25 pixel cases.
+It lists **12,424 project executions** and **5,307 distinct cases**. A case is identified by its
+file, source location and full title; the same case in several browser/viewport projects counts
+once below. Different parameterized titles remain different cases. These counts measure configured
+selection, not passing results, distinct user journeys or WCAG conformance.
+
+| Surface | One engine | Two engines | All three engines |
+| --- | ---: | ---: | ---: |
+| CEE/CEF | 740 | 0 | 451 |
+| CED | 618 | 70 | 466 |
+| Term picker | 32 | 0 | 186 |
+| Workspace | 312 | 222 | 317 |
+| OpenView | 40 | 0 | 339 |
+| Bridging | 10 | 0 | 219 |
+| Monitoring | 95 | 0 | 451 |
+| Template Designer host | 24 | 0 | 715 |
+| **Total** | **1,871** | **292** | **3,144** |
+
+The highest-value first candidates are CEE's `help-marks`, `label-in-name` and `language` specs
+(69 cases), Workspace's `interactions` spec (34), and CED's `child-picker`, `constraints` and
+`field-library` specs (39). They contain keyboard help, accessible naming and language semantics,
+Escape/focus recovery, duplicate-save protection, nested insertion, terminology integration and
+field-library interactions that the current Firefox/WebKit file selections omit. These are
+coverage gaps, not newly demonstrated product failures. Extending those whole groups would add
+284 engine executions, about **2.3%** of the current application matrix, before separating any
+mixed presentation assertions that should keep their original environment.
+
+For planning only, proportional scaling from the measured suite times suggests roughly 30 seconds
+on CEE's slowest hosted shard, 20 seconds on CED's local ten-worker suite and five seconds on
+Workspace's local twelve-worker suite. These are equal-cost extrapolations, not benchmarks: the
+test mix, browser startup and scheduling can change them, and the different environments must not
+be added together as a reactor forecast. Measure each proposed addition at the existing worker
+allocation and repeat it without retries before accepting it; do not raise workers to hide cost.
+
+A second review can select representative CED embedded defaults/validation, Workspace's remaining
+Firefox explorer/navigation coverage and Monitoring's URL-state cases. Large presentation matrices,
+shared-token/style assertions and pixel baselines account for much of the one-engine count and do
+not justify automatic duplication. Filling every missing engine slot would add 4,034 executions
+(32.5%); that is an inventory bound, not the recommended plan. Live-stack journeys, framework
+consumer demos, the MCP session page, the separate Unicode-policy gate, performance tests and
+non-browser unit/model checks are outside this table and keep their documented selections.
+
+The machine-readable case/file/project inventories and source heads are retained under
+`.cedar/audits/2026-11-13-browser-inventory/`. Native browser zoom, mobile touch/keyboard behaviour
+and actual screen-reader speech remain separate from engine selection. A comprehensive installed
+desktop-browser matrix is not proposed; use targeted native zoom, authentication/autofill and Safari
+editing/save checks alongside the existing assistive-technology protocols.
+
 ### Failures Several Components Share
+
 
 The component-level 1.3.5 failure also applies to hosts embedding CEE for personal-information
 entry. Earlier visual failures had three shared causes, each fixed where its cause lives. Every
