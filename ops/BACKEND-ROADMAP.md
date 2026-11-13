@@ -128,15 +128,98 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   this estate carried in Docker for years and was right to be uneasy about, on a library that has had
   no release since 2024.
 
-  **Confirm the Java floor of the 26.x server distribution.** The question concerns the server
-  alone, since `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing on a client, and the
-  Keycloak image installs `java-17-openjdk-headless` unpinned. Settle it alongside the upgrade. The
-  estate pins Java 17 only because newer JDKs crash Keycloak 22 on the removed security manager, so
-  moving Keycloak forward is the change most likely to retire that constraint.
+  **Moving the server also changes the tokens and the server configuration.** These findings were
+  read on 2026-11-13 from the upgrade guide for 26.8.2 and from the code.
 
-  Rehearse the upgrade on a copy of the production user store, since Keycloak's Liquibase migration
-  of that store runs forward only, and gate it on the end-to-end smoke. The Docker build manifest
-  pins the server image as well, and the [Docker roadmap](./DOCKER-ROADMAP.md) owns that lock.
+  - **Tokens lose two claims the browser adapters read.** From 25.0 the access and ID tokens no
+    longer carry `session_state`, and only the ID token carries `nonce`. The Template Editor, the
+    Template Designer and Workspace load identical copies of a `keycloak.min.js` vendored in March
+    2023, and Monitoring and Bridging resolve `keycloak-js` 21.1.2. The vendored adapter compares
+    `nonce` in the access and refresh tokens and takes its session identifier from `session_state`,
+    and the guide says the same of every adapter older than 24. Keycloak supplies two protocol
+    mappers that restore the claims, "Nonce backwards compatible" and
+    "Session State (session_state)". Add both to `cedar-angular-app`, `cedar-frontend-bridging` and
+    `cedar-frontend-monitoring` at the upgrade, or move the adapters first. A newer adapter cannot
+    replace the vendored file as it stands, because `keycloak-js` 26 has no UMD build and those
+    three applications load the adapter with a script tag.
+
+  - **Every server resolves the caller from `sub`, and 25.0 moves that claim.** A mapper in a new
+    `basic` client scope supplies it, and the migration adds that scope to each existing client.
+    The rehearsal confirms `sub` in a token from every client.
+
+  - **The admin API requires a scope from 26.8.2.** It refuses a token that lacks the realm's
+    `kc-admin-api` scope, which Keycloak adds by default to `admin-cli` and
+    `security-admin-console` alone. `cedar-main.yml` sets `admin-cli` as the client for the admin
+    calls of the user server, the monitor server and the admin tool, so they need no change. The
+    rehearsal confirms that with one admin lookup.
+
+  - **Keycloak 26 has no `proxy` option.** The workstation's `keycloak.conf` and the image's both
+    set `proxy=reencrypt`. Keycloak deprecated the option in 24 and removed it in 26.0, and
+    `proxy-headers=xforwarded` replaces it. The workstation and staging nginx mirrors already send
+    the `X-Forwarded-*` headers that setting reads and clear `Forwarded`, so nginx needs no change.
+    Staging's mirror proxies to Keycloak over plain HTTP on 8080, which also requires
+    `http-enabled=true` to stay. `hostname=auth.${CEDAR_HOST}` remains valid, since the hostname
+    options of 26 accept a bare hostname and take the scheme and port from the forwarded headers.
+    Production's `keycloak.conf` and nginx have not been read.
+
+  **The upgrade forces no Java move.** Keycloak 26.8.2 supports OpenJDK 17, 21 and 25, and
+  `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing on a client. The Keycloak image
+  installs `java-17-openjdk-headless` unpinned and can stay on it. The estate pins Java 17 only
+  because newer JDKs crash Keycloak 22 on the removed security manager, so the upgrade removes
+  Keycloak's part of that constraint.
+
+  **Go from 22 to the target release in one step.** The guide names no intermediate release a 22
+  server must pass through, and the schema and realm migrations apply every release's changes in
+  order on the first start. Its one reason to stop at 25 is to carry signed-in sessions across the
+  cache format change in 26.0, and that path excludes sessions held in memory, as a single node with
+  the default caches holds them. Neither `keycloak.conf` configures a cache, so every user signs in
+  again once, as after any restart of Keycloak 22.
+
+  **Rehearse twice, because test accounts and production's user store prove different things.**
+  Keycloak's Liquibase migration of the user store runs forward only, and it is the one step that
+  touches every production account. Read production's Keycloak and MySQL versions, `keycloak.conf`
+  and nginx auth vhost before either rehearsal, since each difference from staging reduces what
+  staging proves.
+
+  - **The software rehearsal uses test accounts.** Move the workstation stack to the target release
+    and pass `cedarcli test e2e`. The Docker build manifest pins the server image too, and the
+    [Docker roadmap](./DOCKER-ROADMAP.md) owns that lock. Then upgrade staging with its own realm
+    and run the checks under [Verify](./PROD-DEPLOY-RUNBOOK.md#verify). Add a sign-in through every
+    frontend and a new registration, and confirm that the registration reaches CEDAR through the
+    listener. Run the same build of the services against 22 and against the target release, since
+    a backout depends on that.
+
+  - **The data rehearsal uses a copy of production's `cedar_keycloak`.** Test accounts say nothing
+    about that store. The developer documentation records a Keycloak upgrade from 3.3.0 to 11.0.2
+    in 2020, so production's realm may hold password formats and settings that staging's realm
+    lacks. Load the copy into a scratch schema on staging and start a separate Keycloak at the
+    target release against it. Time the migration and read its log. Compare the counts of users,
+    credentials and identity-provider links before and after, and a sample of user identifiers.
+    Ask the owners of long-standing accounts to sign in to Keycloak's account console, which needs
+    no CEDAR frontend. Only those accounts hold password hashes written by earlier releases.
+
+    The copy holds password hashes, email addresses and the realm's signing keys, so treat it as a
+    production secret. Clear the realm's SMTP settings before the first start so the copy cannot
+    send mail, and delete the copy afterwards.
+
+  **Back out by returning to data the upgrade never touched.** Keycloak 22 cannot open a migrated
+  database, so every backout returns to the data as it stood before the upgrade and discards what
+  was written since. A registration made on the new release costs the most, because CEDAR has
+  already provisioned that user under an identifier the earlier data lacks.
+
+  - Upgrade a copy. Stop Keycloak 22, copy `cedar_keycloak` into a second schema, install the
+    target release in a directory of its own, and point it at the copy through
+    `CEDAR_KEYCLOAK_MYSQL_DB`. The original schema and the 22 installation stay as they were, so a
+    backout stops the new server and starts the old one, with no restore. Keep a dump as well.
+  - Turn self-registration off for the verification window, so a backout loses only password and
+    profile changes.
+  - Fix the criteria before the window. Back out if an existing account cannot sign in or a user
+    identifier differs from its earlier value. Repair any other defect on the new release.
+  - Replace the adapter while the server is still on 22, so the services deployed before the window
+    run against both releases. A backout then touches Keycloak alone.
+
+  Once registration reopens, a backout would orphan the new accounts in CEDAR, so later defects are
+  repaired on the new release.
 
   **Narrow the exposure while the server stays on 22.** Roughly a third of the advisories can be
   closed or reduced without the upgrade, by configuration at the edge and in the realm and by two
