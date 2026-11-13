@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, firefox, webkit } from "playwright";
 import { journeyBrowser } from "./journey-browser.mjs";
-import { dashboardAddress, openListing, listingIdle, focused, rendered } from "./journey-fixtures.mjs";
+import { dashboardAddress, openListing, listingIdle, focused, rendered, waitForState, tabKey } from "./journey-fixtures.mjs";
 import { ready, listing } from "./workspace-journey-fixtures.mjs";
 
 test("listing setup in independent contexts never writes another journey's saved preferences", async () => {
@@ -225,22 +225,41 @@ for (const [engine, type] of Object.entries({chromium, firefox, webkit})) {
         window.pendingFrames = [];
         window.requestAnimationFrame = callback => { window.pendingFrames.push(callback); return window.pendingFrames.length; };
       });
-      let painted = false, idle = false, hasFocus = false;
+      let painted = false, idle = false, hasFocus = false, stateReady = false;
+      const state = waitForState(page, () => window.recovered === true).then(() => { stateReady = true; });
       const painting = rendered(page).then(() => { painted = true; });
       const listing = listingIdle(page).then(() => { idle = true; });
       const focus = focused(page.getByRole('textbox'), 'input never received focus').then(() => { hasFocus = true; });
       // Give each waiter a chance to return incorrectly while every condition is held false.
       await new Promise(resolve => setTimeout(resolve, 100));
-      assert.deepEqual([painted, idle, hasFocus], [false, false, false]);
+      assert.deepEqual([painted, idle, hasFocus, stateReady], [false, false, false, false]);
       await page.evaluate(() => window.pendingFrames.shift()(performance.now()));
       assert.equal(painted, false, 'one animation frame is not a completed render');
       await page.evaluate(() => {
         window.pendingFrames.shift()(performance.now());
         document.querySelector('.table-scroll').setAttribute('aria-busy', 'false');
         document.querySelector('input').focus();
+        window.recovered = true;
       });
-      await Promise.all([painting, listing, focus]);
-      assert.deepEqual([painted, idle, hasFocus], [true, true, true]);
+      await Promise.all([painting, listing, focus, state]);
+      assert.deepEqual([painted, idle, hasFocus, stateReady], [true, true, true, true]);
+    } finally { await browser.close(); }
+  });
+}
+
+for (const [engine, type] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: platform Tab gestures reach native buttons in both directions`, async () => {
+    const browser = await type.launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent('<input aria-label="Before"><button>Save</button><input aria-label="After">');
+      await page.getByRole('textbox', {name: 'Before'}).focus();
+      await page.keyboard.press(tabKey(page));
+      await focused(page.getByRole('button', {name: 'Save'}), 'forward keyboard navigation reaches Save');
+      await page.keyboard.press(tabKey(page));
+      await focused(page.getByRole('textbox', {name: 'After'}), 'forward keyboard navigation reaches the next field');
+      await page.keyboard.press(tabKey(page, true));
+      await focused(page.getByRole('button', {name: 'Save'}), 'reverse keyboard navigation reaches Save');
     } finally { await browser.close(); }
   });
 }

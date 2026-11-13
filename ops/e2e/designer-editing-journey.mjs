@@ -1,3 +1,4 @@
+import { waitForState } from "./journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import { artifactBody, call, enc } from "./rest/lib.mjs";
 import { journeyFolder, focused } from "./journey-fixtures.mjs";
@@ -87,7 +88,7 @@ export async function designerOrderJourney(args) {
     await open(page, fixture);
     const outline = ced(page).locator("app-container-outline").last();
     await reorder(page, outline);
-    await page.waitForFunction(nested => {
+    await waitForState(page, nested => {
       const artifact = document.querySelector("cedar-embeddable-designer").currentArtifact;
       return (nested ? artifact.properties.Section : artifact)._ui.order.join(",") === "Beta,Gamma,Alpha";
     }, nested);

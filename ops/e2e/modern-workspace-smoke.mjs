@@ -17,7 +17,7 @@ import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { chromium, firefox, webkit } from "playwright";
 import { actors, artifactBody, call, mutate, enc, poll } from "./rest/lib.mjs";
-import { captureCreates, recordCreate, rendered } from "./journey-fixtures.mjs";
+import { captureCreates, recordCreate, rendered, dashboardAddress } from "./journey-fixtures.mjs";
 import { editorStatus } from "./metadata-journey-fixtures.mjs";
 import {
   assertOnlyContentChanges, backToWorkspace, editor as editorAt, editorSave as editorSaveAt,
@@ -65,7 +65,9 @@ async function login(username, password, storageState) {
     const p = await context.newPage();
     p.on("dialog", (dialog) => dialog.accept());
     p.on("pageerror", (e) => errors.push(e.message));
-    await p.goto(base + "/dashboard", { waitUntil: "domcontentloaded" });
+    // Fixture setup must not inherit another lane's temporarily saved grid preference. Opening
+    // the intended view directly also avoids replacing a document still starting report reads.
+    await p.goto(dashboardAddress(base), { waitUntil: "domcontentloaded" });
     await p
       .locator("#username, cedar-workspace-page .destinations")
       .first()

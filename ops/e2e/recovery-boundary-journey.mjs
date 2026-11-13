@@ -1,3 +1,4 @@
+import { waitForState } from "./journey-fixtures.mjs";
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from 'node:assert/strict';
 import {actors,artifactBody,call,mutate,enc,poll,RESOURCE} from './rest/lib.mjs';
@@ -106,7 +107,7 @@ export async function tabIsolationJourney(args) {
     for(const kind of ['template','metadata']) {
       const f=await recoveryFixture(args,kind,'tab isolation');await f.input(page).fill('First tab draft');
       // Take the snapshot once the tab has retained the draft, or it would prove nothing about that draft.
-      await page.waitForFunction(value=>Object.values(sessionStorage).some(raw=>raw.includes(value)),'First tab draft');
+      await waitForState(page, value=>Object.values(sessionStorage).some(raw=>raw.includes(value)),'First tab draft');
       const retained=await page.evaluate(()=>Object.entries(sessionStorage));
       const fresh=await page.context().newPage();fresh.on('dialog',d=>d.accept());
       try {

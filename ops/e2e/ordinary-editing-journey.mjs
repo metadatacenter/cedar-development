@@ -1,3 +1,4 @@
+import { tabKey } from "./journey-fixtures.mjs";
 import assert from "node:assert/strict";
 import { artifactBody, call, enc } from "./rest/lib.mjs";
 import { metadataFixture, numericField, comparable, editorStatus } from "./metadata-journey-fixtures.mjs";
@@ -87,11 +88,17 @@ export async function mixedMetadataJourney(args) {
 // Find a control through ordinary Tab navigation, allowing intervening help controls without
 // encoding the component's implementation-specific number of tab stops.
 async function tabTo(page, target, reverse = false, limit = 80) {
+  const visited = new Set();
   for (let i = 0; i < limit; i++) {
+    visited.add(await page.evaluate(() => {
+      let el = document.activeElement;
+      while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+      return `${el?.tagName}#${el?.id} ${el?.getAttribute("aria-label") ?? el?.textContent?.slice(0, 60)}`;
+    }));
     if (await target.evaluate(el => el === el.getRootNode().activeElement || el.contains(el.getRootNode().activeElement))) return;
-    await page.keyboard.press(reverse ? "Shift+Tab" : "Tab");
+    await page.keyboard.press(tabKey(page, reverse));
   }
-  await focused(target, "The control must be reachable by keyboard");
+  await focused(target, `The control must be reachable by keyboard; visited: ${[...visited].join(" → ")}`);
 }
 
 export async function keyboardMetadataJourney(args) {
@@ -108,10 +115,12 @@ export async function keyboardMetadataJourney(args) {
     expected[key]["@value"] = value;
   }
   await tabTo(page, input(page, "Second"), true);
-  await page.keyboard.press("End");
+  // ArrowRight collapses the selection at its end on macOS as well as other platforms.
+  await page.keyboard.press("ArrowRight");
   await page.keyboard.type(" corrected");
   expected.Second["@value"] += " corrected";
-  await tabTo(page, page.locator("#button-save-metadata"));
+  // Save precedes the form. Reverse Tab reaches it without leaving the document for browser chrome.
+  await tabTo(page, page.locator("#button-save-metadata"), true);
   await saved(args, () => page.keyboard.press("Enter"));
   assert.deepEqual(comparable((await fixture.read()).body), comparable(expected));
   await opened(page, fixture);
@@ -137,7 +146,7 @@ export async function keyboardRepeatedMetadataJourney(args) {
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Middle corrected by keyboard");
   expected.Notes[1]["@value"] = "Middle corrected by keyboard";
-  await tabTo(page, page.locator("#button-save-metadata"));
+  await tabTo(page, page.locator("#button-save-metadata"), true);
   await saved(args, () => page.keyboard.press("Enter"));
   assert.deepEqual(comparable((await fixture.read()).body), comparable(expected));
   await opened(page, fixture);

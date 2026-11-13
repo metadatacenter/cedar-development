@@ -430,6 +430,7 @@ export async function runTier({
           if (answer.message) {
             const result = answer.message;
             noteUnit(record, unit, began, result.ok ? "pass" : interrupted ? "interrupted" : "fail", {
+              browser: result.browser, browserVersion: result.browserVersion, journeyKey: result.journeyKey,
               checks: result.checks, cleanupSeconds: result.cleanupSeconds, scenarios: result.scenarios, evidence: result.evidence,
               failureCategory: result.failureCategory,
               ...(result.ok ? {} : { message: (result.message ?? "").slice(0, 2000) }),
@@ -546,6 +547,7 @@ export async function runTier({
         const began = Date.now();
         const worker = createWorker(record, lane.root);
         let ok = true;
+        let engine;
         if (lane.core) {
           ok = await runProcess(record, layout.chain);
           chainEnded = true;
@@ -559,7 +561,7 @@ export async function runTier({
             await sleep(250);
         }
         while (ok && !interrupted) {
-          const unit = queue.next();
+          const unit = queue.next(engine);
           if (!unit) break;
           if (unit.kind === "journey" && !worker.worker.alive) {
             if (!(await worker.start())) {
@@ -569,6 +571,7 @@ export async function runTier({
             }
           }
           ok = unit.kind === "journey" ? await worker.run(unit) : await runProcess(record, unit);
+          if (unit.kind === "journey") engine = unit.browser;
           queue.finish(unit);
         }
         await worker.stop();
@@ -632,6 +635,7 @@ export async function runTier({
     const journeyResults = all.filter(event => event.event === "done" && event.scenarios).map(event => ({
       name: event.step, kind: "journey", outcome: event.outcome ?? "pass", seconds: event.seconds,
       scenarios: event.scenarios, evidence: event.evidence, message: event.message,
+      browser: event.browser, browserVersion: event.browserVersion, journeyKey: event.journeyKey,
     }));
     const verdict = interrupted ? "INTERRUPTED" : failures.length || notRun.length ? "FAIL" : inventoryMode === "candidate" ? "CANDIDATE" : "PASS";
     const report = {

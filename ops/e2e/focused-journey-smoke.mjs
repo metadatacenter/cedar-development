@@ -10,7 +10,7 @@ import { withBrowserAuthentication, withJourneyAuthentication } from "./auth-act
 // journey's fixtures are removed as soon as it ends, and the root once the last journey has.
 //
 // With --worker the process takes its keys from the split tier's runner instead, one at a time over
-// the IPC channel the runner opened when it forked the process. Once signed in it sends
+// the IPC channel the runner opened when it forked the process. Once its root folder exists it sends
 // `{type: "ready"}`. For each `{type: "run", key}` it runs that journey, removes its fixtures and
 // sends `{type: "result", key, ok, ...}`. It stops after `{type: "stop"}`, after a journey fails,
 // or when the channel closes. Under the runner the process records each journey as a step through
@@ -26,10 +26,11 @@ import { scenarioTracker, shuffled } from "./journey-contract.mjs";
 import { journeyBrowser } from "./journey-browser.mjs";
 import { beginHistory, finishHistory, failureCategory } from "./journey-history.mjs";
 import { acquire, release, lockPath, holderOf, describeHolder } from "./split-lock.mjs";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
+import { ENGINES, execution } from "./journey-engines.mjs";
 import { actors, call, mutate, enc } from "./rest/lib.mjs";
-import { captureCreates, recordCreate } from "./journey-fixtures.mjs";
-import { JOURNEYS, journey } from "./journey-registry.mjs";
+import { captureCreates, recordCreate, dashboardAddress } from "./journey-fixtures.mjs";
+import { JOURNEYS } from "./journey-registry.mjs";
 import { enter, noteFixture, record, evidenceDirectory } from "./split-steps.mjs";
 
 const args = process.argv.slice(2);
@@ -37,14 +38,18 @@ const worker = args.includes("--worker");
 const rootArgument = args.find((argument) => argument.startsWith("--root="));
 const option = key => args.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3);
 const seed = option("seed");
+const initialEngine = option("browser") ?? "chromium";
+assert.ok(ENGINES.includes(initialEngine), `Unknown browser: ${initialEngine}`);
+const managed = Boolean(process.env.CEDAR_SPLIT_STEPS && process.env.CEDAR_SPLIT_SCRIPT);
 let selected = args.includes("--all") ? JOURNEYS.map(entry => entry.key) : args.filter(argument => !argument.startsWith("--"));
+selected = selected.map(key => execution(key, initialEngine).name);
 if (seed !== undefined) selected = shuffled(selected, seed);
 const recordDirectory = option("record-inventory") ?? process.env.CEDAR_JOURNEY_RECORD_INVENTORY;
 const here = dirname(fileURLToPath(import.meta.url));
 const reportPath = option("report") ?? join(evidenceDirectory(), "journeys.json");
 const results = [];
 let history, lock;
-if (!worker) {
+if (!worker && !managed) {
   const path = lockPath(here), holder = holderOf();
   const taken = acquire(path, holder);
   if (!taken.acquired) { console.error(`Another split run holds ${path}: ${describeHolder(taken.holder)}`); process.exit(75); }
@@ -58,7 +63,7 @@ if (worker) {
   assert.ok(rootArgument, "A worker's root is named by the runner");
 } else {
   assert.ok(
-    selected.length && selected.every((key) => journey(key)),
+    selected.length && selected.every((key) => execution(key)),
     "Choose: " + JOURNEYS.map((entry) => entry.key).join(", "),
   );
   assert.equal(new Set(selected).size, selected.length, "Each journey runs once");
@@ -79,6 +84,7 @@ created.push = (...items) => {
 const errors = [],
   bodies = new Map();
 let browser,
+  browserEngine,
   authState,
   page,
   rootId = null,
@@ -150,7 +156,7 @@ async function write(
 async function authenticate(p) {
   return withBrowserAuthentication("journey worker sign-in", async () => {
     p.setDefaultTimeout(25000);
-    await p.goto(base + "/dashboard");
+    await p.goto(dashboardAddress(base));
     const ready = p.getByRole("button", { name: "New", exact: true });
     const username = p.locator("#username");
     await username.or(ready).first().waitFor();
@@ -163,15 +169,20 @@ async function authenticate(p) {
   });
 }
 
-/** Signs in through the form and makes the root folder. */
+/** A lane keeps at most one engine alive; cookies never cross engine boundaries. */
+async function selectBrowser(engine) {
+  if (browser && browserEngine === engine) return;
+  await browser?.close();
+  browser = undefined;
+  authState = undefined;
+  browserEngine = engine;
+  browser = await ({ chromium, firefox, webkit })[engine].launch({ headless: !process.env.HEADED });
+  record({ event: "browser", browser: engine, version: browser.version() });
+}
+
+/** Makes the lane's root. The first journey launches its own engine and signs in. */
 async function setUp(user1) {
-  step = enter("login");
-  browser = await chromium.launch({ headless: !process.env.HEADED });
-  const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 } });
-  page = await context.newPage();
-  await authenticate(page);
-  authState = await context.storageState();
-  await context.close();
+  step = enter("setup");
   const folder = await call(user1.auth, "POST", "/folders", {
     folderId: user1.profile.homeFolderId,
     name,
@@ -196,26 +207,28 @@ async function removeFixtures(user1) {
 /** Runs one journey under the root and removes its fixtures. A failure is recorded, not thrown. */
 async function runJourney(user1, key) {
   const began = Date.now();
-  let failure = null;
+  const { entry, engine } = execution(key, initialEngine);
+  let failure = null, diagnostics;
   step = enter(key);
   bodies.clear();
   running = true;
-  const tracked = scenarioTracker(key, { recordDirectory, emit: scenario => {
+  const tracked = scenarioTracker(entry.key, { recordDirectory, emit: scenario => {
     checks++;
     record({ event: "scenario", step: key, ...scenario });
     console.log(`PASS: ${key}/${scenario.id}: ${scenario.promise}`);
   } });
-  const diagnostics = journeyBrowser(browser, {
-    directory: join(evidenceDirectory(), key), capture: context => captureCreates(context, created, bodies),
-  });
   try {
+    await selectBrowser(engine);
+    diagnostics = journeyBrowser(browser, {
+      directory: join(evidenceDirectory(), key), capture: context => captureCreates(context, created, bodies),
+    });
     const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 }, storageState: authState });
     page = await context.newPage();
     page.on("dialog", dialog => dialog.accept());
     await authenticate(page);
     // A previous identity journey may have ended its SSO session. Refresh only this clean baseline.
     authState = await context.storageState();
-    await withJourneyAuthentication(journey(key), () => journey(key).run({ page, base, designer, user: user1, folderId: rootId, name, created, write, pass: tracked.pass }));
+    await withJourneyAuthentication(entry, () => entry.run({ page, base, designer, user: user1, folderId: rootId, name, created, write, pass: tracked.pass }));
     assert.deepEqual(diagnostics.errors, [], "uncaught browser errors");
   } catch (error) {
     failure = String(error?.stack ?? error).slice(0, 6000);
@@ -235,7 +248,7 @@ async function runJourney(user1, key) {
     catch (error) { failure = String(error.stack ?? error); record({ event: "fail", step: key, message: failure }); }
   }
   let evidence;
-  try { evidence = await diagnostics.finish({ failure, scenarios: tracked.completed, cleanupErrors }); }
+  try { evidence = await diagnostics?.finish({ failure, scenarios: tracked.completed, cleanupErrors }); }
   catch (error) {
     failure ??= String(error.stack ?? error);
     evidence = error.evidence;
@@ -246,8 +259,8 @@ async function runJourney(user1, key) {
   const cleanupSeconds = Math.round((Date.now() - cleanupBegan) / 100) / 10;
   if (evidence) console.error("Journey evidence: " + evidence.directory);
   running = false;
-  record({ event: "done", step: key, checks: tracked.completed.length, scenarios: tracked.completed, cleanupErrors, evidence });
-  const result = { key, name: key, kind: "journey", ok: !failure, outcome: stopping ? "interrupted" : failure ? "fail" : "pass",
+  record({ event: "done", step: key, checks: tracked.completed.length, scenarios: tracked.completed, cleanupErrors, evidence, browser: engine, browserVersion: browser?.version(), journeyKey: entry.key });
+  const result = { key, name: key, kind: "journey", browser: engine, browserVersion: browser?.version(), journeyKey: entry.key, ok: !failure, outcome: stopping ? "interrupted" : failure ? "fail" : "pass",
     checks: tracked.completed.length, scenarios: tracked.completed, seconds: Math.round((Date.now() - began) / 100) / 10,
     cleanupSeconds, ...(failure ? { message: failure, failureCategory: failureCategory(failure, stopping ? "interrupted" : "fail") } : {}), cleanupErrors, evidence };
   results.push(result);
@@ -274,7 +287,7 @@ try {
       const message = await nextMessage();
       if (message?.type === "stop") break;
       if (message?.type !== "run") continue;
-      assert.ok(journey(message.key), "No journey has the key " + message.key);
+      execution(message.key, initialEngine);
       const result = await runJourney(user1, message.key);
       await tell({ type: "result", ...result });
       if (!result.ok) {
@@ -320,10 +333,10 @@ try {
     const report = { inventoryMode: recordDirectory ? "candidate" : "verified", verdict: stopping ? "INTERRUPTED" : failed || teardownErrors.length ? "FAIL" : recordDirectory ? "CANDIDATE" : "PASS", seed: seed ?? null,
       selection: selected, units: results, cleanupErrors: teardownErrors, runtime: { browser: browser?.version() },
       notRun: selected.filter(key => !results.some(result => result.key === key)) };
-    report.history = finishHistory(history, { ...report, reportPath });
+    if (history) report.history = finishHistory(history, { ...report, reportPath });
     mkdirSync(dirname(reportPath), { recursive: true });
     writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
-    console.log(`Journey report: ${reportPath}; history ${report.history.id}`);
+    console.log(`Journey report: ${reportPath}; history ${report.history?.id ?? "managed by split tier"}`);
     if (lock) release(lock.path, lock.holder);
   }
   if (process.connected) process.disconnect();

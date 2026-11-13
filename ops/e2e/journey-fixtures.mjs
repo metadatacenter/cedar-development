@@ -104,6 +104,19 @@ export async function listedIn(page, base, folderId, row, what, attempts = 16) {
   }
 }
 
+/** Poll synchronous page state from Node so a Zone-patched Promise cannot bypass the wait. */
+export async function waitForState(page, predicate, argument, failure = "Page state did not settle") {
+  const result = await poll(async () => ({done: Boolean(await page.evaluate(predicate, argument))}),
+    {tries: 251, delayMs: 100});
+  assert.ok(result.done, failure);
+}
+
+/** WebKit on macOS uses Option-Tab to include all clickable controls. */
+export function tabKey(page, reverse = false) {
+  const allControls = process.platform === "darwin" && page.context().browser()?.browserType().name() === "webkit";
+  return `${allControls ? "Alt+" : ""}${reverse ? "Shift+" : ""}Tab`;
+}
+
 /** Waits until a control holds the focus of its own document or shadow root. */
 export async function focused(locator, failure) {
   const control = await locator.elementHandle();

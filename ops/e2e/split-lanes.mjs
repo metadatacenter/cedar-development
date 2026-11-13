@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { shuffled } from "./journey-contract.mjs";
+import { expandedJourneys } from "./journey-engines.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
 
 // The split tier's plan says what runs, where it may run and how long it may take. split-tier.mjs
@@ -176,7 +177,9 @@ export const longestFirst = (a, b) => a.shuffleRank !== undefined && b.shuffleRa
   ? a.shuffleRank - b.shuffleRank : b.seconds - a.seconds || a.order - b.order;
 
 /**
- * The queue the lanes share. `next()` hands the asking lane the longest unit it may run, or undefined
+ * The queue the lanes share. `next(engine)` prefers the lane's existing engine, longest first,
+ * then falls back to the longest available unit. Seeded runs retain their exact shuffled order.
+ * It returns undefined
  * when none is left for it. Every lane may run every unit, identity units included. A unit that
  * `shares` state waits while another sharing the same state is in flight. `finish(unit)` marks a unit
  * done, and `requeue(unit)` returns one a lane took but could not start.
@@ -186,8 +189,10 @@ export function createQueue(units) {
   const inFlight = new Set();
   const free = candidate => !candidate.shares || ![...inFlight].some(unit => unit.shares === candidate.shares);
   return {
-    next() {
-      const index = pending.findIndex(free);
+    next(engine) {
+      const preferred = typeof engine === "string" && !pending.some(unit => unit.shuffleRank !== undefined)
+        ? pending.findIndex(unit => unit.kind === "journey" && unit.browser === engine && free(unit)) : -1;
+      const index = preferred >= 0 ? preferred : pending.findIndex(free);
       if (index < 0) return undefined;
       const [unit] = pending.splice(index, 1);
       inFlight.add(unit);
@@ -219,7 +224,7 @@ export function simulate({ lanes, units, chainSeconds = 0, leadSeconds = 0 }) {
     const free = state.filter(entry => !entry.done);
     if (!free.length) break;
     const entry = free.reduce((earliest, candidate) => candidate.at < earliest.at ? candidate : earliest);
-    const unit = queue.next();
+    const unit = queue.next(entry.browser);
     if (!unit) {
       entry.done = true;
       continue;
@@ -227,6 +232,7 @@ export function simulate({ lanes, units, chainSeconds = 0, leadSeconds = 0 }) {
     entry.units.push(unit.name);
     entry.at += unit.seconds;
     entry.busy += unit.seconds;
+    if (unit.kind === "journey") entry.browser = unit.browser;
     queue.finish(unit);
   }
   const finished = state.map(entry => ({
@@ -256,17 +262,21 @@ export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Dat
     const { fallback, ...rest } = fields;
     return { ...rest, seconds, measured: isMeasured, deadlineSeconds: deadlineSeconds({ seconds, measured: isMeasured }, deadline) };
   };
+  const executions = expandedJourneys(journeys);
   const units = [
-    ...journeys.map((entry, order) => unit({ kind: "journey", name: entry.key, identity: Boolean(entry.authentication), authentication: entry.authentication ?? null,
-      shares: entry.shares ?? null, fallback: journeyDefault, order })),
+    ...executions.map((entry, order) => unit({ kind: "journey", name: entry.name, browser: entry.browser, journeyKey: entry.key, identity: Boolean(entry.authentication), authentication: entry.authentication ?? null,
+      shares: entry.shares ?? null, fallback: durations.get(entry.key) ?? journeyDefault, order })),
     ...scripts.map((script, order) => unit({ kind: "script", name: script.name, args: [...script.args],
       identity: Boolean(script.identity), fallback: durations.get(script.estimateFrom) ?? scriptDefault,
-      order: journeys.length + order })),
+      order: executions.length + order })),
   ];
   const estimates = Object.fromEntries(units.map(entry => [entry.name, { seconds: round(entry.seconds), measured: entry.measured }]));
   if (lanes === 1) {
     const processes = [
       unit({ kind: "script", name: CORE.name, args: [...CORE.args], identity: false, fallback: scriptDefault, order: -1 }),
+      ...units.filter(entry => entry.kind === "journey" && entry.browser !== "chromium").map(entry => ({
+        ...entry, kind: "script", args: ["focused-journey-smoke.mjs", entry.name],
+      })),
       ...units.filter(entry => entry.kind === "script"),
     ].map(({ order, identity, ...rest }) => rest);
     return {
@@ -277,7 +287,7 @@ export function plan({ lanes = DEFAULT_LANES, durations = new Map(), stamp = Dat
       lanes: [{
         name: "sequential",
         root: null,
-        keys: journeys.map(entry => entry.key),
+        keys: executions.map(entry => entry.name),
         scripts: processes.map(process => process.name),
         plannedSeconds: round(processes.reduce((sum, process) => sum + process.seconds, 0)),
         processes,
