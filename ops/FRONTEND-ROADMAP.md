@@ -91,6 +91,11 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
 - Characterize backend and authentication variability in the hosted CI 17-scenario
   full-stack sweep before considering timing enforcement. Exclude legacy applications.
+- Balance CEE's visual CI shards using measured case durations. The existing first shard takes
+  about 13.4 minutes while the other three take 6.1–8.9 minutes, making it the critical path even
+  with the consumer browser matrix running concurrently. Preserve every engine/case and the
+  zero-retry gate; compare repeated workflow wall times before increasing worker allocations.
+  The measurements and source runs are in the [frontend runbook](FRONTEND-RUNBOOK.md).
 
 ## CED Validation Failures
 

@@ -1685,6 +1685,15 @@ Unchanged candidate reuse took 0.38 seconds. Swap usage did not increase in eith
 These are complete demo-gate wall times, including installs, framework checks and production
 builds; they are not estimates for a cold CI runner.
 
+In GitHub Actions on 2026-11-13, the consumer repository's three concurrent jobs took 94–141
+seconds, including 51–68 seconds installing browser tools/engines and 17–19 seconds exercising
+each framework in all three engines. CEE's complete candidate-consumer job took 154 seconds,
+versus 98 seconds before the browser gate. It remained below the existing visual suite's critical
+path: in the preceding passing CEE run, visual shard 1 took 803 seconds while the other three took
+363–533 seconds. See the [consumer run](https://github.com/metadatacenter/cedar-component-demo/actions/runs/43385904749),
+[CEE candidate run](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43385934102)
+and [preceding CEE run](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43340276452).
+
 On hosts with at least 16 logical cores, `cedarcli build frontends` defaults to three
 repository jobs and twelve workers per repository, the same as
 `cedarcli build --jobs 3 --workers 12 frontends`. The shared pool still bounds total workers
