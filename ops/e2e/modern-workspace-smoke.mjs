@@ -25,7 +25,7 @@ import {
   sharedWithMeLists,
 } from "./workspace-journey-fixtures.mjs";
 import { sharedTemplateJourney } from "./shared-template-journey.mjs";
-import { journeyBrowser } from "./journey-browser.mjs";
+import { collectPageErrors, journeyBrowser } from "./journey-browser.mjs";
 import { scenarioTracker } from "./journey-contract.mjs";
 import { JOURNEYS } from "./journey-registry.mjs";
 import { enter, evidencePath, record } from "./split-steps.mjs";
@@ -64,7 +64,7 @@ async function login(username, password, storageState) {
     await captureCreates(context, created, bodies);
     const p = await context.newPage();
     p.on("dialog", (dialog) => dialog.accept());
-    p.on("pageerror", (e) => errors.push(e.message));
+    collectPageErrors(p, errors);
     // Fixture setup must not inherit another lane's temporarily saved grid preference. Opening
     // the intended view directly also avoids replacing a document still starting report reads.
     await p.goto(dashboardAddress(base), { waitUntil: "domcontentloaded" });

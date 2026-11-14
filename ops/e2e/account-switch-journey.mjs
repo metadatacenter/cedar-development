@@ -1,4 +1,5 @@
 import { waitForState } from "./journey-fixtures.mjs";
+import { collectPageErrors } from "./journey-browser.mjs";
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import { actors, call, mutate, enc } from "./rest/lib.mjs";
@@ -22,7 +23,7 @@ export async function accountSwitchJourney(args) {
   const page = await context.newPage(),
     errors = [];
   page.on("dialog", (d) => d.accept());
-  page.on("pageerror", (error) => errors.push(error.message));
+  collectPageErrors(page, errors);
   async function login(number, logout = true) {
     return withBrowserAuthentication("account switch", async () => {
       await page.goto(base + (logout ? "/logout" : "/dashboard"));

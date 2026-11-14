@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { createServer } from "node:http";
 import { mkdtempSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, firefox, webkit } from "playwright";
-import { journeyBrowser } from "./journey-browser.mjs";
+import { collectPageErrors, journeyBrowser } from "./journey-browser.mjs";
 import { dashboardAddress, openListing, listingIdle, focused, rendered, waitForState, tabKey } from "./journey-fixtures.mjs";
-import { ready, listing } from "./workspace-journey-fixtures.mjs";
+import { ready, listing, navigate } from "./workspace-journey-fixtures.mjs";
 
 test("listing setup in independent contexts never writes another journey's saved preferences", async () => {
   let preferences = {viewMode: "grid", resourceTypes: ["folder"], sortDirection: "desc"};
@@ -263,3 +264,40 @@ for (const [engine, type] of Object.entries({chromium, firefox, webkit})) {
     } finally { await browser.close(); }
   });
 }
+
+test("an error raised in Keycloak's session-check frame is noted and not counted as the page's", () => {
+  // Firefox reported this on tab-isolation@firefox after both of its scenarios had passed: a tab
+  // closed while the frame's own fetch was in flight.
+  const page = new EventEmitter(), errors = [], events = [];
+  collectPageErrors(page, errors, event => events.push(event));
+  const message = "NetworkError when attempting to fetch resource.";
+  const raised = stack => Object.assign(new TypeError(message), { stack: `TypeError: ${message}\n    at ${stack}` });
+  page.emit("pageerror", raised("onMessage (https://auth.metadatacenter.orgx/realms/CEDAR/protocol/openid-connect/login-status-iframe.html:24:37)"));
+  assert.deepEqual(errors, []);
+  page.emit("pageerror", raised("load (https://workspace.metadatacenter.orgx/workspace-build/main.js:1:1)"));
+  assert.deepEqual(errors, [message]);
+  assert.deepEqual(events, [
+    { type: "identity-provider-frame-error", message },
+    { type: "pageerror", message },
+  ]);
+});
+
+test("a navigation that another navigation overtakes is requested again, and any other failure is not", async () => {
+  // WebKit refused designer-navigation@webkit's listing this way while Workspace added the
+  // selection to its own address.
+  const interrupted = () => new Error(
+    'page.goto: Navigation to "https://w/dashboard?folderId=f" is interrupted by another navigation to "https://w/dashboard?folderId=f&selected=t"');
+  const page = failures => {
+    const calls = [];
+    return { calls, goto: async (...call) => { calls.push(call); if (failures.length) throw failures.shift(); return "answered"; } };
+  };
+  const once = page([interrupted()]);
+  assert.equal(await navigate(once, "https://w/dashboard?folderId=f"), "answered");
+  assert.deepEqual(once.calls, Array(2).fill(["https://w/dashboard?folderId=f", { waitUntil: "domcontentloaded" }]));
+  const always = page([interrupted(), interrupted(), interrupted()]);
+  await assert.rejects(navigate(always, "https://w/dashboard"), /interrupted by another navigation/);
+  assert.equal(always.calls.length, 3);
+  const refused = page([new Error("page.goto: net::ERR_CONNECTION_REFUSED")]);
+  await assert.rejects(navigate(refused, "https://w/dashboard"), /ERR_CONNECTION_REFUSED/);
+  assert.equal(refused.calls.length, 1);
+});

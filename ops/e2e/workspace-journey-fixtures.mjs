@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { poll } from "./rest/lib.mjs";
 import { dashboardAddress, listingIdle, listingOf, listView } from "./journey-fixtures.mjs";
+import { collectPageErrors } from "./journey-browser.mjs";
 
 // These helpers drive Workspace's own controls for the full smoke and its journeys: the listing and
 // its rows, a row's action menu, the dialogs those actions open, the Permissions dialog and the
@@ -69,7 +70,7 @@ export async function signIn(browser, base, login, password) {
     const page = await context.newPage();
     const errors = [];
     page.on("dialog", dialog => dialog.accept());
-    page.on("pageerror", error => errors.push(error.message));
+    collectPageErrors(page, errors);
     await page.goto(dashboardAddress(base), { waitUntil: "domcontentloaded" });
     await page.locator("#username, cedar-workspace-page .destinations").first().waitFor({ state: "visible" });
     if (await page.locator("#username").isVisible()) {
@@ -87,12 +88,30 @@ export const signInSecondUser = (page, base) => signIn(page.context().browser(),
   process.env.CEDAR_FRONTEND_local_USER2_LOGIN || "test2@test.com",
   process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
 
+/**
+ * Navigates to an address, and asks again when another navigation overtakes the request.
+ *
+ * Workspace updates its own address once a listing is drawn, to carry the selection. WebKit
+ * abandons a navigation requested at that moment, as "interrupted by another navigation". The
+ * same request made after the update goes through.
+ */
+export async function navigate(p, address, attempts = 3) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await p.goto(address, { waitUntil: "domcontentloaded" });
+    } catch (error) {
+      if (attempt >= attempts || !/interrupted by another navigation/.test(String(error?.message))) throw error;
+    }
+  }
+}
+
 /** Opens a folder's listing, and returns once the request the navigation made has been answered and rendered. */
 export async function listing(p, base, id) {
-  await Promise.all([
-    p.waitForResponse(listingOf(id)),
-    p.goto(dashboardAddress(base, { folderId: selector(id) }), { waitUntil: "domcontentloaded" }),
-  ]);
+  const answered = p.waitForResponse(listingOf(id));
+  // A navigation that fails is reported by navigate. The wait it leaves behind must not also reject unobserved.
+  answered.catch(() => {});
+  await navigate(p, dashboardAddress(base, { folderId: selector(id) }));
+  await answered;
   await ready(p);
 }
 
