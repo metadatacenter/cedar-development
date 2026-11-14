@@ -354,7 +354,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "05225d54d937a607616232a76231b0e816b974d7e757d82a5dcf3ab7c7b31b65",
+      "sha256": "602653ee151abd63d6718ff14d4d2ca985d8d3c1b88dce50303fa623db0ca6f5",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -378,7 +378,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "visual/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "e89525822a1c12f524fb632a37d2a0f0e9b16e73048eca98a6b38832450ad90e",
+      "sha256": "ffa33a798469031ea5506950452d8a975775c8d66044bf9064b888f460891567",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -390,7 +390,7 @@
       "repository": "cedar-template-editor",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "4d2c79dcc1e4b98fe4d15aed3e9bb9c9dad0ea05a29c2ae4d803b17b8ca891da",
+      "sha256": "0cd7ecb79508e83d218f547be2e7123251733cef0af1ccdcc6b1fbcba2e11f53",
       "vulnerabilities": {
         "low": 4,
         "moderate": 13,
@@ -402,7 +402,7 @@
       "repository": "cedar-workspace",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "693863ef537c547a1980147816e765fb205a728511ba46fa28e1f955eaaa293e",
+      "sha256": "86690c8810d02b2a7e81bd8ca05217fadb379a564712f9d800c739d2e6490dbf",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -426,7 +426,7 @@
       "repository": "cedar-template-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "a245b5213f5a2b1392bb55d2108808c5bd52afde6c5815c09232c47589445c20",
+      "sha256": "befdaf25d15f7b75c3e45514b91c6b0fca4c3e2b11b43f3d9c977b135d3868b7",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -450,7 +450,7 @@
       "repository": "cedar-openview",
       "lock": "cedar-openview-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "77adbbed91bfec0f971ee5102b54afd513be17f71a9c793e112fd080730a424d",
+      "sha256": "0d626294b5f4600b63571ae4a354ee415d3997ffc6f61ec0d92d5eccac9773d4",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -486,7 +486,7 @@
       "repository": "cedar-monitoring",
       "lock": "cedar-monitoring-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "d7a50261636dfc7853ffe15c52919604b271a99c1c4aa494d8caa6adcab2ab08",
+      "sha256": "e5b22f0f99f810706d3f34f65ce9b612f5074abcc89af3226ddb2b1937ad7af4",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -510,7 +510,7 @@
       "repository": "cedar-bridging",
       "lock": "cedar-bridging-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "15f2ff76ae67aec960f363cacefd0f506dd62468a467c0b4a4b13d6fc6cc6777",
+      "sha256": "580e17c0f03ed53f154018408bbd50fea682b11c5a8e1672603ad760cdadaebb",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -534,7 +534,7 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-angular-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "5642d3133ae567574d254b97492f97c1b5506b6c1b0dc443956b021e4ace48ea",
+      "sha256": "7073dd5f2ff479f6279310baa46bf07a2372ef3c3ab8c40aa6815c76b8511165",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -546,7 +546,7 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-ember-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "a8a30740123b9b93d804352825be9d3d848be00b11c17e0c317475d09d6b4e57",
+      "sha256": "76adab49a9c01c25c6626f7921696becd713bc8f6336946356f73365ab28daae",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -558,7 +558,7 @@
       "repository": "cedar-component-demo",
       "lock": "cedar-cee-demo-react/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "196bf82232fb12bd885ceb3fcacab7ebd533192026a20857014a118a8fa2c992",
+      "sha256": "e1371c5bbf61f04762458d3a9d29926567bc301d142ea6d24b9f58645d6cca75",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -582,7 +582,7 @@
       "repository": "cedar-embeddable-term-picker",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "7c3f70376b9f048a4ae3c6f5eb623c6c4779620e4ca9130977523a40356a3b5d",
+      "sha256": "2477cea61440fb34cab405bb1d64f80ac0dc23d24bffcfdb5de7e12f8dca7f1e",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -606,7 +606,7 @@
       "repository": "cedar-embeddable-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "45bfe9046ba01b81ed2fd0f0d51782e2e4f9028cb6d9a28e59abb56854cdecba",
+      "sha256": "417419be9803049b234920afd7e8838abba870247ea8c107b18afebdd821f44a",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
