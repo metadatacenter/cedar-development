@@ -3020,6 +3020,24 @@ exercise saveable quality violations in JSON/YAML, invalid defaults, structural 
 content/ETags and corrections. The current-template and numeric browser journeys verify the existing
 warning presentation and preservation after saving and reopening.
 
+RRID search and detail responses use SciCrunch's `rrid.curie`, then an explicit RRID in
+`item.curie` or `item.identifier`, with qualified legacy identifiers as a fallback. A source-local
+number alone does not identify its namespace: Addgene's `114536` needs `RRID:Addgene_114536`,
+and NCBI Taxonomy's `1260732` needs `RRID:NCBITaxon_1260732`. CEE opens the returned IRI unchanged.
+The bridge's `RegistryRecordReadingTest` covers these record shapes, while CEE's
+`visual/tests/authority-links.spec.ts` selects a search result and activates the outbound link by
+mouse and keyboard for all seven authorities, and checks direct entry of prefixed RRIDs.
+Mouse-down preserves an editing input's focus so wrapping its settled value cannot move the link
+before mouse-up; keyboard focus follows the native link. These deterministic tests
+stub registry responses and external destinations; they do not establish live provider availability.
+
+On 2026-11-14 SciCrunch's search also returned “coal metagenome” with
+`rrid.curie: RRID:NCBITaxon_1260732` and `recordValid: false`, while its JSON resolver returned
+404 even for that complete identifier. Correct URL construction does not resolve that provider
+disagreement. CEDAR does not infer the meaning of `recordValid` or silently remove those search
+results. Values previously saved with the truncated `RRID:1260732` remain unchanged; reselecting
+the resource supplies its full identifier, but cannot repair the provider's resolver.
+
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
 dependency is one the server cannot serve requests without, and its failure makes the server
