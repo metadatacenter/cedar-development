@@ -1,3 +1,4 @@
+import { waitForState } from "./journey-fixtures.mjs";
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from "node:assert/strict";
 import { actors, call, mutate, enc } from "./rest/lib.mjs";
@@ -101,7 +102,7 @@ export async function accountSwitchJourney(args) {
       await page
         .getByRole("button", { name: "Restore draft", exact: true })
         .click();
-      await page.waitForFunction(
+      await waitForState(page,
         ({ selector }) =>
           JSON.stringify(
             document.querySelector(selector)?.captureDraft?.(),

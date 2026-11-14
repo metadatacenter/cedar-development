@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {mkdtempSync, rmSync, utimesSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import { CROSS_BROWSER_JOURNEYS, execution, expandedJourneys } from "./journey-engines.mjs";
 import {JOURNEYS} from "./journey-registry.mjs";
 import {
   CHAIN, CORE, DEADLINE, DEFAULT_LANES, MAX_LANES, SCRIPTS, createQueue, deadlineSeconds, durationsFrom,
@@ -11,8 +12,9 @@ import {
 
 // The split tier runs whatever the plan and its queue say. A journey the plan drops is never run, and
 // one it hands out twice collides with itself on the names it creates.
-const keys = JOURNEYS.map(entry => entry.key);
-const identityKeys = JOURNEYS.filter(entry => entry.authentication).map(entry => entry.key);
+const executions = expandedJourneys(JOURNEYS);
+const keys = executions.map(entry => entry.name);
+const identityKeys = executions.filter(entry => entry.authentication).map(entry => entry.name);
 const identityScripts = SCRIPTS.filter(script => script.identity).map(script => script.name);
 const durations = new Map(JOURNEYS.map((entry, index) => [entry.key, 1 + (index * 7) % 23]));
 
@@ -21,7 +23,7 @@ test("one lane is the sequential run, in the order the tier always ran", () => {
   assert.equal(layout.sequential, true);
   assert.equal(layout.lanes.length, 1);
   assert.deepEqual(layout.lanes[0].processes.map(process => process.args),
-    [CORE.args, ...SCRIPTS.map(script => script.args)]);
+    [CORE.args, ...executions.filter(entry => entry.browser !== "chromium").map(entry => ["focused-journey-smoke.mjs", entry.name]), ...SCRIPTS.map(script => script.args)]);
   assert.deepEqual(layout.lanes[0].processes[0].args, ["modern-workspace-smoke.mjs"]);
   assert.deepEqual(layout.lanes[0].keys, keys);
   assert.ok(layout.lanes[0].processes.every(process => Number.isInteger(process.deadlineSeconds)));
@@ -51,6 +53,30 @@ test("same-user recovery is identity work and retains its reason in the executio
     const unit = layout.units.find(unit => unit.name === name);
     assert.equal(unit.identity, true);
     assert.equal(unit.authentication, "reauthenticates the first user");
+  }
+});
+
+test("every engine runs the real-stack chain once within the existing lanes", () => {
+  for (const lanes of [1, 2, DEFAULT_LANES]) {
+    const layout = plan({ lanes });
+    const processes = layout.sequential ? layout.lanes[0].processes : [layout.chain, ...layout.units];
+    const chains = processes.filter(unit => unit.args?.[0] === "modern-workspace-smoke.mjs");
+    const browser = unit => unit.args.find(arg => arg.startsWith("--browser="))?.slice(10) ?? "chromium";
+    assert.deepEqual(chains.map(browser).sort(), ["chromium", "firefox", "webkit"]);
+    for (const chain of chains.filter(unit => browser(unit) !== "chromium"))
+      assert.ok(chain.args.includes("--chain-only"), "additional engines run the selected chain, not every journey");
+    assert.equal(layout.lanes.length, lanes === 1 ? 1 : lanes + 1, "additional engines do not create additional lanes");
+  }
+});
+
+test("new browser chains borrow the core timing for queue order without claiming a measured deadline", () => {
+  const layout = plan({ lanes: 2, durations: new Map([[CHAIN.name, 75], ["ced-host", 8]]) });
+  for (const browser of ["firefox", "webkit"]) {
+    const chain = layout.units.find(unit => unit.name === `${CHAIN.name}-${browser}`);
+    assert.equal(chain.seconds, 75);
+    assert.equal(chain.measured, false);
+    assert.equal(chain.deadlineSeconds, DEADLINE.capSeconds);
+    assert.ok(layout.units.indexOf(chain) < layout.units.findIndex(unit => unit.name === "ced-host"));
   }
 });
 
@@ -191,4 +217,52 @@ test("the plan carries each journey's shared state to its unit", () => {
   const layout = plan({ lanes: 2, durations, stamp: 1 });
   for (const entry of JOURNEYS)
     assert.equal(layout.units.find(unit => unit.name === entry.key).shares, entry.shares ?? null, entry.key);
+});
+
+
+test("browser variants retain shared-state and authentication contracts with separate measurements", () => {
+  const layout = plan({ lanes: 2, durations });
+  for (const key of CROSS_BROWSER_JOURNEYS) {
+    const base = JOURNEYS.find(entry => entry.key === key);
+    assert.ok(base, key);
+    for (const browser of ["firefox", "webkit"]) {
+      const unit = layout.units.find(entry => entry.name === `${key}@${browser}`);
+      assert.equal(unit.journeyKey, key);
+      assert.equal(unit.browser, browser);
+      assert.equal(unit.shares, base.shares ?? null);
+      assert.equal(unit.authentication, base.authentication ?? null);
+      assert.equal(unit.seconds, durations.get(key));
+      assert.equal(unit.measured, false);
+      assert.equal(unit.deadlineSeconds, DEADLINE.capSeconds);
+      assert.equal(execution(unit.name).entry, base);
+    }
+  }
+  const queue = createQueue(layout.units.filter(unit => unit.journeyKey === "metadata-return-context"));
+  const first = queue.next();
+  assert.equal(queue.next(), undefined, "engine variants cannot race the same account preference");
+  queue.finish(first);
+  assert.ok(queue.next());
+});
+
+test("engine selection rejects misspellings before starting the stack and preserves canonical inventory keys", () => {
+  assert.equal(execution("account-switch", "webkit").name, "account-switch@webkit");
+  assert.equal(execution("account-switch@firefox").entry.key, "account-switch");
+  for (const name of ["missing", "account-switch@safari", "account-switch@webkit@other"])
+    assert.throws(() => execution(name));
+});
+
+test("engine reuse avoids launches without stranding other work or bypassing shared-state locks", () => {
+  const units = [
+    { ...unit('long', 30), browser: 'chromium' },
+    { ...unit('first', 20), browser: 'firefox', shares: 'preferences' },
+    { ...unit('second', 10), browser: 'firefox', shares: 'preferences' },
+  ];
+  const queue = createQueue(units);
+  const first = queue.next('firefox');
+  assert.equal(first.name, 'first');
+  assert.equal(queue.next('firefox').name, 'long', 'busy shared state cannot be bypassed');
+  queue.finish(first);
+  assert.equal(queue.next('webkit').name, 'second', 'a lane takes another engine when its own has no work');
+  const seeded = createQueue(units.map((entry, shuffleRank) => ({ ...entry, shuffleRank })));
+  assert.equal(seeded.next('firefox').name, 'long', 'a seeded independence run keeps its requested order');
 });

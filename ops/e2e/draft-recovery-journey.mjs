@@ -1,3 +1,4 @@
+import { waitForState } from "./journey-fixtures.mjs";
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import {journeyFolder} from "./journey-fixtures.mjs";
 import {editorStatus} from "./metadata-journey-fixtures.mjs";
@@ -84,13 +85,13 @@ export async function draftRecoveryJourney({page,base,designer,user,folderId,nam
     } else await page.reload();
     await page.getByRole('button',{name:'Restore draft',exact:true}).click();
     if(kind==='field')await page.getByRole('tab',{name:'Presentation',exact:true}).click();
-    await page.waitForFunction(({element,value})=>element.value===value,
+    await waitForState(page, ({element,value})=>element.value===value,
       {element:await input.elementHandle(),value:'Retained '+failure});
     assert.equal(await input.inputValue(),'Retained '+failure);
     assert.equal(await save.isDisabled(),true);
     assert.equal(writes,refusedWrites,'reload, sign-in and restoration must not replay the write');
     const beforeRecovery=writes;await recovery.click();
-    await page.waitForFunction(selector=>!document.querySelector(selector)?.disabled,metadata?'#button-save-metadata':'#save');
+    await waitForState(page, selector=>!document.querySelector(selector)?.disabled,metadata?'#button-save-metadata':'#save');
     assert.equal(writes,beforeRecovery,'restoration and status checks must not repeat a write');
     await input.fill('Next after '+failure);
     await write(page,'PUT','/'+collection+'/',()=>save.click(),200,true);
@@ -141,7 +142,7 @@ export async function metadataConflictJourney({page,base,user,folderId,name,crea
     assert.equal(await notes.inputValue(),'My retained draft');await noComparison();
     await page.reload();
     await page.getByRole('button',{name:'Restore draft',exact:true}).click();
-    await page.waitForFunction(element=>element.value==='My retained draft',await notes.elementHandle());
+    await waitForState(page, element=>element.value==='My retained draft',await notes.elementHandle());
     assert.equal(await save.isDisabled(),true);
     await notes.fill('More work on the retained draft');
     assert.equal(await save.isDisabled(),true);await noComparison();

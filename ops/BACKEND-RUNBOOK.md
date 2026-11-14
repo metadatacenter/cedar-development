@@ -3764,18 +3764,63 @@ another. The core lane first runs the inline chain of the Workspace journey alon
 reads what an earlier step made. The general lanes take units from the queue from the start, and the
 core lane joins them once its chain has finished. Any lane takes any unit.
 
+The core chain uses Chromium. Two additional queue units run that same dependent chain in Firefox
+and WebKit, using `--chain-only --browser=firefox|webkit`. They cover real Keycloak sign-in,
+template creation and conditional editing, metadata save/reopen, permissions, uncertain writes,
+draft restoration and access-token refresh. They do not repeat the entire independent journey
+registry. Each engine uses separate browser contexts and artifacts whose names include the engine
+and a random run suffix. Its result records the engine and version. Both additional units use the
+existing general lanes, authentication lock, fixture ledger, deadlines and cleanup; they add no
+lanes or separate pool of processes.
+
+`journey-engines.mjs` also selects twelve independent journeys for all three engines: account
+switching, tab isolation, sign-in permission changes, draft recovery, metadata and Designer
+navigation, metadata and repeated-answer keyboard editing, Designer keyboard editing, Workspace
+folder and selection keyboard navigation, and metadata return context. Their additional 24 units
+are named `key@firefox` and `key@webkit`; each retains its canonical scenario inventory,
+authentication declaration and account-preference mutex. Results and failure evidence retain the
+engine, version and canonical journey key. The default tier has 118 units including the core chain,
+still in six lanes. The one-lane plan includes the same engine variants.
+
+To reproduce one variant, run `npm run smoke:journey -- account-switch@webkit` from `ops/e2e`.
+The focused runner also accepts `--browser=firefox|webkit` with ordinary journey keys. Its worker
+launches an engine only when needed, closes the previous engine before switching, and discards its
+authentication cookies at that boundary. Initial setup only creates the lane's root folder.
+
+Measured on 2026-11-13 on the 16-core workstation, the previous 94-unit plan passed 300 checks
+in 111.6 seconds. With the additional engine variants, the ordinary queue passed all 118 units and
+358 checks in 174.5 seconds; a shuffled run passed in 179.6 seconds. Preferring an already-running
+engine reduced the ordinary run to 163.0 seconds with the same six lanes and all checks retained.
+These are local observations, not a fixed runtime budget. Peak one-minute load was 19.03 during
+that run, with no increase in swap used; adding lanes was therefore not the chosen optimization.
+The reports and traces are under `.cedar/audits/2026-11-13-browser-boundaries/`.
+
+Keyboard fixtures use platform-appropriate all-control navigation (Option-Tab in macOS WebKit),
+reverse Tab to reach Save above a form, and ArrowRight to collapse a text selection at its end.
+They neither change system preferences nor replace keyboard activation with a click. State waits
+poll synchronous page predicates from Node so embedded Zone.js cannot make a page-side thenable
+return early. Login setup requests its list view in the initial URL, avoiding a second navigation
+through another lane's temporary grid preference while background report requests are starting.
+The error guards and exact saved-value assertions remain active.
+
 An identity unit is a journey that signs in, reauthenticates (including the same user) or logs out,
-such as `draft-recovery` and `uncertain-create`, or one of three scripts: the account groups page,
-the lifecycle routes and the recursive folder deletion smoke, which administer a group, log out and
-grant to the second user. Identity units run at the same time as one another and as every other
+such as `draft-recovery` and `uncertain-create`, or a script that does so: the account groups page,
+the lifecycle routes, the recursive folder deletion smoke and the additional browser chains.
+Identity units run at the same time as one another and as every other
 unit. Sign-ins contend in Keycloak and in the graph writes each one triggers, so every sign-in, in
 any lane, takes the authentication lock described below for the few seconds from the action that
 starts it until the signed-in page is ready. A logout ends the single sign-on session of its own
 lane, which no other lane shares, and the lane's runner signs in again before its next journey.
 
-A lane that is free takes the longest unit it may run. Each unit's length is its duration in the
+A lane that is free prefers the longest available journey using its existing browser engine,
+then takes the longest available unit of any kind. This avoids repeated browser launches and
+sign-ins without reserving lanes for an engine. Seeded independence runs retain their shuffled
+order instead. Each unit's length is its duration in the
 newest split report that measured it, cleanup included, and a unit no report has measured counts as
-the median of its kind. Which lane runs which unit is decided while the tier runs, so the lanes that
+the median of its kind. An unmeasured browser variant borrows its Chromium journey or chain duration for
+queue ordering instead, so a long chain does not fall behind short scripts. That estimate is still
+marked unmeasured and retains the unmeasured deadline cap until its own successful result exists.
+Which lane runs which unit is decided while the tier runs, so the lanes that
 would otherwise finish early take a share of everyone else's work. A lane runs its journeys in one
 `focused-journey-smoke.mjs --worker` process that stays up until the queue has nothing left for it.
 The runner sends that process one journey key at a time over the IPC channel it opened when it
@@ -7635,6 +7680,7 @@ they do not replace the full CLI smoke gate or its development freshness prerequ
 ```bash
 cd ops/e2e
 npm install            # once per machine
+npx playwright install --with-deps chromium firefox webkit
 npm run smoke          # headless, ~60 s
 npm run smoke:headed   # watch it in a real browser
 ```

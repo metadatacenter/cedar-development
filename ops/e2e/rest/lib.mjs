@@ -305,6 +305,15 @@ export function artifact(auth, method, path, body, opts = {}) {
  * group, denormalized onto the node as its everybody permission. Found by its special marker rather
  * than by name, since the name is configurable.
  */
+/** A permissions request that explicitly preserves the owner. Each grant is an [id, role] pair. */
+export function permissions(ownerId, { users = [], groups = [] } = {}) {
+  return {
+    owner: { '@id': ownerId },
+    userPermissions: users.map(([id, role]) => ({ user: { '@id': id }, role })),
+    groupPermissions: groups.map(([id, role]) => ({ group: { '@id': id }, role })),
+  };
+}
+
 export async function everybodyGroup(auth) {
   const res = await group(auth, 'GET', '/groups');
   if (res.status !== 200) throw new Error(`could not list groups: ${res.status} ${res.text}`);

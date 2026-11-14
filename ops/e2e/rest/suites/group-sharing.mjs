@@ -5,19 +5,10 @@
 // A grant to the everybody group reaches every account in the installation — but still only accounts:
 // it is not public access, and this suite pins that difference, because the two are easy to conflate
 // and only one of them is safe for unpublished work. Anonymous access is openness, covered separately.
-import { suite, check, checkStatus, call, group, mutate, mutateGroup, cleanup, everybodyGroup, enc,
+import { suite, check, checkStatus, call, group, mutate, mutateGroup, cleanup, everybodyGroup, permissions, enc,
   RUN, GROUP_SERVER } from '../lib.mjs';
 
 export const name = 'group-sharing';
-
-/** A permissions request that explicitly preserves the owner. */
-function permissions(ownerId, { users = [], groups = [] } = {}) {
-  return {
-    owner: { '@id': ownerId },
-    userPermissions: users.map(([id, role]) => ({ user: { '@id': id }, role })),
-    groupPermissions: groups.map(([id, role]) => ({ group: { '@id': id }, role })),
-  };
-}
 
 export async function run({ user1, user2, homeFolderId }) {
   const u1 = user1.profile['@id'];

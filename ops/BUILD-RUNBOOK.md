@@ -62,7 +62,7 @@ Preflight runs two phases and collects every finding within each:
 
 | Phase | Required checks |
 | --- | --- |
-| Local (seconds) | Maven/npm/27-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
+| Local (seconds) | Maven/npm/27-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. CEE's visual and CED's browser suites listed through the train's own Playwright report wrapper, which must list as many tests as each package's config. |
 | Remote (roughly 90 seconds) | GitHub authentication and workflow; exact remote `develop` CI; cross-repository contracts covering their consumers; matching local/remote heads; idle train slot and unused ID; anonymous source access; passing smoke record for those heads; publication-target availability. |
 
 A rehearsal runs both phases whatever the first one finds. Clearing a remote finding can take
@@ -627,7 +627,9 @@ cedarcli publish train --release-version 2.9.19 --next-version 2.9.20-SNAPSHOT -
 ```
 
 Remove `--dry-run` to dispatch after the same checks pass. The release target must
-match the train base, and the next development version must advance. Release
+match the train base, and the next development version must advance. As `release plan` does,
+the check first puts Java 17 and Node 24 on PATH when the shell offers other versions, and
+prints a `Toolchain:` line for each substitution. Release
 credentials, target refs and registry occupancy, toolchain and source contracts
 are checked before the expensive train. A failed or unreadable prerequisite
 refuses dispatch. Ordinary development trains need none of these options.

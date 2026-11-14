@@ -12,8 +12,8 @@
 // search, because it is denormalized onto the node rather than carried in the per-user list; the other
 // three are pinned as defects, with the measurements that establish them recorded at each pin.
 import {
-  suite, check, checkStatus, call, mutate, updateArtifact, group, mutateGroup, everybodyGroup, cleanup, artifactBody,
-  poll, enc, RUN, GROUP_SERVER,
+  suite, check, checkStatus, call, mutate, updateArtifact, group, mutateGroup, everybodyGroup, permissions, cleanup,
+  artifactBody, poll, enc, RUN, GROUP_SERVER,
 } from '../lib.mjs';
 
 export const name = 'finding';
@@ -24,12 +24,6 @@ const STAMP = RUN.replace(/[^0-9]/g, '');
 export async function run({ user1, user2, folderId }) {
   const u1 = user1.profile['@id'];
   const u2 = user2.profile['@id'];
-
-  const permissions = (ownerId, { users = [], groups = [] } = {}) => ({
-    owner: { '@id': ownerId },
-    userPermissions: users.map(([id, role]) => ({ user: { '@id': id }, role })),
-    groupPermissions: groups.map(([id, role]) => ({ group: { '@id': id }, role })),
-  });
 
   /** Does a term search as this user turn up this identifier? */
   async function findsByTerm(auth, tag, id) {

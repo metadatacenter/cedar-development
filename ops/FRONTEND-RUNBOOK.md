@@ -1581,17 +1581,19 @@ It does not activate a runtime, restart applications or record a whole-stack smo
 failure leaves the previous runtime selection intact; a deployment or smoke failure leaves the
 new selection available for diagnosis and does not report completion.
 
-Both commands accept `--no-reuse` to execute every repository and stage again. To discard local
+Both commands accept `--no-reuse` to execute every repository and stage again. That option disables
+both reading and writing passing-result caches; it still records the build graph and command
+timings. After changing an external input such as a Java conformance JAR, a subsequent normal run
+must populate the new cache entry before another unchanged run can reuse it. To discard local
 verification evidence, remove `.reactor/results/`, `.reactor/task-results/` and
 `.reactor/stage-results/`; missing evidence is rebuilt automatically. Concurrency options follow
 `test frontends` and precede `frontends` under `build`. Development still consumes the latest local
 sources automatically; caching does not change SNAPSHOT resolution or release requirements.
 
-CEE and Workspace trace only the first existing retry, instead of recording every passing browser
-test. The retry count and test matrix are unchanged. For first-attempt diagnosis, run
+All eight modern frontend suites run without retries and keep full failure traces opt-in. For first-attempt diagnosis, run
 `CEDAR_TEST_TRACE=on cedarcli test frontends` or set that variable on the owning npm visual command.
 Screenshots retain zero allowed differing pixels and a 0.02 color threshold.
-Workspace's Chromium project disables partial rasterization (`--disable-partial-raster`): each
+Workspace and CEE Chromium projects disable partial rasterization (`--disable-partial-raster`): each
 changed tile is painted completely. Reusing partially painted tiles can retain stray pixels after
 selection clears the information panel, even when the DOM and consecutive screenshots are stable.
 Keep this browser setting when updating Playwright; it requires no application CSS or baseline change.
@@ -1663,6 +1665,34 @@ PRs, before dev publication. Build trains and platform release verification reta
 all three demo surfaces. Before publishing a public CEE release, explicitly test
 the final staged package as described in the npmjs release runbook.
 
+The demo gate reserves one allocation from the shared host pool, divides it between at most
+three concurrent framework builds, then gives the allocation to one Playwright matrix over their
+production output. A twelve-worker allocation means three builds with four workers each, followed
+by up to twelve browser workers. Angular, React and Ember each run three consumer contracts in
+Chromium, Firefox and WebKit: object inputs/configured rendering, change-event and serialized-value
+agreement, and a fresh mount after navigation. All 27 cases must pass without skips or retries.
+The gate checks the report's nine framework/engine projects before recording success. A forced
+failure removes previous passing evidence. Browser sources and lockfile plus Node/npm/platform
+identity participate in reuse; scheduling changes do not. Command logs, per-stage timings, browser
+results and failure traces remain under `.cedar/cee-demos/runs/`, outside the disposable copies.
+Consumer CI runs all three engines per framework; CEE candidate CI runs the complete matrix.
+
+On the 16-core macOS workstation, the pinned-package gate took 42.2 seconds and the local
+reactor-candidate gate took 37.7 seconds (2026-11-13, warm npm/browser caches, twelve workers).
+Both passed all 27 browser cases on the first attempt; the browser stage took 7.8–7.9 seconds.
+Unchanged candidate reuse took 0.38 seconds. Swap usage did not increase in either full run.
+These are complete demo-gate wall times, including installs, framework checks and production
+builds; they are not estimates for a cold CI runner.
+
+In GitHub Actions on 2026-11-13, the consumer repository's three concurrent jobs took 94–141
+seconds, including 51–68 seconds installing browser tools/engines and 17–19 seconds exercising
+each framework in all three engines. CEE's complete candidate-consumer job took 154 seconds,
+versus 98 seconds before the browser gate. It remained below the existing visual suite's critical
+path: in the preceding passing CEE run, visual shard 1 took 803 seconds while the other three took
+363–533 seconds. See the [consumer run](https://github.com/metadatacenter/cedar-component-demo/actions/runs/43385904749),
+[CEE candidate run](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43385934102)
+and [preceding CEE run](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43340276452).
+
 On hosts with at least 16 logical cores, `cedarcli build frontends` defaults to three
 repository jobs and twelve workers per repository, the same as
 `cedarcli build --jobs 3 --workers 12 frontends`. The shared pool still bounds total workers
@@ -1719,6 +1749,11 @@ hours, longer than any command holds a slot. A pool found idle with another size
 an estate to a new machine, takes the host's core count. Removing the directory while no build
 runs resets it.
 
+Plain Playwright and `npm --prefix browser test` invocations do not acquire reactor worker leases.
+Use `cedarcli test frontends` for bulk verification across sessions. Keep focused direct runs within
+the workers left free on the host, and run timing comparisons without another uncoordinated browser
+suite. A reactor staying within its own pool does not bound processes a separate runner starts.
+
 A surface in `frontend-train.json` may declare a `package` phase between `setup` and
 `verify`: the commands that build and stage what it publishes. The model library and CEE
 declare one. When that phase passes, the reactor stores the artifact and starts the
@@ -1749,20 +1784,20 @@ and only packaging writes `dist/`. In the reactor, `npm run build` first produce
 its consumers receive. The gate's packaging stage rebuilds `dist/`, and that rebuild must
 match the package already given out byte for byte.
 
-The designer's `test:ci` overlaps unit, lint, types, import-boundary and packaging
-checks. Its Angular unit tests and distribution build remain ordered because they
-share a cache. The browser checks and the container visual baselines both wait for the
-distribution and then run together: the baselines take two workers when the budget is at
-least six, one otherwise, and the browser checks the rest. CEE gives
-its domain/unit tiers two workers each when the budget permits, and fixture
-opening waits for finite animations instead of an unconditional 300 ms delay.
-No screenshot tolerance, baseline, browser project or integration input is removed.
+The designer's `test:ci` overlaps unit, lint, types, import-boundary, packaging and conformance
+checks. Its Angular unit tests and distribution build remain ordered because they share a cache.
+The short container pixel gate then takes two workers when the budget is at least six, one
+otherwise. After it passes, the browser suite receives the full worker budget. Playwright fixes
+its worker count at startup: the earlier simultaneous split left two workers unused for most of
+the expanded browser suite. Cached pixel evidence still releases the browser stage, and a pixel
+failure prevents it from starting. CEE gives its domain/unit tiers two workers each when the
+budget permits, and fixture opening waits for finite animations instead of an unconditional
+300 ms delay. No screenshot tolerance, baseline, browser project or integration input is removed.
 
-The designer's complete gate enables its WebKit interaction project alongside Chromium;
-both engines are installed by the shared recipe. Workspace builds before running its
-whole browser suite (including WebKit and visual baselines) in the pinned container.
-OpenView builds before its hermetic Chromium surface checks. These checks run in the
-reactor and train as well as each application's CI. CED, CETP and Workspace use the
+The designer's complete functional gate runs Chromium, Firefox and WebKit; the shared recipe
+installs all three. Workspace builds before running its whole three-engine browser suite and
+original Chromium pixel baselines in the pinned container. OpenView builds before its hermetic
+three-engine surface checks. These checks run in the reactor and train as well as each application's CI. CED, CETP and Workspace use the
 same 0.02 per-pixel colour threshold as CEE, with zero differing pixels allowed.
 
 The CLI passes the worker budget into Angular builds and the component browser suites.
@@ -1938,6 +1973,7 @@ The commit/CI requirements in this section apply to this publication command onl
 cedarcli publish components                # report what would move
 cedarcli publish components --apply        # publish, repoint, re-stage
 cedarcli publish components --component ced
+cedarcli publish components --apply --push --settle   # after a release: every pass, committed
 ```
 
 Each component is declared in `cedar-development/ops/frontend-train.json` under `components`. A
@@ -1994,7 +2030,16 @@ composition; verify served
 bundle identities again after any packaging or publication work.
 
 Reporting is the default because an npm version once taken cannot be republished. Every repository it would write to must be clean in its tracked
-files first, so the diffs left behind are its own, and nothing is committed.
+files first, so the diffs left behind are its own. By default nothing is committed.
+
+`--commit` commits each repository's moves, with a subject naming the pins it moved and a body
+listing each package and version. A later pass amends the command's own commit while that commit is
+unpushed, so a consumer takes one commit however many passes move it. `--push` commits and pushes.
+`--settle`, which needs `--push`, runs the passes a release's aftermath takes. A pass that moves a
+component's own pins pushes that component, waits up to thirty minutes for CI to publish what its
+consumers follow, and passes again until nothing moves, at most four times. Consumers are pushed
+after the last pass. After release 2.9.35 this took two passes, with CEE's CI publishing in
+between.
 
 Run the consumers' suites before committing what a run moved. A library change that passes its own
 CI can still fail a consumer whose fixtures or size budgets it tightens, because a consumer's CI runs
@@ -2703,11 +2748,54 @@ on reflex.
 
 `.github/workflows/test.yml` runs the same release gate on every pull request and
 on pushes to `main`, `develop` and the `cee-angular-**` branches. It is split for
-latency, not semantics: the `prepare` job builds once, runs lint, type checking,
-unit, coordinator and domain coverage, verifies the staged npm package, audits the
-runtime tree and uploads `dist`; four `visual` jobs restore that exact build and run
-Playwright with `--shard=1/4` through `--shard=4/4`. A shard failure fails the gate,
-and `fail-fast` is off so one failure does not hide results from the other three.
+latency, not semantics: `prepare` builds once, verifies the staged npm package and
+uploads `dist`; `gates` runs lint, type checking, unit, coordinator and domain coverage
+and the runtime dependency audit concurrently with the build. Four `visual` jobs restore
+that exact build and run Playwright with `--shard=1/4` through `--shard=4/4`. A shard
+failure fails the gate, and `fail-fast` is off so one failure does not hide results
+from the other three.
+
+CEE's `visual/shards/reporter.ts` assigns the complete discovered inventory using Playwright's
+public preprocessing hook. The longest estimated cases go to the least-loaded shard; the estimates
+are mean durations per browser project/spec in `visual/shards/durations.json`. New cases always
+enter the plan, using an existing group's estimate or a fallback. Stable test identities break ties,
+and tests keep their normal project order inside each shard so workers reuse browsers. The suite
+remains fully parallel; do not spread a shared-state serial journey across separate test cases.
+
+Every shard retains its inventory hash, selected cases and execution results. The `visual-coverage`
+job checks all four reports: their union must equal the complete discovered inventory exactly once,
+with matching duration profiles and no failed or retried execution. Publication depends on this
+check as well as the four shards. CEE now uses zero retries locally and in CI; CI captures failure
+screenshots, while `CEDAR_TEST_TRACE=on` enables full failure traces when investigating. Neither
+the screenshot thresholds nor test assertions are relaxed. Reports and failure evidence remain
+in the `cee-visual-shard-*` workflow artifacts for fourteen days. To refresh estimates deliberately,
+download all four reports from one passing run, validate them with `visual/shards/check-results.mjs`,
+then run `visual/shards/update-durations.mjs` over those reports. The visual README gives the commands.
+
+The 2026-11-13 inventory comparison proved all 2,630 original cases occur exactly once in the new
+plan, with every project and baseline unchanged. At four containers with two workers each on the
+16-core workstation, two count-based controls took 489 and 493 seconds; the balanced runs took 366
+and 373 seconds. Mean matrix wall time fell from 491.4 to 369.1 seconds, **24.9%**, without adding
+workers. The old shard spreads were 243 and 247 seconds; the balanced spreads were 22 seconds in
+both runs. All 10,520 executions passed without retries or skips, used the same production bytes
+and pinned Linux image, and added no swap usage. Nineteen scheduler/inventory/worker-pool checks
+also passed. These local observations include container setup and dependency installation; they
+are separate from the hosted CI measurements. Raw reports, input identities, inventory proofs and
+timing samples are under `.cedar/audits/2026-11-13-cee-shards/`.
+
+Hosted [run 43398079163](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43398079163)
+passed all gates at `3a260e23`, including the exact 2,630-case union with no skips or retries.
+Its four visual jobs took 565, 563, 577 and 559 seconds: the longest fell to 577 seconds from
+777 and 803 seconds in the two preceding measured controls, a **27.0%** reduction against their
+790-second mean. The spread fell from 392/440 seconds to 18 seconds. The full workflow, including
+the new twelve-second inventory gate and development publication, took 691 seconds versus
+880 and 901 seconds before (**22.4%** below their mean). These hosted observations include runner
+setup and artifact transfer, and comprise two historical controls and one balanced run; the four
+local matrices above provide the repeated same-host comparison. The controls are
+[43385934102](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43385934102) and
+[43340276452](https://github.com/metadatacenter/cedar-embeddable-editor/actions/runs/43340276452).
+The local CI registry also includes `test.yml:visual-coverage`, so local CI checks the same union.
+
 The local `npm run test:ci` runs the same checks with a bounded stage scheduler;
 `CEDAR_TEST_WORKERS=1` serializes it. Two of CI's
 choices are deliberate and expensive to rediscover.
@@ -2768,8 +2856,8 @@ toolchain moved, deliberate violations of `eqeqeq`, `banana-in-box`,
 TypeScript three majors past what its parser declared support for. The same four
 probes pass now. Re-run them after any future toolchain move.
 
-Nothing is published from CI. Releasing the npm package is a separate, manual
-procedure — see [Release](#cee-release) below.
+After every required gate passes, development commits publish their staged scoped package to
+Nexus. Public npmjs releases remain a separate procedure — see [Release](#cee-release) below.
 
 <a id="cee-running-the-domain-test-harness"></a>
 
@@ -5661,8 +5749,9 @@ picker `20d1523`, CED's 2.4.3 and 2.4.7 after an eleventh, at CED `c9f410d`, and
 CEE `63d13ee2`. On 2026-11-11 the criteria a thirteenth round touched were reassessed at CED
 `cb5d44a`, CEE `0e6f0eb8`, the term picker `45a5e22` and Workspace `b4afc4c4`. The assessment
 read code and tests. Nobody ran a screen reader, and only the
-English text was judged, not the Hungarian translations. Zoom, reflow
-and text spacing are measured by each suite's layout check rather than by a person.
+English text was judged, not the Hungarian translations. Reflow and text spacing are measured by each suite's layout check. The reduced-viewport
+check is a proxy for zoom, not evidence of native browser zoom; the 2026-11-12 reassessment below
+corrects that distinction.
 
 A criterion counts as met only when every part of it is evidenced. Three kinds of evidence count:
 
@@ -5689,13 +5778,15 @@ criteria do not apply.
 
 | Component | Met | Partial | Fails | Unverified | Host or N/A | Score |
 | --- | --- | --- | --- | --- | --- | --- |
-| CED | 26 | 13 | 0 | 0 | 16 | 26 of 39, 67% |
-| CEE | 29 | 12 | 0 | 6 | 8 | 29 of 47, 62% |
-| Term picker | 28 | 11 | 0 | 0 | 16 | 28 of 39, 72% |
-| Workspace | 31 | 16 | 0 | 0 | 8 | 31 of 47, 66% |
+| CED | 25 | 14 | 0 | 0 | 16 | 25 of 39, 64% |
+| CEE | 28 | 13 | 1 | 5 | 8 | 28 of 47, 60% |
+| Term picker | 27 | 12 | 0 | 0 | 16 | 27 of 39, 69% |
+| Workspace | 30 | 17 | 0 | 0 | 8 | 30 of 47, 64% |
 
-CEE's unverified count includes the five media criteria. A template can embed a YouTube video, and
-its captions and descriptions are the template author's.
+CEE's five Unverified criteria are media-content checks. The 2026-11-12 source review establishes
+that 1.3.5 fails when a form collects covered personal information; it does not establish the
+quality or availability of a particular video's captions or alternatives. The review below records
+that distinction and the author/host responsibilities.
 
 On 2026-10-19 the four scored 41%, 34%, 51% and 43%, with 39 failures between them. The first round
 of fixes cut the failures to 26. Most of the criteria it touched moved from Fails to Partial rather
@@ -5748,27 +5839,547 @@ term picker's results became a list of rows whose names are buttons, and CED's c
 results a grid, which moved the picker's 1.3.1 and 4.1.2 and CED's 4.1.2 from Fails to Partial.
 Workspace's listing became a grid whose rows state their selection, and a repeated notice is
 announced again, but its 1.3.1, 4.1.2 and 4.1.3 stay Partial, because no screen reader has
-confirmed them. No criterion fails now.
+confirmed them. No criterion failed in that thirteenth-round assessment. The later input-purpose
+review below records a known failure in CEE when personal-information fields apply.
 
 The gates now scan hover and focus states, open menus, overlays and dialogs, and they settle each
 of axe's undecided contrast and target-size results by measurement, so an undecided result nobody
 has measured fails the gate. Each suite also runs `layout-resilience.spec`, which imports one
 shared checker the design-token package generates for every frontend and tests against fixture
-pages that must fail: reflow at 320 CSS pixels, a 640 by 400 viewport for 200% zoom, WCAG's text
+pages that must fail: reflow at 320 CSS pixels, a 640 by 400 viewport as a proxy for 200% zoom, WCAG's text
 spacing at 1280 pixels, the contrast of every placeholder, and the contrast of every field boundary,
 icon, focus indicator and selection mark against what it is drawn on. OpenView, Bridging,
 Monitoring and the Template Designer host run the same axe gate and layout check over their own
-pages, though this report does not score them. A finding that needs a visible change is recorded in the
+pages; their full criterion assessment appears below. A finding that needs a visible change is recorded in the
 spec as a named exception, and an exception that stops occurring fails it. The design-token adoption
 check refuses an exception the base revision does not record, whether a list entry, an axe rule
 switched off or a template accessibility lint rule disabled, so the recorded exceptions can only
 shrink.
 
+### CEE Media and Input-Purpose Review
+
+The 2026-11-12 review covers the current CEE/CEF source and public embedding contract, excluding
+legacy code. It resolves what the code establishes without treating a stubbed external player as
+content verification. Five media criteria remain Unverified; 1.3.5 moves from Unverified to Fails
+for forms collecting the current user's covered personal information. No Met count rises from this
+review. Inherited host failures are the same component limitation, not three additional defects.
+
+| Criterion | Evidence in the current implementation | Verdict and remaining verification |
+| --- | --- | --- |
+| 1.2.1 Audio-only and Video-only (Prerecorded) | Static rich text can carry an adjacent transcript or link. The default sanitizer does not admit native audio/video markup. A YouTube field can still contain audio-only or silent video. | Unverified: review the actual media and the completeness of its alternative. |
+| 1.2.2 Captions (Prerecorded) | The standard YouTube iframe is retained; CEE does not provide caption tracks, validate them or retain supplied player query parameters. | Unverified: check that accurate synchronized captions are available in the deployed player. |
+| 1.2.3 Audio Description or Media Alternative (Prerecorded) | Adjacent descriptive text or a link can be authored, and an already described video can be embedded. | Unverified: assess whether the alternative conveys the whole presentation, including relevant visual information. |
+| 1.2.4 Captions (Live) | The video-ID parser accepts `/live/` URLs; live synchronized content is supported in principle. | Unverified, not N/A: verify live captions for each live use. |
+| 1.2.5 Audio Description (Prerecorded) | CEE can embed a video with description in its soundtrack; it exposes no separate description-track contract or content check. | Unverified: listen to the actual soundtrack or identified described version. A transcript alone does not meet this AA criterion. |
+| 1.3.5 Identify Input Purpose | Text, email and phone templates set `autocomplete="off"`. The public config and runtime config schema provide no purpose mapping; the text-input harness enforces the off attribute. | Fails when covered user-information fields apply. An explicit declaration must distinguish the current user from another person before purpose tokens can be rendered. |
+
+Source evidence in `cedar-embeddable-editor`: `cedar-static-youtube.component.ts/html`,
+`youtube-video-id.ts`, `template-markup-policy.ts`, `cee-public-api.ts`, `config-reader.ts`,
+`config-validation.ts`, the `cedar-input-text/email/phone` templates, and
+`harness/test/text-inputs.spec.ts`. The YouTube case in
+`visual/tests/cross-browser-smoke.spec.ts` intercepts the iframe with a blank document: its title,
+URL and sizing assertions cannot establish captions, audio descriptions or the real player's
+keyboard operation. The field description renders as ordinary text below the iframe.
+`trustTemplateRichText: true` bypasses the default sanitizer and expands the host's review scope.
+
+The [CEE README](https://github.com/metadatacenter/cedar-embeddable-editor/blob/develop/README.md#accessibility-responsibilities)
+gives the author checklist. The distinctions follow W3C's
+[Identify Input Purpose](https://www.w3.org/WAI/WCAG22/Understanding/identify-input-purpose.html) and
+[Audio Description](https://www.w3.org/WAI/WCAG22/Understanding/audio-description-prerecorded.html)
+guidance. YouTube's [player parameters](https://developers.google.com/youtube/player_parameters)
+describe available player controls; they do not establish that an individual video has the required
+tracks. A future media assessment must record the actual video, language, alternatives, player and
+review outcome before any of these five ratings can become Met.
+
+### Browser Coverage and Native Zoom
+
+Every modern frontend runs dedicated accessibility and layout projects in Chromium, Firefox and
+WebKit. Focus and keyboard specs join those projects where the repository has them; pixel
+baselines stay in their original projects. CI, the frontend reactor and the design-token consumer
+gate install the required engines. The shared layout checker itself runs its 70 regression fixtures
+in all three engines (210 passing tests), including shadow-root hit testing and controls covered by
+overlays. A browser-specific undecided axe result still needs a reviewed, measured explanation;
+this does not waive a violation or lower a contrast threshold.
+
+The expanded browser inventory adds **3,824 project cases**: CEE 598, CED 512, term picker 212,
+Workspace 448, OpenView 392, Bridging 370, Monitoring 626 and Template Designer host 666. The
+application suites total 9,895 cases, with the shared checker's 210 regressions counted separately.
+These are test executions across configured projects, not distinct WCAG criteria or defects.
+
+Keyboard-order fixtures use explicit host-boundary markers where Playwright cannot reliably Tab
+out to browser chrome and back. They verify application control order and modal behavior; they do
+not claim to verify the browser toolbar. The Firefox limitation was also reproduced on plain HTML
+and is tracked in [Playwright issue 39268](https://github.com/microsoft/playwright/issues/39268).
+Native Firefox scroll containers remain reachable while the tests compare application controls.
+
+The broader gates exposed and drove fixes to term-picker placeholder contrast, Material menu
+focus contrast, CEE clock/version/property glyph clipping, CED identity clipping, Firefox modal
+navigation and native-dialog Escape handling, narrow Monitoring rebuild tables, Bridging notice scroll alignment, repeated Workspace
+save announcements, and the Designer host's nested-route module startup in WebKit. The header
+line boxes retain the existing logo, text, gap and width; rendered checks verify the alignment.
+No new UI controls or browser-failure waivers were introduced.
+
+The 2026-11-12 full frontend reactor passed, including the three framework consumer demos,
+local deployment, served-component verification and every whole-stack smoke tier. The deployed
+build graph is `03865aa0a6082fcfbb74841dd8ab32c4305eca0a422419e1b458c0564eb19e2b`;
+smoke covers 41 sources with digest `f2a766f073e924a7`. This records the tested working-tree
+sources and artifacts, not release/train eligibility for a later committed head. The eight updated
+designer visual baselines differ only in the header identity's 72px-wide text area; every pixel
+outside it is unchanged, and all 25 visual cases pass.
+
+**Resize Text (1.4.4) is Partial in all eight scorecards.** A 640×400 viewport does not enlarge
+text and does not prove browser-menu zoom. The score correction reflects missing evidence, not a
+newly observed application regression. On 2026-11-12 Workspace was visually checked at Safari's
+native 200% page zoom, but that single screen does not settle every workflow. Native Firefox zoom
+was not verified. Reflow at 320 CSS pixels and WCAG text spacing remain separate automated checks.
+
+For native zoom verification, use the browser's own page-zoom control and confirm its displayed
+percentage. Start at 100%, visit intermediate levels through 200%, and check ordinary editing,
+long values, menus, errors and nested content. Use the browser's full keyboard navigation (Option-Tab/Option-Shift-Tab under Safari's default
+Mac settings, Tab/Shift+Tab with full keyboard navigation enabled) and activation keys to reach and
+operate every control, scroll to the end, and check that no content or function is clipped or
+covered. Check component embeds as well as host chrome. Record browser/version, OS, page/state,
+zoom setting and outcome; retain screenshots for findings, then restore 100%. Repeat with browser
+text-only zoom where supported. Also check native 400% page zoom from a 1280px-wide window for
+Reflow (1.4.10), recording the resulting CSS viewport and any permitted two-dimensional content.
+Device scale factors, CSS zoom and viewport resizing do not
+substitute for this record. Spoken focus and live-region behavior require the separate screen-reader
+protocol. Safari's navigation keys are documented in the
+[Apple keyboard reference](https://support.apple.com/en-gb/guide/safari/cpsh003/27.0/mac/27).
+
+### Functional Browser Coverage and Test Cost
+
+The measurements below record the earlier selected-project expansion. The
+[default three-engine policy](#default-three-engine-coverage) supersedes those selections and counts.
+
+Dedicated `firefox-functional` and `webkit-functional` projects extend selected component and host
+contracts beyond the existing Chromium coverage. They share each Playwright invocation's worker
+budget and `fullyParallel` scheduling. Pixel baselines keep their original projects. Workspace's
+additional WebKit selection excludes specifications its earlier WebKit project already covers.
+
+| Surface | Selected functional contracts | Additional engine cases |
+| --- | --- | ---: |
+| CEE/CEF | Bootstrap, host notifications, nested validation and stored data, temporal fields, authorities, language isolation and quiet previews | 178 |
+| CED | Editing, embedding, instance isolation, read-only behavior, validation, reordering, CEF parity, imports and version upgrades | 386 |
+| Term picker | Selection, properties, stale responses, hierarchy paging and language changes | 150 |
+| Workspace | Routing, permissions, publication, save/conflict/draft recovery, bulk actions and account state | 118 |
+| OpenView | Response states and translations | 286 |
+| Bridging | DOI response and recovery states | 68 |
+| Monitoring | Response states, unavailable stores and denied access | 248 |
+| Template Designer host | Opening/access, saves and uncertain outcomes, draft recovery, overlapping requests and shared editors | 764 |
+| **Total** | | **2,198** |
+
+The additional engine executions are about 22% of the previous 9,937 application browser cases.
+Two Chromium executions also cover a new delayed-artifact readiness guard. CEE's 90 fixture-state
+scans, CED's twenty controlled-term scans and the picker's ten property-detail scans are partitioned
+into independently scheduled cases; all scans remain, without increasing a timeout. Partitioning adds
+196, 51 and 15 executions respectively. Partitioning itself adds no coverage; correcting CEE's
+fixture associations additionally exercises the two previously missed instances. The configured application total is
+**12,399**, including CED's real CEF/picker integration inputs. The shared layout checker's 210 regressions and CED's 25 containerized
+pixel cases are separate. Counts mean executions, not distinct requirements or accessibility criteria.
+
+CEE associates instances with templates through `schema:isBasedOn`, with a guard that every instance
+has exactly one template. Filename matching had treated the markup instance as a template and missed
+the date-format instance. Both now run editable and read only against their templates. The synthetic
+empty image carrying the markup sanitization probe declares `alt=""`; the security check still proves
+its event handler is removed and its authored decorative alternative survives. This does not verify
+alternatives in user-authored rich text, which remains part of the manual content audit.
+
+Browser waits also need to survive an embedded component patching the page's `Promise`. With the
+installed Playwright and CEE bundle, a `waitForFunction` predicate that was always false returned a
+thenable in about 10 ms in Firefox and WebKit; Chromium correctly reached its 500 ms timeout.
+Component and host readiness checks now use `expect.poll` from the runner. Shared stack helpers use
+locator waits or runner polling, and native async wrapping where they await animation frames. The
+100 repeated Firefox/WebKit readiness cases passed without retries, including a deliberately delayed
+artifact; the stack harness also proves waits remain blocked with a non-native page Promise in all
+three engines. Keep this distinction when adding another browser to an existing test.
+
+A later full Designer host repeat exposed an additional startup race: one WebKit opening case
+passed only on retry, so the cache refused to retain that run. A focused repeat reproduced the same
+destroyed-context error in Firefox after 48 passes. The two startup helpers now wait for the new
+document's editor element to attach before polling its sign-in callback. All 450 subsequent
+repetitions passed without retries across the three engines at twelve workers, in 1.9 minutes.
+The complete 2,169-case host suite then passed without retries in 2.7 minutes.
+Waiting for the intended document and waiting for its application state are separate barriers.
+
+Workspace, the Template Designer host, Bridging and the term picker run tagged WCAG rules and
+Label in Name in one axe analysis per state. They explicitly enable the experimental rule and assert
+that it ran. This replaces two sequential analyses, preserving exclusions, undecided-result checks
+and contrast measurements. A negative-fixture comparison in Chromium, Firefox and WebKit evaluated
+the same 64 rules with identical verdicts and caught the deliberately mismatched control name.
+
+A paired native macOS Firefox measurement uses the same fixed picker bundle, the same 29
+accessibility cases and four workers. Alternating single/double/double/single helper runs all passed
+without retries. The single-analysis helper took 16.3 and 16.5 seconds; the double-analysis helper
+took 20.7 and 20.4 seconds: about 20% less command time for this project. This is a measured suite
+improvement, not an end-to-end reactor speedup claim.
+
+Worker counts must be compared on complete projects as well as repeated expensive states. Three
+48-case Monitoring Firefox runs at each setting all passed without retries: median command time was
+12.5 seconds at four workers and 21.4 seconds at twelve. The complete 124-case functional project,
+however, took 16.5 seconds at four and 13.8 seconds at twelve. Browser startup costs weigh more
+heavily in the smaller repeated sample. The picker’s 24 repeated WebKit property-detail cases passed
+twice at each setting: 6.4–7.1 seconds at twelve workers and 10.3 seconds at four. CEE’s complete
+348-case Firefox accessibility project passed without retries in the pinned Linux container at both
+settings: 50.3 seconds with twelve workers and 127.8 seconds with four. The provisional project ceilings were removed; projects share the
+existing invocation budget, and the reactor retains three concurrent repositories, up to twelve
+workers per invocation and the sixteen-slot host pool.
+
+On 2026-11-13, all 12,399 application browser executions passed twice without retries. The first
+run used the normal twelve-worker ceiling; the second forced all checks with an eight-worker
+ceiling. Actual allocations depended on other active stages:
+
+| Application browser suite | Normal ceiling: workers / elapsed | Eight-worker ceiling: workers / elapsed |
+| --- | --- | --- |
+| CEE | 12 / 4.9 min | 8 / 7.7 min |
+| CED | 10 / 10.0 min | 6 / 12.3 min |
+| Term picker | 12 / 53.9 s | 6 / 1.6 min |
+| Workspace | 12 / 2.0 min | 5 / 5.2 min |
+| OpenView | 6 / 4.2 min | 8 / 3.3 min |
+| Bridging | 6 / 4.0 min | 8 / 3.0 min |
+| Monitoring | 12 / 2.3 min | 8 / 2.9 min |
+| Template Designer host | 12 / 3.4 min | 8 / 3.3 min |
+
+Build and verification took 25.7 and 27.6 minutes respectively. These are not a controlled
+whole-reactor A/B: the first reused unchanged producer/check results; the second reran them all
+after a full Java build refreshed the conformance oracle. The controlled project measurements
+above and these actual allocations support retaining the existing twelve-worker ceiling. Live
+owner-PID sampling reached sixteen reserved slots and never exceeded that host pool in either run.
+
+The forced run completed the full deployment contract in 33.3 minutes: local deployment 27.8 s,
+served-bundle verification 1.0 s and whole-stack smoke 296.2 s. Its build graph is
+`1863d503dd992e1abe09744c5fe59f8b0b5ee5c5089dfb41ef8b5ccb7bdb061d`, and its smoke covers
+41 working-tree sources under digest `5d21767e70c4a1bb`. The six-lane split tier took 137 s;
+the fifteen-check authoring chains took 16.9 s in Chromium, 25.3 s in Firefox and 29.4 s in
+WebKit, with fixture cleanup passing in each. The initial run's smoke had stopped before journeys
+because backend JARs predated their source commits; rebuilding Java and redeploying all eleven
+microservices resolved that prerequisite. Neither run changed Java sources.
+
+The final unchanged `cedarcli test frontends --jobs 3 --workers 12` took **28.6 seconds**
+wall clock (28.3 s reported by the CLI), reusing all twelve repository results and the unchanged
+consumer-demo result. Cache preparation had correctly rerun CED and its host after the Java build:
+their only changed cache-input group was `javaConformance`, containing the three rebuilt CEDAR
+library JARs. The forced `--no-reuse` run had not written replacement cache entries. The host's
+retrying startup run was also correctly excluded; the final measurement reused its clean pass
+after the navigation fix. Worker allocations are not cache inputs.
+
+Logs, inventories, paired measurements and live-pool samples are retained under
+`$CEDAR_HOME/.cedar/audits/2026-11-12-cross-browser-functional/`; reactor phase and command
+reports are under `.cedar/build-reports/`. The two complete application matrices and focused
+repetitions establish observed repeatability, not a guarantee that no future run can flake.
+
+Early interrupted runs and runs during a system-wide slowdown are not throughput baselines. The
+picker’s otherwise unchanged 324 unit tests passed in 15.4 seconds when repeated in isolation. Load
+average alone is not CPU utilization: the slowdown included high load readings alongside substantial
+idle CPU. When measuring the worker pool, count reservations whose owner PID is alive; cancelled
+holders can leave stale directories until the next claimant reclaims them. No abandoned browser
+containers remained. CEE stopped on the first failure with zero retries; CED then stopped after
+its configured retry. The default three-engine policy below now uses zero retries in every suite.
+
+The expanded checks require explicit language metadata on the term picker's shadow-tree roots:
+engines differ in inherited `:lang()` behavior when a host's language changes. The attributes preserve
+the interface and descendant language overrides. This is the only application source change in the
+functional expansion: the picker bundle grew by 177 bytes, or 30 bytes with gzip at level 9;
+no application polling, network requests or scheduling were added. CEE's test host waits for the public ready callback
+before DOM/font settling, and inline text clipping checks distinguish inline spans from boxes with
+client widths. The picker pagination test uses the native scroll event rather than also dispatching
+a second one, and its property-detail fixture waits for configuration and search completion before
+opening results. These fixes keep the assertions and eliminate avoidable timing assumptions.
+
+The [whole-stack queue](BACKEND-RUNBOOK.md#end-to-end-smoke-test-opse2e) runs the selected authoring
+chain in all three engines while retaining the existing lane count. Functional checks do not settle
+native browser zoom, spoken screen-reader output, accessible authentication, authored media or
+translation quality. The remaining criterion-level work stays in the single
+[Accessibility roadmap item](FRONTEND-ROADMAP.md#accessibility); these additional functional cases
+do not change its conformance ratings.
+
+### Default Three-Engine Coverage
+
+All functional, accessibility, layout and shared-style cases in the eight modern frontend suites
+run in Chromium, Firefox and WebKit by default. A newly added spec enters all three engines without
+maintaining an inclusion list. Pure pixel comparisons keep the browser, viewport and pinned Linux
+image that define their existing baselines; mixed tests run their functional assertions in every
+engine and take screenshots only in their original environment. No baseline comparison or original case/engine
+pairing or accessibility state was removed; combined scans are explicitly mapped to their new independent cases.
+
+The 2026-11-13 `playwright test --list --reporter=json` inventory contains **16,750 executions**,
+**5,414 distinct cases**, and **5,348 cases selected in all three engines**. The engine expansion
+adds 3,914 executions (31.5%) to the earlier 12,424; splitting independent CEE scan states adds
+another 412 separately scheduled executions without adding or removing scan coverage. Monitoring includes native-control and environment-row focus regressions, Workspace a rapid-selection
+regression, and CED a modal navigation regression, each in all three engines. A distinct case is identified by its file and full parameterized
+title. Selection counts do not establish passing results, WCAG conformance or distinct user journeys.
+
+| Surface | Executions | Distinct cases | All three engines | Explicit exceptions |
+| --- | ---: | ---: | ---: | --- |
+| CEE/CEF | 4,442 | 1,294 | 1,254 | 40 pure pixel cases, both original Chromium viewports |
+| CED | 3,415 | 1,155 | 1,130 | 25 pure pixel cases in their separate container gate |
+| Term picker | 654 | 218 | 218 | None |
+| Workspace | 2,554 | 852 | 851 | One Chromium CDP finger-scroll test |
+| OpenView | 1,137 | 379 | 379 | None |
+| Bridging | 687 | 229 | 229 | None |
+| Monitoring | 1,644 | 548 | 548 | None |
+| Template Designer host | 2,217 | 739 | 739 | None |
+| **Total** | **16,750** | **5,414** | **5,348** | **65 pixel cases and one CDP case** |
+
+Browser configurations use zero retries. Traces are opt-in for diagnosis and screenshots are retained
+on failure, avoiding successful-run recording overhead. Local suites share the existing sixteen-slot
+host pool; `--jobs` and `--workers` bound repository and stage concurrency. CEE retains four hosted
+shards with two workers each. Workspace, Monitoring and the Designer host build once, then share the
+production artifact with three parallel engine jobs, each fixed at two workers. CED shares its build
+between six ordinary browser shards (two per engine); its real CEE/CEF/CETP integration gate builds
+those pinned components once and runs three parallel engine jobs. The ordinary gate has 3,111
+executions and the integration gate 921: their union is the 3,390 functional executions in the table,
+with 642 intentional overlaps retained. The 25 pixel cases remain separate. Local CI follows the
+hosted allocations. The Designer host starts its paired performance comparison alongside its browser
+jobs. No hosted job's browser worker count was raised.
+
+Tests account for engine serialization, native controls and input events without changing application
+styling: font-family quoting is canonicalized while family order remains significant; native select
+corners are compared with an unstyled control in the same browser; custom off-scale corners still
+fail. Focus-visible fixtures use actual keyboard navigation, wheel-independent geometry checks use
+native scrolling, and screenshot contrast probes wait for scrolling to paint. Geometry comparisons
+allow less than 0.001px of floating-point representation error; they do not allow a one-pixel layout
+change. macOS WebKit uses the existing Option-Tab helper when a test needs every control in the tab
+order. Focus retention is checked under keyboard activation, separately from Safari's native choice
+not to focus buttons on pointer clicks. The row-reordering test exercises both activation paths. Reviewed undecided axe
+results are scoped to macOS where Linux WebKit already resolves them; new findings still fail.
+
+The expansion exposed a real CED interaction defect: opening or closing term details recentered the
+default-term dialog between clicks, so Firefox and WebKit could miss double-click selection. The
+approved fix preserves its initial position while open and constrains subsequent growth to the
+available viewport. Initialization retains the original centering; capture listeners anchor the
+position before the first interaction changes the content, then remove themselves. There is one
+geometry measurement per opening, no polling, timer or resize listener. The ordinary editing and
+initial dialog screenshots match the previous bundle pixel for pixel. Fifteen repeated selections
+passed across all three engines; nine further repetitions also verified reaching the existing
+selection button by scrolling at 375×500.
+
+The same expansion found Safari's ordinary Tab escaping the term-picker overlay onto the covered
+page. The approved shared modal trap now moves Tab and Shift-Tab explicitly through reachable
+controls across shadow roots. It retains radio-group arrow navigation and respects an inner widget
+that has handled the key; inert, hidden, disabled and negative-tabindex controls stay out of the
+order. An empty/loading modal retains focus until it closes. Sixty focused repetitions passed on
+macOS and sixty on Linux across all three engines, including ordinary Tab, Option-Tab where
+applicable, nested widgets, default-term selection and focus return. The final bundle's ordinary
+editing and initial-dialog captures both have zero changed pixels against the original bundle.
+
+Workspace's group picker also had a real render race: input and Enter before a render could select
+the group while leaving the search text visible. Clearing the underlying form control alongside its
+bound query now preserves the existing clear-on-pick behavior, without emitting another selection
+or search. The regression reproduces the old failure in all three engines, and unit assertions hold
+the selected identifier and event sequence unchanged.
+
+Monitoring's derived environment-value rows were also being replaced on ordinary Angular change
+detection: the grouping getters create new objects, and the template tracked those objects by
+identity. This discarded keyboard focus when expanding a long value, and could replace a text node
+between the contrast probe's two captures. The template now tracks each variable by name and each
+value group by its distinct value, retaining unchanged DOM without changing the report. A keyboard
+regression reproduced focus loss in all three engines on the previous bundle; it checks Enter/Space
+expansion, collapse, full text, retained row identity and focus on the current bundle. Accessibility
+scans also wait for fonts and layout observers before judging scroll-region attributes.
+
+CED's option-removal validation journey names the newly added third option explicitly and verifies
+that the named second option survives. Previously a last-button locator could resolve before Angular
+rendered the added row: the hosted failure retained `First` and an empty option after deleting
+`Second`. The accessibility scan also waits for insertion-zone opacity to reach an endpoint after
+scrolling, because scrolling beneath a stationary pointer can start another hover transition. A
+hosted scan reported contrast on an insertion button that was hidden by the failure capture; the
+original focused state passed 20 repetitions, so that isolated failure does not establish a lasting
+color defect. The scan retains its rules and thresholds and now includes axe's full failure explanation.
+The revised scan and the radio/checkbox/list removal journeys passed 120 repetitions across all three
+engines in 117.0 seconds, with two workers, no retries and unchanged application bytes.
+
+CEE now uses full-tile Chromium rasterization, as Workspace already did. The old capture alternated
+five threshold-crossing phone-icon pixels in the minimum-length error state (11 of 20 repeated
+captures differed); full-tile painting was consistent in 20 of 20. The minimum-length and email-error
+desktop baselines were corrected for that paint difference: 52 and 54 raw edge pixels respectively,
+each in a 1,152,000-pixel image, with no CSS or threshold change. The full 1,728-case Chromium sweep
+found no other baseline discrepancy, and both corrected cases passed 80 repeated captures across
+their original viewports without retries.
+
+The Designer host's opening-access tests now wait for the new document when activating the existing
+recheck action. The action reloads the page; the old assertion could match the old page's error text,
+then change the API fixture before that reload completed. This was a test synchronization defect,
+not a change to the recheck interaction. All 240 repeated opening-access cases passed across the
+three native engines, followed by the complete hosted matrix. Its separate native-dialog focus-ring
+fixture uses macOS WebKit's Option-Tab path to reach every button; plain Tab missed the middle
+button in three isolated repetitions. All 60 corrected repetitions passed across the three engines
+in 30.3 seconds, retaining every focus, outline style/color/width/offset assertion. This is a test
+navigation correction: application markup, styles and modal behavior are unchanged.
+
+Bridging's surface fixtures now use the existing opening-request helper and await the lazy editor's
+`customElements.whenDefined` event before starting the unchanged five-second form-render assertion.
+The previous fixture counted authentication, the opening response and script startup against that
+render deadline; the source-gate failure showed the header and an empty main region. Controlled
+6.5-second response and script delays each reproduced the old timeout in all three engines. The
+correction preserves response bodies, success/error assertions and the existing overall test deadline;
+it changes test synchronization only. The final fixture passed all 18 positive, draft and already-existing
+DOI surface cases across all three engines with each delay: 36 checks, no retries, four workers.
+Delays belong to the isolated diagnostic fixture, not the suite.
+The final revision `9783c5cb` passed its complete hosted build in 582 seconds, including all
+687 browser executions (7.7 minutes, two workers) and 302 application-rendering unit checks;
+design-token adoption also passed.
+
+CEE's accessibility scan waits for rendered Material hint/error opacity as well as the animation
+API. WebKit could report no running animation while a hint was still fading, producing a transient
+1.87:1 contrast finding. Hidden read-only controls have no rendered geometry and do not participate
+in that wait. The scan's rules, contrast thresholds and final-state assertions remain unchanged.
+The contrast helper also returns immediately when there are no undecided text targets to measure,
+avoiding a full-page screenshot and PNG decoding that could not contribute an assertion. In the
+56-case all-engine input-types diagnostic, this skipped 96 empty measurements while retaining all
+48 nonempty measurements covering 152 text targets; every case passed without retries.
+Forty-eight combined field-presentation, density, calendar, hover/focus, search and overlay tests
+now schedule their 151 existing states separately. All 151 scans remain; the calendar cases also retain the complete
+month-to-multi-year-to-year navigation and focus-ring assertions. Each state can use any free worker, removing the long serial tail. The accessibility spec has a 60-second instrumentation
+deadline: under concurrent local load two individual cases required 46.3 and 47.4 seconds, even after
+partitioning. Browser actions and navigation keep a 30-second maximum and existing UI expectations
+keep their original deadlines. There are no browser retries. The inventory proof records every old case's successor
+states and confirms all original engine selections survive. The first partition's 576-case focused run passed
+in 6.3 minutes with two workers, across Firefox, WebKit and both original Chromium viewports,
+without retries; it covers its separated states and the focused-menu journey. The subsequent 32-case
+search/select/menu run passed in 159.8 seconds with two workers and the explicit instrumentation
+budget, retaining both sides of each transition.
+
+CEE's expanded 4,030-execution inventory was also measured twice with count-based shards and twice
+with its calibrated duration profile, using four ARM64 containers, two workers and a four-CPU cap
+per container (eight leased browser workers in total). Every run passed every case once, without
+skips or retries; the merged identities exactly matched discovery.
+
+| Assignment | Command wall time | Slowest browser shard | Spread between browser shards |
+| --- | ---: | ---: | ---: |
+| Count-based, first run | 550.7 s | 540.8 s | 100.8 s |
+| Duration-balanced, first run | 510.9 s | 499.6 s | 16.5 s |
+| Duration-balanced, second run | 548.1 s | 541.4 s | 24.8 s |
+| Count-based, second run | 867.8 s | 860.8 s | 182.9 s |
+
+The last control also had much higher host load (36.8 versus 11.4–14.0); it remains in the record,
+so the evidence supports more even shards, not a precise universal speedup. These measurements
+use the retained `cee-fresh-source` snapshot before the final Material animation-wait correction.
+Hosted runs provide the separate current-source result. Several one-runner local source gates and
+a four-runner/single-container experiment timed out at different browser setup, screenshot or
+multi-state test steps; those failures remain in the audit. High macOS load often coincided with
+substantial idle CPU and stable swap, so neither CPU saturation nor memory exhaustion was established
+as the cause. The unsuccessful per-project caps and single-container runner were not retained.
+
+The final CEE source at `9a7c313b` passed all four hosted shards and the exact-union inventory gate,
+plus source/domain checks, framework consumers and paired performance. The four shard jobs took
+782/810/771/823 seconds, a 52-second spread including job setup; the shared build took 73 seconds.
+The build-plus-slowest-shard path was 896 seconds (14m56s), excluding queue gaps and the subsequent
+11-second inventory join. All 4,442 executions passed without retries. This current-source run is
+separate from the controlled 4,030-case scheduling comparison above. The subsequent canonical local
+source gate also passed all 4,442 executions without retries in 10.6 minutes with eight workers
+(643.6 seconds for its complete visual stage).
+
+The CED split passed every hosted job at `e54dee79`: the shared build took 225 seconds, ordinary
+Chromium/Firefox/WebKit critical jobs 610/886/848 seconds, and real-component jobs 426/562/559
+seconds after a single 117-second producer build. Previously Chromium took 1,170 seconds and
+WebKit 1,404 seconds, while Firefox exceeded 25 minutes and the combined integration gate exceeded
+20 minutes. The new build-plus-browser critical path is about 18m31s, excluding runner queue gaps.
+These are observed hosted runs, not a same-runner benchmark; extra parallel jobs trade aggregate
+runner time for a shorter wall clock without removing executions. The final test-synchronization
+revision `0a7a4767` also passed every hosted job: shared build 228 seconds, ordinary engine critical
+jobs 589/853/795 seconds, integration jobs 441/591/528 seconds after one 79-second producer build,
+and paired performance 482 seconds. Its build-plus-slowest-browser path was 18m01s. The smaller
+difference between these two split runs is ordinary observed variation, not an attributed speedup.
+The subsequent scheduler revision `0dd0396b` passed every hosted job too: a 229-second shared
+build and 871-second slowest browser shard give an 18m20s path; its paired performance job emitted
+no advisory metric warnings. The scheduler change affects local worker allocation, not the hosted matrix.
+
+At `5f7a7b28`, the Designer host's hosted build took 33 seconds; its browser jobs took 244/467/427 seconds
+and its parallel performance job 1,144 seconds. The build-plus-slowest-job path was about 19m37s,
+versus 35m44s in the earlier combined-package workflow. Of that difference, 811 seconds came from
+shortening the package job; performance-job duration also varied by 156 seconds. Monitoring's
+shared build plus slowest browser job took 625 seconds (10m25s). Both complete matrices passed
+without browser retries. At the final host revision `b9e1a4de`, all jobs passed again: build 33
+seconds, browser jobs 239/367/456 seconds and performance 1,190 seconds, giving a 20m23s path.
+The difference from the preceding split run is observed timing variation.
+
+CED's pure-pixel fixture builder uses the existing `clickCentred` helper to invoke the same delete,
+add and type-selection handlers while constructing each scene. This avoids repeated pointer
+positioning during smooth insertion scrolling. Pointer interaction contracts remain in the functional
+suite. All 25 existing baseline comparisons passed with the unchanged zero-pixel budget. Two
+alternating before/after comparisons used the same final bundle, pinned image and two workers:
+the old fixture setup took 27.9/28.1 seconds and the new setup 21.6/22.4 seconds (about 21% faster
+on average). Command wall time fell from 29.6/29.9 to 23.3/24.0 seconds. All four runs passed every
+baseline without retries; no image, screenshot threshold or test was removed. Host load stayed
+between 3.9 and 5.0 and swap usage was unchanged. An earlier new-helper run under higher load
+passed in 37.4 seconds; it is retained separately rather than used as a timing control.
+
+The expanded CED browser suite also changed the best local allocation. With an eight-worker
+ceiling, the old gate started six browser workers beside two pixel workers; those two workers
+then remained unused after the short pixel run. Revision `0dd0396b` finishes the pixel gate first
+and gives all eight workers to the browser suite. The same component bundle, all 3,390 browser
+cases and all 25 zero-budget pixel comparisons passed in both profiles, without retries.
+
+| CED local stage | Simultaneous 6 + 2 workers | Pixels first, then 8 browser workers |
+| --- | ---: | ---: |
+| Browser stage | 975.0 s | 743.7 s |
+| Pixel stage | 27.3 s, overlapping | 24.9 s, preceding |
+| Combined browser/pixel critical path | 975.0 s | 768.6 s |
+| Complete CED gate | 1,010.7 s | 809.0 s |
+
+That is an observed 21.2% reduction in the browser/pixel path and 20.0% for the complete gate,
+without increasing the worker ceiling. Both runs kept swap usage at 909.12 MB. Fourteen scheduler
+checks cover budgets, ordering, pool cleanup, cached pixels and pixel failures. This is one complete
+before/after pair, separate from the repeated pixel-fixture comparison above. Each reactor was
+intentionally stopped after the completed component result so its scheduler change could be
+committed before the final combined verification; neither interrupted command is reported as a
+passing full reactor. The retained component results remain valid inputs to that final run.
+
+The final canonical `cedarcli test frontends --jobs 1 --workers 8` passed at the committed source
+heads in 462.3 seconds, including 99.7 seconds for the Angular, React and Ember consumer gates
+(lint, integration tests, production builds and Chromium/Firefox/WebKit consumer checks). It
+reused passing results whose complete inputs matched; Bridging's 687 browser executions ran in
+67.6 seconds and OpenView's 1,137 in 233.3 seconds. This is a successful cached completion, not a
+cold-reactor timing benchmark. All original case/state/engine selections remain in the final
+inventory, and the local-CI registry covers all nine affected frontend/design-token repositories.
+The source/package graph is retained as
+`.reactor/builds/3387c6479d052f8c934212d96c7f9fde7cd73df78d43624204ada4a1adebc4a6.json`,
+with command timings in `.cedar/build-reports/frontend-runs/20261113T172522Z-4ad06353.json`.
+This checks-only command did not redeploy or run whole-stack acceptance.
+
+The final run leased at most eight workers and kept swap usage at 909.12 MB. Peak macOS load
+was 130.9; one sample during OpenView showed 61% idle CPU with 12 GB unused memory. The earlier
+two-repository/eight-worker-per-repository attempt leased sixteen slots and reached load 210.1.
+Those measurements justify retaining a bounded local workload, but do not establish a CPU or
+memory exhaustion cause for the fixture failures. No abandoned Playwright process was found in
+the post-failure inspection; only long-lived Apple-system WebKit processes remained in that sample.
+
+The performance audit distinguishes test scheduling from application rendering. CED's approved
+modal fixes add 593 compressed bytes (0.12%), leaving 35,416 bytes below its bundle ceiling; the
+final bundle is `f280f1829565b9878d10647c822905e455a2514bd80b348ac8a0083b4da83f98`.
+Its paired hosted comparison completed all 24 metric rows against the preceding bundle and fixed
+reference within the current advisory tolerance, with no rerun. Readiness changes against the
+preceding bundle ranged from −5.5 to +20.1 ms, and CLS was unchanged. These are controlled 5/100-field,
+cold/warm fixture measurements, not calibrated performance budgets or backend/sign-in timings.
+
+The Designer host's comparison at `5f7a7b28` completed all 48 metric rows. All readiness/blocking rows
+were within advisory tolerance, but the fixed reference comparison flagged warm small-document CLS:
+0.5083 versus 0.0127. Four of five candidate samples measured 0.5083; the identical immediate
+before/after bundles both show the same high shift. This is an existing fixed-reference warning,
+not a regression from the latest test-only commit. The remaining investigation is tracked in
+[performance calibration](FRONTEND-ROADMAP.md#modern-frontend-performance-gates); a green advisory
+job does not mean the warning is resolved. The final host run at `b9e1a4de` repeated all 48 rows
+without a rerun: the same fixed-reference CLS warning recurred in all five candidate samples,
+while the immediate before/after medians remained equal and all readiness/blocking rows stayed
+within tolerance. Reports are retained in `host-performance-ci/`, `host-current-performance/` and
+`ced-performance-ci/` beneath the audit directory below.
+
+Machine-readable inventories, exact bundle identities, logs and timing samples are retained under
+`.cedar/audits/2026-11-13-browser-default/`. The shared layout checker's 210 cases, live-stack journeys,
+framework consumer demos, MCP session page, separate Unicode-policy gate, performance checks and
+unit/model suites (including Vitest rendering tests that use Chromium) retain their documented gates
+and are outside the table. Legacy code is excluded from this coverage expansion. Native browser zoom, mobile touch/keyboard behaviour and actual screen-reader speech
+remain separate from engine selection; the [Accessibility roadmap item](FRONTEND-ROADMAP.md#accessibility)
+tracks the remaining conformance work.
+
 ### Failures Several Components Share
 
-No failure recurs across components now. Three had shared causes, and each was fixed where its
-cause lives. Every target is at least 24px tall, from the shared minimum target size, or has a
-larger equivalent target, as CED's field header is for its settings toggle. Text inputs draw their
+
+The component-level 1.3.5 failure also applies to hosts embedding CEE for personal-information
+entry. Earlier visual failures had three shared causes, each fixed where its cause lives. Every
+target is at least 24px tall, from the shared minimum target size, or has a larger equivalent target,
+as CED's field header is for its settings toggle. Text inputs draw their
 boundary in `control-border-default`, which now measures 3.35:1 on white and 3.09:1 where a white
 field sits on a panel. A selection tint of about
 1.2:1 is never a selection's only mark. A selected item takes `patterns.selected-outline` or, where
@@ -5796,11 +6407,11 @@ that touches it, and update the assessment date and commits with it.
 | 1.3.2 Meaningful Sequence | A | Met | Partial | Met | Met |
 | 1.3.3 Sensory Characteristics | A | Met | Met | Met | Partial |
 | 1.3.4 Orientation | AA | Met | Met | Met | Met |
-| 1.3.5 Identify Input Purpose | AA | N/A | Unverified | N/A | N/A |
+| 1.3.5 Identify Input Purpose | AA | N/A | Fails | N/A | N/A |
 | 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
 | 1.4.2 Audio Control | A | N/A | Met | N/A | N/A |
 | 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
-| 1.4.4 Resize Text | AA | Met | Met | Met | Met |
+| 1.4.4 Resize Text | AA | Partial | Partial | Partial | Partial |
 | 1.4.5 Images of Text | AA | Met | Met | Met | Met |
 | 1.4.10 Reflow | AA | Met | Met | Met | Met |
 | 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
@@ -5841,6 +6452,210 @@ that touches it, and update the assessment date and commits with it.
 | 3.3.8 Accessible Authentication (Minimum) | AA | Host | Host | Host | N/A |
 | 4.1.2 Name, Role, Value | A | Partial | Partial | Partial | Partial |
 | 4.1.3 Status Messages | AA | Partial | Met | Partial | Partial |
+
+### Modern Host Application Assessment
+
+Assessed on 2026-11-12 against the source and browser suites of OpenView, Bridging, Monitoring
+and the Template Designer host. This extends the four component scorecards above; their older
+zero-failure result preceded the Monitoring findings and follow-up below. These scores use the same
+55 criteria and statuses. They describe the tested application journeys, not a production-wide
+conformance claim or a screen-reader assessment.
+
+The scope includes OpenView's folder, artifact, preview, try-out and error pages; Bridging's DOI
+opening, draft save, creation and failure paths; Monitoring's registered reports, log explorer,
+trace and rebuild paths; and the Template Designer host's opening, editing, validation, save,
+version, recovery and access-change paths. Legacy Template Editor is excluded.
+
+An embedded component is not exempt because the host's axe scan excludes its shadow root. OpenView
+and Bridging inherit CEE's applicable limits; the Template Designer host inherits CED, CEE/CEF and
+CETP limits. The host suites prove their boundary and state transitions, and the component suites
+prove their own controls. Their separate green runs do not prove integrated keyboard order or spoken
+announcements, which remain Partial. Template-authored media inherits CEE's five Unverified
+verdicts. Personal-information entry inherits its 1.3.5 failure when applicable; the host scorecards
+conservatively include that supported use rather than assuming every template asks only about
+specimens or other people. Monitoring has no media or personal-data entry. OpenView's try-out does
+not write data, so 3.3.4 is N/A there; Monitoring's report/reindex controls do not edit user-authored
+records, so it is N/A there too. DOI creation and Designer saves require further error-prevention
+review and remain Partial.
+
+The real Keycloak login, password-manager/paste behavior, session expiry and recovery are outside the
+fixture suites: Bridging and Monitoring stub Keycloak; the Designer host supplies a fixture user;
+OpenView's login action leaves the public viewer. Authentication is therefore **Unverified**, not
+N/A, for all four complete journeys, and timing stays Partial. A signed-in fixture does not prove
+accessible authentication.
+
+| Application | Met | Partial | Fails | Unverified | N/A | Score |
+| --- | --- | --- | --- | --- | --- | --- |
+| OpenView | 27 | 20 | 1 | 6 | 1 | 27 of 54, 50% |
+| Bridging | 27 | 21 | 1 | 6 | 0 | 27 of 55, 49% |
+| Monitoring | 28 | 18 | 0 | 1 | 8 | 28 of 47, 60% |
+| Template Designer host | 26 | 22 | 1 | 6 | 0 | 26 of 55, 47% |
+
+Across all eight scorecards, 383 criterion/application ratings apply: **218 Met, 137 Partial,
+4 Fails and 24 Unverified**. The other 57 ratings are 24 Host and 33 N/A. These are ratings, not
+independent defects: the four failures are CEE's input-purpose limitation counted in CEE and its
+three hosts. The aggregate is not a conformance certification or
+a like-for-like comparison with the earlier four-component release assessment.
+
+#### Evidence and limits
+
+The 2026-11-12 frontend reactor build `d280f4dc47ebb6f8fa836f164dd72ee6dc821c62571341f0dc62102c4ba0c632`
+passed the four host browser suites: OpenView 379, Bridging 229, Monitoring 532 and Template Designer
+739 tests. It also passed deployment and served-bundle verification. The graph retains exact source
+digests and component artifacts, including the uncommitted Bridging and Monitoring fixes assessed
+here. Bridging's ordinary form and returned-DOI notice were rendered and visually reviewed; the
+normal page has no notification, and the result retains the existing layout and Dismiss control.
+Whole-stack smoke subsequently passed for all 41 captured sources (digest `707fbf3d4da2e1df`),
+after rebuilding and restarting the local terminology service to match its current source. This
+checks the working tree; the dirty-source record is not release/train eligibility evidence.
+
+Paths below are relative to the named repository. Each application has `browser/tests/accessibility.spec.mjs`
+and `browser/tests/layout-resilience.spec.mjs`. Their scans cover names, roles, labels, text contrast
+and target size; the shared layout checks cover reflow, resize, spacing, placeholders, boundaries and
+indicators. Those are evidence for 1.1.1, 1.4.3–1.4.12, 2.5.3 and the measured targets in 2.5.8.
+The resize check is a viewport proxy for zoom; actual browser zoom remains a separate verification.
+
+| Evidence | Criteria it informs and remaining limits |
+| --- | --- |
+| OpenView `browser/tests/folder-cards.spec.mjs`, `translations.spec.mjs`, `response-matrix.spec.mjs`; `cedar-openview-src/src/app/app.component.{ts,html}` | Preview opening, Escape and focus return; translated page language/title and marked English-only fragments; load/refusal states; main landmark. Informs 2.4.1–2.4.4, 3.1.1–3.1.2, 3.3.1 and 4.1.3. Template content and speech still need review. |
+| Bridging `browser/tests/doi-matrix.spec.mjs`, `notices.spec.mjs`; `cedar-bridging-src/src/app/modules/shared/components/doi-{requester,saver}/` | Both DOI actions, server answers, persistent live regions, retained success DOI, dismissal and focus return. The five-second success timeout is removed by agreement; session timing remains Partial. Creation's prevention/reversibility is not established by a successful POST. |
+| Monitoring `browser/tests/response-matrix.spec.mjs`, `store-unavailable.spec.mjs`, `no-access.spec.mjs`, `accessibility.spec.mjs`, `monitoring-interactions-accessibility.spec.mjs`; `cedar-monitoring-src/src/app/modules/resources/pages/` | Refusals, unavailable reports, named tables and scroll regions; copy and query status, rebuild state/error/progress semantics; keyboard cell/row actions, native trace dialog, cancellable report refresh. Actual speech and every dynamically updated report still need review. |
+| Template Designer `browser/tests/host-states.mjs`, `opening-access.spec.mjs`, `save-matrix.spec.mjs`, `save-recovery.spec.mjs`, `save-uncertainty.spec.mjs`, `draft-recovery.spec.mjs`; `app/index.html` | Named native version dialog, persistent status/error regions, retained drafts, uncertain writes, access changes and version confirmation. Embedded editing and real sign-in retain the limits described above. |
+| All four application templates, event handlers and styles | Document order, landmarks, titles/language, shared navigation and explicit click activation; no orientation lock, motion activation, multipoint gestures, character-only shortcuts or application-authored flashing. Gives source evidence for the applicable Met rows. Arbitrary embedded media is covered separately by the media rows. |
+
+#### Monitoring Follow-up
+
+The 2026-11-12 implementation resolves the four failures identified in the host assessment:
+
+- **2.1.1 Keyboard — Partial:** row carets and copyable cells are native buttons, retaining the
+  existing table and pointer behavior. Enter and Space work; full values remain available in the
+  title and clipboard. Keyboard journeys reach the trace, whose native modal contains focus and
+  restores it on Escape or Close. Closing a loading trace cancels the read, so a late answer cannot
+  reopen it. Complete report journeys and assistive-technology operation still need review.
+- **2.2.2 Pause, Stop, Hide — Met:** Health Checks, Queue Counts and Search Index have the approved
+  Reload button and refresh checkbox, using the existing Worker Lag/JVM pattern. Intervals remain
+  5, 2 and 3 seconds. Unchecking cancels pending reads and freezes the displayed report; rechecking
+  fetches current data immediately. Reload fetches once while paused. Pausing never stops a server
+  rebuild. Worker Lag and JVM Insight also cancel in-flight reads when paused or destroyed, while
+  retaining their previous defaults and intervals. Only one refresh chain runs per report.
+- **4.1.2 Name, Role, Value — Partial:** native cell/row buttons expose their action and expansion
+  state, and Request trace is a named modal dialog. Actual spoken names and states, and controls
+  outside these journeys, still need review.
+- **4.1.3 Status Messages — Partial:** persistent query status/error regions expose loading,
+  result count, page, approximation and API failures. Repeating a query passes through Loading
+  before repeating its result. Trace loading/results/errors and copy confirmations remain inside
+  the active modal; status changes do not move focus. Unchanged rebuild polling does not mutate
+  the status message. Actual speech remains unverified.
+
+The normal log table and trace retain their existing visual design. The three new refresh-control
+rows are the agreed visible change. Screenshots of the ordinary reports, log table and trace were
+reviewed separately from functional checks; no trace or failure controls appear on an ordinary
+closed report. Monitoring retains Partial target-size, keyboard/focus, color-cue and error-suggestion
+ratings where the complete application has not been established by the covered journeys.
+
+Verification passed **299 Monitoring unit tests and 1,200 browser cases**, including 42 new
+interaction cases across Chromium, Firefox and WebKit. The full frontend reactor completed with
+build graph `47332a596a5b50a000d90e34fd45f3af60e3708900cf3389175151cbc936d21c` and Monitoring source
+digest `6bb45710a95a3541206c0c739d31e8c8ee3706c8fd124252f0fcf2321502ee02`. Consumer integration gates,
+local deployment, served-bundle verification and whole-stack smoke passed; the smoke record covers
+41 sources with digest `a94353f32553cd4c`. These are working-tree results, including uncommitted
+changes, rather than release/train eligibility evidence.
+
+The full build also exposed a Bridging fixture that started its form-render deadline before mocked
+authentication and the opening DOI read had finished. Its helper now waits for that read to settle.
+The final Bridging gate completed 599 cases, with four timeout cases passing on retry; OpenView's
+771 cases passed after reducing concurrent browser workers. No accessibility assertion was relaxed.
+Logs and rendered-review screenshots are retained locally under
+`.cedar/audits/2026-11-12-monitoring-accessibility/` at the CEDAR workspace root.
+
+<a id="monitoring-screen-reader-protocol"></a>
+
+##### Monitoring Screen-Reader Protocol
+
+Run with VoiceOver/Safari and NVDA/Firefox against the built Monitoring application, with a user
+allowed to read reports. Record browser and reader versions, report state, expected/actual speech
+and focus. Browser fixtures can supply deterministic query failures and delayed trace responses;
+they do not verify real sign-in. This protocol has not yet been run with either reader.
+
+1. Open Live Log Explorer. Hear Loading and then the result count/page once, without focus moving.
+   Repeat Reload with the same results and confirm the result is announced again. Return an API
+   failure, hear its message, then retry successfully and confirm the old error is no longer read.
+2. Navigate the table by row and column. Hear each cell as table content and its button's copy
+   instruction. Activate a cell with Enter and Space; check the full copied value and confirmation.
+   Expand and collapse a row and hear its name and expanded state.
+3. Reach Open trace using Tab. Hear Request trace as a modal, with focus on Close. Navigate its
+   waterfall table and copy the request ID; the confirmation must be heard inside the modal.
+4. Tab and Shift-Tab stay inside the trace. Escape and Close each return to the invoking Open trace
+   button. Close a delayed trace and verify that its eventual response neither reopens it nor speaks.
+5. On Health Checks, Queue Counts and Search Index, hear the refresh checkbox's interval and state.
+   Uncheck during an active read: values stay fixed. Reload updates once while it remains unchecked;
+   rechecking immediately fetches current data. Repeat pause on Worker Lag and JVM Insight.
+6. Pause while a search rebuild is running. The display stays fixed while the server keeps working;
+   resuming reports current progress or completion. Unchanged polls must not repeatedly announce
+   the same state. Check failures and recovery as well as successful reads.
+
+The [accessibility roadmap](FRONTEND-ROADMAP.md#accessibility) retains this manual verification and
+all other incomplete criterion evidence.
+
+#### Host Applications by Criterion
+
+| Criterion | Level | OpenView | Bridging | Monitoring | Template Designer host |
+| --- | --- | --- | --- | --- | --- |
+| 1.1.1 Non-text Content | A | Met | Met | Met | Met |
+| 1.2.1 Audio-only and Video-only (Prerecorded) | A | Unverified | Unverified | N/A | Unverified |
+| 1.2.2 Captions (Prerecorded) | A | Unverified | Unverified | N/A | Unverified |
+| 1.2.3 Audio Description or Media Alternative (Prerecorded) | A | Unverified | Unverified | N/A | Unverified |
+| 1.2.4 Captions (Live) | AA | Unverified | Unverified | N/A | Unverified |
+| 1.2.5 Audio Description (Prerecorded) | AA | Unverified | Unverified | N/A | Unverified |
+| 1.3.1 Info and Relationships | A | Partial | Partial | Partial | Partial |
+| 1.3.2 Meaningful Sequence | A | Partial | Partial | Met | Partial |
+| 1.3.3 Sensory Characteristics | A | Partial | Partial | Partial | Partial |
+| 1.3.4 Orientation | AA | Met | Met | Met | Met |
+| 1.3.5 Identify Input Purpose | AA | Fails | Fails | N/A | Fails |
+| 1.4.1 Use of Color | A | Partial | Partial | Partial | Partial |
+| 1.4.2 Audio Control | A | Met | Met | N/A | Met |
+| 1.4.3 Contrast (Minimum) | AA | Met | Met | Met | Met |
+| 1.4.4 Resize Text | AA | Partial | Partial | Partial | Partial |
+| 1.4.5 Images of Text | AA | Met | Met | Met | Met |
+| 1.4.10 Reflow | AA | Met | Met | Met | Met |
+| 1.4.11 Non-text Contrast | AA | Met | Met | Met | Met |
+| 1.4.12 Text Spacing | AA | Met | Met | Met | Met |
+| 1.4.13 Content on Hover or Focus | AA | Partial | Partial | Partial | Partial |
+| 2.1.1 Keyboard | A | Partial | Partial | Partial | Partial |
+| 2.1.2 No Keyboard Trap | A | Partial | Partial | Partial | Partial |
+| 2.1.4 Character Key Shortcuts | A | Met | Met | Met | Met |
+| 2.2.1 Timing Adjustable | A | Partial | Partial | Partial | Partial |
+| 2.2.2 Pause, Stop, Hide | A | Met | Met | Met | Met |
+| 2.3.1 Three Flashes or Below Threshold | A | Met | Met | Met | Met |
+| 2.4.1 Bypass Blocks | A | Met | Met | Met | Met |
+| 2.4.2 Page Titled | A | Met | Met | Met | Met |
+| 2.4.3 Focus Order | A | Partial | Partial | Partial | Partial |
+| 2.4.4 Link Purpose (In Context) | A | Met | Met | Met | Met |
+| 2.4.5 Multiple Ways | AA | Partial | Partial | Partial | Partial |
+| 2.4.6 Headings and Labels | AA | Partial | Partial | Partial | Partial |
+| 2.4.7 Focus Visible | AA | Partial | Partial | Partial | Partial |
+| 2.4.11 Focus Not Obscured (Minimum) | AA | Partial | Partial | Partial | Partial |
+| 2.5.1 Pointer Gestures | A | Met | Met | Met | Met |
+| 2.5.2 Pointer Cancellation | A | Met | Met | Met | Met |
+| 2.5.3 Label in Name | A | Met | Met | Met | Met |
+| 2.5.4 Motion Actuation | A | Met | Met | Met | Met |
+| 2.5.7 Dragging Movements | AA | Met | Met | Met | Met |
+| 2.5.8 Target Size (Minimum) | AA | Met | Met | Partial | Met |
+| 3.1.1 Language of Page | A | Met | Met | Met | Met |
+| 3.1.2 Language of Parts | AA | Partial | Partial | Met | Partial |
+| 3.2.1 On Focus | A | Met | Met | Met | Partial |
+| 3.2.2 On Input | A | Met | Met | Met | Met |
+| 3.2.3 Consistent Navigation | AA | Met | Met | Met | Met |
+| 3.2.4 Consistent Identification | AA | Partial | Partial | Partial | Partial |
+| 3.2.6 Consistent Help | A | Met | Met | Met | Met |
+| 3.3.1 Error Identification | A | Met | Met | Met | Met |
+| 3.3.2 Labels or Instructions | A | Partial | Partial | Met | Partial |
+| 3.3.3 Error Suggestion | AA | Partial | Partial | Partial | Partial |
+| 3.3.4 Error Prevention (Legal, Financial, Data) | AA | N/A | Partial | N/A | Partial |
+| 3.3.7 Redundant Entry | A | Met | Met | Met | Met |
+| 3.3.8 Accessible Authentication (Minimum) | AA | Unverified | Unverified | Unverified | Unverified |
+| 4.1.2 Name, Role, Value | A | Partial | Partial | Partial | Partial |
+| 4.1.3 Status Messages | AA | Partial | Partial | Partial | Partial |
 
 ## Surface inventory and token coverage
 

@@ -7,8 +7,8 @@
 // that pages, on every service, is held to the same refusal of a bad limit or offset, and those that
 // also page by number to the rule that a request pages one way or the other.
 import {
-  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, poll, enc, RUN,
-  ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
+  suite, check, checkStatus, skip, call, mutate, updateArtifact, cleanup, artifactBody, permissions, everybodyGroup,
+  poll, enc, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
 } from '../lib.mjs';
 import { cedarErrorProblem } from './errors.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
@@ -26,7 +26,7 @@ function badQuery(res, what) {
       problem ?? `status was ${res.body?.status}`);
 }
 
-export async function run({ user1, admin, folderId }) {
+export async function run({ user1, user2, admin, folderId }) {
   const auth = user1.auth;
 
   suite('pagination: a folder\'s contents page correctly');
@@ -269,9 +269,12 @@ export async function run({ user1, admin, folderId }) {
 
   // These routes declare the same typed query. Unknown parameters and arbitrary search text are
   // not invalid by definition; probe only values the declared sort and filter contracts reject.
-  // The modification-time bounds are epoch milliseconds. A window that closes before it opens is
-  // refused, and so is a bound given twice, even when the two values agree.
+  // The modification-time bounds are epoch milliseconds, and a value before March 1973 is refused as
+  // most likely a time in seconds. A window that closes before it opens is refused, and so is a bound
+  // given twice, even when the two values agree. Each of those refusals identifies the parameter at
+  // fault, which the third entry names.
   const typedListings = [...endpoints.slice(0, 3), { name: 'search-deep', path: `/search-deep?q=${enc(PAGE_TAG)}` }];
+  const NOON = 1_794_571_200_000; // 13 November 2026, 12:00 UTC
   const badFilters = [
     ['an unknown sort field', 'sort=not-a-sort'],
     ['a delimiter-bearing sort field', `sort=${enc('name;DROP TABLE')}`],
@@ -281,9 +284,12 @@ export async function run({ user1, admin, folderId }) {
     ['a delimiter-only version filter', 'version=,'],
     ['an unknown publication filter', 'publication_status=not-a-status'],
     ['a delimiter-only publication filter', 'publication_status=,'],
-    ['a reversed modification-time window', 'modified_after=2000&modified_before=1000'],
-    ['modified_after given twice', 'modified_after=1000&modified_after=1000'],
-    ['modified_before given twice', 'modified_before=2000&modified_before=2000'],
+    ['a reversed modification-time window', `modified_after=${NOON + 1}&modified_before=${NOON}`,
+      ['modified_after', 'modified_before']],
+    ['modified_after given twice', `modified_after=${NOON}&modified_after=${NOON}`, ['modified_after']],
+    ['modified_before given twice', `modified_before=${NOON}&modified_before=${NOON}`, ['modified_before']],
+    ['a modified_after in seconds', `modified_after=${NOON / 1000}`, ['modified_after']],
+    ['a modified_before that is not a number', 'modified_before=yesterday', ['modified_before']],
   ];
   for (const listing of typedListings) {
     const sep = listing.path.includes('?') ? '&' : '?';
@@ -297,9 +303,14 @@ export async function run({ user1, admin, folderId }) {
         ['folder', 'field', 'element', 'template', 'instance'].every(kind =>
           defaults.body?.request?.resource_types?.includes(kind)),
     `${listing.name} uses the unfiltered defaults for empty optional filters`, 'empty filters changed the defaults');
-    for (const [what, qs] of badFilters) {
-      badQuery(await call(auth, 'GET', `${listing.path}${sep}${qs}`),
-          `${listing.name} with ${what} is refused with 400`);
+    for (const [what, qs, named] of badFilters) {
+      const res = await call(auth, 'GET', `${listing.path}${sep}${qs}`);
+      badQuery(res, `${listing.name} with ${what} is refused with 400`);
+      if (!named) continue;
+      const identified = Object.keys(res.body?.parameters ?? {}).sort();
+      check(JSON.stringify(identified) === JSON.stringify([...named].sort()),
+          `${listing.name} with ${what}: the refusal identifies ${named.join(' and ')}`,
+          `it identified ${JSON.stringify(identified)}`);
     }
   }
 
@@ -322,8 +333,7 @@ export async function run({ user1, admin, folderId }) {
   // These are the four typed listings, with search also read in two of its graph-backed modes. Folder
   // contents and a search with no term filter in the graph query, a term search filters in the index,
   // and a search by id compares the one resource it found. The extract reports only the fields it is
-  // asked for, so it is asked for the modification time. The sharing views, a search by template and
-  // the special-folders view apply the same graph condition and are not read here.
+  // asked for, so it is asked for the modification time.
   const views = [
     { name: 'folder contents', path: () => `/folders/${enc(folderId)}/contents?limit=100` },
     { name: 'folder contents-extract',
@@ -333,57 +343,133 @@ export async function run({ user1, admin, folderId }) {
     { name: 'search by id', path: id => `/search?id=${enc(id)}` },
     { name: 'search with no term', path: () => '/search?resource_types=template&sort=-lastUpdatedOnTS&limit=100' },
   ];
-  // This reads what a view answers about one template under the given bounds. An absence counts only
-  // in a page the view served, so a refused request never passes for a filtered one.
+  // This reads what a view answers about one artifact under the given bounds, as the view's own user.
+  // An absence counts only in a page the view served, so a refused request never passes for a filtered
+  // one.
   const read = async (view, id, bounds = '') => {
-    const res = await call(auth, 'GET', `${view.path(id)}${bounds}`);
+    const res = await call(view.auth ?? auth, 'GET', `${view.path(id)}${bounds}`);
     return { status: res.status, row: (res.body?.resources ?? []).find(r => r['@id'] === id) };
   };
   const listed = answer => answer.status === 200 && !!answer.row;
   const absent = answer => answer.status === 200 && !answer.row;
-  const said = answer => (answer.status !== 200 ? `the request answered ${answer.status}`
-    : `the template was ${answer.row ? 'listed' : 'not listed'}`);
+  const said = (answer, kind = 'template') => (answer.status !== 200 ? `the request answered ${answer.status}`
+    : `the ${kind} was ${answer.row ? 'listed' : 'not listed'}`);
+
+  // A modification time is a whole second. The update is repeated until one lands in a later second
+  // than the given time, which takes one second at most.
+  const modifyAfter = (item, time) => poll(async attempt => {
+    const current = await call(auth, 'GET', item.at);
+    const put = await updateArtifact(auth, item.at,
+        { ...current.body, 'schema:description': `Updated by the REST suites (${RUN}), attempt ${attempt}` },
+        { current });
+    const on = modifiedOn(put.body);
+    return { done: put.status === 200 && on > time, status: put.status, on };
+  }, { tries: 8, delayMs: 300 });
+
+  // This holds a view to the window, given two artifacts it lists, the second modified in a later second
+  // than the first. The view is read until it reports the time of the later modification, since the
+  // index follows an update through a queue, and the bounds are taken from the times the view itself
+  // reports. The window opens a millisecond after the first artifact's modification time and closes a
+  // millisecond after the second's.
+  async function checkWindow(view, first, second, modifiedAt) {
+    const { kind = 'template', one = 'a template' } = view;
+    const seen = await poll(async () => {
+      const from = modifiedOn((await read(view, first.id)).row);
+      const to = modifiedOn((await read(view, second.id)).row);
+      return { done: to > from && to >= modifiedAt, from, to };
+    });
+    if (!check(seen.done, `${view.name} reports the second ${kind} as modified after the first`,
+        `it reported ${seen.from} and ${seen.to} after ${seen.attempts} attempts`)) return;
+    const { from, to } = seen;
+    const window = `&modified_after=${from + 1}&modified_before=${to + 1}`;
+    const inside = await read(view, second.id, window);
+    check(listed(inside), `${view.name} lists ${one} modified inside the window`, said(inside, kind));
+    const earlier = await read(view, first.id, window);
+    check(absent(earlier), `${view.name} does not list ${one} modified before the window`, said(earlier, kind));
+    const atLower = await read(view, second.id, `&modified_after=${to}`);
+    check(listed(atLower), `${view.name} lists ${one} modified exactly at modified_after`, said(atLower, kind));
+    const atUpper = await read(view, second.id, `&modified_before=${to}`);
+    check(absent(atUpper), `${view.name} does not list ${one} modified exactly at modified_before`,
+        said(atUpper, kind));
+  }
 
   if (check(dated.length === 2, 'two templates are created to filter by modification time',
       `only ${dated.length} were created`)) {
     const [first, second] = dated;
-    // A modification time is a whole second. The update is repeated until one lands in a later second
-    // than the template's creation, which takes one second at most.
-    const apart = await poll(async attempt => {
-      const current = await call(auth, 'GET', second.at);
-      const put = await updateArtifact(auth, second.at,
-          { ...current.body, 'schema:description': `Updated by the REST suites (${RUN}), attempt ${attempt}` },
-          { current });
-      const on = modifiedOn(put.body);
-      return { done: put.status === 200 && on > modifiedOn(second.body), status: put.status, on };
-    }, { tries: 8, delayMs: 300 });
+    const apart = await modifyAfter(second, modifiedOn(second.body));
     if (check(apart.done, 'the second is then modified in a later second than either was created',
         `the last update answered ${apart.status} after ${apart.attempts} attempts`)) {
-      for (const view of views) {
-        // The index follows an update through a queue, so each view is read until it reports the time
-        // of the update. The bounds are then taken from the times the view itself reports.
-        const seen = await poll(async () => {
-          const from = modifiedOn((await read(view, first.id)).row);
-          const to = modifiedOn((await read(view, second.id)).row);
-          return { done: to > from && to >= apart.on, from, to };
-        });
-        if (!check(seen.done, `${view.name} reports the second template as modified after the first`,
-            `it reported ${seen.from} and ${seen.to} after ${seen.attempts} attempts`)) continue;
-        const { from, to } = seen;
-        // The window opens a millisecond after the first template's modification time and closes a
-        // millisecond after the second's.
-        const window = `&modified_after=${from + 1}&modified_before=${to + 1}`;
-        const inside = await read(view, second.id, window);
-        check(listed(inside), `${view.name} lists a template modified inside the window`, said(inside));
-        const earlier = await read(view, first.id, window);
-        check(absent(earlier), `${view.name} does not list a template modified before the window`, said(earlier));
-        const atLower = await read(view, second.id, `&modified_after=${to}`);
-        check(listed(atLower), `${view.name} lists a template modified exactly at modified_after`, said(atLower));
-        const atUpper = await read(view, second.id, `&modified_before=${to}`);
-        check(absent(atUpper), `${view.name} does not list a template modified exactly at modified_before`,
-            said(atUpper));
+      for (const view of views) await checkWindow(view, first, second, apart.on);
+
+      // The sharing views and a search by template apply the same graph condition as folder contents.
+      // What differs is how each passes the window on to its query, so each is read with fixtures of its
+      // own. A template shared with everybody leaves the shared-with-me view, so the two templates are
+      // shared with the second user first and with everybody after. Sharing leaves a modification time
+      // unchanged, and each view reports the times it filters on in any case.
+      const u1 = user1.profile['@id'];
+      const shareBoth = async grants => {
+        const answers = [];
+        for (const item of dated) {
+          answers.push(await mutate(auth, 'PUT', `${item.at}/permissions`, permissions(u1, grants)));
+        }
+        return answers.find(res => res.status !== 200) ?? answers[0];
+      };
+      const sharedView = sharing => ({ name: `shared with ${sharing}`, auth: user2.auth,
+        path: () => `/search?sharing=shared-with-${sharing}&resource_types=template&sort=-lastUpdatedOnTS&limit=100` });
+
+      if (checkStatus(await shareBoth({ users: [[user2.profile['@id'], 'viewer']] }), 200,
+          'the two templates are shared with the second user')) {
+        await checkWindow(sharedView('me'), first, second, apart.on);
+      }
+      const everybody = await everybodyGroup(auth);
+      if (checkStatus(await shareBoth({ groups: [[everybody['@id'], 'viewer']] }), 200,
+          'the two templates are shared with everybody')) {
+        await checkWindow(sharedView('everybody'), first, second, apart.on);
+      }
+
+      const instances = [];
+      for (const slug of ['first', 'second']) {
+        const label = `${MODIFIED_TAG} instance ${slug}`;
+        const post = await call(auth, 'POST', `/template-instances?folder_id=${enc(folderId)}`,
+            artifactBody('instance', label, { 'schema:isBasedOn': first.id }));
+        if (post.status === 201) {
+          instances.push({ id: post.body['@id'], at: `/template-instances/${enc(post.body['@id'])}`, body: post.body });
+          cleanup('instance', `/template-instances/${enc(post.body['@id'])}`, label);
+        }
+      }
+      if (check(instances.length === 2, 'two instances of the first template are created',
+          `only ${instances.length} were created`)) {
+        const later = await modifyAfter(instances[1], Math.max(...instances.map(i => modifiedOn(i.body))));
+        if (check(later.done, 'the second instance is then modified in a later second than either was created',
+            `the last update answered ${later.status} after ${later.attempts} attempts`)) {
+          await checkWindow({ name: 'instances of a template', kind: 'instance', one: 'an instance',
+            path: () => `/search?is_based_on=${enc(first.id)}&limit=100` }, instances[0], instances[1], later.on);
+        }
       }
     }
+  }
+
+  // No API marks a folder special: a deployment's special folders are marked in the graph by hand. The
+  // view is therefore read against a special folder the deployment already has, and a deployment with
+  // none skips these checks. SearchByIdPermissionTest in the resource server marks a folder itself and
+  // holds the view to the same window.
+  const specials = await call(auth, 'GET', '/search?mode=special-folders&resource_types=folder&limit=100');
+  checkStatus(specials, 200, 'special folders are listed without a window');
+  const special = (specials.body?.resources ?? []).find(row => !Number.isNaN(modifiedOn(row)));
+  const specialView = { name: 'special folders', path: () => '/search?mode=special-folders&resource_types=folder&limit=100' };
+  const specialChecks = [
+    ['lists a folder modified inside the window', at => `&modified_after=${at - 1}&modified_before=${at + 1}`, true],
+    ['does not list a folder modified before the window', at => `&modified_after=${at + 1}`, false],
+    ['lists a folder modified exactly at modified_after', at => `&modified_after=${at}`, true],
+    ['does not list a folder modified exactly at modified_before', at => `&modified_before=${at}`, false],
+  ];
+  for (const [what, bounds, holds] of specialChecks) {
+    if (!special) {
+      skip(`special folders ${what}`, 'the deployment has no special folder this user can see');
+      continue;
+    }
+    const answer = await read(specialView, special['@id'], bounds(modifiedOn(special)));
+    check(holds ? listed(answer) : absent(answer), `special folders ${what}`, said(answer, 'folder'));
   }
 
   suite('pagination: a listing that pages by number as well refuses both at once');

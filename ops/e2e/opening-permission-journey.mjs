@@ -1,3 +1,4 @@
+import { waitForState } from "./journey-fixtures.mjs";
 import { withBrowserAuthentication } from "./auth-activity.mjs";
 import assert from 'node:assert/strict';
 import {actors,call,mutate,enc} from './rest/lib.mjs';
@@ -89,7 +90,7 @@ export async function signInPermissionJourney(args) {
         await reader.getByRole('button',{name:'Restore draft',exact:true}).waitFor();
       });
       await reader.getByRole('button',{name:'Restore draft',exact:true}).click();
-      await reader.waitForFunction(({selector,value})=>JSON.stringify(document.querySelector(selector)?.captureDraft?.())?.includes(value),{selector:f.metadata?'cedar-embeddable-editor':'cedar-embeddable-designer',value:'Retained across sign-in'});assert.ok(!(await f.save(reader).count()) || await f.save(reader).isDisabled());
+      await waitForState(reader, ({selector,value})=>JSON.stringify(document.querySelector(selector)?.captureDraft?.())?.includes(value),{selector:f.metadata?'cedar-embeddable-editor':'cedar-embeddable-designer',value:'Retained across sign-in'});assert.ok(!(await f.save(reader).count()) || await f.save(reader).isDisabled());
       const recheck=reader.getByRole('button',{name:'Recheck access',exact:true});await recheck.click();await reader.getByText(/do not currently have permission to update/).waitFor();
       assert.ok(!(await f.save(reader).count()) || await f.save(reader).isDisabled());assert.equal(writes,refusedWrites);assert.deepEqual((await call(user.auth,'GET',f.path)).body,before);
       await grant(f.path,'editor');await recheck.click();await recheck.waitFor({state:'hidden'});await f.ready(reader);assert.equal(await f.input(reader).inputValue(),'Retained across sign-in');assert.equal(writes,refusedWrites);

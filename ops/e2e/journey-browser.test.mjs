@@ -4,9 +4,9 @@ import { createServer } from "node:http";
 import { mkdtempSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 import { journeyBrowser } from "./journey-browser.mjs";
-import { dashboardAddress, openListing } from "./journey-fixtures.mjs";
+import { dashboardAddress, openListing, listingIdle, focused, rendered, waitForState, tabKey } from "./journey-fixtures.mjs";
 import { ready, listing } from "./workspace-journey-fixtures.mjs";
 
 test("listing setup in independent contexts never writes another journey's saved preferences", async () => {
@@ -206,3 +206,60 @@ test("a context whose initialization fails is still closed without masking the o
     assert.deepEqual(report.teardownErrors, []);
   }, () => {}, { capture: async () => { throw new Error("capture setup failed"); } });
 });
+
+
+for (const [engine, type] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: state helpers await conditions and frames with a patched page Promise`, async () => {
+    const browser = await type.launch();
+    try {
+      const page = await (await browser.newContext()).newPage();
+      await page.setContent('<div class="table-scroll" aria-busy="true"></div><input aria-label="Name">');
+      await page.evaluate(() => {
+        const NativePromise = Promise;
+        // A non-native thenable reproduces the relevant Zone.js contract without loading Angular.
+        window.Promise = class PatchedPromise {
+          constructor(executor) { this.inner = new NativePromise(executor); }
+          then(resolve, reject) { return this.inner.then(resolve, reject); }
+          catch(reject) { return this.inner.catch(reject); }
+        };
+        window.pendingFrames = [];
+        window.requestAnimationFrame = callback => { window.pendingFrames.push(callback); return window.pendingFrames.length; };
+      });
+      let painted = false, idle = false, hasFocus = false, stateReady = false;
+      const state = waitForState(page, () => window.recovered === true).then(() => { stateReady = true; });
+      const painting = rendered(page).then(() => { painted = true; });
+      const listing = listingIdle(page).then(() => { idle = true; });
+      const focus = focused(page.getByRole('textbox'), 'input never received focus').then(() => { hasFocus = true; });
+      // Give each waiter a chance to return incorrectly while every condition is held false.
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.deepEqual([painted, idle, hasFocus, stateReady], [false, false, false, false]);
+      await page.evaluate(() => window.pendingFrames.shift()(performance.now()));
+      assert.equal(painted, false, 'one animation frame is not a completed render');
+      await page.evaluate(() => {
+        window.pendingFrames.shift()(performance.now());
+        document.querySelector('.table-scroll').setAttribute('aria-busy', 'false');
+        document.querySelector('input').focus();
+        window.recovered = true;
+      });
+      await Promise.all([painting, listing, focus, state]);
+      assert.deepEqual([painted, idle, hasFocus, stateReady], [true, true, true, true]);
+    } finally { await browser.close(); }
+  });
+}
+
+for (const [engine, type] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: platform Tab gestures reach native buttons in both directions`, async () => {
+    const browser = await type.launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent('<input aria-label="Before"><button>Save</button><input aria-label="After">');
+      await page.getByRole('textbox', {name: 'Before'}).focus();
+      await page.keyboard.press(tabKey(page));
+      await focused(page.getByRole('button', {name: 'Save'}), 'forward keyboard navigation reaches Save');
+      await page.keyboard.press(tabKey(page));
+      await focused(page.getByRole('textbox', {name: 'After'}), 'forward keyboard navigation reaches the next field');
+      await page.keyboard.press(tabKey(page, true));
+      await focused(page.getByRole('button', {name: 'Save'}), 'reverse keyboard navigation reaches Save');
+    } finally { await browser.close(); }
+  });
+}

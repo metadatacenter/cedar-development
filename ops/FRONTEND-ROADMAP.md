@@ -86,6 +86,12 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 ### 2. Calibrate Browser Performance Gates
 
+- Investigate the Designer host's warm small-document layout shift against the fixed reference:
+  the 2026-11-13 paired report measures median CLS 0.5083 versus 0.0127, with all five candidate
+  samples at 0.5083 in the latest run. The immediate before/after bundles are identical and both show the shift.
+  Attribute the shifted elements and distinguish application behavior from harness/navigation
+  effects before changing layout or calibration. Retain the warning until the cause is established;
+  see the [browser audit evidence](FRONTEND-RUNBOOK.md#default-three-engine-coverage).
 - Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
   cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
@@ -307,9 +313,25 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 **Waiting on upstream.**
 
-- **TypeScript 7.** Angular 22's compiler accepts only `>=6.0 <6.1`, so TypeScript moves when an
-  Angular release accepts 7. The model library, which has no Angular, waits as well: its tests run
-  through ts-jest, and ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`.
+- **TypeScript 7.** TypeScript 7.0 ships without the JavaScript compiler API, and Angular's
+  compiler, ts-jest and typescript-eslint are all built on that API. None accepted TypeScript 7 on
+  2026-11-13.
+  - Angular's compiler, `@angular/build` and ng-packagr accept only `>=6.0 <6.1`, in 22.2.6 and in
+    22.3.0-rc.0. Every Angular project builds with them.
+  - ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`. The model library, which has no
+    Angular, runs its tests through it.
+  - typescript-eslint 8.72.2 accepts only `>=4.8.4 <6.1.0`. CEE, CED, CETP, Workspace, the Angular
+    demo and the model library lint with it.
+
+  TypeScript 7.1 is expected to ship a new API. Its
+  [iteration plan](https://github.com/microsoft/TypeScript/issues/63703) set the stable release for
+  2026-11-24, the beta then slipped two weeks, and no revised date is posted. Angular closed the
+  request to widen the 22.x range as not planned. The team is
+  [writing a compiler front end](https://blog.angular.dev/an-update-on-angulars-typescript-7-powered-compiler-9619a35e2b0a)
+  that uses the 7.1 API for type-checking, and has named no release for it. The post expects
+  breaking changes, so the likely release is Angular 23, listed for about June 2027. The model
+  library can move once ts-jest and typescript-eslint each release against the 7.1 API, and neither
+  has announced one. Measure the three ranges again before acting on any of these dates.
 - **`@types/node` 26.** The types follow the supported runtime's major, and the projects target Node 24.
 - **deepmerge in Jest.** The TypeScript model library's test-only `jest-config` dependency
   brings `deepmerge` 4.3.1, affected by GHSA-gcqx-w48m-w2h4. Adopt a patched upstream release
@@ -358,16 +380,51 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ## Accessibility
 
-### 10. Run CED's Screen-Reader Protocol
+### 10. Complete Accessibility Verification
 
-The [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance) assesses CED, CEE, the term
-picker and Workspace against the 55 success criteria of WCAG 2.2 at levels A and AA. Every failure
-it recorded that a browser suite can measure has been fixed. What no suite can settle is what a
-screen reader speaks.
+Close the remaining Fails, Partial and Unverified ratings in the
+[conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance), against all 55 WCAG 2.2 A/AA
+criteria for CED, CEE, the term picker, Workspace, OpenView, Bridging, Monitoring and the Template
+Designer host. Keep legacy Template Editor and legacy code outside this work. Verify complete
+host/component journeys: a component's Host rating assigns responsibility to its embedding page,
+and does not exempt that page. Keep justified N/A ratings distinct from missing evidence.
 
-Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) with VoiceOver and
-Safari and with NVDA and Firefox, and fix what it finds. The browser suite cannot tell whether a
-screen reader speaks the live region's messages, in what order, or whether one interrupts another.
+- Run the [screen-reader protocol](FRONTEND-RUNBOOK.md#ced-screen-reader-protocol) and
+  [Monitoring protocol](FRONTEND-RUNBOOK.md#monitoring-screen-reader-protocol) with VoiceOver/Safari
+  and NVDA/Firefox, and fix what they find. Cover editing, validation, saving, dialogs, query results
+  and failures, row/cell names, trace entry and focus return, and quiet unchanged polling. Verify
+  actual speech, order and interruption; DOM semantics and separate green component suites do not
+  establish the integrated experience.
+- Add an explicit CEE author/host declaration of personal input purpose, with scoped autocomplete
+  tokens for covered current-user fields. Preserve the existing default for generic metadata and
+  fields about other people; verify repeated/nested instances and browser autofill before enabling
+  it. Verify the fix in CEE and its three affected hosts; these ratings share one underlying defect.
+- Complete the [native zoom protocol](FRONTEND-RUNBOOK.md#browser-coverage-and-native-zoom)
+  across all eight frontends and supported browsers: intermediate levels through 200%, text-only
+  zoom where supported, and 400% page zoom for reflow. Check ordinary editing, long values, nested
+  content, menus and errors. Reduced viewports and one checked screen do not settle whole workflows.
+- Verify each host's real sign-in, password-manager/paste use, session expiry and work-preserving
+  recovery. Identity-provider fixtures and functional smoke do not settle accessible authentication
+  or timing; record the real journey and its accessibility outcome.
+- Review actual template-authored media, including caption accuracy, transcripts or alternatives,
+  audio description, live captions and player keyboard operation. Record the video, language,
+  alternatives and deployed player outcome; stubbed iframe checks cannot settle the five media
+  criteria. Include the wider content surface when a host permits trusted rich text.
+- Close the remaining Partial ratings with criterion-level evidence across components and hosts:
+  complete keyboard paths, integrated focus order, visible and unobscured focus, programmatic names
+  and states, color-independent cues, headings, instructions and error suggestions. Review error
+  prevention for DOI creation, Designer saves and Workspace destructive actions, and finish
+  Workspace timing, moving-content and drag-alternative verification.
+- Have a competent Hungarian reviewer assess translated labels, instructions, errors and spoken
+  announcements in real journeys. Layout coverage does not establish translation quality or speech.
+
+For each closure, record the affected criterion and surface, source/build identity, browser and
+assistive-technology versions where relevant, journey/state, expected and observed outcome, and
+retained evidence in the runbook. Add reproducible regressions to the appropriate existing browser
+projects, preserving measured thresholds and the guard against new unreviewed exceptions. Leave a
+rating Partial or Unverified wherever evidence is incomplete; green automated checks alone do not
+justify a complete conformance claim. Remove finished sub-parts from this item as they close.
+
 
 <a id="ced"></a>
 
@@ -379,14 +436,32 @@ validation requests, publishing, version allocation and provenance.
 
 ### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
 
-Add read-only mode, language and allowed field types to the designer element. Host
-restrictions bound what the author may edit or select; profile and preference settings can
-narrow those choices but must not broaden them. Preserve supplied artifact content when a
-restricted profile hides its controls.
+A host cannot bound the field types an author may add, and it cannot keep an author's preferences.
+Only the author's own preference filters the field types on offer, and the author can lift that
+filter. Preferences live in memory for each element, start at the Modular profile and are lost on
+reload.
 
-Define how the host supplies preference state and how CED reports changes to it; the host
-chooses where and how to store that state. CED must never allocate identities or versions when
-the host replaces the artifact or supplies an editable draft.
+Add an allowed-field-types input to the designer and field designer elements. The type picker, the
+field library sidebar and the field designer's type chooser should then offer only the allowed
+types that the author's preference also shows. Profile and preference settings can narrow the
+host's bound but must not broaden it. Preserve supplied artifact content of a type the host does
+not allow, and of a type a restricted profile hides.
 
-Add conformance and browser tests for these inputs and events, including read-only published
-content and the transition to a host-supplied editable document.
+Define how the host supplies preference state and how CED reports the author's changes to it. The
+host chooses where and how to store that state. The Template Designer host should store it, so
+that an author's preferences survive a reload.
+
+Agree these before implementing:
+
+- whether an existing field of a disallowed type stays editable, becomes read-only or appears in
+  the validation report
+- how the Preferences dialog presents a disallowed type
+- whether CED reports the author's own preference or the state left after the bound applies
+- whether the author's edits to the preset definitions travel with the preferences
+- where the Template Designer host stores the state
+
+Add conformance and browser tests for the new input, the preference property and its event. Cover
+the bounded pickers, a preference round trip across a reload, and content preserved under a bound
+and under a restricted profile. CED must never allocate identities or versions when the host
+replaces the artifact or supplies an editable draft. Add a test for the move from read-only
+published content to a host-supplied editable document that asserts this.

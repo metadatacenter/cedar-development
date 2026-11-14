@@ -119,11 +119,7 @@ export async function menu(p, name, label) {
   await row(p, name).getByRole("button", { name: "Actions for " + name, exact: true }).click();
   const item = p.locator(".resource-menu").getByRole("button", { name: label, exact: true });
   await item.waitFor();
-  await p.waitForFunction(
-    label => Array.from(document.querySelectorAll(".resource-menu button")).some(
-      b => b.textContent.trim() === label && !b.disabled),
-    label,
-  );
+  // click waits for this exact item to become enabled in every engine.
   await item.click();
 }
 
