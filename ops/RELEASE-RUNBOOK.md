@@ -493,6 +493,22 @@ ledger's stage timings into `timings/<version>.json`, a few records that `releas
 against. There is no cleanup command and no archive tier: Git refs and published artifacts are the
 durable record after a release stops being current.
 
+## Release Notes
+
+This guidance applies to platform and public component release notes, including the TypeScript
+model library. Focus on behavior users and integrators can observe, compatibility implications,
+and any action needed when upgrading.
+
+Do not include references to CEDAR's internal artifact collection, shared test corpus, corpus
+counts or sizes, or production snapshot validation. Omit snapshot dates, artifact and instance
+counts, corpus identifiers, and validation or agreement results measured against those collections.
+Keep that evidence in the relevant development runbook.
+
+Describe testing improvements through the browsers, workflows or validation cases covered.
+Explain Java/TypeScript compatibility through concrete changes to reading, writing and save
+behavior. Public npm packages also follow the
+[component release-note format](NPMJS-RELEASE-RUNBOOK.md#release-notes).
+
 ## If a Phase Fails
 
 Do not start again. A failure stops the release, records the reason, and retains the failed attempt

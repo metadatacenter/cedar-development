@@ -399,6 +399,11 @@ Workspace publishes with the other platform frontends. Operational details and r
 
 ## Release Notes
 
+All public package notes, including the TypeScript model library's, follow the
+[shared release-note guidance](RELEASE-RUNBOOK.md#release-notes): exclude internal artifact
+collections, corpus counts and production snapshot validation, and describe changes in terms
+of their effect on users and integrators.
+
 The route drafts each GitHub release from the run's notes, opening with the npm package link and,
 for CEE, CED and CETP, the sentence naming the model the package aligns with. Edit the draft before
 publishing it.
