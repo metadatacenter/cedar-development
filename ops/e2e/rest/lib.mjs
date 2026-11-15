@@ -107,7 +107,8 @@ export function check(condition, what, detail) {
 
 export function skip(what, detail) {
   state().results.skipped++;
-  state().results.checks.push({ suite: state().currentModule, section: state().currentSuite, name: what, status: 'skipped' });
+  state().results.checks.push({ suite: state().currentModule, section: state().currentSuite, name: what, status: 'skipped',
+    reason: detail });
   console.log(`  [${state().currentModule}] - ${what} (skipped: ${detail})`);
 }
 

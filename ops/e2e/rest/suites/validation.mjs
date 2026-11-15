@@ -208,10 +208,16 @@ async function semanticVerificationOnWrite(auth, folderId) {
   }, { base: TERMINOLOGY }) : null;
   const terms = (found?.body?.collection ?? []).filter(entry => entry['@id'] && entry.prefLabel)
       .map(entry => ({ iri: entry['@id'], label: entry.prefLabel }));
+  // Only a store without DOID is a reason to skip. A DOID read or a search that fails is the
+  // terminology server's failure, and the checks fail with it.
+  if (served.status === 404) {
+    for (const what of checks) skip(what, 'the local terminology store does not serve DOID');
+    return;
+  }
   if (terms.length < 3) {
-    const reason = `the local terminology store does not serve DOID (current version ${served.status}, `
-        + `${terms.length} terms found)`;
-    for (const what of checks) skip(what, reason);
+    const detail = `the terminology server supplied no three DOID terms (current version ${served.status}, `
+        + `integrated search ${found?.status ?? 'not asked'}, ${terms.length} terms found)`;
+    for (const what of checks) check(false, what, detail);
     return;
   }
 

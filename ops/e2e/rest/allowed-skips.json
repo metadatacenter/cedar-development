@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "about": "Skipped REST checks the gate accepts, each with the one reason it may be skipped for. Any other skip fails the run.",
+  "skips": [
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings filter by modification time",
+      "name": "special folders lists a folder modified inside the window",
+      "reason": "the deployment has no special folder this user can see"
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings filter by modification time",
+      "name": "special folders does not list a folder modified before the window",
+      "reason": "the deployment has no special folder this user can see"
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings filter by modification time",
+      "name": "special folders lists a folder modified exactly at modified_after",
+      "reason": "the deployment has no special folder this user can see"
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings filter by modification time",
+      "name": "special folders does not list a folder modified exactly at modified_before",
+      "reason": "the deployment has no special folder this user can see"
+    }
+  ]
+}

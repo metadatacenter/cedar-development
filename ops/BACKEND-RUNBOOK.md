@@ -4246,7 +4246,12 @@ the record an older train still needs. The REST tier's own report is kept beside
 `search-smoke-<digest>-<uuid>.json`. REST and search evidence have unique paths per attempt so a
 refused or killed run cannot inherit a previous pass. The REST gate independently compares every
 check with the committed inventory and requires all suites, consistent counts, completed timestamps
-and a passing verdict, even when the process exits zero. Records without validated REST evidence
+and a passing verdict, even when the process exits zero. It also refuses any skipped check that
+`ops/e2e/rest/allowed-skips.json` does not name with the reason the run recorded, because a skipped
+check carries the same identity as a passed one and proves nothing about the deployment. The
+allowlist holds the skips this workstation cannot avoid, each with its one reason, and the REST
+runner fails any other skip itself. A store without DOID or CEDARVS, or a missing artifact service
+key, therefore fails the tier instead of thinning it. Records without validated REST evidence
 require a fresh run. The search gate checks every planned cell against the actual checks, requires
 all six families (content, access, paging, protocol, lifecycle and browser), and fails
 on missing, duplicate, skipped or failing cells, incomplete execution, browser errors or cleanup

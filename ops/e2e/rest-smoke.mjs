@@ -58,6 +58,9 @@ const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sha
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
+// The skips a run may report, each with its reason. Any other skip fails the run, because a check
+// that skips proves nothing about the deployment, and the gate refuses it independently.
+const ALLOWED_SKIPS_PATH = resolve(HERE, 'rest', 'allowed-skips.json');
 const reportArg = argv.find(a => a.startsWith('--report='));
 const REPORT_PATH = resolve(process.cwd(), reportArg?.slice('--report='.length) ?? 'reports/rest-smoke.json');
 const workers = workerCount(argv.find(a => a.startsWith('--workers='))?.slice('--workers='.length));
@@ -266,6 +269,18 @@ if (updateInventory) {
         + `unexpected ${unexpected.length}: ${unexpected.slice(0, 8).join(' | ')}`);
     result = summary(selected.map(s => s.name));
   }
+}
+
+const allowedSkips = new Set(JSON.parse(readFileSync(ALLOWED_SKIPS_PATH, 'utf8')).skips
+    .map(entry => [entry.suite, entry.section, entry.name, entry.reason].join('\u001f')));
+const unallowedSkips = result.checks.filter(item => item.status === 'skipped'
+    && !allowedSkips.has([item.suite, item.section, item.name, item.reason].join('\u001f')));
+if (unallowedSkips.length) {
+  beginSuite('runner');
+  suite('runner: allowed skips');
+  check(false, 'every skipped check is allowed, with its reason, by rest/allowed-skips.json',
+      unallowedSkips.slice(0, 8).map(item => `${checkIdentity(item)} (${item.reason})`).join(' | '));
+  result = summary(selected.map(s => s.name));
 }
 
 const { passed, failed, skipped } = result;
