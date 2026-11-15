@@ -1147,10 +1147,15 @@ POST /search
     { "sourceSystem": "agroportal", "sourceAcronym": "AGROVOC" }
   ],
   "lang": "fr",
-  "page": 1,
-  "pageSize": 20
+  "limit": 20
 }
 ```
+
+A request pages each type's block either by `limit` and `offset`, as the picker sends them, or by
+`page` and `pageSize`. The server refuses a request that sends both. The picker sends an `offset`
+only past the first page, so this request asks for the first twenty. Each block of the answer states
+its page by number, as `page` and `pageSize`, and by `limit` and `offset` in its `request`, which the
+example below leaves out.
 
 A source may be named once. A hit carries the addressing pair and no version of its own, so the
 same acronym at two versions would leave every hit from it unable to say which one answered; the
