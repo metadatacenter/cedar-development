@@ -1788,6 +1788,11 @@ match the package already given out byte for byte.
 
 The designer's `test:ci` overlaps unit, lint, types, import-boundary, packaging and conformance
 checks. Its Angular unit tests and distribution build remain ordered because they share a cache.
+The unit stage, in the gate and in CI, is `npm run test:unit:ci`: the unit tests with coverage of
+`src/app`, spec files, `.testing.ts` helpers and the development host left out. `angular.json`
+holds the floors they must clear, each a whole number just under what the suite measured on
+2026-11-15: statements 82%, branches 76%, functions 83% and lines 84%. A change that lowers one
+below its floor fails the stage.
 The short container pixel gate then takes two workers when the budget is at least six, one
 otherwise. After it passes, the browser suite receives the full worker budget. Playwright fixes
 its worker count at startup: the earlier simultaneous split left two workers unused for most of
