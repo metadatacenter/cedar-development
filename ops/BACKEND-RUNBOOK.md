@@ -4237,7 +4237,10 @@ the heads, the working trees, the controller's processes and the deployed fronte
 head that moved, a clean tree that gained changes, a service served by another process or gone stale,
 or another frontend build turns the record into a failure that lists each change under
 `changedDuringRun`, since some tiers then ran code the record does not name. Restarts do not wait for
-the local-stack lock, so restart nothing on the stack while the gate runs. The split and search tiers
+the local-stack lock, so restart nothing on the stack while the gate runs. The browser tier is
+given, as `CEDAR_EXPECT_CEE_VERSION`, the version `cedar-embeddable-editor` declares at its recorded
+head, and fails when the Metadata Editor or OpenView renders any other; the record keeps it as the
+tier's `expectedCeeVersion`. The split and search tiers
 cannot overlap, since both hold the split tier's lock. The REST tier's output goes to
 `rest-smoke-<digest>-<uuid>.log` beside its report rather than to the terminal, and the gate names
 the file when the tier fails. The record names what the stack ran, so a checkout with another
