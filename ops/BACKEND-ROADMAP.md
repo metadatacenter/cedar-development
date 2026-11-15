@@ -1590,3 +1590,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     removes the two reorderings that choose one implementation over another.
 
   Done when each question has an answer recorded here or in the runbook.
+
+- **25. Audit and correct stored invalid or truncated RRIDs.** Establish the affected population
+  from a fresh production snapshot, including nested and repeated RRID fields. Identify values
+  missing their registry namespace, such as `RRID:1260732`, and check complete identifiers against
+  SciCrunch for an explicit `recordValid: false`. Record artifact identifiers, field paths, original
+  values and dated registry evidence. Keep resolver 404s, unavailable checks and missing validity
+  flags separate from explicit invalidity; none establishes a safe replacement by itself.
+
+  Recover a missing namespace only where authoritative evidence identifies the same resource
+  unambiguously. Restoring `RRID:NCBITaxon_1260732` does not by itself resolve the invalidity or
+  resolver failure reported for “coal metagenome”; the evidence is in the
+  [backend runbook](BACKEND-RUNBOOK.md). Ask the owner to choose a replacement or removal for an
+  invalid resource, and retain ambiguous cases for review rather than guessing from a name match.
+
+  Apply reviewed corrections through `ops/repairs/cedar_artifact_repair.py`, with a narrow invariant,
+  saved preimages, conditional verbatim writes, validation and readback. Preserve unrelated values,
+  identifiers and provenance. Done when the inventory has a measured scope and every finding is
+  corrected and verified or retained as an explicit exception with its remaining decision recorded.
