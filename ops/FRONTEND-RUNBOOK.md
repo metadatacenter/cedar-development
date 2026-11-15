@@ -2090,8 +2090,8 @@ CEDAR_FUZZ_RUNS=2000 npm test -- --watch=false --include='**/editing-history.fuz
 # CED: 2,000 histories with manually scheduled terminology responses
 CEDAR_FUZZ_RUNS=2000 npm test -- --watch=false --include='**/terminology-history.fuzz.spec.ts'
 
-# CEE: occurrence, attribute and host-assignment histories
-CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/shared/util/occurrence-history.fuzz.spec.ts src/app/modules/shared/util/host-input-history.fuzz.spec.ts
+# CEE: occurrence, attribute and host-assignment histories, which the domain suite runs
+CEDAR_FUZZ_RUNS=2000 npm run test:domain -- src/app/modules/shared/util/occurrence-history.fuzz.spec.ts src/app/modules/shared/util/host-input-history.fuzz.spec.ts
 
 # CEE: 2,000 histories each for controlled terms and external authorities
 CEDAR_FUZZ_RUNS=2000 npm test -- src/app/modules/input-types/components/lookup-history.fuzz.spec.ts
