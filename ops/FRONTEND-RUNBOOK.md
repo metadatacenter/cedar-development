@@ -5019,7 +5019,11 @@ The build checks its module graph for duplicate runtime copies.
 
 `cedarcli build frontends` supplies these modules from current source automatically. No registry
 pin changes or publication are required. Older registry cohorts without integration modules and
-explicit local standalone overrides retain the separate-script path. Runtime upgrades require
+explicit local standalone overrides retain the separate-script path. The host's browser suite runs
+`shared-editors.spec.mjs` unless a `CEDAR_CED_BUNDLE`, `CEDAR_CEE_BUNDLE` or `CEDAR_CETP_BUNDLE`
+override stages a standalone bundle. Only such an override leaves the spec out, and the run then
+prints a line naming it. Any other standalone staging runs the spec, whose first test fails and
+names the editors staged standalone. `CEDAR_REQUIRE_SHARED_EDITORS=1` runs the spec in every case. Runtime upgrades require
 rebuilding the coordinated cohort. The manifests record both compiled input identities and the
 combined script's digest and deferred asset hashes and sizes; `cedarcli check components` verifies
 the installed input modules and every served delivery file. Cached builds also verify those files
