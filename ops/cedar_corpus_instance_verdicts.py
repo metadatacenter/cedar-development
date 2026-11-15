@@ -22,8 +22,9 @@ only verbatim. Every other case also records the document the editor's save writ
 TypeScript library's ``itest/scripts/write-editor-instances.ts`` produces from the sibling checkout
 named by ``--ts-library``, and the verdict on that document as the server would store it: the editor
 judges an instance as the document it writes. The verdict comes from the validation library
-``ops/cedar_validate.sh`` builds from its sibling checkout, which must be committed unless
-``--working-tree`` records that it is not.
+``ops/cedar_validate.sh`` compiles from the checkout ``--validation-library`` names, which must be
+committed unless ``--working-tree`` records that it is not. Each case records the digest of the
+instance and template bytes it judged, so the spec fails when a corpus file has changed since.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -356,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
     dirty = git(library, "status", "--porcelain", "--", "src/main")
     if dirty and not arguments.working_tree:
         parser.error(f"{library} has uncommitted sources; commit them or pass --working-tree")
+    # The verdicts come from the checkout the lock names, compiled from its sources as they stand.
+    os.environ["CEDAR_VALIDATION_LIB"] = str(library.resolve())
     classpath = audit.run_validate_sh("classpath", 900)
     bridge = audit.ValidationBridge("java", classpath, OPS / "cedar_validation_bridge.java", 16, "2g",
                                     out / "instance-verdicts-bridge.log", 120)
@@ -379,8 +383,11 @@ def main(argv: list[str] | None = None) -> int:
         for case, instance_path, template_path in pairs(corpus):
             template = json.loads(template_path.read_text())
             instance = json.loads(instance_path.read_text())
+            # Each case names the bytes Java judged, so the spec can tell a corpus file that changed since.
             entry = {"instance": instance_path.relative_to(corpus).as_posix(),
-                     "template": template_path.relative_to(corpus).as_posix()}
+                     "template": template_path.relative_to(corpus).as_posix(),
+                     "instanceSha256": hashlib.sha256(instance_path.read_bytes()).hexdigest(),
+                     "templateSha256": hashlib.sha256(template_path.read_bytes()).hexdigest()}
             cases.append(judge(case, instance, template, entry))
             accepted = cases[-1]["javaValid"]
             found = probes(case, template)

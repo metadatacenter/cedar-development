@@ -3187,7 +3187,9 @@ ops/cedar_validate.sh template path/to/template.json
 
 `element` and `field` take one file the same way. The first run resolves and caches
 the dependency classpath under `target/`; after that a check is about 0.3s, fast
-enough to loop over a directory of artifacts.
+enough to loop over a directory of artifacts. The library is compiled again whenever
+a file under its `src/main`, or its POM, is newer than the last compile, so a verdict
+never comes from classes older than the checkout.
 
 **Exit status is the point:** `0` valid, `1` invalid, `2` could not run. The
 library's own mains print `Instance is invalid` and still exit `0`, which is
