@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -330,6 +331,16 @@ def patched(document: dict, operations: list[dict[str, Any]]) -> dict:
     return copy
 
 
+def locations(error: dict[str, Any]) -> list[str]:
+    """Where a validator error lies, as JSON Pointers: a missing property where the property belongs."""
+    location = error.get("location", "")
+    location = "" if location == "/" else location
+    missing = re.search(r"missing required properties \(\[(.*)\]\)", error.get("message", ""))
+    if missing is None:
+        return [location]
+    return [location + key(name) for name in re.findall(r"'([^']*)'", missing.group(1))]
+
+
 def editor_documents(ts_library: Path, corpus: Path, cases: list[dict[str, Any]]) -> dict[str, Any]:
     """The document the editor's save writes for each case, by its id, or None where it writes none."""
     request = {"corpus": str(corpus.resolve()),
@@ -377,7 +388,8 @@ def main(argv: list[str] | None = None) -> int:
         added = completion(instance, completed)
         return {"id": case, **entry, **({"completion": added} if added else {}),
                 "javaValid": answer["status"] == "valid",
-                "javaErrors": [error.get("message", "") for error in (answer.get("errors") or [])[:3]]}
+                "javaErrors": [error.get("message", "") for error in (answer.get("errors") or [])[:3]],
+                "javaLocations": sorted({place for error in (answer.get("errors") or []) for place in locations(error)})}
 
     try:
         for case, instance_path, template_path in pairs(corpus):
