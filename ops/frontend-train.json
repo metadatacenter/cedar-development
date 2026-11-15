@@ -765,6 +765,8 @@
           "test"
         ],
         [
+          "env",
+          "CEDAR_REQUIRE_SHARED_EDITORS=1",
           "npm",
           "run",
           "test:browser"
