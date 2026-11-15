@@ -4295,7 +4295,35 @@ manage. It also refuses while the frontend reactor's deployed build, which `.rea
 names, was made from another commit than the `develop` head of any repository it built, since the
 frontends then serve code the record would not name. The remedy is `cedarcli build frontends`. A
 repository that build took from a tree with uncommitted changes is recorded as dirty, and the record
-names the build as `frontendBuild`. It then records the `develop` head of every train
+names the build as `frontendBuild`.
+
+The build record says what the reactor built. Each host serves the packages installed in its checkout
+and the tree its own start built there, so the gate also reads what is served. The reactor stamps
+every package it stores with the commit, dirty state and content digest of the source it built,
+under `cedarBuildInfo` in the package's `package.json`. Each package a host installed from the build
+must carry that stamp, and the stamp must name the commit the build record names or the same
+content digest. A result the reactor reused from an earlier commit of identical content keeps that
+commit's stamp, and the digest identifies it. The Embeddable Editor copies that Workspace and the
+Template Editor serve from their own trees must equal the bundle in the installed package. The
+Template Designer's `app/components/manifest.json` must give the digests of the installed packages'
+files and of the bundle it serves. A development start of Workspace or the Template Designer writes
+`/config/build-info.json`, as a server payload does. That file must name the host's `develop` head
+and a digest equal to that of the tree the host serves, and a start from a dirty tree marks the host
+dirty. A host or package with no stamp, or with a stamp of another commit, stops the run. The remedy
+is `cedarcli build frontends`, which stores stamped packages and restarts the hosts.
+
+Some repositories reach the stack without a controller row. Keycloak loads the event listener from
+the jar that `cedarcli dev copy-keycloak-listener` copies into `$CEDAR_KEYCLOAK_HOME/providers`. The
+gate requires that jar's cedar-parent stamp to name the listener's `develop` head, and Keycloak's
+process to have started after the jar was installed. The gate and the tiers run straight from the
+cedar-cli and cedar-development checkouts, whose heads and working trees are what ran, so the gate
+refuses to run from any other copy of the CLI, such as a worktree. The other train repositories that
+neither the Java build nor the frontend reactor deploys put nothing on the native stack, so no run
+tests them and the gate checks none of them. They are the Docker recipes, the administration and
+caDSR tools, the component demos, and the POM-only projects cedar-clients, cedar-libraries and
+cedar-project.
+
+The gate then records the `develop` head of every train
 repository, starts `npm run smoke:rest`
 in the background, runs `npm run smoke`, `npm run smoke:workspace:modern:full` and
 `npm run smoke:search` one after another beside it, and writes `reports/smoke-gate/<digest>.json`,
