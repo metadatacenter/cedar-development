@@ -467,25 +467,37 @@ replaces the artifact or supplies an editable draft. Add a test for the move fro
 published content to a host-supplied editable document that asserts this.
 
 
-### 12. Verify the Designer Fixes with a Fresh Independent Review
+### 12. Address the Independent Designer Review's Remaining Findings
 
-Complete the interrupted frontend reactor against the integrated sources, including deployment,
-served-bundle verification and whole-stack smoke. Then capture the 51-state Designer packet and
-have a fresh reviewer inspect it without the prior findings or implementation narrative. Seal the
-app assessment before exposing the twelve calibration cases. Report composition misses and false
-alarms separately from behavior; the synthetic score is not a measure of general design judgment.
+Clear or update CED's obsolete accessibility validation announcement when its issue count changes.
+A new template named validly reports `valid: true`, `canSave: true` and no issues while its live
+status still says “Validation issues (1)”. Cover resolution, changing counts and queued action
+announcements without introducing new visible controls or clearing unrelated feedback. Verify the
+result in the actual Designer host and retain the public report alongside the accessibility state.
 
-Verify the visible required marker in narrow Preview, the Overview marker's association with the
-name, field and element occurrence grouping, and accessible card names after placement-label
-changes. Preserve the existing information and interaction model when evaluating new findings.
-Keep new supported findings visible rather than treating passing regression tests as UI approval.
-The [UI review runbook](FRONTEND-RUNBOOK.md#independent-designer-ui-review-pilot) describes capture,
-sealing, calibration and final validation.
+Evaluate these design proposals before implementing them, preserving all existing information:
 
-### 13. Verify the Host Browser Suite's Worker Allocation in the Reactor
+- Pair Minimum and Maximum beneath Allow multiple at the intermediate 210-pixel content width if
+  both complete labels, number controls and usable spacing fit. Preserve stacking where they do
+  not, including the 125.5-pixel mobile content area.
+- Let narrow Preview names and their required marker wrap together, retaining occurrence range and
+  property controls nearby. “Participant identifier” currently loses its distinguishing suffix,
+  although its full accessible name and required marker remain available.
 
-Measure the complete Designer host suite with the integrated worker-allocation fix. Confirm that
-`env CEDAR_REQUIRE_SHARED_EDITORS=1 npm run test:browser` receives the requested worker budget
-subject to the machine's shared pool, and retain the observed allocation and duration. The earlier
-2026-11-15 run executed 2,232 browser cases with one worker in 14.9 minutes; compare actual runs
-without presenting differences in source inputs or concurrent load as a controlled benchmark.
+Agree the concrete before/after layout, then verify rendered ordinary editing, narrow and long-name
+states. The [UI review runbook](FRONTEND-RUNBOOK.md#independent-designer-ui-review-pilot) links the
+sealed report, post-seal confirmation, measurements and supplemental exploration.
+
+### 13. Settle Workspace Background Fetches During Full-Page Navigation
+
+Investigate queued template-report enrichment when Workspace leaves for Designer. A functional
+WebKit navigation journey emitted access-control messages for report requests during navigation,
+which fails the smoke error gate. A local reproduction with allowed cross-origin requests and
+handled rejections produces the same messages when the next batch starts after navigation has
+cancelled the first; those later requests never reach the server. Playwright's WebKit error channel
+therefore does not alone establish an uncaught application exception or a server CORS defect.
+
+Reproduce the timing against Workspace, stop obsolete batches at the appropriate document
+lifecycle boundary, and preserve normal listing enrichment and back/forward behavior. Verify that
+actual network/CORS failures remain observable; do not broadly suppress the smoke errors. Retain a
+focused regression and complete the affected live navigation journeys in all three browsers.

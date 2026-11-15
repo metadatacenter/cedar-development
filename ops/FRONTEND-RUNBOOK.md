@@ -3490,15 +3490,42 @@ combined assessment even though its evidence is outside the frozen packet. The s
 cases again scored three defects detected and no false alarms; they do not cover that Preview
 behavior. Build/smoke verification and this design verdict remain separate checks.
 
-The follow-up changes have focused browser coverage for visible required markers (including
-repeated fields), Overview marker wrapping, consecutive occurrence controls and accessible card
-names that use placement labels without changing stored keys or definitions. The worker pool also
-recognizes environment-prefixed npm scripts. The full follow-up reactor was explicitly interrupted
-before deployment and smoke; its fresh independent review has not run. Do not treat the earlier
-packet or focused tests as acceptance evidence for this follow-up source state.
+The integrated 2026-11-15 run is retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-integrated-review/`; its combined report,
+post-seal finding confirmation, worker measurements and smoke audit are under
+`20261115-designer-integrated-assessment/assessment.html`. The 51-state packet and 49 card crops
+record current sources, verified served bytes and no runtime or cleanup errors. The fresh reviewer
+received neither prior findings nor implementation details, then sealed the application assessment
+before inspecting the twelve calibration cases. Behavior and composition each scored 3/3 concerns
+with 0/3 false alarms on acceptable controls. This is a small synthetic trial, not production recall.
+
+The sealed app verdict is `DESIGN_REVIEW`: two measured layout proposals and an uncertain persistent
+validation count. A separate live probe subsequently confirmed that the count is obsolete: the
+public report is valid, can save and contains no issues while the accessibility status still says
+“Validation issues (1)”. `reviewer-audit.json` records this confirmation without changing the sealed
+assessment. Supplemental ordinary authoring, save/reopen and keyboard-tab exploration found no
+additional defects. The report distinguishes these observations from approval of proposed layouts.
+
+The selected frontend build is
+`0a9539436b5510e88ec5876eac36c39137d260b8a14a6aca7038633aac403065`.
+Its package identities and exact source revisions are retained in the capture's `provenance.json`.
+All frontend checks, all three framework-consumer gates, local deployment and served-byte
+verification passed. The first whole-stack run passed REST, browser and search but failed split
+journeys while another frontend reactor was running; peak measured machine load was 96.16.
+Cleanup succeeded. A later run against the identical build completed the whole-stack smoke with
+no source changes. The retained audit includes the initial WebKit report-fetch messages and a
+local navigation reproduction; a passing rerun does not resolve that lifecycle follow-up.
+
+The Designer host's 2,232 browser cases ran with 12 workers in 3.3 minutes, versus one worker and
+14.9 minutes in the earlier run. The environment-prefixed command receives the worker budget;
+4,201 one-second samples recorded a maximum 16/16 shared slots. These are observed runs with
+different source inputs and concurrent load, not a controlled performance comparison. The full
+CED suite passed 17,062 unit tests, 25 pinned visual checks and 3,441 browser cases. Source-copy
+regressions cover tracked assets beneath distribution `node_modules` paths, whose omission had
+falsely reported source changes; installed untracked dependencies remain outside the copy.
 
 Remaining work is in the
-[frontend roadmap](FRONTEND-ROADMAP.md#12-verify-the-designer-fixes-with-a-fresh-independent-review).
+[frontend roadmap](FRONTEND-ROADMAP.md#12-address-the-independent-designer-reviews-remaining-findings).
 
 ##### Pixel baseline checks
 
