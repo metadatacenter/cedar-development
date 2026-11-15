@@ -8,7 +8,7 @@ import {journeyFolder} from './journey-fixtures.mjs';
 // test user in to a browser context of its own, so it declares an authentication reason.
 
 // These are the statuses either host shows once it has loaded what it opened, edited or not.
-const LOADED=/^(Unmodified|Modified|Saved|Read only|Reload required)$/;
+const LOADED=/^(Unmodified|Modified|Saved|Read only|Reload required|Save status unconfirmed)$/;
 
 export async function recoveryFixture(args,kind,suffix,{pattern=false}={}) {
   const {page,base,designer,user,name,created}=args;

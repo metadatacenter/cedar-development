@@ -182,7 +182,7 @@ jobs:
       # trees and stubbed requests; no npm packages, running stack or sibling servers are needed.
       - name: Run the Node ops and performance harness suites
         working-directory: cedar-development
-        run: node --test ops/test-*.mjs ops/e2e/rest-perf/test/*.test.mjs ops/e2e/frontend-cache-policy.test.mjs
+        run: node --test ops/test-*.mjs ops/e2e/rest-perf/test/*.test.mjs ops/e2e/frontend-cache-policy.test.mjs ops/e2e/ui-review/*.test.mjs
 
       - name: Install Chromium for the isolated performance harness tests
         working-directory: cedar-development/ops/e2e

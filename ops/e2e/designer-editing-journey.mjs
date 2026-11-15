@@ -245,13 +245,25 @@ export async function designerNavigationJourney(args) {
     assert.equal(await description.inputValue(), "Keep after cancelling Back");
     assert.deepEqual(await fixture.read(), before);
     await editorSave(page, write, "PUT", "templates");
-    await page.locator("#back").click();
+    // Wait for Back's navigation before the fixture helper requests another listing.
+    // Firefox otherwise aborts that second navigation with NS_BINDING_ABORTED.
+    await Promise.all([
+      page.waitForURL(url => url.origin === new URL(base).origin && url.pathname === "/dashboard",
+        { waitUntil: "domcontentloaded" }),
+      page.locator("#back").click(),
+    ]);
     await openFromWorkspace(page, base, fixture.folderId, fixture.title);
     assert.equal(await description.inputValue(), "Keep after cancelling Back");
     assert.equal(await page.locator("#restore-draft").isVisible(), false);
     await description.fill("Discard on leaving");
     page.once("dialog", dialog => dialog.accept());
-    await page.locator("#back").click();
+    // Wait for Back's navigation before the fixture helper requests another listing.
+    // Firefox otherwise aborts that second navigation with NS_BINDING_ABORTED.
+    await Promise.all([
+      page.waitForURL(url => url.origin === new URL(base).origin && url.pathname === "/dashboard",
+        { waitUntil: "domcontentloaded" }),
+      page.locator("#back").click(),
+    ]);
     await openFromWorkspace(page, base, fixture.folderId, fixture.title);
     assert.equal(await description.inputValue(), "Keep after cancelling Back");
     assert.equal(await page.locator("#restore-draft").isVisible(), false);

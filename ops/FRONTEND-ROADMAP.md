@@ -465,3 +465,27 @@ the bounded pickers, a preference round trip across a reload, and content preser
 and under a restricted profile. CED must never allocate identities or versions when the host
 replaces the artifact or supplies an editable draft. Add a test for the move from read-only
 published content to a host-supplied editable document that asserts this.
+
+
+### 12. Verify the Designer Fixes with a Fresh Independent Review
+
+Complete the interrupted frontend reactor against the integrated sources, including deployment,
+served-bundle verification and whole-stack smoke. Then capture the 51-state Designer packet and
+have a fresh reviewer inspect it without the prior findings or implementation narrative. Seal the
+app assessment before exposing the twelve calibration cases. Report composition misses and false
+alarms separately from behavior; the synthetic score is not a measure of general design judgment.
+
+Verify the visible required marker in narrow Preview, the Overview marker's association with the
+name, field and element occurrence grouping, and accessible card names after placement-label
+changes. Preserve the existing information and interaction model when evaluating new findings.
+Keep new supported findings visible rather than treating passing regression tests as UI approval.
+The [UI review runbook](FRONTEND-RUNBOOK.md#independent-designer-ui-review-pilot) describes capture,
+sealing, calibration and final validation.
+
+### 13. Verify the Host Browser Suite's Worker Allocation in the Reactor
+
+Measure the complete Designer host suite with the integrated worker-allocation fix. Confirm that
+`env CEDAR_REQUIRE_SHARED_EDITORS=1 npm run test:browser` receives the requested worker budget
+subject to the machine's shared pool, and retain the observed allocation and duration. The earlier
+2026-11-15 run executed 2,232 browser cases with one worker in 14.9 minutes; compare actual runs
+without presenting differences in source inputs or concurrent load as a controlled benchmark.

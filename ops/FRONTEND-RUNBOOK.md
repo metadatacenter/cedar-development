@@ -1639,6 +1639,11 @@ It does not claim full reactor verification or run the frontend deployment/smoke
 The TypeScript model's reactor checks read the corpus vendored inside its isolated
 checkout. Their child-process `CEDAR_HOME` points there, so a server's `/srv/cedar`
 does not redirect those checks to an absent or stale sibling `cedar-test-artifacts`.
+The Java-defaults parity check also needs Java implementation declarations. The reactor snapshots
+`cedar-artifact-library/src/main/java/org/metadatacenter/artifacts/model/core` beside that vendored
+corpus, records its content digest as a test dependency, and rejects sources changing during the
+build. Changing those declarations invalidates a reused model verification result; the corpus
+location remains unchanged.
 
 #### Bounded parallel builds and test gates
 
@@ -3352,6 +3357,150 @@ rendering is correct.
 <a id="when-a-baseline-passes-and-is-still-wrong"></a>
 
 #### Reviewing Visual Baselines
+
+##### Independent Designer UI review pilot
+
+`cedarcli test ui-review --plan` describes a separate acceptance review of the assembled local
+Designer. `cedarcli test ui-review --output /absolute/path/to/new-run` captures ordinary editing,
+empty and populated states, panel transitions, field settings, nested content, keyboard traversal,
+save/reopen, deliberately interrupted-save recovery, long names at five viewport widths, and both
+panels together at six widths, multiple-value headers with both panels, and explicit scrolling
+through narrow Configuration forms, required repeated fields in Preview and Configuration at three widths,
+and required Overview names at two widths (51 required states). It requires
+a current frontend reactor selection; first run `cedarcli build frontends` if sources have changed.
+The collector verifies the selected installed
+packages and the served component bytes, and records source/build identity before and after the
+run. It signs in as the local test user and removes only the temporary templates it creates.
+
+The output directory retains full screenshots, card crops, accessibility snapshots, control
+geometry (including labels and approximate intrinsic text widths), action records, cleanup results,
+an HTML evidence index, and `reviewer-brief.md`.
+Capture is not a design verdict. Supplemental sessions must name a template
+`UI review pilot <unique suffix>` before saving: the helper deliberately blocks writes to other names or existing unowned
+identifiers and records the reason in its action log. This guard is not a product/network failure.
+Give the brief and evidence to a fresh reviewer context without the implementation narrative or
+a list of expected defects. The reviewer inspects the actual
+images and interactions, may explore further with the documented `openSession` helper, and writes
+`review.json`. It must distinguish observed defects from design proposals and uncertainty, explain
+user impact, name evidence, report acceptable behavior, and disclose missing coverage. It may not
+change product code or baselines. This does not authorize a redesign. Each review explicitly assesses
+grouping, hierarchy, wrapping and use of space under `composition`; readability and containment alone
+do not establish good composition. Compare related information across widths, distinguish necessary
+wrapping from avoidable fragmentation. Substantiate claims that wrapping is necessary with the
+actual contents, control/text widths, spacing and available width; a narrow viewport alone is not
+evidence. State uncertainty when the fit cannot be established. Surface design concerns without inventing
+functional failures. Capture preserves hover and focus; callers must perform ordinary hover/scroll/focus
+preconditions before interacting. Card crops cover the visible viewport only: the helper does not
+scroll a card for a screenshot. Inspect below-fold content with explicit, recorded scrolling in a
+supplemental session. An automation timeout alone does not establish a product defect.
+
+Validate the completed review with:
+
+```bash
+cedarcli test ui-review --output /absolute/path/to/run --review /absolute/path/to/run/review.json
+```
+
+`review-result.html` and `review-result.json` retain the assessment. `FINDINGS` exits 1 for reported
+defects; `DESIGN_REVIEW` also exits 1 when only design proposals or uncertainty remain;
+`INCOMPLETE` exits 2 for missing states/evidence, changed captures, stale sources, unverified served
+assets, browser errors, or failed fixture cleanup. `REVIEWED` exits 0, indicating a complete review
+with no unresolved findings, not release certification or proof of exhaustive UX coverage. Inspection
+coverage is the independent reviewer's attestation, while capture coverage and file hashes are
+checked mechanically. Review validation does not rebuild or rerun the whole frontend suite.
+
+`--diagnostic` permits inspecting the previously deployed runtime while sources are newer. Such
+a run can retain useful findings but can never receive an acceptance pass. Do not use it to claim
+current-source verification. `session.json` retains the identity of any temporary artifact whose
+cleanup failed; do not delete unrelated user artifacts when repairing cleanup.
+
+Keep `calibration/packet.json` and its images out of the reviewer's first pass. Once the app
+assessment is complete, freeze it before exposing calibration:
+
+```bash
+cedarcli test ui-review --output /absolute/path/to/run --seal-review
+```
+
+This writes `review-seal.json`; final validation rejects an application assessment changed after
+sealing. Only then give the reviewer the calibration packet, never `calibration-key.json` or its
+fixture sources. An assessment names every case as `{id, issue, reason}` under `cases`; save it as
+`calibration-review.json` beside the application review. `--review` scores it automatically and
+leaves acceptance incomplete if a case is missed or an acceptable control is flagged. Findings
+from the app remain useful even when the calibration prevents acceptance.
+
+The twelve miniature interfaces include six behavior cases and six composition cases, each family
+balanced between concerns and acceptable controls. Composition cases distinguish a short identity
+that fits from a genuinely long identity that must wrap, detached labels, interrupted control
+groups, and coherent narrow groups. Report composition misses and false alarms separately from
+behavior. The generator verifies the actual font/layout fit premises and row positions, as well as
+interaction handlers, before exposing the packet. An invalid fixture packet cannot score reviewer
+accuracy. The seal prevents later revisions to the app verdict; compliance with the blind-review
+instructions, rather than the seal alone, establishes that answers were not disclosed early.
+One small synthetic run does not establish production recall or general design judgment. The
+fixtures and their styles are never injected into Designer.
+
+The harness contract tests run in release-tooling CI and locally with
+`npm --prefix ops/e2e run test:ui-review` from `cedar-development`; they validate evidence and
+verdict handling, not the product's visual quality.
+
+The 2026-11-15 pilot is retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-pilot/`; open `pilot-assessment.html`
+for the post-review comparison, `review-result.html` for frozen screenshots and findings, and
+`supplemental-review.json` for additional browser exploration. The reviewer inspected 37 states,
+caught the previously reported empty Overview failure, extreme IRI wrapping with Preview open,
+Preview-header overlap, and contradictory exceptional-save
+wording. It did not flag the user's field name/type grouping complaint. The valid synthetic packet
+scored 3/3 defects with no false alarms across three acceptable controls. This is a single trial,
+not a reliability estimate. Collection and cleanup completed, but acceptance is `INCOMPLETE`:
+the fresh frontend reactor failed its isolated Java-defaults source lookup before deployment, so
+the review concerns the verified existing runtime. Its pointer-insertion finding is withdrawn:
+the collector omitted the normal hover precondition, and a supplemental screenshot cleared hover
+before the click. Ordinary hover-then-click succeeds on that same deployed UI. The original evidence
+remains immutable; `reviewer-audit.json` records the correction.
+
+The paired rubric comparison is under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261115-rubric-comparison/comparison.html`. One fresh reviewer
+per rubric inspected the same eight screenshot regions without the complaint or reference labels.
+The original rubric accepted both unnecessarily split short headers; the revised rubric surfaced
+both as design proposals and also questioned the wide header's spacing. Both caught extreme IRI
+wrapping. This supports the observable diagnosis that the first report omitted a composition judgment,
+but does not establish a general reliability improvement or the reviewer's private reasoning.
+The follow-up source build and independent review are retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-final-review/`; the implementer's before/after
+assessment and measured diagnosis are in
+`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-rebuild-assessment/assessment.html`.
+The build snapshots the Java defaults declarations beside the isolated vendored corpus and records
+their digest as a verification dependency. Empty Overview toggling, short-header grouping,
+narrow IRI/Preview identity layout, uncertain-save wording and narrow template identity spacing
+have targeted browser coverage. Field headers wrap according to their contents, not a fixed pane
+breakpoint, and keep their name, type, occurrence range, validation feedback and actions available.
+
+The intermediate fresh review still accepted an unnecessary short-header wrap at 768 pixels,
+citing insufficient space. The measured contents and controls require about 178 pixels within a
+226-pixel header; the old rule stretched a roughly 47-pixel name to 130 pixels. That counterexample
+is recorded separately from the reviewer's unedited report. Requiring composition prose alone did
+not remove the failure. Capture geometry now includes labels and approximate intrinsic text widths,
+and the brief requires evidence before calling wrapping necessary. These measurements support
+judgment; they are not an automatic design oracle. Synthetic calibration covers only its concealed
+cases and cannot establish recall for composition defects.
+
+The previous final frozen packet is `DESIGN_REVIEW`: an occurrence-control grouping proposal and an
+accessible group-name question remain. Its separate ordinary-authoring flow found a visible
+required asterisk hidden by Preview's name ellipsis. Keep that supplemental defect visible in the
+combined assessment even though its evidence is outside the frozen packet. The six synthetic
+cases again scored three defects detected and no false alarms; they do not cover that Preview
+behavior. Build/smoke verification and this design verdict remain separate checks.
+
+The follow-up changes have focused browser coverage for visible required markers (including
+repeated fields), Overview marker wrapping, consecutive occurrence controls and accessible card
+names that use placement labels without changing stored keys or definitions. The worker pool also
+recognizes environment-prefixed npm scripts. The full follow-up reactor was explicitly interrupted
+before deployment and smoke; its fresh independent review has not run. Do not treat the earlier
+packet or focused tests as acceptance evidence for this follow-up source state.
+
+Remaining work is in the
+[frontend roadmap](FRONTEND-ROADMAP.md#12-verify-the-designer-fixes-with-a-fresh-independent-review).
+
+##### Pixel baseline checks
 
 The containerized screenshot suite permits **zero differing pixels**. Do not restore a percentage
 budget: on a 1280×4418 page, 1% permits about 56,000 changed pixels and can hide localized defects.

@@ -8,6 +8,7 @@
     "perf:frontend": "node frontend-perf/run.mjs",
     "perf:frontend:paired": "node frontend-perf/isolated.mjs",
     "test:frontend-performance": "node --test frontend-perf/*.test.mjs",
+    "test:ui-review": "node --test ui-review/*.test.mjs",
     "test:journey-runner": "node --test smoke-steps.test.mjs auth-activity.test.mjs journey-fixtures.test.mjs journey-registry.test.mjs split-lanes.test.mjs split-tier.test.mjs journey-contract.test.mjs journey-history.test.mjs token-refresh.test.mjs",
     "test:journey-harness": "npm run test:journey-runner && node --test journey-browser.test.mjs",
     "presmoke:journey": "npm run test:journey-harness",
