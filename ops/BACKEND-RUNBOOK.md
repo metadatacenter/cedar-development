@@ -285,13 +285,17 @@ nothing then says which commit it runs.
 
 `current` therefore means the process is not older than its jar, which is narrower than it reads. A
 jar can itself have been built before its repository's `develop` head, and every row says `current`
-while it is, which is how a stack came to be smoke-tested against commits it did not contain. A
-server is equally behind when its jar predates the head of `cedar-parent`, which sets the versions it
-builds against, or when it embeds a build of a Java library other than that library's latest local
-build. The check compares the checksums of the library's classes in both jars. A library whose own
-build predates its head is behind as well. Each comparison uses the time the head reached this
-machine, read from the branch's reflog, rather than the commit's own date, so a commit made before a
-build and pulled after it counts against that build. The summary under the table names any
+while it is, which is how a stack came to be smoke-tested against commits it did not contain.
+cedar-parent therefore stamps every jar with the commit it was built from, at
+`META-INF/cedar/<artifactId>.git.properties`, and a shaded server jar keeps the stamp of every CEDAR
+module it embeds. A server or a library whose stamp names another commit than its repository's
+`develop` head is behind, and so is one built without a stamp, which any build with an earlier
+cedar-parent leaves. A server is equally behind when its jar predates the head of `cedar-parent`,
+which sets the versions it builds against and is stamped nowhere, or when it embeds a build of a Java
+library other than that library's latest local build. The check compares the checksums of the
+library's classes in both jars. The time compared with `cedar-parent`'s head is when that head
+reached this machine, read from the branch's reflog, rather than the commit's own date. A stamp whose
+build saw uncommitted changes marks its repository dirty in the record. The summary under the table names any
 microservice or library in that position, and `cedarcli test e2e` refuses to record a run while one
 exists. A service that is merely warming is treated differently from one that
 is wrong: a stack whose every finding is a warming service is given five minutes and polled rather
