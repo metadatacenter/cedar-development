@@ -285,9 +285,15 @@ nothing then says which commit it runs.
 
 `current` therefore means the process is not older than its jar, which is narrower than it reads. A
 jar can itself have been built before its repository's `develop` head, and every row says `current`
-while it is, which is how a stack came to be smoke-tested against commits it did not contain. The
-summary under the table names any microservice in that position, and `cedarcli test e2e` refuses to
-record a run while one exists. A service that is merely warming is treated differently from one that
+while it is, which is how a stack came to be smoke-tested against commits it did not contain. A
+server is equally behind when its jar predates the head of `cedar-parent`, which sets the versions it
+builds against, or when it embeds a build of a Java library other than that library's latest local
+build. The check compares the checksums of the library's classes in both jars. A library whose own
+build predates its head is behind as well. Each comparison uses the time the head reached this
+machine, read from the branch's reflog, rather than the commit's own date, so a commit made before a
+build and pulled after it counts against that build. The summary under the table names any
+microservice or library in that position, and `cedarcli test e2e` refuses to record a run while one
+exists. A service that is merely warming is treated differently from one that
 is wrong: a stack whose every finding is a warming service is given five minutes and polled rather
 than refused. The remedy is `cedarcli build java` followed by `cedarcli native
 restart`. For the `ui-main` and `ui-workspace` rows the column
@@ -4218,7 +4224,12 @@ likewise be built from the development sources under test and redeployed before 
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
-manage. It then records the `develop` head of every train repository, starts `npm run smoke:rest`
+manage. It also refuses while the frontend reactor's deployed build, which `.reactor/runtime.json`
+names, was made from another commit than the `develop` head of any repository it built, since the
+frontends then serve code the record would not name. The remedy is `cedarcli build frontends`. A
+repository that build took from a tree with uncommitted changes is recorded as dirty, and the record
+names the build as `frontendBuild`. It then records the `develop` head of every train
+repository, starts `npm run smoke:rest`
 in the background, runs `npm run smoke`, `npm run smoke:workspace:modern:full` and
 `npm run smoke:search` one after another beside it, and writes `reports/smoke-gate/<digest>.json`,
 where the digest names the set of heads, beside a `latest.json` copy. The split and search tiers
