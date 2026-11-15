@@ -1937,7 +1937,9 @@ CI omits `--runtime`; the flag cannot be combined with baseline/helper writes.
 fingerprint of tracked and nonignored source files (including uncommitted changes), executed
 commands, local dependency edges, integration-test sibling hashes, and resolved manifests and locks.
 All source fingerprints are captured before the first task, checked before each copy is built, and
-checked again when the graph is recorded. Package version labels are
+checked again when the graph is recorded. The disposable copy holds exactly the files the
+fingerprint covers, so an ignored file in the checkout, such as a `dist/` an earlier local build
+left, never reaches the build. Package version labels are
 not source identities: a package compiled today can retain an older development version string.
 Use the source fingerprint and artifact hash to identify what was built.
 
