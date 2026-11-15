@@ -1002,13 +1002,28 @@ async function openShareDialog(page, folderId, templateName) {
   return modal;
 }
 
+// Waits for the answer to the permissions PUT. A 401 is not that answer: the session recovery
+// refreshes the token and sends the PUT again, as the session-expiry probe checks. Any other refusal
+// is the answer, and is reported with its status rather than as a PUT never sent.
 async function expectPermissionUpdate(page, action) {
-  const pending = page.waitForResponse(response => response.request().method() === 'PUT'
-      && /\/permissions(?:\?|$)/.test(response.url()) && response.ok(),
-    { timeout: 20_000 }).catch(() => null);
-  await action();
-  const response = await pending;
-  if (!response) throw new Error('sharing control sent no permissions PUT');
+  const isUpdate = response => response.request().method() === 'PUT' && /\/permissions(?:\?|$)/.test(response.url());
+  let unauthorized = 0;
+  const countUnauthorized = response => { if (isUpdate(response) && response.status() === 401) unauthorized++; };
+  page.on('response', countUnauthorized);
+  let response;
+  try {
+    const pending = page.waitForResponse(candidate => isUpdate(candidate) && candidate.status() !== 401,
+      { timeout: 20_000 }).catch(() => null);
+    await action();
+    response = await pending;
+  } finally {
+    page.off('response', countUnauthorized);
+  }
+  if (!response) {
+    throw new Error(unauthorized
+      ? `the permissions PUT was answered 401 ${unauthorized} time(s) and never sent again with a fresh token`
+      : 'sharing control sent no permissions PUT');
+  }
   if (!response.ok()) throw new Error(`permission update answered ${response.status()}: ${response.url()}`);
   if (!await response.request().headerValue('if-match')) {
     throw new Error(`permission update reached the server without If-Match: ${response.url()}`);
