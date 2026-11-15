@@ -4232,7 +4232,12 @@ names the build as `frontendBuild`. It then records the `develop` head of every 
 repository, starts `npm run smoke:rest`
 in the background, runs `npm run smoke`, `npm run smoke:workspace:modern:full` and
 `npm run smoke:search` one after another beside it, and writes `reports/smoke-gate/<digest>.json`,
-where the digest names the set of heads, beside a `latest.json` copy. The split and search tiers
+where the digest names the set of heads, beside a `latest.json` copy. After the last tier it reads
+the heads, the working trees, the controller's processes and the deployed frontend build again. A
+head that moved, a clean tree that gained changes, a service served by another process or gone stale,
+or another frontend build turns the record into a failure that lists each change under
+`changedDuringRun`, since some tiers then ran code the record does not name. Restarts do not wait for
+the local-stack lock, so restart nothing on the stack while the gate runs. The split and search tiers
 cannot overlap, since both hold the split tier's lock. The REST tier's output goes to
 `rest-smoke-<digest>-<uuid>.log` beside its report rather than to the terminal, and the gate names
 the file when the tier fails. The record names what the stack ran, so a checkout with another
