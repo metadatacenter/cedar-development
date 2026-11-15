@@ -3730,7 +3730,10 @@ acquisition and transaction retry therefore reach the same unavailable-dependenc
 in about one second instead of the production drivers' roughly thirty-second defaults. Neo4j keeps
 a separate five-second floor for initial Bolt connection establishment; a healthy embedded server's
 first handshake exceeded one second on a constrained CI runner, so treating that startup latency as
-an outage made the suite flaky. Local dead ports still refuse immediately, and the outage HTTP tests
+an outage made the suite flaky. Mongo's socket read timeout has the same five-second floor for the
+same reason: a read from a healthy embedded server is not an outage, and dropping its indexes took
+longer than one second while a parallel `cedarcli build java` loaded the machine, failing the admin
+tool's provisioning test in two of three builds on 2026-11-15. Local dead ports still refuse immediately, and the outage HTTP tests
 carry five-second request deadlines. Normal JVMs have no property and retain the production
 timeouts.
 
