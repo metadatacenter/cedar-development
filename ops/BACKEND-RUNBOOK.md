@@ -3053,6 +3053,47 @@ and unchanged direct identifier resolution. Previously saved values remain uncha
 truncated identifiers. They need correction or reselection of an available resource; filtering
 search suggestions cannot repair a provider's resolver or make an excluded resource selectable.
 
+**Stored RRID audit, 2026-11-15.** The latest available production snapshot was
+`2026-10-25T0237Z.tar.zst`, captured between 02:37 and 05:51 UTC on October 25. Its archive digest
+and every body's indexed size and digest were verified. The scan read all 302,414 available bodies,
+including 150,585 instances; ten enumerated artifacts had no body because their snapshot reads
+returned 404. This is the snapshot's permission-scoped population, not a current production census.
+Declared authority fields, older RRID text fields, nested/repeated values and explicit identifiers
+elsewhere yielded 592 nonempty candidate values in 587 instances, containing 83 distinct parsed
+identifiers. SciCrunch search and authenticated resolver checks were made on November 15.
+
+The audit identified fourteen values in fourteen instances for review. Six lacked a complete namespace, including one
+whose matching registry record is explicitly invalid; the other eight are separate review findings.
+The `https://identifiers.org/` prefix is abbreviated below where present in the stored value.
+
+| Stored value | Occurrences | Finding |
+| --- | ---: | --- |
+| `RRID:JAX:000664` | 2 | `RRID:IMSR_JAX:000664` matches the source-local identifier and stored label `C57BL/6J`; the stored form returns 404 and the full form resolves. |
+| `RRID:5649640` | 1 | `RRID:MGI:5649640` matches the source-local identifier and stored label `CA`; the stored form returns 404 and the full form resolves. |
+| `RRID:1758540` | 1 | `RRID:NCBITaxon_1758540` matches `Plasmid vector pSP189`, but has `recordValid: false`; both forms return 404. A namespace correction alone is insufficient. |
+| `RRID:0213`, `1234` | 2 | Unqualified values in antibody fields. The resolver redirects to SurModics and worm strain KR1234 respectively; source-local searches offer other identities, so those redirects do not establish the intended resource. |
+| `CVCL_YA72` | 3 | No matching SciCrunch search record; resolver 404. There is no explicit invalidity flag to classify these as registry-invalid. |
+| `fdgmkw`, `rrid`, `RRID_aaaaaaa` | 3 | Unrecognized or test-like values requiring owner review. |
+| Literal `null`, `Not known` | 2 | Text placeholders, not resource identifiers; decide their treatment under the missing-answer policy. |
+
+None of the exact CURIE matches had `recordValid: false`: fourteen distinct identifiers had an
+explicit true flag and 62 had no flag or a null flag, neither treated as invalid. The one false
+record above was identified by matching the truncated source-local number and stored label.
+No stored occurrence of the reported coal-metagenome RRID was found. The audit itself made no writes.
+The scripts, snapshot identity, registry responses, resolver checks, full occurrence inventory and
+`findings.csv`/`findings.jsonl` with artifact identifiers and JSON Pointer paths are retained under
+`$CEDAR_HOME/.cedar/audits/2026-11-15-rrid-snapshot/`. Re-read each current instance before using
+these snapshot findings to plan a repair; the backend roadmap tracks the remaining decisions.
+
+On 2026-11-15 all fourteen candidate values were re-read from production and still matched the
+snapshot findings. The two `JAX:000664` values and the `5649640` value were corrected to their
+full RRIDs using conditional verbatim writes. All three complete candidates validated before
+writing; readback confirmed the exact submitted bodies, successful validation and unchanged graph
+modification provenance. Only the intended field `@id` changed. Originals and the verified write
+records are retained in the audit directory as `repair-apply-preimages/` and `repair-apply.jsonl`.
+The other eleven instances were left unchanged because their corrections require further evidence
+or an owner decision.
+
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
 dependency is one the server cannot serve requests without, and its failure makes the server
