@@ -5753,6 +5753,15 @@ read, and its `yamlParity` summary counts the results. A production snapshot tak
 minutes. `records.jsonl` holds one verdict per artifact, and `summary.json` counts outcomes by type
 and groups refusals and validation failures by cause, with quoted values masked.
 
+The Node bridge also judges every template, element and field as stored with the library's
+`SchemaArtifactValidator`, whose verdict the embeddable designer's Save follows. The summary's
+`schemaValidationParity` holds that verdict to the Java validator's by artifact type, as
+`validationParity` holds the instance verdicts, and `--fail-on-disagreement` fails the run on a
+difference in either. On 2026-11-15 the validator gained Java's rules for child and attribute-value
+field keys, versions and absolute IRIs. The pass over the 2026-10-25 snapshot then found all 4,825
+templates, 5,309 elements and 141,695 fields in agreement, with records under
+`$CEDAR_HOME/.cedar/audits/2026-11-15-snapshot-read-validators/`.
+
 The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `02aadf5`), found:
 
 - Every element and field reads in both libraries and validates.
