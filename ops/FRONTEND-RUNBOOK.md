@@ -1776,8 +1776,10 @@ runs `test:ci:prebuilt` against those built bytes.
 `test:ci`, `test:ci:prebuilt` and `test:ci:nonvisual:prebuilt` retain their original checks.
 Direct npm gate invocations use the same CPU-based worker default. Each stage prints its elapsed time.
 
-The model's `test:ci` gate overlaps lint, types, coverage, YAML parity, JSON parity
-and the packaged-consumer smoke. Jest receives most of the worker budget rather
+The model's `test:ci` gate overlaps lint, types, coverage, YAML parity, JSON parity,
+default-value parity and the packaged-consumer smoke. Default-value parity reads the Java
+artifact library's sources from `$CEDAR_HOME/cedar-artifact-library` where `CEDAR_HOME` is
+set, and from the sibling checkout otherwise, so the gate fails where neither exists. Jest receives most of the worker budget rather
 than being forced into `--runInBand`; pretest fixture generation still completes
 once before any of the checks start (parity reads the same generated module). Each parity invocation owns its temporary output tree,
 and only packaging writes `dist/`. In the reactor, `npm run build` first produces the package
