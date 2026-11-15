@@ -3912,6 +3912,14 @@ the Java runtime and every resolved oracle JAR, so a Java-only or transitive dep
 their checks even if no frontend source or meta-schema changed. Missing dependency evidence permits
 no cached success.
 
+CED refuses one shape that Java accepts, by decision. A choice field can store a default in
+`_valueConstraints.defaultValue` that names one option while a different option is marked
+`selectedByDefault`, so the artifact states two defaults. The Java validator accepts it, and
+`template-038.json` in CED's vendored corpus holds one. CED keeps the stored default, reports the
+conflict on the field and refuses Save until the author chooses one default or clears it.
+`src/app/core/services/choice-default.spec.ts` and the corpus spec pin the refusal. Do not relax it
+to match Java, and record here any other refusal of an artifact Java accepts.
+
 `TemplateService` coordinates commands and UI navigation;
 `core/model/document-validation.ts` validates a document snapshot and pending
 settings drafts without Angular state. Reconciliation compares structured validation
