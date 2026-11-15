@@ -4254,9 +4254,9 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>-<uuid>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
-`search-smoke-<digest>-<uuid>.json`. REST and search evidence have unique paths per attempt so a
-refused or killed run cannot inherit a previous pass. The REST gate independently compares every
+`rest-smoke-<digest>-<uuid>.json`, the split tier's as `split-smoke-<digest>-<uuid>.json`, and the search
+tier's as `search-smoke-<digest>-<uuid>.json`. Each attempt's evidence has a path of its own, so a
+refused or killed run cannot inherit a previous pass or show an earlier attempt's failures. The REST gate independently compares every
 check with the committed inventory and requires all suites, consistent counts, completed timestamps
 and a passing verdict, even when the process exits zero. It also refuses any skipped check that
 `ops/e2e/rest/allowed-skips.json` does not name with the reason the run recorded, because a skipped
