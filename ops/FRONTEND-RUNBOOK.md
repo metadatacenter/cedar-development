@@ -1939,7 +1939,9 @@ commands, local dependency edges, integration-test sibling hashes, and resolved 
 All source fingerprints are captured before the first task, checked before each copy is built, and
 checked again when the graph is recorded. The disposable copy holds exactly the files the
 fingerprint covers, so an ignored file in the checkout, such as a `dist/` an earlier local build
-left, never reaches the build. Package version labels are
+left, never reaches the build. The copy is fingerprinted as soon as it is made and must match the
+recorded fingerprint, since an edit made after the first check and reverted before the last would
+otherwise be built and recorded under the original source. Package version labels are
 not source identities: a package compiled today can retain an older development version string.
 Use the source fingerprint and artifact hash to identify what was built.
 
