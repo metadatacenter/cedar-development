@@ -1886,7 +1886,8 @@ async function enableOpenView(page, folderId, templateName) {
 // and the app fetches once per load and latches an error, so the page is loaded only once
 // the server answers an anonymous read of the template. Should the page still come up
 // without the editor, it is reloaded rather than polled in place.
-async function verifyPresentedInOpenView(browser, templateId, expectedTemplateName = TEMPLATE_NAME) {
+async function verifyPresentedInOpenView(browser, templateId, expectedTemplateName = TEMPLATE_NAME,
+    expectedFieldLabels = []) {
   // A grant that never reaches the server is reported by the page check, with its screenshot.
   await waitForAnonymousArtifact(templateId, 200, 'OpenView grant').catch(() => {});
   const anon = await browser.newContext({
@@ -1904,12 +1905,16 @@ async function verifyPresentedInOpenView(browser, templateId, expectedTemplateNa
       await p.goto(url, { waitUntil: 'domcontentloaded' });
       try {
         await editor.waitFor({ state: 'attached', timeout: 12_000 });
-        await p.waitForFunction((expectedName) => {
+        // The name alone is in the header, which renders without the fields; each field label
+        // must appear as a word of its own as well. The descriptions are lower case, so they
+        // cannot stand in for a label.
+        await p.waitForFunction(({ expectedName, labels }) => {
           const cee = document.querySelector('cedar-embeddable-editor');
           if (!customElements.get('cedar-embeddable-editor') || !cee?.shadowRoot) return false;
-          return cee.shadowRoot.querySelectorAll('*').length > 0
-            && cee.shadowRoot.textContent.includes(expectedName);
-        }, expectedTemplateName, { timeout: 12_000 });
+          const text = cee.shadowRoot.textContent;
+          return cee.shadowRoot.querySelectorAll('*').length > 0 && text.includes(expectedName)
+            && labels.every(label => new RegExp(`\\b${label}\\b`).test(text));
+        }, { expectedName: expectedTemplateName, labels: expectedFieldLabels }, { timeout: 12_000 });
         if (pageErrors.length > 0) {
           throw new Error(`OpenView raised browser errors: ${pageErrors.join(' | ')}`);
         }
@@ -1923,7 +1928,8 @@ async function verifyPresentedInOpenView(browser, templateId, expectedTemplateNa
     const shot = resolve(FAIL_DIR, `openview-${Date.now()}.png`);
     await p.screenshot({ path: shot, fullPage: true }).catch(() => {});
     const errors = pageErrors.length > 0 ? `; browser errors: ${pageErrors.join(' | ')}` : '';
-    throw new Error(`OpenView did not present the open template — CEE never rendered${errors}; screenshot: ${shot}`);
+    const fields = expectedFieldLabels.length ? ` with its ${expectedFieldLabels.join(' and ')} fields` : '';
+    throw new Error(`OpenView did not present the open template${fields} — CEE never rendered it${errors}; screenshot: ${shot}`);
   } finally {
     await anon.close();
   }
@@ -2210,11 +2216,12 @@ try {
   console.log(`✓ OpenView enabled on the template`);
 
   step = 'verify-openview';
-  const openViewCeeVersion = await verifyPresentedInOpenView(browser, templateId);
+  const openViewCeeVersion = await verifyPresentedInOpenView(browser, templateId, TEMPLATE_NAME,
+      ['Disease', TEXT_FIELD_NAME]);
   if (openViewCeeVersion !== deployedCeeVersion) {
     throw new Error(`CEE version mismatch: Metadata Editor has ${deployedCeeVersion}, OpenView has ${openViewCeeVersion}`);
   }
-  console.log(`✓ OpenView presents the template anonymously with CEE ${openViewCeeVersion}`);
+  console.log(`✓ OpenView presents the template and its Disease and ${TEXT_FIELD_NAME} fields anonymously with CEE ${openViewCeeVersion}`);
 
   step = 'disable-openview';
   await setOpenViewThroughWorkspace(page, folderId, TEMPLATE_NAME, 'artifact', false);
