@@ -3043,10 +3043,15 @@ stub registry responses and external destinations; they do not establish live pr
 
 On 2026-11-14 SciCrunch's search also returned “coal metagenome” with
 `rrid.curie: RRID:NCBITaxon_1260732` and `recordValid: false`, while its JSON resolver returned
-404 even for that complete identifier. Correct URL construction does not resolve that provider
-disagreement. CEDAR does not infer the meaning of `recordValid` or silently remove those search
-results. Values previously saved with the truncated `RRID:1260732` remain unchanged; reselecting
-the resource supplies its full identifier, but cannot repair the provider's resolver.
+404 even for that complete identifier. RRID name searches exclude `recordValid: false` in the
+SciCrunch query, before pagination and counting, and discard any explicitly false records still
+returned. True, missing and null flags are retained. The name must still match; the validity
+filter does not turn the name clauses into optional ranking hints. If the response violates the
+filter, CEDAR omits its untrustworthy total rather than reporting an inflated count.
+`RegistryRecordReadingTest` covers mixed and all-invalid responses, the query and paging contract,
+and unchanged direct identifier resolution. Previously saved values remain unchanged, including
+truncated identifiers. They need correction or reselection of an available resource; filtering
+search suggestions cannot repair a provider's resolver or make an excluded resource selectable.
 
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
