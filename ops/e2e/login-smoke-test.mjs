@@ -32,6 +32,7 @@
 // Selectors live in ./selectors.mjs, which is the one place to edit when the
 // template editor's markup moves. They were originally established by the tutorial
 // runner, now in cedar-mkdocs/runner, which still keeps its own copies.
+import { smokeSteps } from './smoke-steps.mjs';
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -2008,6 +2009,7 @@ const expectCeeConfiguredCleanly = (where, { loads = null } = {}) => {
   }
 };
 
+const steps = smokeSteps('login-smoke-test');
 let step = 'init';
 let cleanupUser1;
 let mutationFolderId;
@@ -2020,7 +2022,7 @@ try {
   // 1. Reuse a saved session if the storage state carried a valid one; otherwise log in through
   //    Keycloak and save the state for the next run. Unauthenticated visitors are redirected to the
   //    Keycloak form, so the form's presence (vs the "New" button) tells the two paths apart.
-  step = 'login';
+  step = steps.enter('login');
   // Signing in also initializes the user's backend state, so this smoke's sign-ins hold the
   // machine-wide authentication lock that the REST and split tiers' sign-ins take. The gate runs the
   // REST tier beside this one.
@@ -2058,7 +2060,7 @@ try {
   //    UI (folder-creation clicking is not the coverage this smoke is here for). A standalone field is
   //    one of the artifact shapes the CEE renders; seeding it exercises field-artifact create/teardown
   //    and leaves it available for later use. The same REST token tears both down at the end.
-  step = 'seed';
+  step = steps.enter('seed');
   const { user1, user2 } = await actors();
   cleanupUser1 = user1;
   const { id: folderId, created } = await findOrCreateWorkingFolder(user1);
@@ -2071,7 +2073,7 @@ try {
 
   // Exercise concurrency-sensitive Workspace mutations before entering Designer. Setup uses REST;
   // every mutation below runs through the loaded frontend's actual Angular services.
-  step = 'workspace-conditional-mutations';
+  step = steps.enter('workspace-conditional-mutations');
   const mutationFolder = await restCall(user1.auth, 'POST', '/folders', {
     folderId,
     name: MUTATION_FOLDER_NAME,
@@ -2091,12 +2093,12 @@ try {
   mutationGroupId = mutationGroup.body['@id'];
   await verifyWorkspaceConditionalMutations(page, folderId, mutationFolderId, mutationGroupId);
   mutationGroupId = null;
-  step = 'workspace-open-close-and-move';
+  step = steps.enter('workspace-open-close-and-move');
   await verifyWorkspaceOpenAndMoveOperations(page, user1, folderId, mutationFolderId);
   mutationFolderId = null;
 
   // 3. Author two text fields through the designer without a live terminology dependency.
-  step = 'create-template';
+  step = steps.enter('create-template');
   const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
   await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
       { waitUntil: 'domcontentloaded' });
@@ -2104,11 +2106,11 @@ try {
   await nameBox.fill(TEMPLATE_NAME);
   await waitForModelValue(nameBox, TEMPLATE_NAME);
   await addTextField(page, 'Disease', 'The disease studied');
-  step = 'add-text-field';
+  step = steps.enter('add-text-field');
   await addTextField(page, TEXT_FIELD_NAME, 'Free-text notes');
   console.log('✓ Disease and Notes authored as plain-text fields');
 
-  step = 'save-template';
+  step = steps.enter('save-template');
   // Every field edit has committed to the model (setText returns only then), so the save sends
   // them all once the designer has nothing outstanding.
   await angularIdle(page);
@@ -2120,19 +2122,19 @@ try {
   const templateId = decodeURIComponent(templateMatch[1]);
   cleanupTemplateId = templateId;
   const templateEditUrl = page.url();
-  step = 'repeat-template-update';
+  step = steps.enter('repeat-template-update');
   await verifyRepeatedTemplateUpdates(page);
 
-  step = 'concurrent-template-conflict';
+  step = steps.enter('concurrent-template-conflict');
   await verifyConcurrentTemplateConflict(page, user1, templateId);
 
-  step = 'delete-vs-stale-template-save';
+  step = steps.enter('delete-vs-stale-template-save');
   await verifyDeleteVsStaleSave(page, user1, folderId);
 
-  step = 'two-user-sharing';
+  step = steps.enter('two-user-sharing');
   await verifyTwoUserSharing(browser, page, folderId, templateId, user1, user2);
 
-  step = 'expired-session-recovery';
+  step = steps.enter('expired-session-recovery');
   await verifyDesignerSessionRecovery(page, templateEditUrl, templateId, user1);
 
   // Confirm it is listed inside the folder.
@@ -2143,11 +2145,11 @@ try {
   if (!templateListed) throw new Error(`template "${TEMPLATE_NAME}" never appeared in the folder`);
   console.log(`✓ template created in folder: ${TEMPLATE_NAME}`);
 
-  step = 'publish-draft-lifecycle';
+  step = steps.enter('publish-draft-lifecycle');
   const versionOpenViewCeeVersion = await verifyPublishDraftLifecycle(browser, page, folderId, user1);
 
   // 3b. Populate the template and verify the real editor host.
-  step = 'populate-template';
+  step = steps.enter('populate-template');
   resetCeeConfigCounts();
   await openPopulate(page, folderId, TEMPLATE_NAME);
   await metadataEditorLoaded(page);
@@ -2160,13 +2162,13 @@ try {
   }
 
   // Fill Notes too, so an edit can prove the other field value is preserved.
-  step = 'fill-text-field';
+  step = steps.enter('fill-text-field');
   await fillCeeTextField(page, TEXT_FIELD_NAME, 'initial notes');
   console.log(`✓ filled the "${TEXT_FIELD_NAME}" text field`);
 
   // Name the metadata before saving; the Workbench lists the instance under this name, and it
   // used to be reachable only through the row menu's Rename after the fact.
-  step = 'name-instance';
+  step = steps.enter('name-instance');
   const INSTANCE_NAME = `Asthma notes ${RUN_ID}`;
   await nameInstance(page, INSTANCE_NAME);
   console.log(`✓ named the metadata "${INSTANCE_NAME}"`);
@@ -2174,7 +2176,7 @@ try {
   // 3b-ii. Save the populated instance from the Metadata Editor and confirm it is created. This
   //        exercises the V2/embeddable-editor save path end to end — the one that once threw a stack
   //        trace on a new instance's null @id and saved nothing.
-  step = 'save-instance';
+  step = steps.enter('save-instance');
   await instanceReadyToSave(page, 'initial notes', INSTANCE_NAME);
   // The save redirects to the edit route, which is the load that reads updateResource —
   // the one where a second configuration used to be the flag's only carrier.
@@ -2183,11 +2185,11 @@ try {
   cleanupInstanceId = savedInstance.id;
   console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
 
-  step = 'verify-instance-name';
+  step = steps.enter('verify-instance-name');
   await verifyInstanceName(page, user1.auth, savedInstance.id, INSTANCE_NAME);
   console.log('✓ the saved instance carries the typed name, and the edit view shows it');
 
-  step = 'dirty-navigation-protection';
+  step = steps.enter('dirty-navigation-protection');
   await verifyDirtyNavigationProtection(
     page,
     'initial notes',
@@ -2195,7 +2197,7 @@ try {
   );
 
   // 3b-iii. Re-edit through the post-save redirect (which must render, then update).
-  step = 're-edit-instance';
+  step = steps.enter('re-edit-instance');
   await reEditInstance(page, 'edited notes');
   // This window spans the post-save redirect and the dirty-navigation round trip, so it covers
   // more than one load; what it pins is that none of them was configured twice.
@@ -2208,7 +2210,7 @@ try {
   //        string, each carrying the value just saved. The second half builds its own
   //        element, so it needs the template this instance is based on: the live editor
   //        names it, and the REST token already in hand fetches it.
-  step = 'both-serializations';
+  step = steps.enter('both-serializations');
   const basedOn = await page.evaluate(
     () => document.querySelector('cedar-embeddable-editor').currentMetadata['schema:isBasedOn']);
   const templateResp = await restCall(user1.auth, 'GET', `/templates/${enc(basedOn)}`);
@@ -2223,14 +2225,14 @@ try {
   //     site (its name in the title bar, its Disease field rendered). This exercises
   //     the make-open command, the OpenView server's anonymous read, and OpenView's
   //     CEE-based rendering end to end.
-  step = 'enable-openview';
+  step = steps.enter('enable-openview');
   const openedTemplateId = await enableOpenView(page, folderId, TEMPLATE_NAME);
   if (openedTemplateId !== templateId) {
     throw new Error(`OpenView command targeted ${openedTemplateId}; expected ${templateId}`);
   }
   console.log(`✓ OpenView enabled on the template`);
 
-  step = 'verify-openview';
+  step = steps.enter('verify-openview');
   const openViewCeeVersion = await verifyPresentedInOpenView(browser, templateId, TEMPLATE_NAME,
       ['Disease', TEXT_FIELD_NAME]);
   if (openViewCeeVersion !== deployedCeeVersion) {
@@ -2238,7 +2240,7 @@ try {
   }
   console.log(`✓ OpenView presents the template and its Disease and ${TEXT_FIELD_NAME} fields anonymously with CEE ${openViewCeeVersion}`);
 
-  step = 'disable-openview';
+  step = steps.enter('disable-openview');
   await setOpenViewThroughWorkspace(page, folderId, TEMPLATE_NAME, 'artifact', false);
   await waitForAnonymousArtifact(templateId, 401, 'artifact close');
   console.log('✓ Workspace disabled OpenView on the artifact and anonymous access disappeared');
@@ -2249,7 +2251,7 @@ try {
   //    post-OpenView lifecycle remains usable.
   // Delete the instance over REST by id (robust across the post-save navigation, and independent of
   // its display name); the template and folder follow.
-  step = 'delete-instance';
+  step = steps.enter('delete-instance');
   const deleteInstance = await restMutate(user1.auth, 'DELETE',
       `/template-instances/${enc(savedInstance.id)}`);
   if (deleteInstance.status !== 204 && deleteInstance.status !== 200) {
@@ -2258,14 +2260,14 @@ try {
   cleanupInstanceId = null;
   console.log('✓ instance deleted');
 
-  step = 'delete-template';
+  step = steps.enter('delete-template');
   await deleteRow(page, TEMPLATE_NAME, folderId);
   cleanupTemplateId = null;
   console.log('✓ template deleted');
 
   // The standalone field was seeded over REST, so tear it down the same way. The working folder
   // stays: it is `Smoke Tests` in the home folder and every run shares it.
-  step = 'delete-standalone-field';
+  step = steps.enter('delete-standalone-field');
   const deleteField = await restMutate(user1.auth, 'DELETE',
       `/template-fields/${enc(standaloneFieldId)}`);
   if (deleteField.status !== 204 && deleteField.status !== 200) {
@@ -2274,14 +2276,16 @@ try {
   cleanupStandaloneFieldId = null;
   console.log('✓ standalone field deleted');
 
-  step = 'verify-folder-cleared';
+  step = steps.enter('verify-folder-cleared');
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
   console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → folder open/close + artifact/folder moves → "${FOLDER_NAME}" folder + seeded field → template with two text fields → repeated saves + stale-editor and delete-conflict protection → two-user Viewer/Editor/Manager/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → artifact OpenView open/close → conditional delete → folder cleared`);
+  steps.pass();
   await browser.close();
   process.exit(0);
 } catch (e) {
+  steps.fail();
   await mkdir(FAIL_DIR, { recursive: true });
   const shotPath = resolve(FAIL_DIR, `${step}-${Date.now()}.png`);
   await page.screenshot({ path: shotPath }).catch(() => {});

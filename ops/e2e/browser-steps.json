@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "scripts": {
+    "login-smoke-test": [
+      "login",
+      "seed",
+      "workspace-conditional-mutations",
+      "workspace-open-close-and-move",
+      "create-template",
+      "add-text-field",
+      "save-template",
+      "repeat-template-update",
+      "concurrent-template-conflict",
+      "delete-vs-stale-template-save",
+      "two-user-sharing",
+      "expired-session-recovery",
+      "publish-draft-lifecycle",
+      "populate-template",
+      "fill-text-field",
+      "name-instance",
+      "save-instance",
+      "verify-instance-name",
+      "dirty-navigation-protection",
+      "re-edit-instance",
+      "both-serializations",
+      "enable-openview",
+      "verify-openview",
+      "disable-openview",
+      "delete-instance",
+      "delete-template",
+      "delete-standalone-field",
+      "verify-folder-cleared"
+    ],
+    "metadata-first-save-smoke": [
+      "first-save"
+    ]
+  }
+}

@@ -4335,7 +4335,14 @@ or another frontend build turns the record into a failure that lists each change
 the local-stack lock, so restart nothing on the stack while the gate runs. The browser tier is
 given, as `CEDAR_EXPECT_CEE_VERSION`, the version `cedar-embeddable-editor` declares at its recorded
 head, and fails when the Metadata Editor or OpenView renders any other; the record keeps it as the
-tier's `expectedCeeVersion`. The split and search tiers
+tier's `expectedCeeVersion`. An exit code does not say which checks a tier made, so the browser and
+split tiers must also show that they ran their whole inventory. Each browser script writes the
+steps it completed into the directory `CEDAR_BROWSER_SMOKE_REPORTS` names, and the record requires
+them to be exactly the steps `ops/e2e/browser-steps.json` commits. A script that gains a step must
+add it there, which `smoke-steps.test.mjs` enforces. The split tier's report must show every unit passed,
+nothing left unrun and each journey in `ops/e2e/journey-scenarios.json` run with exactly its
+committed scenarios. A tier without that evidence is recorded as failed, and the gate refuses it.
+The split and search tiers
 cannot overlap, since both hold the split tier's lock. The REST tier's output goes to
 `rest-smoke-<digest>-<uuid>.log` beside its report rather than to the terminal, and the gate names
 the file when the tier fails. The record names what the stack ran, so a checkout with another
