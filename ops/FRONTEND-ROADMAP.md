@@ -466,38 +466,21 @@ and under a restricted profile. CED must never allocate identities or versions w
 replaces the artifact or supplies an editable draft. Add a test for the move from read-only
 published content to a host-supplied editable document that asserts this.
 
+### 12. Evaluate the Independent Review's Local Grouping Proposals
 
-### 12. Address the Independent Designer Review's Remaining Findings
+The current-source Designer review raises two low-severity composition proposals, with no
+reproduced functional failure. Agree a concrete before/after layout before implementing either:
 
-Clear or update CED's obsolete accessibility validation announcement when its issue count changes.
-A new template named validly reports `valid: true`, `canSave: true` and no issues while its live
-status still says “Validation issues (1)”. Cover resolution, changing counts and queued action
-announcements without introducing new visible controls or clearing unrelated feedback. Verify the
-result in the actual Designer host and retain the public report alongside the accessibility state.
+- Tighten only the gaps between wrapped field-settings tab rows. At the narrowest captured pane,
+  five rows of 36-pixel targets with 15-pixel gaps occupy 240 pixels, separating the active tab from
+  its panel. Preserve every label, target size, order and keyboard behavior; the measured content
+  still requires multiple rows.
+- Keep Replace and Enter IRI manually together when the Property IRI row wraps. At 1024 and
+  900-pixel viewports, Replace stays beside the value while the other action drops to the left below
+  it. Their combined width with the existing gap is about 174 pixels, within the 338 and 276-pixel
+  content widths. Compare moving the pair beneath the value, retaining the complete identifier and
+  both controls; verify the resulting wrapping and height in the rendered interface.
 
-Evaluate these design proposals before implementing them, preserving all existing information:
-
-- Pair Minimum and Maximum beneath Allow multiple at the intermediate 210-pixel content width if
-  both complete labels, number controls and usable spacing fit. Preserve stacking where they do
-  not, including the 125.5-pixel mobile content area.
-- Let narrow Preview names and their required marker wrap together, retaining occurrence range and
-  property controls nearby. “Participant identifier” currently loses its distinguishing suffix,
-  although its full accessible name and required marker remain available.
-
-Agree the concrete before/after layout, then verify rendered ordinary editing, narrow and long-name
-states. The [UI review runbook](FRONTEND-RUNBOOK.md#independent-designer-ui-review-pilot) links the
-sealed report, post-seal confirmation, measurements and supplemental exploration.
-
-### 13. Settle Workspace Background Fetches During Full-Page Navigation
-
-Investigate queued template-report enrichment when Workspace leaves for Designer. A functional
-WebKit navigation journey emitted access-control messages for report requests during navigation,
-which fails the smoke error gate. A local reproduction with allowed cross-origin requests and
-handled rejections produces the same messages when the next batch starts after navigation has
-cancelled the first; those later requests never reach the server. Playwright's WebKit error channel
-therefore does not alone establish an uncaught application exception or a server CORS defect.
-
-Reproduce the timing against Workspace, stop obsolete batches at the appropriate document
-lifecycle boundary, and preserve normal listing enrichment and back/forward behavior. Verify that
-actual network/CORS failures remain observable; do not broadly suppress the smoke errors. Retain a
-focused regression and complete the affected live navigation journeys in all three browsers.
+The [UI review runbook](FRONTEND-RUNBOOK.md#independent-designer-ui-review-pilot) links the sealed
+assessment, screenshots and measurements. Include ordinary desktop and narrow editing in the
+comparison; neither proposal authorizes hiding controls or changing navigation.

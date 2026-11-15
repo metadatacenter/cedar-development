@@ -3524,8 +3524,52 @@ CED suite passed 17,062 unit tests, 25 pinned visual checks and 3,441 browser ca
 regressions cover tracked assets beneath distribution `node_modules` paths, whose omission had
 falsely reported source changes; installed untracked dependencies remain outside the copy.
 
-Remaining work is in the
-[frontend roadmap](FRONTEND-ROADMAP.md#12-address-the-independent-designer-reviews-remaining-findings).
+The current-source follow-up is retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-current-review/`, with its combined assessment
+and separate implementer checks under `20261115-designer-current-assessment/assessment.html`.
+CED updates or retires its owned validation-count announcement when the issue set changes,
+preserving queued action feedback and newer unrelated announcements. The live host probes retain
+the public validation report, save permission and accessibility status: both a newly named template
+and a corrected imported default end valid, with no issues and no obsolete count.
+
+Designer Preview opts into CEE's default-off `wrapFieldNames` configuration. Complete names and
+their required marker wrap together, while occurrence ranges and property controls remain
+available. This setting is separate from `previewMode`, which hides the CEE identity header;
+Designer retains that header. Real CED–CEE browser tests cover both narrow widths, and ordinary
+read-only embeds keep their existing layout unless they opt in. Minimum and Maximum share a row
+at the intermediate 210-pixel Configuration content width and stack at the 125.5-pixel mobile
+width, with full labels, controls and keyboard order preserved.
+
+Workspace cancels obsolete report enrichment on listing changes, page hide and destruction, and
+resumes it after a back/forward-cache return without replacing the listing or selection. A
+transport interruption ends the batch before another starts: WebKit can reject requests before
+`pagehide` arrives. Ordinary HTTP refusals remain item-specific, and real transport errors remain
+observable. The real cross-origin navigation regression reproduced the former access-control
+messages before the guard and passes afterward in all three engines; smoke error filters are unchanged.
+
+Frontend build `923515eff573daced8a14b4862dc64e4a5c627d3a22770a96b1c5539b1a4ad5c` passed all
+component and host checks, all three framework-consumer gates, deployment and served-byte checks.
+CED passed 17,068 unit cases, 25 unchanged pixel baselines and 3,450 browser cases; CEE passed
+4,516 browser/visual cases; Workspace passed 2,340 unit and 2,563 browser cases. The Designer host
+ran 2,232 cases with 12 workers in 2.1 minutes. A permissions-spacing test now waits for the loaded
+permissions table before measuring its sections; no spacing assertions or baselines were relaxed.
+The initial smoke gate refused stale backend binaries after another session's commits. A full
+Java build with tests and an eleven-service redeployment brought the stack current. All four smoke
+tiers then passed against 41 clean sources, digest `e8fadc1f64e46c0e`, in 333.7 seconds, with no
+source changes during the run. The search tier retains its declared coverage gaps.
+
+The fresh independent application review inspected all 51 states and 49 card crops without the
+implementation narrative or earlier findings. Its supplemental ordinary-authoring session verified
+keyboard tab selection, narrow scrolling and hover insertion, and required repeated-field
+save/reload, with no runtime or cleanup errors. No functional defect was reproduced. Two
+low-severity composition proposals remain: reduce gaps between wrapped settings-tab rows, and
+keep the two Property IRI actions together when the row wraps. Their measured fit and evidence
+are in the sealed assessment; the [frontend roadmap](FRONTEND-ROADMAP.md#12-evaluate-the-independent-reviews-local-grouping-proposals)
+tracks the design decisions. The application assessment was sealed before the reviewer received
+the separate calibration packet. Final validation is `DESIGN_REVIEW` for those two proposals,
+with no evidence or calibration blockers. Behavior and composition each detected 3/3 concerns
+with 0/3 false alarms on acceptable controls. The twelve-case synthetic result does not establish
+production recall or general design judgment.
 
 ##### Pixel baseline checks
 
