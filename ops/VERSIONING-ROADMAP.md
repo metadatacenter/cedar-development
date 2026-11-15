@@ -877,7 +877,8 @@ The controls wait on the backend meaning of both actions, which item 5 settles.
    `termDefaultLanguage` if a field may hold values in several languages and the key only sets the default
    (name to be decided). On the read side it maps to the `lang=` the editor/CEE already sends to the
    terminology server (item 11); mostly a spec + editor addition, orthogonal to
-   [the identity question](#2-is-the-content-identity-label-choice-correct).
+   [the identity question](#2-is-the-content-identity-label-choice-correct). Once the key exists, the
+   term picker sends its language as `lang`.
 - **13. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
    ontology's display name from BioPortal's metadata, then from its own `owl:Ontology` header title, then
    the acronym — and never downgrades a set name back to the acronym on re-ingest. That leaves the
