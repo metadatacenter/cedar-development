@@ -3910,7 +3910,9 @@ feedback, and structural findings use the same summary and nested setting paths.
 
 `npm run test:conformance`, included in CED's mandatory gate and CI, drives real coordinator edits,
 all field types, standalone roots, nested and repeated elements, and deterministic edit histories.
-Every saveable output must pass the real Java validator, Java artifact reader and TypeScript strict
+It also sends every parameter case the two field matrices set, one parameter at a time, from
+`src/app/core/model/field-parameter-cases.testing.ts`: in a template, in an element two levels down,
+and as a standalone field where no parent records the parameter. Every saveable output must pass the real Java validator, Java artifact reader and TypeScript strict
 reader/value checks. Negative controls prove invalid inputs are refused. Java 17 and Maven are
 required, and the gate fails if Java's loaded schema hashes differ from the browser library's.
 CED and the host declare `cedarJavaConformance` in their manifests. Their reactor result keys include
