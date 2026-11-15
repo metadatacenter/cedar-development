@@ -1236,6 +1236,13 @@ terms are imported across ontologies. `path` runs root first and is absent where
 ontology — 1.8 million of the index's 13.9 million terms are. `children` is alphabetical and capped
 at fifty, with `childCount` saying how many there are in all.
 
+`type` names the constraint type the term is asked about. `class` and `branch` read the same tree,
+and so does a request without it. `valueSet` asks about a value set, whose children are its values.
+The source must then be a value-set collection, and the release must hold the IRI with values below
+it, because a value of the collection and a class of an ontology are terms a release holds as well.
+The picker asks this of a value set pinned to a release before it records the pick, as it checks a
+pinned class or branch against the tree it reads.
+
 The index is never read for a tree. It holds one parent a term, which is enough for the step a
 search row names, and a tree drawn from it left a term with several parents out of every parent but
 one. In DOID's 2026-06-30 release "disease of anatomical entity" has 9,161 descendants and 13
