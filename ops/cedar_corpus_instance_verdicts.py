@@ -18,7 +18,10 @@ which the spec applies the same way before reading either document. Java judges 
 server would store it from an editor's save, and each case records the operations that completion
 added, so the spec can judge that same document verbatim as well as the instance as the editor holds
 it. A stored probe changes the completed document, the shape a verbatim write stores, and is judged
-only verbatim. The verdict comes from the validation library
+only verbatim. Every other case also records the document the editor's save writes, which the
+TypeScript library's ``itest/scripts/write-editor-instances.ts`` produces from the sibling checkout
+named by ``--ts-library``, and the verdict on that document as the server would store it: the editor
+judges an instance as the document it writes. The verdict comes from the validation library
 ``ops/cedar_validate.sh`` builds from its sibling checkout, which must be committed unless
 ``--working-tree`` records that it is not.
 """
@@ -325,12 +328,27 @@ def patched(document: dict, operations: list[dict[str, Any]]) -> dict:
     return copy
 
 
+def editor_documents(ts_library: Path, corpus: Path, cases: list[dict[str, Any]]) -> dict[str, Any]:
+    """The document the editor's save writes for each case, by its id, or None where it writes none."""
+    request = {"corpus": str(corpus.resolve()),
+               "cases": [{"id": case["id"], "instance": case["instance"], "template": case["template"],
+                          **({"patch": case["patch"]} if "patch" in case else {})} for case in cases]}
+    ts_node = ts_library / "node_modules" / "ts-node" / "dist" / "bin.js"
+    completed = subprocess.run(["node", str(ts_node), "--transpile-only", "itest/scripts/write-editor-instances.ts"],
+                               cwd=ts_library, input=json.dumps(request), capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        raise RuntimeError(f"write-editor-instances.ts failed: {completed.stderr.strip()[-2000:]}")
+    return {entry["id"]: entry["written"] for entry in json.loads(completed.stdout)}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--corpus", required=True, help="the shared corpus's artifacts directory")
     parser.add_argument("--out", required=True, help="the directory receiving the fixture and its lock")
     parser.add_argument("--validation-library", default=str(OPS.parent.parent / "cedar-model-validation-library"),
                         help="the cedar-model-validation-library checkout the verdicts come from")
+    parser.add_argument("--ts-library", default=str(OPS.parent.parent / "cedar-model-typescript-library"),
+                        help="the cedar-model-typescript-library checkout that writes the editor's documents")
     parser.add_argument("--working-tree", action="store_true", help="allow uncommitted validator sources")
     arguments = parser.parse_args(argv)
 
@@ -385,6 +403,22 @@ def main(argv: list[str] | None = None) -> int:
             for probe, on_stored in stored_found:
                 cases.append(judge(f"{case}#{probe}", instance, template, {**entry, "patch": {"stored": on_stored}},
                                    on_stored))
+        # The editor judges an instance as the document its save writes, so that document is judged too,
+        # as the server would store it. A stored probe is a shape only a verbatim write stores.
+        saved = [case for case in cases if "stored" not in case.get("patch", {})]
+        documents = editor_documents(Path(arguments.ts_library), corpus, saved)
+        for case in saved:
+            written = documents[case["id"]]
+            if written is None:
+                case["written"] = None
+                continue
+            template = patched(json.loads((corpus / case["template"]).read_text()), case.get("patch", {}).get("template", []))
+            bridge.cache_template(template["@id"], template)
+            answer = bridge.validate("instance", as_the_server_stores(written, template), template["@id"])
+            if answer.get("status") not in ("valid", "invalid"):
+                raise RuntimeError(f"{case['id']}: the validator gave no verdict on the written document: {answer}")
+            case["written"] = {"document": written, "javaValid": answer["status"] == "valid",
+                               "javaErrors": [error.get("message", "") for error in (answer.get("errors") or [])[:3]]}
     finally:
         bridge.close()
     (out / "instance-verdicts-bridge.log").unlink(missing_ok=True)

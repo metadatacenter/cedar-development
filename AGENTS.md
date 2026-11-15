@@ -133,6 +133,9 @@ below have no CLI front end yet, so call them directly:
   library's `itest/resources/concordance/`, where `InstanceVerdictConcordance.spec.ts` holds the
   TypeScript save decision to it in CI. It also records probes: corpus instances with one field's
   value replaced by a shape the corpus holds no example of, such as an unfilled controlled term.
+  For each case an editor can save, it also records the document the editor's save writes, produced
+  by the TypeScript library's `itest/scripts/write-editor-instances.ts`, and the verdict on that
+  document, since the editor judges an instance as the document it writes.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data
