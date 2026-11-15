@@ -1601,9 +1601,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `RRID:NCBITaxon_1758540` is
   explicitly invalid, so supplying its namespace is insufficient. Resolve the intended identities
   of `RRID:0213` and `1234` rather than accepting the resolver's redirects as proof. Check the
-  three `CVCL_YA72` values with the source registry or owner; a 404 without a validity flag is
-  not evidence of explicit invalidity. Review the three unrecognized values and decide how the
-  two text placeholders should represent missing answers.
+  three `CVCL_YA72` values with UCSF or Cellosaurus curators: obtain the accession for the named
+  IDG-HEK293T-KCNT2-V5-OE line, since neither the current catalogue nor the deleted-accession
+  register supplies a replacement. Obtain reliable supplier/catalog identities for the ambiguous
+  and unrecognized antibody values. Ask for the original Anti-RuBisCo supplier/catalog and the
+  unnamed ASIC4 cell line identity before replacing their placeholders; decide explicitly whether
+  unknown or test content should instead be cleared.
 
   Apply reviewed corrections through `ops/repairs/cedar_artifact_repair.py`, with a narrow invariant,
   saved preimages, conditional verbatim writes, validation and readback. Preserve unrelated values,

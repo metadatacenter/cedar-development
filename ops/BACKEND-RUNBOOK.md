@@ -3094,6 +3094,23 @@ records are retained in the audit directory as `repair-apply-preimages/` and `re
 The other eleven instances were left unchanged because their corrections require further evidence
 or an owner decision.
 
+A subsequent authoritative-source review on the same day established no additional unambiguous
+repair. Cellosaurus has no current `CVCL_YA72` entry or mapping in its
+[deleted-accession register](https://ftp.expasy.org/databases/cellosaurus/cellosaurus_deleted_ACs.txt).
+Its KCNT2 search returns the mouse line N11/33, not the UCSF human overexpression line named by
+all three instances; the stored UCSF catalogue URL was unreachable. SciCrunch returned 89 KCNT2
+name matches with no matching cell line. Its two pSP189 matches, `NCBITaxon_1758540` and
+`NCBITaxon_35614`, both carry `recordValid: false`.
+[Addgene vector-database entry 4182](https://www.addgene.org/vector-database/4182/) is historical
+backbone information, explicitly not a distributed Addgene plasmid, and supplies no replacement RRID.
+
+The remaining five ambiguous/unrecognized entries have absent or test-like identifying context.
+The Anti-RuBisCo placeholder has no supplier/catalog identity to distinguish registry antibodies;
+the literal-null cell record has no line name or repository URL and is marked In progress.
+All eleven values were confirmed unchanged in production, and the earlier three repairs remain
+intact. No further writes were issued. Per-artifact assessments and source evidence are retained
+in the audit directory under `followup/`.
+
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
 dependency is one the server cannot serve requests without, and its failure makes the server
