@@ -1,13 +1,37 @@
 // Sharing over HTTP, as two real users. The permission matrices in the Java suites assert what a
 // grant confers; this asserts that asking for it over the API produces exactly that grant.
 import { isDeepStrictEqual } from 'node:util';
-import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN, OPENVIEW } from '../lib.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
 
 export const name = 'sharing';
 
 export async function run({ user1, user2, homeFolderId, folderId }) {
   suite('sharing: a grant produces exactly the role asked for');
+
+  // Editor and Manager differ in what Manager alone may do: change the grants, make a resource
+  // open, and move it. Each grantee is asked all three, so a Manager grant that confers only
+  // Editor authority fails as surely as an Editor who is allowed them. A move needs somewhere the
+  // grantee may move into, so the second user holds Editor on this destination throughout.
+  const destinationName = `Sharing Move Destination ${RUN}`;
+  const destination = await call(user1.auth, 'POST', '/folders',
+      { folderId, name: destinationName, description: 'Created by the REST suites' });
+  let destinationId;
+  if (checkStatus(destination, 201, 'a move destination is created')) {
+    destinationId = destination.body['@id'];
+    cleanup('folder', `/folders/${enc(destinationId)}`, destinationName);
+    checkStatus(await mutate(user1.auth, 'PUT', `/folders/${enc(destinationId)}/permissions`, {
+      owner: { '@id': user1.profile['@id'] },
+      userPermissions: [{ user: { '@id': user2.profile['@id'] }, role: 'editor' }],
+      groupPermissions: [],
+    }), 200, 'and the second user may move into it');
+  }
+  const listedIn = async (parent, id) => {
+    const contents = await call(user1.auth, 'GET', `/folders/${enc(parent)}/contents?limit=500`);
+    return contents.status === 200
+      ? (contents.body?.resources ?? []).some(resource => resource['@id'] === id)
+      : undefined;
+  };
 
   const results = {};
   for (const role of ['viewer', 'editor', 'manager']) {
@@ -51,8 +75,47 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
     } else {
       check(write.status === 200, `${role}: the grantee can rename it`,
           `expected 200, got ${write.status}`);
+      await managerOnly(role, id, at, requestedPermissions);
     }
     results[role] = id;
+  }
+
+  // What only a Manager may do, asked of an Editor and a Manager alike. A refusal must also leave
+  // the folder as it was, since a refusal answered after the write would otherwise pass.
+  async function managerOnly(role, id, at, grant) {
+    const allowed = role === 'manager';
+    const expected = allowed ? 200 : 403;
+    const may = allowed ? 'can' : 'cannot';
+
+    const aclBefore = await call(user1.auth, 'GET', `${at}/permissions`);
+    checkStatus(await mutate(user2.auth, 'PUT', `${at}/permissions`, grant), expected,
+        `${role}: the grantee ${may} change its grants`);
+    const aclAfter = await call(user1.auth, 'GET', `${at}/permissions`);
+    check(aclBefore.status === 200 && aclAfter.status === 200
+        && isDeepStrictEqual(aclBefore.body, aclAfter.body),
+    `${role}: and the grants are still exactly the owner's`,
+    `before ${aclBefore.status} ${aclBefore.text?.slice(0, 160)}, after ${aclAfter.status} ${aclAfter.text?.slice(0, 160)}`);
+
+    const opened = await mutate(user2.auth, 'POST', '/command/make-folder-open', { '@id': id }, { etagPath: at });
+    checkStatus(opened, expected, `${role}: the grantee ${may} make it open`);
+    const anonymous = await call(null, 'GET', at, undefined, { base: OPENVIEW });
+    check(anonymous.status === (allowed ? 200 : 401),
+        `${role}: and OpenView ${allowed ? 'serves' : 'still refuses'} it anonymously`,
+        `OpenView answered ${anonymous.status}`);
+    if (allowed && opened.status === 200) {
+      checkStatus(await mutate(user2.auth, 'POST', '/command/make-folder-not-open', { '@id': id },
+          { etagPath: at }), 200, `${role}: the grantee can close it again`);
+    }
+
+    if (!destinationId) return;
+    const moved = await mutate(user2.auth, 'POST', '/command/move-resource-to-folder',
+        { '@id': id, targetFolderId: destinationId }, { etagPath: at });
+    checkStatus(moved, allowed ? [200, 201] : 403, `${role}: the grantee ${may} move it`);
+    const inDestination = await listedIn(destinationId, id);
+    const inHome = await listedIn(homeFolderId, id);
+    check(inDestination === allowed && inHome === !allowed,
+        `${role}: and it is ${allowed ? 'in the destination and no longer' : 'still'} in the owner's home`,
+        `listed in the destination: ${inDestination}; in the home folder: ${inHome}`);
   }
 
   suite('sharing: revocation refuses a write with an already acquired content ETag');
