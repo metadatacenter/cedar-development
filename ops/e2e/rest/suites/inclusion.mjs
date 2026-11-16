@@ -4,6 +4,7 @@
 // resource server records an inclusion arc template -> element; these two endpoints compute the tree of
 // affected artifacts (preview) and propagate a change across it (update). Nothing exercised them before.
 import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN, RESOURCE } from '../lib.mjs';
@@ -136,19 +137,39 @@ export async function run({ user1, user2, folderId }) {
           `the owner saw ${seen.join(', ') || '(none)'}`);
     }
 
+    // A refusal is judged by what is stored as well as by the answer: the owner reads both templates
+    // before and after, and neither revision nor content may change. The answer alone would pass a
+    // propagation that wrote the template and then refused.
+    const stored = async id => {
+      const read = await call(auth, 'GET', `/templates/${enc(id)}`);
+      return { status: read.status, etag: read.headers?.get('etag'), body: read.body };
+    };
+    const untouched = (before, after) => before.status === 200 && after.status === 200 && !!before.etag
+      && before.etag === after.etag && isDeepStrictEqual(before.body, after.body);
+    const describe = (before, after) => `before ${before.status} ${before.etag}, after ${after.status} ${after.etag}`;
+
     // Reading a target is not authority to rewrite it.
+    const readable = await stored(tid);
     checkStatus(await call(user2.auth, 'POST', '/command/inclusions-subgraph-update',
         { '@id': eid, templates: { [tid]: { operation: 'update' } } }), 403,
         'propagating into a template they may read but not write is refused');
+    const readableAfter = await stored(tid);
+    check(untouched(readable, readableAfter), 'and that template is stored exactly as it was',
+        describe(readable, readableAfter));
 
     // And a target they cannot see is not a target: it never enters their tree, so nothing is planned
-    // for it and nothing is written.
+    // for it and nothing is written. The private template still holds the element as it was before the
+    // change above, so a propagation into it would change what it stores.
+    const hidden = await stored(pid);
     const unseen = await call(user2.auth, 'POST', '/command/inclusions-subgraph-update',
         { '@id': eid, templates: { [pid]: { operation: 'update' } } });
     if (checkStatus(unseen, 200, 'naming a template they cannot see succeeds')) {
       check((unseen.body?.outcomes ?? []).length === 0, 'having planned no work at all',
           `outcomes were ${JSON.stringify(unseen.body?.outcomes ?? []).slice(0, 200)}`);
     }
+    const hiddenAfter = await stored(pid);
+    check(untouched(hidden, hiddenAfter), 'and the template they cannot see is stored exactly as it was',
+        describe(hidden, hiddenAfter));
   }
 
   suite('inclusion: the requests the endpoints must refuse');
