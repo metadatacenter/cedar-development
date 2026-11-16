@@ -2518,7 +2518,7 @@ Maven 3 would only warn and build the servers against whatever libraries `~/.m2`
 `cedarcli build libraries` and `cedarcli build project` still run their own reactors. The
 embedded-Mongo guards surround each Maven process. Test classes remain serial
 within each test JVM; Maven thread count does not enable JUnit concurrent execution.
-The resource application uses two isolated reusable Surefire JVMs as described below;
+The resource application uses four isolated reusable Surefire JVMs as described below;
 other modules retain their existing fork settings.
 Embedded MariaDB instances use private extraction and data directories beneath the
 executable build scratch space, even when Maven workers share `java.io.tmpdir`.
@@ -2532,15 +2532,17 @@ mixed-purpose `cedar-development` repository; concurrent audit, repair and docum
 work there does not invalidate a build. Other repository source guards remain in force.
 
 **Resource test JVM isolation.** The resource application distributes test classes over
-two reusable Surefire JVMs. Each JVM retains serial JUnit execution, keeping the
+four reusable Surefire JVMs. Each JVM retains serial JUnit execution, keeping the
 process-global CEDAR environment, service singletons and class cleanup isolated. HTTP
 fixtures request OS-assigned ports. Each JVM has its own Neo4j store, and every class in that JVM
 shares it: `EmbeddedCedarNeo4j` keeps one static harness, seeded once, so data and jobs one class
 leaves behind can reach the next class's assertions. Surefire writes
-class-specific reports, and each class is assigned to one fork. This adds at most one
-test JVM beyond the reactor's usual module concurrency, rather than doubling forks
+class-specific reports, and each class is assigned to one fork. This adds at most three
+test JVMs beyond the reactor's usual module concurrency, rather than multiplying forks
 across the estate. The module's Maven property `cedar.resource.test.forks` defaults to
-two; setting it to one restores its serial diagnostic path. `--jobs 1` controls reactor
+four; setting it to one restores its serial diagnostic path. Four were chosen on 2026-11-16, when the
+module's suite took 83.9 seconds at four forks against 120.5 at two, run back to back on one copy of
+the sources, with all 1,354 tests passing both times. `--jobs 1` controls reactor
 threads alone and does not override this module property.
 
 A sweep on 2026-09-25 extended these measurements past eight threads, with two resource test
