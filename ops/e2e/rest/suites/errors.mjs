@@ -46,7 +46,7 @@ const local = (service, port) => env[`CEDAR_${service}_BASE`]
   ?? `http://${env[`CEDAR_${service}_SERVER_HOST`] ?? 'localhost'}:${env[`CEDAR_${service}_HTTP_PORT`] ?? port}`;
 
 /** Every server that commits an OpenAPI document, where the suite reaches it. */
-const SERVERS = [
+export const SERVERS = [
   { server: 'resource', base: RESOURCE },
   { server: 'artifact', base: ARTIFACT_SERVER },
   { server: 'repo', base: local('REPO', '9002') },
@@ -158,7 +158,7 @@ export function cedarErrorProblem(res) {
   return null;
 }
 
-function readSpec(server) {
+export function readSpec(server) {
   const file = resolve(CEDAR_HOME, `cedar-${server}-server`, `cedar-${server}-server-application`,
       'src', 'main', 'resources', 'assets', 'swagger-api', 'swagger.json');
   try {
