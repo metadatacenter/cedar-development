@@ -13,10 +13,19 @@
 // not own outright, so a regression that reopened the hole could not damage real data mid-run. An
 // earlier version aimed a permission change at the first user's home folder; back when forged writes
 // were honoured it was accepted, and the home folder's ownership had to be repaired by hand.
+import { env } from 'node:process';
 import {
-  suite, check, call, mutate, cleanup, authHeader, enc, RUN,
+  suite, check, call, mutate, cleanup, authHeader, enc, poll, RUN,
   USER_SERVER, GROUP_SERVER, OPENVIEW, WORKER,
 } from '../lib.mjs';
+
+/**
+ * How long a service other than the user server may keep honouring a withdrawn API key. Each
+ * service caches what a key resolves to for CEDAR_API_KEY_CACHE_TTL_SECONDS, ten by default, and only
+ * the user server forgets at once. The margin covers an entry made just before the withdrawal.
+ */
+const KEY_CACHE_SECONDS = Number(env.CEDAR_API_KEY_CACHE_TTL_SECONDS ?? 10);
+const WITHDRAWAL_SECONDS = KEY_CACHE_SECONDS + 10;
 
 export const name = 'authentication';
 
@@ -99,6 +108,26 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
   const keysPath = `/users/${enc(userId)}/api-keys`;
   const description = `REST suite management key ${RUN}`;
   let throwawayKeyId;
+  let withdrawnLater;
+  // The profile is only what the user server says it stores. Whether a key authenticates is asked of
+  // the user server, which forgets a withdrawn key at once, and of the resource server, which may
+  // honour it for its cache window and no longer.
+  const asKey = (key, base) => call(key, 'GET', base === USER_SERVER ? `/users/${enc(userId)}` : '/search?q=a&limit=1',
+      undefined, base === USER_SERVER ? { base } : {});
+  const presented = async (key, what) => {
+    const user = await asKey(key, USER_SERVER);
+    check(user.status === 200, `${what} authenticates at the user server`, `expected 200, got ${user.status}`);
+    const resource = await asKey(key, undefined);
+    check(resource.status === 200, `${what} authenticates at the resource server`, `expected 200, got ${resource.status}`);
+  };
+  const withdrawn = async (key, what) => {
+    const user = await asKey(key, USER_SERVER);
+    check(user.status === 401, `${what} is refused by the user server at once`, `expected 401, got ${user.status}`);
+    const resource = await poll(async () => ({ done: (await asKey(key, undefined)).status === 401 }),
+        { tries: WITHDRAWAL_SECONDS, delayMs: 1000 });
+    check(resource.done, `${what} is refused by the resource server within its cache window`,
+        `still accepted after ${resource.attempts} attempts over about ${WITHDRAWAL_SECONDS} seconds`);
+  };
   try {
     const created = await call(auth, 'POST', keysPath, { description }, { base: USER_SERVER });
     if (check(created.status === 201, 'a throwaway API key is created',
@@ -116,6 +145,7 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
         check(createdKey.id !== createdKey.key,
             'the management id is not the API-key secret',
             'the profile exposed the credential itself as its management id');
+        await presented(createdKey.key, 'the new key');
 
         const rotated = await call(auth, 'POST',
             `${keysPath}/${enc(throwawayKeyId)}/regenerate`, undefined, { base: USER_SERVER });
@@ -128,6 +158,9 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
           check(rotatedKey?.key && rotatedKey.key !== createdKey.key,
               'rotation replaces the credential value',
               'the API-key secret did not change');
+          if (rotatedKey?.key) await presented(rotatedKey.key, 'the rotated key');
+          await withdrawn(createdKey.key, 'the replaced value');
+          withdrawnLater = rotatedKey?.key;
         }
 
         const deleted = await call(auth, 'DELETE', `${keysPath}/${enc(throwawayKeyId)}`, undefined,
@@ -138,6 +171,7 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
               'the deleted management id is absent from the stored profile',
               'the user server returned the supposedly deleted key');
           throwawayKeyId = undefined;
+          if (withdrawnLater) await withdrawn(withdrawnLater, 'the deleted key');
         }
       }
     }
