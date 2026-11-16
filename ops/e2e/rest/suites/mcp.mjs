@@ -114,6 +114,16 @@ async function create(server, auth, artifact, label) {
   return { id, at };
 }
 
+/** The verdict in a validation report, which the tool returns as the server's JSON whatever it says. */
+function validates(text) {
+  try {
+    const report = JSON.parse(text);
+    return report?.validates === true || report?.validates === 'true';
+  } catch {
+    return false;
+  }
+}
+
 /** Deletes a template through the tool, and confirms through the resource server that it is gone. */
 async function remove(server, auth, made, label) {
   const deleted = await server.tool('delete_template', { id: made.id });
@@ -148,7 +158,8 @@ export async function run({ user1 }) {
       const artifact = JSON.stringify(document);
 
       const validated = await server.tool('validate_artifact', { artifact });
-      check(!validated.isError, `${file}: validate_artifact accepts it`, validated.text.slice(0, 400));
+      check(!validated.isError && validates(validated.text), `${file}: validate_artifact accepts it`,
+          validated.text.slice(0, 400));
 
       const made = await create(server, user1.auth, artifact, file);
       if (!made) continue;
