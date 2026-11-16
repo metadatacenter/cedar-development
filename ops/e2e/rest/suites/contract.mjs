@@ -187,6 +187,8 @@ export async function run({ user1, admin, folderId }) {
   // artifact server. This is why content must only ever be written through the resource server.
   const orphanLabel = `Contract Orphan ${RUN}`;
   const orphan = await artifact(auth, 'POST', '/templates', artifactBody('template', orphanLabel));
+  // Counted below: the content store holds this template and the graph has no node for it.
+  const orphans = orphan.status === 201 ? 1 : 0;
   if (checkStatus(orphan, 201, 'a template is written directly to the artifact server')) {
     const oid = orphan.body['@id'];
     const oat = `/templates/${enc(oid)}`;
@@ -230,10 +232,18 @@ export async function run({ user1, admin, folderId }) {
   checkStatus(await call(auth, 'GET', countPath), 403, 'resource counts require monitor permission');
   checkStatus(await call(auth, 'GET', '/resources/counts', undefined, { base: monitorBase }), 403,
       'monitor counts require monitor permission');
-  // The three reads happen one after another, and the gate runs the browser tiers beside this one,
-  // so an artifact created or deleted between two reads makes the counts differ for a moment. Read
-  // them again until they agree, ten times at most: counts that never agree are a real difference.
+  // The three services relay one count, read from the content store, so their agreement shows the
+  // relays and not that the graph and the content store agree. The monitor also reports the graph's
+  // own count of each kind, which must equal the content count but for the orphan written above: a
+  // document with no graph node, or a node with no document, is the drift this suite exists to catch.
+  //
+  // The reads happen one after another, and the gate runs the browser tiers beside this one, so an
+  // artifact created or deleted between two reads makes the counts differ for a moment. Read them
+  // again until they agree, ten times at most: counts that never agree are a real difference.
   const kinds = ['field', 'element', 'template', 'instance'];
+  const graphShort = kind => (kind === 'template' ? orphans : 0);
+  const graphAgrees = (counts, kind) => Number.isSafeInteger(counts.body?.neo4j?.[kind])
+    && counts.body.neo4j[kind] + graphShort(kind) === counts.body?.mongo?.[kind];
   let resourceCounts, artifactCounts, monitorCounts;
   for (let attempt = 1; attempt <= 10; attempt++) {
     resourceCounts = await call(admin?.auth, 'GET', countPath);
@@ -241,7 +251,8 @@ export async function run({ user1, admin, folderId }) {
     monitorCounts = await call(admin?.auth, 'GET', '/resources/counts', undefined, { base: monitorBase });
     const answered = [resourceCounts, artifactCounts, monitorCounts].every(res => res.status === 200);
     if (!answered || kinds.every(kind => resourceCounts.body?.[kind] === artifactCounts.body?.[kind]
-        && monitorCounts.body?.mongo?.[kind] === artifactCounts.body?.[kind])) break;
+        && monitorCounts.body?.mongo?.[kind] === artifactCounts.body?.[kind]
+        && graphAgrees(monitorCounts, kind))) break;
     await new Promise(resolve => setTimeout(resolve, 300));
   }
   checkStatus(resourceCounts, 200, 'resource serves document counts');
@@ -252,6 +263,10 @@ export async function run({ user1, admin, folderId }) {
     check(Number.isSafeInteger(count) && count >= 0
         && resourceCounts.body?.[kind] === count && monitorCounts.body?.mongo?.[kind] === count,
         `${kind} document count agrees across all three services`);
+    check(graphAgrees(monitorCounts, kind),
+        `${kind}: the graph holds a node for every stored document but the orphan written above`,
+        `content ${monitorCounts.body?.mongo?.[kind]}, graph ${monitorCounts.body?.neo4j?.[kind]}, `
+          + `orphans written ${graphShort(kind)}`);
   }
   check(['neo4j', 'opensearch', 'keycloak'].every(store => typeof monitorCounts.body?.[store] === 'object'),
       'monitor preserves the other store reports');
