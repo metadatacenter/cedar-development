@@ -31,6 +31,7 @@
     "test:rest-harness": "node --test --test-isolation=none rest/*.test.mjs",
     "presmoke:rest": "npm run test:rest-harness",
     "smoke:rest": "node rest-smoke.mjs",
+    "smoke:rest:live-authorities": "node rest/live-authorities.mjs",
     "perf:rest:provision": "node rest-perf/provision-users.mjs",
     "perf:rest:permissions": "node rest-perf/run-rest.mjs --profile=permissions",
     "perf:rest:quick": "node rest-perf/run-rest.mjs --profile=quick",

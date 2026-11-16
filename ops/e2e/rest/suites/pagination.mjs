@@ -242,7 +242,10 @@ export async function run({ user1, user2, admin, folderId }) {
     { name: "the artifact server's fields", base: ARTIFACT_SERVER, path: '/template-fields' },
     { name: "the artifact server's instances", base: ARTIFACT_SERVER, path: '/template-instances' },
     { name: 'messages', base: MESSAGING, path: '/messages' },
-    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
+    // The bridge refuses a bad limit or offset before it asks the registry, so the refusals need no
+    // registry. A valid page does: it is asked of the live ROR registry, and is checked by
+    // rest/live-authorities.mjs, which gates nothing, so that an outside service cannot fail a release.
+    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford', registry: true },
   ];
   if (check(!!admin, 'the administrator key is configured, so the monitor listings can be paged',
       'CEDAR_ADMIN_USER_API_KEY is unset; the admin-only monitor listings cannot run')) {
@@ -254,8 +257,7 @@ export async function run({ user1, user2, admin, folderId }) {
   for (const listing of listings) {
     const sep = listing.path.includes('?') ? '&' : '?';
     const get = qs => call(listing.auth ?? auth, 'GET', `${listing.path}${sep}${qs}`, undefined, { base: listing.base });
-    const valid = await get('limit=2&offset=0');
-    if (!checkStatus(valid, 200, `${listing.name} answers a valid page`)) continue;
+    if (!listing.registry && !checkStatus(await get('limit=2&offset=0'), 200, `${listing.name} answers a valid page`)) continue;
     for (const bad of badArgs) {
       const res = await get(bad.qs);
       badQuery(res, `${listing.name} with ${bad.what} is refused with 400`);
@@ -475,31 +477,14 @@ export async function run({ user1, user2, admin, folderId }) {
   suite('pagination: a listing that pages by number as well refuses both at once');
 
   // Terminology and the external authorities still take a page number and a page size, for clients
-  // that predate limit and offset. A request may page one way or the other. A link a page answers
-  // with pages by offset, so a client paging by number can follow it; the authority search's links
-  // used to carry the page number too, and every one of them was refused.
-  const byNumber = [
-    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
-  ];
-  for (const listing of byNumber) {
-    const sep = listing.path.includes('?') ? '&' : '?';
-    const both = await call(auth, 'GET', `${listing.path}${sep}page=1&pageSize=2&offset=2`, undefined,
-        { base: listing.base });
-    check(both.status === 400, `${listing.name} refuses a page number sent with an offset`,
-        `expected 400, got ${both.status}: ${(both.text ?? '').slice(0, 120)}`);
-    const numbered = await call(auth, 'GET', `${listing.path}${sep}page=1&pageSize=2`, undefined,
-        { base: listing.base });
-    if (!checkStatus(numbered, 200, `${listing.name} answers a page asked for by number`)) continue;
-    const links = Object.entries(numbered.body?.paging ?? {}).filter(([, link]) => typeof link === 'string');
-    check(links.length > 0, `${listing.name} answers a page by number with paging links`,
-        `paging was ${JSON.stringify(numbered.body?.paging ?? null).slice(0, 160)}`);
-    for (const [rel, link] of links) {
-      const followed = await call(auth, 'GET', link.replace(/^https?:[/][/][^/]+/, ''), undefined,
-          { base: listing.base });
-      check(followed.status === 200, `${listing.name}'s ${rel} link from a page by number can be followed`,
-          `${link} answered ${followed.status}: ${(followed.text ?? '').slice(0, 120)}`);
-    }
-  }
+  // that predate limit and offset. A request may page one way or the other, and the bridge refuses one
+  // that pages both ways before it asks the registry. That a page asked for by number is answered,
+  // with links that can be followed, needs the live ROR registry, so rest/live-authorities.mjs checks
+  // it outside the gate.
+  const both = await call(auth, 'GET', '/ext-auth/ror/search-by-name?q=stanford&page=1&pageSize=2&offset=2',
+      undefined, { base: BRIDGE });
+  check(both.status === 400, 'an authority search refuses a page number sent with an offset',
+      `expected 400, got ${both.status}: ${(both.text ?? '').slice(0, 120)}`);
 
   suite('pagination: a window the search index cannot serve is refused with 400');
 
