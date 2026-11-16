@@ -293,7 +293,9 @@ in the runbook. Release smoke does not require live BioPortal availability.
   `cedar-test-support-library`). No suite in the default build needs an external service. The
   terminology suites run against a fake BioPortal, and the OpenSearch integration tests run only
   under `-Popensearch-it`, as CI does.
-  Tests boot on `19xxx` ports (dev + 10000) so a running dev stack never collides.
+  Test servers, stubs and embedded stores bind `127.0.0.1` on a port the OS assigns, so neither a
+  running dev stack nor a concurrent build collides with them.
+  `ops/tests/test_backend_test_port_policy.py` enforces the rule.
 - GitHub Actions builds every Java repo on push and PR to `develop`, and a merge to `develop`
   publishes that repo's snapshot to Nexus. Downstream builds and the Docker images resolve CEDAR
   artifacts from Nexus, never from a checkout, so an unpublished snapshot breaks a consumer that

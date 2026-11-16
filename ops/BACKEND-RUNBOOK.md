@@ -5274,9 +5274,10 @@ no-op, and artifacts passed from one job to the next. Every `run:` step runs wit
 condition, environment and working directory. A step's environment holds the toolchain that the
 release also resolves, Java 17 and Node 24.22.1, and a home directory, but nothing else from the
 shell that started it. Maven resolves into a repository of its own under `~/.cedar/local-ci/maven`,
-so a snapshot installed from a working tree can never stand in for the one Nexus serves. Jobs that
-boot the embedded stores on the shared test ports run one at a time, and a repository's
-independent jobs run in parallel, as GitHub schedules them.
+so a snapshot installed from a working tree can never stand in for the one Nexus serves. Test
+servers and embedded stores bind ports the OS assigns, so Maven jobs run in parallel, and so do a
+repository's independent jobs, as GitHub schedules them. Only the jobs that start the OpenSearch
+container run one at a time, because they share its name and port.
 
 `ops/local-ci.json` records only what must differ on this machine, each difference with its reason.
 That means the steps local CI skips, such as publication or a Linux-only package install, and the
