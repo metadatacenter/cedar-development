@@ -66,8 +66,8 @@ by name in commits.
   bundle inside it.
 
   The CEE also publishes dev releases faster than anyone bumps a pin, and each one may narrow the
-  configuration surface again — 2.0 dropped nine of the fourteen keys this server sent. A unit test
-  now catches that at build time, but only for a build that happens.
+  configuration surface again: 2.0 dropped nine of the fourteen keys this server sent. Nothing
+  compares the keys the server sends with a CEE release until somebody moves the pin to it.
 
 - **3. Give the servers a shared release note surface.** Each repository has a README, a DESIGN
   and a CLAUDE.md, and the four sets restate the same conventions — how a jar is built and
