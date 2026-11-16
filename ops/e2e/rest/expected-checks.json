@@ -1748,7 +1748,7 @@
     "negotiation\u001fcontent negotiation: YAML in and out\u001fthe response is typed as YAML",
     "negotiation\u001fcontent negotiation: YAML in and out\u001fand the body is not JSON",
     "negotiation\u001fcontent negotiation: YAML in and out\u001fand it carries the template name",
-    "negotiation\u001fcontent negotiation: YAML in and out\u001fan unsupported Accept is either refused with 406 or falls back deliberately",
+    "negotiation\u001fcontent negotiation: YAML in and out\u001fan unsupported Accept is refused with 406",
     "negotiation\u001fcontent negotiation: which YAML forms may be written\u001fthe minimal authoring form is accepted on create",
     "negotiation\u001fcontent negotiation: which YAML forms may be written\u001fand the system assigns the identifier it omitted",
     "negotiation\u001fcontent negotiation: which YAML forms may be written\u001fwhat YAML created reads back as a proper JSON template",

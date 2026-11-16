@@ -66,6 +66,12 @@
       "section": "versioning: reconnect deleted versions and maintain graph/search flags",
       "name": "field: ordinary editing cannot change lifecycle metadata",
       "reason": "Recorded once for each of three changes under one name, so a failure did not say which was accepted. Each is now named for the field it changes: bibo:status, pav:version or pav:previousVersion."
+    },
+    {
+      "suite": "negotiation",
+      "section": "content negotiation: YAML in and out",
+      "name": "an unsupported Accept is either refused with 406 or falls back deliberately",
+      "reason": "Accepted a 200 fallback that its own comment ruled out; the resource server answers 406, and the check now requires it."
     }
   ]
 }
