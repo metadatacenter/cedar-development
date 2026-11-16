@@ -490,7 +490,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   exists and is used elsewhere: `CEDAR_BIOPORTAL_API_KEY` reaches `BioPortal.getApiKey()` through
   `cedar-main.yml`. Read the key from there and delete the constant. `Cache` is static, so the
   configuration has to be threaded in, which is why this belongs to the terminology rewrite rather
-  than ahead of it.
+  than ahead of it. Until then the suite holds the literal key to those reads: `FakeBioPortal`
+  accepts it beside the configured test key, and `BioPortalSuccessPathsTest.onlyTheCacheSendsThePublicKey`
+  fails if any other request carries it. Deleting the constant takes the fake's `PUBLIC_API_KEY` and
+  that test with it, and leaves the fake accepting the configured key alone.
 
   BioPortal does not offer regeneration for this key, so rotation is not an actionable code or
   operations step. Treat the existing value as a fixed exposed credential: remove it from source,
