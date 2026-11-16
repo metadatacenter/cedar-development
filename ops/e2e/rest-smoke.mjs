@@ -171,6 +171,19 @@ function expectedFor(suiteNames) {
 // existing `finally` does the cleanup. A second signal is the way out of a suite that will not
 // return, at the cost of the cleanup this exists to perform.
 let interrupted = false;
+// The run's own deadline, after which it stops as it does on a first signal: active suites drain,
+// queued ones do not start, and teardown runs. Each request has a timeout of its own (lib.mjs), so a
+// suite cannot hang past it for long. The gate gives the whole tier a longer budget as a backstop.
+const DEADLINE_SECONDS = Number(argv.find(a => a.startsWith('--deadline='))?.slice('--deadline='.length) ?? 1200);
+if (!Number.isFinite(DEADLINE_SECONDS) || DEADLINE_SECONDS <= 0) {
+  console.error('--deadline must be a positive number of seconds');
+  process.exit(2);
+}
+const deadline = setTimeout(() => {
+  interrupted = true;
+  console.log(`\ndeadline of ${DEADLINE_SECONDS} s reached — draining active suites, then tearing down`);
+}, DEADLINE_SECONDS * 1000);
+deadline.unref();
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     if (interrupted) {

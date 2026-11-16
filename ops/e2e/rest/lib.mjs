@@ -51,6 +51,13 @@ const CLIENT = env.CEDAR_KEYCLOAK_CLIENT ?? 'cedar-angular-app';
 env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 export const RUN = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+/**
+ * How long one request may go unanswered. A service that accepts a connection and never answers
+ * would otherwise hold each request for Node's 300-second header timeout, one after another, and the
+ * tier with it. Generous, since the gate runs this tier beside the browser tiers on a loaded machine.
+ */
+export const REQUEST_TIMEOUT_MS = Number(env.CEDAR_REST_REQUEST_TIMEOUT_MS ?? 120_000);
 export const enc = iri => encodeURIComponent(iri);
 
 /**
@@ -218,6 +225,7 @@ export async function call(auth, method, path, body, opts = {}) {
   const res = await fetch(`${opts.base ?? RESOURCE}${path}`, {
     method,
     redirect: opts.base === ARTIFACT_SERVER ? 'manual' : 'follow',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers,
     body: body === undefined ? undefined
         : (typeof body === 'string' ? body : JSON.stringify(body)),

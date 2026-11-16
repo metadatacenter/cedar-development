@@ -28,3 +28,31 @@ test('partial inventory updates fail before HTTP, reports or inventory writes', 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('a deadline that is not a positive number of seconds is refused before HTTP', () => {
+  const runner = fileURLToPath(new URL('../rest-smoke.mjs', import.meta.url));
+  const directory = mkdtempSync(join(tmpdir(), 'cedar-rest-runner-'));
+  const guard = 'data:text/javascript,' + encodeURIComponent('globalThis.fetch = () => process.exit(98);');
+  try {
+    for (const value of ['0', '-5', 'soon']) {
+      const result = spawnSync(process.execPath, ['--import', guard, runner, `--deadline=${value}`],
+          { cwd: directory, encoding: 'utf8', timeout: 10000 });
+      assert.equal(result.status, 2, result.stderr);
+      assert.match(result.stderr, /--deadline must be a positive number of seconds/);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('every request carries a timeout, so a service that never answers cannot hold the tier', async t => {
+  const { call, REQUEST_TIMEOUT_MS } = await import('./lib.mjs');
+  let signal;
+  t.mock.method(globalThis, 'fetch', (_url, options) => {
+    signal = options.signal;
+    return new Response('{}', { status: 200 });
+  });
+  await call(null, 'GET', '/anything');
+  assert.ok(signal instanceof AbortSignal);
+  assert.ok(REQUEST_TIMEOUT_MS > 0 && REQUEST_TIMEOUT_MS <= 300_000);
+});
