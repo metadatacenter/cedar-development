@@ -1624,7 +1624,7 @@ with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
 ### Comparing the Two Model Libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
-model. JSON and both full and compact YAML match over all 84 corpus artifacts.
+model. JSON and both full and compact YAML match over all 85 corpus artifacts.
 Both YAML writers name a BioPortal ontology by its acronym and leave its service address out, and
 both readers derive `https://data.bioontology.org/ontologies/{ACRONYM}` for an entry that states
 none. A stored BioPortal address may take another form, over `http://` or at
@@ -1684,7 +1684,7 @@ npm run parity:json
 ```
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
-thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 21 instances and 39 templates. Full and compact output have independent parity gates, so
+thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 22 instances and 39 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
 A third comparison holds the TypeScript YAML readers to the JSON source rather than to their own
@@ -1707,7 +1707,7 @@ case.
 
 The Java library makes the same comparison over the same corpus. `CorpusYamlTripVerifier` runs in its
 CI after the fixture check, with the families defined in `YamlTripComparison` and the cases that show
-each named in `src/test/resources/concordance/corpus-yaml-trip.json`. It compares 219 cases and
+each named in `src/test/resources/concordance/corpus-yaml-trip.json`. It compares 220 cases and
 excludes 7, among them the definitions `corpus-expected-rejections.json` pins. The Java reader requires
 an instance to name its template and itself, so each CEE suite instance that names neither is given
 its own case's template and a name first, as a host gives them before storing it. Run it with the
@@ -2489,8 +2489,9 @@ Java-test option.
 
 **Bounded parallel Maven builds.** `cedarcli build java` passes Maven one reactor thread per
 detected CPU, at least one and capped at sixteen, so a plain build uses the whole machine: `-T 16`
-on the 16-core workstation, where the full build takes about 166 seconds against 305 at two
-threads. `--jobs N` overrides the count with `-T N`, and `--jobs 1` retains serial execution.
+on the 16-core workstation. There the 76 full builds with tests between 2026-10-20 and 2026-11-15
+took a median of 274 seconds; the last of them spent 250.5 of its 274.6 seconds in `cedar-project`.
+`--jobs N` overrides the count with `-T N`, and `--jobs 1` retains serial execution.
 Frontend builds have separate repository and worker budgets: three jobs on hosts with at least
 sixteen logical cores, two on smaller hosts, unless `--jobs` overrides it. See
 [frontend concurrency](FRONTEND-RUNBOOK.md#bounded-parallel-builds-and-test-gates).
@@ -2511,7 +2512,9 @@ work there does not invalidate a build. Other repository source guards remain in
 **Resource test JVM isolation.** The resource application distributes test classes over
 two reusable Surefire JVMs. Each JVM retains serial JUnit execution, keeping the
 process-global CEDAR environment, service singletons and class cleanup isolated. HTTP
-fixtures request OS-assigned ports; Neo4j harnesses use private stores. Surefire writes
+fixtures request OS-assigned ports. Each JVM has its own Neo4j store, and every class in that JVM
+shares it: `EmbeddedCedarNeo4j` keeps one static harness, seeded once, so data and jobs one class
+leaves behind can reach the next class's assertions. Surefire writes
 class-specific reports, and each class is assigned to one fork. This adds at most one
 test JVM beyond the reactor's usual module concurrency, rather than doubling forks
 across the estate. The module's Maven property `cedar.resource.test.forks` defaults to
@@ -2519,7 +2522,8 @@ two; setting it to one restores its serial diagnostic path. `--jobs 1` controls 
 threads alone and does not override this module property.
 
 A sweep on 2026-09-25 extended these measurements past eight threads, with two resource test
-JVMs throughout:
+JVMs throughout. The suites have grown since, so the sweep shows how the build scales with threads
+rather than how long it takes now:
 
 | Maven threads | Full build seconds | `cedar-project` seconds |
 | --- | ---: | ---: |
@@ -3730,7 +3734,10 @@ acquisition and transaction retry therefore reach the same unavailable-dependenc
 in about one second instead of the production drivers' roughly thirty-second defaults. Neo4j keeps
 a separate five-second floor for initial Bolt connection establishment; a healthy embedded server's
 first handshake exceeded one second on a constrained CI runner, so treating that startup latency as
-an outage made the suite flaky. Mongo's socket read timeout has the same five-second floor for the
+an outage made the suite flaky. Only the driver `Neo4JProxies` builds keeps that floor. The other
+six test-runtime drivers, those of the deletion and restore outboxes, version projection, the
+search-permission and create-cleanup outboxes and the DOI store, take the one-second budget for
+their first connection too. Mongo's socket read timeout has the same five-second floor for the
 same reason: a read from a healthy embedded server is not an outage, and dropping its indexes took
 longer than one second while a parallel `cedarcli build java` loaded the machine, failing the admin
 tool's provisioning test in two of three builds on 2026-11-15. Local dead ports still refuse immediately, and the outage HTTP tests
@@ -3757,8 +3764,10 @@ the active environment changes, and no reflective `--add-opens` environment muta
 
 The same support library registers a JUnit launcher-session listener that explicitly stops its
 shared embedded MongoDB and MariaDB once the suite closes. The JVM shutdown hook remains a fallback
-for ordinary shutdown outside a launcher session; the next CLI preflight catches a child left by a
-crashed or forcibly killed JVM.
+for ordinary shutdown outside a launcher session. A crashed or forcibly killed JVM can leave its
+children running. The next CLI preflight refuses to start a test-bearing Maven task while an
+orphaned embedded mongod remains, but it does not look for an orphaned embedded MariaDB or Redis
+server.
 
 `ops/tests/test_backend_test_port_policy.py` is the static regression guard. It rejects fixed server
 environment ports, nonzero test connector ports, wildcard test connectors and wildcard port-zero
@@ -3772,11 +3781,13 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 `DropwizardAppExtension`: its version bundled with Dropwizard 2.1 is binary-incompatible with the
 current JUnit platform.
 
-Suite sizes in the surefire reports of the 2026-10-28 build: artifact 1,816 (parameterized CRUD over
-four artifact types on embedded Mongo), server-rest 527, workspace-operations 271, search-operations
-337, artifact-library 1,928, terminology 782 (61 more excluded under `bioportal`), model-validation
-505, resource 1,440, cadsr-tools 139, core-library 440, user 43, group 34, messaging 38, bridge 639,
-monitor 144, and a one-to-seven-test boot-and-config tier on the remaining thin servers.
+Suite sizes in a full build of every Java suite on 2026-11-16, 10,413 tests in all, by repository:
+artifact-library 1,940, artifact 1,817 (parameterized CRUD over four artifact types on embedded
+Mongo), resource 1,452, terminology 849, bridge 650, model-validation 508, core-library 438,
+monitor 144, cadsr-tools 139, worker 77, config-library 75, user 43, messaging 38, admin-tool 37 and
+group 34. The shared libraries hold 2,123, among them server-rest 480, search-operations 337 and
+workspace-operations 273. The repo and OpenView servers run a boot-and-config tier of a dozen tests
+each.
 
 ### Reproducing a Flake That Depends on Class Order
 
