@@ -8041,6 +8041,68 @@ def only_allowed_iri_notations(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# The required lists an optional IRI field's value schema states in production, sorted. Any other list
+# is refused rather than removed, so an owner sees it.
+BLANK_IRI_DEMANDS = (["@id"], ["@id", "rdfs:label"])
+
+
+def is_optional_iri_field_demanding_a_value(node: Any) -> bool:
+    """An optional IRI field whose value schema requires ``@id``, so the blank value ``{}`` is refused.
+
+    An IRI field declares ``@id`` and no ``@value``: a link or a controlled term. It is optional when its
+    ``requiredValue`` is false.
+    """
+    if not isinstance(node, dict) or node.get(AT_TYPE) != FIELD_AT_TYPE:
+        return False
+    properties = node.get("properties")
+    constraints = node.get("_valueConstraints")
+    required = node.get("required")
+    return isinstance(properties, dict) and "@id" in properties and "@value" not in properties \
+        and isinstance(constraints, dict) and constraints.get("requiredValue") is False \
+        and isinstance(required, list) and "@id" in required
+
+
+def allow_blank_optional_iri(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Let an optional IRI field be left blank, by removing its value schema's ``required`` list.
+
+    Templates written in 2016 and 2017 give a link or controlled-term field a value schema that requires
+    ``@id``, and sometimes ``rdfs:label``, whether or not the field is optional. A blank field holds
+    ``{}`` in an instance, which that schema refuses, so a form cannot be saved until every such
+    optional field is filled. Neither library's writer gives an IRI field's value schema a ``required``
+    list. Removing it from an optional field only widens what an instance may hold; a required field
+    keeps its list.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f"{path}/{rest.json_pointer_component(key)}") for key, value in node.items()}
+        if is_optional_iri_field_demanding_a_value(node):
+            if sorted(node["required"]) not in BLANK_IRI_DEMANDS:
+                raise TransformRefused(f"{path or '/'}: an optional IRI field requires {node['required']}")
+            del result["required"]
+            changes.append({"path": f"{path}/required", "replaced": copy.deepcopy(node["required"]), "wrote": None})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_allowed_blank_optional_iris(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change removes the ``required`` list of an optional IRI field demanding ``@id``."""
+    for path, was, now in differences(before, after):
+        if not path.endswith("/required") or now is not ABSENT or not isinstance(was, list) \
+                or sorted(was) not in BLANK_IRI_DEMANDS:
+            return path or "/"
+        if not is_optional_iri_field_demanding_a_value(value_at(before, path[:-len("/required")])):
+            return path
+    return None
+
+
 # What a template's or element's @context schema says of entries it does not name: an attribute-value
 # child adds an entry per attribute its instance holds, so a container with one admits further IRIs and
 # a container without one admits none. Both libraries' writers render exactly these two forms.
@@ -10385,6 +10447,13 @@ REPAIRS = {
         summary="declare skos:notation in a controlled-term field's value schema, as the model writes it",
         transform=allow_term_notation,
         invariant=only_allowed_term_notations,
+    ),
+    "allow-blank-optional-iri": Repair(
+        name="allow-blank-optional-iri",
+        condition="",
+        summary="remove the required list from an optional IRI field's value schema, so a blank value is accepted",
+        transform=allow_blank_optional_iri,
+        invariant=only_allowed_blank_optional_iris,
     ),
     "restate-user-iris-in-current-form": Repair(
         name="restate-user-iris-in-current-form",

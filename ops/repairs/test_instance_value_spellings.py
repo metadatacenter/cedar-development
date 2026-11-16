@@ -541,6 +541,67 @@ class AllowTermNotationTest(unittest.TestCase):
         self.assertEqual(r.only_allowed_iri_notations(document, changed), "/properties/Note/properties/skos:notation")
 
 
+class AllowBlankOptionalIriTest(unittest.TestCase):
+    BRANCH = [{"uri": "http://example.org/branch"}]
+
+    def document(self):
+        document = template()
+        document["required"] = ["@context", "Page"]
+        document["properties"]["Page"]["required"] = ["@id"]
+        document["properties"]["Term"]["required"] = ["rdfs:label", "@id"]
+        document["properties"]["Needed"] = field("link", ("@id",), IRI_PROPERTIES, requiredValue=True)
+        document["properties"]["Links"] = {"type": "array", "items": field("link", ("@id",), IRI_PROPERTIES)}
+        document["properties"]["Sample"]["properties"]["Kind"] = field("textfield", ("@id",), IRI_PROPERTIES,
+                                                                       branches=self.BRANCH)
+        return document
+
+    def test_optional_iri_fields_lose_their_required_list_at_every_depth_and_nothing_else_changes(self):
+        document = self.document()
+        after, changes = r.allow_blank_optional_iri(document)
+        for name in ("Page", "Term"):
+            self.assertNotIn("required", after["properties"][name])
+        self.assertNotIn("required", after["properties"]["Links"]["items"])
+        self.assertNotIn("required", after["properties"]["Sample"]["properties"]["Kind"])
+        self.assertEqual(after["properties"]["Needed"]["required"], ["@id"])
+        self.assertEqual(after["properties"]["Note"]["required"], ["@value"])
+        self.assertEqual(after["required"], ["@context", "Page"])
+        self.assertEqual(sorted((change["path"], change["replaced"]) for change in changes), [
+            ("/properties/Links/items/required", ["@id"]),
+            ("/properties/Page/required", ["@id"]),
+            ("/properties/Sample/properties/Kind/required", ["@id"]),
+            ("/properties/Term/required", ["rdfs:label", "@id"]),
+        ])
+        self.assertIsNone(r.only_allowed_blank_optional_iris(document, after))
+        self.assertEqual(r.allow_blank_optional_iri(after), (after, []))
+
+    def test_a_standalone_field_is_repaired_at_its_root(self):
+        document = dict(field("link", ("@id",), IRI_PROPERTIES), **{"@id": "https://repo.metadatacenter.org/template-fields/f"})
+        after, changes = r.allow_blank_optional_iri(document)
+        self.assertNotIn("required", after)
+        self.assertEqual(changes, [{"path": "/required", "replaced": ["@id"], "wrote": None}])
+        self.assertIsNone(r.only_allowed_blank_optional_iris(document, after))
+
+    def test_a_list_demanding_another_key_is_refused(self):
+        document = self.document()
+        document["properties"]["Page"]["required"] = ["@id", "skos:notation"]
+        with self.assertRaises(r.TransformRefused):
+            r.allow_blank_optional_iri(document)
+
+    def test_the_invariant_refuses_any_other_removal(self):
+        document = self.document()
+        after, _changes = r.allow_blank_optional_iri(document)
+        for pointer, where in (("/properties/Needed", ("properties", "Needed")),
+                               ("/properties/Note", ("properties", "Note")), ("", ())):
+            changed = copy.deepcopy(after)
+            node = changed
+            for key in where:
+                node = node[key]
+            del node["required"]
+            self.assertEqual(r.only_allowed_blank_optional_iris(document, changed), f"{pointer}/required")
+        changed = copy.deepcopy(after); changed["properties"]["Page"]["required"] = []
+        self.assertEqual(r.only_allowed_blank_optional_iris(document, changed), "/properties/Page/required")
+
+
 class ContextOpennessTest(unittest.TestCase):
     def document(self, sample_context, with_attribute_value=False):
         document = template()
