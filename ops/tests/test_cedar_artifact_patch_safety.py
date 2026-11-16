@@ -231,5 +231,38 @@ class ArtifactPatchMongoSafetyTest(unittest.TestCase):
         self.assertEqual(2, raised.exception.code)
 
 
+class ArtifactPatchTreeSafetyTest(unittest.TestCase):
+    """The tree path reports by default and writes only under --apply."""
+
+    def fixture_tree(self, folder):
+        root = Path(folder)
+        (root / "templates").mkdir()
+        first = root / "templates" / "template-one.json"
+        second = root / "templates" / "template-two.json"
+        # Written compactly, unlike the two-space form a rewrite produces, so any write shows.
+        first.write_text(json.dumps(repairable_document(), separators=(",", ":")))
+        second.write_text(json.dumps(dict(repairable_document(), **{
+            "@id": "https://repo.metadatacenter.orgx/templates/two", "_id": "mongo-2"})))
+        return root, [first, second]
+
+    def test_report_mode_finds_the_defects_and_changes_no_byte(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, files = self.fixture_tree(folder)
+            before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in files}
+            report = PATCHER.run_over_tree(str(root), set(PATCHER.ITEMS), PATCHER.Catalog(str(root / "absent")),
+                                           include_originals=False, apply_repairs=False)
+            self.assertEqual(2, report.documents)
+            self.assertEqual(2, sum(1 for finding in report.findings if finding.fixable))
+            self.assertEqual(before, {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in files})
+
+    def test_apply_mode_rewrites_the_files_it_repairs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root, files = self.fixture_tree(folder)
+            PATCHER.run_over_tree(str(root), {26}, PATCHER.Catalog(str(root / "absent")),
+                                  include_originals=False, apply_repairs=True)
+            for path in files:
+                self.assertNotIn("pav:derivedFrom", json.loads(path.read_text()))
+
+
 if __name__ == "__main__":
     unittest.main()
