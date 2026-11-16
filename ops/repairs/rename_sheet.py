@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""Draft the rename mapping a template's instances imply, for an owner to confirm."""
-import json, os, pathlib, urllib.request, urllib.parse, sys, importlib.util, collections, random, re, difflib
+"""Draft the rename mapping a template's instances imply, for an owner to confirm.
+
+    python3 ops/repairs/rename_sheet.py --api-key-file ~/.cedar-admin-key [--server <origin>]
+
+The key and the server are read when the sheet is drafted, not when the module is imported, so the
+module can be imported, and tested, without a key, and pointed at a deployment other than production.
+"""
+import argparse, json, os, pathlib, urllib.request, urllib.parse, sys, collections, random, re, difflib
 import concurrent.futures as cf
 
 OPS = pathlib.Path(__file__).resolve().parent.parent
 HOME = pathlib.Path(os.environ.get("CEDAR_HOME", pathlib.Path.home() / "CEDAR"))
-spec = importlib.util.spec_from_file_location("cedar_artifact_rest_audit",
-                                              OPS / "cedar_artifact_rest_audit.py")
-rest = importlib.util.module_from_spec(spec); sys.modules[spec.name] = rest; spec.loader.exec_module(rest)
-spec = importlib.util.spec_from_file_location("cedar_artifact_repair",
-                                              pathlib.Path(__file__).resolve().parent
-                                              / "cedar_artifact_repair.py")
-repair = importlib.util.module_from_spec(spec); sys.modules[spec.name] = repair
-spec.loader.exec_module(repair)
-KEY = pathlib.Path.home().joinpath('.cedar-admin-key').read_text().strip()
+sys.path.insert(0, str(OPS))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import cedar_artifact_rest_audit as rest  # noqa: E402
+import cedar_artifact_repair as repair  # noqa: E402
+
+# Set by main from --server and --api-key-file.
+SERVER = rest.DEFAULT_SERVER
+KEY = None
+
 RESERVED = {'@context','@id','@type','schema:isBasedOn','schema:name','schema:description','pav:createdOn',
             'pav:createdBy','pav:lastUpdatedOn','oslc:modifiedBy','pav:derivedFrom','_annotations'}
 SAMPLE = 40
@@ -21,7 +27,7 @@ VALUES = 10
 
 
 def get(artifact_id, segment):
-    url = f"https://resource.metadatacenter.org/{segment}/{urllib.parse.quote(rest.resource_path_id(artifact_id), safe='')}"
+    url = f"{SERVER}/{segment}/{urllib.parse.quote(rest.resource_path_id(artifact_id), safe='')}"
     request = urllib.request.Request(url, headers={'Authorization': f'apiKey {KEY}', 'Accept': 'application/json'})
     try:
         with urllib.request.urlopen(request, timeout=90) as answer:
@@ -432,7 +438,26 @@ def load_written():
         path = HOME / name
         if not path.is_file():
             continue
-        for line in path.open(encoding="utf-8"):
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if record.get("outcome") == "repaired" and record.get("templateId"):
+                    written[record["templateId"]] += 1
+    return written
+
+
+def load_valid_instances():
+    """Instances of these templates that already validate, as a source of current values."""
+    wanted = set(json.loads((HOME / 'top10-residual.json').read_text(encoding='utf-8')))
+    out = collections.defaultdict(list)
+    with (HOME / 'production-validation.jsonl').open(encoding='utf-8') as stream:
+        for line in stream:
             line = line.strip()
             if not line:
                 continue
@@ -440,36 +465,28 @@ def load_written():
                 record = json.loads(line)
             except ValueError:
                 continue
-            if record.get("outcome") == "repaired" and record.get("templateId"):
-                written[record["templateId"]] += 1
-    return written
-
-
-def load_valid_instances():
-    """Instances of these templates that already validate, as a source of current values."""
-    wanted = set(json.load(open(HOME / 'top10-residual.json')))
-    out = collections.defaultdict(list)
-    for line in open(HOME / 'production-validation.jsonl'):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue
-        validation = record.get("validation") or {}
-        if record.get("artifactType") == "instance" and validation.get("status") == "valid" \
-                and validation.get("templateId") in wanted:
-            out[validation["templateId"]].append(record["artifactId"])
+            validation = record.get("validation") or {}
+            if record.get("artifactType") == "instance" and validation.get("status") == "valid" \
+                    and validation.get("templateId") in wanted:
+                out[validation["templateId"]].append(record["artifactId"])
     return out
 
 
-def main():
+def main(argv=None):
+    global SERVER, KEY
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--server", default=rest.DEFAULT_SERVER,
+                        help=f"resource server origin (default: {rest.DEFAULT_SERVER})")
+    parser.add_argument("--api-key-file", help="read the API key from this one-line file "
+                                               "(default: $CEDAR_API_KEY, or a prompt)")
+    arguments = parser.parse_args(argv)
+    SERVER = arguments.server.rstrip("/")
+    KEY = rest.resolve_api_key(arguments, parser)
     VALID.update(load_valid_instances())
     ANSWERED.update(load_answered())
     SETTLED.update(settled_mapping())
     written = load_written()
-    residual = json.load(open(HOME / 'top10-residual.json'))
+    residual = json.loads((HOME / 'top10-residual.json').read_text(encoding='utf-8'))
     out = ["# CEDAR — Template Rename Review",
            "",
            "Ten templates carry two thirds of the invalid instances left in production. Each was edited "
@@ -725,4 +742,5 @@ def write_decisions(studies, written):
           f"across {len(pending)} templates")
 
 
-main()
+if __name__ == "__main__":
+    main()
