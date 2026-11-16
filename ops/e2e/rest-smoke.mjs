@@ -20,7 +20,9 @@
 //
 // Requires the stack up: cedar-services.sh health.
 import { runSuites, workerCount, PARALLEL_SUITES } from './rest/scheduler.mjs';
-import { argv } from 'node:process';
+import { argv, env } from 'node:process';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,6 +148,37 @@ async function stampedLeftovers(auth, homeFolderId, second) {
   }
   return leftovers;
 }
+
+// The MCP servers live outside the train, so the gate's record names none of their commits. The mcp
+// suite runs cedar-artifact-rest-mcp's jar from its working tree, and the record has to say which
+// commit that was, whether the tree held changes no commit does, and the digest of the jar that ran.
+// The other three are recorded beside it, since a change to any of them is otherwise invisible to
+// every gate.
+const MCP_REPOSITORIES = ['cedar-artifact-rest-mcp', 'cedar-artifact-mcp', 'cedar-cee-mcp', 'bioportal-term-mcp'];
+
+function mcpSources() {
+  const home = env.CEDAR_HOME ?? resolve(HERE, '..', '..', '..');
+  return Object.fromEntries(MCP_REPOSITORIES.map(repository => {
+    const cwd = resolve(home, 'mcp', repository);
+    const git = args => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    try {
+      const source = { head: git(['rev-parse', 'HEAD']), dirty: git(['status', '--porcelain']).length > 0 };
+      if (repository === 'cedar-artifact-rest-mcp') {
+        try {
+          source.jarSha256 = createHash('sha256')
+            .update(readFileSync(resolve(cwd, 'target', 'cedar-artifact-rest-mcp.jar'))).digest('hex');
+        } catch {
+          source.jarSha256 = null;
+        }
+      }
+      return [repository, source];
+    } catch {
+      return [repository, { head: null, dirty: null }];
+    }
+  }));
+}
+// Read before any suite runs, so the record names what the mcp suite will start.
+const MCP_SOURCES = mcpSources();
 
 function checkIdentity(check) {
   return `${check.suite}\u001f${check.section}\u001f${check.name}`;
@@ -360,6 +393,7 @@ const report = {
   phaseTimings,
   counts: { passed, failed, skipped, total: passed + failed + skipped },
   inventoryMatched,
+  mcpSources: MCP_SOURCES,
   checks: result.checks,
 };
 mkdirSync(dirname(REPORT_PATH), { recursive: true });
