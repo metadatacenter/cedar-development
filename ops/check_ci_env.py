@@ -60,15 +60,31 @@ System.out.println("OPTIONAL\\t" + String.join(",", optional));
 """
 
 
+def version_key(version):
+    """A Maven version as a sort key: numbers compare as numbers, and a qualifier such as SNAPSHOT
+    sorts before the release it precedes. String order put 2.9.9 after 2.9.37."""
+    key = [(2, int(token), "") if token.isdigit() else (0, 0, token.lower())
+           for token in re.split(r"[.-]", version) if token]
+    return key + [(1, 0, "")]
+
+
+def jar_version(path, artifact):
+    """The version a jar carries: its directory's name in a Maven repository, else its file name's."""
+    if path.name.startswith(f"{artifact}-{path.parent.name}"):
+        return path.parent.name
+    return path.name[len(artifact) + 1:-len(".jar")]
+
+
 def find_jar(pattern, explicit=None):
     if explicit:
         return Path(explicit)
+    artifact = pattern.split("-*", 1)[0]
     for root in (CEDAR_HOME / "cedar-config-library" / "target",
                  CEDAR_HOME / "cedar-core-library" / "target",
                  Path.home() / ".m2" / "repository"):
         hits = [p for p in root.rglob(pattern) if "sources" not in p.name and "original" not in p.name]
         if hits:
-            return sorted(hits)[-1]
+            return max(hits, key=lambda p: version_key(jar_version(p, artifact)))
     return None
 
 

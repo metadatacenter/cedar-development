@@ -6,6 +6,7 @@ and its --apply replaced their browser jobs' settings with the Java repositories
 """
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import check_ci_env
@@ -74,6 +75,25 @@ class WorkflowSelectionTest(unittest.TestCase):
             check_ci_env.rewrite(path, first, last, CANONICAL)
         self.assertEqual(JAVA.format(block=CANONICAL), java.read_text(encoding="utf-8"))
         self.assertEqual(FRONTEND, frontend.read_text(encoding="utf-8"))
+
+
+class NewestJarTest(unittest.TestCase):
+    def test_versions_compare_as_maven_compares_them(self):
+        ordered = ["2.9.9-SNAPSHOT", "2.9.9", "2.9.37-SNAPSHOT", "2.9.37", "2.10.0-SNAPSHOT", "2.10.0"]
+        self.assertEqual(ordered, sorted(reversed(ordered), key=check_ci_env.version_key))
+
+    def test_the_newest_jar_in_a_maven_repository_is_chosen(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            for version in ("2.9.9", "2.9.37", "2.9.36"):
+                jar = home / ".m2/repository/org/metadatacenter/cedar-config-library" / version \
+                    / f"cedar-config-library-{version}.jar"
+                jar.parent.mkdir(parents=True)
+                jar.write_bytes(b"")
+            with unittest.mock.patch.object(check_ci_env, "CEDAR_HOME", home / "CEDAR"), \
+                    unittest.mock.patch.object(Path, "home", return_value=home):
+                found = check_ci_env.find_jar("cedar-config-library-*.jar")
+            self.assertEqual("cedar-config-library-2.9.37.jar", found.name)
 
 
 if __name__ == "__main__":
