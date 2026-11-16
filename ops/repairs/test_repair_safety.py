@@ -13,6 +13,15 @@ from unittest.mock import patch
 from test_cedar_artifact_repair import REPAIR as r, child, template, ELEMENT_TYPE
 
 
+def api_key_file(test):
+    """A key file, so that main stops for its own checks rather than for want of a key."""
+    folder = pathlib.Path(tempfile.mkdtemp())
+    test.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+    path = folder / 'key'
+    path.write_text('test-key\n')
+    return str(path)
+
+
 class SemanticSafetyTest(unittest.TestCase):
     def test_equal_values_do_not_collapse_different_predicates(self):
         before = {'@context': {'Repository': 'http://purl.org/dc/elements/1.1/source',
@@ -163,6 +172,19 @@ class WriteSafetyTest(unittest.TestCase):
         self.assertEqual((preimage['artifactType'], preimage['artifactId']), ('template', 'urn:test'))
         self.assertEqual(pathlib.Path(result['preimage']), self.preimages / name)
         self.assertEqual(json.loads(pathlib.Path(result['preimage']).read_text()), preimage)
+
+    def test_a_stored_body_that_does_not_validate_is_not_verified(self):
+        result = self.run_repair(valid_back=False)
+        self.assertEqual(result['outcome'], 'repaired')
+        self.assertFalse(result['verified'])
+        self.assertIn('stored body does not validate', result['detail'])
+
+    def test_apply_refuses_to_skip_the_read_back(self):
+        # The key file leaves the guard as the only reason for main to stop before reading targets.
+        with patch('sys.stderr', new_callable=io.StringIO) as error, self.assertRaises(SystemExit):
+            r.main(['--apply', '--no-verify', '--repair', 'empty-derived-from',
+                    '--api-key-file', api_key_file(self), '--from-records', 'unused.jsonl'])
+        self.assertIn('--no-verify is dry-run only', error.getvalue())
 
     def test_readback_detects_unrelated_server_change(self):
         result = self.run_repair(lambda b: b.update({'schema:name': 'corrupted'}))

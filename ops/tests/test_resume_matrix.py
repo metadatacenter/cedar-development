@@ -90,7 +90,9 @@ class World:
         # until that write has started.
         self.hold_read_until_write: Optional[tuple[str, str]] = None
         self.write_started = threading.Event()
-        # The artifact of every PUT the deployment received, in order.
+        # The artifacts whose stored body the deployment alters as it stores a write, and the
+        # artifact of every PUT it received, in order.
+        self.alter_on_write: set[str] = set()
         self.puts: list[str] = []
         self.lock = threading.Lock()
 
@@ -175,6 +177,8 @@ class Deployment(BaseHTTPRequestHandler):
                 self.send(412, {"message": "changed"})
                 return
             WORLD.puts.append(artifact_id)
+            if artifact_id in WORLD.alter_on_write:
+                body = dict(body, **{"schema:name": "altered by the server"})
             WORLD.artifacts[artifact_id] = (kind, body)
             WORLD.revisions[artifact_id] += 1
         self.send(200, body, etag=f'"{WORLD.revisions[artifact_id]}"')
@@ -707,6 +711,21 @@ class RepairWritePath(unittest.TestCase):
         self.assertEqual({record["outcome"] for record in records}, {"would-repair"})
         self.assertFalse(any("preimage" in record for record in records))
 
+    def test_a_write_that_does_not_read_back_stops_the_run(self):
+        tool = self.fresh()
+        order = tool.order()
+        WORLD.alter_on_write.add(order[1])
+        tool.run()
+        records, summary, preimages = self.written(tool)
+        # The altered artifact is written and recorded, and nothing after it is attempted.
+        self.assertEqual(WORLD.puts, order[:2])
+        self.assertEqual(summary["status"], "READBACK_FAILED")
+        self.assertEqual(summary["repairedButUnverified"], 1)
+        self.assertEqual([(record["artifactId"], record["verified"]) for record in records],
+                         [(order[0], True), (order[1], False)])
+        self.assertIn("/schema:name", records[1]["detail"])
+        self.assertEqual(len(preimages), 2)
+        self.assertTrue(all(WORLD.revisions[key] == 1 for key in order[2:]))
 
 
 if __name__ == "__main__":
