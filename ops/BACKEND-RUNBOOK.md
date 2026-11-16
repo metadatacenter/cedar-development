@@ -4408,6 +4408,13 @@ flag for diagnosis. The runner also refuses to replace the inventory after a fai
 It inventories timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
 state or the current teardown did not restore the baseline.
 
+Checks leave the inventory only by name. `rest/retired-checks.json` names every check identity retired
+from the inventory, each with the reason it was retired, and an inventory update that would drop an
+identity the list does not name is refused. `cedarcli test e2e` applies the same rule to the committed
+inventory: when it has lost an identity that the last passing run's inventory held and the list does
+not name, the REST evidence is invalid, and the gate record lists the lost identities as
+`droppedChecks`.
+
 An interrupted run still cleans up after itself. `SIGINT` or `SIGTERM` stops it at the next suite
 boundary, the teardown a finished run performs runs anyway, and the verdict is `INTERRUPTED` with exit
 130 rather than a pass covering only the suites that ran. A second signal exits at once and forgoes the
