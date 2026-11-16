@@ -994,5 +994,57 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
 
 
+class InvariantNamesAnyOtherChangeTest(unittest.TestCase):
+    """Each invariant here once accepted any result: a sweep that made it report no difference left
+    every test passing, because its tests only showed it accepting what its transform produced.
+
+    Each case runs the registered transform, then changes something the repair has no business
+    touching, and expects the invariant to name it."""
+
+    def cases(self):
+        loosened, _ = r.drop_literal_label_demand(legacy_template())
+        shadowing = ShadowedContextAndCreatorTest.shadowing_template(None)
+        classed = TermFieldDeletionsTest.classed_template(None)
+        return [
+            ("write-link-as-iri", instance(Page={"@id": "0000-0002-1825-0097"}, Note={"@value": "kept"}), template()),
+            ("drop-shadowed-instance-context",
+             instance(**{"@context": {"License": "http://x/license", "untitled": "http://x/outer"},
+                         "License": {"@context": {"untitled": "http://x/inner"}, "untitled": {"@value": None}}}),
+             shadowing),
+            ("complete-required-label", instance(Labelled={"@value": "x"}, Choice={"@value": None}), legacy_template()),
+            ("drop-null-literal-label", instance(Labelled={"@value": None, "rdfs:label": None}), loosened),
+            ("drop-null-iri", instance(Term={"@id": None, "@type": "http://x/c"},
+                                       Labelled={"@value": None, "rdfs:label": None}), legacy_template()),
+            ("drop-unlisted-term-class",
+             instance(Classed={"@id": "http://t/alligator", "@type": "http://c/Reptiles", "rdfs:label": "Alligator"},
+                      Term={"@id": "http://t/1", "rdfs:label": "One"}), classed),
+            ("drop-text-beside-term", instance(Term={"@id": "http://t/1", "rdfs:label": "One", "@value": "Something else"},
+                                               Note={"@value": "kept"}), template()),
+            ("encode-link-spaces", instance(Page={"@id": "https://example.org/species/Lynx lynx page "},
+                                            Note={"@value": "kept"}), template()),
+            ("drop-null-instance-type", instance(**{"@type": None}, Note={"@value": "kept"}), None),
+        ]
+
+    def test_the_invariant_names_any_other_change(self):
+        for name, before, schema in self.cases():
+            repair = r.REPAIRS[name]
+            context = (schema,) if repair.needs_template else ()
+            after, changes = repair.transform(copy.deepcopy(before), *context)
+            with self.subTest(name=name):
+                self.assertTrue(changes, "the transform changed nothing, so the case tests nothing")
+                self.assertIsNone(repair.invariant(before, after, *context))
+                for path, tamper in (
+                        ("/pav:lastUpdatedOn", lambda d: d.update({"pav:lastUpdatedOn": "2026-01-01T00:00:00Z"})),
+                        ("/Unrelated", lambda d: d.update({"Unrelated": {"@value": "added"}})),
+                        ("/schema:isBasedOn", lambda d: d.pop("schema:isBasedOn"))):
+                    tampered = copy.deepcopy(after)
+                    tamper(tampered)
+                    self.assertEqual(repair.invariant(before, tampered, *context), path)
+                if "Note" in before:
+                    tampered = copy.deepcopy(after)
+                    del tampered["Note"]
+                    self.assertIsNotNone(repair.invariant(before, tampered, *context))
+
+
 if __name__ == "__main__":
     unittest.main()
