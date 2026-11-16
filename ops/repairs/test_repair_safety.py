@@ -149,6 +149,21 @@ class WriteSafetyTest(unittest.TestCase):
         self.assertEqual(self.run_repair(apply=True)['outcome'], 'repaired')
         self.assertEqual(len(self.puts), 1)
 
+    def test_the_preimage_holds_the_stored_body_before_the_write(self):
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old'}
+        result = self.run_repair(body=copy.deepcopy(stored))
+        self.assertEqual(result['outcome'], 'repaired')
+        [put] = self.puts
+        self.assertNotEqual(put['candidate'], stored)
+        # The pre-image was on disk, complete, when the PUT was sent.
+        [(name, preimage)] = put['preimages'].items()
+        self.assertEqual(preimage['artifact'], stored)
+        self.assertEqual(preimage['etag'], '"1"')
+        self.assertEqual(put['etag'], '"1"')
+        self.assertEqual((preimage['artifactType'], preimage['artifactId']), ('template', 'urn:test'))
+        self.assertEqual(pathlib.Path(result['preimage']), self.preimages / name)
+        self.assertEqual(json.loads(pathlib.Path(result['preimage']).read_text()), preimage)
+
     def test_readback_detects_unrelated_server_change(self):
         result = self.run_repair(lambda b: b.update({'schema:name': 'corrupted'}))
         self.assertFalse(result['verified'])
