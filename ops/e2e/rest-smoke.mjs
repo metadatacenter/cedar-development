@@ -25,7 +25,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { actors, call, group, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
-import { readRetired, unretiredDrops } from './rest/inventory.mjs';
+import { lost, readRetired, unretiredDrops } from './rest/inventory.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as deletion from './rest/suites/deletion.mjs';
@@ -301,15 +301,17 @@ if (updateInventory) {
   const expectedChecks = expectedFor(selected.map(s => s.name));
   inventoryMatched = JSON.stringify(observedChecks) === JSON.stringify(expectedChecks);
   if (!inventoryMatched) {
-    const expectedSet = new Set(expectedChecks);
-    const observedSet = new Set(observedChecks);
-    const missing = expectedChecks.filter(id => !observedSet.has(id));
-    const unexpected = observedChecks.filter(id => !expectedSet.has(id));
+    // Counted as often as each identity occurs, so a lost repetition of a repeated check is named.
+    const readable = id => id.replaceAll('\u001f', ' / ');
+    const missing = lost(expectedChecks, observedChecks).map(readable);
+    const unexpected = lost(observedChecks, expectedChecks).map(readable);
     beginSuite('runner');
     suite('runner: expected-check inventory');
     check(false, 'the run executes the committed check inventory',
-        `missing ${missing.length}: ${missing.slice(0, 8).join(' | ')}; `
-        + `unexpected ${unexpected.length}: ${unexpected.slice(0, 8).join(' | ')}`);
+        missing.length || unexpected.length
+          ? `missing ${missing.length}: ${missing.slice(0, 8).join(' | ')}; `
+            + `unexpected ${unexpected.length}: ${unexpected.slice(0, 8).join(' | ')}`
+          : 'the run executed the same identities in another order');
     result = summary(selected.map(s => s.name));
   }
 }

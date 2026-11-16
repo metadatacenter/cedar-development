@@ -48,6 +48,24 @@
       "section": "runner: clean-stack postflight",
       "name": "the run leaves no stamped folders, artifacts, or categories behind",
       "reason": "Renamed to name the groups the postflight now inventories, beside both users' homes and the category tree."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: reconnect deleted versions and maintain graph/search flags",
+      "name": "template: ordinary editing cannot change lifecycle metadata",
+      "reason": "Recorded once for each of three changes under one name, so a failure did not say which was accepted. Each is now named for the field it changes: bibo:status, pav:version or pav:previousVersion."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: reconnect deleted versions and maintain graph/search flags",
+      "name": "element: ordinary editing cannot change lifecycle metadata",
+      "reason": "Recorded once for each of three changes under one name, so a failure did not say which was accepted. Each is now named for the field it changes: bibo:status, pav:version or pav:previousVersion."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: reconnect deleted versions and maintain graph/search flags",
+      "name": "field: ordinary editing cannot change lifecycle metadata",
+      "reason": "Recorded once for each of three changes under one name, so a failure did not say which was accepted. Each is now named for the field it changes: bibo:status, pav:version or pav:previousVersion."
     }
   ]
 }
