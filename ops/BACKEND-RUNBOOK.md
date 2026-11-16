@@ -3596,8 +3596,12 @@ one of these without the tag, and `cedarcli build java` refuses to run the tests
 
 Search is the deliberate exception in CI. `cedar-microservice-libraries` and
 `cedar-resource-server` run `verify -Popensearch-it` against a disposable OpenSearch 2.19.1 service.
-The library integration test executes the materialized user/everybody permission filter,
-grant/revoke materialization changes and a point-in-time continuation walk against the engine. The
+The library integration test, `ElasticsearchPermissionEnabledContentSearchingWorkerIT`, executes the
+user/everybody permission filter against the engine. It does not run the graph's materialization:
+it indexes hand-written `users` keys, re-indexes a document with a grant added or removed, and
+checks that searches follow the keys. Its point-in-time continuation walk holds a row only its owner
+may read on a continued page, so the walk is checked to keep the permission filter beyond the first
+page. The
 resource server integration test sends real `/search` and `/search-deep` requests through
 Dropwizard to the same engine. For a local reproduction, start the native infrastructure and run
 the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
