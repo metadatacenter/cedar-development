@@ -465,22 +465,3 @@ the bounded pickers, a preference round trip across a reload, and content preser
 and under a restricted profile. CED must never allocate identities or versions when the host
 replaces the artifact or supplies an editable draft. Add a test for the move from read-only
 published content to a host-supplied editable document that asserts this.
-
-### 12. Evaluate the Independent Review's Local Grouping Proposals
-
-The current-source Designer review raises two low-severity composition proposals, with no
-reproduced functional failure. Agree a concrete before/after layout before implementing either:
-
-- Tighten only the gaps between wrapped field-settings tab rows. At the narrowest captured pane,
-  five rows of 36-pixel targets with 15-pixel gaps occupy 240 pixels, separating the active tab from
-  its panel. Preserve every label, target size, order and keyboard behavior; the measured content
-  still requires multiple rows.
-- Keep Replace and Enter IRI manually together when the Property IRI row wraps. At 1024 and
-  900-pixel viewports, Replace stays beside the value while the other action drops to the left below
-  it. Their combined width with the existing gap is about 174 pixels, within the 338 and 276-pixel
-  content widths. Compare moving the pair beneath the value, retaining the complete identifier and
-  both controls; verify the resulting wrapping and height in the rendered interface.
-
-The [UI review runbook](FRONTEND-RUNBOOK.md#independent-designer-ui-review-pilot) links the sealed
-assessment, screenshots and measurements. Include ordinary desktop and narrow editing in the
-comparison; neither proposal authorizes hiding controls or changing navigation.

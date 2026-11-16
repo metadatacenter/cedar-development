@@ -3561,15 +3561,41 @@ source changes during the run. The search tier retains its declared coverage gap
 The fresh independent application review inspected all 51 states and 49 card crops without the
 implementation narrative or earlier findings. Its supplemental ordinary-authoring session verified
 keyboard tab selection, narrow scrolling and hover insertion, and required repeated-field
-save/reload, with no runtime or cleanup errors. No functional defect was reproduced. Two
-low-severity composition proposals remain: reduce gaps between wrapped settings-tab rows, and
-keep the two Property IRI actions together when the row wraps. Their measured fit and evidence
-are in the sealed assessment; the [frontend roadmap](FRONTEND-ROADMAP.md#12-evaluate-the-independent-reviews-local-grouping-proposals)
-tracks the design decisions. The application assessment was sealed before the reviewer received
-the separate calibration packet. Final validation is `DESIGN_REVIEW` for those two proposals,
+save/reload, with no runtime or cleanup errors. No functional defect was reproduced. It proposed
+reducing gaps between wrapped settings-tab rows and keeping the two Property IRI actions together
+when the row wraps. Their measured fit and evidence remain in the sealed assessment. The
+application assessment was sealed before the reviewer received the separate calibration packet.
+Its recorded validation is `DESIGN_REVIEW` for those two proposals,
 with no evidence or calibration blockers. Behavior and composition each detected 3/3 concerns
 with 0/3 false alarms on acceptable controls. The twelve-case synthetic result does not establish
 production recall or general design judgment.
+
+The user-approved follow-up of 16 November is retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261116-layout-refinements/assessment.html`.
+Settings tabs use a 4-pixel row gap, preserving 16-pixel horizontal spacing and 36-pixel targets;
+the five-row group at a 375-pixel viewport is 192 pixels tall instead of 240. The Property IRI
+actions form one wrapping group: at 1024 and 900 pixels both move beneath the full-width value,
+while the narrowest pane wraps within the group and retains both controls and the complete IRI.
+Three narrow pixel baselines were inspected and updated; the wider baselines passed unchanged.
+
+Frontend build `0f81740eba896d63ab817ce55902c0895e5cf08439a785ec172e7636e2d6d09e` uses clean
+CED source `d235192eb4927708f495125b2eb69170203d8a12` and package
+`2b3a540a46dcd7c8a35683302e0c63a1c65a83f6f0a1548c388bba7218d6e2ab`.
+CED passed 17,068 unit cases, 25 pixel checks and 3,450 browser cases; the host passed 638 unit
+and 2,232 browser cases. Unchanged reactor inputs reused their passing checks, including the
+framework consumer evidence. Deployment and served-byte verification passed. A separate
+implementer check inspected 14 served states across six widths, including fresh and ordinary
+editing, with no runtime or cleanup errors. This closes the approved layout changes; it is not
+a new blind review and does not change the earlier sealed assessment or calibration result.
+
+The initial smoke attempt caught a WebKit fixture-navigation race after Designer Back: the test
+requested another listing while Workspace was still connecting. The journey now waits for the
+rendered listing after each Back navigation; no error filter or assertion was relaxed. The
+synchronized journey passed in all three engines. All four smoke tiers then passed against the
+same deployed build and 41 clean sources, digest `984b6a4fef2158d5`, in 337.9 seconds, with no
+source changes during the run. That record covers development tooling commit `4aa45b81`; this
+documentation update follows it. The report retains the failed attempt as well as the passing
+run, and the search tier retains its declared coverage gaps.
 
 ##### Pixel baseline checks
 
