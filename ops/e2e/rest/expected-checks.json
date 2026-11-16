@@ -2486,6 +2486,17 @@
     "administration\u001fadministration: every server refuses its insight routes to an ordinary user\u001fbridge: the committed OpenAPI document is read",
     "administration\u001fadministration: every server refuses its insight routes to an ordinary user\u001fbridge: every insight route refuses an ordinary user",
     "administration\u001fadministration: the monitor refuses its reports to an ordinary user\u001fevery monitor report refuses an ordinary user",
+    "profiles\u001fprofiles: a user reads their own summary, and no one else does\u001fa user reads their own summary",
+    "profiles\u001fprofiles: a user reads their own summary, and no one else does\u001fand it names that user",
+    "profiles\u001fprofiles: a user reads their own summary, and no one else does\u001fanother user cannot read it",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fthe profile carries the preference the suite changes",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fanother user cannot change it",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fthe user cannot write a field outside the preferences",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fand neither refusal changed the stored profile",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fthe user changes the preference",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fand the stored profile holds the change",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fthe user puts it back",
+    "profiles\u001fprofiles: a user changes their own preferences, and no one else does\u001fand the stored profile holds the original value again",
     "runner\u001frunner: clean-stack postflight\u001fthe run leaves no stamped folders, artifacts, categories or groups behind",
     "runner\u001frunner: clean-stack postflight\u001fand the worker drained everything the run queued"
   ]
