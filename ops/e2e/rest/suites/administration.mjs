@@ -1,11 +1,15 @@
-// What an ordinary signed-in user may not reach: the administrative reports and every server's
-// insight routes.
+// What an ordinary signed-in user may not reach: the administrative reports, every server's insight
+// routes, and the commands that rebuild or reset shared state.
 //
 // The errors suite asks every operation without credentials, which shows that a credential is
 // demanded, not that an administrative permission is. These routes hand out configuration, the
 // environment, logs and thread dumps, or start work over the whole repository, so each must refuse
 // the first test user, who holds no administrative role, with 403.
-import { suite, check, call, MONITOR } from '../lib.mjs';
+//
+// The commands are sent only because each must be refused before it starts. A server that accepted
+// one would begin rebuilding or resetting what the rest of the run relies on, which is the defect
+// these checks exist to show.
+import { suite, check, call, MONITOR, RESOURCE, WORKER } from '../lib.mjs';
 import { SERVERS, readSpec } from './errors.mjs';
 
 export const name = 'administration';
@@ -56,7 +60,7 @@ export async function run({ user1 }) {
   const reports = [];
   for (const [path, operations] of Object.entries(spec?.paths ?? {})) {
     for (const method of ['get', 'post']) {
-      // The index rebuild is a command, not a report, so it is not sent here.
+      // The index rebuild is a command, not a report; the commands section below sends it.
       if (!operations[method] || path === '/search-index/regenerate') continue;
       if (OPEN_MONITOR_ROUTES.has(`${method.toUpperCase()} ${path}`)) continue;
       reports.push({ method: method.toUpperCase(), path: filled(path), body: method === 'post' ? {} : undefined });
@@ -66,5 +70,17 @@ export async function run({ user1 }) {
   check(reports.length > 0 && wrongReports.length === 0, 'every monitor report refuses an ordinary user',
       `${wrongReports.length} of ${reports.length}:\n        ${wrongReports.join('\n        ')}`);
 
+  suite('administration: commands over shared state refuse an ordinary user');
+
+  const commands = [
+    [RESOURCE, '/command/reset-search-index-job', 'the resource server refuses to reset the search index job'],
+    [RESOURCE, '/command/reset-valuesets-import', 'the resource server refuses to reset the value sets import'],
+    [WORKER, '/command/regenerate-inclusion-subgraph', 'the worker refuses to regenerate the inclusion subgraph'],
+    [MONITOR, '/search-index/regenerate', 'the monitor refuses to rebuild the search index'],
+  ];
+  for (const [base, path, what] of commands) {
+    const res = await call(auth, 'POST', path, undefined, { base });
+    check(res.status === 403, what, `expected 403, got ${res.status}: ${(res.text ?? '').slice(0, 160)}`);
+  }
   return {};
 }

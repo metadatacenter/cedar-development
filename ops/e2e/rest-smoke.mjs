@@ -58,8 +58,9 @@ import * as errorReports from './rest/suites/error-reports.mjs';
 import * as mcp from './rest/suites/mcp.mjs';
 import * as administration from './rest/suites/administration.mjs';
 import * as profiles from './rest/suites/profiles.mjs';
+import * as messaging from './rest/suites/messaging.mjs';
 
-const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, termSearch, addressing, bodies, errors, errorReports, mcp, administration, profiles];
+const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, termSearch, addressing, bodies, errors, errorReports, mcp, administration, profiles, messaging];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
