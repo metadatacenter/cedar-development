@@ -667,6 +667,12 @@ function accepted(response, statuses, label) {
   return ok;
 }
 
+// A security refusal is a semantic invariant, not a response the error budget may absorb: one revoked
+// read in two hundred would pass checks: rate>0.99 and cedar_unexpected_responses: rate<0.01.
+function refused(response, label) {
+  return invariant(response, label, result => result.status === 403);
+}
+
 function invariant(target, label, predicate) {
   const ok = check(target, { [label]: predicate });
   invariantFailures.add(!ok, { operation: label });
@@ -939,7 +945,7 @@ function exerciseRoleTransitions(data, fixture) {
         permissionsRequestFrom(mutableResponseBody(editorAcl)), 'permission denied ACL update',
         { 'If-Match': editorRevision },
         resource, [403]);
-    accepted(denied, [403], 'Editor cannot change grants');
+    refused(denied, 'Editor cannot change grants');
   }
 
   if (!setPermissionRole(data, fixture, 'manager')) return;
@@ -981,7 +987,7 @@ function exerciseRoleTransitions(data, fixture) {
   if (!setPermissionRole(data, fixture, null)) return;
   const revoked = cedar(data, fixture.viewerIndex, 'GET', `${fixture.transitionField.path}/details`,
       undefined, 'permission report', {}, resource, [403]);
-  accepted(revoked, [403], 'revoked user loses access');
+  refused(revoked, 'revoked user loses access');
 }
 
 function exerciseMoveAuthority(data, fixture) {
@@ -993,7 +999,7 @@ function exerciseMoveAuthority(data, fixture) {
   const denied = cedar(data, actor, 'POST', '/command/move-resource-to-folder', {
     '@id': move.field.id, targetFolderId: move.blocked.id,
   }, 'permission denied move', { 'If-Match': revision }, resource, [403]);
-  accepted(denied, [403], 'Manager cannot move into a Viewer folder');
+  refused(denied, 'Manager cannot move into a Viewer folder');
 
   details = cedar(data, actor, 'GET', `${move.field.path}/details`, undefined, 'permission report');
   revision = requireEtag(details, 'permission allowed move preflight');
