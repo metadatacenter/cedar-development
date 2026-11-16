@@ -180,3 +180,21 @@ test('an operation named as validating first may answer its named status, and on
     errors.VALIDATES_FIRST.splice(errors.VALIDATES_FIRST.indexOf(entry), 1);
   }
 });
+
+test('a server error fails the identifier and body checks unless the operation documents it as a gateway answer', async t => {
+  const verdictsFor = async status => {
+    stubStack(t, (url, options) => (!options.headers?.Authorization ? 401
+      : url.pathname.includes('/no-such-authority-') ? 502 : status));
+    const name = `errors-stub-${stubbed++}`;
+    await withSuite(name, () => errors.run({ user1: user, homeFolderId: 'home', folderId: 'folder' }));
+    return summary([name]).checks;
+  };
+  const crashed = await verdictsFor(500);
+  for (const what of ['resource: a nonexistent identifier', 'resource: a malformed JSON body']) {
+    assert.equal(crashed.find(c => c.name.startsWith(what)).status, 'failed', what);
+  }
+  const refused = await verdictsFor(404);
+  assert.equal(refused.find(c => c.name.startsWith('resource: a nonexistent identifier')).status, 'passed');
+  // The bridge's authority routes document 502, which a registry that answers badly produces.
+  assert.equal(refused.find(c => c.name.startsWith('bridge: a nonexistent identifier')).status, 'passed');
+});

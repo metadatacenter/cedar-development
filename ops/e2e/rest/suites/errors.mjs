@@ -131,6 +131,9 @@ const EMPTY_JSON = '{}';
 const ANSWER_TIMEOUT_MS = 30000;
 const PROBES_IN_FLIGHT = 6;
 const WRITES = new Set(['put', 'post', 'patch', 'delete']);
+// The server errors an operation may answer when it documents them, because it relays a service
+// that did not answer or answered badly. Any other 5xx to a request naming nothing is a crash.
+const GATEWAY = new Set([502, 503]);
 
 /**
  * Why an answer is not a CedarError, or null when it is one. The status in the body must be the
@@ -250,8 +253,11 @@ export function plan(server, spec, method, path, op) {
   const add = (kind, request) => {
     const excluded = excludedBy(server, verb, path, kind);
     if (excluded) omitted.push({ kind, reason: excluded.reason });
-    else probes.push({ kind, request, ...(answered && kind === 'identifier' ? { answered: answered.reason } : {}) });
+    else probes.push({ kind, request, ...(answered && kind === 'identifier' ? { answered: answered.reason } : {}),
+      ...(gatewayStatuses.length ? { gateway: gatewayStatuses } : {}) });
   };
+  // A gateway answer is a refusal only where the operation documents one: it relays another service.
+  const gatewayStatuses = Object.keys(op.responses ?? {}).map(Number).filter(status => GATEWAY.has(status));
   // Whatever an operation is sent, it names nothing and carries no usable body, so a route that
   // failed to refuse it would still have nothing to act on.
   const validatesFirst = VALIDATES_FIRST.find(entry => entry.server === server && entry.method === verb
@@ -380,8 +386,10 @@ async function probeServer({ server, base }, credentials, coverage) {
           + `${res.status}, which it may: it ${probe.answered}`);
       } else if (res.failed || res.status < 400 || cedarErrorProblem(res)) {
         failures.push(describe(probe, res));
-      } else if (res.status >= 500) {
+      } else if (res.status >= 500 && probe.gateway?.includes(res.status)) {
         coverage.serverErrors.push(`${server}: ${describe(probe, res)}`);
+      } else if (res.status >= 500) {
+        failures.push(`${describe(probe, res)} (a server error, which the operation does not document as a gateway answer)`);
       }
     }));
     check(failures.length === 0, `${server}: ${what}`,
@@ -434,8 +442,8 @@ export async function run({ user1, admin, homeFolderId, folderId }) {
     console.log(`    ${server}: ${method} ${path} answers ${status} without credentials: ${reason}`);
   }
   for (const line of coverage.authenticatesFirst) console.log(`    ${line}`);
-  // A server error in the shared body passes, but a request naming nothing should not be one.
-  if (coverage.serverErrors.length) console.log('  refused with a server error:');
+  // A server error fails its check unless the operation documents it as a gateway answer.
+  if (coverage.serverErrors.length) console.log('  refused with a gateway answer the operation documents:');
   for (const line of coverage.serverErrors) console.log(`    ${line}`);
   console.log('  not sent:');
   for (const { server, omitted } of coverage.servers) {
