@@ -2,14 +2,11 @@
   "schemaVersion": 1,
   "statusContext": "cedar/local-ci",
   "profiles": {
-    "maven-tests": {
-      "exclusive": "java-test-ports"
-    },
+    "maven-tests": {},
     "maven": {
       "skip": {
         "Publish the snapshot": "publication, not verification: Actions publishes the snapshot after a push to develop"
-      },
-      "exclusive": "java-test-ports"
+      }
     },
     "embedded-mongo-on-linux": {
       "skip": {
@@ -29,7 +26,8 @@
       "requires": [
         "docker"
       ],
-      "cleanup": "docker rm -f cedar-local-ci-opensearch >/dev/null 2>&1 || true"
+      "cleanup": "docker rm -f cedar-local-ci-opensearch >/dev/null 2>&1 || true",
+      "exclusive": "opensearch-container"
     }
   },
   "repositories": {
