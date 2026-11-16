@@ -1789,6 +1789,9 @@ the actual fixture producer. For an explicitly uncommitted development review, u
 `node scripts/sync-concordance.mjs --matrix <name> --working-tree`: the lock records the base commit,
 `javaWorkingTree: true`, a hash of all Java source/test bytes, and the fixture hash. It does not claim
 those bytes belong to the base commit. Refresh that lock after further Java edits. Ordinary Java tests fail when their generated fixture is stale.
+`cedarcli check concordance` fails when the Java repository a TypeScript fixture's lock names has
+changed its `src/main` since the lock's commit, as its `develop` head on the remote stands, so a
+fixture recorded from Java code that has since changed is reported rather than trusted.
 
 The artifact library's separate `CorpusFixtureVerifier` gate checks the shared
 `cedar-test-artifacts` renderings. Three historical definitions have inconsistent defaults;
@@ -2519,7 +2522,11 @@ The resource application uses two isolated reusable Surefire JVMs as described b
 other modules retain their existing fork settings.
 Embedded MariaDB instances use private extraction and data directories beneath the
 executable build scratch space, even when Maven workers share `java.io.tmpdir`.
-CLI command timings and exit codes are retained under `.cedar/build-reports/`.
+CLI command timings and exit codes are retained under `.cedar/build-reports/`. Each Maven command's
+record also carries a `testSummary`: each module's test totals, each failing class and test with its
+message, the goal and module that failed, a fork Surefire killed, and an unmet coverage floor. A
+failed build's diagnostics sweep its workspace only when the workspace lies inside the temporary
+directory the build was given, and the failure manifest's `workspaceSwept` says whether it did.
 The source guard fingerprints build profiles and frontend build tooling within the
 mixed-purpose `cedar-development` repository; concurrent audit, repair and documentation
 work there does not invalidate a build. Other repository source guards remain in force.
@@ -5308,7 +5315,8 @@ shell that started it. Maven resolves into a repository of its own under `~/.ced
 so a snapshot installed from a working tree can never stand in for the one Nexus serves. Test
 servers and embedded stores bind ports the OS assigns, so Maven jobs run in parallel, and so do a
 repository's independent jobs, as GitHub schedules them. Only the jobs that start the OpenSearch
-container run one at a time, because they share its name and port.
+container run one at a time, because they share its name and port. That exclusion is a file lock
+under `$CEDAR_HOME/.cedar/locks`, so it also holds between concurrent `cedarcli ci run` processes.
 
 `ops/local-ci.json` records only what must differ on this machine, each difference with its reason.
 That means the steps local CI skips, such as publication or a Linux-only package install, and the

@@ -28,6 +28,8 @@ fixed path that survives a version bump.
 
 `cedar-artifact-mcp` and `cedar-cee-mcp` pin released `cedar-artifact-library` versions in their
 respective POMs and resolve them from anonymous-read BMIR Nexus; no sibling checkout is needed.
+`cedarcli check versions` fails when either pins a `cedar-artifact-library` older than the newest
+`release-<version>` tag in `cedar-parent`, and names each server and its pin.
 `cedar-artifact-rest-mcp` does not use the library and resolves from Maven Central alone.
 
 Tool descriptions ship inside the jar. Rebuild and restart the client after changing them so the
