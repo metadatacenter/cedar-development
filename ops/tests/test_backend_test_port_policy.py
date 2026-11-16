@@ -2,6 +2,7 @@
 """Static guard against fixed or wildcard-scoped backend test listeners."""
 
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -104,29 +105,38 @@ def listener_violations(path, text):
     return violations
 
 
+def backend_test_sources(repository):
+    """The files the policy reads in one backend repository: its test trees, and for the shared
+    libraries also the test-support library's main tree, which starts the embedded stores."""
+    source_roots = list(repository.glob("**/src/test"))
+    if repository.name == "cedar-microservice-libraries":
+        source_roots.append(repository / "cedar-test-support-library" / "src" / "main")
+    return [path for source_root in source_roots for path in source_root.rglob("*")
+            if path.is_file() and path.suffix in {".java", ".yml", ".yaml"}]
+
+
 class BackendTestPortPolicyTest(unittest.TestCase):
 
     def test_backend_tests_do_not_bind_fixed_ports(self):
         present = [repository for repository in BACKEND_REPOSITORIES if repository.is_dir()]
         if not present:
-            # A checkout of cedar-development alone, as in its own CI, has no backend repository
-            # beside it. Passing there would report a scan that never happened.
+            # A checkout of cedar-development alone has no backend repository beside it. Passing
+            # there would report a scan that never happened.
             self.skipTest(f"no backend repository beside cedar-development under {CEDAR_HOME}")
         violations = []
+        empty = []
         for repository in present:
-            source_roots = list(repository.glob("**/src/test"))
-            if repository.name == "cedar-microservice-libraries":
-                source_roots.append(
-                    repository / "cedar-test-support-library" / "src" / "main")
-            for source_root in source_roots:
-                for path in source_root.rglob("*"):
-                    if not path.is_file() or path.suffix not in {".java", ".yml", ".yaml"}:
-                        continue
-                    text = path.read_text(encoding="utf-8")
-                    for line, message in listener_violations(path, text):
-                        violations.append(
-                            f"{path.relative_to(CEDAR_HOME)}:{line}: {message}")
+            sources = backend_test_sources(repository)
+            if not sources:
+                empty.append(repository.name)
+            for path in sources:
+                text = path.read_text(encoding="utf-8")
+                for line, message in listener_violations(path, text):
+                    violations.append(f"{path.relative_to(CEDAR_HOME)}:{line}: {message}")
 
+        # A repository checked out without its test sources, as a sparse checkout of its OpenAPI
+        # once was in CI, would otherwise pass having scanned nothing.
+        self.assertEqual([], empty, "backend repositories present without test sources to scan")
         self.assertEqual(
             [],
             violations,
@@ -136,6 +146,18 @@ class BackendTestPortPolicyTest(unittest.TestCase):
             "policy:\n"
             + "\n".join(violations),
         )
+
+    def test_a_repository_without_test_sources_yields_nothing_to_scan(self):
+        with tempfile.TemporaryDirectory() as folder:
+            repository = Path(folder) / "cedar-example-server"
+            contract = repository / "cedar-example-server-application/src/main/resources/assets/swagger-api"
+            contract.mkdir(parents=True)
+            (contract / "openapi.yaml").write_text("openapi: 3.0.0\n")
+            self.assertEqual([], backend_test_sources(repository))
+            test = repository / "cedar-example-server-application/src/test/java/ExampleTest.java"
+            test.parent.mkdir(parents=True)
+            test.write_text("class ExampleTest {}\n")
+            self.assertEqual([test], backend_test_sources(repository))
 
     def test_policy_rejects_wildcard_listeners(self):
         yaml = """server:
