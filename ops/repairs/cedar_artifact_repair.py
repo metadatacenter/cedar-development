@@ -5067,6 +5067,48 @@ def state_creator_from_graph(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     return result, [{"path": "/pav:createdBy", "replaced": artifact.get("pav:createdBy"), "wrote": creator}]
 
 
+# The creation date each artifact's graph node records, keyed by artifact IRI, as its /details answer
+# states it. Supplied through --created-dates. A save reads the clock once for the document and again
+# for the graph, so about one save in fifty leaves the graph a second later; the search index copies
+# the graph. A verbatim write never touches the graph's creation date, so the document moves instead.
+CREATED_DATES: dict[str, str] = {}
+
+
+def is_one_second_later(stated: Any, graph: Any) -> bool:
+    """Whether ``graph`` is the same timestamp form as ``stated``, exactly one second later."""
+    if not isinstance(stated, str) or not isinstance(graph, str) or len(stated) != len(graph) \
+            or stated[19:] != graph[19:]:
+        return False
+    try:
+        delta = datetime.fromisoformat(graph.replace("Z", "+00:00")) - datetime.fromisoformat(stated.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return delta.total_seconds() == 1
+
+
+def state_created_date_from_graph(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write ``pav:createdOn`` as the graph records it, where the graph's is exactly one second later."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    graph = CREATED_DATES.get(artifact.get("@id"))
+    if not is_one_second_later(artifact.get("pav:createdOn"), graph):
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    result["pav:createdOn"] = graph
+    return result, [{"path": "/pav:createdOn", "replaced": artifact.get("pav:createdOn"), "wrote": graph}]
+
+
+def only_stated_graph_created_date(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the one change moves the creation date a second later, to the graph's."""
+    if not isinstance(before, dict):
+        return "/"
+    graph = CREATED_DATES.get(before.get("@id"))
+    for path, was, now in differences(before, after):
+        if path != "/pav:createdOn" or now != graph or not is_one_second_later(was, now):
+            return path or "/"
+    return None
+
+
 def only_stated_graph_creator(before: Any, after: Any) -> Optional[str]:
     """The invariant: the one change states the creator the graph records where none was stated."""
     if not isinstance(before, dict):
@@ -10578,6 +10620,13 @@ REPAIRS = {
         transform=allow_term_notation,
         invariant=only_allowed_term_notations,
     ),
+    "state-created-date-from-graph": Repair(
+        name="state-created-date-from-graph",
+        condition="",
+        summary="write pav:createdOn as the graph records it, where the graph's is exactly one second later",
+        transform=state_created_date_from_graph,
+        invariant=only_stated_graph_created_date,
+    ),
     "allow-blank-optional-iri": Repair(
         name="allow-blank-optional-iri",
         condition="",
@@ -11748,6 +11797,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--creators",
                         help="JSON of the creator each artifact's graph records, {artifactId: userIri}, which "
                              "state-creator-from-graph writes where the document names none")
+    parser.add_argument("--created-dates",
+                        help="JSON of the creation date each artifact's graph records, {artifactId: date}, which "
+                             "state-created-date-from-graph writes where it is exactly one second later")
     parser.add_argument("--date-orders",
                         help="JSON of the order each template's numeric dates are written in, "
                              "{templateId: \"day-first\" | \"month-first\"}, which write-date-as-iso "
@@ -11984,6 +12036,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--terms", arguments.terms, TERMS),
                                  ("--date-orders", arguments.date_orders, DATE_ORDERS),
                                  ("--creators", arguments.creators, CREATORS),
+                                 ("--created-dates", arguments.created_dates, CREATED_DATES),
                                  ("--modifier-forms", arguments.modifier_forms, MODIFIER_FORMS),
                                  ("--placeholder-templates", arguments.placeholder_templates, PLACEHOLDER_TEMPLATES),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),

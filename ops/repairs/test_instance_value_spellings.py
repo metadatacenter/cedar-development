@@ -619,6 +619,45 @@ class AllowBlankOptionalIriTest(unittest.TestCase):
         self.assertEqual(r.only_allowed_blank_optional_iris(document, changed), "/properties/Page/required")
 
 
+class CreatedDateFromGraphTest(unittest.TestCase):
+    IRI = "https://repo.metadatacenter.org/templates/t"
+
+    def setUp(self):
+        r.CREATED_DATES.clear()
+
+    def tearDown(self):
+        r.CREATED_DATES.clear()
+
+    def document(self, created="2019-02-20T12:29:07-08:00"):
+        return {"@id": self.IRI, "pav:createdOn": created, "pav:lastUpdatedOn": "2020-01-01T00:00:00-08:00"}
+
+    def test_the_creation_date_moves_to_the_graphs_one_second_later(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:08-08:00"
+        before = self.document()
+        after, changes = r.state_created_date_from_graph(before)
+        self.assertEqual(after["pav:createdOn"], "2019-02-20T12:29:08-08:00")
+        self.assertEqual(after["pav:lastUpdatedOn"], before["pav:lastUpdatedOn"])
+        self.assertEqual(changes, [{"path": "/pav:createdOn", "replaced": "2019-02-20T12:29:07-08:00",
+                                    "wrote": "2019-02-20T12:29:08-08:00"}])
+        self.assertIsNone(r.only_stated_graph_created_date(before, after))
+        self.assertEqual(r.state_created_date_from_graph(after), (after, []))
+
+    def test_any_other_gap_or_form_is_left_alone(self):
+        for graph in ("2019-02-20T12:29:09-08:00", "2019-02-20T12:29:06-08:00", "2019-02-20T20:29:08Z",
+                      "2019-02-20T12:29:08-07:00", None):
+            r.CREATED_DATES[self.IRI] = graph
+            self.assertEqual(r.state_created_date_from_graph(self.document())[1], [], graph)
+
+    def test_the_invariant_refuses_any_other_change(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:08-08:00"
+        before = self.document()
+        after, _ = r.state_created_date_from_graph(before)
+        moved = dict(after, **{"pav:lastUpdatedOn": "2020-01-01T00:00:01-08:00"})
+        self.assertEqual(r.only_stated_graph_created_date(before, moved), "/pav:lastUpdatedOn")
+        self.assertEqual(r.only_stated_graph_created_date(before, dict(before, **{"pav:createdOn": "2019-02-20T12:29:09-08:00"})),
+                         "/pav:createdOn")
+
+
 class ContextOpennessTest(unittest.TestCase):
     def document(self, sample_context, with_attribute_value=False):
         document = template()
