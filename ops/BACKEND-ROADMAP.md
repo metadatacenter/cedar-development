@@ -149,12 +149,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 - **4. Validate and encode the DOI the DataCite metadata route resolves.** **Production
   consequence:** some path values accepted today answer 400. No data migration.
 
-  `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
-  concatenates it into the configured endpoint with a query string, and sends the result with the
-  deployment's DataCite basic credentials (`DataCiteResource.java:151`). Nothing validates the value
+  `getDOIMetadata` hands the path segment to `DoiMinting.readMetadata`, which keeps
+  `new URI(doiIdUrl).getPath()` (`DoiMinting.java:131-133`). `DataCiteClient.readPath` concatenates
+  that path into the configured endpoint with a query string and sends the result with the
+  deployment's DataCite basic credentials (`DataCiteClient.java:46-48`). Nothing validates the value
   between the two steps, so traversal and query delimiters surviving a double decode influence an
-  authenticated upstream request. The draft-DOI path concatenates the same way after stripping
-  quote characters (`:651`). Authorization on the route is `LoggedIn` alone.
+  authenticated upstream request. `DataCiteClient.update` builds its URI by the same concatenation
+  from a DOI the bridge has stored (`:75`). Authorization on the route is `LoggedIn` alone.
 
   **Decide what the public contract accepts** — a DOI name (`10.x/suffix`), a `doi.org` URL, or
   both — and whether `LoggedIn` is the right gate for a route that spends repository credentials.
