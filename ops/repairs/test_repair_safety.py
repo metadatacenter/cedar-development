@@ -305,9 +305,16 @@ class WriteSafetyTest(unittest.TestCase):
                 client.put_verbatim('/templates/test', {}, etag)
 
     def test_context_migration_requires_explicit_scope(self):
-        with patch('sys.stderr'), self.assertRaises(SystemExit):
-            r.main(['--apply', '--repair', 'align-instance-context-iris',
-                    '--from-records', 'unused.jsonl'])
+        # The key file leaves the guard as the only reason for main to stop before reading targets.
+        key = api_key_file(self)
+        for name in ('align-instance-context-iris', 'restore-null-standard-context'):
+            for approval in ([], ['--allow-context-migration'], ['--only-ids', 'ids.json']):
+                with self.subTest(name=name, approval=approval), \
+                        patch('sys.stderr', new_callable=io.StringIO) as error, \
+                        self.assertRaises(SystemExit):
+                    r.main(['--apply', '--repair', name, '--api-key-file', key, *approval,
+                            '--from-records', 'unused.jsonl'])
+                self.assertIn('context alignment changes meaning', error.getvalue())
 
 
 class EmptySlotSafetyTest(unittest.TestCase):

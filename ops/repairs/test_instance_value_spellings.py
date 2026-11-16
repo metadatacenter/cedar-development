@@ -4,7 +4,10 @@ Covers write-date-as-iso, restamp-declared-value-type, write-link-as-iri, empty-
 the label-only case of settle-instance-term-label. Every case also checks that an instance's own
 provenance, its modification date above all, comes through untouched.
 """
+import contextlib
 import copy
+import io
+import tempfile
 import unittest
 
 import cedar_artifact_repair as r
@@ -12,6 +15,20 @@ import cedar_artifact_repair as r
 TEMPLATE_AT_TYPE = "https://schema.metadatacenter.org/core/Template"
 TEMPLATE_ID = "https://repo.metadatacenter.org/templates/t"
 PROVENANCE = ("pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy")
+
+
+def refusal(test, argv):
+    """What main says as it refuses ``argv``, given a key file.
+
+    Without a key main also stops, for want of one, so a guard's test that passed no key would pass
+    with the guard removed."""
+    with tempfile.NamedTemporaryFile("w", suffix=".key") as key:
+        key.write("test-key\n")
+        key.flush()
+        message = io.StringIO()
+        with contextlib.redirect_stderr(message), test.assertRaises(SystemExit):
+            r.main([*argv, "--api-key-file", key.name])
+    return message.getvalue()
 
 
 def field(input_type, required=("@value",), properties=("@type", "@value", "rdfs:label"), **constraints):
@@ -740,8 +757,9 @@ class TermFieldDeletionsTest(unittest.TestCase):
         for name in ("drop-term-field-text", "drop-unlisted-term-class", "drop-stamped-class-list"):
             with self.subTest(name=name):
                 self.assertIn(name, r.VALUE_DELETING_REPAIRS)
-                with self.assertRaises(SystemExit):
-                    r.main(["--apply", "--repair", name, "--from-records", "unused.jsonl"])
+                for approval in ([], ["--allow-value-deletion"], ["--only-ids", "ids.json"]):
+                    self.assertIn(f"{name} deletes entered values", refusal(
+                        self, ["--apply", "--repair", name, "--from-records", "unused.jsonl", *approval]))
 
 
 class OwnerChoicesTest(unittest.TestCase):
@@ -788,8 +806,9 @@ class OwnerChoicesTest(unittest.TestCase):
                 self.assertEqual(r.encode_link_spaces(kept, template()), (kept, []))
 
     def test_assuming_a_time_and_dropping_a_text_each_need_their_approval(self):
-        with self.assertRaises(SystemExit):
-            r.main(["--apply", "--repair", "write-date-at-midnight", "--from-records", "unused.jsonl", "--only-ids", "ids.json"])
+        for approval in (["--only-ids", "ids.json"], ["--allow-assumed-time"]):
+            self.assertIn("assumes a time nobody entered", refusal(
+                self, ["--apply", "--repair", "write-date-at-midnight", "--from-records", "unused.jsonl", *approval]))
         self.assertIn("drop-text-beside-term", r.VALUE_DELETING_REPAIRS)
         self.assertNotIn("encode-link-spaces", r.VALUE_DELETING_REPAIRS)
 
