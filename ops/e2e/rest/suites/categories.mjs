@@ -198,5 +198,29 @@ export async function run({ user1, user2, admin, folderId }) {
   check(stillNamed.body?.['schema:name'] === renamed, 'and the refusal changed nothing',
       `name is now "${stillNamed.body?.['schema:name']}"`);
 
+  suite('categories: ownership moves only at its owner\'s word');
+
+  // Only the current owner may give a category away. The first user holds Classifier on it, which
+  // lets them attach it and nothing more. The administrator then hands it to the first user, who
+  // hands it back, so the category ends owned as it began and teardown deletes it as before.
+  const ownerOf = async () => (await call(adm, 'GET', `${at}/permissions`)).body?.owner?.['@id'];
+  const administrator = await ownerOf();
+  const transfer = (as, newOwnerId) => mutate(as, 'POST', '/command/transfer-category-ownership',
+      { '@id': id, newOwnerId }, { etagPath: `${at}/permissions`, etagAuth: adm });
+  if (check(typeof administrator === 'string', 'the category\'s owner is read', 'its permissions name no owner')) {
+    checkStatus(await transfer(auth, user1.profile['@id']), 403, 'a classifier cannot take ownership of it');
+    check(await ownerOf() === administrator, 'and the refusal left the owner as it was',
+        `the owner is now ${await ownerOf()}`);
+    if (checkStatus(await transfer(adm, user1.profile['@id']), 200, 'the owner transfers it to the first user')) {
+      check(await ownerOf() === user1.profile['@id'], 'and the first user now owns it',
+          `the owner is ${await ownerOf()}`);
+      checkStatus(await transfer(user2.auth, user2.profile['@id']), 403,
+          'a user with no role on it cannot take it either');
+      checkStatus(await transfer(auth, administrator), 200, 'the new owner transfers it back');
+      check(await ownerOf() === administrator, 'and the administrator owns it again',
+          `the owner is ${await ownerOf()}`);
+    }
+  }
+
   return { rootId, categoryId: id };
 }
