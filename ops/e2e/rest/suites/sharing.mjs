@@ -192,6 +192,37 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
     }), 400, 'listing the owner as a grantee is refused');
   }
 
+  suite('sharing: a field takes a permission write like every other kind');
+
+  // Templates, elements and instances have their permissions written elsewhere in the REST tier; a
+  // field's route is its own and was written by none of them.
+  const fieldName = `Shared Field ${RUN}`;
+  const field = await call(user1.auth, 'POST', `/template-fields?folder_id=${enc(folderId)}`,
+      artifactBody('field', fieldName));
+  if (checkStatus(field, 201, 'a field is created to share')) {
+    const at = `/template-fields/${enc(field.body['@id'])}`;
+    cleanup('field', at, fieldName);
+    const grant = role => mutate(user1.auth, 'PUT', `${at}/permissions`, {
+      owner: { '@id': user1.profile['@id'] },
+      userPermissions: role ? [{ user: { '@id': user2.profile['@id'] }, role }] : [],
+      groupPermissions: [],
+    });
+    checkStatus(await call(user2.auth, 'GET', at), 403, 'the second user cannot read it before it is shared');
+    if (checkStatus(await grant('viewer'), 200, 'the field is shared with the second user as Viewer')) {
+      const acl = await call(user1.auth, 'GET', `${at}/permissions`);
+      const grants = acl.body?.userPermissions ?? [];
+      check(grants.length === 1 && grants[0]?.user?.['@id'] === user2.profile['@id'] && grants[0]?.role === 'viewer',
+          'and its ACL records exactly that grant', `the ACL held ${JSON.stringify(grants).slice(0, 200)}`);
+      const read = await call(user2.auth, 'GET', at);
+      checkStatus(read, 200, 'the second user can read it');
+      checkStatus(await call(user2.auth, 'PUT', at, { ...read.body, 'schema:description': 'written by a Viewer' },
+          { headers: { 'If-Match': read.headers?.get('etag') ?? '"0"' } }), 403, 'and cannot write it');
+    }
+    if (checkStatus(await grant(null), 200, 'the grant is withdrawn')) {
+      checkStatus(await call(user2.auth, 'GET', at), 403, 'and the second user can no longer read it');
+    }
+  }
+
   suite('sharing: the user directory a share dialog picks from');
 
   // GET /users is what the frontend reads to offer people to share with. It is open to any logged-in
