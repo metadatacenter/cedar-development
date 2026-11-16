@@ -636,7 +636,8 @@ stale ACL revision answers 412.
 The main conformance gates are `ResourcePermissionModelTest`,
 `WorkspacePermissionIntegrationTest`, `WorkspacePermissionInheritanceIntegrationTest`,
 `ArtifactPermissionLevelMatrixTest`, `FolderPermissionLevelMatrixTest`, and
-`SharingRoundTripTest`. Together they exercise the resource/role/capability/action matrix, direct
+`SharingRoundTripTest`. The two workspace suites run in
+`cedar-microservice-libraries/cedar-library-integration-tests`. Together they exercise the resource/role/capability/action matrix, direct
 user and group grants, folder inheritance and precedence, the **Everyone** restriction, REST
 authorization for all artifact types and folders, and ownership-transfer authority and concurrency.
 
@@ -3574,7 +3575,11 @@ Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mo
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
-MySQL). Nor does any suite need an external service. Terminology's BioPortal resource tests run
+MySQL). The suites that exercise the shared libraries against those backends, the workspace and
+permission integration tests, the user-service contract, the credential and route matrices and the
+harness's own tests among them, run in `cedar-microservice-libraries/cedar-library-integration-tests`.
+That leaf module depends on the test-support library, nothing depends on it, and it is not deployed.
+Nor does any suite need an external service. Terminology's BioPortal resource tests run
 against a fake BioPortal that each test class starts. Their CEDAR variables must still be set,
 because the configuration substitutes them as it loads; a placeholder value is enough. The bridge's
 DOI suites call no DataCite. They run against a DataCite fake that keeps what it registers.
@@ -4560,8 +4565,11 @@ the test JVMs the build ran and credits each module's classes twice: once with t
 module's own repository, and once with any test that ran them. The repository figure is what the
 repository's CI tests before any consumer sees a change. It exceeds the module's own figure where one
 module is tested from another in the same repository. `cedar-microservice-libraries` tests its Neo4j
-persistence layer from `cedar-test-support-library`, which owns the embedded Neo4j, and the bridge
-server's application suites exercise its core module. The console shows the three figures in one
+persistence layer, and the test-support library's harness, from `cedar-library-integration-tests`,
+and the bridge server's application suites exercise its core module. The test-support library's own
+floors therefore count its unit tests alone: on 2026-11-16 they covered 35.7% of its lines and 35.4%
+of its branches, against floors of 33%, and the integration suites' share of it counts in the
+repository's merged figure. The console shows the three figures in one
 line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds them per module and per
 repository, for lines and for branches. `cedarcli build diagnostics` removes records older than its
 `--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
