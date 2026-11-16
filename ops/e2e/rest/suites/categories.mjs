@@ -1,6 +1,6 @@
 // Categories: the classification tree, and attaching artifacts to it. Twelve routes, none of which
 // had REST coverage.
-import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, ok, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
 
 export const name = 'categories';
 
@@ -103,8 +103,10 @@ export async function run({ user1, user2, admin, folderId }) {
     parentCategoryId: id,
     'schema:identifier': `rest-suites-child-${RUN}`,
   });
+  let childId;
   if (checkStatus(child, 201, 'nested category created')) {
-    cleanup('category', `/categories/${enc(child.body['@id'])}`, childLabel, adm);
+    childId = child.body['@id'];
+    cleanup('category', `/categories/${enc(childId)}`, childLabel, adm);
     const tree = await call(adm, 'GET', '/categories/tree');
     check(JSON.stringify(tree.body ?? {}).includes(childLabel),
         'the child appears in the tree', 'the tree did not mention it');
@@ -162,13 +164,23 @@ export async function run({ user1, user2, admin, folderId }) {
         { artifactId: artId, categoryId: id });
     if (checkStatus(detach, [200, 201, 204], 'and can detach it again')) {
       const report = await call(auth, 'GET', `/templates/${enc(artId)}/report`);
-      check(!JSON.stringify(report.body ?? {}).includes(id),
-          'the report no longer names it', 'the report still mentions the category');
+      check(report.status === 200 && !JSON.stringify(report.body ?? {}).includes(id),
+          'the report no longer names it',
+          report.status === 200 ? 'the report still mentions the category' : `the report answered ${report.status}`);
     }
 
-    checkStatus(await call(auth, 'POST', '/command/attach-categories',
-        { artifactId: artId, categoryIds: [id] }), [200, 201, 204],
-        'several categories can be attached at once');
+    // The category and its child, attached in one request. The Classifier grant on the category
+    // reaches the child below it.
+    const several = [id, childId].filter(Boolean);
+    if (checkStatus(await call(auth, 'POST', '/command/attach-categories',
+        { artifactId: artId, categoryIds: several }), [200, 201, 204],
+    'several categories can be attached at once')) {
+      const report = await call(auth, 'GET', `/templates/${enc(artId)}/report`);
+      const text = JSON.stringify(report.body ?? {});
+      check(report.status === 200 && several.length === 2 && several.every(category => text.includes(category)),
+          'and the report names each of them',
+          `the report answered ${report.status} naming ${several.filter(category => text.includes(category)).length} of ${several.length}`);
+    }
   }
 
   suite('categories: the rules');

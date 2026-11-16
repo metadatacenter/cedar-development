@@ -3,6 +3,7 @@
 // Groups live on the group server rather than the resource server, and they are the vehicle for two
 // distinct things — sharing with a named set of people, and sharing with everybody. This suite covers
 // the groups themselves; group-sharing covers what a grant to one confers.
+import { isDeepStrictEqual } from 'node:util';
 import { suite, check, checkStatus, group, mutateGroup, cleanup, everybodyGroup, enc, RUN,
   GROUP_SERVER } from '../lib.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
@@ -188,6 +189,16 @@ export async function run({ user1, user2 }) {
         'the second user is confirmed absent from it',
         `the roster was ${JSON.stringify((roster.body?.users ?? []).map(u => u.user?.email))}`);
 
+    // What the refusals below must leave as it is: the record with its revision, and the roster.
+    const stored = async () => {
+      const record = await group(user1.auth, 'GET', targetAt);
+      const users = await group(user1.auth, 'GET', `${targetAt}/users`);
+      return { status: [record.status, users.status], etag: record.headers?.get('etag'),
+        name: record.body?.['schema:name'], description: record.body?.['schema:description'],
+        roster: (users.body?.users ?? []).map(u => [u.user?.['@id'], u.administrator, u.member]) };
+    };
+    const before = await stored();
+
     checkStatus(await mutateGroup(user2.auth, 'PUT', targetAt,
         { 'schema:name': `${targetName} hijacked`, 'schema:description': 'renamed by an outsider' }), 403,
         'an outsider cannot rename a group they do not administer');
@@ -198,8 +209,10 @@ export async function run({ user1, user2 }) {
         'and cannot make themselves an administrator of it');
     checkStatus(await mutateGroup(user2.auth, 'DELETE', targetAt), 403,
         'and cannot delete it');
-    checkStatus(await group(user1.auth, 'GET', targetAt), 200,
-        'and it is untouched afterwards');
+    const after = await stored();
+    check(isDeepStrictEqual(before.status, [200, 200]) && !!before.etag && isDeepStrictEqual(before, after),
+        'and it is untouched afterwards',
+        `before ${JSON.stringify(before).slice(0, 300)}; after ${JSON.stringify(after).slice(0, 300)}`);
 
     // Reads split where writes do not. The group's own record stays readable by the outsider, since
     // a group must be visible to be chosen as the target of a share. Its roster does not, because
