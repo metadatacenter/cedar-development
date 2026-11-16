@@ -25,6 +25,12 @@
       "section": "pagination: typed listings filter by modification time",
       "name": "special folders does not list a folder modified exactly at modified_before",
       "reason": "the deployment has no special folder this user can see"
+    },
+    {
+      "suite": "search",
+      "section": "search: the query modes beyond a term",
+      "name": "and every row it returns is a folder",
+      "reason": "the deployment has no special folder this user can see"
     }
   ]
 }
