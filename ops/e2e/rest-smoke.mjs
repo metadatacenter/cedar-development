@@ -25,6 +25,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
+import { readRetired, unretiredDrops } from './rest/inventory.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as deletion from './rest/suites/deletion.mjs';
@@ -58,6 +59,8 @@ const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sha
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
+// Every check an inventory update may drop, each with the reason it was retired.
+const RETIRED_PATH = resolve(HERE, 'rest', 'retired-checks.json');
 // The skips a run may report, each with its reason. Any other skip fails the run, because a check
 // that skips proves nothing about the deployment, and the gate refuses it independently.
 const ALLOWED_SKIPS_PATH = resolve(HERE, 'rest', 'allowed-skips.json');
@@ -251,8 +254,25 @@ if (updateInventory) {
         `${result.failed} failure(s), interrupted=${interrupted}`);
     result = summary(selected.map(s => s.name));
   } else {
-    writeFileSync(INVENTORY_PATH, `${JSON.stringify({ version: 1, checks: observedChecks }, null, 2)}\n`);
-    console.log(`\nupdated check inventory: ${INVENTORY_PATH}`);
+    // A check leaves the inventory only with a recorded reason. Without this, a failing check deleted
+    // from its suite would leave the inventory on the next update and every later run would pass.
+    let dropped;
+    try {
+      const previous = JSON.parse(readFileSync(INVENTORY_PATH, 'utf8')).checks;
+      dropped = unretiredDrops(previous, observedChecks, readRetired(RETIRED_PATH));
+    } catch (error) {
+      dropped = [`the committed inventory or retired list cannot be read: ${error.message}`];
+    }
+    if (dropped.length) {
+      beginSuite('runner');
+      suite('runner: expected-check inventory');
+      check(false, 'an inventory update drops only the checks rest/retired-checks.json names',
+          `${dropped.length} dropped without a reason: ${dropped.slice(0, 8).map(id => id.replaceAll('\u001f', ' / ')).join(' | ')}`);
+      result = summary(selected.map(s => s.name));
+    } else {
+      writeFileSync(INVENTORY_PATH, `${JSON.stringify({ version: 1, checks: observedChecks }, null, 2)}\n`);
+      console.log(`\nupdated check inventory: ${INVENTORY_PATH}`);
+    }
   }
 } else {
   const expectedChecks = expectedFor(selected.map(s => s.name));
