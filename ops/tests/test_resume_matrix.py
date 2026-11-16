@@ -90,6 +90,8 @@ class World:
         # until that write has started.
         self.hold_read_until_write: Optional[tuple[str, str]] = None
         self.write_started = threading.Event()
+        # The artifact of every PUT the deployment received, in order.
+        self.puts: list[str] = []
         self.lock = threading.Lock()
 
     def ids(self, kinds: tuple[str, ...]) -> list[str]:
@@ -172,6 +174,7 @@ class Deployment(BaseHTTPRequestHandler):
             if self.headers.get("If-Match") != f'"{WORLD.revisions[artifact_id]}"':
                 self.send(412, {"message": "changed"})
                 return
+            WORLD.puts.append(artifact_id)
             WORLD.artifacts[artifact_id] = (kind, body)
             WORLD.revisions[artifact_id] += 1
         self.send(200, body, etag=f'"{WORLD.revisions[artifact_id]}"')
@@ -486,9 +489,10 @@ class Repair(Tool):
     # kind of stop rather than a state an earlier artifact can be left in.
     bridge_can_fail = False
 
-    def __init__(self, directory: Path, origin: str, workers: int = 1):
+    def __init__(self, directory: Path, origin: str, workers: int = 1, apply: bool = True):
         super().__init__(directory, origin)
         self.workers = workers
+        self.apply = apply
         self.targets = directory / "targets.jsonl"
         self.targets.write_text("".join(
             json.dumps({"artifactType": WORLD.artifacts[artifact_id][0], "artifactId": artifact_id,
@@ -497,8 +501,8 @@ class Repair(Tool):
 
     def arguments(self) -> list[str]:
         return ["--server", self.origin, "--allow-http", "--from-records", str(self.targets),
-                "--apply", "--workers", str(self.workers), "--progress-every", "1",
-                "--out", str(self.records)]
+                *(["--apply"] if self.apply else []), "--workers", str(self.workers),
+                "--progress-every", "1", "--out", str(self.records)]
 
     def patches(self) -> list[Any]:
         return [mock.patch.object(validation, "ValidationBridge", StandInValidationBridge),
@@ -672,6 +676,37 @@ class RepairStopsWithAWriteInFlight(unittest.TestCase):
             "outcome": "repaired"}) + "\n", encoding="utf-8")
         tool.run(resume=True)
         self.assertEqual(WORLD.revisions[first], 2, "the artifact was skipped as already repaired")
+
+
+class RepairWritePath(unittest.TestCase):
+    """What a whole repair run writes, and when it stops writing."""
+
+    setUp = RepairResume.setUp
+    tearDown = RepairResume.tearDown
+    fresh = RepairResume.fresh
+    tool = Repair
+
+    def written(self, tool: Repair) -> tuple[list[dict[str, Any]], dict[str, Any], list[Path]]:
+        records = [json.loads(line) for line in tool.records.read_text(encoding="utf-8").splitlines()]
+        summary = json.loads(tool.summary_path.read_text(encoding="utf-8"))
+        preimages = sorted(tool.directory.glob("run-preimages/**/*.json"))
+        return records, summary, preimages
+
+    def test_a_dry_run_sends_no_write_and_keeps_no_preimage(self):
+        tool = self.fresh(apply=False)
+        before = {key: (entry[1], WORLD.revisions[key]) for key, entry in WORLD.artifacts.items()}
+        tool.run()
+        records, summary, preimages = self.written(tool)
+        self.assertEqual(WORLD.puts, [])
+        self.assertEqual(before, {key: (entry[1], WORLD.revisions[key])
+                                  for key, entry in WORLD.artifacts.items()})
+        self.assertEqual(preimages, [])
+        self.assertEqual(summary["mode"], "dry-run")
+        self.assertEqual(summary["status"], "COMPLETE")
+        self.assertEqual([record["artifactId"] for record in records], tool.order())
+        self.assertEqual({record["outcome"] for record in records}, {"would-repair"})
+        self.assertFalse(any("preimage" in record for record in records))
+
 
 
 if __name__ == "__main__":

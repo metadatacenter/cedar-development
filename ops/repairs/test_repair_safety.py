@@ -4,6 +4,7 @@ import copy
 import io
 import json
 import pathlib
+import shutil
 import tempfile
 import threading
 import unittest
@@ -95,34 +96,58 @@ class WriteSafetyTest(unittest.TestCase):
         self.assertEqual(sorted(recorded), list(range(50)))
 
     def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None,
-                   replace_graph_provenance=False, repairs=None, allow_fractional_numbers=False):
+                   replace_graph_provenance=False, repairs=None, allow_fractional_numbers=False,
+                   apply=True, valid_back=True):
         """Run one repair against a fake deployment whose graph details are ``graph_before`` until
-        the write and ``graph`` after it, each defaulting to the provenance of the stored body."""
+        the write and ``graph`` after it, each defaulting to the provenance of the stored body.
+
+        The deployment records each PUT in ``self.puts`` with the pre-images on disk at that moment,
+        and the pre-image folder stays in ``self.preimages`` for the test to read. ``valid_back``
+        is the bridge's verdict on what it reads back after the write."""
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        self.preimages = folder
+        self.puts = puts = []
+        def saved():
+            return {path.relative_to(folder).as_posix(): json.loads(path.read_text())
+                    for path in sorted(folder.rglob('*.json'))}
         class Client:
             def __init__(self):
                 self.body = body or {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old'}
                 self.written = False
             def get_with_etag(self, path):
-                return copy.deepcopy(self.body), '"1"'
+                return copy.deepcopy(self.body), '"2"' if self.written else '"1"'
             def get_json(self, path):
                 stated = graph if self.written else graph_before
                 return stated if stated is not None else copy.deepcopy(self.body)
             def put_verbatim(self, path, candidate, etag):
+                puts.append({'candidate': copy.deepcopy(candidate), 'etag': etag, 'preimages': saved()})
                 self.written = True
                 self.body = copy.deepcopy(candidate)
                 if mutate:
                     mutate(self.body)
                 return 200, '"2"'
+        client = Client()
         class Bridge:
             def validate(self, *args):
-                return {'status': 'valid' if valid else 'invalid',
-                        'errors': [] if valid else [{'message': 'invalid'}]}
-        with tempfile.TemporaryDirectory() as folder:
-            return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder,
-                                                   replace_graph_provenance=replace_graph_provenance,
-                                                   allow_fractional_numbers=allow_fractional_numbers),
-                                repairs or [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
-                                r.rest.ArtifactRef('template', 'urn:test', 'test'))
+                verdict = valid_back if client.written else valid
+                return {'status': 'valid' if verdict else 'invalid',
+                        'errors': [] if verdict else [{'message': 'invalid'}]}
+        return r.repair_one(argparse.Namespace(apply=apply, verify=True, preimages=str(folder),
+                                               replace_graph_provenance=replace_graph_provenance,
+                                               allow_fractional_numbers=allow_fractional_numbers),
+                            repairs or [r.REPAIRS['empty-derived-from']], client, Bridge(), None,
+                            r.rest.ArtifactRef('template', 'urn:test', 'test'))
+
+    def test_a_dry_run_writes_nothing_and_keeps_no_preimage(self):
+        # --apply is the only thing between the documented dry run and PUT ?verbatim=true.
+        result = self.run_repair(apply=False)
+        self.assertEqual(result['outcome'], 'would-repair')
+        self.assertEqual(self.puts, [])
+        self.assertNotIn('preimage', result)
+        self.assertEqual(list(self.preimages.iterdir()), [])
+        self.assertEqual(self.run_repair(apply=True)['outcome'], 'repaired')
+        self.assertEqual(len(self.puts), 1)
 
     def test_readback_detects_unrelated_server_change(self):
         result = self.run_repair(lambda b: b.update({'schema:name': 'corrupted'}))
