@@ -8119,8 +8119,9 @@ def is_optional_iri_field_demanding_a_value(node: Any) -> bool:
 def allow_blank_optional_iri(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Let an optional IRI field be left blank, by removing its value schema's ``required`` list.
 
-    Templates written in 2016 and 2017 give a link or controlled-term field a value schema that requires
-    ``@id``, and sometimes ``rdfs:label``, whether or not the field is optional. A blank field holds
+    Artifacts written from 2016 to 2019, and a bulk import of elements and fields in August 2022, give a
+    link or controlled-term field a value schema that requires ``@id``, and sometimes ``rdfs:label``,
+    whether or not the field is optional. A blank field holds
     ``{}`` in an instance, which that schema refuses, so a form cannot be saved until every such
     optional field is filled. Neither library's writer gives an IRI field's value schema a ``required``
     list. Removing it from an optional field only widens what an instance may hold; a required field
