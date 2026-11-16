@@ -2471,7 +2471,7 @@ is still started, and the command exits non-zero.
 ## Building CEDAR
 
 `cedarcli build java` is the authoritative full build. It compiles and installs the whole Java
-stack in dependency order: parent, libraries, project, and clients. Inside a single repo,
+stack in dependency order: parent, then the libraries and the servers in one reactor, then clients. Inside a single repo,
 `cedarcli build this --wd "$PWD"` builds just that repo. The CLI loads the selected profile and pins
 JDK 17 for these child processes.
 
@@ -2485,8 +2485,10 @@ Temurin build. Framework/toolchain changes are tracked in the backend roadmap.
 
 The CLI build runs the Java test suites by default: every Java repo is built with
 `./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
-passed as well as compiled. `cedarcli build java` and `cedarcli build all` then run the artifact
-library's three corpus verifiers against `$CEDAR_HOME/cedar-test-artifacts`, as its CI does, and
+passed as well as compiled. `cedarcli build java` and `cedarcli build all` build the libraries and
+the servers in one Maven reactor, through cedar-project's `libraries` profile, which adds
+cedar-libraries to its modules. With tests, they then run the artifact library's three corpus
+verifiers against `$CEDAR_HOME/cedar-test-artifacts`, as its CI does, and
 fail when the corpus is absent. A local build still omits three checks that only CI runs: the
 meta-schema regeneration check in `cedar-model-validation-library`, the provided-libraries host
 check in `cedar-keycloak-event-listener`, and the `-Popensearch-it` suites. The default suites are backend-free, so nothing needs to be up. The
@@ -2504,9 +2506,14 @@ Frontend builds have separate repository and worker budgets: three jobs on hosts
 sixteen logical cores, two on smaller hosts, unless `--jobs` overrides it. See
 [frontend concurrency](FRONTEND-RUNBOOK.md#bounded-parallel-builds-and-test-gates).
 Maven schedules modules by
-its dependency graph inside each reactor. The parent, libraries, project and clients
-commands remain ordered and run in separate owning processes, so the embedded-Mongo
-preflight/cleanup guards still surround one reactor at a time. Test classes remain serial
+its dependency graph inside each reactor. `cedarcli build java` runs three reactors in order,
+each in its own Maven process: cedar-parent, then the libraries and the servers together
+(`./mvnw clean install -Plibraries` in cedar-project), then cedar-clients. The one reactor lets a
+server's library chain start as soon as the core, config and model libraries are installed, rather
+than after every library's tests. A cedar-project checkout without the profile is refused, because
+Maven 3 would only warn and build the servers against whatever libraries `~/.m2` holds.
+`cedarcli build libraries` and `cedarcli build project` still run their own reactors. The
+embedded-Mongo guards surround each Maven process. Test classes remain serial
 within each test JVM; Maven thread count does not enable JUnit concurrent execution.
 The resource application uses two isolated reusable Surefire JVMs as described below;
 other modules retain their existing fork settings.
