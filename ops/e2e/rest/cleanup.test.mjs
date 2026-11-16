@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withSuite, summary, cleanup, teardown, call } from './lib.mjs';
+import { withSuite, summary, cleanup, teardown, call, group, GROUP_SERVER } from './lib.mjs';
 
 let sequence = 0;
 const response = (status, headers = {}) => new Response(status === 204 ? null : '{}', { status, headers });
@@ -98,4 +98,28 @@ test('unregistered fixtures are still swept after a transport failure on another
   await teardown('offline', [name]);
   assert.equal(deleted, true);
   assert.equal(summary([name]).failed, 2, 'the unreadable fixture and the unregistered leak both fail');
+});
+
+test('an unregistered group is swept on the group server with the credential that created it', async t => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'error', () => {});
+  const requests = [];
+  let deleted = false;
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    requests.push({ url, method: options.method, auth: options.headers?.Authorization });
+    if (options.method === 'POST') return new Response(JSON.stringify({
+      '@id': 'https://repo.example/groups/unregistered', 'schema:name': 'unregistered group',
+    }), { status: 201 });
+    if (options.method === 'DELETE') { deleted = true; return response(204); }
+    return deleted ? response(404) : response(200, { etag: '"1"' });
+  });
+  const name = `unregistered-group-${sequence++}`;
+  await withSuite(name, () => group('creator.token.sig', 'POST', '/groups', {}));
+  await teardown('teardown.token.sig', [name]);
+  assert.equal(summary([name]).failed, 1, 'the leak is reported');
+  const sweep = requests.filter(r => r.method !== 'POST');
+  assert.ok(sweep.length >= 3);
+  assert.ok(sweep.every(r => r.url.startsWith(GROUP_SERVER) && r.auth === 'Bearer creator.token.sig'),
+    JSON.stringify(sweep));
+  assert.ok(deleted);
 });

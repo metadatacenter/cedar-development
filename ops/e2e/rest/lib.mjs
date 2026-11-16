@@ -227,7 +227,7 @@ export async function call(auth, method, path, body, opts = {}) {
   try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
   // A create under a supplied identity is a PUT answered 201, and it can leak as a POST can.
   if ((method === 'POST' || method === 'PUT') && res.status === 201) {
-    noteCreated(json, opts.base);
+    noteCreated(json, opts.base, auth);
     noteSplitFixture(json, opts.base);
   }
   return { status: res.status, body: json, text, headers: res.headers };
@@ -419,6 +419,7 @@ const COLLECTION_PATH = {
   element: '/template-elements',
   field: '/template-fields',
   folder: '/folders',
+  group: '/groups',
 };
 
 // Every folder and artifact a POST or a create-by-PUT made, in creation order, each attributed to
@@ -437,13 +438,15 @@ function kindOfId(id) {
   return Object.entries(COLLECTION_PATH).find(([, path]) => id.includes(`${path}/`))?.[0];
 }
 
-function noteCreated(json, base) {
-  if (base && base !== RESOURCE) return;   // a group belongs to the group server's own teardown
+function noteCreated(json, base, auth) {
   const id = json?.['@id'];
   if (typeof id !== 'string') return;
-  const kind = kindOfId(id);
+  // A group lives on the group server, and only its creator may be sure of deleting it, so the
+  // credential that created it is kept for the sweep.
+  const kind = base === GROUP_SERVER ? (id.includes('/groups/') ? 'group' : undefined)
+    : !base || base === RESOURCE ? kindOfId(id) : undefined;
   if (!kind || state().created.some(c => c.id === id)) return;
-  state().created.push({ kind, id, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: state().currentSuite });
+  state().created.push({ kind, id, auth, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: state().currentSuite });
 }
 
 /**
@@ -486,13 +489,15 @@ export function cleanup(kind, path, name, auth, base, identity) {
 async function sweepUnregistered(auth) {
   const suspects = state().created.filter(c => !state().registeredIds.has(c.id));
   let swept = 0;
-  for (const kind of ['instance', 'template', 'element', 'field', 'folder']) {
+  for (const kind of ['instance', 'template', 'element', 'field', 'folder', 'group']) {
     // Newest first within a kind: a nested folder is created after the folder holding it, and a
     // folder still holding anything cannot be deleted.
     for (const item of suspects.filter(s => s.kind === kind).reverse()) {
       try {
         const path = `${COLLECTION_PATH[kind]}/${enc(item.id)}`;
-        const probe = await call(auth, 'GET', path);
+        const where = kind === 'group' ? { base: GROUP_SERVER } : {};
+        const as = kind === 'group' ? item.auth ?? auth : auth;
+        const probe = await call(as, 'GET', path, undefined, where);
         if (probe.status === 404) continue;   // the suite deleted it itself, so nothing leaked
         if (probe.status !== 200) {
           bad(`teardown: cannot verify unregistered ${kind} "${item.name}"`, `GET returned ${probe.status}`);
@@ -500,12 +505,12 @@ async function sweepUnregistered(auth) {
         }
         bad(`teardown: ${kind} "${item.name}" is left behind by the "${item.suite}" suite`,
             `created but never registered with cleanup(); ${item.id}`);
-        const del = await mutate(auth, 'DELETE', path);
+        const del = await mutate(as, 'DELETE', path, undefined, where);
         if (del.status !== 204 && del.status !== 200) {
           bad(`teardown: ${kind} "${item.name}" could not be swept`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
           continue;
         }
-        const after = await call(auth, 'GET', path);
+        const after = await call(as, 'GET', path, undefined, where);
         if (after.status !== 404) {
           bad(`teardown: swept ${kind} "${item.name}" is not confirmed absent`, `GET returned ${after.status}`);
           continue;

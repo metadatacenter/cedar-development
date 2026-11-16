@@ -10,7 +10,8 @@
 // that run whether or not its own name is stamped; the fixtures a person left in the home folder
 // carry no stamp and are never touched. Categories are found the same way, and they matter because
 // they live outside the folder tree: two stray ones sat in the shared vocabulary through a cleanup
-// that walked only folders and reported itself complete.
+// that walked only folders and reported itself complete. Both test users' homes are walked: some
+// suites act as the second user, and what they leave sits in that user's home.
 //
 //   node cleanup-smoke-leftovers.mjs                        # report
 //   node cleanup-smoke-leftovers.mjs --apply                # report, then delete
@@ -49,7 +50,7 @@ const minAgeArg = argv.find(a => a.startsWith('--min-age='));
 const minAgeMinutes = minAgeArg ? Number(minAgeArg.split('=')[1]) : 15;
 const explicit = argv.find(a => a.startsWith('['));
 
-const { user1, admin } = await actors();
+const { user1, user2, admin } = await actors();
 const nameOf = n => n['schema:name'] ?? n.schema_name ?? '(unnamed)';
 const kindOf = n => {
   const t = n.resourceType ?? '';
@@ -69,9 +70,11 @@ function ageMinutes(stamp) {
   return Number.isNaN(at) ? null : (Date.now() - at) / 60000;
 }
 
-async function deleteOne({ kind, name, id, auth }) {
+async function deleteOne({ kind, name, id, auth, otherAuth }) {
   const base = kind === 'group' ? GROUP_SERVER : undefined;
-  const res = await mutate(auth, 'DELETE', `${PATHS[kind]}/${enc(id)}`, undefined, { base });
+  let res = await mutate(auth, 'DELETE', `${PATHS[kind]}/${enc(id)}`, undefined, { base });
+  // A suite acting as both users can leave one user's artifact in the other's folder.
+  if (res.status === 403 && otherAuth) res = await mutate(otherAuth, 'DELETE', `${PATHS[kind]}/${enc(id)}`, undefined, { base });
   const done = res.status === 204 || res.status === 200 || res.status === 404;
   console.log(`${done ? 'ok  ' : 'FAIL'} ${kind} ${res.status} ${name}`);
   if (!done) console.log(`      ${(res.text ?? '').slice(0, 200)}`);
@@ -118,8 +121,8 @@ const found = [];
 // Everything under a stamped folder belongs to that run, so the stamp is inherited downwards rather
 // than demanded of every name: suites create artifacts inside their working folder without always
 // stamping them, and one such template survived a cleanup that matched on names alone.
-async function walk(folderId, depth, inheritedStamp) {
-  const listed = await call(user1.auth, 'GET', `/folders/${enc(folderId)}/contents?limit=500`);
+async function walk(folderId, depth, inheritedStamp, owner = user1, other = user2) {
+  const listed = await call(owner.auth, 'GET', `/folders/${enc(folderId)}/contents?limit=500`);
   if (listed.status !== 200) {
     console.log(`! could not list ${folderId}: ${listed.status}`);
     return;
@@ -128,8 +131,8 @@ async function walk(folderId, depth, inheritedStamp) {
     const name = nameOf(node);
     const kind = kindOf(node);
     const stamp = inheritedStamp ?? stampOf(name) ?? null;
-    if (stamp) found.push({ kind, name, id: node['@id'], stamp, depth, auth: user1.auth });
-    if (kind === 'folder') await walk(node['@id'], depth + 1, stamp);
+    if (stamp) found.push({ kind, name, id: node['@id'], stamp, depth, auth: owner.auth, otherAuth: other.auth });
+    if (kind === 'folder') await walk(node['@id'], depth + 1, stamp, owner, other);
   }
 }
 
@@ -145,6 +148,7 @@ function walkCategories(node, depth, inheritedStamp) {
 }
 
 await walk(user1.profile.homeFolderId, 0, null);
+await walk(user2.profile.homeFolderId, 0, null, user2, user1);
 const tree = await call(user1.auth, 'GET', '/categories/tree');
 if (tree.status === 200) walkCategories(tree.body, 0, null);
 else console.log(`! could not read the category tree: ${tree.status}`);

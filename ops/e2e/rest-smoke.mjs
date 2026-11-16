@@ -24,7 +24,7 @@ import { argv } from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
+import { actors, call, group, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
 import { readRetired, unretiredDrops } from './rest/inventory.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
@@ -92,6 +92,7 @@ if (updateInventory && selected.length !== ALL.length) {
 const started = Date.now();
 let auth1;
 let user1Profile;
+let second;
 let phaseStarted = Date.now();
 
 const stamp = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/;
@@ -105,12 +106,33 @@ const leftBehind = name => {
   return found !== undefined && found <= RUN;
 };
 
-async function stampedLeftovers(auth, homeFolderId) {
+// Both users' homes, the category tree and the groups. A suite that forgets to register what it
+// made leaves it in one of these, and the second user's home and the groups are where a suite acting
+// as the second user, or making a group, would leave it.
+async function stampedLeftovers(auth, homeFolderId, second) {
   const leftovers = [];
-  const home = await call(auth, 'GET', `/folders/${enc(homeFolderId)}/contents?limit=500`);
-  if (home.status !== 200) return [{ where: 'home listing', detail: `${home.status}: ${home.text}` }];
-  for (const node of home.body?.resources ?? []) {
-    if (leftBehind(nameOf(node))) leftovers.push({ where: 'home', detail: nameOf(node) });
+  const homes = [['home', auth, homeFolderId], ['second user home', second?.auth, second?.profile?.homeFolderId]];
+  for (const [where, as, folder] of homes) {
+    if (!as || !folder) {
+      leftovers.push({ where, detail: 'not known, so not inventoried' });
+      continue;
+    }
+    const home = await call(as, 'GET', `/folders/${enc(folder)}/contents?limit=500`);
+    if (home.status !== 200) {
+      leftovers.push({ where: `${where} listing`, detail: `${home.status}: ${home.text}` });
+      continue;
+    }
+    for (const node of home.body?.resources ?? []) {
+      if (leftBehind(nameOf(node))) leftovers.push({ where, detail: nameOf(node) });
+    }
+  }
+  const groups = await group(auth, 'GET', '/groups');
+  if (groups.status !== 200) {
+    leftovers.push({ where: 'group listing', detail: `${groups.status}: ${groups.text}` });
+  } else {
+    for (const found of groups.body?.groups ?? []) {
+      if (leftBehind(nameOf(found))) leftovers.push({ where: 'group', detail: nameOf(found) });
+    }
   }
   const categories = await call(auth, 'GET', '/categories/tree');
   if (categories.status !== 200) {
@@ -164,13 +186,14 @@ try {
   const { user1, user2, admin } = await actors();
   auth1 = user1.auth;
   user1Profile = user1.profile;
+  second = user2;
   const homeFolderId = user1.profile.homeFolderId;
   if (!homeFolderId) throw new Error('the first user has no homeFolderId');
   console.log(`authenticated both test users; ${selected.length} suite(s) to run`);
 
   beginSuite('runner');
   suite('runner: clean-stack preflight');
-  const before = await stampedLeftovers(auth1, homeFolderId);
+  const before = await stampedLeftovers(auth1, homeFolderId, second);
   check(before.length === 0, 'the stack starts with no leftovers from an earlier REST run',
       before.map(item => `${item.where}: ${item.detail}`).join('; '));
 
@@ -228,8 +251,8 @@ try {
   if (auth1 && user1Profile?.homeFolderId) {
     beginSuite('runner');
     suite('runner: clean-stack postflight');
-    const after = await stampedLeftovers(auth1, user1Profile.homeFolderId);
-    check(after.length === 0, 'the run leaves no stamped folders, artifacts, or categories behind',
+    const after = await stampedLeftovers(auth1, user1Profile.homeFolderId, second);
+    check(after.length === 0, 'the run leaves no stamped folders, artifacts, categories or groups behind',
         after.map(item => `${item.where}: ${item.detail}`).join('; '));
 
     // The net under every deferred effect. A suite asserts the effects it knows to look for; this

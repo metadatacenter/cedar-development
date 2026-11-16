@@ -2438,7 +2438,7 @@
     "mcp\u001fmcp: the REST MCP takes templates through the resource server\u001finstance: the resource server no longer holds it",
     "mcp\u001fmcp: the REST MCP takes templates through the resource server\u001finstance basis: delete_template deletes it",
     "mcp\u001fmcp: the REST MCP takes templates through the resource server\u001finstance basis: the resource server no longer holds it",
-    "runner\u001frunner: clean-stack postflight\u001fthe run leaves no stamped folders, artifacts, or categories behind",
+    "runner\u001frunner: clean-stack postflight\u001fthe run leaves no stamped folders, artifacts, categories or groups behind",
     "runner\u001frunner: clean-stack postflight\u001fand the worker drained everything the run queued"
   ]
 }

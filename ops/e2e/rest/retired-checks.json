@@ -42,6 +42,12 @@
       "section": "pagination: a listing that pages by number as well refuses both at once",
       "name": "an authority search's first link from a page by number can be followed",
       "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "runner",
+      "section": "runner: clean-stack postflight",
+      "name": "the run leaves no stamped folders, artifacts, or categories behind",
+      "reason": "Renamed to name the groups the postflight now inventories, beside both users' homes and the category tree."
     }
   ]
 }
