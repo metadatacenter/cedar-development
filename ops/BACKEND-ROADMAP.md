@@ -146,25 +146,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   agree afterwards, and the command refuses a published artifact, a draft with a successor and a
   version not above its predecessor's.
 
-- **4. Validate and encode the DOI the DataCite metadata route resolves.** **Production
-  consequence:** some path values accepted today answer 400. No data migration.
+- **4. Decide who may read DOI metadata with the repository's DataCite credential.** **Production
+  consequence:** a narrower gate refuses some callers that read today. No data migration.
 
-  `getDOIMetadata` hands the path segment to `DoiMinting.readMetadata`, which keeps
-  `new URI(doiIdUrl).getPath()` (`DoiMinting.java:131-133`). `DataCiteClient.readPath` concatenates
-  that path into the configured endpoint with a query string and sends the result with the
-  deployment's DataCite basic credentials (`DataCiteClient.java:46-48`). Nothing validates the value
-  between the two steps, so traversal and query delimiters surviving a double decode influence an
-  authenticated upstream request. `DataCiteClient.update` builds its URI by the same concatenation
-  from a DOI the bridge has stored (`:75`). Authorization on the route is `LoggedIn` alone.
+  The DataCite metadata route (`DataCiteResource.getDOIMetadata`) asks DataCite what it holds for a
+  DOI, and the request carries the deployment's DataCite basic credentials, so DataCite answers for
+  the repository's drafts as well as for public DOIs. The route's only check is `LoggedIn`: any
+  signed-in user can have CEDAR spend that credential on any DOI.
 
-  **Decide what the public contract accepts** — a DOI name (`10.x/suffix`), a `doi.org` URL, or
-  both — and whether `LoggedIn` is the right gate for a route that spends repository credentials.
-
-  Parse the accepted form into a DOI value, validate registrant and suffix, reject traversal, query
-  and fragment syntax, and build every upstream URI with a builder that encodes each path component
-  rather than by string concatenation. Done when no DataCite URI in the bridge is assembled by
-  concatenation, and tests cover traversal, an injected query delimiter and both accepted input
-  forms.
+  Decide whether `LoggedIn` is the right gate for a route that spends repository credentials, or
+  whether a caller must hold a right over the artifact the DOI was minted for, or the route should
+  answer public DOIs without the credential. Done when the route enforces the chosen gate, with a
+  test of a caller it refuses.
 
 ## Security
 
