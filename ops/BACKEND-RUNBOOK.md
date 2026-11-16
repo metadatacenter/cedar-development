@@ -4190,10 +4190,11 @@ write path (which proxies, so the per-service suites cannot follow it), publish 
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
-the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
-`contract`, `deletion`, `download`, `error-reports`, `errors`, `finding`, `folders`, `freeze`,
-`group-sharing`, `groups`, `inclusion`, `mcp`, `negotiation`, `openness`, `pagination`, `pull-versions`,
-`search`, `sharing`, `term-search`, `validation` and `versioning`. The committed
+the suites are `addressing`, `administration`, `apidocs`, `artifacts`, `authentication`, `bodies`,
+`categories`, `contract`, `deletion`, `download`, `error-reports`, `errors`, `finding`, `folders`,
+`freeze`, `group-sharing`, `groups`, `inclusion`, `mcp`, `messaging`, `negotiation`, `openness`,
+`pagination`, `profiles`, `pull-versions`, `search`, `sharing`, `term-search`, `validation` and
+`versioning`. The committed
 `rest/expected-checks.json` inventory records exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
@@ -4203,7 +4204,10 @@ and malformed successful replies fail. `term-search` follows the same rule for i
 asks the terminology server one search of each kind the term picker makes, for classes, branches,
 an ontology, value sets and properties, and holds each answer to the rule the picker applies before
 it reads one. The picker's own tests answer from responses written by hand, so this is the one place
-a change in the server's answers meets what the picker accepts. Cleanup verifies HTTP 404 after deletion; an unsuccessful
+a change in the server's answers meets what the picker accepts. The suite keeps its own copy of
+the picker's rule, and `rest/term-search.test.mjs` holds that copy to the picker's
+`response-validation.ts` from the sibling checkout, case by case, and skips where the picker is not
+installed. Cleanup verifies HTTP 404 after deletion; an unsuccessful
 read is not evidence of absence. `download` includes JSON / YAML / compact-YAML export and
 read-negotiation across all four artifact kinds.
 
@@ -4212,8 +4216,27 @@ read from that user's profile, and takes three canned templates from `cedar-arti
 resources through `validate_artifact`, `create_template`, `get_template` and `delete_template`, and
 one template through `update_template`. Each step is confirmed through the resource server. The suite
 fails when the jar is missing or older than its sources, so run `mvn package` in
-`mcp/cedar-artifact-rest-mcp` first. `errors` sends each server only the kinds of refusal its
-operations allow, so a server whose operations take no JSON body gets no malformed-body check.
+`mcp/cedar-artifact-rest-mcp` first. The report's `mcpSources` records the head commit and
+uncommitted state of the four MCP repositories under `$CEDAR_HOME/mcp`, and the REST MCP jar's
+SHA-256. `cedarcli test e2e` refuses REST evidence that names no clean commit of
+`cedar-artifact-rest-mcp`, since a jar built from uncommitted changes holds code no commit does.
+
+`errors` sends each server only the kinds of refusal its operations allow, so a server whose
+operations take no JSON body gets no malformed-body check. It requires 401 for every operation
+asked without credentials. Each such request is otherwise well formed, with an empty JSON body,
+the required query parameters and an `If-Match`, so that only the missing credential can refuse it.
+An operation that reads its input before it authenticates belongs in the suite's `VALIDATES_FIRST`
+table with its reason, and the table is empty. A 5xx answer to a probe that names an identifier,
+sends a body or asks for a route fails the run, unless it is a 502 or 503 the suite documents as an
+upstream answer.
+
+`administration` asks every server's `/insight/*` routes and every monitor report as the first test
+user, who holds no administrative role, and requires 403. It requires 403 for the reset and
+regeneration commands as well, which are sent only because each must be refused before it starts.
+`profiles` changes one of the first user's preferences and puts it back, and reads the summary only
+that user may read. `messaging` sends the second user one message, stamped with the run, and makes
+the changes only its recipient may make. The messaging server has no route that deletes a message,
+so the message stays in that user's list, read.
 
 `npm run test:rest-harness` runs every `rest/*.test.mjs` file without a running stack. Release tooling
 CI runs that same command after installing its dependencies and checking out the eleven servers'
@@ -4221,7 +4244,10 @@ committed OpenAPI schemas. It covers error and success contracts, runner safegua
 capability checks, cleanup and scheduling.
 
 `pagination` checks fractional, overflowing and nonnumeric paging values, invalid sort and typed
-filter values, and the shared error envelope on those refusals. Empty optional string filters are
+filter values, and the shared error envelope on those refusals. It keeps the bridge's refusals of
+an invalid authority-search page, which the bridge makes before it asks a registry. The checks that
+page through the live ROR registry run in `npm run smoke:rest:live-authorities`
+(`rest/live-authorities.mjs`), which gates nothing, so an outside service cannot fail the tier. Empty optional string filters are
 normalized to absent at the HTTP boundary and retain their defaults. `group-sharing` checks direct
 Viewer plus group Editor and overlapping Viewer/Editor groups, including immediate loss of write
 authority when the stronger grant or group is removed. `sharing` sends a real artifact PUT with an
@@ -4243,9 +4269,10 @@ REST invocation does not replace the release smoke gate.
 
 Fifteen audited suites may overlap. Each has its own working folder, asynchronous
 check context, creation tracking and cleanup registry. The `folders`, `groups`,
-`categories`, `authentication`, `pagination` and `contract` suites run exclusively
-after that parallel batch: their home guards, protected group operations, category
-tree, account credentials or global counts require a stable surrounding stack.
+`categories`, `authentication`, `pagination`, `contract`, `administration`, `profiles` and
+`messaging` suites run exclusively after that parallel batch: their home guards, protected group
+operations, category tree, account credentials, global counts, administrative commands, user
+profile or message lists require a stable surrounding stack.
 New suites default to exclusive execution. One worker preserves the original suite
 order. Result merging restores the canonical suite order while preserving the check
 order within each suite, so the same exact inventory applies at every worker count.
@@ -4264,7 +4291,12 @@ work that started after it, and it reads the three services' document counts aga
 agree, at most ten times.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
-and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
+and postflight). Each REST request times out after `CEDAR_REST_REQUEST_TIMEOUT_MS`, 120 seconds by
+default, and the runner stops itself after `--deadline`, 1,200 seconds by default, as it does on a
+first signal: active suites drain and the teardown runs. `cedarcli test e2e` gives the tier 1,800
+seconds and records an overrun as exit 124 with `timedOut` in the gate record.
+
+`npm run test:rest-harness` verifies bounded scheduling, exclusive
 barriers, interruption, report attribution, cleanup ordering, partial-inventory refusal and the
 success-schema pilot's rejection of malformed responses; it also runs before
 every `npm run smoke:rest` invocation.
@@ -4459,8 +4491,10 @@ Attributing a leftover starts with the timestamp in its name, and that timestamp
 2026-08-19T04-27-53` was created at 21:27 the previous evening in Pacific time, seven hours earlier
 than it reads, which is enough to credit one run's mess to another.
 
-`ops/e2e/cleanup-smoke-leftovers.mjs` finds and removes them. Run with no arguments it reports what
-it found and deletes nothing; `--apply` deletes. It keys on that same run stamp, and a stamped folder
+`ops/e2e/cleanup-smoke-leftovers.mjs` finds and removes them, in the first user's home and in the
+second user's, where the suites acting as that user leave what they make. The REST tier's own
+leftover checks read both homes, the category tree and the group listing. Run with no arguments the
+tool reports what it found and deletes nothing; `--apply` deletes. It keys on that same run stamp, and a stamped folder
 carries its whole subtree, so an artifact the suites created inside a working folder without stamping
 its own name goes with it. The split tier and the focused journeys name their working folders
 `Focused journey <epoch milliseconds> <lane>` instead, and the tool keys on that number too. Until it
