@@ -3363,14 +3363,25 @@ rendering is correct.
 `cedarcli test ui-review --plan` describes a separate acceptance review of the assembled local
 Designer. `cedarcli test ui-review --output /absolute/path/to/new-run` captures ordinary editing,
 empty and populated states, panel transitions, field settings, nested content, keyboard traversal,
-save/reopen, deliberately interrupted-save recovery, long names at five viewport widths, and both
-panels together at six widths, multiple-value headers with both panels, and explicit scrolling
-through narrow Configuration forms, required repeated fields in Preview and Configuration at three widths,
-and required Overview names at two widths (51 required states). It requires
+save/reopen, deliberately interrupted-save recovery, long names at five viewport widths, both
+panels together at five widths, separate phone editing and Preview views at normal and short heights,
+multiple-value headers, and explicit scrolling through narrow Configuration forms. It also captures
+required repeated fields in Preview and Configuration at three widths and required Overview names
+at two widths (55 required states). It requires
 a current frontend reactor selection; first run `cedarcli build frontends` if sources have changed.
 The collector verifies the selected installed
 packages and the served component bytes, and records source/build identity before and after the
 run. It signs in as the local test user and removes only the temporary templates it creates.
+
+Below 600 pixels of component width, the existing Preview toggle switches between full-width
+authoring and full-width Preview. The editor stays mounted with its scroll position and settings;
+covered authoring controls are inert. Close Preview or Escape returns to editing, and opening
+Overview also returns to the editor. Wider components retain the side-by-side layout. This uses
+the embedded component's available width, independently of the browser viewport. The review
+collector explicitly switches views and waits for the intended pane before inspecting or editing
+phone content. Covered editor controls hide immediately, including the first frames after a resize.
+In an overflowing annotation table, keyboard focus brings the removal button and its focus ring
+fully into view; the table retains its ordinary horizontal scrolling.
 
 The output directory retains full screenshots, card crops, accessibility snapshots, control
 geometry (including labels and approximate intrinsic text widths), action records, cleanup results,
@@ -3596,6 +3607,29 @@ same deployed build and 41 clean sources, digest `984b6a4fef2158d5`, in 337.9 se
 source changes during the run. That record covers development tooling commit `4aa45b81`; this
 documentation update follows it. The report retains the failed attempt as well as the passing
 run, and the search tier retains its declared coverage gaps.
+
+The phone-layout follow-up is retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261116-phone-layout-review/` and
+`20261116-phone-layout-final-review/`. The first fresh reviewer found a brief resize transition
+that painted covered editor controls over Preview. Supplemental exploration also confirmed that
+Tab could leave an annotation removal control and its focus ring partly clipped. Both defects
+reproduced in Chromium, Firefox and WebKit before correction; the regression checks now inspect
+the first rendered phone frames and the complete focused control. The initial sealed findings
+and their separate follow-up remain unchanged. The collector waits for the intended pane rather
+than using a transiently visible card to decide whether phone authoring is open.
+
+The corrected reactor build is
+`89cfdd082ea57823aec2ccd744c39168b5b50e9e452a13a3ed4c52fd7c0efdf4`;
+the final packet records its source-content and package hashes. It passed 17,071 CED unit cases,
+25 unchanged pixel checks, 3,465 CED browser cases, 2,232 host browser cases, deployment and
+served-byte verification. All four whole-stack smoke tiers passed in 343.5 seconds. A different
+fresh reviewer inspected all 55 states, 49 card crops and 32 supplemental states without earlier
+findings or implementation details. Its sealed application and supplemental assessments contain
+no findings; both capture and exploration have no runtime or fixture-cleanup errors. The reports
+state the viewport, browser and journey limits explicitly. After sealing, the reviewer correctly
+classified all twelve calibration cases: behavior and composition each detected three concerns
+with no false alarms among three acceptable controls. Validation is `REVIEWED`, with zero
+findings or evidence blockers. This scoped result does not establish exhaustive UX coverage.
 
 ##### Pixel baseline checks
 

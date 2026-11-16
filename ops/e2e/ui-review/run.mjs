@@ -84,6 +84,15 @@ async function collect(directory) {
     await record('single-panel-b', () => toggle('overview'));
     const preview = () => page.locator('cedar-embeddable-designer .app-header__actions > .panel-toggle').click();
     const waitForPreview = () => page.locator('.preview-panel').getByRole('heading', {level: 1}).first().waitFor({state: 'visible'});
+    const phone = () => page.locator('cedar-embeddable-designer').evaluate(host => host.getBoundingClientRect().width < 600);
+    const setPreview = async shown => {
+      const button = page.locator('cedar-embeddable-designer .app-header__actions > .panel-toggle');
+      if ((await button.getAttribute('aria-expanded')) !== String(shown))
+        await action(shown ? 'Open Preview' : 'Close Preview to return to editing', preview);
+      if (shown) await waitForPreview();
+      await page.locator('.designer-scroll').waitFor({state: shown && await phone() ? 'hidden' : 'visible'});
+    };
+    const showEditor = async () => {if (await phone()) await setPreview(false);};
     await record('single-preview-a', async () => {await preview(); await waitForPreview();});
     await record('single-preview-b', preview);
     for (const tab of ['Configuration', 'Presentation', 'Constraints', 'Annotations', 'Metadata', 'Version'])
@@ -102,19 +111,36 @@ async function collect(directory) {
       await card().getByLabel('Allow multiple', {exact: true}).uncheck();
       await preview(); await waitForPreview();
     });
-    for (const width of [1440, 1100, 1024, 900, 768, 375])
-      await record(`both-panels-${width}`, () => page.setViewportSize({width, height: 1000}));
+    for (const width of [1440, 1100, 1024, 900, 768, 375]) {
+      await record(width === 375 ? 'phone-preview-375' : `both-panels-${width}`, async () => {
+        await page.setViewportSize({width, height: 1000});
+        await setPreview(true);
+      });
+      if (width === 375) {
+        await record('phone-editor-375', () => setPreview(false));
+        await record('phone-preview-short', async () => {
+          await page.setViewportSize({width, height: 667});
+          await setPreview(true);
+        });
+        await record('phone-editor-short', () => setPreview(false));
+      }
+    }
     for (const width of [768, 375])
       await record(`configuration-end-${width}`, async () => {
         await page.setViewportSize({width, height: 1000});
+        await setPreview(width >= 600);
         await card().locator('app-property-picker').scrollIntoViewIfNeeded();
       }, 'Explicitly scrolled to inspect the end of Configuration.');
-    await action('Enable multiple values with both panels visible', () => card().getByLabel('Allow multiple', {exact: true}).check());
-    for (const width of [1100, 768, 375])
-      await record(`both-panels-multiple-${width}`, async () => {
+    await action('Enable multiple values', () => card().getByLabel('Allow multiple', {exact: true}).check());
+    for (const width of [1100, 768, 375]) {
+      await record(width === 375 ? 'phone-preview-multiple-375' : `both-panels-multiple-${width}`, async () => {
         await page.setViewportSize({width, height: 1000});
+        await showEditor();
         await card().getByRole('textbox', {name: 'Enter field name', exact: true}).scrollIntoViewIfNeeded();
+        await setPreview(true);
       });
+      if (width === 375) await record('phone-editor-multiple-375', () => setPreview(false));
+    }
     await action('Prepare a required repeating field', async () => {
       await card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Participant identifier');
       await card().getByLabel('Requirement', {exact: true}).selectOption('required');
@@ -124,19 +150,25 @@ async function collect(directory) {
     for (const width of [1100, 768, 375]) {
       await record(`required-preview-${width}`, async () => {
         await page.setViewportSize({width, height: 1000});
+        await showEditor();
         await card().getByRole('textbox', {name: 'Enter field name', exact: true}).scrollIntoViewIfNeeded();
+        await setPreview(true);
       });
-      await record(`required-configuration-${width}`, () => card().locator('app-property-picker').scrollIntoViewIfNeeded());
+      await record(`required-configuration-${width}`, async () => {
+        await showEditor();
+        await card().locator('app-property-picker').scrollIntoViewIfNeeded();
+      });
     }
     await action('Inspect a shorter required name', () => card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Participant code'));
     for (const width of [1440, 768]) await record(`required-overview-${width}`, async () => {
       await page.setViewportSize({width, height: 1000});
+      await setPreview(true);
       await card().getByRole('textbox', {name: 'Enter field name', exact: true}).scrollIntoViewIfNeeded();
     });
     await action('Return to desktop editing before save', async () => {
       await page.setViewportSize({width: 1440, height: 1000});
       await card().getByLabel('Allow multiple', {exact: true}).uncheck();
-      await preview();
+      await setPreview(false);
     });
     await record('saved', async () => {
       await page.locator('#save').click();
