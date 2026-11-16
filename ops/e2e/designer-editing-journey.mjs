@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { artifactBody, call, enc } from "./rest/lib.mjs";
 import { journeyFolder, focused } from "./journey-fixtures.mjs";
 import { templateWith, comparable, editorStatus } from "./metadata-journey-fixtures.mjs";
-import { editorSave, editor as openFromWorkspace, assertOnlyContentChanges } from "./workspace-journey-fixtures.mjs";
+import { editorSave, editor as openFromWorkspace, ready as workspaceReady, assertOnlyContentChanges } from "./workspace-journey-fixtures.mjs";
 import { textField, input } from "./ordinary-editing-journey.mjs";
 
 async function schema(args, suffix, fields) {
@@ -252,6 +252,8 @@ export async function designerNavigationJourney(args) {
         { waitUntil: "domcontentloaded" }),
       page.locator("#back").click(),
     ]);
+    // The initial document can still be connecting; let Workspace render before navigating again.
+    await workspaceReady(page);
     await openFromWorkspace(page, base, fixture.folderId, fixture.title);
     assert.equal(await description.inputValue(), "Keep after cancelling Back");
     assert.equal(await page.locator("#restore-draft").isVisible(), false);
@@ -264,6 +266,7 @@ export async function designerNavigationJourney(args) {
         { waitUntil: "domcontentloaded" }),
       page.locator("#back").click(),
     ]);
+    await workspaceReady(page);
     await openFromWorkspace(page, base, fixture.folderId, fixture.title);
     assert.equal(await description.inputValue(), "Keep after cancelling Back");
     assert.equal(await page.locator("#restore-draft").isVisible(), false);
