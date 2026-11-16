@@ -1663,6 +1663,9 @@ def narrow_ontology_constraint_to_branch(artifact: Any) -> tuple[Any, list[dict[
         return artifact, []
     result = copy.deepcopy(artifact)
     changes: list[dict[str, Any]] = []
+    # Every path names an entry of the stored body, so the entries leave each list together: one
+    # removed first would move the others, and a second path would then name a different entry.
+    leaving: dict[str, set[int]] = {}
     for path, branch in planned.items():
         missing = [k for k in BRANCH_REQUIRED if k not in branch]
         if missing:
@@ -1675,23 +1678,51 @@ def narrow_ontology_constraint_to_branch(artifact: Any) -> tuple[Any, list[dict[
             raise TransformRefused(f"no ontologies list at {constraints_path}")
         if int(index) >= len(constraints["ontologies"]):
             raise TransformRefused(f"no entry {index} at {constraints_path}/ontologies")
-        removed = constraints["ontologies"].pop(int(index))
+        leaving.setdefault(constraints_path, set()).add(int(index))
         constraints.setdefault("branches", []).append(dict(branch))
-        changes.append({"path": path, "replaced": removed, "wrote": dict(branch)})
+        changes.append({"path": path, "replaced": constraints["ontologies"][int(index)], "wrote": dict(branch)})
+    for constraints_path, indices in leaving.items():
+        constraints = node_at(result, constraints_path)
+        constraints["ontologies"] = [entry for position, entry in enumerate(constraints["ontologies"])
+                                     if position not in indices]
     return result, changes
 
 
 def only_narrowed_ontology_constraint(before: Any, after: Any) -> Optional[str]:
-    """The invariant: each named entry left `ontologies` and exactly its confirmed branch arrived.
+    """The invariant: each named entry left `ontologies`, its confirmed branch arrived, and nothing else
+    changed.
 
-    Re-applied to the stored body rather than compared loosely, so a run that moved a different
-    entry, or wrote a branch nobody confirmed, differs from this and is caught.
+    Stated from the confirmed plan and the two documents, without the transform: a run applies the
+    invariant to the transform's own output, so one that re-ran the transform could never fail. A run
+    that moved a different entry, wrote a branch nobody confirmed or touched anything else is caught.
     """
-    try:
-        expected, _ = narrow_ontology_constraint_to_branch(before)
-    except TransformRefused as refusal:
-        return f"/ ({refusal})"
-    return None if expected == after else "/"
+    planned = BRANCHES.get(before.get("@id")) if isinstance(before, dict) else None
+    expected: dict[str, tuple[set[int], list[dict[str, Any]]]] = {}
+    for path, branch in (planned or {}).items():
+        constraints_path, _, index = path.rpartition("/ontologies/")
+        if not constraints_path or not index.isdigit():
+            return path
+        leaving, arriving = expected.setdefault(constraints_path, (set(), []))
+        leaving.add(int(index))
+        arriving.append(dict(branch))
+    for constraints_path, (leaving, arriving) in expected.items():
+        was, now = node_at(before, constraints_path), node_at(after, constraints_path)
+        if not isinstance(was, dict) or not isinstance(now, dict) \
+                or not isinstance(was.get("ontologies"), list) \
+                or any(index >= len(was["ontologies"]) for index in leaving):
+            return constraints_path
+        kept = [entry for index, entry in enumerate(was["ontologies"]) if index not in leaving]
+        if not json_equal(now.get("ontologies"), kept):
+            return constraints_path + "/ontologies"
+        prior = was.get("branches", [])
+        if not isinstance(prior, list) or not json_equal(now.get("branches"), prior + arriving):
+            return constraints_path + "/branches"
+    for pointer, _was, _now in differences(before, after):
+        if not any(pointer == stem or pointer.startswith(stem + "/")
+                   for constraints_path in expected
+                   for stem in (constraints_path + "/ontologies", constraints_path + "/branches")):
+            return pointer
+    return None
 
 
 PREVIOUS_VERSION_KEY = "pav:previousVersion"
@@ -3875,9 +3906,32 @@ def drop_empty_orphan_property_mappings(artifact: Any) -> tuple[Any, list[dict[s
 
 
 def only_dropped_empty_orphan_property_mappings(before: Any, after: Any) -> Optional[str]:
-    """The invariant: removing every empty orphan mapping from the pre-image gives the stored body."""
-    expected, _changes = drop_empty_orphan_property_mappings(before)
-    return None if expected == after else "/"
+    """The invariant: every difference removes a mapping that names no child and maps to an empty IRI.
+
+    Stated from the two documents, without the transform: a run applies the invariant to the
+    transform's own output, so one that re-ran the transform could never fail. A mapping the repair
+    should have removed and left behind is named too.
+    """
+    suffix = "/properties/@context/properties"
+    for pointer, was, now in differences(before, after):
+        parent, name = pointer_parent(pointer)
+        if now is not ABSENT or not parent.endswith(suffix) \
+                or name not in empty_orphan_property_mappings(node_at(before, parent[:-len(suffix)])):
+            return pointer
+
+    def remaining(container: Any, path: str) -> Optional[str]:
+        if not isinstance(container, dict):
+            return None
+        for name in empty_orphan_property_mappings(container):
+            return f"{path}{suffix}/{rest.json_pointer_component(name)}"
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            found = remaining(child, f"{declared}/items" if multiple else declared)
+            if found is not None:
+                return found
+        return None
+
+    return remaining(after, "")
 
 
 def drop_blank_orphan_property_labels(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
@@ -10044,8 +10098,83 @@ def repair_unambiguous_instance_structure(instance: Any, template: Any) -> tuple
 
 
 def only_unambiguous_instance_structure(before: Any, after: Any, template: Any) -> Optional[str]:
-    expected, _ = repair_unambiguous_instance_structure(before, template)
-    return next((path for path, _, _ in differences(expected, after)), None)
+    """The invariant: every difference is one of the three changes the repair names, each proved by the
+    stored instance and its template.
+
+    A key may lose the whitespace around it, with its context mapping, where the trimmed name is a
+    declared child the node lacks and the template maps it to the same IRI. An element's empty
+    ``@id`` may become the identifier minted from the instance's own and the element's path, where
+    the template lets it be null. An attribute-value list may lose blank names that nothing else in
+    its node uses. Stated from the documents and the template, without the transform: a run applies
+    the invariant to the transform's own output, so one that re-ran the transform could never fail.
+    """
+    if not isinstance(before, dict) or not isinstance(after, dict) or not isinstance(template, dict):
+        return "/"
+    root_id = before.get("@id")
+
+    def first_difference(was: Any, now: Any, path: str) -> Optional[str]:
+        return next((pointer for pointer, _, _ in differences(was, now, path)), None)
+
+    def child_fault(was: Any, now: Any, child: dict, node: dict, context: Any, path: str) -> Optional[str]:
+        if child.get("_ui", {}).get("inputType") == "attribute-value" and isinstance(was, list):
+            unused = [value for value in was if not (
+                isinstance(value, str) and not value.strip() and value not in node
+                and (not isinstance(context, dict) or value not in context))]
+            return None if json_equal(now, was) or json_equal(now, unused) else path
+        if is_element(child):
+            if isinstance(was, list):
+                if not isinstance(now, list) or len(was) != len(now):
+                    return path
+                for index, (item, changed) in enumerate(zip(was, now)):
+                    fault = node_fault(item, changed, child, f"{path}/{index}")
+                    if fault is not None:
+                        return fault
+                return None
+            if isinstance(was, dict):
+                return node_fault(was, now, child, path)
+        return first_difference(was, now, path)
+
+    def node_fault(node: Any, changed: Any, schema: dict, path: str) -> Optional[str]:
+        if not isinstance(node, dict) or not isinstance(changed, dict):
+            return first_difference(node, changed, path)
+        declarations = {name: (child, multiple) for name, child, multiple in container_children(schema)}
+        iris = declared_context_iris(schema)
+        context = node.get("@context")
+        renamed: dict[str, str] = {}
+        for new in changed:
+            if new in node:
+                continue
+            sources = [old for old in node if old not in changed and old.strip() == new]
+            if len(sources) != 1:
+                return f"{path}/{rest.json_pointer_component(new)}"
+            old = sources[0]
+            if old in declarations or new not in declarations or not isinstance(context, dict) \
+                    or not isinstance(context.get(old), str) or new in context or iris.get(new) != context[old]:
+                return f"{path}/{rest.json_pointer_component(new)}"
+            renamed[new] = old
+        for key in node:
+            if key not in changed and key not in renamed.values():
+                return f"{path}/{rest.json_pointer_component(key)}"
+        for key, now in changed.items():
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key == "@context" and isinstance(context, dict):
+                moved = {name: value for name, value in context.items() if name not in renamed.values()}
+                moved.update({new: context[old] for new, old in renamed.items()})
+                fault = first_difference(moved, now, here)
+            elif key == "@id" and path and node.get("@id") == "" \
+                    and "null" in schema.get("properties", {}).get("@id", {}).get("type", []) \
+                    and isinstance(root_id, str) and rest.is_absolute_iri(root_id):
+                minted = ELEMENT_INSTANCE_BASE + str(uuid.uuid5(uuid.NAMESPACE_URL, root_id + "#element" + path))
+                fault = None if now in ("", minted) else here
+            elif key in declarations:
+                fault = child_fault(node[renamed.get(key, key)], now, declarations[key][0], node, context, here)
+            else:
+                fault = first_difference(node[key], now, here)
+            if fault is not None:
+                return fault
+        return None
+
+    return node_fault(before, after, template, "")
 
 
 STANDARD_CONTEXT_VALUES = {
