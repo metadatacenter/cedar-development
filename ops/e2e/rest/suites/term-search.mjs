@@ -31,6 +31,10 @@ const searchChecks = what => [`the search for ${what} answers`,
   `the answer for ${what} is one the picker accepts`, `and it finds ${what}`];
 const PROPERTY_CHECKS = ['the property search for DOID "material" answers',
   'its answer carries every field the picker maps', 'and it finds a DOID property'];
+// GET /search/hierarchy, the picker's second call, which it makes when an author opens a class hit.
+// Asked of the first class the melanoma search finds.
+const HIERARCHY_CHECKS = ['the hierarchy of a DOID class answers', 'its answer is one the picker accepts',
+  'and it places the class below an ancestor'];
 
 const object = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = value => typeof value === 'string';
@@ -142,13 +146,16 @@ export async function run({ user1 }) {
   const cedarvs = await served(user1.auth, 'vs-collections/version-current?collection=CEDARVS');
   if (!doid || !cedarvs) {
     const reason = `the local terminology store does not serve DOID/CEDARVS (DOID: ${doid}, CEDARVS: ${cedarvs})`;
-    for (const what of [...SEARCHES.flatMap(search => searchChecks(search.what)), ...PROPERTY_CHECKS]) skip(what, reason);
+    for (const what of [...SEARCHES.flatMap(search => searchChecks(search.what)), ...PROPERTY_CHECKS,
+      ...HIERARCHY_CHECKS]) skip(what, reason);
     return {};
   }
 
+  let classHit;
   for (const search of SEARCHES) {
     const [answers, accepted, finds] = searchChecks(search.what);
     const res = await call(null, 'POST', '/search', search.body, { base: TERMINOLOGY });
+    classHit ??= res.body?.results?.class?.collection?.[0];
     if (!checkStatus(res, 200, answers)) {
       skip(accepted, 'the search did not answer');
       skip(finds, 'the search did not answer');
@@ -170,5 +177,23 @@ export async function run({ user1 }) {
     skip(accepted, 'the search did not answer');
     skip(finds, 'the search did not answer');
   }
+
+  const [hierarchyAnswers, hierarchyAccepted, placed] = HIERARCHY_CHECKS;
+  if (!check(iri(classHit?.termIri), 'the class search names a class whose hierarchy to ask',
+      'the class search found no class to ask about')) {
+    skip(hierarchyAccepted, 'no class was found to ask about');
+    skip(placed, 'no class was found to ask about');
+    return {};
+  }
+  const query = new URLSearchParams({ sourceAcronym: classHit.sourceAcronym, termIri: classHit.termIri });
+  const tree = await call(null, 'GET', `/search/hierarchy?${query}`, undefined, { base: TERMINOLOGY });
+  if (!check(tree.status === 200, hierarchyAnswers, `expected 200, got ${tree.status}: ${(tree.text ?? '').slice(0, 200)}`)) {
+    skip(hierarchyAccepted, 'the hierarchy did not answer');
+    skip(placed, 'the hierarchy did not answer');
+    return {};
+  }
+  const refused = hierarchyRefusals(tree.body, classHit.sourceAcronym, classHit.termIri);
+  check(refused.length === 0, hierarchyAccepted, refused.join('; '));
+  check(tree.body?.path?.length > 0, placed, `the path was ${JSON.stringify(tree.body?.path)}`);
   return {};
 }
