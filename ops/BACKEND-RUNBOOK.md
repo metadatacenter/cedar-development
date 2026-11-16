@@ -2299,15 +2299,19 @@ TypeScript, while both emit the same bytes for it.
   A `mongod` whose executable is under `~/.embedmongo` belongs to an embedded test run, not the
   native stack. An abnormally terminated test JVM can leave one behind with its ephemeral loopback
   port still open. On macOS, a later wildcard listener can acquire that same numeric port, so a test
-  request aimed at loopback may reach the orphan instead of the intended server. Inspect and remove
-  only these test-owned processes with:
+  request aimed at loopback may reach the orphan instead of the intended server. Such an orphan's
+  parent is PID 1; a mongod with any other parent belongs to a test still running, perhaps in
+  another session. Inspect and remove the orphans with:
   ```bash
   cedarcli test status
   cedarcli test cleanup
   ```
-  The detector identifies the executable path and deliberately excludes the native MongoDB. Every
-  test-bearing Maven command run by `cedarcli`, including release Maven builds, refuses to start
-  while one remains and checks again after the command finishes.
+  The detector identifies the executable path and deliberately excludes the native MongoDB.
+  `cedarcli test cleanup` stops only orphans, and `--all` also stops the mongods of tests still
+  running. Every test-bearing Maven command run by `cedarcli` refuses to start while an orphan
+  remains, and after the command finishes it waits only for the stores under its own build
+  temporary directory to stop. The release preflight fails on an orphan and warns about the stores
+  of tests still running.
 
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 with `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`. Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
@@ -2481,7 +2485,11 @@ Temurin build. Framework/toolchain changes are tracked in the backend roadmap.
 
 The CLI build runs the Java test suites by default: every Java repo is built with
 `./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
-passed as well as compiled. The default suites are backend-free, so nothing needs to be up. The
+passed as well as compiled. `cedarcli build java` and `cedarcli build all` then run the artifact
+library's three corpus verifiers against `$CEDAR_HOME/cedar-test-artifacts`, as its CI does, and
+fail when the corpus is absent. A local build still omits three checks that only CI runs: the
+meta-schema regeneration check in `cedar-model-validation-library`, the provided-libraries host
+check in `cedar-keycloak-event-listener`, and the `-Popensearch-it` suites. The default suites are backend-free, so nothing needs to be up. The
 seven build commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`,
 `java`, and `all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests`
 explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
@@ -4498,8 +4506,17 @@ against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
 JSON as the `coverage-summary` artifact. On 2026-11-04 the estate stood at 75.4% of 58,654 lines by
 each module's own tests, 84.3% by each repository's own tests and 88.7% by any test, and at 70.8%,
-76.1% and 78.8% of 23,869 branches. The figures are a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
-local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
+76.1% and 78.8% of 23,869 branches. The record also lists every module that has no tests, at 0% by
+its own tests, among them the messaging core and the permissions operations library.
+
+`cedarcli build java` and `cedarcli build all` hold the repository and any-test figures as a gate.
+Each module's line and branch figures by its repository's tests and by any test are recorded in
+`cedar-cli/assets/coverage/recorded.json`, and the build fails when one falls more than two points
+below its recorded value, when a recorded module goes unmeasured, or when the merged figures cannot
+be computed, for instance because the local Maven repository lacks JaCoCo's libraries. Narrower
+builds, such as `cedarcli build this`, only report. `cedarcli build record-coverage` previews new
+recorded figures from a coverage record and writes them under `--apply`. Commit them with the change
+that moved them.
 
 The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
 that configures Surefire's or Failsafe's `<argLine>` itself must begin it with `@{argLine}`.
@@ -4521,9 +4538,9 @@ than a local build did, because some of its branches run only on some timings, t
 lower figure. A comment beside each records the figures. `cedar-parent` defaults both properties to
 zero, so a module without a floor of its own has none, and the check skips a module that ran no
 tests. The floors use the module's own figure, not the any-test one, so they cannot be met by another
-repository's suites, and a module tested mainly from a sibling, such as
-`cedar-workspace-operations-library` at 40.2% of its branches, is held only to what its own tests
-reach. To raise a floor after adding tests, set the property to the new figure less two points.
+repository's suites. A module tested mainly from a sibling, such as
+`cedar-workspace-operations-library` at 40.2% of its branches, is held by its floor only to what its
+own tests reach, and by the full build's gate to its repository and any-test figures. To raise a floor after adding tests, set the property to the new figure less two points.
 Lowering one is a decision to accept less coverage, and the commit should say why.
 
 ### REST Performance Testing
