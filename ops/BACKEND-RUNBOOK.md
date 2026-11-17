@@ -3684,8 +3684,11 @@ checkpoint count/time so future runtime changes can be attributed.
 
 Indexed search applies the sharing view before counting, sorting and pagination. `shared-with-me`
 includes caller grants through users, groups and shared-folder descendants, excluding caller-owned
-and publicly shared artifacts. `shared-with-everybody` includes direct and inherited public grants.
-The empty-query sharing views still list their shared roots through the graph. Workspace preserves
+artifacts and anything Everybody may read, whether the public grant is the resource's own or inherited
+from a folder that contains it. `shared-with-everybody` includes direct and inherited public grants.
+The empty-query sharing views still list their shared roots through the graph, and the graph's
+Shared with Me listing leaves out inherited public read as the index does, so typing a term never
+brings back a resource the listing left out. Workspace preserves
 the selected sharing view on search, reload and clearing the expression; continuation tokens bind
 the sharing filter as well as the query and caller.
 
