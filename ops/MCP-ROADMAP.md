@@ -31,9 +31,6 @@ by name in commits.
     signature break fails before a client sees it. The REST smoke's `mcp` suite already refuses a
     `cedar-artifact-rest-mcp` jar older than its sources, and until the build produces that jar, a
     smoke run needs a manual `mvn package` first.
-  - Give `bioportal-term-mcp` the Python equivalent: `uv run pytest` and `uv run pyright` on every
-    push. `pyright` reports 17 errors in `server.py` today. Both precede any publication to PyPI,
-    should that ever be wanted.
   - Decide whether they join the train-backed release or stay outside it, as CEE and the
     TypeScript model library do. Dependency resolution no longer decides that question:
     `cedar-artifact-rest-mcp` resolves from Maven Central alone, while `cedar-artifact-mcp` and
