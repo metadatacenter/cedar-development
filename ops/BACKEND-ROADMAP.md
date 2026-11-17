@@ -1625,3 +1625,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   saved preimages, conditional verbatim writes, validation and readback. Preserve unrelated values,
   identifiers and provenance. Done when the scope is refreshed and every finding is
   corrected and verified or retained as an explicit exception with its remaining decision recorded.
+
+- **27. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
+  runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
+
+  No smoke tier creates a DOI or a draft DOI, so the gated tiers never exercise the bridge server's
+  DataCite minting path. The native profile ships placeholder DataCite credentials
+  (`bin/templates/set-env-external.sh`), so a journey can run only against a DataCite test account
+  or against a stand-in for the DataCite API that the bridge server is pointed at. Neither exists.
+  Choose between them, then add the journey to the gated tiers. Done when `cedarcli test e2e` creates
+  a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
+  afterwards.
