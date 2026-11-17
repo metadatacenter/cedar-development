@@ -9,11 +9,32 @@ export const compositionCases = [
   {id: 'k85', broken: true, category: 'label-detached-from-control', family: 'composition'},
   {id: 'm46', broken: true, category: 'related-settings-interrupted', family: 'composition'},
   {id: 'n90', broken: false, category: 'coherent-narrow-settings', family: 'composition'},
+  {id: 'p23', broken: true, category: 'misaligned-row-controls', family: 'composition'},
+  {id: 'q68', broken: false, category: 'aligned-row-controls', family: 'composition'},
 ];
 
 export async function captureComposition(browser, directory, item) {
   const page = await browser.newPage({viewport: {width: 1000, height: 700}});
   try {
+    if (['p23', 'q68'].includes(item.id)) {
+      await page.setContent(`<!doctype html><meta charset="utf-8"><style>
+        *{box-sizing:border-box}body{font:18px system-ui;color:#173e3c;margin:40px}
+        main{width:900px;border:1px solid #c2cece;padding:24px}.row{display:flex;align-items:center;gap:16px}
+        strong{margin-right:auto}.controls{display:flex;align-items:center;gap:12px;transform:translateY(${item.id === 'p23' ? 12 : 0}px)}
+        button{font:inherit;width:32px;height:32px;border:1px solid #9ba7a7;border-radius:50%;background:white;color:inherit}
+        p{border:1px solid #9ba7a7;padding:12px;margin:24px 0 0}
+        </style><main><div class="row"><strong>Measurement</strong><div class="controls"><button>1</button><button>2</button><button>3</button><span>1–3 of 9</span><button aria-label="Previous">‹</button><button aria-label="Next">›</button></div></div><p>Recorded observation</p></main>`);
+      await page.evaluate(() => document.fonts.ready);
+      const geometry = await page.locator('.row').evaluate(row => [...row.children].map(el => {
+        const r = el.getBoundingClientRect();
+        return {element: el.tagName, x:r.x, y:r.y, width:r.width, height:r.height, centerY:r.y + r.height/2};
+      }));
+      assert.equal(Math.round(Math.abs(geometry[0].centerY - geometry[1].centerY)), item.id === 'p23' ? 12 : 0);
+      const file = `${item.id}-screen.png`;
+      await page.screenshot({path: join(directory, file)});
+      return {id:item.id, images:[file], actions:['Inspected the displayed measurement without editing.'], geometry,
+        accessibility:await page.locator('body').ariaSnapshot()};
+    }
     const heading = ['g14', 'h76', 'j32'].includes(item.id);
     const name = item.id === 'h76' ? 'Estimated total elapsed observation time' : 'Elapsed time';
     const identity = `<header><span class="identity">${name}</span><span class="facts">Decimal · seconds</span></header><p>Set the properties used when recording this measurement.</p>`;

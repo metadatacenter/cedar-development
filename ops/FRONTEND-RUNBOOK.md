@@ -3631,6 +3631,53 @@ classified all twelve calibration cases: behavior and composition each detected 
 with no false alarms among three acceptable controls. Validation is `REVIEWED`, with zero
 findings or evidence blockers. This scoped result does not establish exhaustive UX coverage.
 
+The separate Workspace and Metadata Editor review of 16 November is retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261116-workspace-metadata-independent/review-report.html`.
+Two fresh reviewers used application-specific live collectors, without earlier findings or
+implementation source, against current build
+`a05e5fc62ce5e7fa6b7b6a99fd7d1916e1a37e420d38ff9f8740b0e7028b5eb9`.
+Workspace covered 34 states and found a reproducible type-checkbox handler exception while Apply
+continued to work. Its separate layout proposal measured a 206-pixel table viewport at 768 pixels
+with both sidebars open, versus 536 pixels with information collapsed. Metadata Editor retained
+23 captures, including three explicitly excluded legacy-host diagnostics; the modern-host finding
+is a long field label whose full wording cannot be revealed visually at phone width. Fixture
+setup mistakes are documented separately and are not product findings. Both application reports
+were sealed before calibration; each reviewer classified all twelve cases correctly with no false
+alarms. Evidence hashes, unchanged source provenance and fixture cleanup were verified. The
+reports describe their bounded Chromium viewport coverage; this is not a full regression suite.
+
+
+For Metadata Editor reviews, repeated-field coverage names its counts rather than merely saying
+“repeated fields”: zero, one, several, the page boundary, over the boundary and multiple pages
+(currently 0, 1, 2, 5, 6 and 12). Inspect short and long identities at desktop, tablet and phone
+widths, nested occurrences, page changes, reload and resize. Record and inspect each rendered state.
+The earlier two-occurrence review never displayed a paginator and therefore did not test that
+layout. Its sealed result remains evidence of that limited scope, not approval of paginated fields.
+The held-out composition calibration now also includes a matched aligned/misaligned control row;
+its fourteen cases still measure only basic detection and false alarms, not production recall.
+Geometry contracts also compare related controls and identities, not only individual dimensions:
+the previous occurrence test preserved a 56-pixel paginator height without checking whether it
+aligned with its field heading. The regression matrix now checks shared centers, text/control
+collisions and page boundaries; separate density checks preserve consistent control dimensions
+and verify page navigation.
+
+The failed follow-up packets remain under `20261116-workspace-metadata-fixed-review/` and
+`20261116-workspace-metadata-final-review/`. Review evidence is immutable: corrections receive a
+new build and fresh reviewers in `20261116-workspace-metadata-acceptance-review/`. Metadata Editor
+opts into full field names and template descriptions. A generated saved name is reflected in the
+name input while edits made during the save remain dirty. Workspace keeps wrapped breadcrumbs
+above filters, and allows the listing viewport to shrink without pushing paging off the screen.
+CEE remeasures paragraph controls after host width changes; paginated occurrence controls share
+the existing action height, and move beneath a field identity when their rendered contents collide.
+
+These corrections are committed before final acceptance at the user's request. Focused checks
+passed 160 occurrence/toolbar browser cases, 80 unchanged pixel baselines and 12 Workspace tablet
+cases. The complete current-source reactor and the fresh acceptance reviews remain pending.
+One earlier full CEE run passed 3,977 cases but timed out during navigation in another; 24 traced
+repetitions did not reproduce it, so its cause is not established. Subsequent full runs retain
+tracing. Concurrent backend rebuilds changed the Java conformance inputs during verification;
+finish the backend build and deployment before the frontend reactor and independent reviews.
+
 ##### Pixel baseline checks
 
 The containerized screenshot suite permits **zero differing pixels**. Do not restore a percentage
