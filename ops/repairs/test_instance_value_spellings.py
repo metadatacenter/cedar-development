@@ -658,6 +658,103 @@ class CreatedDateFromGraphTest(unittest.TestCase):
                          "/pav:createdOn")
 
 
+class DatesFromGraphTest(unittest.TestCase):
+    IRI = "https://repo.metadatacenter.org/template-instances/i"
+
+    def setUp(self):
+        r.CREATED_DATES.clear()
+        r.MODIFIED_DATES.clear()
+
+    tearDown = setUp
+
+    def document(self):
+        return {"@id": self.IRI, "pav:createdOn": "2019-02-20T12:29:07-08:00",
+                "pav:lastUpdatedOn": "2020-01-01T00:00:00-08:00", "schema:name": "x"}
+
+    def test_both_dates_move_to_the_graphs_where_each_is_one_second_later(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:08-08:00"
+        r.MODIFIED_DATES[self.IRI] = "2020-01-01T00:00:01-08:00"
+        before = self.document()
+        after, changes = r.state_dates_from_graph(before)
+        self.assertEqual((after["pav:createdOn"], after["pav:lastUpdatedOn"]),
+                         ("2019-02-20T12:29:08-08:00", "2020-01-01T00:00:01-08:00"))
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdOn", "/pav:lastUpdatedOn"])
+        self.assertIsNone(r.only_stated_graph_dates(before, after))
+        self.assertEqual(r.state_dates_from_graph(after), (after, []))
+
+    def test_only_the_date_with_a_one_second_gap_moves(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:07-08:00"
+        r.MODIFIED_DATES[self.IRI] = "2020-01-01T00:00:01-08:00"
+        after, changes = r.state_dates_from_graph(self.document())
+        self.assertEqual(after["pav:createdOn"], "2019-02-20T12:29:07-08:00")
+        self.assertEqual([c["path"] for c in changes], ["/pav:lastUpdatedOn"])
+
+    def test_any_other_gap_or_form_is_left_alone(self):
+        for graph in ("2020-01-01T00:00:02-08:00", "2019-12-31T23:59:59-08:00", "2020-01-01T08:00:01Z", None):
+            r.MODIFIED_DATES[self.IRI] = graph
+            self.assertEqual(r.state_dates_from_graph(self.document())[1], [], graph)
+
+    def test_the_invariant_refuses_any_other_change(self):
+        r.MODIFIED_DATES[self.IRI] = "2020-01-01T00:00:01-08:00"
+        before = self.document()
+        self.assertEqual(r.only_stated_graph_dates(before, dict(before, **{"schema:name": "y"})), "/schema:name")
+        self.assertEqual(r.only_stated_graph_dates(before, dict(before, **{"pav:lastUpdatedOn": "2020-01-01T00:00:02-08:00"})),
+                         "/pav:lastUpdatedOn")
+        self.assertEqual(r.only_stated_graph_dates(before, dict(before, **{"pav:createdOn": "2019-02-20T12:29:08-08:00"})),
+                         "/pav:createdOn")
+
+
+class ProvenanceFromGraphTest(unittest.TestCase):
+    IRI = "https://repo.metadatacenter.org/templates/t"
+    GRAPH = {"pav:createdOn": "2017-08-29T07:39:22-07:00",
+             "pav:createdBy": "https://metadatacenter.org/users/4235957e",
+             "pav:lastUpdatedOn": "2021-01-01T00:00:00-08:00",
+             "oslc:modifiedBy": "https://metadatacenter.org/users/4235957e"}
+
+    def setUp(self):
+        r.GRAPH_PROVENANCE.clear()
+
+    tearDown = setUp
+
+    def test_the_document_takes_each_value_the_graph_records(self):
+        r.GRAPH_PROVENANCE[self.IRI] = dict(self.GRAPH)
+        before = {"@id": self.IRI, "pav:createdOn": "2020-08-13T11:51:35.968-0400",
+                  "pav:createdBy": "https://metadatacenter.org/users/200114c6",
+                  "pav:lastUpdatedOn": "2021-01-01T00:00:00-08:00",
+                  "oslc:modifiedBy": "https://repo.metadatacenter.net/users/4235957e", "schema:name": "x"}
+        after, changes = r.state_provenance_from_graph(before)
+        self.assertEqual({k: after[k] for k in r.PROVENANCE_KEYS}, self.GRAPH)
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdOn", "/pav:createdBy", "/oslc:modifiedBy"])
+        self.assertIsNone(r.only_stated_graph_provenance(before, after))
+        self.assertEqual(r.state_provenance_from_graph(after), (after, []))
+
+    def test_missing_creation_provenance_is_stated(self):
+        r.GRAPH_PROVENANCE[self.IRI] = dict(self.GRAPH)
+        before = {"@id": self.IRI, "pav:lastUpdatedOn": self.GRAPH["pav:lastUpdatedOn"],
+                  "oslc:modifiedBy": self.GRAPH["oslc:modifiedBy"]}
+        after, changes = r.state_provenance_from_graph(before)
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdOn", "/pav:createdBy"])
+        self.assertIsNone(r.only_stated_graph_provenance(before, after))
+
+    def test_a_value_the_graph_lacks_is_never_removed(self):
+        r.GRAPH_PROVENANCE[self.IRI] = {"pav:createdBy": None}
+        before = {"@id": self.IRI, "pav:createdBy": "https://metadatacenter.org/users/a"}
+        self.assertEqual(r.state_provenance_from_graph(before), (before, []))
+
+    def test_an_unlisted_artifact_is_left_alone(self):
+        before = {"@id": self.IRI, "pav:createdOn": "2020-08-13T11:51:35.968-0400"}
+        self.assertEqual(r.state_provenance_from_graph(before), (before, []))
+
+    def test_the_invariant_refuses_any_other_change(self):
+        r.GRAPH_PROVENANCE[self.IRI] = dict(self.GRAPH)
+        before = {"@id": self.IRI, "schema:name": "x", "pav:createdOn": "2020-01-01T00:00:00-08:00"}
+        self.assertEqual(r.only_stated_graph_provenance(before, dict(before, **{"schema:name": "y"})), "/schema:name")
+        self.assertEqual(r.only_stated_graph_provenance(before, dict(before, **{"pav:createdOn": "2019-01-01T00:00:00-08:00"})),
+                         "/pav:createdOn")
+        self.assertEqual(r.only_stated_graph_provenance(before, {k: v for k, v in before.items() if k != "pav:createdOn"}),
+                         "/pav:createdOn")
+
+
 class ContextOpennessTest(unittest.TestCase):
     def document(self, sample_context, with_attribute_value=False):
         document = template()

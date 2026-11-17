@@ -5109,6 +5109,77 @@ def only_stated_graph_created_date(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# The modification date each artifact's graph node records, keyed by artifact IRI, supplied through
+# --modified-dates. The same double clock read left about one save in fifty a second later in the graph.
+# A verbatim write sets the graph's modification date from the document, so stating the graph's value in
+# the document leaves the graph as it is and brings the two into agreement.
+MODIFIED_DATES: dict[str, str] = {}
+
+GRAPH_DATE_TABLES = (("pav:createdOn", CREATED_DATES), ("pav:lastUpdatedOn", MODIFIED_DATES))
+
+
+def state_dates_from_graph(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write ``pav:createdOn`` and ``pav:lastUpdatedOn`` as the graph records them, each only where the
+    graph's is exactly one second later."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result, changes = copy.deepcopy(artifact), []
+    for key, table in GRAPH_DATE_TABLES:
+        graph = table.get(artifact.get("@id"))
+        if is_one_second_later(artifact.get(key), graph):
+            result[key] = graph
+            changes.append({"path": f"/{key}", "replaced": artifact.get(key), "wrote": graph})
+    return result, changes
+
+
+def only_stated_graph_dates(before: Any, after: Any) -> Optional[str]:
+    """The invariant: each change moves one of the two dates a second later, to the graph's."""
+    if not isinstance(before, dict):
+        return "/"
+    tables = {f"/{key}": table for key, table in GRAPH_DATE_TABLES}
+    for path, was, now in differences(before, after):
+        table = tables.get(path)
+        if table is None or now != table.get(before.get("@id")) or not is_one_second_later(was, now):
+            return path or "/"
+    return None
+
+
+# The creation and modification provenance each artifact's graph node records, keyed by artifact IRI,
+# {artifactId: {"pav:createdOn": ..., "pav:createdBy": ..., "pav:lastUpdatedOn": ..., "oslc:modifiedBy": ...}},
+# supplied through --graph-provenance. The server stamps the graph itself and Workspace reads it, while a
+# document's four values can carry what a client once wrote: a creation date in another form or years
+# away, another creator, or none at all. A verbatim write sets the graph's modification provenance from
+# the document and never its creation provenance, so the document takes the graph's values.
+GRAPH_PROVENANCE: dict[str, dict[str, str]] = {}
+PROVENANCE_KEYS = ("pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy")
+
+
+def state_provenance_from_graph(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write each provenance value the graph records where the document states another or none."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    graph = GRAPH_PROVENANCE.get(artifact.get("@id")) or {}
+    result, changes = copy.deepcopy(artifact), []
+    for key in PROVENANCE_KEYS:
+        value = graph.get(key)
+        if isinstance(value, str) and value and artifact.get(key) != value:
+            result[key] = value
+            changes.append({"path": f"/{key}", "replaced": artifact.get(key), "wrote": value})
+    return result, changes
+
+
+def only_stated_graph_provenance(before: Any, after: Any) -> Optional[str]:
+    """The invariant: each change states one of the four provenance values as the graph records it."""
+    if not isinstance(before, dict):
+        return "/"
+    graph = GRAPH_PROVENANCE.get(before.get("@id")) or {}
+    for path, _was, now in differences(before, after):
+        key = path[1:] if path else ""
+        if key not in PROVENANCE_KEYS or not isinstance(now, str) or now != graph.get(key):
+            return path or "/"
+    return None
+
+
 def only_stated_graph_creator(before: Any, after: Any) -> Optional[str]:
     """The invariant: the one change states the creator the graph records where none was stated."""
     if not isinstance(before, dict):
@@ -10627,6 +10698,22 @@ REPAIRS = {
         transform=state_created_date_from_graph,
         invariant=only_stated_graph_created_date,
     ),
+    "state-dates-from-graph": Repair(
+        name="state-dates-from-graph",
+        condition="",
+        summary="write pav:createdOn and pav:lastUpdatedOn as the graph records them, each where the graph's "
+                "is exactly one second later",
+        transform=state_dates_from_graph,
+        invariant=only_stated_graph_dates,
+    ),
+    "state-provenance-from-graph": Repair(
+        name="state-provenance-from-graph",
+        condition="",
+        summary="write pav:createdOn, pav:createdBy, pav:lastUpdatedOn and oslc:modifiedBy as the graph "
+                "records them, where the document states another value or none",
+        transform=state_provenance_from_graph,
+        invariant=only_stated_graph_provenance,
+    ),
     "allow-blank-optional-iri": Repair(
         name="allow-blank-optional-iri",
         condition="",
@@ -11800,6 +11887,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--created-dates",
                         help="JSON of the creation date each artifact's graph records, {artifactId: date}, which "
                              "state-created-date-from-graph writes where it is exactly one second later")
+    parser.add_argument("--modified-dates",
+                        help="JSON of the modification date each artifact's graph records, {artifactId: date}, "
+                             "which state-dates-from-graph writes where it is exactly one second later")
+    parser.add_argument("--graph-provenance",
+                        help="JSON of the provenance each artifact's graph records, {artifactId: {key: value}} "
+                             "for the four provenance keys, which state-provenance-from-graph writes")
     parser.add_argument("--date-orders",
                         help="JSON of the order each template's numeric dates are written in, "
                              "{templateId: \"day-first\" | \"month-first\"}, which write-date-as-iso "
@@ -12037,6 +12130,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--date-orders", arguments.date_orders, DATE_ORDERS),
                                  ("--creators", arguments.creators, CREATORS),
                                  ("--created-dates", arguments.created_dates, CREATED_DATES),
+                                 ("--modified-dates", arguments.modified_dates, MODIFIED_DATES),
+                                 ("--graph-provenance", arguments.graph_provenance, GRAPH_PROVENANCE),
                                  ("--modifier-forms", arguments.modifier_forms, MODIFIER_FORMS),
                                  ("--placeholder-templates", arguments.placeholder_templates, PLACEHOLDER_TEMPLATES),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
