@@ -3699,17 +3699,76 @@ records that drift and does not claim latest-source acceptance.
 Each reviewer detected all seven calibration defects without false alarms among seven controls.
 This confirms the basic calibration result, not exhaustive production defect detection.
 
-The review is not clean: Workspace's long-path tablet state with both panels open leaves an
+That acceptance review was not clean: Workspace's long-path tablet state with both panels open left an
 8-pixel listing viewport; Metadata Editor's repeated-element controls overlap tablet headings,
 and phone nesting truncates the section identity while leaving 107 pixels of input text width.
 Workspace also has two design proposals, for distant phone details and isolated breadcrumb
 separators. Its report explicitly leaves settled pagination and horizontal action-column access
-unverified. The roadmap carries the remaining corrections and design decisions; the sealed
-reports remain evidence of this build, not approval of these layouts.
+unverified. The sealed reports remain evidence of that build, not approval of those layouts;
+the responsive follow-up below records the corrections and subsequent reviews.
 
 Two earlier one-off failures remain unexplained: CEE navigation and Firefox read-only navigation
 in CED. Focused traced repetitions and subsequent complete suites passed. Retain tracing on a
 recurrence rather than increasing timeouts or weakening the checks.
+
+The responsive follow-up is retained under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261117-responsive-followup-review/` and
+`20261117-responsive-final-review/`. Workspace keeps a usable central listing with both tablet
+panels open and long paths, and keeps paging above the table heading. Breadcrumb separators stay
+with the following complete folder name. On phones, explicitly opening information focuses and
+scrolls to it; closing returns to the selected row. Ordinary selection does not trigger that jump.
+Settled pagination checks inspect actual next/previous row identities, and narrow list views
+exercise horizontal access to row actions and menus.
+
+CEE wraps complete element identities in hosts opting into full names, separates repeated-element
+controls from headings when their rendered contents collide, and uses proportional insets up to a
+400-pixel local component width. The shared inset recipes use container units so heading, content
+and pager alignment resolve against the same width. The matrix covers 0, 1, 2, 5, 6 and 12
+occurrences, nested sections, final pages, resize/reload, and desktop/tablet/phone widths. Two narrow
+pixel baselines were visually inspected; desktop baselines remain unchanged. Corpus regex parity
+uses the production work budget while its deliberate runaway case retains the short timeout.
+Search tests wait for the intended query rather than accepting an earlier debounced response.
+
+The first follow-up's sealed reviewers inspected 52 Workspace and 60 Metadata Editor states and
+found optional layout proposals. Both classified seven calibration defects and seven acceptable
+controls correctly. A separate implementer audit then found a missed Workspace defect in the
+captured tablet screen: the sticky heading painted over paging and intercepted a click at Next's
+center. The isolated before/after probe and `reviewer-audit.json` retain that miss without changing
+the sealed reports. Paging now uses the existing sticky layer, and the regression checks actual
+hit targets while the heading and footer overlap. Scrolling a control into view can remove the
+obstruction, so viewport dimensions and successful auto-scrolling clicks are not sufficient evidence.
+
+New reviewers received neither those findings nor the implementation narrative. Their collectors
+record displayed-position hit targets and readable below-fold images as well as geometry and
+accessibility snapshots. Application reports are sealed before calibration. The held-out packet
+now includes matched covered/unobscured actions, with a real coordinate click and asserted fixture
+behavior: eight defects and eight acceptable controls. This remains a small synthetic detection
+check, not a measure of production recall. Optional design proposals remain explicit and require
+agreement before implementation; they do not authorize redesign or block otherwise accepted fixes.
+
+The passing reactor build is
+`3ff33009fefbc43f11d0e076a5703178adb29482dfe43522fd9fd75d833a79a6`; its complete source-content and
+package identities are retained in the final packet's provenance. CEE's package is
+`547b29acfb69d520562ee1af3316a819f8623ecb58f1b71ba8c9b0b98b19b89b`. Verification includes 2,348
+Workspace unit and 2,608 browser cases, 4,737 CEE browser cases, 3,465 CED browser cases and 2,232
+Designer host browser cases. Unchanged inputs reuse their passing evidence. All three consumer
+gates, deployment, served-byte checks and all four smoke tiers passed; the reactor report is
+`.cedar/build-reports/frontend-runs/20261117T193843Z-3b662798.json`. The final reviewers inspected
+82 Workspace states and 97 Metadata Editor states on separate test accounts. Both found no
+confirmed functional defect; their optional layout proposals and scope limits remain in the reports.
+All registered fixtures were verified absent and exact account preferences restored. Both reviewers
+classified all eight calibration defects and eight acceptable controls correctly. The final verdict
+is `REVIEWED_WITH_DESIGN_PROPOSALS`: no confirmed functional defect, with the proposals preserved
+for agreement. The source identities and served bytes remained unchanged throughout both reviews.
+
+A failed smoke attempt exposed a runner race: REST's initial inventory classified a group created
+by the same invocation's parallel browser tier as an earlier run's leftover. REST now publishes an
+atomic per-attempt signal after its initial inventory and worker checks, across the next fixture
+stamp boundary. The CLI waits for that signal before starting browser work, then retains parallel
+execution. An absent or malformed signal safely waits for REST completion. No fixture exclusion,
+check or deadline was weakened. The correction passed 96 CLI and 56 REST-harness tests and the
+complete live smoke. Its failed evidence and correction are retained in the final packet's
+`runner-correction/`; this confirmed race is separate from the unexplained startup stalls above.
 
 ##### Pixel baseline checks
 

@@ -33,6 +33,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { actors, call, group, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
 import { lost, readRetired, unretiredDrops } from './rest/inventory.mjs';
+import { signalPreflight } from './rest/preflight.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as deletion from './rest/suites/deletion.mjs';
@@ -256,6 +257,8 @@ try {
   const complaintsBefore = await workerComplaints();
   check(complaintsBefore.length === 0, 'the worker starts with every consumer live and no dead letters',
       complaintsBefore.map(c => `${c.name}: ${c.message}`).join('; '));
+
+  await signalPreflight(env.CEDAR_REST_PREFLIGHT_REPORT, RUN);
 
   // One parent for the per-suite working folders, so a failed teardown leaves a
   // single identifiable working subtree.

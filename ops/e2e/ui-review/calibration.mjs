@@ -3,6 +3,7 @@ import {mkdir, writeFile, readFile, access} from 'node:fs/promises';
 import {join} from 'node:path';
 import {chromium} from 'playwright';
 import {compositionCases, captureComposition} from './composition-calibration.mjs';
+import assert from 'node:assert/strict';
 
 // Held-out miniature interfaces, never injected into the product. The review packet does not
 // contain this answer key. These measure basic detection/false alarms, not overall UX expertise.
@@ -13,8 +14,46 @@ const cases = [
   {id: 'd63', broken: true, category: 'cancel-commits-change'},
   {id: 'e28', broken: true, category: 'clipped-primary-action'},
   {id: 'f51', broken: false, category: 'empty-panel-opens'},
+  {id: 'r37', broken: true, category: 'covered-action-target'},
+  {id: 's82', broken: false, category: 'unobscured-action-target'},
   ...compositionCases,
 ];
+
+async function captureOcclusion(browser, directory, item) {
+  const page = await browser.newPage({viewport: {width: 1000, height: 700}});
+  try {
+    await page.setContent(`<!doctype html><meta charset="utf-8"><style>
+      *{box-sizing:border-box}body{font:18px system-ui;color:#173e3c;margin:40px}
+      main{width:420px;height:340px;padding:20px;border:1px solid #bdcccc;overflow:auto;display:flex;flex-direction:column}
+      .intro{height:380px;flex:none}.listing{min-height:240px;overflow:auto}
+      table{width:100%;border-collapse:collapse}th,td{padding:12px;text-align:left;border-bottom:1px solid #bdcccc}
+      th{position:sticky;top:0;z-index:1;background:white}
+      footer{position:sticky;bottom:0;z-index:${item.broken ? 0 : 1};background:white;display:flex;align-items:center;justify-content:space-between;min-height:52px;flex:none}
+      button{font:inherit;padding:8px 12px}#status{margin:20px 0}
+      </style><main><div class="intro"><h1>Records</h1><p>Browse the study records.</p></div>
+      <div class="listing"><table><thead><tr><th>Record name</th></tr></thead><tbody>${Array.from({length:8},(_,i)=>`<tr><td>Observation ${i+1}</td></tr>`).join('')}</tbody></table></div>
+      <footer><span>Page 1</span><button>Next</button></footer></main><p id="status">Page 1 selected.</p>
+      <script>document.querySelector('button').onclick=()=>{document.querySelector('#status').textContent='Page 2 selected.'}</script>`);
+    await page.evaluate(() => document.fonts.ready);
+    await page.locator('main').evaluate(main => {
+      main.scrollTop += main.querySelector('th').getBoundingClientRect().top - main.querySelector('button').getBoundingClientRect().top;
+    });
+    const target = await page.locator('button').evaluate(button => {
+      const r = button.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
+      const top = document.elementFromPoint(x, y);
+      return {x, y, topTag: top?.tagName, topText: top?.textContent.trim(), receivesPointer: top === button || button.contains(top)};
+    });
+    assert.equal(target.receivesPointer, !item.broken, 'Occlusion calibration must prove its pointer-target premise');
+    const images = [`${item.id}-before.png`, `${item.id}-after.png`];
+    await page.screenshot({path: join(directory, images[0])});
+    // A locator click may scroll away the overlap, hiding the ordinary pointer failure.
+    await page.mouse.click(target.x, target.y);
+    assert.equal(await page.locator('#status').textContent(), item.broken ? 'Page 1 selected.' : 'Page 2 selected.');
+    await page.screenshot({path: join(directory, images[1])});
+    return {id:item.id, images, actions:['Scrolled the record pane, then clicked the center of Next without further scrolling.'],
+      pointerTarget:target, accessibility:await page.locator('body').ariaSnapshot()};
+  } finally {await page.close();}
+}
 
 export async function captureCalibration(directory) {
   await mkdir(directory, {recursive: false});
@@ -22,6 +61,10 @@ export async function captureCalibration(directory) {
   const packet = [];
   try {
     for (const item of cases) {
+      if (['r37', 's82'].includes(item.id)) {
+        packet.push(await captureOcclusion(browser, directory, item));
+        continue;
+      }
       if (item.family === 'composition') {
         packet.push(await captureComposition(browser, directory, item));
         continue;

@@ -468,25 +468,27 @@ published content to a host-supplied editable document that asserts this.
 
 ## Independent UI Review
 
-### 12. Correct the Remaining Workspace and Metadata Editor Responsive Layouts
+### 12. Decide the Remaining Workspace and Metadata Editor Layout Proposals
 
-- Preserve a usable Workspace listing at 768×667 with both panels open and several long ancestor
-  names. The current table viewport can collapse to 8 pixels. Check minimum usable listing height
-  as well as breadcrumb/filter separation and pagination position, in list and grid views.
-- Keep repeated-element names and cardinalities separate from occurrence selectors and actions at
-  tablet width. Cover ordinary and nested elements at 5, 6 and 12 occurrences, including the final
-  page. The field-header correction does not cover element headers.
-- Preserve recognizable nested section names and useful input width at 375 pixels. Two levels of
-  nesting can reduce a heading to `N…` and the input text area to 107 pixels. Adapt existing spacing
-  and wrapping without removing labels, values or controls; cover short and long names across
-  occurrence counts and page changes.
-- Agree any change to phone information-panel placement: requested details currently follow the
-  entire listing, thousands of pixels below the trigger. Also agree any compact breadcrumb
-  presentation beyond keeping separators grouped with their segments. Preserve full-name access
-  and existing selection behavior; these are design proposals, not approved redesigns.
-- Capture settled Workspace page boundaries and horizontal access to the action column. The
-  independent review's transition screenshots cannot establish these outcomes.
+- Agree whether Workspace should keep List, Grid and Sort together when the toolbar wraps, rather
+  than leaving Sort on a separate row. Preserve selected filter names and all existing controls.
+- Agree a treatment for complete field and element identities in Workspace's read-only Preview.
+  Long labels currently ellipsize. Consider full wrapping or a discoverable full-name reveal;
+  accessible names alone do not expose the complete identity visually.
+- Decide whether phone nested editing needs smaller horizontal insets. The measured deep input has
+  about 171 pixels of text width; reducing insets would leave more space while retaining hierarchy.
+  The current layout remains usable, so this is an optional refinement requiring design agreement.
+- Develop and agree a more legible tablet arrangement for very long ancestor paths with both panels
+  explicitly open. The center column is about 238 pixels and requires extra scrolling. Preserve
+  full ancestor names and explicit panel control; do not automatically hide information or panels.
 
-After corrections, rebuild against stable current model-library inputs, verify served assets and
-smoke, and rerun fresh independent reviews before calibration. Retain failed packets unchanged;
-the 17 November acceptance packet and its measured findings are described in the runbook.
+The sealed review evidence and the pending proposals are linked from the frontend runbook. Any
+approved change needs rendered review, relevant regression checks and current-source acceptance.
+
+### 13. Diagnose Intermittent Frontend Test Startup Stalls if They Recur
+
+Retain traces for the earlier CEE readiness/navigation, CED Firefox navigation and Workspace
+startup stalls. Focused repetitions and later complete suites passed, but the causes are not
+established. On recurrence, correlate navigation, document/bundle delivery, application startup
+and host load before changing code; preserve the original deadlines and assertions. The runbook
+links the retained evidence. A passing rerun alone does not settle the cause.
