@@ -465,3 +465,28 @@ the bounded pickers, a preference round trip across a reload, and content preser
 and under a restricted profile. CED must never allocate identities or versions when the host
 replaces the artifact or supplies an editable draft. Add a test for the move from read-only
 published content to a host-supplied editable document that asserts this.
+
+## Independent UI Review
+
+### 12. Correct the Remaining Workspace and Metadata Editor Responsive Layouts
+
+- Preserve a usable Workspace listing at 768×667 with both panels open and several long ancestor
+  names. The current table viewport can collapse to 8 pixels. Check minimum usable listing height
+  as well as breadcrumb/filter separation and pagination position, in list and grid views.
+- Keep repeated-element names and cardinalities separate from occurrence selectors and actions at
+  tablet width. Cover ordinary and nested elements at 5, 6 and 12 occurrences, including the final
+  page. The field-header correction does not cover element headers.
+- Preserve recognizable nested section names and useful input width at 375 pixels. Two levels of
+  nesting can reduce a heading to `N…` and the input text area to 107 pixels. Adapt existing spacing
+  and wrapping without removing labels, values or controls; cover short and long names across
+  occurrence counts and page changes.
+- Agree any change to phone information-panel placement: requested details currently follow the
+  entire listing, thousands of pixels below the trigger. Also agree any compact breadcrumb
+  presentation beyond keeping separators grouped with their segments. Preserve full-name access
+  and existing selection behavior; these are design proposals, not approved redesigns.
+- Capture settled Workspace page boundaries and horizontal access to the action column. The
+  independent review's transition screenshots cannot establish these outcomes.
+
+After corrections, rebuild against stable current model-library inputs, verify served assets and
+smoke, and rerun fresh independent reviews before calibration. Retain failed packets unchanged;
+the 17 November acceptance packet and its measured findings are described in the runbook.

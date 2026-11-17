@@ -3670,13 +3670,43 @@ above filters, and allows the listing viewport to shrink without pushing paging 
 CEE remeasures paragraph controls after host width changes; paginated occurrence controls share
 the existing action height, and move beneath a field identity when their rendered contents collide.
 
-These corrections are committed before final acceptance at the user's request. Focused checks
-passed 160 occurrence/toolbar browser cases, 80 unchanged pixel baselines and 12 Workspace tablet
-cases. The complete current-source reactor and the fresh acceptance reviews remain pending.
-One earlier full CEE run passed 3,977 cases but timed out during navigation in another; 24 traced
-repetitions did not reproduce it, so its cause is not established. Subsequent full runs retain
-tracing. Concurrent backend rebuilds changed the Java conformance inputs during verification;
-finish the backend build and deployment before the frontend reactor and independent reviews.
+The 17 November reactor completed against build
+`0892c384bf63cfa4a393e601ff6d8ed42355fd6ce681dc40f6f6194fa9983a32`, including 4,668 CEE browser
+cases, 3,465 CED browser cases, 2,232 Designer host cases, 2,575 Workspace browser cases, all three
+framework consumer gates, local deployment, served-byte verification and whole-stack smoke.
+The reactor report is `.cedar/build-reports/frontend-runs/20261117T141938Z-71b545ff.json` under
+`$CEDAR_HOME`. CEE's package is
+`47c2eb28a2e29186ccbc673c0916feba3e3e1da6013b605508458abd968fc5b6`.
+
+The consumer gate caught a rendering stall in Angular and React's jsdom tests: a settled field
+without a pager repeatedly removed an absent stacking class from its existing class attribute.
+That generated redundant DOM mutations during view checks. Guarding the removal preserves the
+layout and lets both consumers settle. Two mutation regressions and all three complete consumer
+gates pass. Failure retention also now prioritizes named Playwright traces, screenshots and error
+contexts ahead of temporary scratch recordings, so the size budget does not discard the actual
+failure. A separate picker hierarchy test waits for its requested search response before opening
+the result; the retained trace showed it previously opening an old result during debounce.
+
+The acceptance packet contains fresh independent reviews of 38 Workspace states and 53 Metadata
+Editor states, with all PNGs visually inspected. Reports were sealed before calibration. Fixture
+cleanup was verified by GET 404 and account preferences restored exactly. The deployed build and
+served assets stayed unchanged. During the final review, concurrent edits to
+`cedar-model-typescript-library` made the working tree newer than the deployed build; the packet
+records that drift and does not claim latest-source acceptance.
+Each reviewer detected all seven calibration defects without false alarms among seven controls.
+This confirms the basic calibration result, not exhaustive production defect detection.
+
+The review is not clean: Workspace's long-path tablet state with both panels open leaves an
+8-pixel listing viewport; Metadata Editor's repeated-element controls overlap tablet headings,
+and phone nesting truncates the section identity while leaving 107 pixels of input text width.
+Workspace also has two design proposals, for distant phone details and isolated breadcrumb
+separators. Its report explicitly leaves settled pagination and horizontal action-column access
+unverified. The roadmap carries the remaining corrections and design decisions; the sealed
+reports remain evidence of this build, not approval of these layouts.
+
+Two earlier one-off failures remain unexplained: CEE navigation and Firefox read-only navigation
+in CED. Focused traced repetitions and subsequent complete suites passed. Retain tracing on a
+recurrence rather than increasing timeouts or weakening the checks.
 
 ##### Pixel baseline checks
 
