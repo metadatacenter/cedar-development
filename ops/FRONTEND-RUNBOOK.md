@@ -3770,6 +3770,35 @@ check or deadline was weakened. The correction passed 96 CLI and 56 REST-harness
 complete live smoke. Its failed evidence and correction are retained in the final packet's
 `runner-correction/`; this confirmed race is separate from the unexplained startup stalls above.
 
+The approved Workspace follow-up keeps the existing List/Grid switch and grid Sort control in one
+wrapping group. Read-only Preview enables CEE's complete field and element names; Try Out keeps
+its existing editing configuration. Phone nesting insets remain unchanged by agreement. The
+regression cases inspect rendered text bounds and control geometry at 1440, 768 and 375 pixels,
+exercise Sort and keyboard return, and confirm Preview remains read-only without writes. The 120
+focused browser cases and the complete Workspace gates (2,348 unit and 2,626 browser cases) pass
+without changing pixel baselines.
+
+The follow-up evidence is under
+`$CEDAR_HOME/.cedar/reports/ui-review/20261117-approved-layout-review/`. Its passing reactor build is
+`04a4ed789e28f5aa8b75d0d85ab9e937479a571f96236d555741ce6531e842dc`, with Workspace source content
+`cbfb90408ed680c6cc211390c37d5806ec803ad9a7d9277ead153a1ba026ec3c`. The component package identities
+are unchanged from the preceding build and are retained in the packet's provenance. The complete
+reactor report is `.cedar/build-reports/frontend-runs/20261117T222817Z-3439947c.json`; deployment,
+served component verification and all four smoke tiers pass. Search smoke retains its explicitly
+declared coverage gaps rather than claiming exhaustive search coverage.
+
+A fresh reviewer, given neither previous findings nor the implementation narrative, inspected 56
+rendered Workspace and Preview states at desktop, tablet and phone widths. The focused Chromium
+review covered ordinary/empty listings, named filter selections, List/Grid/Sort, standalone short
+and long field/element previews, populated nested metadata, scrolling, pointer/keyboard operation,
+and Try Out return. It found no confirmed defects or necessary design changes. All eight owned
+fixtures were independently verified absent and the complete account preferences restored exactly.
+The report was sealed before calibration. Sources, selected packages and served bytes remained
+identical throughout the review. Its scope is explicit: this is focused acceptance of the two
+approved refinements, not a repetition of the preceding entire Workspace/Metadata Editor review.
+The reviewer detected all eight held-out calibration defects with no false alarms among eight
+acceptable controls; this small synthetic check does not establish production recall.
+
 ##### Pixel baseline checks
 
 The containerized screenshot suite permits **zero differing pixels**. Do not restore a percentage

@@ -468,21 +468,13 @@ published content to a host-supplied editable document that asserts this.
 
 ## Independent UI Review
 
-### 12. Decide the Remaining Workspace and Metadata Editor Layout Proposals
+### 12. Agree the Workspace Long-Path Tablet Layout
 
-- Agree whether Workspace should keep List, Grid and Sort together when the toolbar wraps, rather
-  than leaving Sort on a separate row. Preserve selected filter names and all existing controls.
-- Agree a treatment for complete field and element identities in Workspace's read-only Preview.
-  Long labels currently ellipsize. Consider full wrapping or a discoverable full-name reveal;
-  accessible names alone do not expose the complete identity visually.
-- Decide whether phone nested editing needs smaller horizontal insets. The measured deep input has
-  about 171 pixels of text width; reducing insets would leave more space while retaining hierarchy.
-  The current layout remains usable, so this is an optional refinement requiring design agreement.
 - Develop and agree a more legible tablet arrangement for very long ancestor paths with both panels
   explicitly open. The center column is about 238 pixels and requires extra scrolling. Preserve
   full ancestor names and explicit panel control; do not automatically hide information or panels.
 
-The sealed review evidence and the pending proposals are linked from the frontend runbook. Any
+The sealed review evidence and this proposal are linked from the frontend runbook. Any
 approved change needs rendered review, relevant regression checks and current-source acceptance.
 
 ### 13. Diagnose Intermittent Frontend Test Startup Stalls if They Recur
