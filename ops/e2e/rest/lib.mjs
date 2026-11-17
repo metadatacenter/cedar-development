@@ -332,6 +332,51 @@ export async function everybodyGroup(auth) {
 }
 
 /**
+ * A folder of the caller's, created under `parentId` and marked special in the workspace graph.
+ *
+ * No CEDAR operation marks a folder special: a deployment's special folders are marked in the graph by
+ * hand, and the resource server's SearchByIdPermissionTest marks its fixture the same way. The mark is
+ * set through Neo4j's HTTP endpoint with the credentials the CEDAR profile exports, which `cedarcli test
+ * e2e` passes to the suites. Answers `{ id }` once the folder is marked, `{ unconfigured }` when the
+ * environment names no graph credentials, and `{ failed }` with the reason otherwise.
+ */
+export async function specialFolder(auth, parentId, name) {
+  const user = env.CEDAR_NEO4J_USER_NAME;
+  const password = env.CEDAR_NEO4J_USER_PASSWORD;
+  if (!env.CEDAR_NEO4J_HOST || !user || !password) {
+    return { unconfigured: 'the environment names no Neo4j host and credentials' };
+  }
+  const made = await call(auth, 'POST', '/folders', { folderId: parentId, name, description: 'Created by the REST suites' });
+  if (made.status !== 201) return { failed: `the folder could not be created: ${made.status}` };
+  const id = made.body['@id'];
+  cleanup('folder', `/folders/${enc(id)}`, name);
+  const graph = `http://${env.CEDAR_NEO4J_HOST}:${env.CEDAR_NEO4J_REST_PORT ?? 7474}/db/neo4j/tx/commit`;
+  try {
+    const answer = await fetch(graph, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`,
+      },
+      body: JSON.stringify({ statements: [{
+        statement: 'MATCH (folder:Folder {_id: $id}) SET folder.specialFolder = $kind RETURN count(folder)',
+        parameters: { id, kind: 'community' },
+      }] }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const body = await answer.json().catch(() => ({}));
+    // Report the database's error codes only: the request carries the graph's credentials.
+    if (!answer.ok || body.errors?.length) {
+      return { failed: `Neo4j answered ${answer.status} ${(body.errors ?? []).map(e => e.code).join(', ')}`.trim() };
+    }
+    const marked = body.results?.[0]?.data?.[0]?.row?.[0];
+    return marked === 1 ? { id } : { failed: `Neo4j marked ${marked} nodes rather than one` };
+  } catch (error) {
+    return { failed: `Neo4j could not be reached: ${error.message}` };
+  }
+}
+
+/**
  * Waits for something the stack does asynchronously. Search indexing is queued through the worker,
  * so a permission change is not visible the instant the API returns; polling is the only sound way
  * to assert on it. Returns the last value whether or not it ever satisfied the predicate, so the

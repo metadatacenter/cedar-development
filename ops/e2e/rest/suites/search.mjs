@@ -1,6 +1,6 @@
 // Search and its variants, including the paging parameters that thirty-one endpoints declare and
 // almost nothing exercises.
-import { suite, check, checkStatus, skip, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, artifactBody, enc, specialFolder, RUN } from '../lib.mjs';
 
 export const name = 'search';
 
@@ -78,20 +78,17 @@ export async function run({ user1, folderId }) {
         `got ${JSON.stringify(got).slice(0, 160)}`);
   }
 
-  // mode=special-folders — the special-folders view. Empty for an ordinary user on this stack, so the
-  // contract asserted is that it answers 200 and that whatever rows it returns are folders. An empty
-  // view holds no row to judge, so the second check is skipped, for the reason allowed-skips.json
-  // names, rather than passed over nothing.
-  const special = await call(auth, 'GET', '/search?mode=special-folders&limit=20');
+  // mode=special-folders — the special-folders view. No CEDAR operation marks a folder special, so the
+  // run marks a folder of its own in the graph; the view must then list it, and every row it returns
+  // must be a folder.
+  const marked = await specialFolder(auth, folderId, `Special search folder ${RUN}`);
+  check(Boolean(marked.id), 'a folder of the run is marked special in the graph', marked.failed ?? marked.unconfigured);
+  const special = await call(auth, 'GET', '/search?mode=special-folders&limit=100');
   if (checkStatus(special, 200, 'mode=special-folders returns')) {
     const rows = special.body?.resources ?? [];
-    if (!rows.length) {
-      skip('and every row it returns is a folder', 'the deployment has no special folder this user can see');
-    } else {
-      const kinds = new Set(rows.map(r => r.resourceType));
-      check(![...kinds].some(k => k !== 'folder'), 'and every row it returns is a folder',
-          `it returned ${[...kinds].join(', ')}`);
-    }
+    const kinds = new Set(rows.map(r => r.resourceType));
+    check(rows.length > 0 && ![...kinds].some(k => k !== 'folder'), 'and every row it returns is a folder',
+        rows.length ? `it returned ${[...kinds].join(', ')}` : 'it returned no row');
   }
 
   // Sorting a term search by name. The three probes sort ascending as "<tag> 1..3"; asserted by

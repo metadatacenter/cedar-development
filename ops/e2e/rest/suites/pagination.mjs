@@ -7,8 +7,8 @@
 // that pages, on every service, is held to the same refusal of a bad limit or offset, and those that
 // also page by number to the rule that a request pages one way or the other.
 import {
-  suite, check, checkStatus, skip, call, mutate, updateArtifact, cleanup, artifactBody, permissions, everybodyGroup,
-  poll, enc, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
+  suite, check, checkStatus, call, mutate, updateArtifact, cleanup, artifactBody, permissions, everybodyGroup,
+  poll, enc, specialFolder, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
 } from '../lib.mjs';
 import { cedarErrorProblem } from './errors.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
@@ -451,13 +451,15 @@ export async function run({ user1, user2, admin, folderId }) {
     }
   }
 
-  // No API marks a folder special: a deployment's special folders are marked in the graph by hand. The
-  // view is therefore read against a special folder the deployment already has, and a deployment with
-  // none skips these checks. SearchByIdPermissionTest in the resource server marks a folder itself and
-  // holds the view to the same window.
+  // No CEDAR operation marks a folder special, so the run marks a folder of its own in the graph and
+  // holds the special-folders view to the same window as the others.
+  const marked = await specialFolder(auth, folderId, `Special pagination folder ${RUN}`);
+  check(Boolean(marked.id), 'a folder of the run is marked special in the graph', marked.failed ?? marked.unconfigured);
   const specials = await call(auth, 'GET', '/search?mode=special-folders&resource_types=folder&limit=100');
   checkStatus(specials, 200, 'special folders are listed without a window');
-  const special = (specials.body?.resources ?? []).find(row => !Number.isNaN(modifiedOn(row)));
+  const special = marked.id
+    ? (specials.body?.resources ?? []).find(row => row['@id'] === marked.id && !Number.isNaN(modifiedOn(row)))
+    : undefined;
   const specialView = { name: 'special folders', path: () => '/search?mode=special-folders&resource_types=folder&limit=100' };
   const specialChecks = [
     ['lists a folder modified inside the window', at => `&modified_after=${at - 1}&modified_before=${at + 1}`, true],
@@ -467,7 +469,8 @@ export async function run({ user1, user2, admin, folderId }) {
   ];
   for (const [what, bounds, holds] of specialChecks) {
     if (!special) {
-      skip(`special folders ${what}`, 'the deployment has no special folder this user can see');
+      check(false, `special folders ${what}`, marked.id
+        ? 'the view does not list the folder the run marked special' : 'no folder could be marked special');
       continue;
     }
     const answer = await read(specialView, special['@id'], bounds(modifiedOn(special)));

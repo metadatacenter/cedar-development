@@ -4455,7 +4455,9 @@ and a passing verdict, even when the process exits zero. It also refuses any ski
 `ops/e2e/rest/allowed-skips.json` does not name with the reason the run recorded, because a skipped
 check carries the same identity as a passed one and proves nothing about the deployment. The
 allowlist holds the skips this workstation cannot avoid, each with its one reason, and the REST
-runner fails any other skip itself. A store without DOID or CEDARVS, or a missing artifact service
+runner fails any other skip itself. It is empty today. No CEDAR operation marks a folder special, so
+the pagination and search suites mark a folder of their own in the graph through Neo4j's HTTP
+endpoint, with the credentials the profile exports, and a run without them fails those checks. A store without DOID or CEDARVS, or a missing artifact service
 key, therefore fails the tier instead of thinning it. Records without validated REST evidence
 require a fresh run. The search gate checks every planned cell against the actual checks, requires
 all six families (content, access, paging, protocol, lifecycle and browser), and fails
