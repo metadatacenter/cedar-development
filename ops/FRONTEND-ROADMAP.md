@@ -477,10 +477,16 @@ published content to a host-supplied editable document that asserts this.
 The sealed review evidence and this proposal are linked from the frontend runbook. Any
 approved change needs rendered review, relevant regression checks and current-source acceptance.
 
-### 13. Diagnose Intermittent Frontend Test Startup Stalls if They Recur
+### 13. Resolve the Remaining Intermittent Browser Timing Failures
 
-Retain traces for the earlier CEE readiness/navigation, CED Firefox navigation and Workspace
-startup stalls. Focused repetitions and later complete suites passed, but the causes are not
-established. On recurrence, correlate navigation, document/bundle delivery, application startup
-and host load before changing code; preserve the original deadlines and assertions. The runbook
-links the retained evidence. A passing rerun alone does not settle the cause.
+- Capture correlated browser responsiveness, server request/event-loop timings, and host/container
+  CPU and memory pressure when CEE readiness/navigation or Workspace navigation next stalls.
+  The historical traces do not establish which layer delayed execution; do not attribute them to
+  competing Java builds from coincidence alone.
+- Investigate CED's read-only settings-tab inspection separately from startup. Its failure occurs
+  after the application is interactive and outline navigation has selected a field. Retain the
+  complete trace and click/scroll/settings-state sequence on recurrence.
+
+Preserve the existing deadlines, zero-retry policy and assertions. Controlled resource-starvation
+experiments can validate diagnostic signals but cannot establish the cause of an earlier failure.
+The frontend runbook links the retained evidence and the instrumented reproduction fixtures.

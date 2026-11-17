@@ -3707,8 +3707,8 @@ separators. Its report explicitly leaves settled pagination and horizontal actio
 unverified. The sealed reports remain evidence of that build, not approval of those layouts;
 the responsive follow-up below records the corrections and subsequent reviews.
 
-Two earlier one-off failures remain unexplained: CEE navigation and Firefox read-only navigation
-in CED. Focused traced repetitions and subsequent complete suites passed. Retain tracing on a
+Two earlier one-off failures remain unexplained: CEE navigation and Firefox read-only settings-tab
+inspection in CED. Focused traced repetitions and subsequent complete suites passed. Retain tracing on a
 recurrence rather than increasing timeouts or weakening the checks.
 
 The responsive follow-up is retained under
@@ -3798,6 +3798,58 @@ identical throughout the review. Its scope is explicit: this is focused acceptan
 approved refinements, not a repetition of the preceding entire Workspace/Metadata Editor review.
 The reviewer detected all eight held-out calibration defects with no false alarms among eight
 acceptable controls; this small synthetic check does not establish production recall.
+
+##### Investigating intermittent browser timing failures
+
+The 18 November investigation is retained under
+`$CEDAR_HOME/.cedar/reports/startup-stalls/20261117/` (the directory uses the UTC start date).
+`investigation.json` hashes the original evidence and distinguishes confirmed defects, controlled
+reproductions and unresolved attribution. Its isolated CEE and CED probes use the selected immutable
+reactor bundles; the Workspace probe uses the deployed build bytes. It preserves the existing
+30-second test/navigation and 20-second CEE readiness deadlines and uses no retries.
+
+The original CEE readiness trace contains successful asset responses and a rendered form, but one
+simple browser evaluation took about 39.5 seconds. The other CEE failure reports slow document/helper
+requests and a navigation deadline. These are browser-side timings, not measurements of server work.
+Workspace's earlier trace contains successful document/assets, but no API/config request before
+navigation completes during teardown around 42 seconds. Its log has no matching server exception.
+The old CED log instead identifies settings-tab visibility after outline navigation, when the app
+was already interactive. The old retention order omitted its named trace. These observations do
+not establish a common cause or demonstrate that competing Java builds caused them.
+
+With 12 workers, 36 unchanged CED Firefox interaction repetitions pass. The CEE baseline's 24
+fixture starts and 12 empty-page controls pass; the slowest measured fixture start is 1,003 ms.
+After correcting the server defect below, 36 Workspace starts across Chromium, Firefox and WebKit
+pass, with a maximum of 864 ms. The probes collect navigation/resource timings, browser heartbeat
+and available long-task measurements, server request/event-loop timings, and Linux CPU/memory/I/O
+pressure and cgroup counters. The retained `probe-monitor.mjs`, startup probe specs and JSON reports
+make the observations inspectable. Use a complete isolated copy and record exact bundle hashes;
+a missing fixture directory is a collector error, not an application startup failure.
+
+A deliberate 0.5-CPU Docker limit with 12 workers produces a 30-second page-setup deadline before
+CEE loads; the measured setup lasts about 40.7 seconds under scheduling delay. CPU throttling is
+recorded, and maximum server event-loop delay rises from 36 to 602 ms. This is a positive control
+for resource starvation, not a reproduction proving the cause of the historical stalls. The
+original failures lack simultaneous resource/server measurements, and passing repetitions do not
+settle their cause. Capture those signals alongside a retained Playwright trace on recurrence.
+
+The isolated Workspace probe omitted its image directory and exposed a concrete harness defect:
+`browser/serve.mjs` committed HTTP 200 before awaiting a file read. A missing asset then attempted
+HTTP 404, threw `ERR_HTTP_HEADERS_SENT`, killed the server and caused other workers' navigation to
+receive connection refusal. The server now reads before committing headers and returns 404 while
+remaining available. A regression sends concurrent missing-font/image and valid document/bundle
+requests and checks a later successful navigation. It runs in the existing tooling gate, which
+passes 103 tests. This correction changes no product UI and is not attributed to the original
+Workspace stall without matching evidence.
+
+The pre-fix server also crashes in a separate uninstrumented reproduction, retained in
+`server-before/`. The full corrected reactor build is
+`3fde096c732225605e08d1e0fb372b6fd099a1ff6103f9b060c35a3834f147b9`, with Workspace source content
+`b58fec63e77c56bd6e4b5e205998ed3c7ad1db99236a7d0315123725b162c7e6`.
+It passes 2,348 unit, 103 tooling and 2,626 browser cases, deployment, served-byte verification and
+all four whole-stack smoke tiers. Its reactor report is
+`.cedar/build-reports/frontend-runs/20261117T231730Z-6587ddf6.json`. The search tier retains its
+declared coverage gaps. No application UI, assertion, timeout or retry policy was changed.
 
 ##### Pixel baseline checks
 
