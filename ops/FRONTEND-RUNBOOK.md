@@ -2780,7 +2780,10 @@ remains fully parallel; do not spread a shared-state serial journey across separ
 
 Every shard retains its inventory hash, selected cases and execution results. The `visual-coverage`
 job checks all four reports: their union must equal the complete discovered inventory exactly once,
-with matching duration profiles and no failed or retried execution. Publication depends on this
+with matching duration profiles and no failed or retried execution. Playwright reports a skipped
+case as passed, so the check counts a skip as run only when `visual/shards/allowed-skips.json`
+names the case, by project, file and title, with the reason it may be skipped. Any other skip fails
+the check. The file names no case today, so every visual case must run. Publication depends on this
 check as well as the four shards. CEE now uses zero retries locally and in CI; CI captures failure
 screenshots, while `CEDAR_TEST_TRACE=on` enables full failure traces when investigating. Neither
 the screenshot thresholds nor test assertions are relaxed. Reports and failure evidence remain
