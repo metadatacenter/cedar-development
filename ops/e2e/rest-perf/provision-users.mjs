@@ -19,7 +19,7 @@ const adminPassword = env.CEDAR_KEYCLOAK_ADMIN_PASSWORD;
 
 if (!password) throw new Error('CEDAR_PERF_USER_PASSWORD is required');
 if (!adminUsername || !adminPassword) {
-  throw new Error('source cedar-profile-native-develop.sh first; CEDAR_KEYCLOAK_ADMIN_USER and _PASSWORD are required');
+  throw new Error('CEDAR_KEYCLOAK_ADMIN_USER and CEDAR_KEYCLOAK_ADMIN_PASSWORD are required; source the native profile (bin/templates/cedar-profile-native.sh with CEDAR_PROFILE=develop) first');
 }
 
 async function adminToken() {

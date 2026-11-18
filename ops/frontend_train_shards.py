@@ -240,7 +240,7 @@ def prepare_cee(args):
     dependency = config['cee']['modelDependency']
     for consumer in expected['modelConsumers']:
         train.install_exact_alias((root / consumer['manifest']).parent, dependency,
-            plan['model']['name'], plan['model']['version'], consumer.get('legacyPeerDeps', False))
+            plan['model']['name'], plan['model']['version'])
         train.require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
             dependency, plan['model']['name'], plan['model']['version'])
     env = environment(args, plan, CEE)

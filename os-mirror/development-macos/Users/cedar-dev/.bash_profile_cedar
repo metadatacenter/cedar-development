@@ -11,7 +11,8 @@ export PATH="$(brew --prefix)/anaconda3/bin/:$PATH"
 # CEDAR development related scripts, aliases, environment variables
 export CEDAR_HOME=${HOME}/CEDAR
 alias cedarcli='source $CEDAR_HOME/cedar-cli/cli.sh'
-source ${CEDAR_HOME}/cedar-profile-native-develop.sh
+export CEDAR_PROFILE=develop
+source ${CEDAR_HOME}/cedar-development/bin/templates/cedar-profile-native.sh
 
 # CEDAR Docker related scripts, aliases, environment variables
 #source ${CEDAR_HOME}/cedar-development/bin/templates/cedar-profile-docker.sh

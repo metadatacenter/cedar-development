@@ -216,7 +216,6 @@ def record_plan(args: argparse.Namespace) -> None:
                 "revision": revision,
                 "manifest": consumer["manifest"],
                 "lock": consumer["lock"],
-                "legacyPeerDeps": bool(consumer.get("legacyPeerDeps", False)),
                 "publishedFrontend": frontend["id"],
             })
         docker_inputs[frontend["npmVersionVariable"]] = expected_version
@@ -246,7 +245,6 @@ def record_plan(args: argparse.Namespace) -> None:
             "revision": revision,
             "manifest": consumer["manifest"],
             "lock": consumer["lock"],
-            "legacyPeerDeps": bool(consumer.get("legacyPeerDeps", False)),
             "ceeVersion": cee_version,
         }
         additional_consumers.append(record)
@@ -470,15 +468,12 @@ def stamp_package_version(root: Path, version: str, published_manifest: str | No
         write_pretty_json(published_path, published)
 
 
-def install_exact_alias(root: Path, dependency: str, published_name: str, version: str,
-                        legacy_peer_deps: bool = False) -> None:
+def install_exact_alias(root: Path, dependency: str, published_name: str, version: str) -> None:
     target = version if dependency == published_name else f"npm:{published_name}@{version}"
     spec = f"{dependency}@{target}"
     command = [
         "npm", "install", "--package-lock-only", "--ignore-scripts", "--save-exact", spec,
     ]
-    if legacy_peer_deps:
-        command.append("--legacy-peer-deps")
     run_command(command, root)
 
 
@@ -563,7 +558,6 @@ def publish_cee(args: argparse.Namespace) -> None:
         consumer_root = (root / consumer["manifest"]).parent
         install_exact_alias(
             consumer_root, dependency, plan["model"]["name"], plan["model"]["version"],
-            bool(consumer.get("legacyPeerDeps", False)),
         )
         require_exact_alias(
             root / consumer["manifest"], root / consumer["lock"], dependency,
@@ -634,8 +628,7 @@ def wire_components(args, plan, repository):
             verify_record(plan['registry'], component)
             root = args.workspace / repository
             install_exact_alias((root / consumer['manifest']).parent, consumer['dependency'],
-                                component['name'], component['version'],
-                                bool(consumer.get('legacyPeerDeps', False)))
+                                component['name'], component['version'])
             require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
                                 consumer['dependency'], component['name'], component['version'])
             changes.extend([consumer['manifest'], consumer['lock']])
@@ -661,8 +654,7 @@ def wire_model(args, plan, repository, config):
             verify_record(plan['registry'], plan['model'])
             root = args.workspace / repository
             install_exact_alias((root / consumer['manifest']).parent, consumer['dependency'],
-                                plan['model']['name'], plan['model']['version'],
-                                bool(consumer.get('legacyPeerDeps', False)))
+                                plan['model']['name'], plan['model']['version'])
             require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
                                 consumer['dependency'], plan['model']['name'], plan['model']['version'])
             changes.extend([consumer['manifest'], consumer['lock']])
@@ -904,7 +896,7 @@ def prepare_repository(args, plan, config, repository):
         manifest_path = args.workspace / repository / consumer['manifest']
         lock_path = args.workspace / repository / consumer['lock']
         install_exact_alias(manifest_path.parent, 'cedar-embeddable-editor',
-                            plan['cee']['name'], plan['cee']['version'], consumer['legacyPeerDeps'])
+                            plan['cee']['name'], plan['cee']['version'])
         require_exact_alias(manifest_path, lock_path, 'cedar-embeddable-editor',
                             plan['cee']['name'], plan['cee']['version'])
         wiring.append({**consumer, 'manifestSha256': path_sha256(manifest_path),

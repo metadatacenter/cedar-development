@@ -484,7 +484,7 @@ class FrontendTrainTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'missing producer'):
                     frontend_train.wire_components(args, plan, 'app')
                 install.assert_not_called()
-            def install(cwd, dependency, published, version, legacy):
+            def install(cwd, dependency, published, version):
                 dependency_files(cwd, dependency, published, version)
                 for filename in ('package.json', 'package-lock.json'):
                     path = cwd / filename
@@ -508,14 +508,14 @@ class FrontendTrainTest(unittest.TestCase):
                 'id': 'model', 'repository': 'cedar-model-typescript-library', 'consumers': [
                     {'repository': 'cedar-embeddable-editor', 'dependency': dependency,
                      'manifest': 'package.json', 'lock': 'package-lock.json'},
-                    {'repository': 'app', 'dependency': dependency, 'legacyPeerDeps': True,
+                    {'repository': 'app', 'dependency': dependency,
                      'manifest': 'src/package.json', 'lock': 'src/package-lock.json'}]}]}
             plan = {'registry': 'https://registry.example', 'model': model}
             args = argparse.Namespace(workspace=root)
             installs = []
 
-            def install(cwd, name, published, version, legacy):
-                installs.append((cwd, name, published, version, legacy))
+            def install(cwd, name, published, version):
+                installs.append((cwd, name, published, version))
                 dependency_files(cwd, name, published, version)
 
             with patch.object(frontend_train, 'verify_record'), \
@@ -525,7 +525,7 @@ class FrontendTrainTest(unittest.TestCase):
                 self.assertEqual([], frontend_train.wire_model(
                     args, plan, 'cedar-embeddable-editor', config))
             self.assertEqual([(root / 'app' / 'src', dependency, model['name'],
-                               '1.0.21-dev.train', True)], installs)
+                               '1.0.21-dev.train')], installs)
 
     def test_registry_verification_hashes_the_downloaded_tarball(self):
         tarball = b"immutable npm tarball"
@@ -805,7 +805,7 @@ class FrontendTrainTest(unittest.TestCase):
                        ['npm', '--prefix', 'visual', 'ci']], verify=[['npm', 'run', 'test:ci']])]})
             commands = []
 
-            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+            def wire(directory, dependency, published, version):
                 dependency_files(directory, dependency, published, version)
 
             def run(command, cwd, environment=None):
@@ -859,7 +859,7 @@ class FrontendTrainTest(unittest.TestCase):
             consumer = {
                 "label": "main", "repository": "app", "revision": app_sha,
                 "manifest": "package.json", "lock": "package-lock.json",
-                "legacyPeerDeps": False, "publishedFrontend": "main",
+                "publishedFrontend": "main",
             }
             write(plan_path, {
                 "version": VERSION, "registry": "https://registry.example/",
@@ -868,7 +868,7 @@ class FrontendTrainTest(unittest.TestCase):
                 "frontends": [{"id": "main", "repository": "app", "packagePath": "."}],
             })
 
-            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+            def wire(directory, dependency, published, version):
                 dependency_files(directory, dependency, published, version)
 
             with (
@@ -911,7 +911,7 @@ class FrontendTrainTest(unittest.TestCase):
             consumer = {
                 "label": "bridging", "repository": "bridging", "revision": revision,
                 "manifest": "src/package.json", "lock": "src/package-lock.json",
-                "legacyPeerDeps": False, "publishedFrontend": "bridging",
+                "publishedFrontend": "bridging",
             }
             write(plan_path, {
                 "version": VERSION, "registry": "https://registry.example/",
@@ -927,7 +927,7 @@ class FrontendTrainTest(unittest.TestCase):
                 }],
             })
 
-            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+            def wire(directory, dependency, published, version):
                 dependency_files(directory, dependency, published, version)
 
             def build(command, cwd, environment=None):
@@ -976,7 +976,7 @@ class FrontendTrainTest(unittest.TestCase):
                 "ceeConsumers": [{
                     "label": "designer", "repository": "designer", "revision": revision,
                     "manifest": "package.json", "lock": "package-lock.json",
-                    "legacyPeerDeps": False, "publishedFrontend": "designer",
+                    "publishedFrontend": "designer",
                 }],
                 "frontends": [{
                     "id": "designer", "repository": "designer", "packagePath": ".",
@@ -988,7 +988,7 @@ class FrontendTrainTest(unittest.TestCase):
                 }],
             })
 
-            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+            def wire(directory, dependency, published, version):
                 dependency_files(directory, dependency, published, version)
 
             def build(command, cwd, environment=None):
