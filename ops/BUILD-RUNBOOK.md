@@ -166,8 +166,8 @@ and orchestration repository. Before it records train state or starts Maven, a h
 validates every captured file and the complete cross-repository configuration, requires green CI
 or a passing local CI status for each exact source commit that defines a workflow, verifies every
 required build surface, and
-requires `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
-`CEDAR_APPLICATION_VERSION` in the captured Docker defaults to equal the train's source snapshot.
+requires `IMAGE_VERSION` and `CEDAR_MAVEN_VERSION` in the captured Docker defaults to equal the
+train's source snapshot.
 It authenticates to Nexus, proves writable status, and reads the `cedar-maven-dev` repository
 root, then reads npm's `/-/whoami` endpoint and completes the Docker Registry v2 token challenge.
 These are HTTP reads: preflight does not run `docker login`/`logout` or change runner credentials.

@@ -89,7 +89,6 @@ class BuildTrainTest(unittest.TestCase):
         manifest.write_text(
             "export IMAGE_VERSION=2.9.3-SNAPSHOT\n"
             "export CEDAR_MAVEN_VERSION=2.9.3-SNAPSHOT\n"
-            "export CEDAR_APPLICATION_VERSION=2.9.3-SNAPSHOT\n"
             "export CEDAR_FRONTEND_NPM_VERSION=1\n"
             "export CEDAR_CEE_NPM_VERSION=1\n",
             encoding="utf-8",

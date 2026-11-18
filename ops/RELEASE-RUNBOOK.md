@@ -243,10 +243,10 @@ workspace is created. Preparation and both release/next build variants then set
 that npm no longer recognises are reported once in plan rather than on every install. Obsolete
 authentication semantics such as `always-auth` block; harmless author metadata is one advisory.
 
-The Docker source carries three suite selectors: `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
-`CEDAR_APPLICATION_VERSION`. Plan requires all three to equal the train source version, and release
-stamping advances all three together on the release and next-development variants. This prevents a
-new Docker tag from silently building old Maven or frontend application inputs.
+The Docker source carries two suite selectors: `IMAGE_VERSION` and `CEDAR_MAVEN_VERSION`. Plan
+requires both to equal the train source version, and release stamping advances both together on the
+release and next-development variants. This prevents a new Docker tag from silently building old
+Maven inputs.
 
 When CI is genuinely broken for a reason that must not hold up a release, accept the specific run:
 
