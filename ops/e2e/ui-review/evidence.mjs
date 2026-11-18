@@ -1,6 +1,6 @@
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-export async function captureState({page,directory,states,actions,flush,fullPage=true}, id, note = '') {
+export async function captureState({page,directory,states,actions,flush,regions,fullPage=true}, id, note = '') {
     if (!/^[a-z0-9-]+$/.test(id) || states.some(s => s.id === id)) throw new Error('Invalid or duplicate state ID');
     // Preserve hover/focus: moving the pointer for a screenshot can hide the very action
     // under review and make a subsequent click appear broken.
@@ -8,7 +8,7 @@ export async function captureState({page,directory,states,actions,flush,fullPage
     const screenshot = `${id}.png`, aria = `${id}.aria.yml`, metrics = `${id}.json`;
     await page.screenshot({path: join(directory, screenshot), fullPage});
     await writeFile(join(directory, aria), await page.locator('body').ariaSnapshot());
-    const geometry = await page.evaluate(() => {
+    const geometry = await page.evaluate(regionSelectors => {
       const roots = [], walk = root => {roots.push(root); for (const node of root.querySelectorAll('*')) if (node.shadowRoot) walk(node.shadowRoot);};
       walk(document);
       const receiverAt = (x,y) => {let node=document.elementFromPoint(x,y);const seen=new Set();while(node?.shadowRoot&&!seen.has(node)){seen.add(node);const inner=node.shadowRoot.elementFromPoint(x,y);if(!inner||inner===node)break;node=inner;}return node;};
@@ -32,8 +32,9 @@ export async function captureState({page,directory,states,actions,flush,fullPage
       };
       return {viewport: {width: innerWidth, height: innerHeight, devicePixelRatio},
         controls: roots.flatMap(root => [...root.querySelectorAll('button,input,textarea,select,a[href],label,[role="tab"],[role="separator"]')].map(describe)),
-        regions: roots.flatMap(root => [...root.querySelectorAll('.overview-panel,.preview-panel,.field-header,.field-card-header,.field-heading,.field-header-details,.field-type-icon,.field-name-caption,.field-type-label,.occurrence-range,.required-mark,.field-actions,.container-type-label,.template-field-label,.version-group,app-field-card,app-field-summary,.metadata-toolbar,.template-name,.field-label,.pager-container,.aligned-up,app-cedar-multi-pager,mat-expansion-panel-header,.explorer-toolbar,.table-toolbar,.breadcrumbs,.paging,#workspace-information')].map(describe))};
-    });
+        regions: regionSelectors.flatMap(selector => roots.flatMap(root =>
+          [...root.querySelectorAll(selector)].map(el => ({selector, ...describe(el)}))))};
+    }, regions);
     await writeFile(join(directory, metrics), JSON.stringify(geometry, null, 2));
     const crops = [];
     const scroll = await page.evaluate(() => ({x: scrollX, y: scrollY}));
@@ -52,6 +53,7 @@ export async function captureState({page,directory,states,actions,flush,fullPage
       await page.screenshot({path: join(directory, file), clip: {x: x + scroll.x, y: y + scroll.y, width, height}});
       crops.push(file);
     }
-    states.push({id, note, screenshot, aria, metrics, crops, cropCoverage: 'Visible viewport only; scroll explicitly to inspect below-fold content.', viewport: page.viewportSize(), actionCount: actions.length});
+    const regionsMatched = [...new Set(geometry.regions.map(region => region.selector))];
+    states.push({id, note, screenshot, aria, metrics, crops, regionsMatched, cropCoverage: 'Visible viewport only; scroll explicitly to inspect below-fold content.', viewport: page.viewportSize(), actionCount: actions.length});
     await flush();
   }

@@ -36,6 +36,24 @@ export function scenarios(app) {
       {id:'paging-overlap-768',scenario:'paging-overlap',category:'pointer',width:768}] : []);
 }
 export const requiredStates = app => scenarios(app).map(s=>s.id);
+// Page regions whose geometry each capture records. Every selector must match in at least one
+// state of the application's capture: a renamed product class would otherwise thin the evidence
+// without any error.
+const CEE_REGIONS = ['.field-type-icon', '.aligned-up', 'app-cedar-multi-pager', 'mat-expansion-panel-header'];
+export const REGIONS = {
+  designer: ['.overview-panel', '.preview-panel', '.field-header', '.field-heading', '.field-header-details',
+    '.field-type-icon', '.field-name-caption', '.field-type-label', '.occurrence-range', '.required-mark',
+    '.field-actions', '.container-type-label', '.template-field-label', '.version-group', 'app-field-card',
+    'app-field-summary'],
+  workspace: ['.explorer-toolbar', '.table-toolbar', '.breadcrumbs', '.paging', '#workspace-information', ...CEE_REGIONS],
+  'metadata-editor': ['.metadata-toolbar', '.pager-container', ...CEE_REGIONS],
+};
+export function regions(app) {
+  if (!REGIONS[app]) throw new Error('Unknown UI review application: '+app);
+  return REGIONS[app];
+}
+export const unmatchedRegions = (app, states) =>
+  regions(app).filter(selector => !states.some(state => state.regionsMatched?.includes(selector)));
 export function coverageFor(capture, review) {
   const inspected = new Set(review?.inspectedStates ?? []);
   return {app:capture.app??'designer',catalogVersion:1,scope:'Scenario coverage, not proof of exhaustive UI quality',

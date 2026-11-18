@@ -7,6 +7,7 @@ import {fixtureAt} from '../journey-fixtures.mjs';
 import {FixtureLedger} from './lifecycle.mjs';
 import {captureState} from './evidence.mjs';
 import {hash} from './contract.mjs';
+import {regions} from './catalog.mjs';
 
 import {requireLocal,readOnlyResourcePost} from './guards.mjs';
 export async function openBrowserSession(directory, app) {
@@ -75,7 +76,7 @@ export async function openBrowserSession(directory, app) {
       await page.getByRole('button',{name:'New',exact:true}).waitFor();
       await page.locator('.table-scroll[aria-busy="false"]').waitFor();
     });}
-    const capture=(id,note)=>captureState({page,directory,states,actions,flush,fullPage:false},id,note);
+    const capture=(id,note)=>captureState({page,directory,states,actions,flush,regions:regions(app),fullPage:false},id,note);
     async function servedEvidence(){
       const root=join(process.env.CEDAR_HOME,'cedar-workspace/app');
       const files=(await readdir(join(root,'workspace-build'),{recursive:true})).filter(f=>/\.(js|css|html)$/.test(f)).map(f=>'workspace-build/'+f);

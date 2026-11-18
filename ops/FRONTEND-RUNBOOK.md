@@ -3505,7 +3505,12 @@ fixtures and their styles are never injected into an application.
 
 The harness contract tests run in release-tooling CI and locally with
 `npm --prefix ops/e2e run test:ui-review` from `cedar-development`; they validate evidence and
-verdict handling, not the product's visual quality.
+verdict handling, not the product's visual quality. A dry run of each collector against an inert
+browser stand-in checks, without a stack, that it records exactly its catalog states. Each
+application also declares the page regions whose geometry capture records, in `REGIONS` in the
+catalog. A declared region that matches no element in any captured state leaves the capture
+incomplete, so a renamed product class cannot silently thin the evidence. The evidence-capture
+test needs only Playwright's Chromium and runs in CI after that browser is installed.
 
 The 2026-11-15 pilot is retained under
 `$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-pilot/`; open `pilot-assessment.html`

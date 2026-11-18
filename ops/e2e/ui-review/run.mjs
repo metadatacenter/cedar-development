@@ -3,7 +3,7 @@ import {join,resolve,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {hash,validateReview,verdict,acceptanceBlockers} from './contract.mjs';
-import {APPS,requiredStates,scenarios,coverageFor} from './catalog.mjs';
+import {APPS,requiredStates,scenarios,coverageFor,unmatchedRegions} from './catalog.mjs';
 import {reviewerBrief,reportHtml} from './report.mjs';
 
 export function selectApps(app='designer') {
@@ -48,6 +48,12 @@ async function validate(directory,app,reviewPath) {
   console.log(`${app}: ${result.verdict}; ${join(directory,'review-result.html')}`);
   return result.verdict==='INCOMPLETE'?2:result.verdict==='REVIEWED'?0:1;
 }
+export async function collectorFor(app) {
+  if(app==='designer')return (await import('./designer.mjs')).collectDesigner;
+  if(app==='workspace')return (await import('./workspace.mjs')).collectWorkspace;
+  if(app==='metadata-editor')return (await import('./metadata-editor.mjs')).collectMetadataEditor;
+  throw new Error('Unknown UI review application: '+app);
+}
 async function collectorIdentity(){
   const collectorSources={};
   const codeDir=fileURLToPath(new URL('.',import.meta.url));
@@ -72,8 +78,7 @@ async function collect(directory,app) {
       [process.env.CEDAR_HOME+'/cedar-development/ops/frontend_reactor_runtime.py','verify',process.env.CEDAR_HOME,
        process.env.CEDAR_HOME+(app==='designer'?'/cedar-template-designer':'/cedar-workspace')],{stdio:'pipe'});
     servedVerified=true;
-    const collector=app==='designer'?(await import('./designer.mjs')).collectDesigner:app==='workspace'?(await import('./workspace.mjs')).collectWorkspace:(await import('./metadata-editor.mjs')).collectMetadataEditor;
-    await collector(session,record);
+    await (await collectorFor(app))(session,record);
   }catch(error){incomplete.push({state:'session',error:error.message});console.error(`${app}: ${error.message}`);}
   finally {
     if(session){
@@ -84,6 +89,7 @@ async function collect(directory,app) {
   }
   const states=session?.states??[];
   for(const id of requiredStates(app))if(!states.some(s=>s.id===id)&&!incomplete.some(s=>s.state===id))incomplete.push({state:id,error:'Not reached'});
+  if(states.length)for(const selector of unmatchedRegions(app,states))incomplete.push({state:'evidence',error:'Region selector matched no element in any state: '+selector});
   try {
     const fresh=JSON.parse(execFileSync(process.env.CEDAR_HOME+'/cedar-cli/.venv/bin/python',['-c',
       'import json,sys; from org.metadatacenter.ui_review import runtime_evidence; print(json.dumps(runtime_evidence(sys.argv[1])))',process.env.CEDAR_HOME],
