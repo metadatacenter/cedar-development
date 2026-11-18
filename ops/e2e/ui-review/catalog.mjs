@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+
 export const DESIGNER_STATES = [
   'empty', 'empty-panel-a', 'empty-panel-b', 'single', 'single-panel-a', 'single-panel-b',
   'single-preview-a', 'single-preview-b', 'configuration', 'presentation', 'constraints',
@@ -54,9 +56,14 @@ export function regions(app) {
 }
 export const unmatchedRegions = (app, states) =>
   regions(app).filter(selector => !states.some(state => state.regionsMatched?.includes(selector)));
+// Identifies the states and regions a capture was held to. A packet validates only against the
+// catalog it was captured with: a later catalog may require states the packet never collected, or
+// no longer require states it did.
+export const catalogSha256 = app =>
+  createHash('sha256').update(JSON.stringify({scenarios: scenarios(app), regions: regions(app)})).digest('hex');
 export function coverageFor(capture, review) {
   const inspected = new Set(review?.inspectedStates ?? []);
-  return {app:capture.app??'designer',catalogVersion:1,scope:'Scenario coverage, not proof of exhaustive UI quality',
+  return {app:capture.app??'designer',catalogSha256:capture.catalogSha256??null,scope:'Scenario coverage, not proof of exhaustive UI quality',
     scenarios:scenarios(capture.app??'designer').map(s=>{
       const state=capture.states.find(x=>x.id===s.id);
       const failure=capture.incomplete.find(x=>x.state===s.id);

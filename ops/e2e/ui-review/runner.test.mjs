@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {selectApps,evidencePath,verifyFiles,main} from './run.mjs';
-import {APPS,requiredStates,coverageFor} from './catalog.mjs';
+import {selectApps,evidencePath,verifyFiles,main,collectorIdentity} from './run.mjs';
+import {APPS,requiredStates,coverageFor,catalogSha256} from './catalog.mjs';
 import {hash,acceptanceBlockers} from './contract.mjs';
 test('selectors use the maintained application catalogs and default to Designer',()=>{
   assert.deepEqual(selectApps(),['designer']);assert.deepEqual(selectApps('all'),APPS);
@@ -13,7 +13,7 @@ test('selectors use the maintained application catalogs and default to Designer'
 });
 test('missing required capture states remain blockers even when a collector forgets to flag them',()=>{
   for(const app of APPS){
-    const c={app,states:[],incomplete:[],provenance:{current:true},cleanupErrors:[],runtimeErrors:[],servedVerified:true};
+    const c={app,catalogSha256:catalogSha256(app),states:[],incomplete:[],provenance:{current:true},cleanupErrors:[],runtimeErrors:[],servedVerified:true};
     assert.equal(acceptanceBlockers(c,[]).length,requiredStates(app).length);
     assert(coverageFor(c).scenarios.every(s=>s.capture==='omitted'&&s.inspected===null));
     c.incomplete.push({state:requiredStates(app)[0],error:'Timeout'});
@@ -40,10 +40,27 @@ test('all-mode records independent failures for every application instead of sil
 });
 test('a captured state without its hashed screenshot cannot count as complete evidence',()=>{
   const app='workspace';
-  const c={app,states:requiredStates(app).map(id=>({id,screenshot:id+'.png',aria:id+'.yml',metrics:id+'.json'})),files:{},incomplete:[],provenance:{current:true},cleanupErrors:[],runtimeErrors:[],servedVerified:true};
+  const c={app,catalogSha256:catalogSha256(app),states:requiredStates(app).map(id=>({id,screenshot:id+'.png',aria:id+'.yml',metrics:id+'.json'})),files:{},incomplete:[],provenance:{current:true},cleanupErrors:[],runtimeErrors:[],servedVerified:true};
   for(const state of c.states)for(const key of ['screenshot','aria','metrics'])c.files[state[key]]='digest';
   assert.deepEqual(acceptanceBlockers(c,[]),[]);
   delete c.files[c.states[0].screenshot];
   assert(acceptanceBlockers(c,[]).some(e=>e.includes('Missing screenshot')));
   c.states.push(c.states[0]);assert(acceptanceBlockers(c,[]).includes('Duplicate captured state IDs'));
+});
+test('a capture validates only against the catalog it was collected with',()=>{
+  const app='metadata-editor';
+  const c={app,catalogSha256:catalogSha256(app),states:requiredStates(app).map(id=>({id,screenshot:id+'.png',aria:id+'.yml',metrics:id+'.json'})),files:{},incomplete:[],provenance:{current:true},cleanupErrors:[],runtimeErrors:[],servedVerified:true};
+  for(const state of c.states)for(const key of ['screenshot','aria','metrics'])c.files[state[key]]='digest';
+  assert.deepEqual(acceptanceBlockers(c,[]),[]);
+  for(const recorded of [catalogSha256('workspace'),undefined]){
+    c.catalogSha256=recorded;
+    assert(acceptanceBlockers(c,[]).some(e=>e.includes('different scenario catalog')));
+  }
+  assert.notEqual(catalogSha256('designer'),catalogSha256('workspace'));
+});
+test('collector identity covers imported helpers and the Playwright release, not tests',async()=>{
+  const {sources,playwright}=await collectorIdentity();
+  for(const key of ['ui-review/run.mjs','ui-review/calibration.mjs','rest/lib.mjs','auth-activity.mjs','journey-fixtures.mjs'])assert(key in sources,key);
+  assert(!Object.keys(sources).some(key=>/test\.mjs$/.test(key)));
+  assert.match(playwright,/^\d+\.\d+\.\d+/);
 });

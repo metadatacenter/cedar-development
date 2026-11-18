@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 
-import {APPS, DESIGNER_STATES, requiredStates} from './catalog.mjs';
+import {APPS, DESIGNER_STATES, requiredStates, catalogSha256} from './catalog.mjs';
 export const STATES = DESIGNER_STATES;
 
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -59,6 +59,8 @@ export function acceptanceBlockers(capture, errors) {
     if(new Set(ids).size!==ids.length)evidenceErrors.push('Duplicate captured state IDs');
     for(const state of capture.states)for(const kind of ['screenshot','aria','metrics'])
       if(typeof state[kind]!=='string'||!capture.files?.[state[kind]])evidenceErrors.push(`Missing ${kind} evidence for ${state.id}`);
+    if(capture.catalogSha256!==catalogSha256(capture.app))
+      evidenceErrors.push('Capture was collected against a different scenario catalog; capture again with the current one');
   }
   return [...errors, ...evidenceErrors, ...missing.map(id=>`Required state not captured: ${id}`),
     ...capture.incomplete.map(item => `Collection incomplete: ${JSON.stringify(item)}`),

@@ -3392,7 +3392,9 @@ The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **16
 `coverage.json` separates **captured**, **blocked** and **omitted** scenarios. Independent inspection
 remains `null` until a review is supplied; it is then the reviewer's attestation, not inferred from
 screenshot existence. The contract checks required states even if a collector forgets to list a
-missing state as incomplete. Extend the catalog and collector together when adding a user journey;
+missing state as incomplete. Each capture records the hash of the catalog it was collected
+against, and validation refuses a packet whose catalog differs from the current one, so a catalog
+change always needs a new capture. Extend the catalog and collector together when adding a user journey;
 add a meaningful behavior regression for a fixed defect, and retain fresh visual review for judgments
 that a regression test cannot establish. Do not remove a scenario simply because it fails.
 
@@ -3435,7 +3437,9 @@ fully into view; the table retains its ordinary horizontal scrolling.
 
 Each application directory retains screenshots (Designer also includes card crops), accessibility snapshots, control
 geometry (including labels and approximate intrinsic text widths), action records, cleanup results,
-an HTML evidence index, a coverage matrix, collector identity, duration, and `reviewer-brief.md`. Workspace and Metadata Editor screenshots preserve the viewport; below-fold states require explicit scrolling.
+an HTML evidence index, a coverage matrix, collector identity, duration, and `reviewer-brief.md`.
+The collector identity in `collector.json` hashes every review module and every local module it
+imports, and records the Playwright release. Workspace and Metadata Editor screenshots preserve the viewport; below-fold states require explicit scrolling.
 Capture is not a design verdict. Supplemental sessions must name a template
 `UI review pilot <unique suffix>` before saving: the helper deliberately blocks writes to other names or existing unowned
 identifiers and records the reason in its action log. This guard is not a product/network failure.

@@ -1,9 +1,9 @@
 import {readFile,writeFile,readdir,mkdir,lstat} from 'node:fs/promises';
-import {join,resolve,isAbsolute} from 'node:path';
+import {join,resolve,isAbsolute,dirname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {hash,validateReview,verdict,acceptanceBlockers} from './contract.mjs';
-import {APPS,requiredStates,scenarios,coverageFor,unmatchedRegions} from './catalog.mjs';
+import {APPS,requiredStates,scenarios,regions,coverageFor,unmatchedRegions,catalogSha256} from './catalog.mjs';
 import {reviewerBrief,reportHtml} from './report.mjs';
 
 export function selectApps(app='designer') {
@@ -54,12 +54,24 @@ export async function collectorFor(app) {
   if(app==='metadata-editor')return (await import('./metadata-editor.mjs')).collectMetadataEditor;
   throw new Error('Unknown UI review application: '+app);
 }
-async function collectorIdentity(){
-  const collectorSources={};
+// Every review module and every local module it imports, directly or transitively, keyed by its
+// path under ops/e2e, plus the Playwright release that drives the browser.
+const e2eRoot=fileURLToPath(new URL('..',import.meta.url));
+const localImport=/(?:\bfrom\s*|\bimport\s*\(?\s*)['"](\.{1,2}\/[^'"]+)['"]/g;
+export async function collectorIdentity(){
   const codeDir=fileURLToPath(new URL('.',import.meta.url));
-  for(const file of (await readdir(codeDir)).filter(f=>f.endsWith('.mjs')&&!f.endsWith('.test.mjs')&&!f.includes('calibration')))
-    collectorSources[file]=hash(await readFile(join(codeDir,file)));
-  return collectorSources;
+  const pending=(await readdir(codeDir)).filter(f=>f.endsWith('.mjs')&&!/\.(browser-)?test\.mjs$/.test(f)).map(f=>join(codeDir,f));
+  const sources={};
+  while(pending.length){
+    const path=pending.pop(),key=relative(e2eRoot,path);
+    if(key in sources)continue;
+    const text=await readFile(path,'utf8');
+    sources[key]=hash(text);
+    for(const [,specifier] of text.matchAll(localImport))pending.push(resolve(dirname(path),specifier));
+  }
+  const ordered=Object.fromEntries(Object.entries(sources).sort(([a],[b])=>a.localeCompare(b)));
+  const playwright=JSON.parse(await readFile(join(e2eRoot,'node_modules/playwright/package.json'),'utf8')).version;
+  return {sources:ordered,playwright};
 }
 async function collect(directory,app) {
   const collectorBefore=await collectorIdentity();
@@ -100,10 +112,10 @@ async function collect(directory,app) {
   }catch(error){provenance.current=false;incomplete.push({state:'freshness',error:error.message});}
   const collectorSources=await collectorIdentity();
   if(JSON.stringify(collectorSources)!==JSON.stringify(collectorBefore))incomplete.push({state:'collector',error:'Review tooling changed during capture; rerun with stable tooling'});
-  await writeJson(join(directory,'collector.json'),{catalogVersion:1,sources:collectorSources,scenarios:scenarios(app)});
+  await writeJson(join(directory,'collector.json'),{catalogSha256:catalogSha256(app),...collectorSources,scenarios:scenarios(app),regions:regions(app)});
   const files={};
   for(const file of (await readdir(directory)).filter(f=>/\.(png|json|yml)$/.test(f)))files[file]=hash(await readFile(join(directory,file)));
-  const result={schemaVersion:1,app,provenance,served,servedVerified,states,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
+  const result={schemaVersion:1,app,catalogSha256:catalogSha256(app),provenance,served,servedVerified,states,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
   const raw=JSON.stringify(result,null,2)+'\n';
   await writeFile(join(directory,'capture.json'),raw);
   await writeJson(join(directory,'coverage.json'),coverageFor(result));
