@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
 import {WIDTHS, METADATA_TYPES} from './catalog.mjs';
-import {pointer,keyboard,folderPage} from './interactions.mjs';
+import {pointer,keyboard,folderPage,textSizeStates} from './interactions.mjs';
 export async function collectMetadataEditor(session,record) {
   const {page}=session;await session.login();const f=await metadataFixtures(session);
   const status=text=>page.locator('.metadata-toolbar [role=status]').filter({hasText:text});
@@ -102,4 +102,5 @@ export async function collectMetadataEditor(session,record) {
   });
   // The corpus field's preferred label, which the editor shows in place of its name.
   await record('attribute-value-1440',async()=>{await open(f.corpus.attributeValue,'create');await centre(cee.getByText(/^Attribute Value\b/));});
+  await textSizeStates(session,record,()=>open(f.records[5]));
 }

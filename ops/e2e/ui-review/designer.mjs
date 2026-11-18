@@ -1,9 +1,10 @@
-import {pointer, setChecked, keyboard} from './interactions.mjs';
-import {DESIGNER_TYPES, PREVIEWLESS_TYPES} from './catalog.mjs';
+import {pointer, setChecked, keyboard, textSizeStates} from './interactions.mjs';
+import {DESIGNER_TYPES, PREVIEWLESS_TYPES, TERM_PICKER_WIDTHS} from './catalog.mjs';
 
 export async function collectDesigner(session, record) {
   const {page, action, capture} = session;
   const card = () => page.locator('app-field-card').first();
+  let savedUrl;
   const click = locator => pointer(session, locator);
   const toggle = name => click(page.locator(`.${name}-toggle`));
   const settings = async tab => {
@@ -112,8 +113,10 @@ export async function collectDesigner(session, record) {
     await record('saved', async () => {
       await click(page.locator('#save'));
       await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Saved');
-      // WebKit reports Saved before the address names the saved template; reopening needs that address.
+      // Under WebKit, Playwright reported Saved before it reported the saved template's address, and a
+      // reload in that moment reopened the create page. Reopening needs the saved address.
       await page.waitForURL(/\/templates\/edit\//);
+      savedUrl = page.url();
     });
     await record('reopened', async () => {await page.reload(); await session.ready();});
     const interruptWrite = route => route.request().method() === 'PUT' ? route.abort('failed') : route.fallback();
@@ -172,6 +175,42 @@ export async function collectDesigner(session, record) {
       });
       await click(typed.getByRole('button', {name: 'Collapse field settings', exact: true}));
     }
+    // The controlled-term picker, from the controlled-terms card's constraints, at desktop and phone width.
+    const terms = page.locator('app-field-card').nth(DESIGNER_TYPES.findIndex(([slug]) => slug === 'controlled-terms'));
+    const picker = page.getByRole('dialog', {name: 'Controlled-term constraints', exact: true});
+    const firstTerm = picker.getByRole('button', {name: /^melanoma in \d+ ontolog/});
+    for (const width of TERM_PICKER_WIDTHS) {
+      await page.setViewportSize({width, height: width === 1440 ? 1000 : 667});
+      await record(`term-picker-open-${width}`, async () => {
+        const expand = terms.getByRole('button', {name: 'Expand field settings', exact: true});
+        if (await expand.isVisible()) await click(expand);
+        await click(terms.getByRole('tab', {name: 'Constraints', exact: true}));
+        await click(terms.getByRole('button', {name: 'Edit controlled-term constraints', exact: true}));
+        await picker.getByRole('searchbox', {name: 'Find terms', exact: true}).waitFor();
+      });
+      await record(`term-picker-results-${width}`, async () => {
+        await picker.getByRole('searchbox', {name: 'Find terms', exact: true}).fill('melanoma');
+        await firstTerm.waitFor();
+      }, 'Searching the local terminology store for melanoma.');
+      await record(`term-picker-term-${width}`, async () => {
+        await click(firstTerm);
+        await picker.getByRole('heading', {name: 'Selected term', exact: true}).waitFor();
+      });
+      await record(`term-picker-branches-${width}`, async () => {
+        await click(picker.getByRole('tab', {name: /^Branches/}));
+        await picker.getByRole('tabpanel', {name: /^Branches/}).waitFor();
+      });
+      await record(`term-picker-ontologies-${width}`, async () => {
+        await click(picker.getByRole('tab', {name: /^Ontologies/}));
+        await picker.getByRole('tabpanel', {name: /^Ontologies/}).waitFor();
+      });
+      await record(`term-picker-done-${width}`, async () => {
+        await click(picker.getByRole('button', {name: 'Done', exact: true}));
+        await picker.waitFor({state: 'hidden'});
+      });
+      await click(terms.getByRole('button', {name: 'Collapse field settings', exact: true}));
+    }
+    await page.setViewportSize({width: 1440, height: 1000});
     await setPreview(true);
     const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // An empty image or video field shows a notice in place of its content; a section break shows its title.
@@ -185,4 +224,6 @@ export async function collectDesigner(session, record) {
     for (const [slug, label] of DESIGNER_TYPES.filter(([slug]) => !PREVIEWLESS_TYPES.includes(slug)))
       await record('type-' + slug + '-preview', () => previewOf(slug, label).first().evaluate(element => element.scrollIntoView({block: 'center'})));
 
+    // The saved template, shown with the browser's default text size doubled.
+    await textSizeStates(session, record, async () => {await page.goto(savedUrl); await session.ready();});
 }

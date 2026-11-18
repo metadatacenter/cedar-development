@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {artifactBody} from '../rest/lib.mjs';
+import {artifactBody, enc} from '../rest/lib.mjs';
 import {WIDTHS} from './catalog.mjs';
 
 export const longLabel='Specimen collection and environmental observation notes from collaborating research institutions';
@@ -89,4 +89,41 @@ export async function workspaceFixtures(session) {
   const long=await session.put('templates',container('Long form',{[longLabel]:field(longLabel)}),previews);
   const nested=await session.put('templates',container('Nested form',{Samples:repeat(container('Sample',{Name:field('Name'),[longLabel]:repeat(field(longLabel))},'element'))}),previews);
   return {root,rootName,parent,listing,empty,rows,mixed,mixedIds,mixedTemplate,previews,short,long,nested};
+}
+
+// Open an artifact or folder to anonymous OpenView visitors, then wait until OpenView's server
+// answers an anonymous read, since its view of the grant can lag the command.
+export async function makeOpen(session, collection, id) {
+  const folder = collection === 'folders';
+  const current = await session.request('GET', `/${collection}/${enc(id)}${folder ? '' : '/details'}`);
+  const etag = current.headers?.get('etag');
+  if (!etag) throw new Error(`No ETag to open ${id}`);
+  const opened = await session.request('POST', `/command/${folder ? 'make-folder-open' : 'make-artifact-open'}`, {'@id': id}, {headers: {'If-Match': etag}});
+  if (opened.status !== 200) throw new Error(`Opening ${id} returned ${opened.status}`);
+  for (const deadline = Date.now() + 30000; ; await new Promise(resolve => setTimeout(resolve, 500))) {
+    if ((await session.anonymousRead(`/${collection}/${enc(id)}`)).status === 200) return;
+    if (Date.now() > deadline) throw new Error(`OpenView never served ${id} anonymously`);
+  }
+}
+export async function openviewFixtures(session) {
+  const name = 'UI review ' + randomUUID().slice(0, 8);
+  const folder = await session.put('folders', {folderId: session.user.profile.homeFolderId, name, description: 'Temporary independent UI review'});
+  const sampleFields = {Name: field('Name'), [longLabel]: repeat(field(longLabel))};
+  const template = await session.put('templates', container(name + ' open study', {Subject: field('Subject', {required: true}),
+    [longLabel]: field(longLabel), Tags: repeat(field('Tags')), Samples: repeat(container('Sample', sampleFields, 'element'))}), folder);
+  const tags = Array.from({length: 5}, (_, i) => textValue('Observation ' + (i + 1)));
+  const nested = values => ({'@id': 'https://example.org/ui-review/' + randomUUID(), '@context': Object.fromEntries(Object.keys(values).map(k => [k, propertyIri(k)])), ...values});
+  const record = await session.put('template-instances', instance(name + ' open record', template, {Subject: textValue('Specimen 42'),
+    [longLabel]: textValue('Collected during the northern coastal field campaign'), Tags: tags,
+    Samples: [nested({Name: textValue('Sample 1'), [longLabel]: tags.slice(0, 2)})]}), folder);
+  const element = await session.put('template-elements', container('Open sample element', sampleFields, 'element'), folder);
+  const single = await session.put('template-fields', field('Open specimen field'), folder);
+  const fieldTypes = await session.put('templates', await corpusTemplate(CORPUS_TEMPLATES.fieldTypes, name + ' open field types'), folder);
+  // An open folder opens what it holds, so the template the review leaves closed sits in a folder of
+  // its own, beside the open one.
+  const closedFolder = await session.put('folders', {folderId: session.user.profile.homeFolderId, name: name + ' closed', description: 'Temporary independent UI review'});
+  const closed = await session.put('templates', container(name + ' closed form', {Name: field('Name')}), closedFolder);
+  for (const [collection, id] of [['templates', template], ['template-instances', record], ['template-elements', element],
+    ['template-fields', single], ['templates', fieldTypes], ['folders', folder]]) await makeOpen(session, collection, id);
+  return {name, folder, template, record, element, single, fieldTypes, closed};
 }

@@ -3374,17 +3374,20 @@ review. It does **not** mean the interface passed.
 
 ###### Capturing
 
-`cedarcli test ui-review --app designer|workspace|metadata-editor|all --plan` prints the catalog
-and the browser profiles. The default application is `designer`. Capture against the current local
+`cedarcli test ui-review --app designer|workspace|metadata-editor|openview|all --plan` prints the
+catalog and the browser profiles. The default application is `designer`. Capture against the current local
 frontend build:
 
 ```bash
 cedarcli test ui-review --app all --output /absolute/path/to/new-run
 ```
 
-`all` collects the three applications in turn, keeping each application's evidence in its own
+`all` collects the four applications in turn, keeping each application's evidence in its own
 subdirectory. The root `index.html`, `summary.json` and `coverage.json` link and summarize the
-three packets, and a failure in one application does not skip the others. Capture runs Chromium
+packets, and a failure in one application does not skip the others. Together they cover the
+Designer with CED, CEE in its Preview and the term picker, Workspace, the Metadata Editor and
+OpenView. Monitoring and Bridging have no collector, so review their pages separately after a
+design-token change. Capture runs Chromium
 with a mouse by default. `--profile webkit-touch` captures the same catalog in WebKit as a touch
 device, where nothing can hover and every activation is a tap. Each packet records its profile and
 the browser engine that ran, and capture stops if the two disagree.
@@ -3410,13 +3413,20 @@ inspection are separate.
 
 ###### What the Catalog Covers
 
-The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **313 states**:
+The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **366 states** under the Chromium profile and 358 under the touch profile:
 
 | Application | Required states | Coverage |
 | --- | ---: | --- |
-| Designer | 103 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery; desktop, tablet and phone layouts. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. |
-| Workspace | 104 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. |
-| Metadata Editor | 106 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, the static types on both pages of their template, and an attribute-value field. |
+| Designer | 117 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery; desktop, tablet and phone layouts. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. At 1440 and 375 pixels, the controlled-term picker opened, searched, with a term chosen, on its Branches and Ontologies tabs, and closed. |
+| Workspace | 106 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. |
+| Metadata Editor | 108 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, the static types on both pages of their template, and an attribute-value field. |
+| OpenView | 35 | An open template from top to end, an open record and its repeated field, an open element, field and folder, the corpus template holding every input type from top to end, a template that is not open and an identifier no artifact has, at 1440, 768 and 375 pixels. |
+
+Each Chromium count includes two text-size states per application, at 1440 and 375 pixels, which
+every collector records last. They set Chromium's default text size to 32 pixels, twice the usual
+16, as a user does in the browser's settings: text sized in rem, em or percentages follows it and
+text fixed in pixels does not, which is what the states show. Playwright reaches that setting only
+in Chromium, so the touch profile's catalog omits them, and the catalog hash differs by profile.
 
 The repeated-field counts cover zero, one, several, the page boundary, one past it and several
 pages, because a review that only ever shows two occurrences never displays a paginator. The
@@ -3425,7 +3435,9 @@ before searching for it in the page, and records whatever the first page of resu
 Metadata Editor's type states upload three templates from a `cedar-test-artifacts` checkout beside
 `cedar-development`: 038 holds one field per input type that takes a value, 009 the static types
 and 022 an attribute-value field. Their declared defaults are removed, so a new record starts
-empty and no default needs a live authority lookup.
+empty and no default needs a live authority lookup. OpenView's collector opens its own template, record, element,
+field, corpus template and folder through the open commands, waits until OpenView's server answers
+an anonymous read of each, and browses without a CEDAR session.
 
 `coverage.json` separates **captured**, **blocked** and **omitted** scenarios. Inspection remains
 `null` until a review is supplied, and is then the reviewer's attestation rather than an inference
@@ -3467,7 +3479,10 @@ evidence index, a coverage matrix, the collector identity, the duration and `rev
 The collector identity in `collector.json` hashes every review module and every local module it
 imports, records the Playwright release, and hashes the corpus templates the fixtures upload.
 Screenshots and crops show the viewport only, so below-fold content needs explicit, recorded
-scrolling. Every keyboard stop logs the focused control and, when it lies in the viewport, keeps a
+scrolling. OpenView runs under Angular's development server locally, so its own bundles can only be
+fingerprinted, while the CEE bundle it serves is compared with the installed one. That server's
+live-reload client tries a socket the local proxy does not carry, and its console messages are kept
+as expected, with that reason, rather than counted as browser errors. Every keyboard stop logs the focused control and, when it lies in the viewport, keeps a
 crop of it with its focus indicator, named `<state>-focus-<n>.png`. A stop outside the viewport is
 logged without a crop.
 

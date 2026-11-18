@@ -1,7 +1,7 @@
 import {mkdir,readFile,writeFile,readdir,rm,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {chromium, webkit} from 'playwright';
-import {actors,call,enc,mintId,RESOURCE,USER_SERVER,HOST} from '../rest/lib.mjs';
+import {actors,call,enc,mintId,RESOURCE,USER_SERVER,HOST,OPENVIEW} from '../rest/lib.mjs';
 import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {fixtureAt} from '../journey-fixtures.mjs';
 import {FixtureLedger} from './lifecycle.mjs';
@@ -11,8 +11,10 @@ import {regions, profile as browserProfile} from './catalog.mjs';
 
 import {requireLocal,readOnlyResourcePost} from './guards.mjs';
 export async function openBrowserSession(directory, app, {profile='chromium'}={}) {
-  const {engine,context:contextOptions}=browserProfile(profile);
-  const base=app==='designer' ? process.env.CEDAR_DESIGNER_BASE||`https://designer.${HOST}` : process.env.CEDAR_WORKSPACE_BASE||`https://workspace.${HOST}`;
+  const {engine,context:contextOptions,defaultFontSize}=browserProfile(profile);
+  const base=app==='designer' ? process.env.CEDAR_DESIGNER_BASE||`https://designer.${HOST}`
+    : app==='openview' ? process.env.CEDAR_OPENVIEW_FRONTEND||`https://openview.${HOST}`
+    : process.env.CEDAR_WORKSPACE_BASE||`https://workspace.${HOST}`;
   for(const url of [base,RESOURCE,USER_SERVER])requireLocal(url);
   const lock=join(process.env.CEDAR_HOME,'.cedar/locks/ui-review-user1');
   await mkdir(join(process.env.CEDAR_HOME,'.cedar/locks'),{recursive:true});
@@ -45,12 +47,21 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
   try {
     const {user1:user}=await actors();
     const request=(...args)=>call(user.auth,...args);
+    // A read as an anonymous visitor of OpenView's server, with no CEDAR credential.
+    const anonymousRead=path=>call(null,'GET',path,undefined,{base:OPENVIEW});
     ledger=new FixtureLedger({request,persist:flush,mint:mintId,userPath:'/users/'+enc(user.profile['@id'].split('/').at(-1)),preferences:user.profile.uiPreferences,userBase:USER_SERVER});
     browser=await {chromium,webkit}[engine].launch({headless:true});
     const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1440,height:1000},...contextOptions});
     const page=await context.newPage();page.setDefaultTimeout(15000);
     page.on('pageerror',e=>runtimeErrors.push(e.message));
-    page.on('console',m=>{if(m.type()==='error'){const expected=expectedNetworkFailures.size>0&&/^Failed to load resource: net::ERR_FAILED$/.test(m.text());consoleMessages.push({text:m.text(),expected,reason:expected?[...expectedNetworkFailures]:[]});if(!expected)runtimeErrors.push(m.text());}});
+    // OpenView runs under Angular's development server locally, whose live-reload client tries a
+    // socket the local proxy does not carry. Those messages come from that client, not from OpenView,
+    // and are kept as expected console messages with their reason.
+    const devServerNoise=app==='openview'?/^(WebSocket connection to 'wss:\/\/[^']+\/\?token=[^']+' failed|\[vite\] failed to connect to websocket)/:null;
+    page.on('console',m=>{if(m.type()==='error'){
+      const reason=expectedNetworkFailures.size>0&&/^Failed to load resource: (net::ERR_FAILED|the server responded with a status of \d{3}\b.*)$/.test(m.text())?[...expectedNetworkFailures]
+        :devServerNoise?.test(m.text())?['Development server live-reload socket, absent from a deployed OpenView']:[];
+      consoleMessages.push({text:m.text(),expected:reason.length>0,reason});if(!reason.length)runtimeErrors.push(m.text());}});
     // Only resource mutations belonging to this run may leave the browser.
     await context.route('**/*',async route=>{
       const req=route.request();
@@ -68,6 +79,13 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       }
       await route.continue();
     });
+    // The browser's default text size, the setting a user changes in Chromium's settings.
+    async function setDefaultFontSize(px){
+      if(!defaultFontSize)throw new Error(`The ${profile} profile cannot change the default text size`);
+      const cdp=await context.newCDPSession(page);
+      await cdp.send('Page.setFontSizes',{fontSizes:{standard:px,fixed:Math.round(px*13/16)}});
+      await cdp.detach();
+    }
     async function login(){await withBrowserAuthentication('Independent UI review sign-in',async()=>{
       await page.goto(base+'/dashboard');
       await page.locator('#username, cedar-workspace-page .destinations').first().waitFor({state:'visible'});
@@ -81,7 +99,24 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     });}
     const pendingCrops=[];
     const capture=(id,note)=>captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false},id,note);
+    // OpenView's development server compiles its own bundles in memory, so they can only be
+    // fingerprinted; the CEE bundle it serves from node_modules is compared with the installed one.
+    async function openviewServedEvidence(){
+      const root=join(process.env.CEDAR_HOME,'cedar-openview/cedar-openview-src');
+      const verified=[],observed=[];
+      const cee='node_modules/cedar-embeddable-editor/cedar-embeddable-editor.host-fonts.js';
+      const response=await context.request.get(base+'/'+cee);const digest=hash(await response.body());
+      if(!response.ok()||digest!==hash(await readFile(join(root,cee))))throw new Error('Served asset mismatch: '+cee);
+      verified.push({file:cee,sha256:digest});
+      const html=await (await context.request.get(base+'/templates/ui-review-probe')).text();
+      for(const [,file] of html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)){
+        const asset=await context.request.get(new URL(file,base+'/').href);
+        observed.push({file,sha256:hash(await asset.body())});
+      }
+      return {verified:[...verified,...observed.sort((a,b)=>a.file.localeCompare(b.file))],browser:browser.version()};
+    }
     async function servedEvidence(){
+      if(app==='openview')return openviewServedEvidence();
       const root=join(process.env.CEDAR_HOME,'cedar-workspace/app');
       const files=(await readdir(join(root,'workspace-build'),{recursive:true})).filter(f=>/\.(js|css|html)$/.test(f)).map(f=>'workspace-build/'+f);
       files.push('third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js');
@@ -94,6 +129,6 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       return {verified:verified.sort((a,b)=>a.file.localeCompare(b.file)),browser:browser.version()};
     }
     await flush();
-    return {page,context,base,user,ledger,browser,directory,pendingCrops,profile,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
+    return {page,context,base,user,ledger,browser,directory,pendingCrops,profile,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,anonymousRead,defaultFontSize:!!defaultFontSize,setDefaultFontSize,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
   } catch(error){await close();throw error;}
 }

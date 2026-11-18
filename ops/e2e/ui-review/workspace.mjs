@@ -1,6 +1,6 @@
 import {workspaceFixtures} from './fixtures.mjs';
 import {WIDTHS} from './catalog.mjs';
-import {folderPage,listingReady,pointer,keyboard,setChecked} from './interactions.mjs';
+import {folderPage,listingReady,pointer,keyboard,setChecked,textSizeStates} from './interactions.mjs';
 
 export async function collectWorkspace(session,record) {
   const {page}=session;
@@ -134,4 +134,5 @@ export async function collectWorkspace(session,record) {
     await session.capture('paging-position-768','Displayed paging controls before pointer activation, without corrective scrolling.');
     await pointer(session,button('Next'),{scroll:false});await listingReady(page,f.rows.slice(50));
   });
+  await textSizeStates(session,record,()=>folderPage(session,f.listing,f.rows.slice(0,50)));
 }

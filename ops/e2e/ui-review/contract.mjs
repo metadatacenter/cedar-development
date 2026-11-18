@@ -19,7 +19,7 @@ export function validateReview(capture, review, available) {
   const covered = new Set(Array.isArray(review.inspectedStates) ? review.inspectedStates : []);
   require(Array.isArray(review.inspectedStates) && covered.size === review.inspectedStates.length,
     'Inspected states must be a list without duplicates');
-  for (const id of requiredStates(capture.app ?? 'designer')) require(covered.has(id), `State not inspected: ${id}`);
+  for (const id of requiredStates(capture.app ?? 'designer', capture.profile ?? 'chromium')) require(covered.has(id), `State not inspected: ${id}`);
   for (const id of covered) require(capture.states.some(s => s.id === id), `Unknown inspected state: ${id}`);
   require(Array.isArray(review.findings), 'findings must be an array');
   const ids = new Set();
@@ -51,7 +51,7 @@ export function validateReview(capture, review, available) {
 
 export function acceptanceBlockers(capture, errors) {
   if(!APPS.includes(capture.app??'designer'))return [...errors,'Unknown capture application'];
-  const required = requiredStates(capture.app ?? 'designer');
+  const required = requiredStates(capture.app ?? 'designer', capture.profile ?? 'chromium');
   const missing = required.filter(id=>!capture.states.some(s=>s.id===id));
   const evidenceErrors=[];
   if(capture.app){
@@ -59,7 +59,7 @@ export function acceptanceBlockers(capture, errors) {
     if(new Set(ids).size!==ids.length)evidenceErrors.push('Duplicate captured state IDs');
     for(const state of capture.states)for(const kind of ['screenshot','aria','metrics'])
       if(typeof state[kind]!=='string'||!capture.files?.[state[kind]])evidenceErrors.push(`Missing ${kind} evidence for ${state.id}`);
-    if(capture.catalogSha256!==catalogSha256(capture.app))
+    if(capture.catalogSha256!==catalogSha256(capture.app,capture.profile??'chromium'))
       evidenceErrors.push('Capture was collected against a different scenario catalog; capture again with the current one');
   }
   return [...errors, ...evidenceErrors, ...missing.map(id=>`Required state not captured: ${id}`),

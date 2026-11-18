@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {APPS, REGIONS, requiredStates, unmatchedRegions} from './catalog.mjs';
+import {APPS, PROFILES, REGIONS, profile, requiredStates, unmatchedRegions} from './catalog.mjs';
 import {collectorFor} from './run.mjs';
 import {CORPUS_TEMPLATES, corpusPath} from './fixtures.mjs';
 import {mkdtemp, mkdir, writeFile, rm} from 'node:fs/promises';
@@ -19,7 +19,7 @@ function inert() {
     apply: () => inert(),
   });
 }
-async function dryRun(app) {
+async function dryRun(app, profileName = 'chromium') {
   let minted = 0;
   const recorded = [];
   const session = {
@@ -28,7 +28,9 @@ async function dryRun(app) {
     flush: async () => {}, login: async () => {}, openNew: async () => {}, ready: async () => {},
     addField: async () => {}, action: async () => {}, capture: async () => {},
     put: async collection => `https://repo.test/${collection}/${++minted}`,
-    request: async () => ({status: 200, body: {}}),
+    defaultFontSize: profile(profileName).defaultFontSize, setDefaultFontSize: async () => {}, touch: !!profile(profileName).context.hasTouch,
+    request: async () => ({status: 200, body: {}, headers: new Headers({etag: '"stand-in"'})}),
+    anonymousRead: async () => ({status: 200}),
   };
   await (await collectorFor(app))(session, async id => {recorded.push(id);});
   return recorded;
@@ -43,10 +45,10 @@ test('every collector records exactly its catalog states, once each', async t =>
     await mkdir(dirname(corpusPath(number)), {recursive: true});
     await writeFile(corpusPath(number), JSON.stringify({properties: {}}));
   }
-  for (const app of APPS) {
-    const recorded = await dryRun(app);
-    assert.equal(new Set(recorded).size, recorded.length, `${app}: a state is recorded twice`);
-    assert.deepEqual([...recorded].sort(), [...requiredStates(app)].sort(), `${app}: collector and catalog differ`);
+  for (const profileName of Object.keys(PROFILES)) for (const app of APPS) {
+    const recorded = await dryRun(app, profileName);
+    assert.equal(new Set(recorded).size, recorded.length, `${app} (${profileName}): a state is recorded twice`);
+    assert.deepEqual([...recorded].sort(), [...requiredStates(app, profileName)].sort(), `${app} (${profileName}): collector and catalog differ`);
   }
 });
 

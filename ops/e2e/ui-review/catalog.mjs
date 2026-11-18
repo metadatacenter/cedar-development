@@ -35,13 +35,23 @@ export const METADATA_TYPES = [
   ['ror','ROR'], ['pfas','PFAS'], ['rrid','RRID'], ['pubmed','PubMed'], ['nih-grant-identifier','NIH grant identifier'],
   ['doi','DOI'], ['number','Number'], ['date','Date'], ['controlled-term','Controlled term'],
 ];
-export const APPS = ['designer', 'workspace', 'metadata-editor'];
+// The Designer's controlled-term picker, opened from a controlled-terms field's constraints.
+export const TERM_PICKER_STATES = ['term-picker-open', 'term-picker-results', 'term-picker-term', 'term-picker-branches',
+  'term-picker-ontologies', 'term-picker-done'];
+export const TERM_PICKER_WIDTHS = [1440, 375];
+export const APPS = ['designer', 'workspace', 'metadata-editor', 'openview'];
 // Browser profiles a capture can run under. The default drives Chromium with a mouse; the touch
 // profile drives WebKit as a touch device, where nothing can hover and every activation is a tap.
+// A profile with defaultFontSize can change the browser's default text size, as a user does in the
+// browser's settings, so its catalog adds text-size states; Playwright reaches that setting only in
+// Chromium.
 export const PROFILES = {
-  chromium: {engine: 'chromium', context: {}},
-  'webkit-touch': {engine: 'webkit', context: {hasTouch: true, isMobile: true}},
+  chromium: {engine: 'chromium', context: {}, defaultFontSize: true},
+  'webkit-touch': {engine: 'webkit', context: {hasTouch: true, isMobile: true}, defaultFontSize: false},
 };
+// Text-size states are the last each collector records: a 32-pixel default, twice the usual 16.
+export const TEXT_SIZE_WIDTHS = [1440, 375];
+const textSizeStates = () => TEXT_SIZE_WIDTHS.map(width => ({id: `text-200-${width}`, scenario: 'text-200', category: 'text-size', width}));
 export function profile(name = 'chromium') {
   if (!PROFILES[name]) throw new Error('Unknown UI review browser profile: ' + name);
   return PROFILES[name];
@@ -66,6 +76,11 @@ const workspaceOnce = [
   {id:'both-panels-768',scenario:'both-panels',category:'composition',width:768},
   {id:'paging-overlap-768',scenario:'paging-overlap',category:'pointer',width:768},
 ];
+const openview = [
+  ['template','artifact'], ['template-end','artifact'], ['instance','artifact'], ['instance-repeated','artifact'],
+  ['element','artifact'], ['field','artifact'], ['folder','folder'], ['field-types','field-types'], ['field-types-end','field-types'],
+  ['not-open','error'], ['missing','error'],
+];
 const metadata = [
   ...[0,1,2,5,6,12].map(n=>['occurrences-'+n,'occurrences']), ['last-page','pagination'], ['previous-page','pagination'],
   ['long-labels','composition'], ['nested','nesting'], ['nested-end','nesting'], ['keyboard','keyboard'],
@@ -75,12 +90,17 @@ const metadata = [
   ['new-record','empty'], ['save-warning','validation'], ['warning-expanded','validation'], ['warning-jump','validation'],
   ['empty-name-saved','save'], ['empty-template','empty'],
 ];
-export function scenarios(app) {
+export function scenarios(app, profileName = 'chromium') {
   if (!APPS.includes(app)) throw new Error('Unknown UI review application: '+app);
+  return baseScenarios(app).concat(profile(profileName).defaultFontSize ? textSizeStates() : []);
+}
+function baseScenarios(app) {
   if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}))
     .concat(DESIGNER_TYPES.map(([slug])=>({id:'type-'+slug,scenario:'field-type-settings',category:'field-types',width:1440})))
     .concat(DESIGNER_TYPES.filter(([slug])=>!PREVIEWLESS_TYPES.includes(slug))
-      .map(([slug])=>({id:'type-'+slug+'-preview',scenario:'field-type-preview',category:'field-types',width:1440})));
+      .map(([slug])=>({id:'type-'+slug+'-preview',scenario:'field-type-preview',category:'field-types',width:1440})))
+    .concat(TERM_PICKER_WIDTHS.flatMap(width=>TERM_PICKER_STATES.map(scenario=>({id:`${scenario}-${width}`,scenario,category:'term-picker',width}))));
+  if (app === 'openview') return WIDTHS.flatMap(width=>openview.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})));
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
     .concat(app === 'workspace' ? workspaceOnce : METADATA_TYPES.map(([slug])=>({id:`type-${slug}-1440`,scenario:'field-type',category:'field-types',width:1440}))
@@ -88,7 +108,7 @@ export function scenarios(app) {
         {id:'static-fields-page-2-1440',scenario:'static-fields',category:'field-types',width:1440},
         {id:'attribute-value-1440',scenario:'attribute-value',category:'field-types',width:1440}]));
 }
-export const requiredStates = app => scenarios(app).map(s=>s.id);
+export const requiredStates = (app, profileName = 'chromium') => scenarios(app, profileName).map(s=>s.id);
 // Page regions whose geometry each capture records. Every selector must match in at least one
 // state of the application's capture: a renamed product class would otherwise thin the evidence
 // without any error.
@@ -100,6 +120,8 @@ export const REGIONS = {
     'app-field-summary'],
   workspace: ['.explorer-toolbar', '.table-toolbar', '.breadcrumbs', '.paging', '#workspace-information', ...CEE_REGIONS],
   'metadata-editor': ['.metadata-toolbar', '.pager-container', ...CEE_REGIONS],
+  openview: ['.main__header', '.main__footer', '.instance__container', 'section.folder', 'app-artifact-error',
+    '.field-type-icon', 'app-cedar-multi-pager'],
 };
 export function regions(app) {
   if (!REGIONS[app]) throw new Error('Unknown UI review application: '+app);
@@ -110,12 +132,12 @@ export const unmatchedRegions = (app, states) =>
 // Identifies the states and regions a capture was held to. A packet validates only against the
 // catalog it was captured with: a later catalog may require states the packet never collected, or
 // no longer require states it did.
-export const catalogSha256 = app =>
-  createHash('sha256').update(JSON.stringify({scenarios: scenarios(app), regions: regions(app)})).digest('hex');
+export const catalogSha256 = (app, profileName = 'chromium') =>
+  createHash('sha256').update(JSON.stringify({scenarios: scenarios(app, profileName), regions: regions(app)})).digest('hex');
 export function coverageFor(capture, review) {
   const inspected = new Set(review?.inspectedStates ?? []);
   return {app:capture.app??'designer',catalogSha256:capture.catalogSha256??null,scope:'Scenario coverage, not proof of exhaustive UI quality',
-    scenarios:scenarios(capture.app??'designer').map(s=>{
+    scenarios:scenarios(capture.app??'designer',capture.profile??'chromium').map(s=>{
       const state=capture.states.find(x=>x.id===s.id);
       const failure=capture.incomplete.find(x=>x.state===s.id);
       return {...s,capture:state?'captured':failure?'blocked':'omitted',reason:failure?.error??null,

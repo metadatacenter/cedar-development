@@ -35,7 +35,7 @@ test('all-mode records independent failures for every application instead of sil
     assert.equal(await main(['--app=all','--output='+root,'--review='+root]),2);
     const summary=JSON.parse(await readFile(join(root,'summary.json'),'utf8'));
     assert.deepEqual(summary.results.map(r=>r.app),APPS);assert(summary.results.every(r=>r.code===2));
-    const coverage=JSON.parse(await readFile(join(root,'coverage.json'),'utf8'));assert.equal(coverage.applications.length,3);
+    const coverage=JSON.parse(await readFile(join(root,'coverage.json'),'utf8'));assert.equal(coverage.applications.length,APPS.length);
   }finally{await rm(root,{recursive:true,force:true});}
 });
 test('a captured state without its hashed screenshot cannot count as complete evidence',()=>{
@@ -66,7 +66,14 @@ test('collector identity covers imported helpers and the Playwright release, not
 });
 test('browser profiles name an engine and refuse unknown names',()=>{
   assert.equal(profile().engine,'chromium');
-  assert.deepEqual(profile('webkit-touch'),{engine:'webkit',context:{hasTouch:true,isMobile:true}});
+  assert.deepEqual(profile('webkit-touch'),{engine:'webkit',context:{hasTouch:true,isMobile:true},defaultFontSize:false});
   assert.throws(()=>profile('firefox-touch'),/Unknown UI review browser profile/);
   assert(Object.values(PROFILES).every(p=>['chromium','webkit'].includes(p.engine)));
+});
+test('only a profile that can change the default text size adds text-size states, and the catalog identity says so',()=>{
+  for(const app of APPS){
+    assert(requiredStates(app,'chromium').includes('text-200-1440'));
+    assert(!requiredStates(app,'webkit-touch').some(id=>id.startsWith('text-200')));
+    assert.notEqual(catalogSha256(app,'chromium'),catalogSha256(app,'webkit-touch'));
+  }
 });

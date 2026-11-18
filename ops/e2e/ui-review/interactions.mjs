@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
+import {TEXT_SIZE_WIDTHS} from './catalog.mjs';
 
 export async function listingReady(page, ids) {
   await page.locator('.table-scroll[aria-busy="false"]').waitFor();
@@ -68,4 +69,18 @@ export async function keyboard(session,start,{stops=12}={}) {
 export async function setChecked(session,locator,on) {
   if(await locator.isChecked()!==on)await pointer(session,locator);
   if(await locator.isChecked()!==on)throw new Error(`Checkbox did not become ${on?'checked':'unchecked'}`);
+}
+// The browser's default text size doubled, as a user sets it: text sized in rem, em or percent
+// follows it and text fixed in pixels does not. Collectors record these states last, since the
+// setting stays with the page. It is applied before the page loads, so measurements made while
+// loading see the larger text, and again after, since a navigation can start a fresh renderer.
+export async function textSizeStates(session,record,show) {
+  if(!session.defaultFontSize)return;
+  for(const width of TEXT_SIZE_WIDTHS){
+    await session.page.setViewportSize({width,height:width===1440?1000:667});
+    await record(`text-200-${width}`,async()=>{
+      await session.setDefaultFontSize(32);await show();await session.setDefaultFontSize(32);
+      await session.page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    },'The browser default text size is 32 pixels, twice the usual 16.');
+  }
 }
