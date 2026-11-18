@@ -1636,3 +1636,38 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Choose between them, then add the journey to the gated tiers. Done when `cedarcli test e2e` creates
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
+
+- **28. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
+  none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
+
+  Each test JVM runs its classes one after another. The artifact server's suite now gives each class
+  its own application and cleanup bookkeeping, but a run with JUnit's class-level concurrency turned
+  on still fails 64 of 1,736 tests, on state the libraries share across a JVM:
+  - `CedarEnvironmentSource` in cedar-config-library holds one process-wide override, which
+    `EmbeddedCedarMongo.startAndRedirectEnvironment` rewrites for each class and
+    `CedarEnvironmentClassIsolationExtension` clears after it. A class that boots while it is
+    cleared reads the shell's development profile, so it can bind the running stack's ports and open
+    the developer's own Mongo.
+  - `CedarConfig.getInstance` and `CedarDataServices` are singletons, and a second boot replaces the
+    Mongo client the first one holds.
+  - `CedarMicroserviceApplicationWithMongo` keeps the template and instance services in static fields,
+    which every boot overwrites.
+  - `TestAuthUtil` keeps one in-memory user service for the JVM.
+  - Every class shares one embedded Mongo, so a count over a whole collection sees other classes'
+    writes.
+
+  Give each class its own environment, configuration, services and store, or a namespace within the
+  store, before any suite turns concurrency on. Until then, never run a suite class-concurrently on a
+  workstation with the stack running. Done when the artifact server's suite passes with class-level
+  concurrency on, twice, with the development stack up and untouched.
+
+- **29. Find why a log prune pass once walked no ids.** **Production consequence:** possibly none,
+  since a pass that walks nothing leaves its rows for the next pass.
+
+  In one whole-estate build at a load average of about 130,
+  `LogAggregationStoreTest.aPrunePassWalksIdWindowsUpToTheFirstRowItMustKeep` pruned no row where it
+  expects one. The run's SQL log shows `requestPruneRange` returning no range to walk, although the
+  identical call 25 ms earlier returned ids 110 to 112 and nothing wrote in between. It did not recur
+  in about 450 runs under load, with and without JaCoCo. The assertion now reports the range the pass
+  walked and every row's times. Done when a recurrence's report explains the empty range and the
+  cause is fixed, in the library if `requestPruneRange` can return a wrong range, in the test if not.
