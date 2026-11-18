@@ -9,6 +9,10 @@ if [ -z "$CEDAR_KEYCLOAK_HOME" ]; then
   exit 1
 fi
 
+# CVE-2026-114938 (Java4Shell): Keycloak decodes Base64 from requests that have not logged in, so
+# it is the server this flaw reaches first. kc.sh adds JAVA_OPTS_APPEND to the JVM's own options.
+export JAVA_OPTS_APPEND="-XX:-UseBASE64Intrinsics${JAVA_OPTS_APPEND:+ $JAVA_OPTS_APPEND}"
+
 # The CLI captures this script's output. A background JVM must not retain that pipe or the
 # command waits forever for EOF and cancellation kills the otherwise healthy Keycloak process.
 keycloak_console_log="$CEDAR_KEYCLOAK_HOME/log/cedar-console.log"

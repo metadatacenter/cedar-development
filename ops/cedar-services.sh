@@ -84,6 +84,11 @@ if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
 fi
 # Preserve the CLI's selected Node ahead of Homebrew's unversioned Node.
 PATH="${JAVA_HOME:+$JAVA_HOME/bin:}$PATH:/opt/homebrew/bin"
+# CVE-2026-114938 (Java4Shell): on x86-64 CPUs with AVX-512 VBMI, HotSpot's Base64 decode intrinsic
+# writes past its buffer when handed a crafted string, and JDK 17.0.6 and later carry it. With the
+# intrinsic off, decoding runs the plain Java loop instead. Every server JVM this controller starts
+# gets the flag; drop it only once every host runs a JDK that has the fix.
+CEDAR_JVM_MITIGATIONS="-XX:-UseBASE64Intrinsics"
 # Loopback is safest for the native-only stack. Set this to 0.0.0.0 when Docker nginx must proxy
 # to the native Angular development servers through host.docker.internal.
 CEDAR_FRONTEND_BIND_HOST="${CEDAR_FRONTEND_BIND_HOST:-127.0.0.1}"
@@ -592,7 +597,9 @@ run_one_foreground() {
         # endpoints then report themselves unavailable rather than answering from BioPortal.
         [ -n "$CEDAR_TERMINOLOGY_STORE_INDEX" ] && opts="$opts -DterminologyStore.searchIndexPath=$CEDAR_TERMINOLOGY_STORE_INDEX"
       fi
-      exec java $opts -jar "$jar" server "$cfg" ;;
+      # CEDAR_JAVA_OPTS carries whitespace-separated JVM flags for every server, under the name the
+      # Docker entrypoint already reads. It follows the mitigations so that it can override them.
+      exec java $CEDAR_JVM_MITIGATIONS ${CEDAR_JAVA_OPTS:-} $opts -jar "$jar" server "$cfg" ;;
   esac
 }
 

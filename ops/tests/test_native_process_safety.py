@@ -361,6 +361,27 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("REFUSED TO STOP", result.stderr)
         self.assertNotIn("SIGNALLED", result.stdout + result.stderr)
 
+    def test_every_microservice_jvm_starts_with_the_base64_intrinsic_off(self):
+        """CVE-2026-114938: the flag leads, and CEDAR_JAVA_OPTS follows it for every server."""
+        with tempfile.TemporaryDirectory() as directory:
+            binaries = Path(directory) / "bin"
+            binaries.mkdir()
+            java = binaries / "java"
+            java.write_text("#!/bin/bash\n"
+                            "printf '%s\\n' 'openjdk version \"17.0.9\" 2023-10-17' >&2\n"
+                            'echo "ARGS: $*"\n')
+            java.chmod(0o755)
+            result = self.run_library(
+                'stage_running_jar() { echo /staged/group.jar; }; '
+                'scope_artifact_service_credentials() { :; }; '
+                'run_one_foreground group',
+                JAVA_HOME=directory, CEDAR_JAVA_OPTS="-Xmx2g",
+            )
+
+        self.assertIn(
+            "ARGS: -XX:-UseBASE64Intrinsics -Xmx2g -jar /staged/group.jar server ",
+            result.stdout, result.stderr)
+
     def test_missing_jar_makes_native_start_fail(self):
         result = self.run_library(
             'port_open() { return 1; }; start_one artifact'
