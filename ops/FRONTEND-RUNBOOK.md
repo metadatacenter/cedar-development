@@ -1620,8 +1620,10 @@ npm's debug logs, and available `test-results`, `playwright-report`, `surefire-r
 `$CEDAR_HOME/.cedar/build-reports/failures/`. The failure prints the exact directory.
 npm writes its debug logs into a directory the build owns, outside the copied repository, and a
 bundle keeps them under `npm-logs/`. Each bundle is capped at 250 MiB of copied files;
-`manifest.json` lists retained files and files omitted for size. Dependencies, Git metadata
-and symlinks are excluded.
+`manifest.json` lists retained files and files omitted for size. Within the cap, named
+Playwright traces, screenshots and error contexts are copied before temporary recordings, so the
+cap cannot discard the failure's own evidence. Dependencies, Git metadata and symlinks are
+excluded.
 Successful builds do not retain these diagnostic copies. Remove old bundles when no
 longer needed; the cap is per failure, not a total retention quota.
 
@@ -3363,27 +3365,50 @@ rendering is correct.
 
 ##### Independent application UI review
 
-`cedarcli test ui-review --app designer|workspace|metadata-editor|all --plan` prints the maintained
-scenario catalog. The default remains `designer`. Capture against the current local frontend build:
+Browser suites establish behavior. They cannot say whether a rendered screen serves the person
+using it. The independent UI review supplies that judgment from a reviewer who has not seen the
+implementation. `cedarcli test ui-review` captures every state in a maintained catalog from the
+current local build, a fresh reviewer inspects the evidence and writes a review, and the command
+validates that review against the evidence. A successful capture means the evidence is ready for
+review. It does **not** mean the interface passed.
+
+###### Capturing
+
+`cedarcli test ui-review --app designer|workspace|metadata-editor|all --plan` prints the catalog
+and the browser profiles. The default application is `designer`. Capture against the current local
+frontend build:
 
 ```bash
 cedarcli test ui-review --app all --output /absolute/path/to/new-run
 ```
 
-`all` collects the three applications sequentially, keeping each app's evidence in its own named
-subdirectory. Capture runs Chromium with a mouse by default. `--profile webkit-touch` captures the
-same catalog in WebKit as a touch device, where nothing can hover and every activation is a tap.
-Each packet records its profile and the browser engine that ran, and capture stops if the two
-disagree. Capture the touch profile after changes to phone or tablet layouts, and review it as a
-packet of its own. The root `index.html`, `summary.json` and `coverage.json` link and summarize the three
-packets. A failure in one application does not skip the others. A successful capture means evidence
-is ready for an independent reviewer; it does **not** mean the interface passed review.
+`all` collects the three applications in turn, keeping each application's evidence in its own
+subdirectory. The root `index.html`, `summary.json` and `coverage.json` link and summarize the
+three packets, and a failure in one application does not skip the others. Capture runs Chromium
+with a mouse by default. `--profile webkit-touch` captures the same catalog in WebKit as a touch
+device, where nothing can hover and every activation is a tap. Each packet records its profile and
+the browser engine that ran, and capture stops if the two disagree.
 
-Run the affected application's capture after a UI change has been built and deployed. Use `--app all`
-for shared-component/design-token changes and before accepting a cross-application UI batch. Keep
-scenario updates in the same change as the relevant workflow update. CI runs the harness contract
-tests; it does not automatically launch the local stack or appoint an independent reviewer. The
-capture, fresh review, seal and calibration steps remain explicit.
+Run the affected application's capture after a UI change has been built and deployed. Use
+`--app all` for shared-component and design-token changes and before accepting a cross-application
+UI batch, and capture the touch profile after changes to phone or tablet layouts, reviewing it as a
+packet of its own. CI runs the harness tests only. It does not launch the local stack or appoint a
+reviewer, so capture, review, seal and calibration stay explicit steps.
+
+The command requires a current reactor selection. Run `cedarcli build frontends` when product
+source **content** has changed. A commit of already-built bytes needs no new build, since
+provenance reports revision and dirty-state changes separately. Capture checks source content and
+the selected build before and after, verifies installed packages and served bytes, and requires
+stable inputs throughout. `--diagnostic` permits capturing the previously deployed runtime while
+sources are newer. Such a packet can hold useful findings but can never receive an acceptance pass,
+so do not use it to claim current-source verification. `--plan`, sealing and review validation do
+not build, deploy, sign in or create fixtures.
+
+On the 16-core workstation a warm, already-built stack collects all 313 states in about four
+minutes in Chromium and about three under the touch profile. Rebuilding and the reviewer's
+inspection are separate.
+
+###### What the Catalog Covers
 
 The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **313 states**:
 
@@ -3393,92 +3418,84 @@ The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **31
 | Workspace | 104 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. |
 | Metadata Editor | 106 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, the static types on both pages of their template, and an attribute-value field. |
 
-The Workspace search state waits until the review's root folder is searchable through the REST
-search before searching for it in the page, and records whatever the first page of results holds.
-Records the Metadata Editor creates from a review-owned template are registered as review fixtures
-before the write and removed with the rest.
+The repeated-field counts cover zero, one, several, the page boundary, one past it and several
+pages, because a review that only ever shows two occurrences never displays a paginator. The
+Workspace search state waits until the review's root folder is searchable through the REST search
+before searching for it in the page, and records whatever the first page of results holds. The
+Metadata Editor's type states upload three templates from a `cedar-test-artifacts` checkout beside
+`cedar-development`: 038 holds one field per input type that takes a value, 009 the static types
+and 022 an attribute-value field. Their declared defaults are removed, so a new record starts
+empty and no default needs a live authority lookup.
 
-The Metadata Editor's type states upload three templates from a `cedar-test-artifacts` checkout
-beside `cedar-development`: 038 holds one field per input type that takes a value, 009 the static
-types and 022 an attribute-value field. Their declared defaults are removed, so a new record starts
-empty and no default needs a live authority lookup, and the collector identity records each file's
-hash.
+`coverage.json` separates **captured**, **blocked** and **omitted** scenarios. Inspection remains
+`null` until a review is supplied, and is then the reviewer's attestation rather than an inference
+from screenshot existence. Validation checks required states even when a collector forgets to list
+a missing one as incomplete. Each capture records the hash of the catalog it was collected against,
+and validation refuses a packet whose catalog differs from the current one, so a catalog change
+always needs a new capture. Extend the catalog and its collector together when adding a user
+journey, in the same change as the workflow it covers. Add a behavior regression for a fixed
+defect, and keep fresh visual review for judgments a regression cannot establish. Geometry
+regressions compare related controls and identities, such as shared centers, text and control
+collisions and page boundaries, not only individual dimensions. Do not remove a scenario because it
+fails.
 
-`coverage.json` separates **captured**, **blocked** and **omitted** scenarios. Independent inspection
-remains `null` until a review is supplied; it is then the reviewer's attestation, not inferred from
-screenshot existence. The contract checks required states even if a collector forgets to list a
-missing state as incomplete. Each capture records the hash of the catalog it was collected
-against, and validation refuses a packet whose catalog differs from the current one, so a catalog
-change always needs a new capture. Extend the catalog and collector together when adding a user journey;
-add a meaningful behavior regression for a fixed defect, and retain fresh visual review for judgments
-that a regression test cannot establish. Do not remove a scenario simply because it fails.
+###### Fixtures, Lock and Cleanup
 
-The command requires a current reactor selection. Run `cedarcli build frontends` when product source
-**content** has changed. A commit of already-built bytes does not require another build: provenance
-reports such revision/dirty metadata changes separately. Capture checks current source content and
-selected build before and after, verifies installed packages and served bytes, and records the
-collector source hashes. Stable inputs are required throughout capture. `--plan`, sealing and review
-validation do not build, deploy, log in or create fixtures.
+The collectors use the local test account under a shared lock at
+`$CEDAR_HOME/.cedar/locks/ui-review-user1`, so keep other sessions off that account during
+collection. Every fixture identifier is confirmed absent and persisted **before** its create
+request, so a lost reply still leaves a cleanup identity. Records the Metadata Editor creates from a
+review-owned template are registered the same way before the write. In the Designer, supplemental
+sessions must name a template `UI review pilot <unique suffix>` before saving. The helper blocks
+writes to other names or to existing identifiers it does not own and logs the reason, which is
+harness protection and not a product failure. Cleanup runs in reverse order with conditional
+deletion against the current ETag, verifies that each GET returns 404, and restores and reads back
+every original account preference group after the browser closes. A cleanup or restoration failure
+prevents acceptance.
 
-On the local workstation, the 2026-11-18 maintained-tooling verification collected all 165 required
-states in **99 seconds overall**, including calibration generation: Designer 17 seconds, Workspace
-40 seconds and Metadata Editor 36 seconds for their collection phases. All 72 temporary fixtures
-were verified absent and account preferences restored. This measures a warm, already-built local
-stack; rebuilding and fresh reviewers' inspection time are separate. The evidence is retained at
-`$CEDAR_HOME/.cedar/reports/ui-review/20261118-maintained-verified/index.html`. It remains labelled
-awaiting independent review. A separate termination probe verified cleanup and lock release after
-three fixtures had been registered.
-
-The collectors use the local test account and a shared account lock at
-`$CEDAR_HOME/.cedar/locks/ui-review-user1`. Avoid other sessions using that account during collection.
-Every new fixture identifier is confirmed absent and persisted **before** its create request, so a
-lost reply still leaves a cleanup identity. Cleanup runs in reverse order, uses conditional deletion
-with the current ETag, verifies GET returns 404, and restores and reads back all original account
-preference groups after closing the browser. A cleanup or preference-restoration failure prevents
-acceptance. Ctrl-C allows up to 60 seconds for cleanup. A force-killed or otherwise interrupted process may leave the lock and persisted fixture ledger: first confirm
-its owner PID is no longer running, inspect that run's `session.json`, clean up only its registered
+Ctrl-C allows up to 60 seconds for cleanup. A force-killed or otherwise interrupted process may
+leave the lock and its persisted fixture ledger behind. Confirm that the owner PID in the lock's
+`owner.json` is no longer running, read that run's `session.json`, remove only its registered
 identities and restore its recorded preferences, then remove the abandoned lock. Never delete an
-unrelated artifact or discard a lock owned by a live collector.
+unrelated artifact or discard a lock a live collector holds.
 
-Below 600 pixels of component width, the existing Preview toggle switches between full-width
-authoring and full-width Preview. The editor stays mounted with its scroll position and settings;
-covered authoring controls are inert. Close Preview or Escape returns to editing, and opening
-Overview also returns to the editor. Wider components retain the side-by-side layout. This uses
-the embedded component's available width, independently of the browser viewport. The review
-collector explicitly switches views and waits for the intended pane before inspecting or editing
-phone content. Covered editor controls hide immediately, including the first frames after a resize.
-In an overflowing annotation table, keyboard focus brings the removal button and its focus ring
-fully into view; the table retains its ordinary horizontal scrolling.
+###### Evidence
 
-Each application directory retains screenshots (Designer also includes card crops), accessibility snapshots, control
-geometry (including labels and approximate intrinsic text widths), action records, cleanup results,
-an HTML evidence index, a coverage matrix, collector identity, duration, and `reviewer-brief.md`.
+Each application directory holds screenshots, Designer card crops, accessibility snapshots, control
+geometry with labels and approximate intrinsic text widths, action records, cleanup results, an HTML
+evidence index, a coverage matrix, the collector identity, the duration and `reviewer-brief.md`.
 The collector identity in `collector.json` hashes every review module and every local module it
-imports, and records the Playwright release. Every keyboard stop logs the focused control and, when it lies in
-the viewport, keeps a crop of it with its focus indicator, named `<state>-focus-<n>.png`. A stop
-outside the viewport is logged without a crop. Workspace and Metadata Editor screenshots preserve the viewport; below-fold states require explicit scrolling.
-Capture is not a design verdict. Supplemental sessions must name a template
-`UI review pilot <unique suffix>` before saving: the helper deliberately blocks writes to other names or existing unowned
-identifiers and records the reason in its action log. This guard is not a product/network failure.
-Give the brief and evidence to a fresh reviewer context without the implementation narrative or
-a list of expected defects. The reviewer inspects the actual
-images and interactions, may explore further in a separate directory with `session.mjs` (`openSession`) for Designer or
-`browser-session.mjs` (`openBrowserSession(directory, app)`) for the other applications, and writes
-`review.json`. It must distinguish observed defects from design proposals and uncertainty, explain
-user impact, name evidence, report acceptable behavior, and disclose missing coverage. It may not
-change product code or baselines. This does not authorize a redesign. Each review explicitly assesses
-grouping, hierarchy, wrapping and use of space under `composition`; readability and containment alone
-do not establish good composition. Compare related information across widths, distinguish necessary
-wrapping from avoidable fragmentation. Substantiate claims that wrapping is necessary with the
-actual contents, control/text widths, spacing and available width; a narrow viewport alone is not
-evidence. State uncertainty when the fit cannot be established. Surface design concerns without inventing
-functional failures. Capture preserves hover and focus; callers must perform ordinary hover/scroll/focus
-preconditions before interacting. All three collectors click at a control's displayed position,
-checkbox changes included, and log the element that receives the pointer there as a "Displayed
-pointer target" action. A covered or disabled control fails its state instead of being scrolled
-clear or clicked through. Card crops cover the visible viewport only: the helper does not
-scroll a card for a screenshot. Inspect below-fold content with explicit, recorded scrolling in a
-supplemental session. An automation timeout alone does not establish a product defect.
+imports, records the Playwright release, and hashes the corpus templates the fixtures upload.
+Screenshots and crops show the viewport only, so below-fold content needs explicit, recorded
+scrolling. Every keyboard stop logs the focused control and, when it lies in the viewport, keeps a
+crop of it with its focus indicator, named `<state>-focus-<n>.png`. A stop outside the viewport is
+logged without a crop.
+
+Each application declares the page regions whose geometry capture records, in `REGIONS` in the
+catalog. A declared region that matches no element in any state leaves the capture incomplete, so a
+renamed product class cannot silently thin the evidence. All three collectors click at a control's
+displayed position, checkbox changes included, and log the element that receives the pointer there
+as a "Displayed pointer target" action. A covered or disabled control fails its state instead of
+being scrolled clear or clicked through, since scrolling a control into view can remove the very
+obstruction under review. Capture preserves hover and focus, so collectors perform a user's ordinary
+hover, scroll and focus preconditions before interacting. On phone widths the Designer collector
+switches views explicitly and waits for the intended pane before inspecting or editing. An
+automation timeout alone does not establish a product defect, and capture is not a design verdict.
+
+###### Reviewing
+
+Give the brief and evidence to a fresh reviewer context, without the implementation narrative or a
+list of expected defects. The reviewer inspects the actual images and interactions, may explore
+further in a separate directory with `session.mjs` (`openSession`) for the Designer or
+`browser-session.mjs` (`openBrowserSession(directory, app)`) for the other applications, and
+writes `review.json`. The review distinguishes observed defects from design proposals and
+uncertainty, explains user impact, names its evidence, reports acceptable behavior and discloses
+missing coverage. It may not change product code or baselines, and it does not authorize a
+redesign. Each review assesses grouping, hierarchy, wrapping and use of space under `composition`,
+because readability and containment alone do not establish good composition. A claim that wrapping
+is necessary must rest on the actual contents, control and text widths, spacing and available
+width. A narrow viewport alone is not evidence, and the review states its uncertainty when fit
+cannot be established.
 
 Validate the completed review with:
 
@@ -3488,35 +3505,37 @@ cedarcli test ui-review --app workspace --output /absolute/path/to/run/workspace
 cedarcli test ui-review --app all --output /absolute/path/to/run --review /absolute/path/to/run
 ```
 
-`review-result.html` and `review-result.json` retain the assessment. `FINDINGS` exits 1 for reported
-defects; `DESIGN_REVIEW` also exits 1 when only design proposals or uncertainty remain;
-`INCOMPLETE` exits 2 for missing states/evidence, changed captures, stale sources, unverified served
-assets, browser errors, or failed fixture cleanup. `REVIEWED` exits 0, indicating a complete review
-with no unresolved findings, not release certification or proof of exhaustive UX coverage. Inspection
-coverage is the independent reviewer's attestation, while capture coverage and file hashes are
-checked mechanically. Review validation does not rebuild or rerun the whole frontend suite.
+`review-result.html` and `review-result.json` keep the assessment. `FINDINGS` exits 1 for reported
+defects, and `DESIGN_REVIEW` also exits 1 when only design proposals or uncertainty remain.
+`INCOMPLETE` exits 2 for missing states or evidence, changed captures, stale sources, unverified
+served assets, browser errors or failed fixture cleanup. `REVIEWED` exits 0: a complete review with
+no unresolved findings, not release certification or proof of exhaustive coverage. Capture coverage
+and file hashes are checked mechanically, while inspection coverage is the reviewer's attestation.
+Validation does not rebuild or rerun the frontend suites.
 
-`--diagnostic` permits inspecting the previously deployed runtime while sources are newer. Such
-a run can retain useful findings but can never receive an acceptance pass. Do not use it to claim
-current-source verification. `session.json` retains the identity of any temporary artifact whose
-cleanup failed; do not delete unrelated user artifacts when repairing cleanup.
+Review evidence is immutable. A correction gets a new build and a fresh reviewer, and an earlier
+sealed report remains evidence of its own build. Optional design proposals need agreement before
+they are implemented, and they neither authorize a redesign nor block an otherwise accepted fix.
 
-Keep `calibration/packet.json` and its images out of the reviewer's first pass. Once the app
-assessment is complete, freeze it before exposing calibration:
+###### Sealing and Calibration
+
+Keep `calibration/packet.json` and its images out of the reviewer's first pass. Once the
+application assessment is complete, freeze it before exposing calibration:
 
 ```bash
 cedarcli test ui-review --app workspace --output /absolute/path/to/run/workspace --seal-review
 # --app all seals review.json independently in each application directory.
 ```
 
-This writes `review-seal.json`; final validation rejects an application assessment changed after
-sealing. Only then give the reviewer the calibration packet, never its answer key or fixture
+Sealing writes `review-seal.json`, and final validation rejects an application assessment changed
+after it. Only then give the reviewer the calibration packet, never its answer key or fixture
 sources. The key is written outside the packet, under `$CEDAR_HOME/.cedar/ui-review-keys/` and
-named by the hash of `calibration/packet.json`. Validation looks it up there, so a packet that was
-changed after capture, or whose key is missing, cannot be scored. An assessment names every case as `{id, issue, reason}` under `cases`; save it as
-`calibration-review.json` beside the application review. `--review` scores it automatically and
-leaves acceptance incomplete if a case is missed or an acceptable control is flagged. Findings
-from the app remain useful even when the calibration prevents acceptance.
+named by the hash of `calibration/packet.json`. Validation looks it up there, so a packet changed
+after capture, or one whose key is missing, cannot be scored. The calibration assessment names every
+case as `{id, issue, reason}` under `cases` in `calibration-review.json` beside the application
+review. `--review` scores it and leaves acceptance incomplete if a concern is missed or an
+acceptable control is flagged. Findings from the application remain useful even when calibration
+prevents acceptance.
 
 Each capture draws its own sixteen miniature interfaces, eight behavior cases and eight composition
 cases. Every probe can render either a concern or an acceptable control. Behavior probes cover an
@@ -3526,364 +3545,95 @@ interrupted and coherent settings groups, and aligned or misaligned row controls
 every probe at least once and between two and six concerns, and each case's polarity, wording set,
 identifier and position are random. Neither the set of probes nor the number of concerns therefore
 reveals an answer, and a reviewer who has seen an earlier packet holds no answers to the next.
-Report composition misses and false alarms separately from behavior. The generator verifies the actual font/layout fit premises and row positions, as well as
-interaction handlers, before exposing the packet. An invalid fixture packet cannot score reviewer
-accuracy. A browser test renders every probe variant in every wording set and checks its premise. The seal prevents later revisions to the app verdict; compliance with the blind-review
-instructions, rather than the seal alone, establishes that answers were not disclosed early.
-One small synthetic run does not establish production recall or general design judgment. The
-fixtures and their styles are never injected into an application.
+Composition misses and false alarms are scored separately from behavior. The generator proves each
+fixture's layout or behavior premise in the browser before exposing the packet, so an invalid
+fixture cannot score a reviewer. The seal prevents later revisions to the application verdict.
+Compliance with the blind-review instructions, not the seal, establishes that answers were not seen
+early. One small synthetic run does not establish production recall or general design judgment, and
+the fixtures are never injected into an application.
 
-The harness contract tests run in release-tooling CI and locally with
-`npm --prefix ops/e2e run test:ui-review` from `cedar-development`; they validate evidence and
+###### Harness Tests
+
+The harness tests run in release-tooling CI and locally with
+`npm --prefix ops/e2e run test:ui-review` from `cedar-development`. They validate evidence and
 verdict handling, not the product's visual quality. A dry run of each collector against an inert
-browser stand-in checks, without a stack, that it records exactly its catalog states. Each
-application also declares the page regions whose geometry capture records, in `REGIONS` in the
-catalog. A declared region that matches no element in any captured state leaves the capture
-incomplete, so a renamed product class cannot silently thin the evidence. The evidence-capture
-test needs only Playwright's Chromium and runs in CI after that browser is installed.
+browser stand-in checks, without a stack, that it records exactly its catalog states. The browser
+tests need only Playwright's Chromium. They check evidence capture, focus and card crops on
+scrolled pages, touch taps, and every calibration probe variant in every wording set.
 
-The 2026-11-15 pilot is retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-pilot/`; open `pilot-assessment.html`
-for the post-review comparison, `review-result.html` for frozen screenshots and findings, and
-`supplemental-review.json` for additional browser exploration. The reviewer inspected 37 states,
-caught the previously reported empty Overview failure, extreme IRI wrapping with Preview open,
-Preview-header overlap, and contradictory exceptional-save
-wording. It did not flag the user's field name/type grouping complaint. The valid synthetic packet
-scored 3/3 defects with no false alarms across three acceptable controls. This is a single trial,
-not a reliability estimate. Collection and cleanup completed, but acceptance is `INCOMPLETE`:
-the fresh frontend reactor failed its isolated Java-defaults source lookup before deployment, so
-the review concerns the verified existing runtime. Its pointer-insertion finding is withdrawn:
-the collector omitted the normal hover precondition, and a supplemental screenshot cleared hover
-before the click. Ordinary hover-then-click succeeds on that same deployed UI. The original evidence
-remains immutable; `reviewer-audit.json` records the correction.
+###### Agreed Layout Behavior
 
-The paired rubric comparison is under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261115-rubric-comparison/comparison.html`. One fresh reviewer
-per rubric inspected the same eight screenshot regions without the complaint or reference labels.
-The original rubric accepted both unnecessarily split short headers; the revised rubric surfaced
-both as design proposals and also questioned the wide header's spacing. Both caught extreme IRI
-wrapping. This supports the observable diagnosis that the first report omitted a composition judgment,
-but does not establish a general reliability improvement or the reviewer's private reasoning.
-The follow-up source build and independent review are retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-final-review/`; the implementer's before/after
-assessment and measured diagnosis are in
-`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-rebuild-assessment/assessment.html`.
-The build snapshots the Java defaults declarations beside the isolated vendored corpus and records
-their digest as a verification dependency. Empty Overview toggling, short-header grouping,
-narrow IRI/Preview identity layout, uncertain-save wording and narrow template identity spacing
-have targeted browser coverage. Field headers wrap according to their contents, not a fixed pane
-breakpoint, and keep their name, type, occurrence range, validation feedback and actions available.
+Reviews settled the following layout behavior with the user. Preserve it unless a change is agreed.
 
-The intermediate fresh review still accepted an unnecessary short-header wrap at 768 pixels,
-citing insufficient space. The measured contents and controls require about 178 pixels within a
-226-pixel header; the old rule stretched a roughly 47-pixel name to 130 pixels. That counterexample
-is recorded separately from the reviewer's unedited report. Requiring composition prose alone did
-not remove the failure. Capture geometry now includes labels and approximate intrinsic text widths,
-and the brief requires evidence before calling wrapping necessary. These measurements support
-judgment; they are not an automatic design oracle. Synthetic calibration covers only its concealed
-cases and cannot establish recall for composition defects.
+In the Designer:
 
-The previous final frozen packet is `DESIGN_REVIEW`: an occurrence-control grouping proposal and an
-accessible group-name question remain. Its separate ordinary-authoring flow found a visible
-required asterisk hidden by Preview's name ellipsis. Keep that supplemental defect visible in the
-combined assessment even though its evidence is outside the frozen packet. The six synthetic
-cases again scored three defects detected and no false alarms; they do not cover that Preview
-behavior. Build/smoke verification and this design verdict remain separate checks.
+- Below 600 pixels of component width, the Preview toggle switches between full-width authoring
+  and full-width Preview. The editor stays mounted with its scroll position and settings, and
+  covered authoring controls are inert and hidden from the first frame after a resize. Closing
+  Preview, Escape or opening Overview returns to editing. The switch follows the embedded
+  component's width, not the browser viewport, and wider components keep the side-by-side layout.
+- Field headers wrap according to their contents rather than at a fixed pane width, and keep the
+  name, type, occurrence range, validation feedback and actions available.
+- Designer Preview opts into CEE's default-off `wrapFieldNames`, so complete names wrap together
+  with their required marker while occurrence ranges and property controls stay available.
+  `previewMode`, which hides CEE's identity header, is separate. The Designer keeps that header,
+  and ordinary read-only embeds keep their layout unless they opt in.
+- Settings tabs wrap with a 4-pixel row gap, 16-pixel horizontal spacing and 36-pixel targets.
+- Minimum and Maximum share a row at the 210-pixel intermediate Configuration width and stack at
+  the 125.5-pixel phone width, keeping full labels and keyboard order.
+- The two Property IRI actions form one wrapping group. At 1024 and 900 pixels both move beneath
+  the full-width value, and in the narrowest pane they wrap within the group, keeping both controls
+  and the complete IRI.
+- In an overflowing annotation table, keyboard focus brings the removal button and its focus ring
+  fully into view, and the table keeps its ordinary horizontal scrolling.
+- The Designer updates or retires its own validation-count announcement when the issue set changes,
+  preserving queued action feedback and newer unrelated announcements.
 
-The integrated 2026-11-15 run is retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-integrated-review/`; its combined report,
-post-seal finding confirmation, worker measurements and smoke audit are under
-`20261115-designer-integrated-assessment/assessment.html`. The 51-state packet and 49 card crops
-record current sources, verified served bytes and no runtime or cleanup errors. The fresh reviewer
-received neither prior findings nor implementation details, then sealed the application assessment
-before inspecting the twelve calibration cases. Behavior and composition each scored 3/3 concerns
-with 0/3 false alarms on acceptable controls. This is a small synthetic trial, not production recall.
+In Workspace:
 
-The sealed app verdict is `DESIGN_REVIEW`: two measured layout proposals and an uncertain persistent
-validation count. A separate live probe subsequently confirmed that the count is obsolete: the
-public report is valid, can save and contains no issues while the accessibility status still says
-“Validation issues (1)”. `reviewer-audit.json` records this confirmation without changing the sealed
-assessment. Supplemental ordinary authoring, save/reopen and keyboard-tab exploration found no
-additional defects. The report distinguishes these observations from approval of proposed layouts.
+- Wrapped breadcrumbs stay above the filters, and each separator stays with the complete folder
+  name that follows it.
+- The listing viewport shrinks rather than pushing paging off the screen. With both tablet panels
+  open and long paths, the central listing stays usable and paging stays above the table heading,
+  on the existing sticky layer.
+- On phones, explicitly opening information focuses and scrolls to it, and closing it returns to the
+  selected row. Ordinary selection does not jump.
+- The List/Grid switch and the grid Sort control form one wrapping group.
+- Read-only Preview shows CEE's complete field and element names, and Try Out keeps its editing
+  configuration.
+- Report enrichment stops on listing changes, page hide and destruction, and resumes after a
+  back/forward-cache return without replacing the listing or selection. A transport interruption
+  ends the batch before another starts, and ordinary HTTP refusals stay specific to their item.
 
-The selected frontend build is
-`0a9539436b5510e88ec5876eac36c39137d260b8a14a6aca7038633aac403065`.
-Its package identities and exact source revisions are retained in the capture's `provenance.json`.
-All frontend checks, all three framework-consumer gates, local deployment and served-byte
-verification passed. The first whole-stack run passed REST, browser and search but failed split
-journeys while another frontend reactor was running; peak measured machine load was 96.16.
-Cleanup succeeded. A later run against the identical build completed the whole-stack smoke with
-no source changes. The retained audit includes the initial WebKit report-fetch messages and a
-local navigation reproduction; a passing rerun does not resolve that lifecycle follow-up.
+In the Metadata Editor and CEE:
 
-The Designer host's 2,232 browser cases ran with 12 workers in 3.3 minutes, versus one worker and
-14.9 minutes in the earlier run. The environment-prefixed command receives the worker budget;
-4,201 one-second samples recorded a maximum 16/16 shared slots. These are observed runs with
-different source inputs and concurrent load, not a controlled performance comparison. The full
-CED suite passed 17,062 unit tests, 25 pinned visual checks and 3,441 browser cases. Source-copy
-regressions cover tracked assets beneath distribution `node_modules` paths, whose omission had
-falsely reported source changes; installed untracked dependencies remain outside the copy.
+- The Metadata Editor opts into full field names and template descriptions. A generated saved name
+  appears in the name input, and edits made during the save stay unsaved.
+- CEE wraps complete element identities in hosts that opt into full names, and separates
+  repeated-element controls from headings when their rendered contents collide. Paginated
+  occurrence controls share the existing action height and move beneath a field identity on
+  collision.
+- Insets are proportional up to a 400-pixel local component width. The shared inset recipes use
+  container units, so heading, content and pager align against the same width. Phone nesting insets
+  are unchanged by agreement.
+- CEE remeasures paragraph controls after host width changes.
 
-The current-source follow-up is retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261115-designer-current-review/`, with its combined assessment
-and separate implementer checks under `20261115-designer-current-assessment/assessment.html`.
-CED updates or retires its owned validation-count announcement when the issue set changes,
-preserving queued action feedback and newer unrelated announcements. The live host probes retain
-the public validation report, save permission and accessibility status: both a newly named template
-and a corrected imported default end valid, with no issues and no obsolete count.
+###### Retained Evidence
 
-Designer Preview opts into CEE's default-off `wrapFieldNames` configuration. Complete names and
-their required marker wrap together, while occurrence ranges and property controls remain
-available. This setting is separate from `previewMode`, which hides the CEE identity header;
-Designer retains that header. Real CED–CEE browser tests cover both narrow widths, and ordinary
-read-only embeds keep their existing layout unless they opt in. Minimum and Maximum share a row
-at the intermediate 210-pixel Configuration content width and stack at the 125.5-pixel mobile
-width, with full labels, controls and keyboard order preserved.
+Review packets are kept under `$CEDAR_HOME/.cedar/reports/ui-review/`, outside version control.
+Each directory's `review-result.html` or assessment page records what was reviewed and found.
 
-Workspace cancels obsolete report enrichment on listing changes, page hide and destruction, and
-resumes it after a back/forward-cache return without replacing the listing or selection. A
-transport interruption ends the batch before another starts: WebKit can reject requests before
-`pagehide` arrives. Ordinary HTTP refusals remain item-specific, and real transport errors remain
-observable. The real cross-origin navigation regression reproduced the former access-control
-messages before the guard and passes afterward in all three engines; smoke error filters are unchanged.
-
-Frontend build `923515eff573daced8a14b4862dc64e4a5c627d3a22770a96b1c5539b1a4ad5c` passed all
-component and host checks, all three framework-consumer gates, deployment and served-byte checks.
-CED passed 17,068 unit cases, 25 unchanged pixel baselines and 3,450 browser cases; CEE passed
-4,516 browser/visual cases; Workspace passed 2,340 unit and 2,563 browser cases. The Designer host
-ran 2,232 cases with 12 workers in 2.1 minutes. A permissions-spacing test now waits for the loaded
-permissions table before measuring its sections; no spacing assertions or baselines were relaxed.
-The initial smoke gate refused stale backend binaries after another session's commits. A full
-Java build with tests and an eleven-service redeployment brought the stack current. All four smoke
-tiers then passed against 41 clean sources, digest `e8fadc1f64e46c0e`, in 333.7 seconds, with no
-source changes during the run. The search tier retains its declared coverage gaps.
-
-The fresh independent application review inspected all 51 states and 49 card crops without the
-implementation narrative or earlier findings. Its supplemental ordinary-authoring session verified
-keyboard tab selection, narrow scrolling and hover insertion, and required repeated-field
-save/reload, with no runtime or cleanup errors. No functional defect was reproduced. It proposed
-reducing gaps between wrapped settings-tab rows and keeping the two Property IRI actions together
-when the row wraps. Their measured fit and evidence remain in the sealed assessment. The
-application assessment was sealed before the reviewer received the separate calibration packet.
-Its recorded validation is `DESIGN_REVIEW` for those two proposals,
-with no evidence or calibration blockers. Behavior and composition each detected 3/3 concerns
-with 0/3 false alarms on acceptable controls. The twelve-case synthetic result does not establish
-production recall or general design judgment.
-
-The user-approved follow-up of 16 November is retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261116-layout-refinements/assessment.html`.
-Settings tabs use a 4-pixel row gap, preserving 16-pixel horizontal spacing and 36-pixel targets;
-the five-row group at a 375-pixel viewport is 192 pixels tall instead of 240. The Property IRI
-actions form one wrapping group: at 1024 and 900 pixels both move beneath the full-width value,
-while the narrowest pane wraps within the group and retains both controls and the complete IRI.
-Three narrow pixel baselines were inspected and updated; the wider baselines passed unchanged.
-
-Frontend build `0f81740eba896d63ab817ce55902c0895e5cf08439a785ec172e7636e2d6d09e` uses clean
-CED source `d235192eb4927708f495125b2eb69170203d8a12` and package
-`2b3a540a46dcd7c8a35683302e0c63a1c65a83f6f0a1548c388bba7218d6e2ab`.
-CED passed 17,068 unit cases, 25 pixel checks and 3,450 browser cases; the host passed 638 unit
-and 2,232 browser cases. Unchanged reactor inputs reused their passing checks, including the
-framework consumer evidence. Deployment and served-byte verification passed. A separate
-implementer check inspected 14 served states across six widths, including fresh and ordinary
-editing, with no runtime or cleanup errors. This closes the approved layout changes; it is not
-a new blind review and does not change the earlier sealed assessment or calibration result.
-
-The initial smoke attempt caught a WebKit fixture-navigation race after Designer Back: the test
-requested another listing while Workspace was still connecting. The journey now waits for the
-rendered listing after each Back navigation; no error filter or assertion was relaxed. The
-synchronized journey passed in all three engines. All four smoke tiers then passed against the
-same deployed build and 41 clean sources, digest `984b6a4fef2158d5`, in 337.9 seconds, with no
-source changes during the run. That record covers development tooling commit `4aa45b81`; this
-documentation update follows it. The report retains the failed attempt as well as the passing
-run, and the search tier retains its declared coverage gaps.
-
-The phone-layout follow-up is retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261116-phone-layout-review/` and
-`20261116-phone-layout-final-review/`. The first fresh reviewer found a brief resize transition
-that painted covered editor controls over Preview. Supplemental exploration also confirmed that
-Tab could leave an annotation removal control and its focus ring partly clipped. Both defects
-reproduced in Chromium, Firefox and WebKit before correction; the regression checks now inspect
-the first rendered phone frames and the complete focused control. The initial sealed findings
-and their separate follow-up remain unchanged. The collector waits for the intended pane rather
-than using a transiently visible card to decide whether phone authoring is open.
-
-The corrected reactor build is
-`89cfdd082ea57823aec2ccd744c39168b5b50e9e452a13a3ed4c52fd7c0efdf4`;
-the final packet records its source-content and package hashes. It passed 17,071 CED unit cases,
-25 unchanged pixel checks, 3,465 CED browser cases, 2,232 host browser cases, deployment and
-served-byte verification. All four whole-stack smoke tiers passed in 343.5 seconds. A different
-fresh reviewer inspected all 55 states, 49 card crops and 32 supplemental states without earlier
-findings or implementation details. Its sealed application and supplemental assessments contain
-no findings; both capture and exploration have no runtime or fixture-cleanup errors. The reports
-state the viewport, browser and journey limits explicitly. After sealing, the reviewer correctly
-classified all twelve calibration cases: behavior and composition each detected three concerns
-with no false alarms among three acceptable controls. Validation is `REVIEWED`, with zero
-findings or evidence blockers. This scoped result does not establish exhaustive UX coverage.
-
-The separate Workspace and Metadata Editor review of 16 November is retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261116-workspace-metadata-independent/review-report.html`.
-Two fresh reviewers used application-specific live collectors, without earlier findings or
-implementation source, against current build
-`a05e5fc62ce5e7fa6b7b6a99fd7d1916e1a37e420d38ff9f8740b0e7028b5eb9`.
-Workspace covered 34 states and found a reproducible type-checkbox handler exception while Apply
-continued to work. Its separate layout proposal measured a 206-pixel table viewport at 768 pixels
-with both sidebars open, versus 536 pixels with information collapsed. Metadata Editor retained
-23 captures, including three explicitly excluded legacy-host diagnostics; the modern-host finding
-is a long field label whose full wording cannot be revealed visually at phone width. Fixture
-setup mistakes are documented separately and are not product findings. Both application reports
-were sealed before calibration; each reviewer classified all twelve cases correctly with no false
-alarms. Evidence hashes, unchanged source provenance and fixture cleanup were verified. The
-reports describe their bounded Chromium viewport coverage; this is not a full regression suite.
-
-
-For Metadata Editor reviews, repeated-field coverage names its counts rather than merely saying
-“repeated fields”: zero, one, several, the page boundary, over the boundary and multiple pages
-(currently 0, 1, 2, 5, 6 and 12). Inspect short and long identities at desktop, tablet and phone
-widths, nested occurrences, page changes, reload and resize. Record and inspect each rendered state.
-The earlier two-occurrence review never displayed a paginator and therefore did not test that
-layout. Its sealed result remains evidence of that limited scope, not approval of paginated fields.
-The held-out composition calibration now also includes a matched aligned/misaligned control row;
-its fourteen cases still measure only basic detection and false alarms, not production recall.
-Geometry contracts also compare related controls and identities, not only individual dimensions:
-the previous occurrence test preserved a 56-pixel paginator height without checking whether it
-aligned with its field heading. The regression matrix now checks shared centers, text/control
-collisions and page boundaries; separate density checks preserve consistent control dimensions
-and verify page navigation.
-
-The failed follow-up packets remain under `20261116-workspace-metadata-fixed-review/` and
-`20261116-workspace-metadata-final-review/`. Review evidence is immutable: corrections receive a
-new build and fresh reviewers in `20261116-workspace-metadata-acceptance-review/`. Metadata Editor
-opts into full field names and template descriptions. A generated saved name is reflected in the
-name input while edits made during the save remain dirty. Workspace keeps wrapped breadcrumbs
-above filters, and allows the listing viewport to shrink without pushing paging off the screen.
-CEE remeasures paragraph controls after host width changes; paginated occurrence controls share
-the existing action height, and move beneath a field identity when their rendered contents collide.
-
-The 17 November reactor completed against build
-`0892c384bf63cfa4a393e601ff6d8ed42355fd6ce681dc40f6f6194fa9983a32`, including 4,668 CEE browser
-cases, 3,465 CED browser cases, 2,232 Designer host cases, 2,575 Workspace browser cases, all three
-framework consumer gates, local deployment, served-byte verification and whole-stack smoke.
-The reactor report is `.cedar/build-reports/frontend-runs/20261117T141938Z-71b545ff.json` under
-`$CEDAR_HOME`. CEE's package is
-`47c2eb28a2e29186ccbc673c0916feba3e3e1da6013b605508458abd968fc5b6`.
-
-The consumer gate caught a rendering stall in Angular and React's jsdom tests: a settled field
-without a pager repeatedly removed an absent stacking class from its existing class attribute.
-That generated redundant DOM mutations during view checks. Guarding the removal preserves the
-layout and lets both consumers settle. Two mutation regressions and all three complete consumer
-gates pass. Failure retention also now prioritizes named Playwright traces, screenshots and error
-contexts ahead of temporary scratch recordings, so the size budget does not discard the actual
-failure. A separate picker hierarchy test waits for its requested search response before opening
-the result; the retained trace showed it previously opening an old result during debounce.
-
-The acceptance packet contains fresh independent reviews of 38 Workspace states and 53 Metadata
-Editor states, with all PNGs visually inspected. Reports were sealed before calibration. Fixture
-cleanup was verified by GET 404 and account preferences restored exactly. The deployed build and
-served assets stayed unchanged. During the final review, concurrent edits to
-`cedar-model-typescript-library` made the working tree newer than the deployed build; the packet
-records that drift and does not claim latest-source acceptance.
-Each reviewer detected all seven calibration defects without false alarms among seven controls.
-This confirms the basic calibration result, not exhaustive production defect detection.
-
-That acceptance review was not clean: Workspace's long-path tablet state with both panels open left an
-8-pixel listing viewport; Metadata Editor's repeated-element controls overlap tablet headings,
-and phone nesting truncates the section identity while leaving 107 pixels of input text width.
-Workspace also has two design proposals, for distant phone details and isolated breadcrumb
-separators. Its report explicitly leaves settled pagination and horizontal action-column access
-unverified. The sealed reports remain evidence of that build, not approval of those layouts;
-the responsive follow-up below records the corrections and subsequent reviews.
-
-Two earlier one-off failures remain unexplained: CEE navigation and Firefox read-only settings-tab
-inspection in CED. Focused traced repetitions and subsequent complete suites passed. Retain tracing on a
-recurrence rather than increasing timeouts or weakening the checks.
-
-The responsive follow-up is retained under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261117-responsive-followup-review/` and
-`20261117-responsive-final-review/`. Workspace keeps a usable central listing with both tablet
-panels open and long paths, and keeps paging above the table heading. Breadcrumb separators stay
-with the following complete folder name. On phones, explicitly opening information focuses and
-scrolls to it; closing returns to the selected row. Ordinary selection does not trigger that jump.
-Settled pagination checks inspect actual next/previous row identities, and narrow list views
-exercise horizontal access to row actions and menus.
-
-CEE wraps complete element identities in hosts opting into full names, separates repeated-element
-controls from headings when their rendered contents collide, and uses proportional insets up to a
-400-pixel local component width. The shared inset recipes use container units so heading, content
-and pager alignment resolve against the same width. The matrix covers 0, 1, 2, 5, 6 and 12
-occurrences, nested sections, final pages, resize/reload, and desktop/tablet/phone widths. Two narrow
-pixel baselines were visually inspected; desktop baselines remain unchanged. Corpus regex parity
-uses the production work budget while its deliberate runaway case retains the short timeout.
-Search tests wait for the intended query rather than accepting an earlier debounced response.
-
-The first follow-up's sealed reviewers inspected 52 Workspace and 60 Metadata Editor states and
-found optional layout proposals. Both classified seven calibration defects and seven acceptable
-controls correctly. A separate implementer audit then found a missed Workspace defect in the
-captured tablet screen: the sticky heading painted over paging and intercepted a click at Next's
-center. The isolated before/after probe and `reviewer-audit.json` retain that miss without changing
-the sealed reports. Paging now uses the existing sticky layer, and the regression checks actual
-hit targets while the heading and footer overlap. Scrolling a control into view can remove the
-obstruction, so viewport dimensions and successful auto-scrolling clicks are not sufficient evidence.
-
-New reviewers received neither those findings nor the implementation narrative. Their collectors
-record displayed-position hit targets and readable below-fold images as well as geometry and
-accessibility snapshots. Application reports are sealed before calibration. The held-out packet
-now includes matched covered/unobscured actions, with a real coordinate click and asserted fixture
-behavior: eight defects and eight acceptable controls. This remains a small synthetic detection
-check, not a measure of production recall. Optional design proposals remain explicit and require
-agreement before implementation; they do not authorize redesign or block otherwise accepted fixes.
-
-The passing reactor build is
-`3ff33009fefbc43f11d0e076a5703178adb29482dfe43522fd9fd75d833a79a6`; its complete source-content and
-package identities are retained in the final packet's provenance. CEE's package is
-`547b29acfb69d520562ee1af3316a819f8623ecb58f1b71ba8c9b0b98b19b89b`. Verification includes 2,348
-Workspace unit and 2,608 browser cases, 4,737 CEE browser cases, 3,465 CED browser cases and 2,232
-Designer host browser cases. Unchanged inputs reuse their passing evidence. All three consumer
-gates, deployment, served-byte checks and all four smoke tiers passed; the reactor report is
-`.cedar/build-reports/frontend-runs/20261117T193843Z-3b662798.json`. The final reviewers inspected
-82 Workspace states and 97 Metadata Editor states on separate test accounts. Both found no
-confirmed functional defect; their optional layout proposals and scope limits remain in the reports.
-All registered fixtures were verified absent and exact account preferences restored. Both reviewers
-classified all eight calibration defects and eight acceptable controls correctly. The final verdict
-is `REVIEWED_WITH_DESIGN_PROPOSALS`: no confirmed functional defect, with the proposals preserved
-for agreement. The source identities and served bytes remained unchanged throughout both reviews.
-
-A failed smoke attempt exposed a runner race: REST's initial inventory classified a group created
-by the same invocation's parallel browser tier as an earlier run's leftover. REST now publishes an
-atomic per-attempt signal after its initial inventory and worker checks, across the next fixture
-stamp boundary. The CLI waits for that signal before starting browser work, then retains parallel
-execution. An absent or malformed signal safely waits for REST completion. No fixture exclusion,
-check or deadline was weakened. The correction passed 96 CLI and 56 REST-harness tests and the
-complete live smoke. Its failed evidence and correction are retained in the final packet's
-`runner-correction/`; this confirmed race is separate from the unexplained startup stalls above.
-
-The approved Workspace follow-up keeps the existing List/Grid switch and grid Sort control in one
-wrapping group. Read-only Preview enables CEE's complete field and element names; Try Out keeps
-its existing editing configuration. Phone nesting insets remain unchanged by agreement. The
-regression cases inspect rendered text bounds and control geometry at 1440, 768 and 375 pixels,
-exercise Sort and keyboard return, and confirm Preview remains read-only without writes. The 120
-focused browser cases and the complete Workspace gates (2,348 unit and 2,626 browser cases) pass
-without changing pixel baselines.
-
-The follow-up evidence is under
-`$CEDAR_HOME/.cedar/reports/ui-review/20261117-approved-layout-review/`. Its passing reactor build is
-`04a4ed789e28f5aa8b75d0d85ab9e937479a571f96236d555741ce6531e842dc`, with Workspace source content
-`cbfb90408ed680c6cc211390c37d5806ec803ad9a7d9277ead153a1ba026ec3c`. The component package identities
-are unchanged from the preceding build and are retained in the packet's provenance. The complete
-reactor report is `.cedar/build-reports/frontend-runs/20261117T222817Z-3439947c.json`; deployment,
-served component verification and all four smoke tiers pass. Search smoke retains its explicitly
-declared coverage gaps rather than claiming exhaustive search coverage.
-
-A fresh reviewer, given neither previous findings nor the implementation narrative, inspected 56
-rendered Workspace and Preview states at desktop, tablet and phone widths. The focused Chromium
-review covered ordinary/empty listings, named filter selections, List/Grid/Sort, standalone short
-and long field/element previews, populated nested metadata, scrolling, pointer/keyboard operation,
-and Try Out return. It found no confirmed defects or necessary design changes. All eight owned
-fixtures were independently verified absent and the complete account preferences restored exactly.
-The report was sealed before calibration. Sources, selected packages and served bytes remained
-identical throughout the review. Its scope is explicit: this is focused acceptance of the two
-approved refinements, not a repetition of the preceding entire Workspace/Metadata Editor review.
-The reviewer detected all eight held-out calibration defects with no false alarms among eight
-acceptable controls; this small synthetic check does not establish production recall.
+| Directory | Contents |
+| --- | --- |
+| `20261115-designer-pilot/` | The first Designer review, with `pilot-assessment.html`; `reviewer-audit.json` records a withdrawn pointer finding. |
+| `20261115-rubric-comparison/` | The same screenshot regions reviewed under the original and the revised rubric. |
+| `20261115-designer-integrated-review/` and `20261115-designer-current-review/` | Sealed Designer reviews; each has its assessment in the matching `-assessment/` directory. |
+| `20261116-layout-refinements/` | The approved settings-tab and Property IRI changes. |
+| `20261116-phone-layout-final-review/` | The first `REVIEWED` Designer packet. |
+| `20261116-workspace-metadata-acceptance-review/` | The Workspace and Metadata Editor review that found the tablet listing, repeated-element overlap and phone nesting defects. |
+| `20261117-responsive-final-review/` | Reviews of the responsive corrections, including the open long-path tablet layout proposal and the smoke runner correction under `runner-correction/`. |
+| `20261117-approved-layout-review/` | Focused acceptance of the List/Grid grouping and read-only Preview names. |
+| `20261118-maintained-verified/` | The first capture by the maintained collectors, never reviewed, and collected against an earlier catalog that validation now refuses. |
 
 ##### Investigating intermittent browser timing failures
 

@@ -4313,7 +4313,10 @@ the split tier's lanes run beside one another, each under a root folder of its o
 in those tiers takes one machine-wide authentication lock. The REST tier's two checks of global state
 allow for the others: its leftover checks ignore a stamp later than its own run's, which belongs to
 work that started after it, and it reads the three services' document counts again until they
-agree, at most ten times.
+agree, at most ten times. Browser work starts only once the REST tier publishes an atomic
+signal that its initial inventory and worker checks are done, so that inventory cannot mistake a
+group a browser tier has just created for an earlier run's leftover. An absent or malformed signal
+makes browser work wait for the REST tier to finish.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
 and postflight). Each REST request times out after `CEDAR_REST_REQUEST_TIMEOUT_MS`, 120 seconds by
