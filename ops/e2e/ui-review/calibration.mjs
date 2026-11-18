@@ -1,25 +1,88 @@
 import {hash} from './contract.mjs';
 import {mkdir, writeFile, readFile, access} from 'node:fs/promises';
 import {join} from 'node:path';
+import {randomInt} from 'node:crypto';
 import {chromium} from 'playwright';
-import {compositionCases, captureComposition} from './composition-calibration.mjs';
+import {COMPOSITION_PROBES, captureComposition} from './composition-calibration.mjs';
 import assert from 'node:assert/strict';
 
-// Held-out miniature interfaces, never injected into the product. The review packet does not
-// contain this answer key. These measure basic detection/false alarms, not overall UX expertise.
-const cases = [
-  {id: 'a17', broken: false, category: 'legitimate-disabled-action'},
-  {id: 'b42', broken: true, category: 'inert-panel-control'},
-  {id: 'c09', broken: false, category: 'intentional-responsive-wrap'},
-  {id: 'd63', broken: true, category: 'cancel-commits-change'},
-  {id: 'e28', broken: true, category: 'clipped-primary-action'},
-  {id: 'f51', broken: false, category: 'empty-panel-opens'},
-  {id: 'r37', broken: true, category: 'covered-action-target'},
-  {id: 's82', broken: false, category: 'unobscured-action-target'},
-  ...compositionCases,
+// Held-out miniature interfaces, never injected into the product. Each capture draws its own set:
+// which probes appear, whether each shows a concern or an acceptable control, its wording, its
+// identifier and its position are all random. The answer key is written outside the packet, keyed
+// by the packet's hash. These measure basic detection and false alarms, not overall UX expertise.
+export const BEHAVIOR_PROBES = [
+  {kind: 'panel', broken: ['inert-panel-control'], control: ['empty-panel-opens']},
+  {kind: 'cancel', broken: ['cancel-commits-change'], control: ['cancel-restores-value']},
+  {kind: 'save-enable', broken: ['save-stays-disabled'], control: ['legitimate-disabled-action']},
+  {kind: 'clipping', broken: ['clipped-primary-action', 'clipped-primary-action-narrow'],
+    control: ['ordinary-actions', 'intentional-responsive-wrap']},
+  {kind: 'occlusion', broken: ['covered-action-target'], control: ['unobscured-action-target']},
+];
+export const CASES_PER_FAMILY = 8;
+const MIN_CONCERNS = 2, MAX_CONCERNS = CASES_PER_FAMILY - 2;
+
+// Wording sets. Every probe, in either polarity and every variant, must satisfy its layout and
+// behavior premise in each of them; the browser test renders them all.
+export const THEMES = [
+  {form: 'Template details', name: 'Name', description: 'Description', save: 'Save template', cancel: 'Cancel',
+    overview: 'Overview', empty: 'There are no fields yet.', stored: 'Stored name', original: 'Original',
+    revised: 'Revised', entered: 'Study', prompt: 'Enter a name before saving.',
+    records: 'Records', recordsIntro: 'Browse the study records.', item: 'Observation', column: 'Record name',
+    settings: 'Measurement settings', shortName: 'Elapsed time', longName: 'Estimated total elapsed observation time',
+    facts: 'Decimal · seconds', settingsIntro: 'Set the properties used when recording this measurement.',
+    code: 'Internal code', codeValue: 'elapsed_time', precision: 'Precision', precisionValue: '2 decimal places',
+    enable: 'Enable limits', lower: 'Lower bound', upper: 'Upper bound', rowTitle: 'Measurement', rowNote: 'Recorded observation'},
+  {form: 'Publication record', name: 'Title', description: 'Abstract', save: 'Save record', cancel: 'Cancel',
+    overview: 'Outline', empty: 'No sections have been added.', stored: 'Stored title', original: 'Draft',
+    revised: 'Final', entered: 'Survey', prompt: 'Enter a title before saving.',
+    records: 'Publications', recordsIntro: 'Browse the catalogued publications.', item: 'Article', column: 'Title',
+    settings: 'Page settings', shortName: 'Page count', longName: 'Total number of pages including all appendices',
+    facts: 'Integer · pages', settingsIntro: 'Set the properties used when cataloguing this publication.',
+    code: 'Catalogue key', codeValue: 'page_count', precision: 'Rounding', precisionValue: 'Whole pages',
+    enable: 'Enable range', lower: 'Fewest pages', upper: 'Most pages', rowTitle: 'Chapters', rowNote: 'Catalogued chapter'},
+  {form: 'Instrument profile', name: 'Label', description: 'Notes', save: 'Save profile', cancel: 'Cancel',
+    overview: 'Summary', empty: 'No channels are configured.', stored: 'Stored label', original: 'Bench',
+    revised: 'Field', entered: 'Probe', prompt: 'Enter a label before saving.',
+    records: 'Runs', recordsIntro: 'Browse the recorded instrument runs.', item: 'Run', column: 'Run name',
+    settings: 'Channel settings', shortName: 'Wavelength', longName: 'Peak excitation wavelength of the light source',
+    facts: 'Decimal · nanometres', settingsIntro: 'Set the properties used when recording this channel.',
+    code: 'Channel key', codeValue: 'wavelength', precision: 'Resolution', precisionValue: '0.1 nanometre',
+    enable: 'Enable window', lower: 'Shortest', upper: 'Longest', rowTitle: 'Readings', rowNote: 'Recorded reading'},
 ];
 
-async function captureOcclusion(browser, directory, item) {
+const pick = (list, random) => list[random(list.length)];
+function shuffle(list, random) {
+  for (let i = list.length - 1; i > 0; i--) {const j = random(i + 1); [list[i], list[j]] = [list[j], list[i]];}
+  return list;
+}
+const signature = item => [item.kind, item.broken, item.category, item.theme].join('|');
+
+// Every probe appears at least once per family; the remaining slots repeat probes at random. Each
+// slot's polarity is drawn independently, held between two and six concerns per family, so neither
+// the set of probes nor the count of concerns reveals an answer. No two cases render identically.
+export function drawCases(random = randomInt) {
+  for (;;) {
+    const ids = new Set();
+    const id = () => {
+      let value;
+      do value = pick('abcdefghjkmnpqrstuvwxyz', random) + String(random(100)).padStart(2, '0'); while (ids.has(value));
+      ids.add(value);
+      return value;
+    };
+    const family = (name, probes) => {
+      let polarity;
+      do polarity = Array.from({length: CASES_PER_FAMILY}, () => random(2) === 1);
+      while (polarity.filter(Boolean).length < MIN_CONCERNS || polarity.filter(Boolean).length > MAX_CONCERNS);
+      const slots = [...probes, ...Array.from({length: CASES_PER_FAMILY - probes.length}, () => pick(probes, random))];
+      return slots.map((probe, i) => ({id: id(), family: name, kind: probe.kind, broken: polarity[i],
+        category: pick(probe[polarity[i] ? 'broken' : 'control'], random), theme: random(THEMES.length)}));
+    };
+    const cases = [...family('behavior', BEHAVIOR_PROBES), ...family('composition', COMPOSITION_PROBES)];
+    if (new Set(cases.map(signature)).size === cases.length) return shuffle(cases, random);
+  }
+}
+
+async function captureOcclusion(browser, directory, item, t) {
   const page = await browser.newPage({viewport: {width: 1000, height: 700}});
   try {
     await page.setContent(`<!doctype html><meta charset="utf-8"><style>
@@ -30,8 +93,8 @@ async function captureOcclusion(browser, directory, item) {
       th{position:sticky;top:0;z-index:1;background:white}
       footer{position:sticky;bottom:0;z-index:${item.broken ? 0 : 1};background:white;display:flex;align-items:center;justify-content:space-between;min-height:52px;flex:none}
       button{font:inherit;padding:8px 12px}#status{margin:20px 0}
-      </style><main><div class="intro"><h1>Records</h1><p>Browse the study records.</p></div>
-      <div class="listing"><table><thead><tr><th>Record name</th></tr></thead><tbody>${Array.from({length:8},(_,i)=>`<tr><td>Observation ${i+1}</td></tr>`).join('')}</tbody></table></div>
+      </style><main><div class="intro"><h1>${t.records}</h1><p>${t.recordsIntro}</p></div>
+      <div class="listing"><table><thead><tr><th>${t.column}</th></tr></thead><tbody>${Array.from({length: 8}, (_, i) => `<tr><td>${t.item} ${i + 1}</td></tr>`).join('')}</tbody></table></div>
       <footer><span>Page 1</span><button>Next</button></footer></main><p id="status">Page 1 selected.</p>
       <script>document.querySelector('button').onclick=()=>{document.querySelector('#status').textContent='Page 2 selected.'}</script>`);
     await page.evaluate(() => document.fonts.ready);
@@ -50,73 +113,108 @@ async function captureOcclusion(browser, directory, item) {
     await page.mouse.click(target.x, target.y);
     assert.equal(await page.locator('#status').textContent(), item.broken ? 'Page 1 selected.' : 'Page 2 selected.');
     await page.screenshot({path: join(directory, images[1])});
-    return {id:item.id, images, actions:['Scrolled the record pane, then clicked the center of Next without further scrolling.'],
-      pointerTarget:target, accessibility:await page.locator('body').ariaSnapshot()};
+    return {id: item.id, images, actions: ['Scrolled the record pane, then clicked the center of Next without further scrolling.'],
+      pointerTarget: target, accessibility: await page.locator('body').ariaSnapshot()};
   } finally {await page.close();}
 }
 
-export async function captureCalibration(directory) {
+async function captureForm(browser, directory, item, t) {
+  // setContent does not reset a page's JavaScript global lexical scope. Give every case its own
+  // document so repeated declarations cannot silently disable handlers.
+  const page = await browser.newPage({viewport: {width: 1000, height: 700}});
+  try {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const {kind, broken, category} = item;
+    const panel = kind === 'panel', cancel = kind === 'cancel', enable = kind === 'save-enable';
+    const clipped = category.startsWith('clipped-primary-action');
+    const narrow = category === 'intentional-responsive-wrap' || category === 'clipped-primary-action-narrow';
+    const content = panel
+      ? `<button id="toggle" aria-expanded="false">${t.overview}</button><aside id="panel" hidden>${t.empty}</aside>`
+      : `<div class="row"><label>${t.name}<input id="name" value="${cancel ? t.original : ''}"></label><label>${t.description}<textarea></textarea></label></div><div class="actions"><button id="save" ${enable ? 'disabled' : ''}>${t.save}</button><button id="cancel">${t.cancel}</button></div><p id="status">${cancel ? `${t.stored}: ${t.original}` : t.prompt}</p>`;
+    await page.setContent(`<!doctype html><meta charset="utf-8"><style>body{font:18px system-ui;margin:40px;color:#173e3c}main{border:1px solid #bdcccc;padding:24px;width:${narrow ? '330' : '800'}px}h1{font-size:24px}.row{display:flex;gap:20px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:6px}input,textarea,button{font:inherit;padding:9px}input,textarea{width:280px}.actions{display:flex;gap:12px;margin-top:20px}aside{margin-top:20px;border:1px solid #bdcccc;padding:20px}${clipped ? '#save{width:44px;white-space:nowrap;overflow:hidden}' : ''}</style><main><h1>${t.form}</h1>${content}</main><script>
+      let stored=${JSON.stringify(t.original)};
+      document.querySelector('#toggle')?.addEventListener('click',e=>{e.target.setAttribute('aria-expanded',e.target.getAttribute('aria-expanded')!=='true');${panel && !broken ? "document.querySelector('#panel').hidden=!document.querySelector('#panel').hidden" : ''}});
+      ${enable && broken ? '' : "document.querySelector('#name')?.addEventListener('input',e=>{document.querySelector('#save').disabled=!e.target.value.trim()});"}
+      function save(){stored=document.querySelector('#name').value;document.querySelector('#status').textContent=${JSON.stringify(t.stored + ': ')}+stored}
+      document.querySelector('#save')?.addEventListener('click',save);
+      document.querySelector('#cancel')?.addEventListener('click',()=>{${cancel && broken ? 'save()' : "document.querySelector('#name').value=stored"}});
+      </script>`);
+    await page.evaluate(() => document.fonts.ready);
+    const images = [];
+    const shot = async suffix => {const name = `${item.id}-${suffix}.png`; await page.screenshot({path: join(directory, name)}); images.push(name);};
+    await shot('before');
+    const actions = [];
+    if (panel) {
+      await page.getByRole('button', {name: t.overview, exact: true}).click();
+      actions.push(`Clicked ${t.overview}.`);
+    } else if (cancel) {
+      await page.getByLabel(t.name, {exact: true}).fill(t.revised);
+      await page.getByRole('button', {name: t.cancel, exact: true}).click();
+      actions.push(`Changed ${t.name} from ${t.original} to ${t.revised}, then clicked ${t.cancel}.`);
+    } else if (enable) {
+      await page.getByLabel(t.name, {exact: true}).fill(t.entered);
+      actions.push(`Entered ${t.entered} in the initially empty ${t.name} field.`);
+    } else actions.push('Inspected this ordinary form without editing.');
+    // Prove each fixture's premise before it can score a reviewer.
+    const fail = message => {throw new Error(`Invalid calibration fixture ${category}: ${message}`);};
+    if (errors.length) fail(errors.join('; '));
+    if (panel) {
+      if (await page.locator('#toggle').getAttribute('aria-expanded') !== 'true') fail('toggle handler did not run');
+      if (await page.locator('#panel').isVisible() === broken) fail('panel visibility differs from intent');
+    }
+    if (cancel) {
+      const expected = broken ? t.revised : t.original;
+      if (await page.locator('#status').textContent() !== `${t.stored}: ${expected}`) fail('cancellation outcome differs from intent');
+      if (await page.locator('#name').inputValue() !== expected) fail('name after cancellation differs from intent');
+    }
+    if (enable && await page.locator('#save').isEnabled() === broken) fail('save availability differs from intent');
+    if (kind === 'clipping') {
+      const overflow = await page.locator('button').evaluateAll(buttons => buttons.map(b => b.scrollWidth > b.clientWidth));
+      if (overflow[0] !== clipped || overflow.slice(1).some(Boolean)) fail('button clipping differs from intent');
+      const rows = await page.locator('.row label').evaluateAll(labels => new Set(labels.map(l => Math.round(l.getBoundingClientRect().y))).size);
+      if ((rows > 1) !== narrow) fail('field wrapping differs from intent');
+    }
+    await shot('after');
+    return {id: item.id, images, actions, accessibility: await page.locator('body').ariaSnapshot()};
+  } finally {await page.close();}
+}
+
+export async function captureCase(browser, directory, item) {
+  const theme = THEMES[item.theme];
+  if (item.family === 'composition') return captureComposition(browser, directory, item, theme);
+  if (item.kind === 'occlusion') return captureOcclusion(browser, directory, item, theme);
+  return captureForm(browser, directory, item, theme);
+}
+
+// The answer key lives outside every packet, so a reviewer given the packet directory never holds it.
+export function keyDirectory() {
+  if (process.env.CEDAR_UI_REVIEW_KEYS) return process.env.CEDAR_UI_REVIEW_KEYS;
+  if (!process.env.CEDAR_HOME) throw new Error('CEDAR_HOME is required to locate calibration answer keys');
+  return join(process.env.CEDAR_HOME, '.cedar/ui-review-keys');
+}
+const keyPath = (keys, packet) => join(keys, hash(packet) + '.json');
+
+export async function captureCalibration(directory, {keys = keyDirectory(), cases = drawCases()} = {}) {
   await mkdir(directory, {recursive: false});
   const browser = await chromium.launch();
   const packet = [];
   try {
-    for (const item of cases) {
-      if (['r37', 's82'].includes(item.id)) {
-        packet.push(await captureOcclusion(browser, directory, item));
-        continue;
-      }
-      if (item.family === 'composition') {
-        packet.push(await captureComposition(browser, directory, item));
-        continue;
-      }
-      // setContent does not reset a page's JavaScript global lexical scope. Give every
-      // case its own document so repeated declarations cannot silently disable handlers.
-      const page = await browser.newPage({viewport: {width: 1000, height: 700}});
-      const errors = [];
-      page.on('pageerror', error => errors.push(error.message));
-      const panel = ['b42', 'f51'].includes(item.id);
-      const cancel = item.id === 'd63';
-      const narrow = item.id === 'c09';
-      const clipped = item.id === 'e28';
-      const content = panel
-        ? '<button id="toggle" aria-expanded="false">Overview</button><aside id="panel" hidden>There are no fields yet.</aside>'
-        : `<div class="row"><label>Name<input id="name" value="${cancel ? 'Original' : ''}"></label><label>Description<textarea></textarea></label></div><div class="actions"><button id="save" ${item.id === 'a17' ? 'disabled' : ''}>Save template</button><button id="cancel">Cancel</button></div><p id="status">${cancel ? 'Stored name: Original' : 'Enter a name before saving.'}</p>`;
-      await page.setContent(`<!doctype html><meta charset="utf-8"><style>body{font:18px system-ui;margin:40px;color:#173e3c}main{border:1px solid #bdcccc;padding:24px;width:${narrow ? '330' : '800'}px}h1{font-size:24px}.row{display:flex;gap:20px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:6px}input,textarea,button{font:inherit;padding:9px}input,textarea{width:280px}.actions{display:flex;gap:12px;margin-top:20px}aside{margin-top:20px;border:1px solid #bdcccc;padding:20px}${clipped ? '#save{width:44px;white-space:nowrap;overflow:hidden}' : ''}</style><main><h1>Template details</h1>${content}</main><script>
-      let stored='Original';
-      document.querySelector('#toggle')?.addEventListener('click',e=>{e.target.setAttribute('aria-expanded',e.target.getAttribute('aria-expanded')!=='true');${item.id === 'f51' ? "document.querySelector('#panel').hidden=!document.querySelector('#panel').hidden" : ''}});
-      document.querySelector('#name')?.addEventListener('input',e=>{document.querySelector('#save').disabled=!e.target.value.trim()});
-      function save(){stored=document.querySelector('#name').value;document.querySelector('#status').textContent='Stored name: '+stored}
-      document.querySelector('#save')?.addEventListener('click',save);
-      document.querySelector('#cancel')?.addEventListener('click',()=>{${cancel ? 'save()' : "document.querySelector('#name').value=stored"}});
-      </script>`);
-      const images = [];
-      const shot = async suffix => {const name = `${item.id}-${suffix}.png`; await page.screenshot({path: join(directory, name)}); images.push(name);};
-      await shot('before');
-      const actions = [];
-      if (panel) {await page.getByRole('button', {name: 'Overview', exact: true}).click(); actions.push('Clicked Overview.');}
-      else if (cancel) {await page.getByLabel('Name', {exact: true}).fill('Revised'); await page.getByRole('button', {name: 'Cancel', exact: true}).click(); actions.push('Changed Name from Original to Revised, then clicked Cancel.');}
-      else if (item.id === 'a17') {await page.getByLabel('Name', {exact: true}).fill('Study'); actions.push('Entered Study in the initially empty Name field.');}
-      else actions.push('Inspected this ordinary form without editing.');
-      if (errors.length) throw new Error(`Invalid calibration fixture ${item.id}: ${errors.join('; ')}`);
-      if (panel && await page.locator('#toggle').getAttribute('aria-expanded') !== 'true')
-        throw new Error(`Calibration ${item.id} toggle handler did not run`);
-      if (panel && await page.locator('#panel').isVisible() !== (item.id === 'f51'))
-        throw new Error(`Calibration ${item.id} panel differs from fixture intent`);
-      if (cancel && await page.locator('#status').textContent() !== 'Stored name: Revised')
-        throw new Error(`Calibration ${item.id} cancellation handler did not run`);
-      if (item.id === 'a17' && !await page.locator('#save').isEnabled())
-        throw new Error(`Calibration ${item.id} input handler did not run`);
-      await shot('after');
-      packet.push({id: item.id, images, actions, accessibility: await page.locator('body').ariaSnapshot()});
-      await page.close();
-    }
+    for (const item of cases) packet.push(await captureCase(browser, directory, item));
   } finally {await browser.close();}
-  await writeFile(join(directory, 'packet.json'), JSON.stringify(packet, null, 2));
-  await writeFile(join(directory, '..', 'calibration-key.json'), JSON.stringify(cases, null, 2));
+  const raw = JSON.stringify(packet, null, 2);
+  await writeFile(join(directory, 'packet.json'), raw);
+  await mkdir(keys, {recursive: true});
+  await writeFile(keyPath(keys, raw), JSON.stringify(cases, null, 2), {flag: 'wx'});
 }
 
-export async function scoreCalibration(directory, reviewPath) {
-  const key = JSON.parse(await readFile(join(directory, '..', 'calibration-key.json'), 'utf8'));
+export async function scoreCalibration(directory, reviewPath, {keys = keyDirectory()} = {}) {
+  const raw = await readFile(join(directory, 'packet.json'), 'utf8');
+  const key = JSON.parse(await readFile(keyPath(keys, raw), 'utf8').catch(error => {
+    if (error.code === 'ENOENT') throw new Error('No answer key matches this calibration packet; it was changed or generated elsewhere');
+    throw error;
+  }));
+  assert.deepEqual(JSON.parse(raw).map(c => c.id).sort(), key.map(c => c.id).sort(), 'Calibration key and packet disagree');
   const review = JSON.parse(await readFile(reviewPath, 'utf8'));
   if (!Array.isArray(review.cases) || review.cases.length !== key.length || new Set(review.cases.map(x => x.id)).size !== key.length)
     throw new Error('Calibration needs one assessment per case');

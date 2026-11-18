@@ -3490,19 +3490,25 @@ cedarcli test ui-review --app workspace --output /absolute/path/to/run/workspace
 ```
 
 This writes `review-seal.json`; final validation rejects an application assessment changed after
-sealing. Only then give the reviewer the calibration packet, never `calibration-key.json` or its
-fixture sources. An assessment names every case as `{id, issue, reason}` under `cases`; save it as
+sealing. Only then give the reviewer the calibration packet, never its answer key or fixture
+sources. The key is written outside the packet, under `$CEDAR_HOME/.cedar/ui-review-keys/` and
+named by the hash of `calibration/packet.json`. Validation looks it up there, so a packet that was
+changed after capture, or whose key is missing, cannot be scored. An assessment names every case as `{id, issue, reason}` under `cases`; save it as
 `calibration-review.json` beside the application review. `--review` scores it automatically and
 leaves acceptance incomplete if a case is missed or an acceptable control is flagged. Findings
 from the app remain useful even when the calibration prevents acceptance.
 
-The sixteen miniature interfaces include eight behavior cases and eight composition cases, each family
-balanced between concerns and acceptable controls. Composition cases distinguish a short identity
-that fits from a genuinely long identity that must wrap, detached labels, interrupted control
-groups, and coherent narrow groups. Report composition misses and false alarms separately from
-behavior. The generator verifies the actual font/layout fit premises and row positions, as well as
+Each capture draws its own sixteen miniature interfaces, eight behavior cases and eight composition
+cases. Every probe can render either a concern or an acceptable control. Behavior probes cover an
+overview toggle, cancellation, a save action that enables on input, a clipped action label and a
+covered pointer target. Composition probes cover identities that fit or must wrap, detached labels,
+interrupted and coherent settings groups, and aligned or misaligned row controls. Each family holds
+every probe at least once and between two and six concerns, and each case's polarity, wording set,
+identifier and position are random. Neither the set of probes nor the number of concerns therefore
+reveals an answer, and a reviewer who has seen an earlier packet holds no answers to the next.
+Report composition misses and false alarms separately from behavior. The generator verifies the actual font/layout fit premises and row positions, as well as
 interaction handlers, before exposing the packet. An invalid fixture packet cannot score reviewer
-accuracy. The seal prevents later revisions to the app verdict; compliance with the blind-review
+accuracy. A browser test renders every probe variant in every wording set and checks its premise. The seal prevents later revisions to the app verdict; compliance with the blind-review
 instructions, rather than the seal alone, establishes that answers were not disclosed early.
 One small synthetic run does not establish production recall or general design judgment. The
 fixtures and their styles are never injected into an application.
