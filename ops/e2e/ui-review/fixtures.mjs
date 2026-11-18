@@ -1,11 +1,12 @@
 import {randomUUID} from 'node:crypto';
 import {artifactBody} from '../rest/lib.mjs';
+import {WIDTHS} from './catalog.mjs';
 
 export const longLabel='Specimen collection and environmental observation notes from collaborating research institutions';
 export const propertyIri=key=>'https://example.org/ui-review/'+encodeURIComponent(key);
 export const textValue=value=>({'@value':value});
-export function field(name) {
-  const body=artifactBody('field',name);body['schema:description']='';return body;
+export function field(name,{required=false}={}) {
+  const body=artifactBody('field',name);body['schema:description']='';body._valueConstraints.requiredValue=required;return body;
 }
 export const repeat=items=>({type:'array',minItems:0,items});
 export function container(name,fields,kind='template') {
@@ -27,22 +28,28 @@ export async function metadataFixtures(session) {
   const folder=await session.put('folders',{folderId:session.user.profile.homeFolderId,name,description:'Temporary independent UI review'});
   const measurement=container('Measurement',{Code:field('Code'),[longLabel]:repeat(field(longLabel))},'element');
   const sample=container('Sample',{Name:field('Name'),Measurements:repeat(measurement)},'element');
-  const fields={Subject:field('Subject'),[longLabel]:field(longLabel),Tags:repeat(field('Tags')),['Repeated '+longLabel]:repeat(field('Repeated '+longLabel)),Samples:repeat(sample)};
+  // Subject is required, so a new record saved without it shows the editor's validation warning.
+  const fields={Subject:field('Subject',{required:true}),[longLabel]:field(longLabel),Tags:repeat(field('Tags')),['Repeated '+longLabel]:repeat(field('Repeated '+longLabel)),Samples:repeat(sample)};
   const templateId=await session.put('templates',container(name+' specimen study',fields),folder);
   const emptyTemplateId=await session.put('templates',container(name+' empty form',{}),folder);
   const records={};
   const nested=(values)=>({'@id':'https://example.org/ui-review/'+randomUUID(),'@context':Object.fromEntries(Object.keys(values).map(k=>[k,propertyIri(k)])),...values});
+  const values=(count,tags)=>({Subject:textValue('Specimen 42'),[longLabel]:textValue('Collected during the northern coastal field campaign'),Tags:tags,['Repeated '+longLabel]:structuredClone(tags),
+    Samples:Array.from({length:count},(_,i)=>nested({Name:textValue('Sample '+(i+1)),Measurements:Array.from({length:Math.min(count,2)},(_,j)=>nested({Code:textValue('M'+(j+1)),[longLabel]:tags}))}))});
+  // One record per width for adding, copying and deleting occurrences, so edits at one width never
+  // change what another width shows.
+  const editable={};
+  for(const width of WIDTHS)editable[width]=await session.put('template-instances',instance(name+' editable '+width,templateId,values(1,[textValue('Observation 1')])),folder);
   for(const count of [0,1,2,5,6,12]){
     const tags=Array.from({length:count},(_,i)=>textValue('Observation '+(i+1)+(i%2?' with extended handling conditions and storage provenance':'')));
-    const values={Subject:textValue('Specimen 42'),[longLabel]:textValue('Collected during the northern coastal field campaign'),Tags:tags,['Repeated '+longLabel]:structuredClone(tags),
-      Samples:Array.from({length:count},(_,i)=>nested({Name:textValue('Sample '+(i+1)),Measurements:Array.from({length:Math.min(count,2)},(_,j)=>nested({Code:textValue('M'+(j+1)),[longLabel]:tags}))}))};
-    records[count]=await session.put('template-instances',instance(name+' '+count+' observations',templateId,values),folder);
+    records[count]=await session.put('template-instances',instance(name+' '+count+' observations',templateId,values(count,tags)),folder);
   }
-  return {folder,templateId,emptyTemplateId,records};
+  return {folder,templateId,emptyTemplateId,records,editable};
 }
 export async function workspaceFixtures(session) {
   const folder=(name,parent)=>session.put('folders',{name,folderId:parent,description:'Temporary independent UI review'});
-  const root=await folder('UI review '+randomUUID().slice(0,8),session.user.profile.homeFolderId);
+  const rootName='UI review '+randomUUID().slice(0,8);
+  const root=await folder(rootName,session.user.profile.homeFolderId);
   const parent=await folder('Research programme with a long descriptive name for international longitudinal sample collection',root);
   const listing=await folder('Participant specimens and environmental metadata for collaborating institutions',parent);
   const empty=await folder('Empty collection',root);
@@ -52,5 +59,5 @@ export async function workspaceFixtures(session) {
   const short=await session.put('templates',container('Short form',{Name:field('Name')}),previews);
   const long=await session.put('templates',container('Long form',{[longLabel]:field(longLabel)}),previews);
   const nested=await session.put('templates',container('Nested form',{Samples:repeat(container('Sample',{Name:field('Name'),[longLabel]:repeat(field(longLabel))},'element'))}),previews);
-  return {root,parent,listing,empty,rows,previews,short,long,nested};
+  return {root,rootName,parent,listing,empty,rows,previews,short,long,nested};
 }

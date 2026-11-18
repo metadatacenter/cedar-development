@@ -58,6 +58,8 @@ export async function openBrowserSession(directory, app) {
       if(address.origin===new URL(RESOURCE).origin&&!['GET','HEAD','OPTIONS'].includes(req.method())&&!readOnlyValidation) {
         const item=fixtureAt(req.url());
         if(app==='designer' && item?.collection==='templates' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
+        // A record the Metadata Editor creates from a review-owned template belongs to the review.
+        if(app==='metadata-editor' && item?.collection==='template-instances' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && ledger.fixtures.some(f=>f.collection==='templates'&&f.id===req.postDataJSON()?.['schema:isBasedOn'])) await ledger.register(item.collection,item.id);
         if(!item||!ledger.fixtures.some(f=>f.id===item.id)) {
           runtimeErrors.push('Blocked mutation outside review-owned fixtures: '+req.method()+' '+new URL(req.url()).pathname);
           await flush();await route.abort();return;

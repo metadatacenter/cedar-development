@@ -3381,13 +3381,18 @@ scenario updates in the same change as the relevant workflow update. CI runs the
 tests; it does not automatically launch the local stack or appoint an independent reviewer. The
 capture, fresh review, seal and calibration steps remain explicit.
 
-The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **165 states**:
+The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **234 states**:
 
 | Application | Required states | Coverage |
 | --- | ---: | --- |
 | Designer | 55 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery; desktop, tablet and phone layouts. |
-| Workspace | 59 | Empty/populated list and grid, real next/previous pages, row actions, details open/close, filters, sort, breadcrumbs, reload, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels; both tablet panels and displayed-position paging. |
-| Metadata Editor | 51 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, new records and empty templates at 1440, 768 and 375 pixels. |
+| Workspace | 95 | Empty/populated list and grid, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. |
+| Metadata Editor | 84 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. |
+
+The Workspace search state waits until the review's root folder is searchable through the REST
+search before searching for it in the page, and records whatever the first page of results holds.
+Records the Metadata Editor creates from a review-owned template are registered as review fixtures
+before the write and removed with the rest.
 
 `coverage.json` separates **captured**, **blocked** and **omitted** scenarios. Independent inspection
 remains `null` until a review is supplied; it is then the reviewer's attestation, not inferred from

@@ -20,22 +20,36 @@ export const WIDTHS = [1440, 768, 375];
 const workspace = [
   ['empty-list','empty'], ['empty-grid','empty'], ['populated-list','listing'], ['next-page','pagination'],
   ['previous-page','pagination'], ['row-actions','pointer'], ['details-open','navigation'], ['details-closed','navigation'],
-  ['populated-grid','listing'], ['filters','filters'], ['sort','filters'], ['preview-short','preview'],
-  ['preview-long','preview'], ['preview-nested','preview'], ['preview-tryout','preview'], ['preview-return','preview'],
+  ['panels-details-only','composition'], ['panels-none','composition'], ['panels-navigation-only','composition'],
+  ['populated-grid','listing'], ['new-menu','creation'], ['new-folder-dialog','creation'],
+  ['type-menu','filters'], ['filters','filters'], ['date-menu','filters'], ['date-filtered','filters'], ['sort','filters'],
   ['keyboard','keyboard'], ['reloaded','navigation'], ['breadcrumb-return','navigation'],
+  ['template-details','navigation'], ['search','search'], ['home','navigation'],
+  ['preview-short','preview'], ['preview-long','preview'], ['preview-nested','preview'], ['preview-tryout','preview'], ['preview-return','preview'],
+];
+// States collected at one width only, where an earlier review found the width mattered.
+const workspaceOnce = [
+  {id:'new-folder-dialog-keyboard-375',scenario:'new-folder-dialog-keyboard',category:'keyboard',width:375},
+  {id:'new-folder-dialog-escaped-375',scenario:'new-folder-dialog-escaped',category:'keyboard',width:375},
+  {id:'type-instance-checked-375',scenario:'type-instance-checked',category:'pointer',width:375},
+  {id:'both-panels-768',scenario:'both-panels',category:'composition',width:768},
+  {id:'paging-overlap-768',scenario:'paging-overlap',category:'pointer',width:768},
 ];
 const metadata = [
   ...[0,1,2,5,6,12].map(n=>['occurrences-'+n,'occurrences']), ['last-page','pagination'], ['previous-page','pagination'],
   ['long-labels','composition'], ['nested','nesting'], ['nested-end','nesting'], ['keyboard','keyboard'],
-  ['edited','editing'], ['saved','save'], ['reopened','save'], ['new-record','empty'], ['empty-template','empty'],
+  ['edited','editing'], ['saved','save'], ['reopened','save'],
+  ['occurrence-added','occurrences'], ['occurrence-copied','occurrences'], ['occurrence-deleted','occurrences'],
+  ['collapsed-all','navigation'], ['download-menu','navigation'], ['readonly-top','preview'], ['readonly-repeated','preview'],
+  ['new-record','empty'], ['save-warning','validation'], ['warning-expanded','validation'], ['warning-jump','validation'],
+  ['empty-name-saved','save'], ['empty-template','empty'],
 ];
 export function scenarios(app) {
   if (!APPS.includes(app)) throw new Error('Unknown UI review application: '+app);
   if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}));
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
-    .concat(app === 'workspace' ? [{id:'both-panels-768',scenario:'both-panels',category:'composition',width:768},
-      {id:'paging-overlap-768',scenario:'paging-overlap',category:'pointer',width:768}] : []);
+    .concat(app === 'workspace' ? workspaceOnce : []);
 }
 export const requiredStates = app => scenarios(app).map(s=>s.id);
 // Page regions whose geometry each capture records. Every selector must match in at least one
