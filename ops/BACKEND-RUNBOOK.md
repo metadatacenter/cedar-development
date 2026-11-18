@@ -1183,6 +1183,14 @@ When the dead-letter transfer itself cannot reach Redis, the message remains in 
 whenever Redis retained the earlier claim and is recovered on the next consumer initialization. The
 worker logs the failed transfer; inspect both `-processing` and `-dead-letter` after restoring Redis.
 
+A search hit whose resource the graph no longer holds is removed from the index when a search meets
+it, and an offset page that held any is asked for again, up to twice, so it fills and its total
+counts what exists. Such documents came from the worker's permission projection, which used to
+write a resource's document back when a delete ran between its graph read and its write; it now
+reads the graph again after rebuilding a document and removes it if the resource is gone. An index
+that collected these documents before that change still holds them until a search meets them, so
+rebuild it once after deploying the change.
+
 Rebuilding the index from the graph fixes permission drift whatever its cause, since the graph is the
 source of truth. It reads the resources from the folder server, indexes them into a new index, then
 points the `cedar-search` alias at it and deletes the old one:
