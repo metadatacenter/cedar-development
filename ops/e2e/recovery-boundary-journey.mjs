@@ -118,6 +118,9 @@ export async function tabIsolationJourney(args) {
           const grant=await mutate(args.user.auth,'PUT',path+'/permissions',{owner:{'@id':args.user.profile['@id']},userPermissions:[{user:{'@id':user2.profile['@id']},role:'viewer'}],groupPermissions:[]});assert.equal(grant.status,200,grant.text);
         }
         await other.goto(f.url);
+        // The load event fires before the host has signed this account in, and WebKit cancels a reload
+        // that meets the sign-in redirect. The host shows a loaded status only once that has finished.
+        await other.locator(f.metadata?'.metadata-toolbar [role=status]':'#state').filter({hasText:LOADED}).waitFor();
         // Model an account switch in a tab whose browser storage still contains the prior account's keys.
         await other.evaluate(entries=>{for(const [key,value] of entries)sessionStorage.setItem(key,value);},retained);
         await other.reload();
