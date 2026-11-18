@@ -3610,6 +3610,9 @@ In the Designer:
   fully into view, and the table keeps its ordinary horizontal scrolling.
 - The Designer updates or retires its own validation-count announcement when the issue set changes,
   preserving queued action feedback and newer unrelated announcements.
+- On a device that cannot hover, the actions between two cards show above the selected card, and
+  tapping a card selects it. Escape dismisses them, and selecting another card ends the dismissal. A
+  mouse, or keyboard focus, reveals them as before.
 
 In Workspace:
 
@@ -3639,6 +3642,12 @@ In the Metadata Editor and CEE:
   container units, so heading, content and pager align against the same width. Phone nesting insets
   are unchanged by agreement.
 - CEE remeasures paragraph controls after host width changes.
+- A link an author writes in rich text takes the primary colour rather than the browser's, and keeps
+  its underline. A colour the author set on the link still wins.
+
+In every application, text is sized in pixels by agreement. A larger browser default text size
+therefore leaves it unchanged, while browser zoom enlarges it; the text-size states record that
+behavior rather than a defect.
 
 ###### Retained Evidence
 

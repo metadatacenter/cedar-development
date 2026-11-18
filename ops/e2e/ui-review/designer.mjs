@@ -143,10 +143,11 @@ export async function collectDesigner(session, record) {
     await record('nested', async () => {
       const insert = page.getByRole('button', {name: 'Add element here', exact: true}).last();
       await insert.scrollIntoViewIfNeeded();
-      // A touch device cannot hover: tap the gap instead, as a phone user would.
-      const gap = insert.locator('..').locator('..');
-      if (session.touch) await action('Reveal insertion actions by tapping their gap', () => gap.tap());
-      else await action('Reveal insertion actions by hovering their gap', () => gap.hover());
+      // A touch device cannot hover. There the actions show above the selected card, so a phone user
+      // taps the card below the gap.
+      if (session.touch) await action('Reveal insertion actions by selecting the card below them',
+        () => page.getByRole('group', {name: 'Age', exact: true}).tap({position: {x: 4, y: 4}}));
+      else await action('Reveal insertion actions by hovering their gap', () => insert.locator('..').locator('..').hover());
       try {await action('Insert element using pointer', () => pointer(session, insert, {scroll: false}));}
       catch {
         await capture('nested-pointer-attempt', 'Pointer activation did not complete; keyboard activation follows.');

@@ -81,6 +81,6 @@ export async function textSizeStates(session,record,show) {
     await record(`text-200-${width}`,async()=>{
       await session.setDefaultFontSize(32);await show();await session.setDefaultFontSize(32);
       await session.page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-    },'The browser default text size is 32 pixels, twice the usual 16.');
+    },'The browser default text size is 32 pixels, twice the usual 16. CEDAR sizes its text in pixels by agreement, so text that keeps its size is expected; judge the layout around it.');
   }
 }
