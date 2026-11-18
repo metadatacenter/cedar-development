@@ -9,6 +9,7 @@ import { plan } from './matrix.mjs';
 import { journeyScenarios } from './queries.mjs';
 import { awaitCorpus, recorder, runRest, restCheckIds, completion } from './suite.mjs';
 import { checkpointWriter, timedPhase } from './execution.mjs';
+import { deletedFixturesStayUnsearchable } from './assertions.mjs';
 import { workerCount } from '../scheduler.mjs';
 
 export async function runLive({ isolated = false, tier = 'rest', reportPath, workers = 4 }) {
@@ -105,6 +106,11 @@ export async function runLive({ isolated = false, tier = 'rest', reportPath, wor
     cleaning = true;
     try { if (fixtures) report.cleanupErrors = await timedPhase(report, 'cleanup', () => fixtures.cleanup()); }
     catch (error) { report.cleanupErrors.push({ message: error.message }); }
+    // Only a complete cleanup can be held to leaving nothing searchable behind.
+    if (fixtures && !report.cleanupErrors.length) {
+      try { report.cleanupErrors.push(...await timedPhase(report, 'residue', () => deletedFixturesStayUnsearchable(fixtures.request, runToken))); }
+      catch (error) { report.cleanupErrors.push({ message: `Residue check: ${error.message}` }); }
+    }
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
     const expected = [...(tier !== 'journey' ? restCheckIds : []),

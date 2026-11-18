@@ -97,7 +97,12 @@ export async function walkSearch(request, test, scope, expectedIds, { continuati
       if (!token) break;
       assert.ok(!seenTokens.has(token), 'Continuation repeated without advancing');
       seenTokens.add(token);
-    } else if (response.body.resources.length < pageSize) break;
+    } else {
+      // An index entry dropped after paging leaves a page short of its limit before the end.
+      assert.equal(response.body.resources.length, Math.min(pageSize, Math.max(0, expectedIds.length - page * pageSize)),
+        'An offset page came back short before the end of the results');
+      if (response.body.resources.length < pageSize) break;
+    }
     assert.ok(page < Math.ceil(expectedIds.length / pageSize) + 1, 'Search walk did not terminate');
   }
   exactResults({ status: 200, body: { resources: rows, totalCount: expectedIds.length } }, expectedIds);
@@ -106,4 +111,25 @@ export async function walkSearch(request, test, scope, expectedIds, { continuati
   for (let i = 1; i < rows.length; i++) if (names[i] === names[i - 1])
     assert.ok(rows[i - 1]['@id'] < rows[i]['@id'], 'Equal names must use the identifier tie-breaker');
   return rows;
+}
+
+// A deleted fixture must stay unsearchable. The worker's permission projection once rebuilt the
+// document of a resource deleted while it ran, so the document came back after an empty first read:
+// read twice, apart, for each actor.
+export async function deletedFixturesStayUnsearchable(request, scope, { settleMs = 3000,
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  assert.match(scope, /^SearchCorpus[0-9a-f]+$/, 'Scope must be one safe, unique token');
+  const path = `/search?${new URLSearchParams({ q: scope, resource_types: 'folder,template,element,field,instance',
+    version: 'all', publication_status: 'all', limit: '100' })}`;
+  const failures = [];
+  for (const pass of [1, 2]) {
+    await sleep(settleMs);
+    for (const actor of ['owner', 'reader']) {
+      const reply = await request(actor, 'GET', path);
+      if (reply.status !== 200 || reply.body?.totalCount !== 0 || reply.body?.resources?.length)
+        failures.push({ message: `Deleted fixtures remain searchable for the ${actor} on read ${pass}: `
+          + `status ${reply.status}, total ${reply.body?.totalCount}, ${reply.body?.resources?.length ?? 0} shown` });
+    }
+  }
+  return failures;
 }
