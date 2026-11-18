@@ -1,269 +1,139 @@
-import {readFile, writeFile, readdir} from 'node:fs/promises';
-import {join, resolve} from 'node:path';
+import {readFile,writeFile,readdir,mkdir,lstat} from 'node:fs/promises';
+import {join,resolve,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
-import {STATES, hash, validateReview, verdict, acceptanceBlockers} from './contract.mjs';
+import {hash,validateReview,verdict,acceptanceBlockers} from './contract.mjs';
+import {APPS,requiredStates,scenarios,coverageFor} from './catalog.mjs';
+import {reviewerBrief,reportHtml} from './report.mjs';
 
-const option = key => process.argv.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3);
-const output = option('output') && resolve(option('output'));
-if (process.argv.includes('--plan')) {
-  console.log(JSON.stringify({app: 'designer', states: STATES, workflow: 'capture → fresh independent reviewer → validate review',
-    scope: 'Local real host and components; temporary template writes are removed. No product code or baseline changes.',
-    review: 'Inspect images and interaction evidence; explore further using session.mjs. Missing coverage never passes.'}, null, 2));
-} else if (process.argv.includes('--seal-review')) {
-  if (!output) throw new Error('--output is required');
-  const {sealReview} = await import('./calibration.mjs');
-  console.log(JSON.stringify(await sealReview(output)));
-} else if (option('review')) {
-  const text = await readFile(join(output, 'capture.json'), 'utf8');
-  const capture = {...JSON.parse(text), captureSha256: hash(text)};
-  const review = JSON.parse(await readFile(resolve(option('review')), 'utf8'));
-  const available = new Set(Object.keys(capture.files));
-  const errors = validateReview(capture, review, available);
-  for (const [file, digest] of Object.entries(capture.files)) {
-    try {if (hash(await readFile(join(output, file))) !== digest) errors.push(`Evidence changed after capture: ${file}`);}
-    catch {errors.push(`Evidence missing after capture: ${file}`);}
-  }
+export function selectApps(app='designer') {
+  if(app==='all')return [...APPS];
+  if(!APPS.includes(app))throw new Error('Unknown UI review application: '+app);
+  return [app];
+}
+export function evidencePath(directory,file) {
+  if(typeof file!=='string'||isAbsolute(file)||file.includes('\\')||file.split('/').some(p=>p==='..'||p==='.'||!p))throw new Error('Unsafe evidence path: '+file);
+  return join(directory,file);
+}
+export async function verifyFiles(directory,files) {
+  const errors=[];
+  for(const [file,digest] of Object.entries(files??{}))try {
+    const path=evidencePath(directory,file);
+    // Capture evidence is flat. Disallow directories/symlinks that could escape the packet.
+    if(file.includes('/')||!(await lstat(path)).isFile())throw new Error('Evidence must be a regular capture file');
+    if(hash(await readFile(path))!==digest)errors.push('Evidence changed after capture: '+file);
+  }catch(error){errors.push('Evidence unavailable: '+file+' ('+error.message+')');}
+  return errors;
+}
+async function writeJson(path,value){await writeFile(path,JSON.stringify(value,null,2)+'\n');}
+async function validate(directory,app,reviewPath) {
+  const raw=await readFile(join(directory,'capture.json'),'utf8');
+  const capture={...JSON.parse(raw),captureSha256:hash(raw)};
+  const review=JSON.parse(await readFile(reviewPath,'utf8'));
+  const errors=validateReview(capture,review,new Set(Object.keys(capture.files??{})));
+  if((capture.app??'designer')!==app)errors.push('Capture belongs to a different application');
+  errors.push(...await verifyFiles(directory,capture.files));
   let calibration;
   try {
-    const {scoreCalibration, verifyReviewSeal} = await import('./calibration.mjs');
-    await verifyReviewSeal(output, resolve(option('review')));
-    calibration = await scoreCalibration(join(output, 'calibration'), join(output, 'calibration-review.json'));
-    if (calibration.detected !== calibration.defects || calibration.falseAlarms)
-      errors.push('Reviewer did not distinguish all concealed calibration defects from acceptable controls');
-  } catch (error) {errors.push('Calibration incomplete: ' + error.message);}
-  const result = {verdict: verdict(capture, review, errors), validationErrors: errors,
-    acceptanceBlockers: acceptanceBlockers(capture, errors),
-    captureSha256: capture.captureSha256, calibration, review, scope: 'A reviewed pilot, not release certification or proof of complete UX coverage.'};
-  await writeFile(join(output, 'review-result.json'), JSON.stringify(result, null, 2));
-  await writeFile(join(output, 'review-result.html'), reportHtml(capture, result));
-  console.log(`${result.verdict}: ${review?.findings?.length ?? 0} findings; ${join(output, 'review-result.html')}`);
-  if (result.acceptanceBlockers.length) console.error(result.acceptanceBlockers.join('\n'));
-  process.exitCode = result.verdict === 'INCOMPLETE' ? 2 : result.verdict === 'REVIEWED' ? 0 : 1;
-} else if (process.argv.includes('--capture')) {
-  if (!output) throw new Error('--output is required');
-  await collect(output);
-} else throw new Error('Choose --plan, --capture --output=DIR, or --review=JSON --output=DIR');
-
-async function collect(directory) {
-  const provenance = JSON.parse(await readFile(join(directory, 'provenance.json'), 'utf8'));
-  const {openSession} = await import('./session.mjs');
-  const session = await openSession(directory);
-  const {page, action, capture} = session;
-  const incomplete = [];
-  let served = null, servedVerified = false;
-  const record = async (id, operation, note = '') => {
-    try {if (operation) await action(id, operation); await capture(id, note);}
-    catch (error) {
-      incomplete.push({state: id, error: error.message});
-      console.error(`INCOMPLETE ${id}: ${error.message.split('\n')[0]}`);
-      await capture(`${id}-unreached`, 'The requested interaction did not complete.').catch(() => {});
-    }
-  };
-  const card = () => page.locator('app-field-card').first();
-  const toggle = name => page.locator(`.${name}-toggle`).click();
-  const settings = async tab => {
-    const expand = card().getByRole('button', {name: 'Expand field settings', exact: true});
-    if (await expand.isVisible()) await expand.click();
-    await card().getByRole('tab', {name: tab, exact: true}).click();
+    const {scoreCalibration,verifyReviewSeal}=await import('./calibration.mjs');
+    await verifyReviewSeal(directory,reviewPath);
+    calibration=await scoreCalibration(join(directory,'calibration'),join(directory,'calibration-review.json'));
+    if(calibration.detected!==calibration.defects||calibration.falseAlarms)errors.push('Reviewer did not distinguish all concealed calibration defects from acceptable controls');
+  }catch(error){errors.push('Calibration incomplete: '+error.message);}
+  const result={app,verdict:verdict(capture,review,errors),validationErrors:errors,acceptanceBlockers:acceptanceBlockers(capture,errors),
+    captureSha256:capture.captureSha256,calibration,review,scope:'Independent review of the recorded scenarios; not exhaustive UX or release certification.'};
+  await writeJson(join(directory,'review-result.json'),result);
+  await writeJson(join(directory,'coverage.json'),coverageFor(capture,review));
+  await writeFile(join(directory,'review-result.html'),reportHtml(capture,result));
+  console.log(`${app}: ${result.verdict}; ${join(directory,'review-result.html')}`);
+  return result.verdict==='INCOMPLETE'?2:result.verdict==='REVIEWED'?0:1;
+}
+async function collectorIdentity(){
+  const collectorSources={};
+  const codeDir=fileURLToPath(new URL('.',import.meta.url));
+  for(const file of (await readdir(codeDir)).filter(f=>f.endsWith('.mjs')&&!f.endsWith('.test.mjs')&&!f.includes('calibration')))
+    collectorSources[file]=hash(await readFile(join(codeDir,file)));
+  return collectorSources;
+}
+async function collect(directory,app) {
+  const collectorBefore=await collectorIdentity();
+  const started=Date.now(),provenance=JSON.parse(await readFile(join(directory,'provenance.json'),'utf8'));
+  let session,served=null,servedVerified=false;
+  const incomplete=[];
+  const record=async(id,operation,note='')=>{
+    try{if(operation)await session.action(id,operation);await session.capture(id,note);}
+    catch(error){incomplete.push({state:id,error:error.message});console.error(`INCOMPLETE ${app}/${id}: ${error.message.split('\n')[0]}`);await session.capture(id+'-unreached','Requested interaction did not complete.').catch(()=>{});throw error;}
   };
   try {
-    served = await session.servedEvidence();
-    execFileSync(process.env.CEDAR_HOME + '/cedar-cli/.venv/bin/python',
-      [process.env.CEDAR_HOME + '/cedar-development/ops/frontend_reactor_runtime.py', 'verify', process.env.CEDAR_HOME,
-        process.env.CEDAR_HOME + '/cedar-template-designer'], {stdio: 'pipe'});
-    servedVerified = true;
-    await session.openNew();
-    await record('empty');
-    await record('empty-panel-a', () => toggle('overview'));
-    await record('empty-panel-b', () => toggle('overview'));
-    await page.getByPlaceholder('Template name', {exact: true}).fill('UI review pilot ' + Date.now());
-    await session.addField('Text', 'Sample');
-    await record('single');
-    await record('single-panel-a', () => toggle('overview'));
-    await record('single-panel-b', () => toggle('overview'));
-    const preview = () => page.locator('cedar-embeddable-designer .app-header__actions > .panel-toggle').click();
-    const waitForPreview = () => page.locator('.preview-panel').getByRole('heading', {level: 1}).first().waitFor({state: 'visible'});
-    const phone = () => page.locator('cedar-embeddable-designer').evaluate(host => host.getBoundingClientRect().width < 600);
-    const setPreview = async shown => {
-      const button = page.locator('cedar-embeddable-designer .app-header__actions > .panel-toggle');
-      if ((await button.getAttribute('aria-expanded')) !== String(shown))
-        await action(shown ? 'Open Preview' : 'Close Preview to return to editing', preview);
-      if (shown) await waitForPreview();
-      await page.locator('.designer-scroll').waitFor({state: shown && await phone() ? 'hidden' : 'visible'});
-    };
-    const showEditor = async () => {if (await phone()) await setPreview(false);};
-    await record('single-preview-a', async () => {await preview(); await waitForPreview();});
-    await record('single-preview-b', preview);
-    for (const tab of ['Configuration', 'Presentation', 'Constraints', 'Annotations', 'Metadata', 'Version'])
-      await record(tab.toLowerCase(), () => settings(tab));
-    await settings('Configuration');
-    await record('collapsed', () => card().getByRole('button', {name: 'Collapse field settings', exact: true}).click());
-    await record('expanded', () => card().getByRole('button', {name: 'Expand field settings', exact: true}).click());
-    await record('multiple', () => card().getByLabel('Allow multiple', {exact: true}).check());
-    await record('long-name', () => card().getByRole('textbox', {name: 'Enter field name', exact: true})
-      .fill('Participant preferred contact information and follow-up availability'));
-    for (const width of [1440, 1100, 900, 768, 375])
-      await record(`width-${width}`, () => page.setViewportSize({width, height: 1000}));
-    await action('Prepare short-name layout with both panels', async () => {
-      await page.setViewportSize({width: 1440, height: 1000});
-      await card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Sample');
-      await card().getByLabel('Allow multiple', {exact: true}).uncheck();
-      await preview(); await waitForPreview();
-    });
-    for (const width of [1440, 1100, 1024, 900, 768, 375]) {
-      await record(width === 375 ? 'phone-preview-375' : `both-panels-${width}`, async () => {
-        await page.setViewportSize({width, height: 1000});
-        await setPreview(true);
-      });
-      if (width === 375) {
-        await record('phone-editor-375', () => setPreview(false));
-        await record('phone-preview-short', async () => {
-          await page.setViewportSize({width, height: 667});
-          await setPreview(true);
-        });
-        await record('phone-editor-short', () => setPreview(false));
-      }
-    }
-    for (const width of [768, 375])
-      await record(`configuration-end-${width}`, async () => {
-        await page.setViewportSize({width, height: 1000});
-        await setPreview(width >= 600);
-        await card().locator('app-property-picker').scrollIntoViewIfNeeded();
-      }, 'Explicitly scrolled to inspect the end of Configuration.');
-    await action('Enable multiple values', () => card().getByLabel('Allow multiple', {exact: true}).check());
-    for (const width of [1100, 768, 375]) {
-      await record(width === 375 ? 'phone-preview-multiple-375' : `both-panels-multiple-${width}`, async () => {
-        await page.setViewportSize({width, height: 1000});
-        await showEditor();
-        await card().getByRole('textbox', {name: 'Enter field name', exact: true}).scrollIntoViewIfNeeded();
-        await setPreview(true);
-      });
-      if (width === 375) await record('phone-editor-multiple-375', () => setPreview(false));
-    }
-    await action('Prepare a required repeating field', async () => {
-      await card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Participant identifier');
-      await card().getByLabel('Requirement', {exact: true}).selectOption('required');
-      await card().getByLabel('Minimum', {exact: true}).fill('1');
-      await card().getByLabel('Maximum', {exact: true}).fill('3');
-    });
-    for (const width of [1100, 768, 375]) {
-      await record(`required-preview-${width}`, async () => {
-        await page.setViewportSize({width, height: 1000});
-        await showEditor();
-        await card().getByRole('textbox', {name: 'Enter field name', exact: true}).scrollIntoViewIfNeeded();
-        await setPreview(true);
-      });
-      await record(`required-configuration-${width}`, async () => {
-        await showEditor();
-        await card().locator('app-property-picker').scrollIntoViewIfNeeded();
-      });
-    }
-    await action('Inspect a shorter required name', () => card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Participant code'));
-    for (const width of [1440, 768]) await record(`required-overview-${width}`, async () => {
-      await page.setViewportSize({width, height: 1000});
-      await setPreview(true);
-      await card().getByRole('textbox', {name: 'Enter field name', exact: true}).scrollIntoViewIfNeeded();
-    });
-    await action('Return to desktop editing before save', async () => {
-      await page.setViewportSize({width: 1440, height: 1000});
-      await card().getByLabel('Allow multiple', {exact: true}).uncheck();
-      await setPreview(false);
-    });
-    await record('saved', async () => {
-      await page.locator('#save').click();
-      await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Saved');
-    });
-    await record('reopened', async () => {await page.reload(); await session.ready();});
-    const interruptWrite = route => route.request().method() === 'PUT' ? route.abort('failed') : route.fallback();
-    await record('save-unconfirmed', async () => {
-      await action('Deliberately interrupt the next temporary-template save', async () => {
-        await page.route('**/templates/**', interruptWrite);
-        await card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Sample revised');
-        await page.locator('#save').click();
-        await page.locator('#check-save').waitFor({state: 'visible'});
-      });
-    }, 'The harness aborted this save request to exercise uncertain-save recovery; this is not a spontaneous transport failure.');
-    await record('save-status-checked', async () => {
-      await page.unroute('**/templates/**', interruptWrite);
-      await page.locator('#check-save').click();
-      await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Modified');
-    });
-    await record('last-field-removed', () => card().getByTitle('Delete field', {exact: true}).click());
-    await record('removed-panel-a', () => toggle('overview'));
-    await record('removed-panel-b', () => toggle('overview'));
-    await session.addField('Text', 'Participant');
-    await session.addField('Number', 'Age');
-    await record('nested', async () => {
-      const insert = page.getByRole('button', {name: 'Add element here', exact: true}).last();
-      await insert.scrollIntoViewIfNeeded();
-      await action('Reveal insertion actions by hovering their gap', () => insert.locator('..').locator('..').hover());
-      try {await action('Insert element using pointer', () => insert.click({timeout: 3000}));}
-      catch {
-        await capture('nested-pointer-attempt', 'Pointer activation did not complete; keyboard activation follows.');
-        await action('Insert element using keyboard', async () => {await insert.focus(); await insert.press('Enter');});
-      }
-      await page.getByPlaceholder('Enter element name', {exact: true}).last().fill('Visit');
-      const container = page.locator('app-container-editor').last();
-      await container.getByRole('button', {name: /^Add field$/}).last().click();
-      await page.locator('app-field-type-picker').getByRole('button', {name: 'Text', exact: true}).click();
-      await page.locator('input[aria-label="Enter field name"]:focus').fill('Visit notes');
-    });
-    await record('keyboard', async () => {
-      await page.locator('.overview-toggle').focus();
-      for (let i = 0; i < 14; i++) {
-        await page.keyboard.press('Tab');
-        const focused = await page.evaluate(() => {
-          let node = document.activeElement;
-          while (node?.shadowRoot?.activeElement) node = node.shadowRoot.activeElement;
-          return {tag: node?.tagName, label: node?.getAttribute('aria-label') || node?.getAttribute('title') || node?.textContent?.trim().slice(0, 100)};
-        });
-        session.actions.push({label: 'Keyboard Tab', focused});
-      }
-    });
-  } catch (error) {incomplete.push({state: 'session', error: error.message});}
+    const opener=app==='designer'?(await import('./session.mjs')).openSession:(await import('./browser-session.mjs')).openBrowserSession;
+    session=await opener(directory,app);
+    served=await session.servedEvidence();
+    execFileSync(process.env.CEDAR_HOME+'/cedar-cli/.venv/bin/python',
+      [process.env.CEDAR_HOME+'/cedar-development/ops/frontend_reactor_runtime.py','verify',process.env.CEDAR_HOME,
+       process.env.CEDAR_HOME+(app==='designer'?'/cedar-template-designer':'/cedar-workspace')],{stdio:'pipe'});
+    servedVerified=true;
+    const collector=app==='designer'?(await import('./designer.mjs')).collectDesigner:app==='workspace'?(await import('./workspace.mjs')).collectWorkspace:(await import('./metadata-editor.mjs')).collectMetadataEditor;
+    await collector(session,record);
+  }catch(error){incomplete.push({state:'session',error:error.message});console.error(`${app}: ${error.message}`);}
   finally {
-    try {
-      const end = await session.servedEvidence();
-      if (JSON.stringify(end.verified) !== JSON.stringify(served?.verified))
-        incomplete.push({state: 'runtime', error: 'Served assets changed during capture'});
-    } catch (error) {incomplete.push({state: 'runtime', error: error.message});}
-    await session.close();
+    if(session){
+      try{const end=await session.servedEvidence();if(JSON.stringify(end.verified)!==JSON.stringify(served?.verified))throw new Error('Served assets changed during capture');}
+      catch(error){incomplete.push({state:'runtime',error:error.message});}
+      await session.close();
+    }
   }
-  for (const id of STATES) if (!session.states.some(state => state.id === id) && !incomplete.some(x => x.state === id))
-    incomplete.push({state: id, error: 'Not reached'});
-  const runtimeNow = JSON.parse(await readFile(join(process.env.CEDAR_HOME, '.reactor/runtime.json'), 'utf8'));
-  if (runtimeNow.build !== provenance.build) incomplete.push({state: 'runtime', error: 'Selected build changed during capture'});
-  const fresh = JSON.parse(execFileSync(process.env.CEDAR_HOME + '/cedar-cli/.venv/bin/python', ['-c',
-    'import json,sys; from pathlib import Path; from org.metadatacenter.reactor_evidence import source_identity; h=Path(sys.argv[1]); p=json.loads(Path(sys.argv[2]).read_text()); print(json.dumps([n for n,v in p["sources"].items() if source_identity(h/n)!=v["recorded"]]))',
-    process.env.CEDAR_HOME, join(directory, 'provenance.json')], {cwd: join(process.env.CEDAR_HOME, 'cedar-cli'), encoding: 'utf8'}));
-  provenance.staleAfterCapture = fresh;
-  provenance.current = provenance.current && fresh.length === 0;
-  const files = {};
-  for (const file of (await readdir(directory)).filter(file => /\.(png|json|yml)$/.test(file)))
-    files[file] = hash(await readFile(join(directory, file)));
-  const result = {schemaVersion: 1, provenance, served, servedVerified, states: session.states,
-    incomplete, cleanupErrors: session.cleanupErrors, runtimeErrors: session.runtimeErrors, files};
-  const raw = JSON.stringify(result, null, 2) + '\n';
-  await writeFile(join(directory, 'capture.json'), raw);
-  await writeFile(join(directory, 'reviewer-brief.md'), reviewerBrief(hash(raw)));
-  await writeFile(join(directory, 'index.html'), reportHtml(result));
-  const {captureCalibration} = await import('./calibration.mjs');
-  await captureCalibration(join(directory, 'calibration'));
-  console.log(`Captured ${STATES.filter(id => session.states.some(s => s.id === id)).length}/${STATES.length} required states (${session.states.length} total): ${directory}`);
-  if (incomplete.length || session.cleanupErrors.length) process.exitCode = 2;
+  const states=session?.states??[];
+  for(const id of requiredStates(app))if(!states.some(s=>s.id===id)&&!incomplete.some(s=>s.state===id))incomplete.push({state:id,error:'Not reached'});
+  try {
+    const fresh=JSON.parse(execFileSync(process.env.CEDAR_HOME+'/cedar-cli/.venv/bin/python',['-c',
+      'import json,sys; from org.metadatacenter.ui_review import runtime_evidence; print(json.dumps(runtime_evidence(sys.argv[1])))',process.env.CEDAR_HOME],
+      {cwd:join(process.env.CEDAR_HOME,'cedar-cli'),encoding:'utf8'}));
+    provenance.staleAfterCapture=fresh.stale;
+    provenance.current=provenance.current&&fresh.current&&fresh.build===provenance.build;
+    if(fresh.build!==provenance.build)incomplete.push({state:'runtime',error:'Selected build changed during capture'});
+  }catch(error){provenance.current=false;incomplete.push({state:'freshness',error:error.message});}
+  const collectorSources=await collectorIdentity();
+  if(JSON.stringify(collectorSources)!==JSON.stringify(collectorBefore))incomplete.push({state:'collector',error:'Review tooling changed during capture; rerun with stable tooling'});
+  await writeJson(join(directory,'collector.json'),{catalogVersion:1,sources:collectorSources,scenarios:scenarios(app)});
+  const files={};
+  for(const file of (await readdir(directory)).filter(f=>/\.(png|json|yml)$/.test(f)))files[file]=hash(await readFile(join(directory,file)));
+  const result={schemaVersion:1,app,provenance,served,servedVerified,states,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
+  const raw=JSON.stringify(result,null,2)+'\n';
+  await writeFile(join(directory,'capture.json'),raw);
+  await writeJson(join(directory,'coverage.json'),coverageFor(result));
+  await writeFile(join(directory,'reviewer-brief.md'),reviewerBrief(hash(raw),app));
+  await writeFile(join(directory,'index.html'),reportHtml(result));
+  const {captureCalibration}=await import('./calibration.mjs');await captureCalibration(join(directory,'calibration'));
+  console.log(`${app}: captured ${requiredStates(app).filter(id=>states.some(s=>s.id===id)).length}/${requiredStates(app).length} states in ${result.durationSeconds}s; awaiting independent review. ${directory}`);
+  return acceptanceBlockers(result,[]).length?2:0;
 }
-
-function reviewerBrief(digest) {
-  return `# Independent Designer UI review\n\nReview the assembled CEDAR Template Designer as a person authoring metadata templates. Preserve the existing product design. Do not read implementation source or ask what defects are expected before recording your findings. Do not edit product code or baselines.\n\nInspect every state in capture.json using the screenshots, card crops, accessibility snapshots, geometry and session.json actions. Card crops cover only the visible viewport and do not scroll; inspect below-fold content through explicit recorded scrolling in a supplemental session. Evaluate control behavior, feedback, state transitions, information grouping, hierarchy, wrapping, visibility, keyboard use and ordinary editing. Explain what is acceptable too. Review the rendered interface independently from implementation correctness. Assess semantic grouping, hierarchy, reading order, visual density, and behavior as separate questions. Readability and lack of overlap are necessary but do not establish a good composition. For each region identify the primary entity or action and the information that belongs with it. Assess proximity, alignment, and use of available space. Compare short and long content and adjacent pane sizes where evidence permits. Explain whether wrapping or stacking is needed to preserve readability, or whether it fragments a small logical group or adds avoidable scanning. When claiming that a wrap or stack is necessary, substantiate it with the visible content, measured text/control widths, spacing and available region width; a narrow viewport alone is not evidence. Geometry includes approximate intrinsic text widths (not a complete layout solver). If fit cannot be established, state uncertainty rather than inventing a space constraint. Check whether all controls can remain present with a coherent grouping. Do not assume all wrapping is wrong. A concern can be worth reporting even when every control still works. Separate supported usability defects, design proposals, and uncertainty; preserve the product's information and interaction model. For behavior findings reproduce a normal user's sequence including hover, focus and scrolling; distinguish harness side effects from product failure. Record acceptable cases as carefully as problems. No finding quota, and no claims about measured user performance without measurement. Do not invent findings to meet a quota. Missing evidence is a limitation.\n\nUse the public openSession(directory) helper exported from ${fileURLToPath(new URL('session.mjs', import.meta.url))} for additional real-browser exploration in a fresh session. It provides page (Playwright), openNew(), action(label, callback), capture(id), addField(type,name), ready() and close(). Always close in finally; only work on its temporary templates. Before saving, set the TEMPLATE name to \`UI review pilot <unique suffix>\` through the Template name input. The helper deliberately aborts writes to other names or existing unowned identifiers; that is a fixture guard, not a product/network failure. Use capture() to retain evidence. Supplemental exploration is separately reported; the frozen capture cannot be overwritten.\n\nComplete and save the application review before opening calibration/packet.json or any calibration images. The coordinator seals review.json, then asks you to review calibration. Do not alter the sealed app review after calibration; report new app observations separately. Never read calibration-key.json, calibration fixture source, or prior reviews.\n\nWrite review.json with schemaVersion:1, reviewer, captureSha256:"${digest}", independence:{freshContext:true,knownDefectsDisclosed:false}, inspectedStates:[all inspected IDs], acceptableObservations:string, composition:{grouping:string,hierarchy:string,wrapping:string,spaceUse:string}, limitations:string, findings:[{id,title,kind:"defect"|"design-proposal"|"uncertain",severity:"high"|"medium"|"low",steps:[strings],observed,expected,impact,evidence:[relative files from capture.files]}]. Additional observations with only supplemental evidence go in a separate supplemental-review.json, never use a nonexistent frozen evidence path. A blank finding list is allowed.\n`;
+export async function main(args=process.argv.slice(2)) {
+  const option=key=>args.find(a=>a.startsWith('--'+key+'='))?.slice(key.length+3);
+  const app=option('app')??'designer',apps=selectApps(app);
+  const modes=[args.includes('--plan'),args.includes('--capture'),args.includes('--seal-review'),!!option('review')];
+  if(modes.filter(Boolean).length!==1)throw new Error('Choose one of --plan, --capture, --seal-review or --review=PATH');
+  if(modes[0]){console.log(JSON.stringify({applications:apps.map(app=>({app,scenarios:scenarios(app)})),workflow:'capture → fresh independent review → seal → concealed calibration → validate',scope:'Local temporary fixtures; no product edits. Coverage omissions cannot pass.'},null,2));return 0;}
+  if(!option('output'))throw new Error('--output is required');
+  const output=resolve(option('output')),results=[];
+  for(const selected of apps){
+    const directory=app==='all'?join(output,selected):output;
+    try {
+      if(modes[1]){
+        if(app==='all'){await mkdir(directory);await writeFile(join(directory,'provenance.json'),await readFile(join(output,'provenance.json')));}
+        const existing=await readdir(directory);if(existing.some(f=>f!=='provenance.json'))throw new Error('Refusing to overwrite existing capture evidence');
+        results.push({app:selected,code:await collect(directory,selected)});
+      }else if(modes[2]){
+        const {sealReview}=await import('./calibration.mjs');console.log(JSON.stringify(await sealReview(directory)));results.push({app:selected,code:0});
+      }else results.push({app:selected,code:await validate(directory,selected,app==='all'?join(resolve(option('review')),selected,'review.json'):resolve(option('review')))});
+    }catch(error){results.push({app:selected,code:2,error:error.message});console.error(selected+': '+error.message);}
+  }
+  if(app==='all'){
+    const coverage=[];
+    for(const result of results)try{coverage.push(JSON.parse(await readFile(join(output,result.app,'coverage.json'),'utf8')));}catch{coverage.push({app:result.app,error:result.error??'No coverage evidence'});}
+    await writeJson(join(output,'coverage.json'),{applications:coverage});
+    await writeJson(join(output,'summary.json'),{operation:modes[1]?'capture':modes[2]?'seal':'validate',results});
+    await writeFile(join(output,'index.html'),'<!doctype html><meta charset="utf-8"><h1>CEDAR independent UI review</h1><p>Capture completion does not establish a UI review pass.</p><ul>'+results.map(r=>`<li><a href="${r.app}/${modes[3]?'review-result':'index'}.html">${r.app}</a>: ${r.code===2?'INCOMPLETE':modes[1]?'awaiting independent review':modes[2]?'sealed':r.code===0?'REVIEWED':'findings or design review'}</li>`).join('')+'</ul><a href="coverage.json">Scenario coverage</a>');
+  }
+  return Math.max(...results.map(r=>r.code));
 }
-
-function escape(text) {return String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function reportHtml(capture, result) {
-  return `<!doctype html><meta charset="utf-8"><title>Designer UI review</title><style>body{font:16px system-ui;max-width:1200px;margin:32px auto;padding:0 20px;color:#163d3c}img{max-width:100%;border:1px solid #ccdada}article{margin:32px 0}a{color:#087c8e}pre{white-space:pre-wrap}li{margin:12px 0}</style><h1>Designer UI review</h1><p>${escape(result?.verdict ?? 'Evidence awaiting independent review')} · build ${escape(capture.provenance.build)}</p>
-    ${result ? '<ol>' + (Array.isArray(result.review?.findings) ? result.review.findings : []).filter(f => f && typeof f === 'object').map(f => `<li><strong>${escape(f.title)}</strong> (${escape(f.kind)})<p>${escape(f.observed)}</p><p>${escape(f.impact)}</p>${(Array.isArray(f.evidence) ? f.evidence : []).map(p => `<a href="${escape(p)}">${escape(p)}</a> `).join('')}</li>`).join('') + '</ol><p>' + escape(result.review?.limitations) + '</p>' : ''}
-    ${result ? `<h2>Composition assessment</h2><dl>${[['grouping', 'Grouping'], ['hierarchy', 'Hierarchy'], ['wrapping', 'Wrapping'], ['spaceUse', 'Use of space']].map(([aspect, label]) => `<dt><strong>${escape(label)}</strong></dt><dd>${escape(result.review?.composition?.[aspect])}</dd>`).join('')}</dl><h2>Acceptable behavior</h2><p>${escape(result.review?.acceptableObservations)}</p>` : ''}
-    <p>Collection incomplete: ${escape(JSON.stringify(capture.incomplete))}</p>
-    ${result ? `<p>Acceptance blockers: ${escape(JSON.stringify(result.acceptanceBlockers))}</p><p>Review validation: ${escape(JSON.stringify(result.validationErrors))}</p><p>Calibration: ${result.calibration?.detected ?? '?'}/${result.calibration?.defects ?? '?'} concealed defects detected; ${result.calibration?.falseAlarms ?? '?'} false alarms.</p>` : ''}
-    ${capture.states.map(s => `<article id="${s.id}"><h2>${escape(s.id)}</h2><p>${escape(s.note)}</p><a href="${s.aria}">Accessibility snapshot</a> · <a href="${s.metrics}">Geometry and controls</a><img loading="lazy" src="${s.screenshot}" alt="${escape(s.id)}">${s.crops.map(p => `<a href="${p}">Card detail</a> `).join('')}</article>`).join('')}`;
-}
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))process.exitCode=await main();

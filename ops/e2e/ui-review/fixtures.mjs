@@ -1,0 +1,56 @@
+import {randomUUID} from 'node:crypto';
+import {artifactBody} from '../rest/lib.mjs';
+
+export const longLabel='Specimen collection and environmental observation notes from collaborating research institutions';
+export const propertyIri=key=>'https://example.org/ui-review/'+encodeURIComponent(key);
+export const textValue=value=>({'@value':value});
+export function field(name) {
+  const body=artifactBody('field',name);body['schema:description']='';return body;
+}
+export const repeat=items=>({type:'array',minItems:0,items});
+export function container(name,fields,kind='template') {
+  const body=artifactBody(kind,name);
+  body['schema:description']='Complete the specimen information and record each collection observation. Include handling conditions and storage provenance.';
+  for(const [key,value] of Object.entries(fields)){
+    body.properties[key]=value;body.properties['@context'].properties[key]={enum:[propertyIri(key)]};
+    body._ui.order.push(key);body._ui.propertyLabels[key]=key;body.required.push(key);
+  }
+  return body;
+}
+export function instance(name,templateId,values) {
+  const body=artifactBody('instance',name,{'schema:isBasedOn':templateId,...values});
+  for(const key of Object.keys(values))body['@context'][key]=propertyIri(key);
+  body['@context']['pav:derivedFrom']={'@type':'@id'};return body;
+}
+export async function metadataFixtures(session) {
+  const name='UI review '+randomUUID().slice(0,8);
+  const folder=await session.put('folders',{folderId:session.user.profile.homeFolderId,name,description:'Temporary independent UI review'});
+  const measurement=container('Measurement',{Code:field('Code'),[longLabel]:repeat(field(longLabel))},'element');
+  const sample=container('Sample',{Name:field('Name'),Measurements:repeat(measurement)},'element');
+  const fields={Subject:field('Subject'),[longLabel]:field(longLabel),Tags:repeat(field('Tags')),['Repeated '+longLabel]:repeat(field('Repeated '+longLabel)),Samples:repeat(sample)};
+  const templateId=await session.put('templates',container(name+' specimen study',fields),folder);
+  const emptyTemplateId=await session.put('templates',container(name+' empty form',{}),folder);
+  const records={};
+  const nested=(values)=>({'@id':'https://example.org/ui-review/'+randomUUID(),'@context':Object.fromEntries(Object.keys(values).map(k=>[k,propertyIri(k)])),...values});
+  for(const count of [0,1,2,5,6,12]){
+    const tags=Array.from({length:count},(_,i)=>textValue('Observation '+(i+1)+(i%2?' with extended handling conditions and storage provenance':'')));
+    const values={Subject:textValue('Specimen 42'),[longLabel]:textValue('Collected during the northern coastal field campaign'),Tags:tags,['Repeated '+longLabel]:structuredClone(tags),
+      Samples:Array.from({length:count},(_,i)=>nested({Name:textValue('Sample '+(i+1)),Measurements:Array.from({length:Math.min(count,2)},(_,j)=>nested({Code:textValue('M'+(j+1)),[longLabel]:tags}))}))};
+    records[count]=await session.put('template-instances',instance(name+' '+count+' observations',templateId,values),folder);
+  }
+  return {folder,templateId,emptyTemplateId,records};
+}
+export async function workspaceFixtures(session) {
+  const folder=(name,parent)=>session.put('folders',{name,folderId:parent,description:'Temporary independent UI review'});
+  const root=await folder('UI review '+randomUUID().slice(0,8),session.user.profile.homeFolderId);
+  const parent=await folder('Research programme with a long descriptive name for international longitudinal sample collection',root);
+  const listing=await folder('Participant specimens and environmental metadata for collaborating institutions',parent);
+  const empty=await folder('Empty collection',root);
+  const rows=[];
+  for(let i=1;i<=54;i++)rows.push(await folder('Record '+String(i).padStart(2,'0')+(i===1?' - Long resource title for the international research collection':''),listing));
+  const previews=await folder('Preview collection',root);
+  const short=await session.put('templates',container('Short form',{Name:field('Name')}),previews);
+  const long=await session.put('templates',container('Long form',{[longLabel]:field(longLabel)}),previews);
+  const nested=await session.put('templates',container('Nested form',{Samples:repeat(container('Sample',{Name:field('Name'),[longLabel]:repeat(field(longLabel))},'element'))}),previews);
+  return {root,parent,listing,empty,rows,previews,short,long,nested};
+}

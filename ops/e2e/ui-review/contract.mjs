@@ -1,20 +1,8 @@
 import {createHash} from 'node:crypto';
 
-export const STATES = [
-  'empty', 'empty-panel-a', 'empty-panel-b', 'single', 'single-panel-a', 'single-panel-b',
-  'single-preview-a', 'single-preview-b', 'configuration', 'presentation', 'constraints',
-  'annotations', 'metadata', 'version', 'collapsed', 'expanded', 'multiple', 'long-name',
-  'width-1440', 'width-1100', 'width-900', 'width-768', 'width-375', 'nested',
-  'both-panels-1440', 'both-panels-1100', 'both-panels-1024', 'both-panels-900', 'both-panels-768',
-  'phone-preview-375', 'phone-editor-375', 'phone-preview-short', 'phone-editor-short',
-  'configuration-end-768', 'configuration-end-375',
-  'both-panels-multiple-1100', 'both-panels-multiple-768', 'phone-preview-multiple-375', 'phone-editor-multiple-375',
-  'required-preview-1100', 'required-preview-768', 'required-preview-375',
-  'required-configuration-1100', 'required-configuration-768', 'required-configuration-375',
-  'required-overview-1440', 'required-overview-768',
-  'saved', 'reopened', 'save-unconfirmed', 'save-status-checked',
-  'last-field-removed', 'removed-panel-a', 'removed-panel-b', 'keyboard',
-];
+import {APPS, DESIGNER_STATES, requiredStates} from './catalog.mjs';
+export const STATES = DESIGNER_STATES;
+
 export const hash = value => createHash('sha256').update(value).digest('hex');
 
 export function validateReview(capture, review, available) {
@@ -22,6 +10,7 @@ export function validateReview(capture, review, available) {
   const require = (ok, message) => { if (!ok) errors.push(message); };
   if (!review || typeof review !== 'object' || Array.isArray(review))
     return ['Review must be a JSON object'];
+  if(!APPS.includes(capture.app??'designer'))return ['Unknown capture application'];
   require(review.schemaVersion === 1, 'Review schemaVersion must be 1');
   require(typeof review.reviewer === 'string' && review.reviewer.trim(), 'Reviewer identity is required');
   require(review.independence?.freshContext === true, 'A fresh reviewer context is required');
@@ -30,7 +19,7 @@ export function validateReview(capture, review, available) {
   const covered = new Set(Array.isArray(review.inspectedStates) ? review.inspectedStates : []);
   require(Array.isArray(review.inspectedStates) && covered.size === review.inspectedStates.length,
     'Inspected states must be a list without duplicates');
-  for (const id of STATES) require(covered.has(id), `State not inspected: ${id}`);
+  for (const id of requiredStates(capture.app ?? 'designer')) require(covered.has(id), `State not inspected: ${id}`);
   for (const id of covered) require(capture.states.some(s => s.id === id), `Unknown inspected state: ${id}`);
   require(Array.isArray(review.findings), 'findings must be an array');
   const ids = new Set();
@@ -61,7 +50,17 @@ export function validateReview(capture, review, available) {
 }
 
 export function acceptanceBlockers(capture, errors) {
-  return [...errors,
+  if(!APPS.includes(capture.app??'designer'))return [...errors,'Unknown capture application'];
+  const required = requiredStates(capture.app ?? 'designer');
+  const missing = required.filter(id=>!capture.states.some(s=>s.id===id));
+  const evidenceErrors=[];
+  if(capture.app){
+    const ids=capture.states.map(s=>s.id);
+    if(new Set(ids).size!==ids.length)evidenceErrors.push('Duplicate captured state IDs');
+    for(const state of capture.states)for(const kind of ['screenshot','aria','metrics'])
+      if(typeof state[kind]!=='string'||!capture.files?.[state[kind]])evidenceErrors.push(`Missing ${kind} evidence for ${state.id}`);
+  }
+  return [...errors, ...evidenceErrors, ...missing.map(id=>`Required state not captured: ${id}`),
     ...capture.incomplete.map(item => `Collection incomplete: ${JSON.stringify(item)}`),
     ...(!capture.provenance.current ? ['Deployed build differs from current sources; diagnostic review only'] : []),
     ...capture.cleanupErrors.map(error => `Cleanup: ${error}`),

@@ -3361,20 +3361,67 @@ rendering is correct.
 
 #### Reviewing Visual Baselines
 
-##### Independent Designer UI review pilot
+##### Independent application UI review
 
-`cedarcli test ui-review --plan` describes a separate acceptance review of the assembled local
-Designer. `cedarcli test ui-review --output /absolute/path/to/new-run` captures ordinary editing,
-empty and populated states, panel transitions, field settings, nested content, keyboard traversal,
-save/reopen, deliberately interrupted-save recovery, long names at five viewport widths, both
-panels together at five widths, separate phone editing and Preview views at normal and short heights,
-multiple-value headers, and explicit scrolling through narrow Configuration forms. It also captures
-required repeated fields in Preview and Configuration at three widths and required Overview names
-at two widths (55 required states). It requires
-a current frontend reactor selection; first run `cedarcli build frontends` if sources have changed.
-The collector verifies the selected installed
-packages and the served component bytes, and records source/build identity before and after the
-run. It signs in as the local test user and removes only the temporary templates it creates.
+`cedarcli test ui-review --app designer|workspace|metadata-editor|all --plan` prints the maintained
+scenario catalog. The default remains `designer`. Capture against the current local frontend build:
+
+```bash
+cedarcli test ui-review --app all --output /absolute/path/to/new-run
+```
+
+`all` collects the three applications sequentially, keeping each app's evidence in its own named
+subdirectory. The root `index.html`, `summary.json` and `coverage.json` link and summarize the three
+packets. A failure in one application does not skip the others. A successful capture means evidence
+is ready for an independent reviewer; it does **not** mean the interface passed review.
+
+Run the affected application's capture after a UI change has been built and deployed. Use `--app all`
+for shared-component/design-token changes and before accepting a cross-application UI batch. Keep
+scenario updates in the same change as the relevant workflow update. CI runs the harness contract
+tests; it does not automatically launch the local stack or appoint an independent reviewer. The
+capture, fresh review, seal and calibration steps remain explicit.
+
+The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **165 states**:
+
+| Application | Required states | Coverage |
+| --- | ---: | --- |
+| Designer | 55 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery; desktop, tablet and phone layouts. |
+| Workspace | 59 | Empty/populated list and grid, real next/previous pages, row actions, details open/close, filters, sort, breadcrumbs, reload, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels; both tablet panels and displayed-position paging. |
+| Metadata Editor | 51 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, new records and empty templates at 1440, 768 and 375 pixels. |
+
+`coverage.json` separates **captured**, **blocked** and **omitted** scenarios. Independent inspection
+remains `null` until a review is supplied; it is then the reviewer's attestation, not inferred from
+screenshot existence. The contract checks required states even if a collector forgets to list a
+missing state as incomplete. Extend the catalog and collector together when adding a user journey;
+add a meaningful behavior regression for a fixed defect, and retain fresh visual review for judgments
+that a regression test cannot establish. Do not remove a scenario simply because it fails.
+
+The command requires a current reactor selection. Run `cedarcli build frontends` when product source
+**content** has changed. A commit of already-built bytes does not require another build: provenance
+reports such revision/dirty metadata changes separately. Capture checks current source content and
+selected build before and after, verifies installed packages and served bytes, and records the
+collector source hashes. Stable inputs are required throughout capture. `--plan`, sealing and review
+validation do not build, deploy, log in or create fixtures.
+
+On the local workstation, the 2026-11-18 maintained-tooling verification collected all 165 required
+states in **99 seconds overall**, including calibration generation: Designer 17 seconds, Workspace
+40 seconds and Metadata Editor 36 seconds for their collection phases. All 72 temporary fixtures
+were verified absent and account preferences restored. This measures a warm, already-built local
+stack; rebuilding and fresh reviewers' inspection time are separate. The evidence is retained at
+`$CEDAR_HOME/.cedar/reports/ui-review/20261118-maintained-verified/index.html`. It remains labelled
+awaiting independent review. A separate termination probe verified cleanup and lock release after
+three fixtures had been registered.
+
+The collectors use the local test account and a shared account lock at
+`$CEDAR_HOME/.cedar/locks/ui-review-user1`. Avoid other sessions using that account during collection.
+Every new fixture identifier is confirmed absent and persisted **before** its create request, so a
+lost reply still leaves a cleanup identity. Cleanup runs in reverse order, uses conditional deletion
+with the current ETag, verifies GET returns 404, and restores and reads back all original account
+preference groups after closing the browser. A cleanup or preference-restoration failure prevents
+acceptance. Ctrl-C allows up to 60 seconds for cleanup. A force-killed or otherwise interrupted process may leave the lock and persisted fixture ledger: first confirm
+its owner PID is no longer running, inspect that run's `session.json`, clean up only its registered
+identities and restore its recorded preferences, then remove the abandoned lock. Never delete an
+unrelated artifact or discard a lock owned by a live collector.
 
 Below 600 pixels of component width, the existing Preview toggle switches between full-width
 authoring and full-width Preview. The editor stays mounted with its scroll position and settings;
@@ -3386,15 +3433,16 @@ phone content. Covered editor controls hide immediately, including the first fra
 In an overflowing annotation table, keyboard focus brings the removal button and its focus ring
 fully into view; the table retains its ordinary horizontal scrolling.
 
-The output directory retains full screenshots, card crops, accessibility snapshots, control
+Each application directory retains screenshots (Designer also includes card crops), accessibility snapshots, control
 geometry (including labels and approximate intrinsic text widths), action records, cleanup results,
-an HTML evidence index, and `reviewer-brief.md`.
+an HTML evidence index, a coverage matrix, collector identity, duration, and `reviewer-brief.md`. Workspace and Metadata Editor screenshots preserve the viewport; below-fold states require explicit scrolling.
 Capture is not a design verdict. Supplemental sessions must name a template
 `UI review pilot <unique suffix>` before saving: the helper deliberately blocks writes to other names or existing unowned
 identifiers and records the reason in its action log. This guard is not a product/network failure.
 Give the brief and evidence to a fresh reviewer context without the implementation narrative or
 a list of expected defects. The reviewer inspects the actual
-images and interactions, may explore further with the documented `openSession` helper, and writes
+images and interactions, may explore further in a separate directory with `session.mjs` (`openSession`) for Designer or
+`browser-session.mjs` (`openBrowserSession(directory, app)`) for the other applications, and writes
 `review.json`. It must distinguish observed defects from design proposals and uncertainty, explain
 user impact, name evidence, report acceptable behavior, and disclose missing coverage. It may not
 change product code or baselines. This does not authorize a redesign. Each review explicitly assesses
@@ -3411,7 +3459,9 @@ supplemental session. An automation timeout alone does not establish a product d
 Validate the completed review with:
 
 ```bash
-cedarcli test ui-review --output /absolute/path/to/run --review /absolute/path/to/run/review.json
+cedarcli test ui-review --app workspace --output /absolute/path/to/run/workspace --review /absolute/path/to/run/workspace/review.json
+# Or validate all three: each APP directory must contain its own review.json and calibration-review.json.
+cedarcli test ui-review --app all --output /absolute/path/to/run --review /absolute/path/to/run
 ```
 
 `review-result.html` and `review-result.json` retain the assessment. `FINDINGS` exits 1 for reported
@@ -3431,7 +3481,8 @@ Keep `calibration/packet.json` and its images out of the reviewer's first pass. 
 assessment is complete, freeze it before exposing calibration:
 
 ```bash
-cedarcli test ui-review --output /absolute/path/to/run --seal-review
+cedarcli test ui-review --app workspace --output /absolute/path/to/run/workspace --seal-review
+# --app all seals review.json independently in each application directory.
 ```
 
 This writes `review-seal.json`; final validation rejects an application assessment changed after
@@ -3441,7 +3492,7 @@ fixture sources. An assessment names every case as `{id, issue, reason}` under `
 leaves acceptance incomplete if a case is missed or an acceptable control is flagged. Findings
 from the app remain useful even when the calibration prevents acceptance.
 
-The twelve miniature interfaces include six behavior cases and six composition cases, each family
+The sixteen miniature interfaces include eight behavior cases and eight composition cases, each family
 balanced between concerns and acceptable controls. Composition cases distinguish a short identity
 that fits from a genuinely long identity that must wrap, detached labels, interrupted control
 groups, and coherent narrow groups. Report composition misses and false alarms separately from
@@ -3450,7 +3501,7 @@ interaction handlers, before exposing the packet. An invalid fixture packet cann
 accuracy. The seal prevents later revisions to the app verdict; compliance with the blind-review
 instructions, rather than the seal alone, establishes that answers were not disclosed early.
 One small synthetic run does not establish production recall or general design judgment. The
-fixtures and their styles are never injected into Designer.
+fixtures and their styles are never injected into an application.
 
 The harness contract tests run in release-tooling CI and locally with
 `npm --prefix ops/e2e run test:ui-review` from `cedar-development`; they validate evidence and
