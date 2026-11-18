@@ -52,6 +52,11 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     ledger=new FixtureLedger({request,persist:flush,mint:mintId,userPath:'/users/'+enc(user.profile['@id'].split('/').at(-1)),preferences:user.profile.uiPreferences,userBase:USER_SERVER});
     browser=await {chromium,webkit}[engine].launch({headless:true});
     const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1440,height:1000},...contextOptions});
+    // A ResizeObserver loop reaches the window's error event in every engine, but Playwright's page
+    // error event misses it in Chromium and undercounts it in WebKit. Report it through the console.
+    await context.addInitScript(()=>window.addEventListener('error',event=>{
+      if(/^ResizeObserver loop/.test(event.message))console.error('Window error: '+event.message);
+    }));
     const page=await context.newPage();page.setDefaultTimeout(15000);
     page.on('pageerror',e=>runtimeErrors.push(e.message));
     // OpenView runs under Angular's development server locally, whose live-reload client tries a

@@ -337,6 +337,8 @@ changes and Git commit/push are separate from this contract.
 
 The command runs component verification, records the immutable build graph and runtime selection,
 restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
+When a reviewed frontend source changed, it then captures UI review evidence for a later independent
+review; a failed capture is reported and does not fail the build.
 A repository whose inputs match an earlier passing result reuses it instead of running its checks
 again. `cedarcli build frontends --no-reuse` runs them all.
 The Angular, React and Ember consumer demos run as a separate conditional gate when CEE's

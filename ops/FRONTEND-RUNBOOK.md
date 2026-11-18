@@ -1511,6 +1511,13 @@ and test success can both be checked. These requirements also apply to direct `o
 5. Report completion only when the full sequence passes. Identify any unfinished stage precisely;
    compilation alone does not fulfill a request for a full frontend reactor.
 
+After the smoke passes, the build captures UI review evidence if the Designer, Workspace, CEE, CED,
+the term picker, OpenView or the design tokens changed since the last complete capture. The packet
+lands under `$CEDAR_HOME/.cedar/reports/ui-review/automatic/`, which keeps the five most recent,
+and waits there for an independent review. The capture never fails the build: an incomplete packet
+is reported with its path, and the next build tries again. `--no-ui-review` skips the step. A
+capture is evidence, not a review, so it neither accepts nor rejects the interface.
+
 The frontend build guard checks the frontend source repositories and CLI tooling. Within
 `cedar-development`, it checks `bin/`, `ops/frontend-train.json`, `ops/cedar-services.sh`
 and `ops/frontend_reactor_runtime.py`:
