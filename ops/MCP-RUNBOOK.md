@@ -152,8 +152,9 @@ are therefore vendored in `src/main/resources/web/vendor/cedar-design-tokens/`, 
 `cedarcli check design-tokens --repo mcp/cedar-cee-mcp --strict` treats the manifest as the pin. It
 fails when a file no longer matches its digest, when the copy's `custom-properties.css` does not
 declare the tokens held at the commit the version names, and when the page reads a token the pinned
-version lacks. A pin that lags the token checkout does not fail. Advance it when the page needs a
-newer token or when a value it reads has changed. To advance it, take the version the `dev`
+version lacks. It also fails when the pin lags the token checkout and the package's `scss/` or
+`css/` sources changed after the commit the version names, since the vendored stylesheets may then
+differ from current ones. Advance the pin then, or when the page needs a newer token. To advance it, take the version the `dev`
 dist-tag names, replace the vendored files from that tarball, and rewrite the manifest. The same
 check fails when the page links the vendored stylesheets without `focus.css`, which draws the
 shared focus ring.
