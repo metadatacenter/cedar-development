@@ -5,10 +5,13 @@ import {collectorFor} from './run.mjs';
 
 // A browser stand-in that absorbs every call and is never thenable, so a collector's top-level
 // sequence runs without a stack. Each recorded operation is skipped: this checks which states a
-// collector records, not whether the product behaves.
+// collector records, not whether the product behaves. An evaluation answers as an unobstructed,
+// enabled control, which is what the displayed-position pointer asks.
+const hitTarget = {x: 0, y: 0, belongs: true, disabled: false, label: 'stand-in', receiver: 'BUTTON'};
 function inert() {
   return new Proxy(function () {}, {
-    get: (_, key) => key === 'then' ? undefined : key === Symbol.toPrimitive ? () => '' : inert(),
+    get: (_, key) => key === 'then' ? undefined : key === Symbol.toPrimitive ? () => ''
+      : key === 'evaluate' ? async () => hitTarget : inert(),
     apply: () => inert(),
   });
 }

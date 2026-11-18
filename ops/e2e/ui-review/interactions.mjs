@@ -19,13 +19,16 @@ export async function pointer(session,locator,{scroll=true}={}) {
     const box=element.getBoundingClientRect(),x=box.x+box.width/2,y=box.y+box.height/2;
     let hit=document.elementFromPoint(x,y);const seen=new Set();
     while(hit?.shadowRoot&&!seen.has(hit)){seen.add(hit);const next=hit.shadowRoot.elementFromPoint(x,y);if(!next||next===hit)break;hit=next;}
-    let belongs=false;for(let n=hit;n;n=n.parentNode||n.getRootNode()?.host)if(n===element)belongs=true;
+    // A label activates its control, so a hit on one of the control's labels reaches it too.
+    const receivers=[element,...(element.labels??[])];
+    let belongs=false;for(let n=hit;n;n=n.parentNode||n.getRootNode()?.host)if(receivers.includes(n))belongs=true;
     return {x,y,belongs,disabled:!!element.disabled,label:element.getAttribute('aria-label')||element.textContent?.trim(),receiver:hit?.tagName};
   });
-  session.actions.push({label:'Displayed pointer target',...target});await session.flush();
-  assert(target.belongs,`Displayed control is obstructed: ${target.label}`);
-  assert(!target.disabled,`Displayed control is disabled: ${target.label}`);
-  await session.page.mouse.click(target.x,target.y);
+  const {label,...hit}=target;
+  session.actions.push({label:'Displayed pointer target',control:label,...hit});await session.flush();
+  assert(hit.belongs,`Displayed control is obstructed: ${label}`);
+  assert(!hit.disabled,`Displayed control is disabled: ${label}`);
+  await session.page.mouse.click(hit.x,hit.y);
 }
 export async function keyboard(session,start) {
   await start.focus();
@@ -38,4 +41,9 @@ export async function keyboard(session,start) {
     session.actions.push({label:'Keyboard Tab',focus});
   }
   await session.flush();
+}
+// Change a checkbox through its displayed position, then confirm it took the requested state.
+export async function setChecked(session,locator,on) {
+  if(await locator.isChecked()!==on)await pointer(session,locator);
+  if(await locator.isChecked()!==on)throw new Error(`Checkbox did not become ${on?'checked':'unchecked'}`);
 }

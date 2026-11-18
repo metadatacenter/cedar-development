@@ -1,11 +1,14 @@
+import {pointer, setChecked} from './interactions.mjs';
+
 export async function collectDesigner(session, record) {
   const {page, action, capture} = session;
   const card = () => page.locator('app-field-card').first();
-  const toggle = name => page.locator(`.${name}-toggle`).click();
+  const click = locator => pointer(session, locator);
+  const toggle = name => click(page.locator(`.${name}-toggle`));
   const settings = async tab => {
     const expand = card().getByRole('button', {name: 'Expand field settings', exact: true});
-    if (await expand.isVisible()) await expand.click();
-    await card().getByRole('tab', {name: tab, exact: true}).click();
+    if (await expand.isVisible()) await click(expand);
+    await click(card().getByRole('tab', {name: tab, exact: true}));
   };
     await session.openNew();
     await record('empty');
@@ -16,7 +19,7 @@ export async function collectDesigner(session, record) {
     await record('single');
     await record('single-panel-a', () => toggle('overview'));
     await record('single-panel-b', () => toggle('overview'));
-    const preview = () => page.locator('cedar-embeddable-designer .app-header__actions > .panel-toggle').click();
+    const preview = () => click(page.locator('cedar-embeddable-designer .app-header__actions > .panel-toggle'));
     const waitForPreview = () => page.locator('.preview-panel').getByRole('heading', {level: 1}).first().waitFor({state: 'visible'});
     const phone = () => page.locator('cedar-embeddable-designer').evaluate(host => host.getBoundingClientRect().width < 600);
     const setPreview = async shown => {
@@ -32,9 +35,10 @@ export async function collectDesigner(session, record) {
     for (const tab of ['Configuration', 'Presentation', 'Constraints', 'Annotations', 'Metadata', 'Version'])
       await record(tab.toLowerCase(), () => settings(tab));
     await settings('Configuration');
-    await record('collapsed', () => card().getByRole('button', {name: 'Collapse field settings', exact: true}).click());
-    await record('expanded', () => card().getByRole('button', {name: 'Expand field settings', exact: true}).click());
-    await record('multiple', () => card().getByLabel('Allow multiple', {exact: true}).check());
+    const multiple = on => setChecked(session, card().getByLabel('Allow multiple', {exact: true}), on);
+    await record('collapsed', () => click(card().getByRole('button', {name: 'Collapse field settings', exact: true})));
+    await record('expanded', () => click(card().getByRole('button', {name: 'Expand field settings', exact: true})));
+    await record('multiple', () => multiple(true));
     await record('long-name', () => card().getByRole('textbox', {name: 'Enter field name', exact: true})
       .fill('Participant preferred contact information and follow-up availability'));
     for (const width of [1440, 1100, 900, 768, 375])
@@ -42,7 +46,7 @@ export async function collectDesigner(session, record) {
     await action('Prepare short-name layout with both panels', async () => {
       await page.setViewportSize({width: 1440, height: 1000});
       await card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Sample');
-      await card().getByLabel('Allow multiple', {exact: true}).uncheck();
+      await multiple(false);
       await preview(); await waitForPreview();
     });
     for (const width of [1440, 1100, 1024, 900, 768, 375]) {
@@ -65,7 +69,7 @@ export async function collectDesigner(session, record) {
         await setPreview(width >= 600);
         await card().locator('app-property-picker').scrollIntoViewIfNeeded();
       }, 'Explicitly scrolled to inspect the end of Configuration.');
-    await action('Enable multiple values', () => card().getByLabel('Allow multiple', {exact: true}).check());
+    await action('Enable multiple values', () => multiple(true));
     for (const width of [1100, 768, 375]) {
       await record(width === 375 ? 'phone-preview-multiple-375' : `both-panels-multiple-${width}`, async () => {
         await page.setViewportSize({width, height: 1000});
@@ -101,11 +105,11 @@ export async function collectDesigner(session, record) {
     });
     await action('Return to desktop editing before save', async () => {
       await page.setViewportSize({width: 1440, height: 1000});
-      await card().getByLabel('Allow multiple', {exact: true}).uncheck();
+      await multiple(false);
       await setPreview(false);
     });
     await record('saved', async () => {
-      await page.locator('#save').click();
+      await click(page.locator('#save'));
       await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Saved');
     });
     await record('reopened', async () => {await page.reload(); await session.ready();});
@@ -115,17 +119,17 @@ export async function collectDesigner(session, record) {
         session.expectedNetworkFailures.add('Deliberately interrupted temporary-template save');
         await page.route('**/templates/**', interruptWrite);
         await card().getByRole('textbox', {name: 'Enter field name', exact: true}).fill('Sample revised');
-        await page.locator('#save').click();
+        await click(page.locator('#save'));
         await page.locator('#check-save').waitFor({state: 'visible'});
       });
     }, 'The harness aborted this save request to exercise uncertain-save recovery; this is not a spontaneous transport failure.');
     await record('save-status-checked', async () => {
       await page.unroute('**/templates/**', interruptWrite);
       session.expectedNetworkFailures.clear();
-      await page.locator('#check-save').click();
+      await click(page.locator('#check-save'));
       await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Modified');
     });
-    await record('last-field-removed', () => card().getByTitle('Delete field', {exact: true}).click());
+    await record('last-field-removed', () => click(card().getByTitle('Delete field', {exact: true})));
     await record('removed-panel-a', () => toggle('overview'));
     await record('removed-panel-b', () => toggle('overview'));
     await session.addField('Text', 'Participant');
@@ -134,15 +138,15 @@ export async function collectDesigner(session, record) {
       const insert = page.getByRole('button', {name: 'Add element here', exact: true}).last();
       await insert.scrollIntoViewIfNeeded();
       await action('Reveal insertion actions by hovering their gap', () => insert.locator('..').locator('..').hover());
-      try {await action('Insert element using pointer', () => insert.click({timeout: 3000}));}
+      try {await action('Insert element using pointer', () => pointer(session, insert, {scroll: false}));}
       catch {
         await capture('nested-pointer-attempt', 'Pointer activation did not complete; keyboard activation follows.');
         await action('Insert element using keyboard', async () => {await insert.focus(); await insert.press('Enter');});
       }
       await page.getByPlaceholder('Enter element name', {exact: true}).last().fill('Visit');
       const container = page.locator('app-container-editor').last();
-      await container.getByRole('button', {name: /^Add field$/}).last().click();
-      await page.locator('app-field-type-picker').getByRole('button', {name: 'Text', exact: true}).click();
+      await click(container.getByRole('button', {name: /^Add field$/}).last());
+      await click(page.locator('app-field-type-picker').getByRole('button', {name: 'Text', exact: true}));
       await page.locator('input[aria-label="Enter field name"]:focus').fill('Visit notes');
     });
     await record('keyboard', async () => {

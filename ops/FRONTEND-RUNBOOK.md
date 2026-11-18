@@ -3456,7 +3456,10 @@ wrapping from avoidable fragmentation. Substantiate claims that wrapping is nece
 actual contents, control/text widths, spacing and available width; a narrow viewport alone is not
 evidence. State uncertainty when the fit cannot be established. Surface design concerns without inventing
 functional failures. Capture preserves hover and focus; callers must perform ordinary hover/scroll/focus
-preconditions before interacting. Card crops cover the visible viewport only: the helper does not
+preconditions before interacting. All three collectors click at a control's displayed position,
+checkbox changes included, and log the element that receives the pointer there as a "Displayed
+pointer target" action. A covered or disabled control fails its state instead of being scrolled
+clear or clicked through. Card crops cover the visible viewport only: the helper does not
 scroll a card for a screenshot. Inspect below-fold content with explicit, recorded scrolling in a
 supplemental session. An automation timeout alone does not establish a product defect.
 

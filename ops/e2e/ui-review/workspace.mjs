@@ -1,6 +1,6 @@
 import {workspaceFixtures} from './fixtures.mjs';
 import {WIDTHS} from './catalog.mjs';
-import {folderPage,listingReady,pointer,keyboard} from './interactions.mjs';
+import {folderPage,listingReady,pointer,keyboard,setChecked} from './interactions.mjs';
 
 export async function collectWorkspace(session,record) {
   const {page}=session;
@@ -41,8 +41,8 @@ export async function collectWorkspace(session,record) {
     await r('details-closed',()=>panel('information',false));
     await r('populated-grid',async()=>{await tap(button('Grid view'));await listingReady(page,f.rows.slice(0,50));});
     await r('filters',async()=>{
-      await tap(button('Type'));await page.getByRole('checkbox',{name:'Folder',exact:true}).check();
-      await page.getByRole('checkbox',{name:'Template',exact:true}).check();await tap(button('Apply'));await listingReady(page,f.rows.slice(0,50));
+      await tap(button('Type'));await setChecked(session,page.getByRole('checkbox',{name:'Folder',exact:true}),true);
+      await setChecked(session,page.getByRole('checkbox',{name:'Template',exact:true}),true);await tap(button('Apply'));await listingReady(page,f.rows.slice(0,50));
     });
     await r('sort',async()=>{await tap(button('Sort options'));await page.getByRole('menuitemradio',{name:'Name',exact:true}).waitFor();});
     await page.keyboard.press('Escape');

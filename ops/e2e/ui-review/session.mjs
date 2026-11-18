@@ -3,6 +3,7 @@ import {mkdir, readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {hash} from './contract.mjs';
+import {pointer} from './interactions.mjs';
 
 const base = process.env.CEDAR_DESIGNER_BASE || 'https://designer.metadatacenter.orgx';
 // Review fixtures may only be created on the local development deployment.
@@ -37,8 +38,8 @@ export async function openSession(directory) {
   async function addField(type, name) {
     await action(`Add ${type} field`, async () => {
       const add = page.getByRole('button', {name: /^Add field$/}).last();
-      await add.scrollIntoViewIfNeeded(); await add.click();
-      await page.locator('app-field-type-picker').getByRole('button', {name: type, exact: true}).click();
+      await pointer(shared, add);
+      await pointer(shared, page.locator('app-field-type-picker').getByRole('button', {name: type, exact: true}));
       const input = page.locator('input[aria-label="Enter field name"]:focus');
       await input.fill(name); await input.press('Tab');
     });
