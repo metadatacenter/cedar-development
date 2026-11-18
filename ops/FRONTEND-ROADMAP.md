@@ -490,3 +490,22 @@ approved change needs rendered review, relevant regression checks and current-so
 Preserve the existing deadlines, zero-retry policy and assertions. Controlled resource-starvation
 experiments can validate diagnostic signals but cannot establish the cause of an earlier failure.
 The frontend runbook links the retained evidence and the instrumented reproduction fixtures.
+
+### 14. Capture the Remaining Workspace Screens
+
+- The UI review catalog holds no state for sharing and permissions, moving, renaming and editing
+  descriptions, the folder and selection deletion dialogs, the version picker, drag and drop, the
+  groups, profile, settings and messaging pages, toasts or write-failure recovery. Each is a screen
+  a user reaches in ordinary work, and each has a source module in `cedar-workspace`.
+- Add them to the catalog and the Workspace collector with fixtures the review owns. Sharing needs
+  a second test account, so the collector must hold that account's lock as well, and it must never
+  change sharing on anything outside its own fixtures.
+
+### 15. Capture Failure, Refusal and Loading States
+
+- Apart from the Designer's interrupted save, the catalog captures only successful paths. Add save
+  failures and refusals (a conflict, a permission denial, a validation refusal), an unreachable
+  backend and slow loading for Workspace and the Metadata Editor.
+- Induce each condition by routing requests in the review browser, as the interrupted save does,
+  never by changing the stack, and say in the state's note that the harness caused it, so the
+  reviewer judges the product's handling rather than the cause.
