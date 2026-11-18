@@ -3381,18 +3381,24 @@ scenario updates in the same change as the relevant workflow update. CI runs the
 tests; it does not automatically launch the local stack or appoint an independent reviewer. The
 capture, fresh review, seal and calibration steps remain explicit.
 
-The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **234 states**:
+The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **313 states**:
 
 | Application | Required states | Coverage |
 | --- | ---: | --- |
-| Designer | 55 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery; desktop, tablet and phone layouts. |
-| Workspace | 95 | Empty/populated list and grid, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. |
-| Metadata Editor | 84 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. |
+| Designer | 103 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery; desktop, tablet and phone layouts. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. |
+| Workspace | 104 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. |
+| Metadata Editor | 106 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, the static types on both pages of their template, and an attribute-value field. |
 
 The Workspace search state waits until the review's root folder is searchable through the REST
 search before searching for it in the page, and records whatever the first page of results holds.
 Records the Metadata Editor creates from a review-owned template are registered as review fixtures
 before the write and removed with the rest.
+
+The Metadata Editor's type states upload three templates from a `cedar-test-artifacts` checkout
+beside `cedar-development`: 038 holds one field per input type that takes a value, 009 the static
+types and 022 an attribute-value field. Their declared defaults are removed, so a new record starts
+empty and no default needs a live authority lookup, and the collector identity records each file's
+hash.
 
 `coverage.json` separates **captured**, **blocked** and **omitted** scenarios. Independent inspection
 remains `null` until a review is supplied; it is then the reviewer's attestation, not inferred from

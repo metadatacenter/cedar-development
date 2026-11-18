@@ -15,6 +15,26 @@ export const DESIGNER_STATES = [
   'saved', 'reopened', 'save-unconfirmed', 'save-status-checked',
   'last-field-removed', 'removed-panel-a', 'removed-panel-b', 'keyboard',
 ];
+// Every type the Designer's field picker offers, by state slug and picker label. Rich Text renders
+// nothing in Preview until given content, and Page Break shows only as the Preview's page selector,
+// so those two have no Preview state of their own.
+export const DESIGNER_TYPES = [
+  ['text','Text'], ['paragraph','Paragraph'], ['multiple-choice','Multiple Choice'], ['checkboxes','Checkboxes'],
+  ['list','List'], ['multi-select-list','Multi-select List'], ['temporal','Temporal'], ['email','Email'], ['link','Link'],
+  ['phone','Phone'], ['number','Number'], ['controlled-terms','Controlled Terms'], ['attribute-value','Attribute Value'],
+  ['orcid','ORCID'], ['ror','ROR'], ['pfas','PFAS'], ['rrid','RRID'], ['pubmed','PubMed'], ['nih-grant-id','NIH Grant ID'],
+  ['doi','DOI'], ['image','Image'], ['rich-text','Rich Text'], ['youtube','YouTube'], ['section-break','Section Break'],
+  ['page-break','Page Break'],
+];
+export const PREVIEWLESS_TYPES = ['rich-text', 'page-break'];
+// The fields of the shared corpus template that holds one field per input type, by state slug and
+// field label, in form order.
+export const METADATA_TYPES = [
+  ['text','Text'], ['paragraph','Paragraph'], ['email','Email'], ['phone','Phone'], ['radio','Radio'], ['checkbox','Checkbox'],
+  ['single-select-list','Single select list'], ['multi-select-list','Multi select list'], ['link','Link'], ['orcid','ORCID'],
+  ['ror','ROR'], ['pfas','PFAS'], ['rrid','RRID'], ['pubmed','PubMed'], ['nih-grant-identifier','NIH grant identifier'],
+  ['doi','DOI'], ['number','Number'], ['date','Date'], ['controlled-term','Controlled term'],
+];
 export const APPS = ['designer', 'workspace', 'metadata-editor'];
 export const WIDTHS = [1440, 768, 375];
 const workspace = [
@@ -25,6 +45,7 @@ const workspace = [
   ['type-menu','filters'], ['filters','filters'], ['date-menu','filters'], ['date-filtered','filters'], ['sort','filters'],
   ['keyboard','keyboard'], ['reloaded','navigation'], ['breadcrumb-return','navigation'],
   ['template-details','navigation'], ['search','search'], ['home','navigation'],
+  ['mixed-list','listing'], ['mixed-grid','listing'], ['mixed-filtered','filters'],
   ['preview-short','preview'], ['preview-long','preview'], ['preview-nested','preview'], ['preview-tryout','preview'], ['preview-return','preview'],
 ];
 // States collected at one width only, where an earlier review found the width mattered.
@@ -46,10 +67,16 @@ const metadata = [
 ];
 export function scenarios(app) {
   if (!APPS.includes(app)) throw new Error('Unknown UI review application: '+app);
-  if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}));
+  if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}))
+    .concat(DESIGNER_TYPES.map(([slug])=>({id:'type-'+slug,scenario:'field-type-settings',category:'field-types',width:1440})))
+    .concat(DESIGNER_TYPES.filter(([slug])=>!PREVIEWLESS_TYPES.includes(slug))
+      .map(([slug])=>({id:'type-'+slug+'-preview',scenario:'field-type-preview',category:'field-types',width:1440})));
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
-    .concat(app === 'workspace' ? workspaceOnce : []);
+    .concat(app === 'workspace' ? workspaceOnce : METADATA_TYPES.map(([slug])=>({id:`type-${slug}-1440`,scenario:'field-type',category:'field-types',width:1440}))
+      .concat([{id:'static-fields-1440',scenario:'static-fields',category:'field-types',width:1440},
+        {id:'static-fields-page-2-1440',scenario:'static-fields',category:'field-types',width:1440},
+        {id:'attribute-value-1440',scenario:'attribute-value',category:'field-types',width:1440}]));
 }
 export const requiredStates = app => scenarios(app).map(s=>s.id);
 // Page regions whose geometry each capture records. Every selector must match in at least one

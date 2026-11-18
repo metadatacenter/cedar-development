@@ -1,4 +1,5 @@
 import {pointer, setChecked} from './interactions.mjs';
+import {DESIGNER_TYPES, PREVIEWLESS_TYPES} from './catalog.mjs';
 
 export async function collectDesigner(session, record) {
   const {page, action, capture} = session;
@@ -161,5 +162,33 @@ export async function collectDesigner(session, record) {
         session.actions.push({label: 'Keyboard Tab', focused});
       }
     });
+    // A fresh template holding one field of every type the picker offers: each card with its settings
+    // open, then each field in Preview.
+    await session.openNew();
+    await page.setViewportSize({width: 1440, height: 1000});
+    await setPreview(false);
+    await page.getByPlaceholder('Template name', {exact: true}).fill('UI review pilot ' + Date.now() + ' field types');
+    for (const [, label] of DESIGNER_TYPES) await session.addField(label, label + ' sample');
+    for (const [index, [slug]] of DESIGNER_TYPES.entries()) {
+      const typed = page.locator('app-field-card').nth(index);
+      await record('type-' + slug, async () => {
+        const expand = typed.getByRole('button', {name: 'Expand field settings', exact: true});
+        if (await expand.isVisible()) await click(expand);
+        await typed.getByRole('button', {name: 'Collapse field settings', exact: true}).waitFor();
+      });
+      await click(typed.getByRole('button', {name: 'Collapse field settings', exact: true}));
+    }
+    await setPreview(true);
+    const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // An empty image or video field shows a notice in place of its content; a section break shows its title.
+    const previewOf = (slug, label) => {
+      const pane = page.locator('.preview-panel');
+      if (slug === 'image') return pane.getByText('This image field has no URL.', {exact: true});
+      if (slug === 'youtube') return pane.getByText('This video field has no YouTube link.', {exact: true});
+      if (slug === 'section-break') return pane.getByRole('heading', {name: label + ' sample', exact: true});
+      return pane.getByText(new RegExp('^' + escape(label) + ' sample'));
+    };
+    for (const [slug, label] of DESIGNER_TYPES.filter(([slug]) => !PREVIEWLESS_TYPES.includes(slug)))
+      await record('type-' + slug + '-preview', () => previewOf(slug, label).first().evaluate(element => element.scrollIntoView({block: 'center'})));
 
 }

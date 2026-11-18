@@ -71,7 +71,13 @@ export async function collectorIdentity(){
   }
   const ordered=Object.fromEntries(Object.entries(sources).sort(([a],[b])=>a.localeCompare(b)));
   const playwright=JSON.parse(await readFile(join(e2eRoot,'node_modules/playwright/package.json'),'utf8')).version;
-  return {sources:ordered,playwright};
+  // The corpus templates the fixtures upload shape the evidence as much as the code does.
+  const fixtureData={};
+  if(process.env.CEDAR_HOME){
+    const {CORPUS_TEMPLATES,corpusPath}=await import('./fixtures.mjs');
+    for(const number of Object.values(CORPUS_TEMPLATES))fixtureData[relative(process.env.CEDAR_HOME,corpusPath(number))]=hash(await readFile(corpusPath(number)));
+  }
+  return {sources:ordered,playwright,fixtureData};
 }
 async function collect(directory,app) {
   const collectorBefore=await collectorIdentity();

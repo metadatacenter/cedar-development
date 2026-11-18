@@ -105,6 +105,16 @@ export async function collectWorkspace(session,record) {
     },'Search for the review\'s own temporary root folder. The results are whatever the search index returns first.');
     await r('home',async()=>{await page.goto(session.base+'/dashboard?view=list&sort=name');await listingReady(page);},
       'The test account\'s home folder, whatever it currently holds.');
+    const clearType=filters.getByRole('button',{name:'Clear type filter',exact:true});
+    await r('mixed-list',async()=>{
+      await folderPage(session,f.mixed);if(await clearType.isVisible())await tap(clearType);await listingReady(page,f.mixedIds);
+    },'One folder, template, element, field and record.');
+    await r('mixed-grid',async()=>{await tap(button('Grid view'));await listingReady(page,f.mixedIds);});
+    await r('mixed-filtered',async()=>{
+      await tap(button('Type'));await setChecked(session,dialog.getByRole('checkbox',{name:'Template',exact:true}),true);
+      await tap(dialog.getByRole('button',{name:'Apply',exact:true}));await listingReady(page,[f.mixedTemplate]);
+    },'The type filter removes every row but the template.');
+    await tap(clearType);await listingReady(page,f.mixedIds);
     for(const kind of ['short','long','nested']){
       await r('preview-'+kind,()=>preview(f[kind]));
       if(kind==='nested'){

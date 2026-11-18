@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
-import {WIDTHS} from './catalog.mjs';
+import {WIDTHS, METADATA_TYPES} from './catalog.mjs';
 import {pointer,keyboard,folderPage} from './interactions.mjs';
 export async function collectMetadataEditor(session,record) {
   const {page}=session;await session.login();const f=await metadataFixtures(session);
@@ -88,4 +88,18 @@ export async function collectMetadataEditor(session,record) {
     },'Saving with an empty record name.');
     await r('empty-template',()=>open(f.emptyTemplateId,'create'));
   }
+  // New records from the corpus templates that together hold every input type, each field centred.
+  await page.setViewportSize({width:1440,height:1000});
+  const centre=locator=>locator.first().evaluate(element=>element.scrollIntoView({block:'center'}));
+  await open(f.corpus.fieldTypes,'create');
+  for(const [slug,label] of METADATA_TYPES)await record(`type-${slug}-1440`,()=>centre(cee.getByText(label,{exact:true})));
+  // The static corpus template opens with a page break, so its first page is empty and the static
+  // content is on page 2.
+  await record('static-fields-1440',()=>open(f.corpus.staticFields,'create'));
+  await record('static-fields-page-2-1440',async()=>{
+    await tap(cee.getByRole('option',{name:'2',exact:true}).first());
+    await cee.getByRole('option',{name:'2',exact:true,selected:true}).first().waitFor();
+  });
+  // The corpus field's preferred label, which the editor shows in place of its name.
+  await record('attribute-value-1440',async()=>{await open(f.corpus.attributeValue,'create');await centre(cee.getByText(/^Attribute Value\b/));});
 }

@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 
-import {APPS, DESIGNER_STATES, requiredStates, catalogSha256} from './catalog.mjs';
-export const STATES = DESIGNER_STATES;
+import {APPS, requiredStates, catalogSha256} from './catalog.mjs';
+export const STATES = requiredStates('designer');
 
 export const hash = value => createHash('sha256').update(value).digest('hex');
 
