@@ -6,8 +6,7 @@
 export CEDAR_BIOPORTAL_REST_BASE="https://data.bioontology.org/"
 export CEDAR_BIOPORTAL_API_KEY="changeme-bbbb-cccc-dddd-eeeeeeeeeeee"
 
-#CEDAR Google Analytics Key - place your own key here if the site is publicly available
-export CEDAR_ANALYTICS_KEY="false"
+#CEDAR Google Analytics 4 tracking ID - place your own here if the site is publicly available
 export CEDAR_GA4_TRACKING_ID="false"
 
 #CEDAR NCI caDSR FTP Connection Settings - place your own data here

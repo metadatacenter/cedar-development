@@ -39,11 +39,5 @@
       "cedar-frontend-workspace",
       "cedar-frontend-template-designer"
     ]
-  },
-  "optionalImages": [
-    "cedar-admin-kibana",
-    "cedar-admin-phpmyadmin",
-    "cedar-admin-redis-commander",
-    "cedar-admin-tool"
-  ]
+  }
 }

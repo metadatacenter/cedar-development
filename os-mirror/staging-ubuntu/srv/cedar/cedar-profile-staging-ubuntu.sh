@@ -35,18 +35,10 @@ export CEDAR_FRONTEND_BEHAVIOR="server"
 export CEDAR_FRONTEND_TARGET="staging"
 
 #-------------------------------------------------
-# Frontend test settings
+# Frontend settings
 # CEDAR hostname for frontend connections 'CEDAR_FRONTEND_' + ${CEDAR_FRONTEND_TARGET} + '_...'
 export CEDAR_FRONTEND_staging_UI_HOST=${CEDAR_HOST}
 export CEDAR_FRONTEND_staging_REST_HOST=${CEDAR_HOST}
-
-export CEDAR_FRONTEND_staging_USER1_LOGIN="test1@test.com"
-export CEDAR_FRONTEND_staging_USER1_PASSWORD="test1"
-export CEDAR_FRONTEND_staging_USER1_NAME="Test User 1"
-
-export CEDAR_FRONTEND_staging_USER2_LOGIN="test2@test.com"
-export CEDAR_FRONTEND_staging_USER2_PASSWORD="test2"
-export CEDAR_FRONTEND_staging_USER2_NAME="Test User 2"
 
 #-------------------------------------------------
 # Unit test settings
@@ -58,5 +50,4 @@ export CEDAR_TEST_USER2_ID="https://metadatacenter.org/users/66666666-7777-8888-
 
 #----------------------------------------------------------
 # Development settings
-export CEDAR_DEV_USE_PRIVATE_REPOS="false"
 export CEDAR_DEV_BUILD_FRONTENDS="false"

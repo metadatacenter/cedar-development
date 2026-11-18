@@ -168,9 +168,11 @@ log_error_count() {
 # wrong on one of the two systems CEDAR runs on. Loopback accepts or refuses at once, so the timeout
 # the flag provided is not needed here.
 port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+# Beside its application port, a Dropwizard service listens on its admin port. A frontend listens
+# on no other port.
 auxiliary_ports() {
   local admin; admin=$(admin_port "$1")
-  [ "$admin" != 0 ] && printf '%s\n%s\n' "$admin" "$((admin+100))"
+  [ "$admin" != 0 ] && echo "$admin"
 }
 
 # Whoever is actually listening, pidfile or not. A listener is never assumed to be CEDAR merely

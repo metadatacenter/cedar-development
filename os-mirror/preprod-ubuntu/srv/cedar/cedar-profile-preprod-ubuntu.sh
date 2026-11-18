@@ -35,28 +35,11 @@ export CEDAR_FRONTEND_BEHAVIOR="server"
 export CEDAR_FRONTEND_TARGET="production"
 
 #-------------------------------------------------
-# Frontend test settings
+# Frontend settings
 # CEDAR hostname for frontend connections 'CEDAR_FRONTEND_' + ${CEDAR_FRONTEND_TARGET} + '_...'
 export CEDAR_FRONTEND_production_UI_HOST=${CEDAR_HOST}
 export CEDAR_FRONTEND_production_REST_HOST=${CEDAR_HOST}
 
-export CEDAR_FRONTEND_production_USER1_LOGIN="-"
-export CEDAR_FRONTEND_production_USER1_PASSWORD="-"
-export CEDAR_FRONTEND_production_USER1_NAME="-"
-
-export CEDAR_FRONTEND_production_USER2_LOGIN="-"
-export CEDAR_FRONTEND_production_USER2_PASSWORD="-"
-export CEDAR_FRONTEND_production_USER2_NAME="-"
-
-#-------------------------------------------------
-# Unit test settings
-# Test user 1
-export CEDAR_TEST_USER1_ID="-"
-
-# Test user 2
-export CEDAR_TEST_USER2_ID="-"
-
 #----------------------------------------------------------
 # Development settings
-export CEDAR_DEV_USE_PRIVATE_REPOS="false"
 export CEDAR_DEV_BUILD_FRONTENDS="false"

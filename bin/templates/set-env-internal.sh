@@ -78,8 +78,10 @@ export CEDAR_LOG_PRUNE_ENABLED="false"
 export CEDAR_NEO4J_USER_NAME="neo4j"
 export CEDAR_NEO4J_USER_PASSWORD="changeme"
 
-# Random string for API key generation - replace with a random string of your choice
-export CEDAR_SALT_API_KEY="changeme"
+# Servers derived each new account's API key from this salt until 3 September 2026, and have issued
+# random keys since. Only `cedarcli dev generate-api-key` reads it, to reproduce the key of an account
+# created before then. A deployment created after that date can leave it unset.
+#export CEDAR_SALT_API_KEY="changeme"
 
 # Certificat Authority data for self-signed certificates
 export CEDAR_CA_PASSWORD="changeme"

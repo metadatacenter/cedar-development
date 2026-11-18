@@ -34,7 +34,7 @@ test('a consumer directory is the repository joined to the manifest that declare
       {
         repository: 'cedar-bridging',
         id: 'bridging',
-        ceeConsumer: { manifest: 'cedar-bridging-src/package.json', legacyPeerDeps: true },
+        ceeConsumer: { manifest: 'cedar-bridging-src/package.json' },
       },
       { repository: 'cedar-content-distribution', id: 'content' },
     ],
@@ -48,8 +48,6 @@ test('a consumer directory is the repository joined to the manifest that declare
     'cedar-bridging/cedar-bridging-src',
     'cedar-component-demo/cedar-cee-demo-react',
   ]);
-  assert.equal(ceeConsumers(configPath)[1].legacyPeerDeps, true);
-  assert.equal(ceeConsumers(configPath)[0].legacyPeerDeps, false);
 });
 
 test('stable releases resolve from npmjs and dev releases use the scoped Nexus alias', () => {

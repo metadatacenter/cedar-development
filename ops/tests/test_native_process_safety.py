@@ -388,11 +388,17 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("CONFIG MISSING", result.stdout)
 
+    def test_the_only_auxiliary_port_is_a_dropwizard_service_admin_port(self):
+        result = self.run_library('auxiliary_ports ui-main; echo --; auxiliary_ports group')
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["--", "9109"], result.stdout.split())
+
     def test_auxiliary_stop_accepts_an_owner_that_exited_during_inspection(self):
         for command in ('', '[java] <defunct>'):
             with self.subTest(command=command):
                 result = self.run_library(
-                    'auxiliary_ports() { echo 9209; }; '
+                    'auxiliary_ports() { echo 9109; }; '
                     'port_owner() { echo 4242; }; '
                     f'process_command() {{ echo "{command}"; }}; '
                     'port_open() { return 1; }; '
@@ -408,7 +414,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
         # the library's own shell, alive for the whole run. The kill stub answers the -0 liveness
         # probe silently so the SIGNALLED assertion still catches a real signal.
         result = self.run_library(
-            'auxiliary_ports() { echo 9209; }; '
+            'auxiliary_ports() { echo 9109; }; '
             'port_owner() { echo $$; }; port_open() { return 0; }; '
             'process_command() { echo "python unrelated.py"; }; '
             'kill() { if [ "$1" = "-0" ]; then return 0; fi; echo SIGNALLED; }; '
@@ -420,7 +426,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
     def test_auxiliary_stop_rechecks_ownership_before_escalating(self):
         result = self.run_library(
-            'auxiliary_ports() { echo 9209; }; '
+            'auxiliary_ports() { echo 9109; }; '
             'port_owner() { if [ -f "$CEDAR_HOME/terminated" ]; then echo 4343; '
             'else echo 4242; fi; }; '
             'is_service_process() { [ "$2" = 4242 ]; }; '
@@ -435,7 +441,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
     def test_auxiliary_stop_waits_for_socket_release_after_kill(self):
         result = self.run_library(
-            'auxiliary_ports() { echo 9209; }; port_owner() { echo 4242; }; '
+            'auxiliary_ports() { echo 9109; }; port_owner() { echo 4242; }; '
             'is_service_process() { return 0; }; '
             'verified_listener_root() { echo "$2"; }; terminate_tree() { :; }; '
             'ticks=0; killed=0; '
@@ -448,7 +454,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
     def test_auxiliary_stop_still_fails_if_the_port_survives_kill(self):
         result = self.run_library(
-            'auxiliary_ports() { echo 9209; }; port_owner() { echo 4242; }; '
+            'auxiliary_ports() { echo 9109; }; port_owner() { echo 4242; }; '
             'is_service_process() { return 0; }; '
             'verified_listener_root() { echo "$2"; }; terminate_tree() { :; }; '
             'port_open() { return 0; }; sleep() { :; }; '
@@ -460,13 +466,13 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
     def test_start_refuses_a_stale_service_on_an_auxiliary_port(self):
         result = self.run_library(
-            'port_open() { [ "$1" = 9209 ]; }; auxiliary_ports() { echo 9209; }; '
+            'port_open() { [ "$1" = 9109 ]; }; auxiliary_ports() { echo 9109; }; '
             'port_owner() { echo 4242; }; is_service_process() { return 0; }; '
             'start_one group'
         )
 
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("stale CEDAR pid 4242 owns auxiliary port 9209", result.stderr)
+        self.assertIn("stale CEDAR pid 4242 owns auxiliary port 9109", result.stderr)
 
     def test_macos_start_submits_a_non_restarting_launchd_job(self):
         result = self.run_library(

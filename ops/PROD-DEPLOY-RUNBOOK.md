@@ -61,10 +61,12 @@ start as well.
 **In step 3, remove their variables from the host's own environment files.** `set-env-external.sh`
 and `set-env-internal.sh` in `$CEDAR_HOME` hold this installation's settings. Delete
 `CEDAR_NCBI_SRA_FTP_HOST`, `CEDAR_NCBI_SRA_FTP_USER`, `CEDAR_NCBI_SRA_FTP_PASSWORD`,
-`CEDAR_NCBI_SRA_FTP_DIRECTORY`, `CEDAR_IMMPORT_SUBMISSION_USER` and
-`CEDAR_IMMPORT_SUBMISSION_PASSWORD`, and every `CEDAR_SCHEMA_*`, `CEDAR_VALUERECOMMENDER_*` and
+`CEDAR_NCBI_SRA_FTP_DIRECTORY`, `CEDAR_IMMPORT_SUBMISSION_USER`,
+`CEDAR_IMMPORT_SUBMISSION_PASSWORD`, `CEDAR_DATAMED_TEMPLATE_ID`, `CEDAR_DATAMED_GROUP_ID` and
+`CEDAR_DATAMED_PERMISSION_TYPE`, and every `CEDAR_SCHEMA_*`, `CEDAR_VALUERECOMMENDER_*` and
 `CEDAR_SUBMISSION_*` variable the files set. The versioned profile no longer defines the servers'
-hosts and ports. Keep a copy of the deleted lines until the deploy passes Verify, because a
+hosts and ports. Delete `CEDAR_ANALYTICS_KEY` from `set-env-external.sh` as well. Nothing has read
+it since Universal Analytics left the frontends in September 2026. Keep a copy of the deleted lines until the deploy passes Verify, because a
 rollback runs the previous release, which needs them. The NCBI and ImmPort accounts behind those
 credentials then serve nothing in CEDAR. Retire them with their providers.
 

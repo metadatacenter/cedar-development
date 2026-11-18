@@ -662,9 +662,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   writes that list plus an `apiKeyMap` object keyed by the key value itself
   (`CypherParamBuilderUser.java:137`). Minting is random now, 32 bytes from a `SecureRandom`
   (`CedarUserUtil.java:19`), but keys created by deployments that predate that change were derived
-  and are still valid. The salt that derived them is dead configuration rather than a live secret:
-  `cedar-main.yml:297` fills `BlueprintDefaultAPIKey.getSalt()`, which nothing reads — only the
-  service name and description of that blueprint are used (`CedarUserUtil.java:50`).
+  and are still valid. No server holds the salt that derived them. It survives only as an optional
+  input to `cedarcli dev generate-api-key`, which reproduces such a key.
 
   **The decision is the verifier and the lookup, because they are one choice.** A hashed list cannot
   be matched with `IN`, so authentication needs either a deterministic keyed digest that can be
@@ -673,8 +672,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   identified as derived.
 
   Then inventory the existing key records, store a versioned non-reversible verifier, provide an
-  administrative migration and rotation command, revoke the legacy keys, delete the salt setting and
-  its environment variable, and confirm no backup or log carries a key. Done when no user node holds
+  administrative migration and rotation command, revoke the legacy keys, retire the salt input of
+  `cedarcli dev generate-api-key`, and confirm no backup or log carries a key. Done when no user node holds
   a key that can be read, authentication verifies without reversing one, and the rotation is
   recorded against the deployments it covered.
 

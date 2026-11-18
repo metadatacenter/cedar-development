@@ -2390,7 +2390,7 @@ TypeScript, while both emit the same bytes for it.
 
 - **A test fails with `Failed to bind to 0.0.0.0:90xx` while the dev stack is up** → that test boots
   its server on a real dev port instead of asking the OS for an isolated listener. Every booted test
-  must redirect its application, admin and stop ports through
+  must redirect its application and admin ports through
   `CedarEnvironmentSource.setOverride(...)` to `0`; obtain the allocated application port from
   `DropwizardTestSupport.getLocalPort()`. In-process HTTP stubs likewise bind to `127.0.0.1:0`, start,
   and then inject their allocated port. Port `1` is reserved for a dependency that must be

@@ -1,6 +1,5 @@
 {
   "schemaVersion": 1,
-  "mode": "advisory",
   "reason": "Post-optimization source references fixed on 2026-11-08; changes require a reviewed commit, never automatic replacement after a regression.",
   "components": {
     "cee": "bedf17dd6747af2c0dc48839678b2ecf48824989",
