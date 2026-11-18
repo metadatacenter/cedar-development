@@ -36,6 +36,16 @@ export const METADATA_TYPES = [
   ['doi','DOI'], ['number','Number'], ['date','Date'], ['controlled-term','Controlled term'],
 ];
 export const APPS = ['designer', 'workspace', 'metadata-editor'];
+// Browser profiles a capture can run under. The default drives Chromium with a mouse; the touch
+// profile drives WebKit as a touch device, where nothing can hover and every activation is a tap.
+export const PROFILES = {
+  chromium: {engine: 'chromium', context: {}},
+  'webkit-touch': {engine: 'webkit', context: {hasTouch: true, isMobile: true}},
+};
+export function profile(name = 'chromium') {
+  if (!PROFILES[name]) throw new Error('Unknown UI review browser profile: ' + name);
+  return PROFILES[name];
+}
 export const WIDTHS = [1440, 768, 375];
 const workspace = [
   ['empty-list','empty'], ['empty-grid','empty'], ['populated-list','listing'], ['next-page','pagination'],

@@ -1,6 +1,6 @@
-import {writeFile} from 'node:fs/promises';
+import {writeFile, rename} from 'node:fs/promises';
 import {join} from 'node:path';
-export async function captureState({page,directory,states,actions,flush,regions,fullPage=true}, id, note = '') {
+export async function captureState({page,directory,states,actions,flush,regions,pendingCrops=[],fullPage=true}, id, note = '') {
     if (!/^[a-z0-9-]+$/.test(id) || states.some(s => s.id === id)) throw new Error('Invalid or duplicate state ID');
     // Preserve hover/focus: moving the pointer for a screenshot can hide the very action
     // under review and make a subsequent click appear broken.
@@ -37,7 +37,6 @@ export async function captureState({page,directory,states,actions,flush,regions,
     }, regions);
     await writeFile(join(directory, metrics), JSON.stringify(geometry, null, 2));
     const crops = [];
-    const scroll = await page.evaluate(() => ({x: scrollX, y: scrollY}));
     const cards = page.locator('app-field-card');
     for (let i = 0; i < Math.min(await cards.count(), 3); i++) {
       if (!await cards.nth(i).isVisible()) continue;
@@ -50,9 +49,17 @@ export async function captureState({page,directory,states,actions,flush,regions,
       const height = Math.min(viewport.height, box.y + box.height) - y;
       if (width <= 0 || height <= 0) continue;
       const file = `${id}-card-${i + 1}.png`;
-      await page.screenshot({path: join(directory, file), clip: {x: x + scroll.x, y: y + scroll.y, width, height}});
+      // A viewport screenshot takes its clip in viewport coordinates, the frame boundingBox reports.
+      await page.screenshot({path: join(directory, file), clip: {x, y, width, height}});
       crops.push(file);
     }
+    // Focus crops taken while reaching this state are named after it, in traversal order.
+    for (const [index, file] of pendingCrops.entries()) {
+      const name = `${id}-focus-${index + 1}.png`;
+      await rename(join(directory, file), join(directory, name));
+      crops.push(name);
+    }
+    pendingCrops.length = 0;
     const regionsMatched = [...new Set(geometry.regions.map(region => region.selector))];
     states.push({id, note, screenshot, aria, metrics, crops, regionsMatched, cropCoverage: 'Visible viewport only; scroll explicitly to inspect below-fold content.', viewport: page.viewportSize(), actionCount: actions.length});
     await flush();

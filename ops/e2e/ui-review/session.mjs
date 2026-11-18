@@ -10,9 +10,9 @@ const base = process.env.CEDAR_DESIGNER_BASE || 'https://designer.metadatacenter
 if (!['designer.metadatacenter.orgx', 'localhost', '127.0.0.1'].includes(new URL(base).hostname))
   throw new Error('The Designer pilot requires the local development host');
 
-export async function openSession(directory) {
+export async function openSession(directory, options = {}) {
   await mkdir(directory, {recursive: true});
-  const shared = await openBrowserSession(directory, 'designer');
+  const shared = await openBrowserSession(directory, 'designer', options);
   const {page,context,browser,user:user1,action,capture,close} = shared;
   page.on('dialog', dialog => void dialog.accept());
   const params = new URLSearchParams({folderId: user1.profile.homeFolderId,

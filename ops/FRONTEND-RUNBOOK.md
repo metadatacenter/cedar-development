@@ -3371,7 +3371,11 @@ cedarcli test ui-review --app all --output /absolute/path/to/new-run
 ```
 
 `all` collects the three applications sequentially, keeping each app's evidence in its own named
-subdirectory. The root `index.html`, `summary.json` and `coverage.json` link and summarize the three
+subdirectory. Capture runs Chromium with a mouse by default. `--profile webkit-touch` captures the
+same catalog in WebKit as a touch device, where nothing can hover and every activation is a tap.
+Each packet records its profile and the browser engine that ran, and capture stops if the two
+disagree. Capture the touch profile after changes to phone or tablet layouts, and review it as a
+packet of its own. The root `index.html`, `summary.json` and `coverage.json` link and summarize the three
 packets. A failure in one application does not skip the others. A successful capture means evidence
 is ready for an independent reviewer; it does **not** mean the interface passed review.
 
@@ -3450,7 +3454,9 @@ Each application directory retains screenshots (Designer also includes card crop
 geometry (including labels and approximate intrinsic text widths), action records, cleanup results,
 an HTML evidence index, a coverage matrix, collector identity, duration, and `reviewer-brief.md`.
 The collector identity in `collector.json` hashes every review module and every local module it
-imports, and records the Playwright release. Workspace and Metadata Editor screenshots preserve the viewport; below-fold states require explicit scrolling.
+imports, and records the Playwright release. Every keyboard stop logs the focused control and, when it lies in
+the viewport, keeps a crop of it with its focus indicator, named `<state>-focus-<n>.png`. A stop
+outside the viewport is logged without a crop. Workspace and Metadata Editor screenshots preserve the viewport; below-fold states require explicit scrolling.
 Capture is not a design verdict. Supplemental sessions must name a template
 `UI review pilot <unique suffix>` before saving: the helper deliberately blocks writes to other names or existing unowned
 identifiers and records the reason in its action log. This guard is not a product/network failure.

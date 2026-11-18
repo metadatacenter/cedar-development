@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {join} from 'node:path';
 
 export async function listingReady(page, ids) {
   await page.locator('.table-scroll[aria-busy="false"]').waitFor();
@@ -28,17 +29,38 @@ export async function pointer(session,locator,{scroll=true}={}) {
   session.actions.push({label:'Displayed pointer target',control:label,...hit});await session.flush();
   assert(hit.belongs,`Displayed control is obstructed: ${label}`);
   assert(!hit.disabled,`Displayed control is disabled: ${label}`);
-  await session.page.mouse.click(hit.x,hit.y);
+  // A touch profile taps where a pointer profile clicks.
+  if(session.touch)await session.page.touchscreen.tap(hit.x,hit.y);else await session.page.mouse.click(hit.x,hit.y);
 }
-export async function keyboard(session,start) {
+// Tab through the page from a starting control. Each stop logs the focused element and, when it lies
+// in the viewport, keeps a crop of it with its focus indicator; the next capture names the crops
+// after its state. A stop outside the viewport is logged without a crop.
+export async function keyboard(session,start,{stops=12}={}) {
+  const {page}=session;
   await start.focus();
-  for(let i=0;i<12;i++){
-    await session.page.keyboard.press('Tab');
-    const focus=await session.page.evaluate(()=>{
+  for(let stop=1;stop<=stops;stop++){
+    await page.keyboard.press('Tab');
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const focus=await page.evaluate(()=>{
       let n=document.activeElement;while(n?.shadowRoot?.activeElement)n=n.shadowRoot.activeElement;
-      return {tag:n?.tagName,label:n?.getAttribute('aria-label')||n?.textContent?.trim().slice(0,100)};
+      const r=n?.getBoundingClientRect();
+      return {tag:n?.tagName,label:n?.getAttribute('aria-label')||n?.getAttribute('title')||n?.textContent?.trim().slice(0,100),
+        box:r&&r.width&&r.height?{x:r.x,y:r.y,width:r.width,height:r.height}:null,
+        viewport:{width:innerWidth,height:innerHeight}};
     });
-    session.actions.push({label:'Keyboard Tab',focus});
+    let cropped=false;
+    if(focus.box&&session.pendingCrops){
+      const pad=8,{box,viewport}=focus;
+      const x=Math.max(0,box.x-pad),y=Math.max(0,box.y-pad);
+      const width=Math.min(viewport.width,box.x+box.width+pad)-x,height=Math.min(viewport.height,box.y+box.height+pad)-y;
+      if(width>0&&height>0){
+        const file=`focus-pending-${session.pendingCrops.length+1}.png`;
+        // A viewport screenshot takes its clip in viewport coordinates, the same frame as the box.
+        await page.screenshot({path:join(session.directory,file),clip:{x,y,width,height}});
+        session.pendingCrops.push(file);cropped=true;
+      }
+    }
+    session.actions.push({label:'Keyboard Tab',stop,focus:{tag:focus.tag,label:focus.label,box:focus.box},inViewport:cropped});
   }
   await session.flush();
 }

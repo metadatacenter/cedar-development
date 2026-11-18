@@ -1,4 +1,4 @@
-import {pointer, setChecked} from './interactions.mjs';
+import {pointer, setChecked, keyboard} from './interactions.mjs';
 import {DESIGNER_TYPES, PREVIEWLESS_TYPES} from './catalog.mjs';
 
 export async function collectDesigner(session, record) {
@@ -112,6 +112,8 @@ export async function collectDesigner(session, record) {
     await record('saved', async () => {
       await click(page.locator('#save'));
       await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Saved');
+      // WebKit reports Saved before the address names the saved template; reopening needs that address.
+      await page.waitForURL(/\/templates\/edit\//);
     });
     await record('reopened', async () => {await page.reload(); await session.ready();});
     const interruptWrite = route => route.request().method() === 'PUT' ? route.abort('failed') : route.fallback();
@@ -138,7 +140,10 @@ export async function collectDesigner(session, record) {
     await record('nested', async () => {
       const insert = page.getByRole('button', {name: 'Add element here', exact: true}).last();
       await insert.scrollIntoViewIfNeeded();
-      await action('Reveal insertion actions by hovering their gap', () => insert.locator('..').locator('..').hover());
+      // A touch device cannot hover: tap the gap instead, as a phone user would.
+      const gap = insert.locator('..').locator('..');
+      if (session.touch) await action('Reveal insertion actions by tapping their gap', () => gap.tap());
+      else await action('Reveal insertion actions by hovering their gap', () => gap.hover());
       try {await action('Insert element using pointer', () => pointer(session, insert, {scroll: false}));}
       catch {
         await capture('nested-pointer-attempt', 'Pointer activation did not complete; keyboard activation follows.');
@@ -150,18 +155,7 @@ export async function collectDesigner(session, record) {
       await click(page.locator('app-field-type-picker').getByRole('button', {name: 'Text', exact: true}));
       await page.locator('input[aria-label="Enter field name"]:focus').fill('Visit notes');
     });
-    await record('keyboard', async () => {
-      await page.locator('.overview-toggle').focus();
-      for (let i = 0; i < 14; i++) {
-        await page.keyboard.press('Tab');
-        const focused = await page.evaluate(() => {
-          let node = document.activeElement;
-          while (node?.shadowRoot?.activeElement) node = node.shadowRoot.activeElement;
-          return {tag: node?.tagName, label: node?.getAttribute('aria-label') || node?.getAttribute('title') || node?.textContent?.trim().slice(0, 100)};
-        });
-        session.actions.push({label: 'Keyboard Tab', focused});
-      }
-    });
+    await record('keyboard', () => keyboard(session, page.locator('.overview-toggle'), {stops: 14}));
     // A fresh template holding one field of every type the picker offers: each card with its settings
     // open, then each field in Preview.
     await session.openNew();

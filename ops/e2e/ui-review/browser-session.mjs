@@ -1,16 +1,17 @@
 import {mkdir,readFile,writeFile,readdir,rm,rename} from 'node:fs/promises';
 import {join} from 'node:path';
-import {chromium} from 'playwright';
+import {chromium, webkit} from 'playwright';
 import {actors,call,enc,mintId,RESOURCE,USER_SERVER,HOST} from '../rest/lib.mjs';
 import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {fixtureAt} from '../journey-fixtures.mjs';
 import {FixtureLedger} from './lifecycle.mjs';
 import {captureState} from './evidence.mjs';
 import {hash} from './contract.mjs';
-import {regions} from './catalog.mjs';
+import {regions, profile as browserProfile} from './catalog.mjs';
 
 import {requireLocal,readOnlyResourcePost} from './guards.mjs';
-export async function openBrowserSession(directory, app) {
+export async function openBrowserSession(directory, app, {profile='chromium'}={}) {
+  const {engine,context:contextOptions}=browserProfile(profile);
   const base=app==='designer' ? process.env.CEDAR_DESIGNER_BASE||`https://designer.${HOST}` : process.env.CEDAR_WORKSPACE_BASE||`https://workspace.${HOST}`;
   for(const url of [base,RESOURCE,USER_SERVER])requireLocal(url);
   const lock=join(process.env.CEDAR_HOME,'.cedar/locks/ui-review-user1');
@@ -45,8 +46,8 @@ export async function openBrowserSession(directory, app) {
     const {user1:user}=await actors();
     const request=(...args)=>call(user.auth,...args);
     ledger=new FixtureLedger({request,persist:flush,mint:mintId,userPath:'/users/'+enc(user.profile['@id'].split('/').at(-1)),preferences:user.profile.uiPreferences,userBase:USER_SERVER});
-    browser=await chromium.launch({headless:true});
-    const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1440,height:1000}});
+    browser=await {chromium,webkit}[engine].launch({headless:true});
+    const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1440,height:1000},...contextOptions});
     const page=await context.newPage();page.setDefaultTimeout(15000);
     page.on('pageerror',e=>runtimeErrors.push(e.message));
     page.on('console',m=>{if(m.type()==='error'){const expected=expectedNetworkFailures.size>0&&/^Failed to load resource: net::ERR_FAILED$/.test(m.text());consoleMessages.push({text:m.text(),expected,reason:expected?[...expectedNetworkFailures]:[]});if(!expected)runtimeErrors.push(m.text());}});
@@ -78,7 +79,8 @@ export async function openBrowserSession(directory, app) {
       await page.getByRole('button',{name:'New',exact:true}).waitFor();
       await page.locator('.table-scroll[aria-busy="false"]').waitFor();
     });}
-    const capture=(id,note)=>captureState({page,directory,states,actions,flush,regions:regions(app),fullPage:false},id,note);
+    const pendingCrops=[];
+    const capture=(id,note)=>captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false},id,note);
     async function servedEvidence(){
       const root=join(process.env.CEDAR_HOME,'cedar-workspace/app');
       const files=(await readdir(join(root,'workspace-build'),{recursive:true})).filter(f=>/\.(js|css|html)$/.test(f)).map(f=>'workspace-build/'+f);
@@ -92,6 +94,6 @@ export async function openBrowserSession(directory, app) {
       return {verified:verified.sort((a,b)=>a.file.localeCompare(b.file)),browser:browser.version()};
     }
     await flush();
-    return {page,context,base,user,ledger,browser,expectedNetworkFailures,put:ledger.put.bind(ledger),request,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
+    return {page,context,base,user,ledger,browser,directory,pendingCrops,profile,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
   } catch(error){await close();throw error;}
 }

@@ -3,7 +3,7 @@ import {join,resolve,isAbsolute,dirname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {hash,validateReview,verdict,acceptanceBlockers} from './contract.mjs';
-import {APPS,requiredStates,scenarios,regions,coverageFor,unmatchedRegions,catalogSha256} from './catalog.mjs';
+import {APPS,PROFILES,profile as browserProfile,requiredStates,scenarios,regions,coverageFor,unmatchedRegions,catalogSha256} from './catalog.mjs';
 import {reviewerBrief,reportHtml} from './report.mjs';
 
 export function selectApps(app='designer') {
@@ -79,7 +79,7 @@ export async function collectorIdentity(){
   }
   return {sources:ordered,playwright,fixtureData};
 }
-async function collect(directory,app) {
+async function collect(directory,app,profile='chromium') {
   const collectorBefore=await collectorIdentity();
   const started=Date.now(),provenance=JSON.parse(await readFile(join(directory,'provenance.json'),'utf8'));
   let session,served=null,servedVerified=false;
@@ -89,8 +89,10 @@ async function collect(directory,app) {
     catch(error){incomplete.push({state:id,error:error.message});console.error(`INCOMPLETE ${app}/${id}: ${error.message.split('\n')[0]}`);await session.capture(id+'-unreached','Requested interaction did not complete.').catch(()=>{});throw error;}
   };
   try {
-    const opener=app==='designer'?(await import('./session.mjs')).openSession:(await import('./browser-session.mjs')).openBrowserSession;
-    session=await opener(directory,app);
+    session=app==='designer'?await (await import('./session.mjs')).openSession(directory,{profile})
+      :await (await import('./browser-session.mjs')).openBrowserSession(directory,app,{profile});
+    // The packet names its profile, so the browser that actually ran must be that profile's engine.
+    if(session.engine!==browserProfile(profile).engine)throw new Error(`Capture ran ${session.engine}, not the ${profile} profile's ${browserProfile(profile).engine}`);
     served=await session.servedEvidence();
     execFileSync(process.env.CEDAR_HOME+'/cedar-cli/.venv/bin/python',
       [process.env.CEDAR_HOME+'/cedar-development/ops/frontend_reactor_runtime.py','verify',process.env.CEDAR_HOME,
@@ -121,11 +123,11 @@ async function collect(directory,app) {
   await writeJson(join(directory,'collector.json'),{catalogSha256:catalogSha256(app),...collectorSources,scenarios:scenarios(app),regions:regions(app)});
   const files={};
   for(const file of (await readdir(directory)).filter(f=>/\.(png|json|yml)$/.test(f)))files[file]=hash(await readFile(join(directory,file)));
-  const result={schemaVersion:1,app,catalogSha256:catalogSha256(app),provenance,served,servedVerified,states,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
+  const result={schemaVersion:1,app,profile,engine:session?.engine??null,catalogSha256:catalogSha256(app),provenance,served,servedVerified,states,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
   const raw=JSON.stringify(result,null,2)+'\n';
   await writeFile(join(directory,'capture.json'),raw);
   await writeJson(join(directory,'coverage.json'),coverageFor(result));
-  await writeFile(join(directory,'reviewer-brief.md'),reviewerBrief(hash(raw),app));
+  await writeFile(join(directory,'reviewer-brief.md'),reviewerBrief(hash(raw),app,profile));
   await writeFile(join(directory,'index.html'),reportHtml(result));
   const {captureCalibration}=await import('./calibration.mjs');await captureCalibration(join(directory,'calibration'));
   console.log(`${app}: captured ${requiredStates(app).filter(id=>states.some(s=>s.id===id)).length}/${requiredStates(app).length} states in ${result.durationSeconds}s; awaiting independent review. ${directory}`);
@@ -133,10 +135,11 @@ async function collect(directory,app) {
 }
 export async function main(args=process.argv.slice(2)) {
   const option=key=>args.find(a=>a.startsWith('--'+key+'='))?.slice(key.length+3);
-  const app=option('app')??'designer',apps=selectApps(app);
+  const app=option('app')??'designer',apps=selectApps(app),profile=option('profile')??'chromium';
+  browserProfile(profile);
   const modes=[args.includes('--plan'),args.includes('--capture'),args.includes('--seal-review'),!!option('review')];
   if(modes.filter(Boolean).length!==1)throw new Error('Choose one of --plan, --capture, --seal-review or --review=PATH');
-  if(modes[0]){console.log(JSON.stringify({applications:apps.map(app=>({app,scenarios:scenarios(app)})),workflow:'capture → fresh independent review → seal → concealed calibration → validate',scope:'Local temporary fixtures; no product edits. Coverage omissions cannot pass.'},null,2));return 0;}
+  if(modes[0]){console.log(JSON.stringify({applications:apps.map(app=>({app,scenarios:scenarios(app)})),profiles:Object.keys(PROFILES),workflow:'capture → fresh independent review → seal → concealed calibration → validate',scope:'Local temporary fixtures; no product edits. Coverage omissions cannot pass.'},null,2));return 0;}
   if(!option('output'))throw new Error('--output is required');
   const output=resolve(option('output')),results=[];
   for(const selected of apps){
@@ -145,7 +148,7 @@ export async function main(args=process.argv.slice(2)) {
       if(modes[1]){
         if(app==='all'){await mkdir(directory);await writeFile(join(directory,'provenance.json'),await readFile(join(output,'provenance.json')));}
         const existing=await readdir(directory);if(existing.some(f=>f!=='provenance.json'))throw new Error('Refusing to overwrite existing capture evidence');
-        results.push({app:selected,code:await collect(directory,selected)});
+        results.push({app:selected,code:await collect(directory,selected,profile)});
       }else if(modes[2]){
         const {sealReview}=await import('./calibration.mjs');console.log(JSON.stringify(await sealReview(directory)));results.push({app:selected,code:0});
       }else results.push({app:selected,code:await validate(directory,selected,app==='all'?join(resolve(option('review')),selected,'review.json'):resolve(option('review')))});

@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,readFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {selectApps,evidencePath,verifyFiles,main,collectorIdentity} from './run.mjs';
-import {APPS,requiredStates,coverageFor,catalogSha256} from './catalog.mjs';
+import {APPS,PROFILES,profile,requiredStates,coverageFor,catalogSha256} from './catalog.mjs';
 import {hash,acceptanceBlockers} from './contract.mjs';
 test('selectors use the maintained application catalogs and default to Designer',()=>{
   assert.deepEqual(selectApps(),['designer']);assert.deepEqual(selectApps('all'),APPS);
@@ -63,4 +63,10 @@ test('collector identity covers imported helpers and the Playwright release, not
   for(const key of ['ui-review/run.mjs','ui-review/calibration.mjs','rest/lib.mjs','auth-activity.mjs','journey-fixtures.mjs'])assert(key in sources,key);
   assert(!Object.keys(sources).some(key=>/test\.mjs$/.test(key)));
   assert.match(playwright,/^\d+\.\d+\.\d+/);
+});
+test('browser profiles name an engine and refuse unknown names',()=>{
+  assert.equal(profile().engine,'chromium');
+  assert.deepEqual(profile('webkit-touch'),{engine:'webkit',context:{hasTouch:true,isMobile:true}});
+  assert.throws(()=>profile('firefox-touch'),/Unknown UI review browser profile/);
+  assert(Object.values(PROFILES).every(p=>['chromium','webkit'].includes(p.engine)));
 });
