@@ -50,8 +50,10 @@ test('keyboard stops keep a crop of each focused control, named after the next s
     const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
     return [...context.getImageData(Math.floor(image.width / 2), Math.floor(image.height / 2), 1, 1).data].slice(0, 3);
   }, 'data:image/png;base64,' + png.toString('base64'));
+  // Engines shade a focused control differently, so test its hue: the white page that sits at the same
+  // viewport position before scrolling has none.
   const [red, green, blue] = centre;
-  assert(red > 100 && green < 40 && blue < 40, `crop centre ${centre} is not the red control`);
+  assert(red > green + 30 && red > blue + 30, `crop centre ${centre} is not the red control`);
 });
 
 test('a touch profile activates a control by tapping its displayed position', async t => {
