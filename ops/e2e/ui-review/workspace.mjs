@@ -115,6 +115,42 @@ export async function collectWorkspace(session,record) {
       await tap(dialog.getByRole('button',{name:'Apply',exact:true}));await listingReady(page,[f.mixedTemplate]);
     },'The type filter removes every row but the template.');
     await tap(clearType);await listingReady(page,f.mixedIds);
+    // Each dialog a row's actions open, left unconfirmed so the fixtures stay as they are.
+    await tap(button('List view'));await listingReady(page,f.mixedIds);
+    const openDialog=page.locator('dialog[open]').first();
+    const settled=()=>page.locator('dialog[open]:not([aria-busy="true"])').first().waitFor();
+    const picker=async()=>{await settled();await openDialog.locator('.folder-picker .breadcrumbs [aria-current="location"]').waitFor();};
+    const idle=()=>openDialog.locator('.dialog-close:not([disabled])').waitFor();
+    const rowAction=async(id,label)=>{
+      await page.locator('.table-scroll').evaluate(n=>{n.scrollLeft=n.scrollWidth;});
+      await tap(page.locator(`[data-resource-id="${id}"]`).getByRole('button',{name:/^Actions for/}));
+      await tap(page.locator('#resource-menu').getByRole('button',{name:label,exact:true}));
+      await openDialog.waitFor();
+    };
+    const leave=async()=>{await page.keyboard.press('Escape');await page.locator('dialog[open]').first().waitFor({state:'hidden'});};
+    for(const [scenario,label,id,ready] of [['rename-dialog','Rename',f.mixedTemplate,()=>openDialog.getByRole('textbox').first().waitFor()],
+      ['copy-dialog','Copy',f.mixedTemplate,picker],['move-dialog','Move',f.mixedTemplate,picker],
+      ['permissions-dialog','Permissions…',f.mixedTemplate,idle],['publish-dialog','Publish',f.mixedTemplate,settled],
+      ['delete-dialog','Delete',f.mixedTemplate,settled],['folder-delete-dialog','Delete',f.mixedIds[0],idle]]){
+      await r(scenario,async()=>{await rowAction(id,label);await ready();});
+      await leave();
+    }
+    if(width!==768){
+      const reason='Deliberately refused rename',refuse=route=>route.fulfill({status:403,json:{message:'Forbidden'}});
+      let original='';
+      await record(`rename-refused-${width}`,async()=>{
+        await rowAction(f.mixedTemplate,'Rename');
+        const name=openDialog.getByRole('textbox').first();await name.waitFor();original=await name.inputValue();
+        session.expectedNetworkFailures.add(reason);await page.route('**/command/rename-resource',refuse);
+        try{
+          await name.fill('Specimen template renamed');
+          await tap(openDialog.locator('button.primary[type="submit"]'));
+          await openDialog.getByRole('alert').first().waitFor();
+        }finally{await page.unroute('**/command/rename-resource',refuse);session.expectedNetworkFailures.delete(reason);}
+      },'The harness answered this rename with 403 to show how the dialog reports a refusal; the name is unchanged.');
+      // The dialog asks before discarding a changed name, so the original goes back before closing.
+      await openDialog.getByRole('textbox').first().fill(original);await leave();
+    }
     for(const kind of ['short','long','nested']){
       await r('preview-'+kind,()=>preview(f[kind]));
       if(kind==='nested'){

@@ -66,6 +66,8 @@ const workspace = [
   ['keyboard','keyboard'], ['reloaded','navigation'], ['breadcrumb-return','navigation'],
   ['template-details','navigation'], ['search','search'], ['home','navigation'],
   ['mixed-list','listing'], ['mixed-grid','listing'], ['mixed-filtered','filters'],
+  ['rename-dialog','dialogs'], ['copy-dialog','dialogs'], ['move-dialog','dialogs'], ['permissions-dialog','dialogs'],
+  ['publish-dialog','dialogs'], ['delete-dialog','dialogs'], ['folder-delete-dialog','dialogs'],
   ['preview-short','preview'], ['preview-long','preview'], ['preview-nested','preview'], ['preview-tryout','preview'], ['preview-return','preview'],
 ];
 // States collected at one width only, where an earlier review found the width mattered.
@@ -73,6 +75,8 @@ const workspaceOnce = [
   {id:'new-folder-dialog-keyboard-375',scenario:'new-folder-dialog-keyboard',category:'keyboard',width:375},
   {id:'new-folder-dialog-escaped-375',scenario:'new-folder-dialog-escaped',category:'keyboard',width:375},
   {id:'type-instance-checked-375',scenario:'type-instance-checked',category:'pointer',width:375},
+  {id:'rename-refused-1440',scenario:'rename-refused',category:'failure',width:1440},
+  {id:'rename-refused-375',scenario:'rename-refused',category:'failure',width:375},
   {id:'both-panels-768',scenario:'both-panels',category:'composition',width:768},
   {id:'paging-overlap-768',scenario:'paging-overlap',category:'pointer',width:768},
 ];
