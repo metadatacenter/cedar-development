@@ -135,6 +135,32 @@ export async function collectDesigner(session, record) {
       await click(page.locator('#check-save'));
       await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Modified');
     });
+    // A save the server refuses with a validation report, then the retained draft that carries its
+    // findings through a reload, as the restored-validation journey exercises them.
+    const findingsReason = 'Deliberately refused temporary-template save';
+    const refuseSave = route => route.request().method() === 'PUT' ? route.fulfill({status: 400, json: {message: 'Validation failed',
+      objects: {validationReport: {errors: [{location: '/schema:description', message: 'Describe the template before saving it.'}], warnings: []}}}})
+      : route.fallback();
+    await record('server-findings', async () => {
+      session.expectedNetworkFailures.add(findingsReason);
+      await page.route('**/templates/**', refuseSave);
+      try {
+        await page.getByPlaceholder('Add description...', {exact: true}).first().fill('Rejected description');
+        await click(page.locator('#save'));
+        await page.locator('#server-issues').waitFor();
+      } finally {await page.unroute('**/templates/**', refuseSave); session.expectedNetworkFailures.delete(findingsReason);}
+    }, 'The harness answered this save with a validation report to show how the Designer presents server findings.');
+    await record('server-findings-expanded', () => click(page.locator('#server-issues summary')));
+    await record('draft-offered', async () => {
+      await page.waitForFunction(() => Object.values(sessionStorage).some(raw => raw.includes('Rejected description')));
+      await page.reload();
+      await page.getByRole('button', {name: 'Restore draft', exact: true}).waitFor();
+    }, 'Reloading with unsaved changes.');
+    await record('draft-restored', async () => {
+      await click(page.getByRole('button', {name: 'Restore draft', exact: true}));
+      await page.locator('#server-issues').waitFor();
+      await card().waitFor();
+    });
     await record('last-field-removed', () => click(card().getByTitle('Delete field', {exact: true})));
     await record('removed-panel-a', () => toggle('overview'));
     await record('removed-panel-b', () => toggle('overview'));
@@ -166,7 +192,16 @@ export async function collectDesigner(session, record) {
     await page.setViewportSize({width: 1440, height: 1000});
     await setPreview(false);
     await page.getByPlaceholder('Template name', {exact: true}).fill('UI review pilot ' + Date.now() + ' field types');
-    for (const [, label] of DESIGNER_TYPES) await session.addField(label, label + ' sample');
+    await record('field-type-picker', async () => {
+      await click(page.getByRole('button', {name: /^Add field$/}).last());
+      await page.locator('app-field-type-picker').getByRole('button', {name: DESIGNER_TYPES[0][1], exact: true}).waitFor();
+    }, 'The picker adding a field opens, on a new template.');
+    await action(`Add ${DESIGNER_TYPES[0][1]} field from the open picker`, async () => {
+      await click(page.locator('app-field-type-picker').getByRole('button', {name: DESIGNER_TYPES[0][1], exact: true}));
+      const input = page.locator('input[aria-label="Enter field name"]:focus');
+      await input.fill(DESIGNER_TYPES[0][1] + ' sample'); await input.press('Tab');
+    });
+    for (const [, label] of DESIGNER_TYPES.slice(1)) await session.addField(label, label + ' sample');
     for (const [index, [slug]] of DESIGNER_TYPES.entries()) {
       const typed = page.locator('app-field-card').nth(index);
       await record('type-' + slug, async () => {
@@ -225,6 +260,15 @@ export async function collectDesigner(session, record) {
     for (const [slug, label] of DESIGNER_TYPES.filter(([slug]) => !PREVIEWLESS_TYPES.includes(slug)))
       await record('type-' + slug + '-preview', () => previewOf(slug, label).first().evaluate(element => element.scrollIntoView({block: 'center'})));
 
+    // An address no template has: the server answers 404 and the Designer reports it cannot load.
+    const missingReason = 'Opening a template identifier no artifact has';
+    await record('missing-template', async () => {
+      session.expectedNetworkFailures.add(missingReason);
+      try {
+        await page.goto(new URL('/templates/edit/' + encodeURIComponent('https://repo.metadatacenter.orgx/templates/00000000-0000-4000-8000-000000000000'), page.url()).href);
+        await page.waitForFunction(() => document.getElementById('state')?.textContent === 'Unable to load');
+      } finally {session.expectedNetworkFailures.delete(missingReason);}
+    });
     // The saved template, shown with the browser's default text size doubled.
     await textSizeStates(session, record, async () => {await page.goto(savedUrl); await session.ready();});
 }

@@ -13,7 +13,9 @@ export const DESIGNER_STATES = [
   'required-configuration-1100', 'required-configuration-768', 'required-configuration-375',
   'required-overview-1440', 'required-overview-768',
   'saved', 'reopened', 'save-unconfirmed', 'save-status-checked',
-  'last-field-removed', 'removed-panel-a', 'removed-panel-b', 'keyboard',
+  'server-findings', 'server-findings-expanded', 'draft-offered', 'draft-restored',
+  'last-field-removed', 'removed-panel-a', 'removed-panel-b', 'keyboard', 'field-type-picker',
+  'missing-template',
 ];
 // Every type the Designer's field picker offers, by state slug and picker label. Rich Text renders
 // nothing in Preview until given content, and Page Break shows only as the Preview's page selector,
