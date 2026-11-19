@@ -64,12 +64,17 @@ usage() {
   exit 2
 }
 
-# Build the classpath once and reuse it. Rebuilt when the POM is newer, which is
-# the only thing that changes it.
+# Compile the library when its classes are missing or older than any source or resource
+# under src/main, so a verdict never comes from classes built before the checkout last
+# changed. A stamp written after each compile records when the classes were current.
+# The dependency classpath is built once and reused, and rebuilt when the POM is newer,
+# which is the only thing that changes it.
+STAMP="$LIB/target/validator-classes.stamp"
 ensure_classpath() {
-  if [[ ! -d $CLASSES ]]; then
+  if [[ ! -d $CLASSES || ! -f $STAMP || -n $(find "$LIB/src/main" "$LIB/pom.xml" -newer "$STAMP" -print -quit) ]]; then
     echo "building $LIB ..." >&2
     (cd "$LIB" && JAVA_HOME="$JAVA_HOME" mvn -q -DskipTests compile) || exit 2
+    touch "$STAMP"
   fi
   if [[ ! -f $CP_FILE || $LIB/pom.xml -nt $CP_FILE ]]; then
     echo "resolving dependency classpath ..." >&2

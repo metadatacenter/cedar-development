@@ -465,3 +465,47 @@ the bounded pickers, a preference round trip across a reload, and content preser
 and under a restricted profile. CED must never allocate identities or versions when the host
 replaces the artifact or supplies an editable draft. Add a test for the move from read-only
 published content to a host-supplied editable document that asserts this.
+
+## Independent UI Review
+
+### 12. Agree the Workspace Long-Path Tablet Layout
+
+- Develop and agree a more legible tablet arrangement for very long ancestor paths with both panels
+  explicitly open. The center column is about 238 pixels and requires extra scrolling. Preserve
+  full ancestor names and explicit panel control; do not automatically hide information or panels.
+
+The sealed review evidence and this proposal are linked from the frontend runbook. Any
+approved change needs rendered review, relevant regression checks and current-source acceptance.
+
+### 13. Resolve the Remaining Intermittent Browser Timing Failures
+
+- Capture correlated browser responsiveness, server request/event-loop timings, and host/container
+  CPU and memory pressure when CEE readiness/navigation or Workspace navigation next stalls.
+  The historical traces do not establish which layer delayed execution; do not attribute them to
+  competing Java builds from coincidence alone.
+- Investigate CED's read-only settings-tab inspection separately from startup. Its failure occurs
+  after the application is interactive and outline navigation has selected a field. Retain the
+  complete trace and click/scroll/settings-state sequence on recurrence.
+
+Preserve the existing deadlines, zero-retry policy and assertions. Controlled resource-starvation
+experiments can validate diagnostic signals but cannot establish the cause of an earlier failure.
+The frontend runbook links the retained evidence and the instrumented reproduction fixtures.
+
+### 14. Capture the Remaining Workspace Screens
+
+- The UI review catalog holds no state for sharing and permissions, moving, renaming and editing
+  descriptions, the folder and selection deletion dialogs, the version picker, drag and drop, the
+  groups, profile, settings and messaging pages, toasts or write-failure recovery. Each is a screen
+  a user reaches in ordinary work, and each has a source module in `cedar-workspace`.
+- Add them to the catalog and the Workspace collector with fixtures the review owns. Sharing needs
+  a second test account, so the collector must hold that account's lock as well, and it must never
+  change sharing on anything outside its own fixtures.
+
+### 15. Capture Failure, Refusal and Loading States
+
+- Apart from the Designer's interrupted save, the catalog captures only successful paths. Add save
+  failures and refusals (a conflict, a permission denial, a validation refusal), an unreachable
+  backend and slow loading for Workspace and the Metadata Editor.
+- Induce each condition by routing requests in the review browser, as the interrupted save does,
+  never by changing the stack, and say in the state's note that the harness caused it, so the
+  reviewer judges the product's handling rather than the cause.

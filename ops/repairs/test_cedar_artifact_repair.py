@@ -1395,8 +1395,29 @@ class EmptyOrphanPropertyMappingTest(unittest.TestCase):
         self.assertEqual(["/properties/Element/items/properties/@context/properties/Gone"],
                          [change["path"] for change in changes])
         self.assertIsNone(REPAIR.only_dropped_empty_orphan_property_mappings(template, after))
-        self.assertEqual("/", REPAIR.only_dropped_empty_orphan_property_mappings(template, template))
+        self.assertEqual("/properties/Element/items/properties/@context/properties/Gone",
+                         REPAIR.only_dropped_empty_orphan_property_mappings(template, template))
         self.assertIn("drop-empty-orphan-property-mapping", REPAIR.REPAIRS)
+
+    def test_the_invariant_names_any_other_change(self):
+        # The invariant once re-ran the transform, so in a run it compared the transform's output with
+        # itself. A transform that also dropped the nested @context.required passed.
+        template = {"@id": "https://repo.example/templates/t", "properties": {
+            "@context": {"properties": {"Element": {"enum": ["https://schema.example/e"]}}},
+            "Element": self.element()}}
+        after, _changes = REPAIR.drop_empty_orphan_property_mappings(template)
+        context = "/properties/Element/items/properties/@context"
+        for pointer, tamper in (
+                (context + "/required", lambda d: d["properties"]["Element"]["items"]["properties"]["@context"].pop("required")),
+                (context + "/properties/Orphan with an IRI", lambda d: d["properties"]["Element"]["items"]["properties"]
+                    ["@context"]["properties"].pop("Orphan with an IRI")),
+                (context + "/properties/Named empty", lambda d: d["properties"]["Element"]["items"]["properties"]
+                    ["@context"]["properties"].pop("Named empty")),
+                ("/schema:name", lambda d: d.update({"schema:name": "Renamed"}))):
+            with self.subTest(pointer=pointer):
+                tampered = copy.deepcopy(after)
+                tamper(tampered)
+                self.assertEqual(pointer, REPAIR.only_dropped_empty_orphan_property_mappings(template, tampered))
 
 
 if __name__ == "__main__":
@@ -3182,7 +3203,48 @@ class NarrowOntologyConstraintTest(unittest.TestCase):
         after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
         renamed = copy.deepcopy(after)
         renamed["schema:name"] = "Renamed"
-        self.assertIsNotNone(REPAIR.only_narrowed_ontology_constraint(doc, renamed))
+        self.assertEqual("/schema:name", REPAIR.only_narrowed_ontology_constraint(doc, renamed))
+        loosened = copy.deepcopy(after)
+        loosened["properties"]["mediaType"]["_valueConstraints"]["multipleChoice"] = True
+        self.assertEqual("/properties/mediaType/_valueConstraints/multipleChoice",
+                         REPAIR.only_narrowed_ontology_constraint(doc, loosened))
+
+    def test_the_invariant_does_not_rerun_the_transform(self):
+        # In a run the invariant judges the transform's own output. One that re-ran the transform
+        # compared that output with itself, and a transform that moved the wrong entry passed.
+        other = {"uri": "https://data.bioontology.org/ontologies/NCIT", "acronym": "NCIT",
+                 "name": "National Cancer Institute Thesaurus"}
+        doc = template({"mediaType": ontology_constrained(extra_entries=(other,))})
+        self.plan(doc)
+        after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        wrong = copy.deepcopy(after)
+        wrong["properties"]["mediaType"]["_valueConstraints"]["ontologies"] = \
+            [doc["properties"]["mediaType"]["_valueConstraints"]["ontologies"][0]]
+        self.assertEqual("/properties/mediaType/_valueConstraints/ontologies",
+                         REPAIR.only_narrowed_ontology_constraint(doc, wrong))
+        self.assertEqual("/properties/mediaType/_valueConstraints/ontologies",
+                         REPAIR.only_narrowed_ontology_constraint(doc, doc))
+        # A number spelled differently is a change, though Python's == calls 1 and True equal.
+        flagged = copy.deepcopy(after)
+        flagged["properties"]["mediaType"]["_valueConstraints"]["branches"][0]["maxDepth"] = True
+        doc["properties"]["mediaType"]["_valueConstraints"]["branches"] = []
+        REPAIR.BRANCHES[doc["@id"]][self.PATH]["maxDepth"] = 1
+        self.assertIsNotNone(REPAIR.only_narrowed_ontology_constraint(doc, flagged))
+
+    def test_two_entries_of_one_list_are_the_entries_the_stored_body_holds_there(self):
+        second = {"uri": "https://data.bioontology.org/ontologies/NCIT", "acronym": "NCIT",
+                  "name": "National Cancer Institute Thesaurus"}
+        third = {"uri": "https://data.bioontology.org/ontologies/EDAM", "acronym": "EDAM", "name": "EDAM"}
+        doc = template({"mediaType": ontology_constrained(extra_entries=(second, third))})
+        other_branch = dict(BRANCH, uri="https://w3id.org/gdmt/Other")
+        REPAIR.BRANCHES[doc["@id"]] = {self.PATH: dict(BRANCH),
+                                       "/properties/mediaType/_valueConstraints/ontologies/1": other_branch}
+        after, changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        constraints = after["properties"]["mediaType"]["_valueConstraints"]
+        self.assertEqual(constraints["ontologies"], [third])
+        self.assertEqual(constraints["branches"], [BRANCH, other_branch])
+        self.assertEqual([change["replaced"]["acronym"] for change in changes], ["GDMT", "NCIT"])
+        self.assertIsNone(REPAIR.only_narrowed_ontology_constraint(doc, after))
 
 
 class DropUnusablePreviousVersionTest(unittest.TestCase):

@@ -877,7 +877,8 @@ The controls wait on the backend meaning of both actions, which item 5 settles.
    `termDefaultLanguage` if a field may hold values in several languages and the key only sets the default
    (name to be decided). On the read side it maps to the `lang=` the editor/CEE already sends to the
    terminology server (item 11); mostly a spec + editor addition, orthogonal to
-   [the identity question](#2-is-the-content-identity-label-choice-correct).
+   [the identity question](#2-is-the-content-identity-label-choice-correct). Once the key exists, the
+   term picker sends its language as `lang`.
 - **13. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
    ontology's display name from BioPortal's metadata, then from its own `owl:Ontology` header title, then
    the acronym — and never downgrades a set name back to the acronym on re-ingest. That leaves the
@@ -1146,10 +1147,15 @@ POST /search
     { "sourceSystem": "agroportal", "sourceAcronym": "AGROVOC" }
   ],
   "lang": "fr",
-  "page": 1,
-  "pageSize": 20
+  "limit": 20
 }
 ```
+
+A request pages each type's block either by `limit` and `offset`, as the picker sends them, or by
+`page` and `pageSize`. The server refuses a request that sends both. The picker sends an `offset`
+only past the first page, so this request asks for the first twenty. Each block of the answer states
+its page by number, as `page` and `pageSize`, and by `limit` and `offset` in its `request`, which the
+example below leaves out.
 
 A source may be named once. A hit carries the addressing pair and no version of its own, so the
 same acronym at two versions would leave every hit from it unable to say which one answered; the
@@ -1235,6 +1241,13 @@ descendants at 24.01e, and 20 and 321 at 26.07d.
 terms are imported across ontologies. `path` runs root first and is absent where the term is a root of its
 ontology — 1.8 million of the index's 13.9 million terms are. `children` is alphabetical and capped
 at fifty, with `childCount` saying how many there are in all.
+
+`type` names the constraint type the term is asked about. `class` and `branch` read the same tree,
+and so does a request without it. `valueSet` asks about a value set, whose children are its values.
+The source must then be a value-set collection, and the release must hold the IRI with values below
+it, because a value of the collection and a class of an ontology are terms a release holds as well.
+The picker asks this of a value set pinned to a release before it records the pick, as it checks a
+pinned class or branch against the tree it reads.
 
 The index is never read for a tree. It holds one parent a term, which is enough for the step a
 search row names, and a tree drawn from it left a term with several parents out of every parent but

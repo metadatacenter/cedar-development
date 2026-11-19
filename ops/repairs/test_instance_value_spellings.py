@@ -4,7 +4,10 @@ Covers write-date-as-iso, restamp-declared-value-type, write-link-as-iri, empty-
 the label-only case of settle-instance-term-label. Every case also checks that an instance's own
 provenance, its modification date above all, comes through untouched.
 """
+import contextlib
 import copy
+import io
+import tempfile
 import unittest
 
 import cedar_artifact_repair as r
@@ -12,6 +15,20 @@ import cedar_artifact_repair as r
 TEMPLATE_AT_TYPE = "https://schema.metadatacenter.org/core/Template"
 TEMPLATE_ID = "https://repo.metadatacenter.org/templates/t"
 PROVENANCE = ("pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy")
+
+
+def refusal(test, argv):
+    """What main says as it refuses ``argv``, given a key file.
+
+    Without a key main also stops, for want of one, so a guard's test that passed no key would pass
+    with the guard removed."""
+    with tempfile.NamedTemporaryFile("w", suffix=".key") as key:
+        key.write("test-key\n")
+        key.flush()
+        message = io.StringIO()
+        with contextlib.redirect_stderr(message), test.assertRaises(SystemExit):
+            r.main([*argv, "--api-key-file", key.name])
+    return message.getvalue()
 
 
 def field(input_type, required=("@value",), properties=("@type", "@value", "rdfs:label"), **constraints):
@@ -541,6 +558,203 @@ class AllowTermNotationTest(unittest.TestCase):
         self.assertEqual(r.only_allowed_iri_notations(document, changed), "/properties/Note/properties/skos:notation")
 
 
+class AllowBlankOptionalIriTest(unittest.TestCase):
+    BRANCH = [{"uri": "http://example.org/branch"}]
+
+    def document(self):
+        document = template()
+        document["required"] = ["@context", "Page"]
+        document["properties"]["Page"]["required"] = ["@id"]
+        document["properties"]["Term"]["required"] = ["rdfs:label", "@id"]
+        document["properties"]["Needed"] = field("link", ("@id",), IRI_PROPERTIES, requiredValue=True)
+        document["properties"]["Links"] = {"type": "array", "items": field("link", ("@id",), IRI_PROPERTIES)}
+        document["properties"]["Sample"]["properties"]["Kind"] = field("textfield", ("@id",), IRI_PROPERTIES,
+                                                                       branches=self.BRANCH)
+        return document
+
+    def test_optional_iri_fields_lose_their_required_list_at_every_depth_and_nothing_else_changes(self):
+        document = self.document()
+        after, changes = r.allow_blank_optional_iri(document)
+        for name in ("Page", "Term"):
+            self.assertNotIn("required", after["properties"][name])
+        self.assertNotIn("required", after["properties"]["Links"]["items"])
+        self.assertNotIn("required", after["properties"]["Sample"]["properties"]["Kind"])
+        self.assertEqual(after["properties"]["Needed"]["required"], ["@id"])
+        self.assertEqual(after["properties"]["Note"]["required"], ["@value"])
+        self.assertEqual(after["required"], ["@context", "Page"])
+        self.assertEqual(sorted((change["path"], change["replaced"]) for change in changes), [
+            ("/properties/Links/items/required", ["@id"]),
+            ("/properties/Page/required", ["@id"]),
+            ("/properties/Sample/properties/Kind/required", ["@id"]),
+            ("/properties/Term/required", ["rdfs:label", "@id"]),
+        ])
+        self.assertIsNone(r.only_allowed_blank_optional_iris(document, after))
+        self.assertEqual(r.allow_blank_optional_iri(after), (after, []))
+
+    def test_a_standalone_field_is_repaired_at_its_root(self):
+        document = dict(field("link", ("@id",), IRI_PROPERTIES), **{"@id": "https://repo.metadatacenter.org/template-fields/f"})
+        after, changes = r.allow_blank_optional_iri(document)
+        self.assertNotIn("required", after)
+        self.assertEqual(changes, [{"path": "/required", "replaced": ["@id"], "wrote": None}])
+        self.assertIsNone(r.only_allowed_blank_optional_iris(document, after))
+
+    def test_a_list_demanding_another_key_is_refused(self):
+        document = self.document()
+        document["properties"]["Page"]["required"] = ["@id", "skos:notation"]
+        with self.assertRaises(r.TransformRefused):
+            r.allow_blank_optional_iri(document)
+
+    def test_the_invariant_refuses_any_other_removal(self):
+        document = self.document()
+        after, _changes = r.allow_blank_optional_iri(document)
+        for pointer, where in (("/properties/Needed", ("properties", "Needed")),
+                               ("/properties/Note", ("properties", "Note")), ("", ())):
+            changed = copy.deepcopy(after)
+            node = changed
+            for key in where:
+                node = node[key]
+            del node["required"]
+            self.assertEqual(r.only_allowed_blank_optional_iris(document, changed), f"{pointer}/required")
+        changed = copy.deepcopy(after); changed["properties"]["Page"]["required"] = []
+        self.assertEqual(r.only_allowed_blank_optional_iris(document, changed), "/properties/Page/required")
+
+
+class CreatedDateFromGraphTest(unittest.TestCase):
+    IRI = "https://repo.metadatacenter.org/templates/t"
+
+    def setUp(self):
+        r.CREATED_DATES.clear()
+
+    def tearDown(self):
+        r.CREATED_DATES.clear()
+
+    def document(self, created="2019-02-20T12:29:07-08:00"):
+        return {"@id": self.IRI, "pav:createdOn": created, "pav:lastUpdatedOn": "2020-01-01T00:00:00-08:00"}
+
+    def test_the_creation_date_moves_to_the_graphs_one_second_later(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:08-08:00"
+        before = self.document()
+        after, changes = r.state_created_date_from_graph(before)
+        self.assertEqual(after["pav:createdOn"], "2019-02-20T12:29:08-08:00")
+        self.assertEqual(after["pav:lastUpdatedOn"], before["pav:lastUpdatedOn"])
+        self.assertEqual(changes, [{"path": "/pav:createdOn", "replaced": "2019-02-20T12:29:07-08:00",
+                                    "wrote": "2019-02-20T12:29:08-08:00"}])
+        self.assertIsNone(r.only_stated_graph_created_date(before, after))
+        self.assertEqual(r.state_created_date_from_graph(after), (after, []))
+
+    def test_any_other_gap_or_form_is_left_alone(self):
+        for graph in ("2019-02-20T12:29:09-08:00", "2019-02-20T12:29:06-08:00", "2019-02-20T20:29:08Z",
+                      "2019-02-20T12:29:08-07:00", None):
+            r.CREATED_DATES[self.IRI] = graph
+            self.assertEqual(r.state_created_date_from_graph(self.document())[1], [], graph)
+
+    def test_the_invariant_refuses_any_other_change(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:08-08:00"
+        before = self.document()
+        after, _ = r.state_created_date_from_graph(before)
+        moved = dict(after, **{"pav:lastUpdatedOn": "2020-01-01T00:00:01-08:00"})
+        self.assertEqual(r.only_stated_graph_created_date(before, moved), "/pav:lastUpdatedOn")
+        self.assertEqual(r.only_stated_graph_created_date(before, dict(before, **{"pav:createdOn": "2019-02-20T12:29:09-08:00"})),
+                         "/pav:createdOn")
+
+
+class DatesFromGraphTest(unittest.TestCase):
+    IRI = "https://repo.metadatacenter.org/template-instances/i"
+
+    def setUp(self):
+        r.CREATED_DATES.clear()
+        r.MODIFIED_DATES.clear()
+
+    tearDown = setUp
+
+    def document(self):
+        return {"@id": self.IRI, "pav:createdOn": "2019-02-20T12:29:07-08:00",
+                "pav:lastUpdatedOn": "2020-01-01T00:00:00-08:00", "schema:name": "x"}
+
+    def test_both_dates_move_to_the_graphs_where_each_is_one_second_later(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:08-08:00"
+        r.MODIFIED_DATES[self.IRI] = "2020-01-01T00:00:01-08:00"
+        before = self.document()
+        after, changes = r.state_dates_from_graph(before)
+        self.assertEqual((after["pav:createdOn"], after["pav:lastUpdatedOn"]),
+                         ("2019-02-20T12:29:08-08:00", "2020-01-01T00:00:01-08:00"))
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdOn", "/pav:lastUpdatedOn"])
+        self.assertIsNone(r.only_stated_graph_dates(before, after))
+        self.assertEqual(r.state_dates_from_graph(after), (after, []))
+
+    def test_only_the_date_with_a_one_second_gap_moves(self):
+        r.CREATED_DATES[self.IRI] = "2019-02-20T12:29:07-08:00"
+        r.MODIFIED_DATES[self.IRI] = "2020-01-01T00:00:01-08:00"
+        after, changes = r.state_dates_from_graph(self.document())
+        self.assertEqual(after["pav:createdOn"], "2019-02-20T12:29:07-08:00")
+        self.assertEqual([c["path"] for c in changes], ["/pav:lastUpdatedOn"])
+
+    def test_any_other_gap_or_form_is_left_alone(self):
+        for graph in ("2020-01-01T00:00:02-08:00", "2019-12-31T23:59:59-08:00", "2020-01-01T08:00:01Z", None):
+            r.MODIFIED_DATES[self.IRI] = graph
+            self.assertEqual(r.state_dates_from_graph(self.document())[1], [], graph)
+
+    def test_the_invariant_refuses_any_other_change(self):
+        r.MODIFIED_DATES[self.IRI] = "2020-01-01T00:00:01-08:00"
+        before = self.document()
+        self.assertEqual(r.only_stated_graph_dates(before, dict(before, **{"schema:name": "y"})), "/schema:name")
+        self.assertEqual(r.only_stated_graph_dates(before, dict(before, **{"pav:lastUpdatedOn": "2020-01-01T00:00:02-08:00"})),
+                         "/pav:lastUpdatedOn")
+        self.assertEqual(r.only_stated_graph_dates(before, dict(before, **{"pav:createdOn": "2019-02-20T12:29:08-08:00"})),
+                         "/pav:createdOn")
+
+
+class ProvenanceFromGraphTest(unittest.TestCase):
+    IRI = "https://repo.metadatacenter.org/templates/t"
+    GRAPH = {"pav:createdOn": "2017-08-29T07:39:22-07:00",
+             "pav:createdBy": "https://metadatacenter.org/users/4235957e",
+             "pav:lastUpdatedOn": "2021-01-01T00:00:00-08:00",
+             "oslc:modifiedBy": "https://metadatacenter.org/users/4235957e"}
+
+    def setUp(self):
+        r.GRAPH_PROVENANCE.clear()
+
+    tearDown = setUp
+
+    def test_the_document_takes_each_value_the_graph_records(self):
+        r.GRAPH_PROVENANCE[self.IRI] = dict(self.GRAPH)
+        before = {"@id": self.IRI, "pav:createdOn": "2020-08-13T11:51:35.968-0400",
+                  "pav:createdBy": "https://metadatacenter.org/users/200114c6",
+                  "pav:lastUpdatedOn": "2021-01-01T00:00:00-08:00",
+                  "oslc:modifiedBy": "https://repo.metadatacenter.net/users/4235957e", "schema:name": "x"}
+        after, changes = r.state_provenance_from_graph(before)
+        self.assertEqual({k: after[k] for k in r.PROVENANCE_KEYS}, self.GRAPH)
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdOn", "/pav:createdBy", "/oslc:modifiedBy"])
+        self.assertIsNone(r.only_stated_graph_provenance(before, after))
+        self.assertEqual(r.state_provenance_from_graph(after), (after, []))
+
+    def test_missing_creation_provenance_is_stated(self):
+        r.GRAPH_PROVENANCE[self.IRI] = dict(self.GRAPH)
+        before = {"@id": self.IRI, "pav:lastUpdatedOn": self.GRAPH["pav:lastUpdatedOn"],
+                  "oslc:modifiedBy": self.GRAPH["oslc:modifiedBy"]}
+        after, changes = r.state_provenance_from_graph(before)
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdOn", "/pav:createdBy"])
+        self.assertIsNone(r.only_stated_graph_provenance(before, after))
+
+    def test_a_value_the_graph_lacks_is_never_removed(self):
+        r.GRAPH_PROVENANCE[self.IRI] = {"pav:createdBy": None}
+        before = {"@id": self.IRI, "pav:createdBy": "https://metadatacenter.org/users/a"}
+        self.assertEqual(r.state_provenance_from_graph(before), (before, []))
+
+    def test_an_unlisted_artifact_is_left_alone(self):
+        before = {"@id": self.IRI, "pav:createdOn": "2020-08-13T11:51:35.968-0400"}
+        self.assertEqual(r.state_provenance_from_graph(before), (before, []))
+
+    def test_the_invariant_refuses_any_other_change(self):
+        r.GRAPH_PROVENANCE[self.IRI] = dict(self.GRAPH)
+        before = {"@id": self.IRI, "schema:name": "x", "pav:createdOn": "2020-01-01T00:00:00-08:00"}
+        self.assertEqual(r.only_stated_graph_provenance(before, dict(before, **{"schema:name": "y"})), "/schema:name")
+        self.assertEqual(r.only_stated_graph_provenance(before, dict(before, **{"pav:createdOn": "2019-01-01T00:00:00-08:00"})),
+                         "/pav:createdOn")
+        self.assertEqual(r.only_stated_graph_provenance(before, {k: v for k, v in before.items() if k != "pav:createdOn"}),
+                         "/pav:createdOn")
+
+
 class ContextOpennessTest(unittest.TestCase):
     def document(self, sample_context, with_attribute_value=False):
         document = template()
@@ -679,8 +893,9 @@ class TermFieldDeletionsTest(unittest.TestCase):
         for name in ("drop-term-field-text", "drop-unlisted-term-class", "drop-stamped-class-list"):
             with self.subTest(name=name):
                 self.assertIn(name, r.VALUE_DELETING_REPAIRS)
-                with self.assertRaises(SystemExit):
-                    r.main(["--apply", "--repair", name, "--from-records", "unused.jsonl"])
+                for approval in ([], ["--allow-value-deletion"], ["--only-ids", "ids.json"]):
+                    self.assertIn(f"{name} deletes entered values", refusal(
+                        self, ["--apply", "--repair", name, "--from-records", "unused.jsonl", *approval]))
 
 
 class OwnerChoicesTest(unittest.TestCase):
@@ -727,8 +942,9 @@ class OwnerChoicesTest(unittest.TestCase):
                 self.assertEqual(r.encode_link_spaces(kept, template()), (kept, []))
 
     def test_assuming_a_time_and_dropping_a_text_each_need_their_approval(self):
-        with self.assertRaises(SystemExit):
-            r.main(["--apply", "--repair", "write-date-at-midnight", "--from-records", "unused.jsonl", "--only-ids", "ids.json"])
+        for approval in (["--only-ids", "ids.json"], ["--allow-assumed-time"]):
+            self.assertIn("assumes a time nobody entered", refusal(
+                self, ["--apply", "--repair", "write-date-at-midnight", "--from-records", "unused.jsonl", *approval]))
         self.assertIn("drop-text-beside-term", r.VALUE_DELETING_REPAIRS)
         self.assertNotIn("encode-link-spaces", r.VALUE_DELETING_REPAIRS)
 
@@ -912,6 +1128,58 @@ class RegistrationTest(unittest.TestCase):
         self.assertEqual(after["Weight"], {"@value": None, "@type": "xsd:decimal"})
         self.assertEqual(sorted(change["repair"] for change in changes), sorted(names))
         self.assertEqual({k: after[k] for k in PROVENANCE}, {k: before[k] for k in PROVENANCE})
+
+
+class InvariantNamesAnyOtherChangeTest(unittest.TestCase):
+    """Each invariant here once accepted any result: a sweep that made it report no difference left
+    every test passing, because its tests only showed it accepting what its transform produced.
+
+    Each case runs the registered transform, then changes something the repair has no business
+    touching, and expects the invariant to name it."""
+
+    def cases(self):
+        loosened, _ = r.drop_literal_label_demand(legacy_template())
+        shadowing = ShadowedContextAndCreatorTest.shadowing_template(None)
+        classed = TermFieldDeletionsTest.classed_template(None)
+        return [
+            ("write-link-as-iri", instance(Page={"@id": "0000-0002-1825-0097"}, Note={"@value": "kept"}), template()),
+            ("drop-shadowed-instance-context",
+             instance(**{"@context": {"License": "http://x/license", "untitled": "http://x/outer"},
+                         "License": {"@context": {"untitled": "http://x/inner"}, "untitled": {"@value": None}}}),
+             shadowing),
+            ("complete-required-label", instance(Labelled={"@value": "x"}, Choice={"@value": None}), legacy_template()),
+            ("drop-null-literal-label", instance(Labelled={"@value": None, "rdfs:label": None}), loosened),
+            ("drop-null-iri", instance(Term={"@id": None, "@type": "http://x/c"},
+                                       Labelled={"@value": None, "rdfs:label": None}), legacy_template()),
+            ("drop-unlisted-term-class",
+             instance(Classed={"@id": "http://t/alligator", "@type": "http://c/Reptiles", "rdfs:label": "Alligator"},
+                      Term={"@id": "http://t/1", "rdfs:label": "One"}), classed),
+            ("drop-text-beside-term", instance(Term={"@id": "http://t/1", "rdfs:label": "One", "@value": "Something else"},
+                                               Note={"@value": "kept"}), template()),
+            ("encode-link-spaces", instance(Page={"@id": "https://example.org/species/Lynx lynx page "},
+                                            Note={"@value": "kept"}), template()),
+            ("drop-null-instance-type", instance(**{"@type": None}, Note={"@value": "kept"}), None),
+        ]
+
+    def test_the_invariant_names_any_other_change(self):
+        for name, before, schema in self.cases():
+            repair = r.REPAIRS[name]
+            context = (schema,) if repair.needs_template else ()
+            after, changes = repair.transform(copy.deepcopy(before), *context)
+            with self.subTest(name=name):
+                self.assertTrue(changes, "the transform changed nothing, so the case tests nothing")
+                self.assertIsNone(repair.invariant(before, after, *context))
+                for path, tamper in (
+                        ("/pav:lastUpdatedOn", lambda d: d.update({"pav:lastUpdatedOn": "2026-01-01T00:00:00Z"})),
+                        ("/Unrelated", lambda d: d.update({"Unrelated": {"@value": "added"}})),
+                        ("/schema:isBasedOn", lambda d: d.pop("schema:isBasedOn"))):
+                    tampered = copy.deepcopy(after)
+                    tamper(tampered)
+                    self.assertEqual(repair.invariant(before, tampered, *context), path)
+                if "Note" in before:
+                    tampered = copy.deepcopy(after)
+                    del tampered["Note"]
+                    self.assertIsNotNone(repair.invariant(before, tampered, *context))
 
 
 if __name__ == "__main__":

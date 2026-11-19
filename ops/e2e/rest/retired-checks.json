@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "suite": "pagination",
+      "section": "pagination: every other listing refuses an invalid limit or offset with 400",
+      "name": "an authority search answers a valid page",
+      "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: a listing that pages by number as well refuses both at once",
+      "name": "an authority search answers a page asked for by number",
+      "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: a listing that pages by number as well refuses both at once",
+      "name": "an authority search answers a page by number with paging links",
+      "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: a listing that pages by number as well refuses both at once",
+      "name": "an authority search's next link from a page by number can be followed",
+      "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: a listing that pages by number as well refuses both at once",
+      "name": "an authority search's last link from a page by number can be followed",
+      "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: a listing that pages by number as well refuses both at once",
+      "name": "an authority search's prev link from a page by number can be followed",
+      "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: a listing that pages by number as well refuses both at once",
+      "name": "an authority search's first link from a page by number can be followed",
+      "reason": "Asked of the live ROR registry, so an outside service could fail the gate. Moved to rest/live-authorities.mjs (npm run smoke:rest:live-authorities), which gates nothing; the bridge's refusals, made before it asks the registry, stay in this suite."
+    },
+    {
+      "suite": "runner",
+      "section": "runner: clean-stack postflight",
+      "name": "the run leaves no stamped folders, artifacts, or categories behind",
+      "reason": "Renamed to name the groups the postflight now inventories, beside both users' homes and the category tree."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: reconnect deleted versions and maintain graph/search flags",
+      "name": "template: ordinary editing cannot change lifecycle metadata",
+      "reason": "Recorded once for each of three changes under one name, so a failure did not say which was accepted. Each is now named for the field it changes: bibo:status, pav:version or pav:previousVersion."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: reconnect deleted versions and maintain graph/search flags",
+      "name": "element: ordinary editing cannot change lifecycle metadata",
+      "reason": "Recorded once for each of three changes under one name, so a failure did not say which was accepted. Each is now named for the field it changes: bibo:status, pav:version or pav:previousVersion."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: reconnect deleted versions and maintain graph/search flags",
+      "name": "field: ordinary editing cannot change lifecycle metadata",
+      "reason": "Recorded once for each of three changes under one name, so a failure did not say which was accepted. Each is now named for the field it changes: bibo:status, pav:version or pav:previousVersion."
+    },
+    {
+      "suite": "negotiation",
+      "section": "content negotiation: YAML in and out",
+      "name": "an unsupported Accept is either refused with 406 or falls back deliberately",
+      "reason": "Accepted a 200 fallback that its own comment ruled out; the resource server answers 406, and the check now requires it."
+    }
+  ]
+}

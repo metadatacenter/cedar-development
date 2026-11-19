@@ -60,15 +60,31 @@ System.out.println("OPTIONAL\\t" + String.join(",", optional));
 """
 
 
+def version_key(version):
+    """A Maven version as a sort key: numbers compare as numbers, and a qualifier such as SNAPSHOT
+    sorts before the release it precedes. String order put 2.9.9 after 2.9.37."""
+    key = [(2, int(token), "") if token.isdigit() else (0, 0, token.lower())
+           for token in re.split(r"[.-]", version) if token]
+    return key + [(1, 0, "")]
+
+
+def jar_version(path, artifact):
+    """The version a jar carries: its directory's name in a Maven repository, else its file name's."""
+    if path.name.startswith(f"{artifact}-{path.parent.name}"):
+        return path.parent.name
+    return path.name[len(artifact) + 1:-len(".jar")]
+
+
 def find_jar(pattern, explicit=None):
     if explicit:
         return Path(explicit)
+    artifact = pattern.split("-*", 1)[0]
     for root in (CEDAR_HOME / "cedar-config-library" / "target",
                  CEDAR_HOME / "cedar-core-library" / "target",
                  Path.home() / ".m2" / "repository"):
         hits = [p for p in root.rglob(pattern) if "sources" not in p.name and "original" not in p.name]
         if hits:
-            return sorted(hits)[-1]
+            return max(hits, key=lambda p: version_key(jar_version(p, artifact)))
     return None
 
 
@@ -89,38 +105,57 @@ def declared_by_servers(config_jar, core_jar):
     return declared, optional
 
 
+# A copy of the block is recognized by its first entry. The npm frontends set a few CEDAR_
+# variables of their own in a job-level env: at the same indentation, so a job-level CEDAR_ entry
+# alone does not mark a copy.
+BLOCK_START = "      CEDAR_HOME: /tmp/cedar"
+
+
 def block_region(text):
     """The CEDAR_ block inside a workflow's env: mapping, as (first, last) line indices.
 
-    The region runs from the first CEDAR_ entry to the last, so the comments sitting between them
-    travel with it. Entries that are not CEDAR_ ones — the Nexus credentials — sit above it and are
-    left alone.
+    The region starts at the block's first entry, BLOCK_START, and runs to the last CEDAR_ entry of
+    the same mapping, so the comments sitting between them travel with it. The mapping ends at the
+    first line indented less than its entries. Entries that are not CEDAR_ ones, such as the Nexus
+    credentials, sit above it and are left alone.
     """
     lines = text.splitlines()
-    hits = [i for i, line in enumerate(lines) if line.startswith("      CEDAR_")]
-    if not hits:
+    starts = [i for i, line in enumerate(lines) if line.rstrip() == BLOCK_START]
+    if not starts:
         return None
-    return hits[0], hits[-1]
+    first = last = starts[0]
+    for i in range(first + 1, len(lines)):
+        line = lines[i]
+        if line.strip() and not line.lstrip().startswith("#") and not line.startswith("      "):
+            break
+        if line.startswith("      CEDAR_"):
+            last = i
+    return first, last
 
 
 def names_in(block):
     return {m.group(1) for m in re.finditer(r"^      (CEDAR_[A-Z0-9_]+):", block, re.MULTILINE)}
 
 
-def workflows():
+def workflows(home=None):
     """The repositories whose ci.yml carries a copy of the block.
 
-    A job-level `env:` indents its entries by six spaces, which is what block_region looks for.
-    The npm frontends set a few CEDAR_ variables inside a step instead, two levels deeper, and
-    those are not copies of this block. Selecting with block_region rather than with a substring
-    keeps them out, and keeps the two functions from disagreeing about which files have a block.
+    Selecting with block_region keeps out the frontends' own CEDAR_ variables, and keeps the two
+    functions from disagreeing about which files have a block.
     """
-    for repo in sorted(CEDAR_HOME.glob("cedar-*")):
+    for repo in sorted(Path(home or CEDAR_HOME).glob("cedar-*")):
         path = repo / ".github" / "workflows" / "ci.yml"
         if not path.is_file():
             continue
         if block_region(path.read_text(encoding="utf-8")) is not None:
             yield repo.name, path
+
+
+def rewrite(path, first, last, canonical):
+    """Replace lines first to last of a workflow with the canonical block."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    replacement = [line + "\n" for line in canonical.split("\n")]
+    path.write_text("".join(lines[:first] + replacement + lines[last + 1:]), encoding="utf-8")
 
 
 def main():
@@ -177,9 +212,7 @@ def main():
 
     if drifted and args.apply:
         for name, path, first, last in drifted:
-            lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-            replacement = [line + "\n" for line in canonical.split("\n")]
-            path.write_text("".join(lines[:first] + replacement + lines[last + 1:]), encoding="utf-8")
+            rewrite(path, first, last, canonical)
             print(f"  REWROTE {name}")
     elif drifted:
         failures += 1

@@ -70,32 +70,22 @@ if [ "$CEDAR_PROFILE" = "develop" ]; then
   export CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS=true
   export CEDAR_FRONTEND_BEHAVIOR="develop"
   export CEDAR_FRONTEND_TARGET="local"
-  export CEDAR_DEV_USE_PRIVATE_REPOS="true"
   export CEDAR_DEV_BUILD_FRONTENDS="true"
-  CEDAR_TEST_USER1_LOGIN="test1@test.com"
-  CEDAR_TEST_USER1_PASSWORD="test1"
-  CEDAR_TEST_USER1_NAME="Test User 1"
-  CEDAR_TEST_USER2_LOGIN="test2@test.com"
-  CEDAR_TEST_USER2_PASSWORD="test2"
-  CEDAR_TEST_USER2_NAME="Test User 2"
+  # The host-side e2e suite signs in with these, as the test realm's two fixture users. Only a
+  # workstation runs it.
+  export CEDAR_FRONTEND_local_USER1_LOGIN="test1@test.com"
+  export CEDAR_FRONTEND_local_USER1_PASSWORD="test1"
+  export CEDAR_FRONTEND_local_USER1_NAME="Test User 1"
+  export CEDAR_FRONTEND_local_USER2_LOGIN="test2@test.com"
+  export CEDAR_FRONTEND_local_USER2_PASSWORD="test2"
+  export CEDAR_FRONTEND_local_USER2_NAME="Test User 2"
   export CEDAR_TEST_USER1_ID="https://metadatacenter.org/users/11111111-2222-3333-4444-555555555555"
   export CEDAR_TEST_USER2_ID="https://metadatacenter.org/users/66666666-7777-8888-9999-000000000000"
 else
   export CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS=false
   export CEDAR_FRONTEND_BEHAVIOR="server"
   export CEDAR_FRONTEND_TARGET="server"
-  export CEDAR_DEV_USE_PRIVATE_REPOS="false"
   export CEDAR_DEV_BUILD_FRONTENDS="false"
-  # The frontend builds require these to be set and use them for nothing but the Protractor
-  # configuration, which a server never runs. They reach no served payload.
-  CEDAR_TEST_USER1_LOGIN="-"
-  CEDAR_TEST_USER1_PASSWORD="-"
-  CEDAR_TEST_USER1_NAME="-"
-  CEDAR_TEST_USER2_LOGIN="-"
-  CEDAR_TEST_USER2_PASSWORD="-"
-  CEDAR_TEST_USER2_NAME="-"
-  export CEDAR_TEST_USER1_ID="-"
-  export CEDAR_TEST_USER2_ID="-"
 fi
 
 #------------------------------------------------------
@@ -104,9 +94,3 @@ fi
 # composed here rather than written out once per profile.
 export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_UI_HOST=${CEDAR_HOST}"
 export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_REST_HOST=${CEDAR_HOST}"
-export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_USER1_LOGIN=${CEDAR_TEST_USER1_LOGIN}"
-export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_USER1_PASSWORD=${CEDAR_TEST_USER1_PASSWORD}"
-export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_USER1_NAME=${CEDAR_TEST_USER1_NAME}"
-export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_USER2_LOGIN=${CEDAR_TEST_USER2_LOGIN}"
-export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_USER2_PASSWORD=${CEDAR_TEST_USER2_PASSWORD}"
-export "CEDAR_FRONTEND_${CEDAR_FRONTEND_TARGET}_USER2_NAME=${CEDAR_TEST_USER2_NAME}"

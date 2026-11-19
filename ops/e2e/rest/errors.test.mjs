@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cedarErrorProblem, plan } from './suites/errors.mjs';
+import * as errors from './suites/errors.mjs';
+import { withSuite, summary } from './lib.mjs';
+
+const { cedarErrorProblem, plan } = errors;
 
 const CEDAR_HOME = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const json = { get: name => (name === 'content-type' ? 'application/json' : null) };
@@ -105,4 +108,93 @@ test('a credentialed write names nothing that exists or carries no JSON, and one
       }
     }
   }
+});
+
+test('an anonymous probe sends a body that parses, every required query parameter and a required If-Match', () => {
+  for (const p of plans()) {
+    for (const probe of p.probes.filter(probe => probe.kind === 'anonymous')) {
+      const where = `${p.server} ${p.method} ${p.path}`;
+      assert.ok(probe.request.body === undefined || probe.request.body === '{}', where);
+    }
+  }
+  const of = (server, method, path) => plans().find(p => p.server === server && p.method === method && p.path === path)
+    .probes.find(probe => probe.kind === 'anonymous').request;
+  assert.match(of('terminology', 'GET', '/bioportal/property_search').path, /\?q=x$/);
+  assert.match(of('bridge', 'POST', '/datacite/create-doi').path, /\?source_artifact_id=.*&state=draft$/);
+  assert.equal(of('resource', 'DELETE', '/templates/{template_id}').headers['If-Match'], '"0"');
+});
+
+/** Every service as a stub: a CedarError with the status the answer function gives each request. */
+function stubStack(t, answer) {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(globalThis, 'fetch', (url, options) => {
+    const status = answer(new URL(url), options);
+    const name = { 400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 404: 'NOT_FOUND', 500: 'INTERNAL_SERVER_ERROR' }[status];
+    return new Response(JSON.stringify(cedarError(status, name)),
+        { status, headers: { 'content-type': 'application/json' } });
+  });
+}
+
+const user = { auth: 'user-token', profile: {} };
+let stubbed = 0;
+async function anonymousVerdicts(t, answer) {
+  stubStack(t, answer);
+  const name = `errors-stub-${stubbed++}`;
+  await withSuite(name, () => errors.run({ user1: user, homeFolderId: 'home', folderId: 'folder' }));
+  return summary([name]).checks.filter(c => c.name.endsWith('a request without credentials is refused in a CedarError'));
+}
+
+test('an operation that looks up its identifier or reads its body before authenticating fails the anonymous check', async t => {
+  const verdicts = await anonymousVerdicts(t, (url, options) => {
+    if (options.headers?.Authorization) return 404;
+    // No authentication on any route that names an identifier: the lookup answers first.
+    return /\/(templates|folders|groups|users)\//.test(decodeURIComponent(url.pathname)) ? 404 : 401;
+  });
+  const failed = verdicts.filter(c => c.status === 'failed').map(c => c.name.split(':')[0]);
+  for (const server of ['resource', 'artifact', 'group', 'user']) assert.ok(failed.includes(server), server);
+
+  const bodyFirst = await anonymousVerdicts(t, (_url, options) =>
+    options.headers?.Authorization ? 404 : options.body !== undefined ? 400 : 401);
+  assert.ok(bodyFirst.some(c => c.name.startsWith('resource:') && c.status === 'failed'));
+});
+
+test('every anonymous check passes when each service answers 401 without credentials', async t => {
+  const verdicts = await anonymousVerdicts(t, (_url, options) => (options.headers?.Authorization ? 404 : 401));
+  assert.equal(verdicts.length, 11);
+  assert.ok(verdicts.every(c => c.status === 'passed'), JSON.stringify(verdicts.filter(c => c.status !== 'passed')));
+});
+
+test('an operation named as validating first may answer its named status, and only that one', async t => {
+  const entry = { server: 'terminology', method: 'GET', path: '/bioportal/property_search', status: 400,
+    reason: 'an entry for this test' };
+  errors.VALIDATES_FIRST.push(entry);
+  try {
+    const answer = status => (url, options) => (options.headers?.Authorization ? 404
+      : url.pathname.endsWith('/bioportal/property_search') ? status : 401);
+    const terminology = verdicts => verdicts.find(c => c.name.startsWith('terminology:')).status;
+    assert.equal(terminology(await anonymousVerdicts(t, answer(400))), 'passed');
+    assert.equal(terminology(await anonymousVerdicts(t, answer(404))), 'failed');
+    assert.equal(terminology(await anonymousVerdicts(t, answer(401))), 'passed');
+  } finally {
+    errors.VALIDATES_FIRST.splice(errors.VALIDATES_FIRST.indexOf(entry), 1);
+  }
+});
+
+test('a server error fails the identifier and body checks unless the operation documents it as a gateway answer', async t => {
+  const verdictsFor = async status => {
+    stubStack(t, (url, options) => (!options.headers?.Authorization ? 401
+      : url.pathname.includes('/no-such-authority-') ? 502 : status));
+    const name = `errors-stub-${stubbed++}`;
+    await withSuite(name, () => errors.run({ user1: user, homeFolderId: 'home', folderId: 'folder' }));
+    return summary([name]).checks;
+  };
+  const crashed = await verdictsFor(500);
+  for (const what of ['resource: a nonexistent identifier', 'resource: a malformed JSON body']) {
+    assert.equal(crashed.find(c => c.name.startsWith(what)).status, 'failed', what);
+  }
+  const refused = await verdictsFor(404);
+  assert.equal(refused.find(c => c.name.startsWith('resource: a nonexistent identifier')).status, 'passed');
+  // The bridge's authority routes document 502, which a registry that answers badly produces.
+  assert.equal(refused.find(c => c.name.startsWith('bridge: a nonexistent identifier')).status, 'passed');
 });

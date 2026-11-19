@@ -31,4 +31,27 @@ class UnambiguousStructureTest(unittest.TestCase):
         after,_=r.repair_unambiguous_instance_structure(before,self.template)
         self.assertEqual(after['element']['@id'],'urn:existing')
 
+    def test_the_invariant_names_a_change_the_template_does_not_prove(self):
+        # The invariant once re-ran the transform, so in a run it compared the transform's output
+        # with itself and any change the transform made passed.
+        after,_=r.repair_unambiguous_instance_structure(self.before,self.template)
+        element='/element'
+        for pointer,tamper in (
+                (element+'/region/@value',lambda d:d['element']['region'].update({'@value':'lost'})),
+                (element+'/@context/region',lambda d:d['element']['@context'].update({'region':'urn:other'})),
+                (element+'/@id',lambda d:d['element'].update({'@id':r.ELEMENT_INSTANCE_BASE+'invented'})),
+                (element+'/attributes',lambda d:d['element'].update({'attributes':['kept']})),
+                (element+'/extra',lambda d:d['element'].update({'extra':{'@value':'x'}})),
+                ('/schema:name',lambda d:d.update({'schema:name':'x'}))):
+            with self.subTest(pointer=pointer):
+                tampered=copy.deepcopy(after);tamper(tampered)
+                self.assertEqual(r.only_unambiguous_instance_structure(self.before,tampered,self.template),pointer)
+        # A rename the template's IRI does not prove is refused.
+        before=copy.deepcopy(self.before);before['element']['@context']['region ']='urn:different'
+        renamed=copy.deepcopy(before);renamed['element']['region']=renamed['element'].pop('region ')
+        renamed['element']['@context']['region']=renamed['element']['@context'].pop('region ')
+        self.assertEqual(r.only_unambiguous_instance_structure(before,renamed,self.template),element+'/region')
+        # Partial application is not an extra change.
+        self.assertIsNone(r.only_unambiguous_instance_structure(self.before,self.before,self.template))
+
 if __name__=='__main__':unittest.main()

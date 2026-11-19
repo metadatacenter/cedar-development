@@ -41,14 +41,8 @@ export async function run({ user1, folderId }) {
 
   // An Accept the endpoint cannot satisfy must be refused, not silently defaulted.
   const nonsense = await call(auth, 'GET', at, undefined, { accept: 'application/octet-stream' });
-  check(nonsense.status === 406 || nonsense.status === 200,
-      'an unsupported Accept is either refused with 406 or falls back deliberately',
-      `got ${nonsense.status}`);
-  if (nonsense.status === 200) {
-    check((nonsense.headers.get('content-type') ?? '').includes('json'),
-        'the fallback for an unsupported Accept is JSON',
-        `content-type was ${nonsense.headers.get('content-type')}`);
-  }
+  check(nonsense.status === 406, 'an unsupported Accept is refused with 406',
+      `got ${nonsense.status}: ${(nonsense.text ?? '').slice(0, 160)}`);
 
   suite('content negotiation: which YAML forms may be written');
 

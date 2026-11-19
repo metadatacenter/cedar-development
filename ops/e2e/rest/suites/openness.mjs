@@ -7,7 +7,7 @@
 // shared-with-everybody artifact stays unreadable anonymously anywhere.
 //
 // Check both the access decision and the body, including compatibility through the extra HTTP hop.
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, KINDS, OPENVIEW } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN, KINDS, OPENVIEW } from '../lib.mjs';
 
 export const name = 'openness';
 
@@ -260,6 +260,53 @@ export async function run({ user1, user2, folderId }) {
 
   checkStatus(await anonymously(`/templates/${enc('https://repo.metadatacenter.orgx/templates/does-not-exist')}`),
       404, 'OpenView answers 404 for an artifact that does not exist');
+
+  suite('openness: an Editor may not open or close what they edit');
+
+  // Opening is a Manager's capability. An Editor may change the content but not who can read it, so
+  // each command an Editor sends is refused and the stored state stays as it was, whichever way the
+  // command would turn it. The owner sets each starting state.
+  const editorOf = async (at, label) => {
+    checkStatus(await mutate(auth, 'PUT', `${at}/permissions`, {
+      owner: { '@id': user1.profile['@id'] },
+      userPermissions: [{ user: { '@id': user2.profile['@id'] }, role: 'editor' }],
+      groupPermissions: [],
+    }), 200, `${label}: the second user is made an Editor of it`);
+  };
+  const targets = [];
+  const editedName = `Openness Edited ${RUN}`;
+  const edited = await call(auth, 'POST', `/templates?folder_id=${enc(holderId)}`, artifactBody('template', editedName));
+  if (checkStatus(edited, 201, 'artifact: a template is created for an Editor')) {
+    const id = edited.body['@id'];
+    const at = `/templates/${enc(id)}`;
+    cleanup('template', at, editedName);
+    await editorOf(at, 'artifact');
+    targets.push({ label: 'artifact', id, etagPath: `${at}/details`, open: 'make-artifact-open',
+      close: 'make-artifact-not-open', isOpen: async () => (await call(auth, 'GET', `${at}/details`)).body?.isOpen });
+  }
+  const editedFolderName = `Openness Edited Folder ${RUN}`;
+  const editedFolder = await call(auth, 'POST', '/folders',
+      { folderId: holderId, name: editedFolderName, description: 'Created by the REST suites' });
+  if (checkStatus(editedFolder, 201, 'folder: a folder is created for an Editor')) {
+    const id = editedFolder.body['@id'];
+    const at = `/folders/${enc(id)}`;
+    cleanup('folder', at, editedFolderName);
+    await editorOf(at, 'folder');
+    targets.push({ label: 'folder', id, etagPath: at, open: 'make-folder-open', close: 'make-folder-not-open',
+      isOpen: async () => (await call(auth, 'GET', at)).body?.isOpen });
+  }
+  for (const { label, id, etagPath, open: opening, close, isOpen } of targets) {
+    for (const [command, from] of [[opening, false], [close, true]]) {
+      if (from) {
+        checkStatus(await open(opening, id, etagPath), 200, `${label}: the owner opens it`);
+      }
+      checkStatus(await mutate(user2.auth, 'POST', `/command/${command}`, { '@id': id }, { etagPath }), 403,
+          `${label}: an Editor is refused ${command}`);
+      const stored = await isOpen();
+      check(stored === from, `${label}: and it is ${from ? 'still' : 'still not'} open`, `isOpen is ${stored}`);
+    }
+    checkStatus(await open(close, id, etagPath), 200, `${label}: the owner closes it again`);
+  }
 
   return {};
 }

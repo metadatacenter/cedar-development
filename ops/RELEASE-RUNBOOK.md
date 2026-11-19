@@ -243,10 +243,10 @@ workspace is created. Preparation and both release/next build variants then set
 that npm no longer recognises are reported once in plan rather than on every install. Obsolete
 authentication semantics such as `always-auth` block; harmless author metadata is one advisory.
 
-The Docker source carries three suite selectors: `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
-`CEDAR_APPLICATION_VERSION`. Plan requires all three to equal the train source version, and release
-stamping advances all three together on the release and next-development variants. This prevents a
-new Docker tag from silently building old Maven or frontend application inputs.
+The Docker source carries two suite selectors: `IMAGE_VERSION` and `CEDAR_MAVEN_VERSION`. Plan
+requires both to equal the train source version, and release stamping advances both together on the
+release and next-development variants. This prevents a new Docker tag from silently building old
+Maven inputs.
 
 When CI is genuinely broken for a reason that must not hold up a release, accept the specific run:
 
@@ -492,6 +492,22 @@ dependency caches and large logs—before the new attempt is prepared. It first 
 ledger's stage timings into `timings/<version>.json`, a few records that `release timings` compares
 against. There is no cleanup command and no archive tier: Git refs and published artifacts are the
 durable record after a release stops being current.
+
+## Release Notes
+
+This guidance applies to platform and public component release notes, including the TypeScript
+model library. Focus on behavior users and integrators can observe, compatibility implications,
+and any action needed when upgrading.
+
+Do not include references to CEDAR's internal artifact collection, shared test corpus, corpus
+counts or sizes, or production snapshot validation. Omit snapshot dates, artifact and instance
+counts, corpus identifiers, and validation or agreement results measured against those collections.
+Keep that evidence in the relevant development runbook.
+
+Describe testing improvements through the browsers, workflows or validation cases covered.
+Explain Java/TypeScript compatibility through concrete changes to reading, writing and save
+behavior. Public npm packages also follow the
+[component release-note format](NPMJS-RELEASE-RUNBOOK.md#release-notes).
 
 ## If a Phase Fails
 

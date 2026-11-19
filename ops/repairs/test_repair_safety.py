@@ -4,12 +4,22 @@ import copy
 import io
 import json
 import pathlib
+import shutil
 import tempfile
 import threading
 import unittest
 from unittest.mock import patch
 
 from test_cedar_artifact_repair import REPAIR as r, child, template, ELEMENT_TYPE
+
+
+def api_key_file(test):
+    """A key file, so that main stops for its own checks rather than for want of a key."""
+    folder = pathlib.Path(tempfile.mkdtemp())
+    test.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+    path = folder / 'key'
+    path.write_text('test-key\n')
+    return str(path)
 
 
 class SemanticSafetyTest(unittest.TestCase):
@@ -95,34 +105,86 @@ class WriteSafetyTest(unittest.TestCase):
         self.assertEqual(sorted(recorded), list(range(50)))
 
     def run_repair(self, mutate=None, body=None, valid=True, graph=None, graph_before=None,
-                   replace_graph_provenance=False, repairs=None, allow_fractional_numbers=False):
+                   replace_graph_provenance=False, repairs=None, allow_fractional_numbers=False,
+                   apply=True, valid_back=True):
         """Run one repair against a fake deployment whose graph details are ``graph_before`` until
-        the write and ``graph`` after it, each defaulting to the provenance of the stored body."""
+        the write and ``graph`` after it, each defaulting to the provenance of the stored body.
+
+        The deployment records each PUT in ``self.puts`` with the pre-images on disk at that moment,
+        and the pre-image folder stays in ``self.preimages`` for the test to read. ``valid_back``
+        is the bridge's verdict on what it reads back after the write."""
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        self.preimages = folder
+        self.puts = puts = []
+        def saved():
+            return {path.relative_to(folder).as_posix(): json.loads(path.read_text())
+                    for path in sorted(folder.rglob('*.json'))}
         class Client:
             def __init__(self):
                 self.body = body or {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old'}
                 self.written = False
             def get_with_etag(self, path):
-                return copy.deepcopy(self.body), '"1"'
+                return copy.deepcopy(self.body), '"2"' if self.written else '"1"'
             def get_json(self, path):
                 stated = graph if self.written else graph_before
                 return stated if stated is not None else copy.deepcopy(self.body)
             def put_verbatim(self, path, candidate, etag):
+                puts.append({'candidate': copy.deepcopy(candidate), 'etag': etag, 'preimages': saved()})
                 self.written = True
                 self.body = copy.deepcopy(candidate)
                 if mutate:
                     mutate(self.body)
                 return 200, '"2"'
+        client = Client()
         class Bridge:
             def validate(self, *args):
-                return {'status': 'valid' if valid else 'invalid',
-                        'errors': [] if valid else [{'message': 'invalid'}]}
-        with tempfile.TemporaryDirectory() as folder:
-            return r.repair_one(argparse.Namespace(apply=True, verify=True, preimages=folder,
-                                                   replace_graph_provenance=replace_graph_provenance,
-                                                   allow_fractional_numbers=allow_fractional_numbers),
-                                repairs or [r.REPAIRS['empty-derived-from']], Client(), Bridge(), None,
-                                r.rest.ArtifactRef('template', 'urn:test', 'test'))
+                verdict = valid_back if client.written else valid
+                return {'status': 'valid' if verdict else 'invalid',
+                        'errors': [] if verdict else [{'message': 'invalid'}]}
+        return r.repair_one(argparse.Namespace(apply=apply, verify=True, preimages=str(folder),
+                                               replace_graph_provenance=replace_graph_provenance,
+                                               allow_fractional_numbers=allow_fractional_numbers),
+                            repairs or [r.REPAIRS['empty-derived-from']], client, Bridge(), None,
+                            r.rest.ArtifactRef('template', 'urn:test', 'test'))
+
+    def test_a_dry_run_writes_nothing_and_keeps_no_preimage(self):
+        # --apply is the only thing between the documented dry run and PUT ?verbatim=true.
+        result = self.run_repair(apply=False)
+        self.assertEqual(result['outcome'], 'would-repair')
+        self.assertEqual(self.puts, [])
+        self.assertNotIn('preimage', result)
+        self.assertEqual(list(self.preimages.iterdir()), [])
+        self.assertEqual(self.run_repair(apply=True)['outcome'], 'repaired')
+        self.assertEqual(len(self.puts), 1)
+
+    def test_the_preimage_holds_the_stored_body_before_the_write(self):
+        stored = {'@id': 'urn:test', 'pav:derivedFrom': '', 'schema:name': 'old'}
+        result = self.run_repair(body=copy.deepcopy(stored))
+        self.assertEqual(result['outcome'], 'repaired')
+        [put] = self.puts
+        self.assertNotEqual(put['candidate'], stored)
+        # The pre-image was on disk, complete, when the PUT was sent.
+        [(name, preimage)] = put['preimages'].items()
+        self.assertEqual(preimage['artifact'], stored)
+        self.assertEqual(preimage['etag'], '"1"')
+        self.assertEqual(put['etag'], '"1"')
+        self.assertEqual((preimage['artifactType'], preimage['artifactId']), ('template', 'urn:test'))
+        self.assertEqual(pathlib.Path(result['preimage']), self.preimages / name)
+        self.assertEqual(json.loads(pathlib.Path(result['preimage']).read_text()), preimage)
+
+    def test_a_stored_body_that_does_not_validate_is_not_verified(self):
+        result = self.run_repair(valid_back=False)
+        self.assertEqual(result['outcome'], 'repaired')
+        self.assertFalse(result['verified'])
+        self.assertIn('stored body does not validate', result['detail'])
+
+    def test_apply_refuses_to_skip_the_read_back(self):
+        # The key file leaves the guard as the only reason for main to stop before reading targets.
+        with patch('sys.stderr', new_callable=io.StringIO) as error, self.assertRaises(SystemExit):
+            r.main(['--apply', '--no-verify', '--repair', 'empty-derived-from',
+                    '--api-key-file', api_key_file(self), '--from-records', 'unused.jsonl'])
+        self.assertIn('--no-verify is dry-run only', error.getvalue())
 
     def test_readback_detects_unrelated_server_change(self):
         result = self.run_repair(lambda b: b.update({'schema:name': 'corrupted'}))
@@ -243,9 +305,16 @@ class WriteSafetyTest(unittest.TestCase):
                 client.put_verbatim('/templates/test', {}, etag)
 
     def test_context_migration_requires_explicit_scope(self):
-        with patch('sys.stderr'), self.assertRaises(SystemExit):
-            r.main(['--apply', '--repair', 'align-instance-context-iris',
-                    '--from-records', 'unused.jsonl'])
+        # The key file leaves the guard as the only reason for main to stop before reading targets.
+        key = api_key_file(self)
+        for name in ('align-instance-context-iris', 'restore-null-standard-context'):
+            for approval in ([], ['--allow-context-migration'], ['--only-ids', 'ids.json']):
+                with self.subTest(name=name, approval=approval), \
+                        patch('sys.stderr', new_callable=io.StringIO) as error, \
+                        self.assertRaises(SystemExit):
+                    r.main(['--apply', '--repair', name, '--api-key-file', key, *approval,
+                            '--from-records', 'unused.jsonl'])
+                self.assertIn('context alignment changes meaning', error.getvalue())
 
 
 class EmptySlotSafetyTest(unittest.TestCase):

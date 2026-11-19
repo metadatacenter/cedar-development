@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "about": "Skipped REST checks the gate accepts, each with the one reason it may be skipped for. Any other skip fails the run.",
+  "skips": []
+}

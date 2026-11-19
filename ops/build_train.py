@@ -294,9 +294,7 @@ def validate_configuration(
     docker_manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
     docker_text = docker_manifest.read_text(encoding="utf-8")
     if expected_source_version is not None:
-        for variable in (
-            "IMAGE_VERSION", "CEDAR_MAVEN_VERSION", "CEDAR_APPLICATION_VERSION",
-        ):
+        for variable in ("IMAGE_VERSION", "CEDAR_MAVEN_VERSION"):
             match = re.search(rf"^export {variable}=(\S+)$", docker_text, re.MULTILINE)
             actual = match.group(1) if match else None
             if actual != expected_source_version:

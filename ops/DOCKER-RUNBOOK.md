@@ -24,7 +24,7 @@ advancing the deployable pointer.
 
 | Tier | Containers | Host ports |
 | --- | ---: | --- |
-| Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200/9300, 27017 |
+| Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200, 27017 |
 | Microservices | 11 | 9002-9015; Artifact's 9001 is intentionally internal only |
 | Frontends (`docker` mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
 | Frontends (alternative hybrid mode) | 0 containers / 7 macOS processes | Same seven ports |

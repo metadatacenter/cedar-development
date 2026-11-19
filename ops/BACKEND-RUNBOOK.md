@@ -285,9 +285,19 @@ nothing then says which commit it runs.
 
 `current` therefore means the process is not older than its jar, which is narrower than it reads. A
 jar can itself have been built before its repository's `develop` head, and every row says `current`
-while it is, which is how a stack came to be smoke-tested against commits it did not contain. The
-summary under the table names any microservice in that position, and `cedarcli test e2e` refuses to
-record a run while one exists. A service that is merely warming is treated differently from one that
+while it is, which is how a stack came to be smoke-tested against commits it did not contain.
+cedar-parent therefore stamps every jar with the commit it was built from, at
+`META-INF/cedar/<artifactId>.git.properties`, and a shaded server jar keeps the stamp of every CEDAR
+module it embeds. A server or a library whose stamp names another commit than its repository's
+`develop` head is behind, and so is one built without a stamp, which any build with an earlier
+cedar-parent leaves. A server is equally behind when its jar predates the head of `cedar-parent`,
+which sets the versions it builds against and is stamped nowhere, or when it embeds a build of a Java
+library other than that library's latest local build. The check compares the checksums of the
+library's classes in both jars. The time compared with `cedar-parent`'s head is when that head
+reached this machine, read from the branch's reflog, rather than the commit's own date. A stamp whose
+build saw uncommitted changes marks its repository dirty in the record. The summary under the table names any
+microservice or library in that position, and `cedarcli test e2e` refuses to record a run while one
+exists. A service that is merely warming is treated differently from one that
 is wrong: a stack whose every finding is a warming service is given five minutes and polled rather
 than refused. The remedy is `cedarcli build java` followed by `cedarcli native
 restart`. For the `ui-main` and `ui-workspace` rows the column
@@ -626,7 +636,8 @@ stale ACL revision answers 412.
 The main conformance gates are `ResourcePermissionModelTest`,
 `WorkspacePermissionIntegrationTest`, `WorkspacePermissionInheritanceIntegrationTest`,
 `ArtifactPermissionLevelMatrixTest`, `FolderPermissionLevelMatrixTest`, and
-`SharingRoundTripTest`. Together they exercise the resource/role/capability/action matrix, direct
+`SharingRoundTripTest`. The two workspace suites run in
+`cedar-microservice-libraries/cedar-library-integration-tests`. Together they exercise the resource/role/capability/action matrix, direct
 user and group grants, folder inheritance and precedence, the **Everyone** restriction, REST
 authorization for all artifact types and folders, and ownership-transfer authority and concurrency.
 
@@ -1172,6 +1183,14 @@ When the dead-letter transfer itself cannot reach Redis, the message remains in 
 whenever Redis retained the earlier claim and is recovered on the next consumer initialization. The
 worker logs the failed transfer; inspect both `-processing` and `-dead-letter` after restoring Redis.
 
+A search hit whose resource the graph no longer holds is removed from the index when a search meets
+it, and an offset page that held any is asked for again, up to twice, so it fills and its total
+counts what exists. Such documents came from the worker's permission projection, which used to
+write a resource's document back when a delete ran between its graph read and its write; it now
+reads the graph again after rebuilding a document and removes it if the resource is gone. An index
+that collected these documents before that change still holds them until a search meets them, so
+rebuild it once after deploying the change.
+
 Rebuilding the index from the graph fixes permission drift whatever its cause, since the graph is the
 source of truth. It reads the resources from the folder server, indexes them into a new index, then
 points the `cedar-search` alias at it and deletes the old one:
@@ -1614,7 +1633,7 @@ with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
 ### Comparing the Two Model Libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
-model. JSON and both full and compact YAML match over all 84 corpus artifacts.
+model. JSON and both full and compact YAML match over all 87 corpus artifacts.
 Both YAML writers name a BioPortal ontology by its acronym and leave its service address out, and
 both readers derive `https://data.bioontology.org/ontologies/{ACRONYM}` for an entry that states
 none. A stored BioPortal address may take another form, over `http://` or at
@@ -1674,7 +1693,7 @@ npm run parity:json
 ```
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
-thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 21 instances and 39 templates. Full and compact output have independent parity gates, so
+thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 23 instances and 40 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
 A third comparison holds the TypeScript YAML readers to the JSON source rather than to their own
@@ -1697,13 +1716,18 @@ case.
 
 The Java library makes the same comparison over the same corpus. `CorpusYamlTripVerifier` runs in its
 CI after the fixture check, with the families defined in `YamlTripComparison` and the cases that show
-each named in `src/test/resources/concordance/corpus-yaml-trip.json`. It compares 219 cases and
-excludes 7, among them the definitions `corpus-expected-rejections.json` pins. The Java reader requires
+each named in `src/test/resources/concordance/corpus-yaml-trip.json`. It compares 222 cases and
+excludes 7. Each exclusion states its reason and how the message of the refusal that stops the case
+begins, and the verifier fails a case refused with any other message. CEE suite template 004 is
+pinned in `corpus-expected-rejections.json` rather than excluded by text. The Java reader requires
 an instance to name its template and itself, so each CEE suite instance that names neither is given
 its own case's template and a name first, as a host gives them before storing it. Run it with the
 fixture verifier's command, naming `CorpusYamlTripVerifier` as the main class. The template battery's
 round-trip tests already compared JSON through YAML for the library's own templates, so this check
 extends that comparison to the shared corpus rather than adding a kind of test the library lacked.
+`TemplateSourceRenderingTest` holds the battery to its sources in the same way, against the
+normalizations `template-source-rendering.json` declares, and `GoldenJsonGenerator` and
+`GoldenYamlGenerator` read `src/test/resources/templates` and rewrite only goldens that exist.
 
 Both libraries' completion fills a repeated child to its template's lower bound, whether the instance
 omits the child or holds fewer occurrences than the bound, so the two declare the same cases. The one
@@ -1779,6 +1803,9 @@ the actual fixture producer. For an explicitly uncommitted development review, u
 `node scripts/sync-concordance.mjs --matrix <name> --working-tree`: the lock records the base commit,
 `javaWorkingTree: true`, a hash of all Java source/test bytes, and the fixture hash. It does not claim
 those bytes belong to the base commit. Refresh that lock after further Java edits. Ordinary Java tests fail when their generated fixture is stale.
+`cedarcli check concordance` fails when the Java repository a TypeScript fixture's lock names has
+changed its `src/main` since the lock's commit, as its `develop` head on the remote stands, so a
+fixture recorded from Java code that has since changed is reported rather than trusted.
 
 The artifact library's separate `CorpusFixtureVerifier` gate checks the shared
 `cedar-test-artifacts` renderings. Three historical definitions have inconsistent defaults;
@@ -1786,7 +1813,15 @@ The artifact library's separate `CorpusFixtureVerifier` gate checks the shared
 reader exception and sole blocking finding's code/path. The gate must verify each rejection,
 and fails for changed or missing sources, unexpected acceptance or any unlisted rejection.
 Their old renderings remain historical fixtures and are never regenerated by `--write`.
-All accepted corpus artifacts still require current generated output.
+The deliberately malformed `cee-suite/086/template-086.json` is listed there under `unparseable`.
+All accepted corpus artifacts still require current generated output, and the gate fails a readable
+case missing any of its three Java renderings.
+
+The gate also checks each collection's case count against
+`src/test/resources/concordance/corpus-inventory.json`, so a case added to or removed from the
+corpus changes that record in the same commit. It compares every field, element and template source
+with its JSON rendering, allowing only the normalizations `corpus-source-rendering.json` declares for
+the family that names the case, so a new schema case is added to a family there.
 
 The matrix compares parsed YAML structure (independent of formatting). For standalone attribute-value
 fields it compares the field definition inside Java's array wrapper. It pins one precise reader
@@ -2289,15 +2324,19 @@ TypeScript, while both emit the same bytes for it.
   A `mongod` whose executable is under `~/.embedmongo` belongs to an embedded test run, not the
   native stack. An abnormally terminated test JVM can leave one behind with its ephemeral loopback
   port still open. On macOS, a later wildcard listener can acquire that same numeric port, so a test
-  request aimed at loopback may reach the orphan instead of the intended server. Inspect and remove
-  only these test-owned processes with:
+  request aimed at loopback may reach the orphan instead of the intended server. Such an orphan's
+  parent is PID 1; a mongod with any other parent belongs to a test still running, perhaps in
+  another session. Inspect and remove the orphans with:
   ```bash
   cedarcli test status
   cedarcli test cleanup
   ```
-  The detector identifies the executable path and deliberately excludes the native MongoDB. Every
-  test-bearing Maven command run by `cedarcli`, including release Maven builds, refuses to start
-  while one remains and checks again after the command finishes.
+  The detector identifies the executable path and deliberately excludes the native MongoDB.
+  `cedarcli test cleanup` stops only orphans, and `--all` also stops the mongods of tests still
+  running. Every test-bearing Maven command run by `cedarcli` refuses to start while an orphan
+  remains, and after the command finishes it waits only for the stores under its own build
+  temporary directory to stop. The release preflight fails on an orphan and warns about the stores
+  of tests still running.
 
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 with `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`. Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
@@ -2359,7 +2398,7 @@ TypeScript, while both emit the same bytes for it.
 
 - **A test fails with `Failed to bind to 0.0.0.0:90xx` while the dev stack is up** → that test boots
   its server on a real dev port instead of asking the OS for an isolated listener. Every booted test
-  must redirect its application, admin and stop ports through
+  must redirect its application and admin ports through
   `CedarEnvironmentSource.setOverride(...)` to `0`; obtain the allocated application port from
   `DropwizardTestSupport.getLocalPort()`. In-process HTTP stubs likewise bind to `127.0.0.1:0`, start,
   and then inject their allocated port. Port `1` is reserved for a dependency that must be
@@ -2457,7 +2496,7 @@ is still started, and the command exits non-zero.
 ## Building CEDAR
 
 `cedarcli build java` is the authoritative full build. It compiles and installs the whole Java
-stack in dependency order: parent, libraries, project, and clients. Inside a single repo,
+stack in dependency order: parent, then the libraries and the servers in one reactor, then clients. Inside a single repo,
 `cedarcli build this --wd "$PWD"` builds just that repo. The CLI loads the selected profile and pins
 JDK 17 for these child processes.
 
@@ -2471,7 +2510,13 @@ Temurin build. Framework/toolchain changes are tracked in the backend roadmap.
 
 The CLI build runs the Java test suites by default: every Java repo is built with
 `./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
-passed as well as compiled. The default suites are backend-free, so nothing needs to be up. The
+passed as well as compiled. `cedarcli build java` and `cedarcli build all` build the libraries and
+the servers in one Maven reactor, through cedar-project's `libraries` profile, which adds
+cedar-libraries to its modules. With tests, they then run the artifact library's three corpus
+verifiers against `$CEDAR_HOME/cedar-test-artifacts`, as its CI does, and
+fail when the corpus is absent. A local build still omits three checks that only CI runs: the
+meta-schema regeneration check in `cedar-model-validation-library`, the provided-libraries host
+check in `cedar-keycloak-event-listener`, and the `-Popensearch-it` suites. The default suites are backend-free, so nothing needs to be up. The
 seven build commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`,
 `java`, and `all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests`
 explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
@@ -2479,37 +2524,52 @@ Java-test option.
 
 **Bounded parallel Maven builds.** `cedarcli build java` passes Maven one reactor thread per
 detected CPU, at least one and capped at sixteen, so a plain build uses the whole machine: `-T 16`
-on the 16-core workstation, where the full build takes about 166 seconds against 305 at two
-threads. `--jobs N` overrides the count with `-T N`, and `--jobs 1` retains serial execution.
+on the 16-core workstation. There the 76 full builds with tests between 2026-10-20 and 2026-11-15
+took a median of 274 seconds; the last of them spent 250.5 of its 274.6 seconds in `cedar-project`.
+`--jobs N` overrides the count with `-T N`, and `--jobs 1` retains serial execution.
 Frontend builds have separate repository and worker budgets: three jobs on hosts with at least
 sixteen logical cores, two on smaller hosts, unless `--jobs` overrides it. See
 [frontend concurrency](FRONTEND-RUNBOOK.md#bounded-parallel-builds-and-test-gates).
 Maven schedules modules by
-its dependency graph inside each reactor. The parent, libraries, project and clients
-commands remain ordered and run in separate owning processes, so the embedded-Mongo
-preflight/cleanup guards still surround one reactor at a time. Test classes remain serial
+its dependency graph inside each reactor. `cedarcli build java` runs three reactors in order,
+each in its own Maven process: cedar-parent, then the libraries and the servers together
+(`./mvnw clean install -Plibraries` in cedar-project), then cedar-clients. The one reactor lets a
+server's library chain start as soon as the core, config and model libraries are installed, rather
+than after every library's tests. A cedar-project checkout without the profile is refused, because
+Maven 3 would only warn and build the servers against whatever libraries `~/.m2` holds.
+`cedarcli build libraries` and `cedarcli build project` still run their own reactors. The
+embedded-Mongo guards surround each Maven process. Test classes remain serial
 within each test JVM; Maven thread count does not enable JUnit concurrent execution.
-The resource application uses two isolated reusable Surefire JVMs as described below;
+The resource application uses four isolated reusable Surefire JVMs as described below;
 other modules retain their existing fork settings.
 Embedded MariaDB instances use private extraction and data directories beneath the
 executable build scratch space, even when Maven workers share `java.io.tmpdir`.
-CLI command timings and exit codes are retained under `.cedar/build-reports/`.
+CLI command timings and exit codes are retained under `.cedar/build-reports/`. Each Maven command's
+record also carries a `testSummary`: each module's test totals, each failing class and test with its
+message, the goal and module that failed, a fork Surefire killed, and an unmet coverage floor. A
+failed build's diagnostics sweep its workspace only when the workspace lies inside the temporary
+directory the build was given, and the failure manifest's `workspaceSwept` says whether it did.
 The source guard fingerprints build profiles and frontend build tooling within the
 mixed-purpose `cedar-development` repository; concurrent audit, repair and documentation
 work there does not invalidate a build. Other repository source guards remain in force.
 
 **Resource test JVM isolation.** The resource application distributes test classes over
-two reusable Surefire JVMs. Each JVM retains serial JUnit execution, keeping the
+four reusable Surefire JVMs. Each JVM retains serial JUnit execution, keeping the
 process-global CEDAR environment, service singletons and class cleanup isolated. HTTP
-fixtures request OS-assigned ports; Neo4j harnesses use private stores. Surefire writes
-class-specific reports, and each class is assigned to one fork. This adds at most one
-test JVM beyond the reactor's usual module concurrency, rather than doubling forks
+fixtures request OS-assigned ports. Each JVM has its own Neo4j store, and every class in that JVM
+shares it: `EmbeddedCedarNeo4j` keeps one static harness, seeded once, so data and jobs one class
+leaves behind can reach the next class's assertions. Surefire writes
+class-specific reports, and each class is assigned to one fork. This adds at most three
+test JVMs beyond the reactor's usual module concurrency, rather than multiplying forks
 across the estate. The module's Maven property `cedar.resource.test.forks` defaults to
-two; setting it to one restores its serial diagnostic path. `--jobs 1` controls reactor
+four; setting it to one restores its serial diagnostic path. Four were chosen on 2026-11-16, when the
+module's suite took 83.9 seconds at four forks against 120.5 at two, run back to back on one copy of
+the sources, with all 1,354 tests passing both times. `--jobs 1` controls reactor
 threads alone and does not override this module property.
 
 A sweep on 2026-09-25 extended these measurements past eight threads, with two resource test
-JVMs throughout:
+JVMs throughout. The suites have grown since, so the sweep shows how the build scales with threads
+rather than how long it takes now:
 
 | Maven threads | Full build seconds | `cedar-project` seconds |
 | --- | ---: | ---: |
@@ -3020,6 +3080,87 @@ exercise saveable quality violations in JSON/YAML, invalid defaults, structural 
 content/ETags and corrections. The current-template and numeric browser journeys verify the existing
 warning presentation and preservation after saving and reopening.
 
+RRID search and detail responses use SciCrunch's `rrid.curie`, then an explicit RRID in
+`item.curie` or `item.identifier`, with qualified legacy identifiers as a fallback. A source-local
+number alone does not identify its namespace: Addgene's `114536` needs `RRID:Addgene_114536`,
+and NCBI Taxonomy's `1260732` needs `RRID:NCBITaxon_1260732`. CEE opens the returned IRI unchanged.
+The bridge's `RegistryRecordReadingTest` covers these record shapes, while CEE's
+`visual/tests/authority-links.spec.ts` selects a search result and activates the outbound link by
+mouse and keyboard for all seven authorities, and checks direct entry of prefixed RRIDs.
+Mouse-down preserves an editing input's focus so wrapping its settled value cannot move the link
+before mouse-up; keyboard focus follows the native link. These deterministic tests
+stub registry responses and external destinations; they do not establish live provider availability.
+
+On 2026-11-14 SciCrunch's search also returned “coal metagenome” with
+`rrid.curie: RRID:NCBITaxon_1260732` and `recordValid: false`, while its JSON resolver returned
+404 even for that complete identifier. RRID name searches exclude `recordValid: false` in the
+SciCrunch query, before pagination and counting, and discard any explicitly false records still
+returned. True, missing and null flags are retained. The name must still match; the validity
+filter does not turn the name clauses into optional ranking hints. If the response violates the
+filter, CEDAR omits its untrustworthy total rather than reporting an inflated count.
+`RegistryRecordReadingTest` covers mixed and all-invalid responses, the query and paging contract,
+and unchanged direct identifier resolution. Previously saved values remain unchanged, including
+truncated identifiers. They need correction or reselection of an available resource; filtering
+search suggestions cannot repair a provider's resolver or make an excluded resource selectable.
+
+**Stored RRID audit, 2026-11-15.** The latest available production snapshot was
+`2026-10-25T0237Z.tar.zst`, captured between 02:37 and 05:51 UTC on October 25. Its archive digest
+and every body's indexed size and digest were verified. The scan read all 302,414 available bodies,
+including 150,585 instances; ten enumerated artifacts had no body because their snapshot reads
+returned 404. This is the snapshot's permission-scoped population, not a current production census.
+Declared authority fields, older RRID text fields, nested/repeated values and explicit identifiers
+elsewhere yielded 592 nonempty candidate values in 587 instances, containing 83 distinct parsed
+identifiers. SciCrunch search and authenticated resolver checks were made on November 15.
+
+The audit identified fourteen values in fourteen instances for review. Six lacked a complete namespace, including one
+whose matching registry record is explicitly invalid; the other eight are separate review findings.
+The `https://identifiers.org/` prefix is abbreviated below where present in the stored value.
+
+| Stored value | Occurrences | Finding |
+| --- | ---: | --- |
+| `RRID:JAX:000664` | 2 | `RRID:IMSR_JAX:000664` matches the source-local identifier and stored label `C57BL/6J`; the stored form returns 404 and the full form resolves. |
+| `RRID:5649640` | 1 | `RRID:MGI:5649640` matches the source-local identifier and stored label `CA`; the stored form returns 404 and the full form resolves. |
+| `RRID:1758540` | 1 | `RRID:NCBITaxon_1758540` matches `Plasmid vector pSP189`, but has `recordValid: false`; both forms return 404. A namespace correction alone is insufficient. |
+| `RRID:0213`, `1234` | 2 | Unqualified values in antibody fields. The resolver redirects to SurModics and worm strain KR1234 respectively; source-local searches offer other identities, so those redirects do not establish the intended resource. |
+| `CVCL_YA72` | 3 | No matching SciCrunch search record; resolver 404. There is no explicit invalidity flag to classify these as registry-invalid. |
+| `fdgmkw`, `rrid`, `RRID_aaaaaaa` | 3 | Unrecognized or test-like values requiring owner review. |
+| Literal `null`, `Not known` | 2 | Text placeholders, not resource identifiers; decide their treatment under the missing-answer policy. |
+
+None of the exact CURIE matches had `recordValid: false`: fourteen distinct identifiers had an
+explicit true flag and 62 had no flag or a null flag, neither treated as invalid. The one false
+record above was identified by matching the truncated source-local number and stored label.
+No stored occurrence of the reported coal-metagenome RRID was found. The audit itself made no writes.
+The scripts, snapshot identity, registry responses, resolver checks, full occurrence inventory and
+`findings.csv`/`findings.jsonl` with artifact identifiers and JSON Pointer paths are retained under
+`$CEDAR_HOME/.cedar/audits/2026-11-15-rrid-snapshot/`. Re-read each current instance before using
+these snapshot findings to plan a repair; the backend roadmap tracks the remaining decisions.
+
+On 2026-11-15 all fourteen candidate values were re-read from production and still matched the
+snapshot findings. The two `JAX:000664` values and the `5649640` value were corrected to their
+full RRIDs using conditional verbatim writes. All three complete candidates validated before
+writing; readback confirmed the exact submitted bodies, successful validation and unchanged graph
+modification provenance. Only the intended field `@id` changed. Originals and the verified write
+records are retained in the audit directory as `repair-apply-preimages/` and `repair-apply.jsonl`.
+The other eleven instances were left unchanged because their corrections require further evidence
+or an owner decision.
+
+A subsequent authoritative-source review on the same day established no additional unambiguous
+repair. Cellosaurus has no current `CVCL_YA72` entry or mapping in its
+[deleted-accession register](https://ftp.expasy.org/databases/cellosaurus/cellosaurus_deleted_ACs.txt).
+Its KCNT2 search returns the mouse line N11/33, not the UCSF human overexpression line named by
+all three instances; the stored UCSF catalogue URL was unreachable. SciCrunch returned 89 KCNT2
+name matches with no matching cell line. Its two pSP189 matches, `NCBITaxon_1758540` and
+`NCBITaxon_35614`, both carry `recordValid: false`.
+[Addgene vector-database entry 4182](https://www.addgene.org/vector-database/4182/) is historical
+backbone information, explicitly not a distributed Addgene plasmid, and supplies no replacement RRID.
+
+The remaining five ambiguous/unrecognized entries have absent or test-like identifying context.
+The Anti-RuBisCo placeholder has no supplier/catalog identity to distinguish registry antibodies;
+the literal-null cell record has no line name or repository URL and is marked In progress.
+All eleven values were confirmed unchanged in production, and the earlier three repairs remain
+intact. No further writes were issued. Per-artifact assessments and source evidence are retained
+in the audit directory under `followup/`.
+
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
 dependency is one the server cannot serve requests without, and its failure makes the server
@@ -3442,7 +3583,11 @@ Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mo
 OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
-MySQL). Nor does any suite need an external service. Terminology's BioPortal resource tests run
+MySQL). The suites that exercise the shared libraries against those backends, the workspace and
+permission integration tests, the user-service contract, the credential and route matrices and the
+harness's own tests among them, run in `cedar-microservice-libraries/cedar-library-integration-tests`.
+That leaf module depends on the test-support library, nothing depends on it, and it is not deployed.
+Nor does any suite need an external service. Terminology's BioPortal resource tests run
 against a fake BioPortal that each test class starts. Their CEDAR variables must still be set,
 because the configuration substitutes them as it loads; a placeholder value is enough. The bridge's
 DOI suites call no DataCite. They run against a DataCite fake that keeps what it registers.
@@ -3459,8 +3604,12 @@ one of these without the tag, and `cedarcli build java` refuses to run the tests
 
 Search is the deliberate exception in CI. `cedar-microservice-libraries` and
 `cedar-resource-server` run `verify -Popensearch-it` against a disposable OpenSearch 2.19.1 service.
-The library integration test executes the materialized user/everybody permission filter,
-grant/revoke materialization changes and a point-in-time continuation walk against the engine. The
+The library integration test, `ElasticsearchPermissionEnabledContentSearchingWorkerIT`, executes the
+user/everybody permission filter against the engine. It does not run the graph's materialization:
+it indexes hand-written `users` keys, re-indexes a document with a grant added or removed, and
+checks that searches follow the keys. Its point-in-time continuation walk holds a row only its owner
+may read on a continued page, so the walk is checked to keep the permission filter beyond the first
+page. The
 resource server integration test sends real `/search` and `/search-deep` requests through
 Dropwizard to the same engine. For a local reproduction, start the native infrastructure and run
 the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
@@ -3543,8 +3692,11 @@ checkpoint count/time so future runtime changes can be attributed.
 
 Indexed search applies the sharing view before counting, sorting and pagination. `shared-with-me`
 includes caller grants through users, groups and shared-folder descendants, excluding caller-owned
-and publicly shared artifacts. `shared-with-everybody` includes direct and inherited public grants.
-The empty-query sharing views still list their shared roots through the graph. Workspace preserves
+artifacts and anything Everybody may read, whether the public grant is the resource's own or inherited
+from a folder that contains it. `shared-with-everybody` includes direct and inherited public grants.
+The empty-query sharing views still list their shared roots through the graph, and the graph's
+Shared with Me listing leaves out inherited public read as the index does, so typing a term never
+brings back a resource the listing left out. Workspace preserves
 the selected sharing view on search, reload and clearing the expression; continuation tokens bind
 the sharing filter as well as the query and caller.
 
@@ -3639,7 +3791,13 @@ acquisition and transaction retry therefore reach the same unavailable-dependenc
 in about one second instead of the production drivers' roughly thirty-second defaults. Neo4j keeps
 a separate five-second floor for initial Bolt connection establishment; a healthy embedded server's
 first handshake exceeded one second on a constrained CI runner, so treating that startup latency as
-an outage made the suite flaky. Local dead ports still refuse immediately, and the outage HTTP tests
+an outage made the suite flaky. Only the driver `Neo4JProxies` builds keeps that floor. The other
+six test-runtime drivers, those of the deletion and restore outboxes, version projection, the
+search-permission and create-cleanup outboxes and the DOI store, take the one-second budget for
+their first connection too. Mongo's socket read timeout has the same five-second floor for the
+same reason: a read from a healthy embedded server is not an outage, and dropping its indexes took
+longer than one second while a parallel `cedarcli build java` loaded the machine, failing the admin
+tool's provisioning test in two of three builds on 2026-11-15. Local dead ports still refuse immediately, and the outage HTTP tests
 carry five-second request deadlines. Normal JVMs have no property and retain the production
 timeouts.
 
@@ -3663,8 +3821,10 @@ the active environment changes, and no reflective `--add-opens` environment muta
 
 The same support library registers a JUnit launcher-session listener that explicitly stops its
 shared embedded MongoDB and MariaDB once the suite closes. The JVM shutdown hook remains a fallback
-for ordinary shutdown outside a launcher session; the next CLI preflight catches a child left by a
-crashed or forcibly killed JVM.
+for ordinary shutdown outside a launcher session. A crashed or forcibly killed JVM can leave its
+children running. The next CLI preflight refuses to start a test-bearing Maven task while an
+orphaned embedded mongod remains, but it does not look for an orphaned embedded MariaDB or Redis
+server.
 
 `ops/tests/test_backend_test_port_policy.py` is the static regression guard. It rejects fixed server
 environment ports, nonzero test connector ports, wildcard test connectors and wildcard port-zero
@@ -3678,11 +3838,13 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 `DropwizardAppExtension`: its version bundled with Dropwizard 2.1 is binary-incompatible with the
 current JUnit platform.
 
-Suite sizes in the surefire reports of the 2026-10-28 build: artifact 1,816 (parameterized CRUD over
-four artifact types on embedded Mongo), server-rest 527, workspace-operations 271, search-operations
-337, artifact-library 1,928, terminology 782 (61 more excluded under `bioportal`), model-validation
-505, resource 1,440, cadsr-tools 139, core-library 440, user 43, group 34, messaging 38, bridge 639,
-monitor 144, and a one-to-seven-test boot-and-config tier on the remaining thin servers.
+Suite sizes in a full build of every Java suite on 2026-11-16, 10,413 tests in all, by repository:
+artifact-library 1,940, artifact 1,817 (parameterized CRUD over four artifact types on embedded
+Mongo), resource 1,452, terminology 849, bridge 650, model-validation 508, core-library 438,
+monitor 144, cadsr-tools 139, worker 77, config-library 75, user 43, messaging 38, admin-tool 37 and
+group 34. The shared libraries hold 2,123, among them server-rest 480, search-operations 337 and
+workspace-operations 273. The repo and OpenView servers run a boot-and-config tier of a dozen tests
+each.
 
 ### Reproducing a Flake That Depends on Class Order
 
@@ -4061,10 +4223,11 @@ write path (which proxies, so the per-service suites cannot follow it), publish 
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
-the suites are `addressing`, `apidocs`, `artifacts`, `authentication`, `bodies`, `categories`,
-`contract`, `deletion`, `download`, `error-reports`, `errors`, `finding`, `folders`, `freeze`,
-`group-sharing`, `groups`, `inclusion`, `mcp`, `negotiation`, `openness`, `pagination`, `pull-versions`,
-`search`, `sharing`, `term-search`, `validation` and `versioning`. The committed
+the suites are `addressing`, `administration`, `apidocs`, `artifacts`, `authentication`, `bodies`,
+`categories`, `contract`, `deletion`, `download`, `error-reports`, `errors`, `finding`, `folders`,
+`freeze`, `group-sharing`, `groups`, `inclusion`, `mcp`, `messaging`, `negotiation`, `openness`,
+`pagination`, `profiles`, `pull-versions`, `search`, `sharing`, `term-search`, `validation` and
+`versioning`. The committed
 `rest/expected-checks.json` inventory records exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
@@ -4074,7 +4237,10 @@ and malformed successful replies fail. `term-search` follows the same rule for i
 asks the terminology server one search of each kind the term picker makes, for classes, branches,
 an ontology, value sets and properties, and holds each answer to the rule the picker applies before
 it reads one. The picker's own tests answer from responses written by hand, so this is the one place
-a change in the server's answers meets what the picker accepts. Cleanup verifies HTTP 404 after deletion; an unsuccessful
+a change in the server's answers meets what the picker accepts. The suite keeps its own copy of
+the picker's rule, and `rest/term-search.test.mjs` holds that copy to the picker's
+`response-validation.ts` from the sibling checkout, case by case, and skips where the picker is not
+installed. Cleanup verifies HTTP 404 after deletion; an unsuccessful
 read is not evidence of absence. `download` includes JSON / YAML / compact-YAML export and
 read-negotiation across all four artifact kinds.
 
@@ -4083,8 +4249,27 @@ read from that user's profile, and takes three canned templates from `cedar-arti
 resources through `validate_artifact`, `create_template`, `get_template` and `delete_template`, and
 one template through `update_template`. Each step is confirmed through the resource server. The suite
 fails when the jar is missing or older than its sources, so run `mvn package` in
-`mcp/cedar-artifact-rest-mcp` first. `errors` sends each server only the kinds of refusal its
-operations allow, so a server whose operations take no JSON body gets no malformed-body check.
+`mcp/cedar-artifact-rest-mcp` first. The report's `mcpSources` records the head commit and
+uncommitted state of the four MCP repositories under `$CEDAR_HOME/mcp`, and the REST MCP jar's
+SHA-256. `cedarcli test e2e` refuses REST evidence that names no clean commit of
+`cedar-artifact-rest-mcp`, since a jar built from uncommitted changes holds code no commit does.
+
+`errors` sends each server only the kinds of refusal its operations allow, so a server whose
+operations take no JSON body gets no malformed-body check. It requires 401 for every operation
+asked without credentials. Each such request is otherwise well formed, with an empty JSON body,
+the required query parameters and an `If-Match`, so that only the missing credential can refuse it.
+An operation that reads its input before it authenticates belongs in the suite's `VALIDATES_FIRST`
+table with its reason, and the table is empty. A 5xx answer to a probe that names an identifier,
+sends a body or asks for a route fails the run, unless it is a 502 or 503 the suite documents as an
+upstream answer.
+
+`administration` asks every server's `/insight/*` routes and every monitor report as the first test
+user, who holds no administrative role, and requires 403. It requires 403 for the reset and
+regeneration commands as well, which are sent only because each must be refused before it starts.
+`profiles` changes one of the first user's preferences and puts it back, and reads the summary only
+that user may read. `messaging` sends the second user one message, stamped with the run, and makes
+the changes only its recipient may make. The messaging server has no route that deletes a message,
+so the message stays in that user's list, read.
 
 `npm run test:rest-harness` runs every `rest/*.test.mjs` file without a running stack. Release tooling
 CI runs that same command after installing its dependencies and checking out the eleven servers'
@@ -4092,7 +4277,10 @@ committed OpenAPI schemas. It covers error and success contracts, runner safegua
 capability checks, cleanup and scheduling.
 
 `pagination` checks fractional, overflowing and nonnumeric paging values, invalid sort and typed
-filter values, and the shared error envelope on those refusals. Empty optional string filters are
+filter values, and the shared error envelope on those refusals. It keeps the bridge's refusals of
+an invalid authority-search page, which the bridge makes before it asks a registry. The checks that
+page through the live ROR registry run in `npm run smoke:rest:live-authorities`
+(`rest/live-authorities.mjs`), which gates nothing, so an outside service cannot fail the tier. Empty optional string filters are
 normalized to absent at the HTTP boundary and retain their defaults. `group-sharing` checks direct
 Viewer plus group Editor and overlapping Viewer/Editor groups, including immediate loss of write
 authority when the stronger grant or group is removed. `sharing` sends a real artifact PUT with an
@@ -4114,9 +4302,10 @@ REST invocation does not replace the release smoke gate.
 
 Fifteen audited suites may overlap. Each has its own working folder, asynchronous
 check context, creation tracking and cleanup registry. The `folders`, `groups`,
-`categories`, `authentication`, `pagination` and `contract` suites run exclusively
-after that parallel batch: their home guards, protected group operations, category
-tree, account credentials or global counts require a stable surrounding stack.
+`categories`, `authentication`, `pagination`, `contract`, `administration`, `profiles` and
+`messaging` suites run exclusively after that parallel batch: their home guards, protected group
+operations, category tree, account credentials, global counts, administrative commands, user
+profile or message lists require a stable surrounding stack.
 New suites default to exclusive execution. One worker preserves the original suite
 order. Result merging restores the canonical suite order while preserving the check
 order within each suite, so the same exact inventory applies at every worker count.
@@ -4132,10 +4321,18 @@ the split tier's lanes run beside one another, each under a root folder of its o
 in those tiers takes one machine-wide authentication lock. The REST tier's two checks of global state
 allow for the others: its leftover checks ignore a stamp later than its own run's, which belongs to
 work that started after it, and it reads the three services' document counts again until they
-agree, at most ten times.
+agree, at most ten times. Browser work starts only once the REST tier publishes an atomic
+signal that its initial inventory and worker checks are done, so that inventory cannot mistake a
+group a browser tier has just created for an earlier run's leftover. An absent or malformed signal
+makes browser work wait for the REST tier to finish.
 
 Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
-and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
+and postflight). Each REST request times out after `CEDAR_REST_REQUEST_TIMEOUT_MS`, 120 seconds by
+default, and the runner stops itself after `--deadline`, 1,200 seconds by default, as it does on a
+first signal: active suites drain and the teardown runs. `cedarcli test e2e` gives the tier 1,800
+seconds and records an overrun as exit 124 with `timedOut` in the gate record.
+
+`npm run test:rest-harness` verifies bounded scheduling, exclusive
 barriers, interruption, report attribution, cleanup ordering, partial-inventory refusal and the
 success-schema pilot's rejection of malformed responses; it also runs before
 every `npm run smoke:rest` invocation.
@@ -4200,10 +4397,58 @@ likewise be built from the development sources under test and redeployed before 
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
-manage. It then records the `develop` head of every train repository, starts `npm run smoke:rest`
+manage. It also refuses while the frontend reactor's deployed build, which `.reactor/runtime.json`
+names, was made from another commit than the `develop` head of any repository it built, since the
+frontends then serve code the record would not name. The remedy is `cedarcli build frontends`. A
+repository that build took from a tree with uncommitted changes is recorded as dirty, and the record
+names the build as `frontendBuild`.
+
+The build record says what the reactor built. Each host serves the packages installed in its checkout
+and the tree its own start built there, so the gate also reads what is served. The reactor stamps
+every package it stores with the commit, dirty state and content digest of the source it built,
+under `cedarBuildInfo` in the package's `package.json`. Each package a host installed from the build
+must carry that stamp, and the stamp must name the commit the build record names or the same
+content digest. A result the reactor reused from an earlier commit of identical content keeps that
+commit's stamp, and the digest identifies it. The Embeddable Editor copies that Workspace and the
+Template Editor serve from their own trees must equal the bundle in the installed package. The
+Template Designer's `app/components/manifest.json` must give the digests of the installed packages'
+files and of the bundle it serves. A development start of Workspace or the Template Designer writes
+`/config/build-info.json`, as a server payload does. That file must name the host's `develop` head
+and a digest equal to that of the tree the host serves, and a start from a dirty tree marks the host
+dirty. A host or package with no stamp, or with a stamp of another commit, stops the run. The remedy
+is `cedarcli build frontends`, which stores stamped packages and restarts the hosts.
+
+Some repositories reach the stack without a controller row. Keycloak loads the event listener from
+the jar that `cedarcli dev copy-keycloak-listener` copies into `$CEDAR_KEYCLOAK_HOME/providers`. The
+gate requires that jar's cedar-parent stamp to name the listener's `develop` head, and Keycloak's
+process to have started after the jar was installed. The gate and the tiers run straight from the
+cedar-cli and cedar-development checkouts, whose heads and working trees are what ran, so the gate
+refuses to run from any other copy of the CLI, such as a worktree. The other train repositories that
+neither the Java build nor the frontend reactor deploys put nothing on the native stack, so no run
+tests them and the gate checks none of them. They are the Docker recipes, the administration and
+caDSR tools, the component demos, and the POM-only projects cedar-clients, cedar-libraries and
+cedar-project.
+
+The gate then records the `develop` head of every train
+repository, starts `npm run smoke:rest`
 in the background, runs `npm run smoke`, `npm run smoke:workspace:modern:full` and
 `npm run smoke:search` one after another beside it, and writes `reports/smoke-gate/<digest>.json`,
-where the digest names the set of heads, beside a `latest.json` copy. The split and search tiers
+where the digest names the set of heads, beside a `latest.json` copy. After the last tier it reads
+the heads, the working trees, the controller's processes and the deployed frontend build again. A
+head that moved, a clean tree that gained changes, a service served by another process or gone stale,
+or another frontend build turns the record into a failure that lists each change under
+`changedDuringRun`, since some tiers then ran code the record does not name. Restarts do not wait for
+the local-stack lock, so restart nothing on the stack while the gate runs. The browser tier is
+given, as `CEDAR_EXPECT_CEE_VERSION`, the version `cedar-embeddable-editor` declares at its recorded
+head, and fails when the Metadata Editor or OpenView renders any other; the record keeps it as the
+tier's `expectedCeeVersion`. An exit code does not say which checks a tier made, so the browser and
+split tiers must also show that they ran their whole inventory. Each browser script writes the
+steps it completed into the directory `CEDAR_BROWSER_SMOKE_REPORTS` names, and the record requires
+them to be exactly the steps `ops/e2e/browser-steps.json` commits. A script that gains a step must
+add it there, which `smoke-steps.test.mjs` enforces. The split tier's report must show every unit passed,
+nothing left unrun and each journey in `ops/e2e/journey-scenarios.json` run with exactly its
+committed scenarios. A tier without that evidence is recorded as failed, and the gate refuses it.
+The split and search tiers
 cannot overlap, since both hold the split tier's lock. The REST tier's output goes to
 `rest-smoke-<digest>-<uuid>.log` beside its report rather than to the terminal, and the gate names
 the file when the tier fails. The record names what the stack ran, so a checkout with another
@@ -4213,11 +4458,18 @@ repository. A train repository not checked out here is named, and the gates refu
 release that captures it. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
-`rest-smoke-<digest>-<uuid>.json`, the split tier's as `split-smoke-<digest>.json`, and the search tier's as
-`search-smoke-<digest>-<uuid>.json`. REST and search evidence have unique paths per attempt so a
-refused or killed run cannot inherit a previous pass. The REST gate independently compares every
+`rest-smoke-<digest>-<uuid>.json`, the split tier's as `split-smoke-<digest>-<uuid>.json`, and the search
+tier's as `search-smoke-<digest>-<uuid>.json`. Each attempt's evidence has a path of its own, so a
+refused or killed run cannot inherit a previous pass or show an earlier attempt's failures. The REST gate independently compares every
 check with the committed inventory and requires all suites, consistent counts, completed timestamps
-and a passing verdict, even when the process exits zero. Records without validated REST evidence
+and a passing verdict, even when the process exits zero. It also refuses any skipped check that
+`ops/e2e/rest/allowed-skips.json` does not name with the reason the run recorded, because a skipped
+check carries the same identity as a passed one and proves nothing about the deployment. The
+allowlist holds the skips this workstation cannot avoid, each with its one reason, and the REST
+runner fails any other skip itself. It is empty today. No CEDAR operation marks a folder special, so
+the pagination and search suites mark a folder of their own in the graph through Neo4j's HTTP
+endpoint, with the credentials the profile exports, and a run without them fails those checks. A store without DOID or CEDARVS, or a missing artifact service
+key, therefore fails the tier instead of thinning it. Records without validated REST evidence
 require a fresh run. The search gate checks every planned cell against the actual checks, requires
 all six families (content, access, paging, protocol, lifecycle and browser), and fails
 on missing, duplicate, skipped or failing cells, incomplete execution, browser errors or cleanup
@@ -4250,6 +4502,13 @@ flag for diagnosis. The runner also refuses to replace the inventory after a fai
 It inventories timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
 state or the current teardown did not restore the baseline.
 
+Checks leave the inventory only by name. `rest/retired-checks.json` names every check identity retired
+from the inventory, each with the reason it was retired, and an inventory update that would drop an
+identity the list does not name is refused. `cedarcli test e2e` applies the same rule to the committed
+inventory: when it has lost an identity that the last passing run's inventory held and the list does
+not name, the REST evidence is invalid, and the gate record lists the lost identities as
+`droppedChecks`.
+
 An interrupted run still cleans up after itself. `SIGINT` or `SIGTERM` stops it at the next suite
 boundary, the teardown a finished run performs runs anyway, and the verdict is `INTERRUPTED` with exit
 130 rather than a pass covering only the suites that ran. A second signal exits at once and forgoes the
@@ -4270,8 +4529,10 @@ Attributing a leftover starts with the timestamp in its name, and that timestamp
 2026-08-19T04-27-53` was created at 21:27 the previous evening in Pacific time, seven hours earlier
 than it reads, which is enough to credit one run's mess to another.
 
-`ops/e2e/cleanup-smoke-leftovers.mjs` finds and removes them. Run with no arguments it reports what
-it found and deletes nothing; `--apply` deletes. It keys on that same run stamp, and a stamped folder
+`ops/e2e/cleanup-smoke-leftovers.mjs` finds and removes them, in the first user's home and in the
+second user's, where the suites acting as that user leave what they make. The REST tier's own
+leftover checks read both homes, the category tree and the group listing. Run with no arguments the
+tool reports what it found and deletes nothing; `--apply` deletes. It keys on that same run stamp, and a stamped folder
 carries its whole subtree, so an artifact the suites created inside a working folder without stamping
 its own name goes with it. The split tier and the focused journeys name their working folders
 `Focused journey <epoch milliseconds> <lane>` instead, and the tool keys on that number too. Until it
@@ -4324,8 +4585,11 @@ the test JVMs the build ran and credits each module's classes twice: once with t
 module's own repository, and once with any test that ran them. The repository figure is what the
 repository's CI tests before any consumer sees a change. It exceeds the module's own figure where one
 module is tested from another in the same repository. `cedar-microservice-libraries` tests its Neo4j
-persistence layer from `cedar-test-support-library`, which owns the embedded Neo4j, and the bridge
-server's application suites exercise its core module. The console shows the three figures in one
+persistence layer, and the test-support library's harness, from `cedar-library-integration-tests`,
+and the bridge server's application suites exercise its core module. The test-support library's own
+floors therefore count its unit tests alone: on 2026-11-16 they covered 35.7% of its lines and 35.4%
+of its branches, against floors of 33%, and the integration suites' share of it counts in the
+repository's merged figure. The console shows the three figures in one
 line, and `$CEDAR_HOME/.cedar/coverage/<UTC timestamp>.json` holds them per module and per
 repository, for lines and for branches. `cedarcli build diagnostics` removes records older than its
 `--days`, as it does failed-build bundles. cedar-project's CI job, which runs every server's suites
@@ -4333,8 +4597,17 @@ against the develop libraries in one reactor, runs the same report through
 `python -m org.metadatacenter.coverage`. It writes the figures into the job summary and uploads the
 JSON as the `coverage-summary` artifact. On 2026-11-04 the estate stood at 75.4% of 58,654 lines by
 each module's own tests, 84.3% by each repository's own tests and 88.7% by any test, and at 70.8%,
-76.1% and 78.8% of 23,869 branches. The figures are a report, not a gate. When cedarcli cannot compute the merged figures, for instance because the
-local Maven repository lacks JaCoCo's libraries, it says why and the build's result stands.
+76.1% and 78.8% of 23,869 branches. The record also lists every module that has no tests, at 0% by
+its own tests, among them the messaging core and the permissions operations library.
+
+`cedarcli build java` and `cedarcli build all` hold the repository and any-test figures as a gate.
+Each module's line and branch figures by its repository's tests and by any test are recorded in
+`cedar-cli/assets/coverage/recorded.json`, and the build fails when one falls more than two points
+below its recorded value, when a recorded module goes unmeasured, or when the merged figures cannot
+be computed, for instance because the local Maven repository lacks JaCoCo's libraries. Narrower
+builds, such as `cedarcli build this`, only report. `cedarcli build record-coverage` previews new
+recorded figures from a coverage record and writes them under `--apply`. Commit them with the change
+that moved them.
 
 The agent reaches a test JVM through the `argLine` property that `prepare-agent` sets. A module
 that configures Surefire's or Failsafe's `<argLine>` itself must begin it with `@{argLine}`.
@@ -4356,9 +4629,9 @@ than a local build did, because some of its branches run only on some timings, t
 lower figure. A comment beside each records the figures. `cedar-parent` defaults both properties to
 zero, so a module without a floor of its own has none, and the check skips a module that ran no
 tests. The floors use the module's own figure, not the any-test one, so they cannot be met by another
-repository's suites, and a module tested mainly from a sibling, such as
-`cedar-workspace-operations-library` at 40.2% of its branches, is held only to what its own tests
-reach. To raise a floor after adding tests, set the property to the new figure less two points.
+repository's suites. A module tested mainly from a sibling, such as
+`cedar-workspace-operations-library` at 40.2% of its branches, is held by its floor only to what its
+own tests reach, and by the full build's gate to its repository and any-test figures. To raise a floor after adding tests, set the property to the new figure less two points.
 Lowering one is a decision to accept less coverage, and the commit should say why.
 
 ### REST Performance Testing
@@ -5116,9 +5389,11 @@ no-op, and artifacts passed from one job to the next. Every `run:` step runs wit
 condition, environment and working directory. A step's environment holds the toolchain that the
 release also resolves, Java 17 and Node 24.22.1, and a home directory, but nothing else from the
 shell that started it. Maven resolves into a repository of its own under `~/.cedar/local-ci/maven`,
-so a snapshot installed from a working tree can never stand in for the one Nexus serves. Jobs that
-boot the embedded stores on the shared test ports run one at a time, and a repository's
-independent jobs run in parallel, as GitHub schedules them.
+so a snapshot installed from a working tree can never stand in for the one Nexus serves. Test
+servers and embedded stores bind ports the OS assigns, so Maven jobs run in parallel, and so do a
+repository's independent jobs, as GitHub schedules them. Only the jobs that start the OpenSearch
+container run one at a time, because they share its name and port. That exclusion is a file lock
+under `$CEDAR_HOME/.cedar/locks`, so it also holds between concurrent `cedarcli ci run` processes.
 
 `ops/local-ci.json` records only what must differ on this machine, each difference with its reason.
 That means the steps local CI skips, such as publication or a Linux-only package install, and the
@@ -5706,6 +5981,15 @@ compact, and reads that back. The audit then hands each rendering to the other l
 read, and its `yamlParity` summary counts the results. A production snapshot takes under three
 minutes. `records.jsonl` holds one verdict per artifact, and `summary.json` counts outcomes by type
 and groups refusals and validation failures by cause, with quoted values masked.
+
+The Node bridge also judges every template, element and field as stored with the library's
+`SchemaArtifactValidator`, whose verdict the embeddable designer's Save follows. The summary's
+`schemaValidationParity` holds that verdict to the Java validator's by artifact type, as
+`validationParity` holds the instance verdicts, and `--fail-on-disagreement` fails the run on a
+difference in either. On 2026-11-15 the validator gained Java's rules for child and attribute-value
+field keys, versions and absolute IRIs. The pass over the 2026-10-25 snapshot then found all 4,825
+templates, 5,309 elements and 141,695 fields in agreement, with records under
+`$CEDAR_HOME/.cedar/audits/2026-11-15-snapshot-read-validators/`.
 
 The 2026-10-24 pass, with both libraries at their develop heads (`c83ed4b` and `02aadf5`), found:
 

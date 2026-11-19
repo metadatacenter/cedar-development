@@ -2,14 +2,11 @@
   "schemaVersion": 1,
   "statusContext": "cedar/local-ci",
   "profiles": {
-    "maven-tests": {
-      "exclusive": "java-test-ports"
-    },
+    "maven-tests": {},
     "maven": {
       "skip": {
         "Publish the snapshot": "publication, not verification: Actions publishes the snapshot after a push to develop"
-      },
-      "exclusive": "java-test-ports"
+      }
     },
     "embedded-mongo-on-linux": {
       "skip": {
@@ -29,7 +26,8 @@
       "requires": [
         "docker"
       ],
-      "cleanup": "docker rm -f cedar-local-ci-opensearch >/dev/null 2>&1 || true"
+      "cleanup": "docker rm -f cedar-local-ci-opensearch >/dev/null 2>&1 || true",
+      "exclusive": "opensearch-container"
     }
   },
   "repositories": {
@@ -390,6 +388,38 @@
             "docker"
           ]
         }
+      }
+    },
+    "mcp/bioportal-term-mcp": {
+      "branch": "main",
+      "jobs": {
+        "ci.yml:test": {
+          "substitute": {
+            "Set up uv": {
+              "run": "uv --version",
+              "reason": "setup-uv installs uv on the runner; this machine runs the uv on its PATH, which installs the Python .python-version names and the locked dependencies as on GitHub"
+            }
+          }
+        }
+      }
+    },
+    "mcp/cedar-artifact-mcp": {
+      "branch": "main",
+      "jobs": {
+        "ci.yml:test": {}
+      }
+    },
+    "mcp/cedar-artifact-rest-mcp": {
+      "branch": "main",
+      "jobs": {
+        "ci.yml:test": {}
+      }
+    },
+    "mcp/cedar-cee-mcp": {
+      "branch": "main",
+      "jobs": {
+        "ci.yml:test": {},
+        "design-tokens.yml:design-token-adoption": {}
       }
     }
   }

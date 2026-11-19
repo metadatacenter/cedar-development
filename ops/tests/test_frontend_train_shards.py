@@ -166,13 +166,52 @@ class DistributedEvidenceTest(unittest.TestCase):
         before = copy.deepcopy(config)
         prepared = shards.host_preparation_config(config)
         self.assertEqual(before, config)
+        browser = ['env', 'CEDAR_REQUIRE_SHARED_EDITORS=1', 'npm', 'run', 'test:browser']
         original = train.frontend_inventory.commands(config, shards.HOST)
         moved = train.frontend_inventory.commands(prepared, shards.HOST)
-        self.assertEqual([c for c in original if c != ['npm', 'run', 'test:browser']], moved)
+        self.assertEqual([c for c in original if c != browser], moved)
+        self.assertEqual((browser, {'CEDAR_REQUIRE_SHARED_EDITORS': '1'}),
+                         shards.host_browser_command(config))
         row = next(s for s in config['surfaces'] if s['repository'] == shards.HOST)
-        row['verify'].remove(['npm', 'run', 'test:browser'])
-        with self.assertRaisesRegex(RuntimeError, 'recipe changed'):
-            shards.host_preparation_config(config)
+        index = row['verify'].index(browser)
+        for changed in ([], [browser, browser], [['env', '-i', 'npm', 'run', 'test:browser']],
+                        [['npx', 'npm', 'run', 'test:browser']]):
+            recipe = copy.deepcopy(row['verify'])
+            recipe[index:index + 1] = changed
+            altered = copy.deepcopy(config)
+            next(s for s in altered['surfaces'] if s['repository'] == shards.HOST)['verify'] = recipe
+            with self.subTest(changed=changed), self.assertRaisesRegex(RuntimeError, 'recipe changed'):
+                shards.host_preparation_config(altered)
+
+    def test_host_shards_run_the_browser_suite_with_the_recipe_variables(self):
+        # The reactor runs the host's browser suite with CEDAR_REQUIRE_SHARED_EDITORS=1, so the
+        # shared-editors spec cannot be left out. The shards replace that command in a train and
+        # must run, and list, the suite with the same variable.
+        config = train.load_json(train.DEFAULT_CONFIG)
+        self.args.lane = '2'
+        root = self.args.workspace / shards.HOST
+        (root / 'app').mkdir(parents=True)
+        (root / 'browser').mkdir()
+        receipt = {'archiveSha256': 'x', 'data': {'appSha256': train.path_sha256(root / 'app')}}
+        commands = []
+        def run(command, directory, env):
+            commands.append((command, env.get('CEDAR_REQUIRE_SHARED_EDITORS')))
+            if '--config=train-report.config.mjs' in command:
+                (root / 'browser/train-report.json').write_text(json.dumps({'suites': [
+                    {'specs': [{'id': 's', 'tests': [{'projectName': 'chromium', 'status': 'expected'}]}]}]}))
+        listed = []
+        def inventory(directory, env, folder, extra=()):
+            listed.append(env.get('CEDAR_REQUIRE_SHARED_EDITORS'))
+            return ['s:chromium']
+        with patch.object(shards, 'context', return_value=(self.plan, {}, config)), \
+             patch.object(shards, 'restore', return_value=receipt), \
+             patch.object(shards, 'environment', return_value={'CI': '1'}), \
+             patch.object(shards, 'inventory', side_effect=inventory), \
+             patch.object(train, 'run_command', side_effect=run):
+            shards.check_host(self.args)
+        test = [env for command, env in commands if '--config=train-report.config.mjs' in command]
+        self.assertEqual(['1'], test)
+        self.assertEqual(['1'], listed)
 
     def test_host_shards_install_the_browsers_the_host_setup_declares(self):
         # The shards installed Chromium alone after the host's suite gained Firefox and WebKit,

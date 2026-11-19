@@ -31,20 +31,32 @@ const searchChecks = what => [`the search for ${what} answers`,
   `the answer for ${what} is one the picker accepts`, `and it finds ${what}`];
 const PROPERTY_CHECKS = ['the property search for DOID "material" answers',
   'its answer carries every field the picker maps', 'and it finds a DOID property'];
+// GET /search/hierarchy, the picker's second call, which it makes when an author opens a class hit.
+// Asked of the first class the melanoma search finds.
+const HIERARCHY_CHECKS = ['the hierarchy of a DOID class answers', 'its answer is one the picker accepts',
+  'and it places the class below an ancestor'];
 
 const object = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = value => typeof value === 'string';
 const count = value => Number.isSafeInteger(value) && value >= 0;
-// The picker also applies the model library's identifier policy, which this harness does not carry.
-// An absolute IRI is the part of that policy a change of shape would break.
-const iri = value => text(value) && /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/.test(value);
+// The picker applies the model library's identifier policy, which this harness does not carry. This
+// keeps the parts of it a change of shape would break: an absolute IRI, with something after its
+// scheme other than an empty authority, no space, control or forbidden character, and at most one
+// fragment. term-search.test.mjs holds it to the policy on the cases it lists.
+const iri = value => text(value) && /^[A-Za-z][A-Za-z0-9+.-]*:[^\s<>"{}|\\^`\u007f-\u009f]+$/.test(value)
+  && !['', '//'].includes(value.slice(value.indexOf(':') + 1).split('#', 1)[0])
+  && value.indexOf('#') === value.lastIndexOf('#');
 const refs = value => value === undefined || (Array.isArray(value) && value.every(ref =>
   object(ref) && iri(ref.termIri) && (ref.termLabel === undefined || text(ref.termLabel))));
 const labels = value => value === undefined
   || (Array.isArray(value) && value.every(label => object(label) && text(label.label)));
 const KINDS = ['class', 'branch', 'ontology', 'valueSet', 'property'];
 
-/** What the picker's validSearchResponse refuses in an answer, one line per reason. */
+/**
+ * What the picker's readSearchResponse refuses in an answer, one line per reason. The picker leaves
+ * out a result kind it does not know rather than refusing the answer, so this does too.
+ * term-search.test.mjs feeds the same answers to this and to the picker's own source.
+ */
 export function refusals(body) {
   if (!object(body) || !text(body.query) || !Array.isArray(body.sources) || !object(body.results)) {
     return ['the answer lacks its query, sources or results'];
@@ -57,11 +69,7 @@ export function refusals(body) {
     }
   });
   for (const [kind, result] of Object.entries(body.results)) {
-    if (result === undefined) continue;
-    if (!KINDS.includes(kind)) {
-      found.push(`the results name an unknown kind, ${kind}`);
-      continue;
-    }
+    if (result === undefined || !KINDS.includes(kind)) continue;
     if (!object(result) || !count(result.totalCount) || !Array.isArray(result.collection)) {
       found.push(`the ${kind} results lack a count or a collection`);
       continue;
@@ -74,7 +82,12 @@ export function refusals(body) {
       }
       if (!refs(hit.path) || !refs(hit.examples) || !refs(hit.matchedTerms)) found.push(`${where} has a malformed term reference`);
       if (!labels(hit.matchedLabels) || !labels(hit.names)) found.push(`${where} has a malformed label`);
-      if (kind === 'class' && !(iri(hit.termIri) && text(hit.termLabel))) found.push(`${where} lacks its IRI or label`);
+      if ((kind === 'class' || kind === 'property') && !(iri(hit.termIri) && text(hit.termLabel))) {
+        found.push(`${where} lacks its IRI or label`);
+      }
+      if (kind === 'property' && !(text(hit.versionId) && ['object', 'datatype', 'annotation'].includes(hit.propertyKind))) {
+        found.push(`${where} lacks its version or property kind`);
+      }
       if ((kind === 'branch' || kind === 'valueSet') && !iri(hit.termBaseIri)) found.push(`${where} lacks its base IRI`);
       if (kind === 'branch' && !text(hit.termBaseLabel)) found.push(`${where} lacks its base label`);
       if (kind === 'valueSet' && hit.termBaseLabel !== undefined && !text(hit.termBaseLabel)) {
@@ -82,6 +95,17 @@ export function refusals(body) {
       }
     });
   }
+  return found;
+}
+
+/** What the picker's validHierarchy refuses in a hierarchy answer for a term, one line per reason. */
+export function hierarchyRefusals(body, acronym, termIri) {
+  if (!object(body)) return ['the answer is not an object'];
+  const found = [];
+  if (body.sourceAcronym !== acronym || body.termIri !== termIri) found.push('it names another source or term');
+  if (!text(body.termLabel)) found.push('it lacks the term\'s label');
+  if (!count(body.childCount)) found.push('it lacks a child count');
+  if (!refs(body.path) || !refs(body.children)) found.push('its path or children hold a malformed term reference');
   return found;
 }
 
@@ -122,13 +146,16 @@ export async function run({ user1 }) {
   const cedarvs = await served(user1.auth, 'vs-collections/version-current?collection=CEDARVS');
   if (!doid || !cedarvs) {
     const reason = `the local terminology store does not serve DOID/CEDARVS (DOID: ${doid}, CEDARVS: ${cedarvs})`;
-    for (const what of [...SEARCHES.flatMap(search => searchChecks(search.what)), ...PROPERTY_CHECKS]) skip(what, reason);
+    for (const what of [...SEARCHES.flatMap(search => searchChecks(search.what)), ...PROPERTY_CHECKS,
+      ...HIERARCHY_CHECKS]) skip(what, reason);
     return {};
   }
 
+  let classHit;
   for (const search of SEARCHES) {
     const [answers, accepted, finds] = searchChecks(search.what);
     const res = await call(null, 'POST', '/search', search.body, { base: TERMINOLOGY });
+    classHit ??= res.body?.results?.class?.collection?.[0];
     if (!checkStatus(res, 200, answers)) {
       skip(accepted, 'the search did not answer');
       skip(finds, 'the search did not answer');
@@ -150,5 +177,23 @@ export async function run({ user1 }) {
     skip(accepted, 'the search did not answer');
     skip(finds, 'the search did not answer');
   }
+
+  const [hierarchyAnswers, hierarchyAccepted, placed] = HIERARCHY_CHECKS;
+  if (!check(iri(classHit?.termIri), 'the class search names a class whose hierarchy to ask',
+      'the class search found no class to ask about')) {
+    skip(hierarchyAccepted, 'no class was found to ask about');
+    skip(placed, 'no class was found to ask about');
+    return {};
+  }
+  const query = new URLSearchParams({ sourceAcronym: classHit.sourceAcronym, termIri: classHit.termIri });
+  const tree = await call(null, 'GET', `/search/hierarchy?${query}`, undefined, { base: TERMINOLOGY });
+  if (!check(tree.status === 200, hierarchyAnswers, `expected 200, got ${tree.status}: ${(tree.text ?? '').slice(0, 200)}`)) {
+    skip(hierarchyAccepted, 'the hierarchy did not answer');
+    skip(placed, 'the hierarchy did not answer');
+    return {};
+  }
+  const refused = hierarchyRefusals(tree.body, classHit.sourceAcronym, classHit.termIri);
+  check(refused.length === 0, hierarchyAccepted, refused.join('; '));
+  check(tree.body?.path?.length > 0, placed, `the path was ${JSON.stringify(tree.body?.path)}`);
   return {};
 }

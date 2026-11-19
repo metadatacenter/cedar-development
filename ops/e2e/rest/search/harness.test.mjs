@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { corpus, definitions, materialize, byAlias } from './corpus.mjs';
 import { queries, expectedAliases, journeyScenarios } from './queries.mjs';
 import { contentMatrix, accessMatrix, pagingMatrix, protocolMatrix, plan, validateInventory } from './matrix.mjs';
-import { exactResults, assertNoDisclosure, assertSearchLinks, scopedQuery, searchPath, converge, walkSearch, resultMetadata, resultAuthority } from './assertions.mjs';
+import { exactResults, assertNoDisclosure, assertSearchLinks, scopedQuery, searchPath, converge, walkSearch, resultMetadata, resultAuthority, deletedFixturesStayUnsearchable } from './assertions.mjs';
 import { parseOptions, main } from './runner.mjs';
 import { Fixtures } from './fixtures.mjs';
 import { completion, recorder, runRest } from './suite.mjs';
@@ -198,7 +198,9 @@ test('paging walks small pages to an exact union and rejects repeats, omissions 
   pages = [response(['A', 'B'], 3), response(['B'], 3)];
   await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C'], { pageSize: 2 }), /Duplicate/);
   pages = [response(['A'], 3)];
-  await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C'], { pageSize: 2 }), /Exact result set/);
+  await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C'], { pageSize: 2 }), /short before the end/);
+  pages = [response(['A', 'B'], 3), response([], 3)];
+  await assert.rejects(walkSearch(async () => pages.shift(), query, '', ['A', 'B', 'C'], { pageSize: 2 }), /short before the end/);
   await assert.rejects(walkSearch(async () => ({ ...response([], 3), body: { ...response([], 3).body, continuation: 'same' } }),
     query, '', ['A', 'B', 'C'], { continuation: true }), /Continuation repeated/);
 });
@@ -308,4 +310,22 @@ test('browser scenarios have a fixed manifest and use actual returned/rendered i
   assert.match(source, /data-resource-id/);
   assert.match(source, /exactResults/);
   assert.ok(journeyScenarios.filter(item => item.case).every(item => queries.some(query => query.id === item.case)));
+});
+
+test('deleted fixtures must stay unsearchable on both reads, for owner and reader', async () => {
+  const scope = 'SearchCorpusabc123';
+  const empty = { status: 200, body: { totalCount: 0, resources: [] } };
+  const reads = [];
+  const settled = await deletedFixturesStayUnsearchable(async (actor, method, path) => {
+    reads.push([actor, method, path]); return empty;
+  }, scope, { sleep: async () => {} });
+  assert.deepEqual(settled, []);
+  assert.equal(reads.length, 4);
+  assert.ok(reads.every(([, method, path]) => method === 'GET' && new URLSearchParams(path.split('?')[1]).get('q') === scope));
+  let call = 0;
+  const resurrected = await deletedFixturesStayUnsearchable(async () => (++call > 2
+    ? { status: 200, body: { totalCount: 1, resources: [{ '@id': 'https://repo.test/templates/back' }] } } : empty),
+  scope, { sleep: async () => {} });
+  assert.equal(resurrected.length, 2);
+  assert.match(resurrected[0].message, /read 2/);
 });

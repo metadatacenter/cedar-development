@@ -3,6 +3,29 @@ import { join } from "node:path";
 
 const address = value => { try { const url = new URL(value); return url.origin + url.pathname; } catch { return value; } };
 
+/**
+ * Whether an uncaught error was raised in Keycloak's session-check frame and not in a CEDAR page.
+ *
+ * keycloak-js embeds Keycloak's login-status-iframe.html, whose own script fetches a Keycloak
+ * endpoint each time the adapter asks about the session. A page that navigates or closes meanwhile
+ * cuts that fetch off, and Firefox reports the frame's unhandled rejection on the page as
+ * "NetworkError when attempting to fetch resource.". The stack names the frame's document.
+ */
+export const identityProviderFrameError = error =>
+  /\/protocol\/openid-connect\/login-status-iframe\.html/.test(String(error?.stack ?? ""));
+
+/**
+ * Collects a page's uncaught errors into `errors`, and notes each one. An error raised in
+ * Keycloak's session-check frame is noted and left out, since no CEDAR code runs there.
+ */
+export function collectPageErrors(page, errors, note = () => {}) {
+  page.on("pageerror", error => {
+    const provider = identityProviderFrameError(error);
+    if (!provider) errors.push(error.message);
+    note({ type: provider ? "identity-provider-frame-error" : "pageerror", message: error.message });
+  });
+}
+
 /** One journey owns every context it opens. Closing them removes routes, storage, listeners and pages together. */
 export function journeyBrowser(browser, { directory, capture = async () => {} } = {}) {
   const original = browser.newContext;
@@ -52,7 +75,7 @@ export function journeyBrowser(browser, { directory, capture = async () => {} } 
     };
     context.on("close", () => { entry.closed = true; });
     context.on("page", page => {
-      page.on("pageerror", error => { errors.push(error.message); note({ type: "pageerror", message: error.message }); });
+      collectPageErrors(page, errors, note);
       page.on("requestfailed", request => note({ type: "requestfailed", method: request.method(), url: address(request.url()), error: request.failure()?.errorText }));
       page.on("response", response => { if (response.status() >= 400) note({ type: "http", status: response.status(), url: address(response.url()) }); });
     });

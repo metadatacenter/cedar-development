@@ -133,6 +133,9 @@ below have no CLI front end yet, so call them directly:
   library's `itest/resources/concordance/`, where `InstanceVerdictConcordance.spec.ts` holds the
   TypeScript save decision to it in CI. It also records probes: corpus instances with one field's
   value replaced by a shape the corpus holds no example of, such as an unfilled controlled term.
+  For each case an editor can save, it also records the document the editor's save writes, produced
+  by the TypeScript library's `itest/scripts/write-editor-instances.ts`, and the verdict on that
+  document, since the editor judges an instance as the document it writes.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data
@@ -290,7 +293,9 @@ in the runbook. Release smoke does not require live BioPortal availability.
   `cedar-test-support-library`). No suite in the default build needs an external service. The
   terminology suites run against a fake BioPortal, and the OpenSearch integration tests run only
   under `-Popensearch-it`, as CI does.
-  Tests boot on `19xxx` ports (dev + 10000) so a running dev stack never collides.
+  Test servers, stubs and embedded stores bind `127.0.0.1` on a port the OS assigns, so neither a
+  running dev stack nor a concurrent build collides with them.
+  `ops/tests/test_backend_test_port_policy.py` enforces the rule.
 - GitHub Actions builds every Java repo on push and PR to `develop`, and a merge to `develop`
   publishes that repo's snapshot to Nexus. Downstream builds and the Docker images resolve CEDAR
   artifacts from Nexus, never from a checkout, so an unpublished snapshot breaks a consumer that
@@ -332,6 +337,8 @@ changes and Git commit/push are separate from this contract.
 
 The command runs component verification, records the immutable build graph and runtime selection,
 restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
+When a reviewed frontend source changed, it then captures UI review evidence for a later independent
+review; a failed capture is reported and does not fail the build.
 A repository whose inputs match an earlier passing result reuses it instead of running its checks
 again. `cedarcli build frontends --no-reuse` runs them all.
 The Angular, React and Ember consumer demos run as a separate conditional gate when CEE's

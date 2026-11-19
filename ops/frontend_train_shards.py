@@ -240,7 +240,7 @@ def prepare_cee(args):
     dependency = config['cee']['modelDependency']
     for consumer in expected['modelConsumers']:
         train.install_exact_alias((root / consumer['manifest']).parent, dependency,
-            plan['model']['name'], plan['model']['version'], consumer.get('legacyPeerDeps', False))
+            plan['model']['name'], plan['model']['version'])
         train.require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
             dependency, plan['model']['name'], plan['model']['version'])
     env = environment(args, plan, CEE)
@@ -352,13 +352,32 @@ def restore_consumers(args, plan, config):
     return results
 
 
+def host_browser_command(config):
+    """The host's browser command, and the variables it sets with an ``env`` prefix.
+
+    The shards run this command in the preparation's place, so they must run it with the same
+    variables: ``CEDAR_REQUIRE_SHARED_EDITORS=1`` keeps the shared-editors spec in the suite.
+    """
+    row = next(s for s in config['surfaces'] if s['repository'] == HOST)
+    browser = ['npm', 'run', 'test:browser']
+    matches = []
+    for command in row['verify']:
+        if command[-len(browser):] != browser:
+            continue
+        prefix = command[:-len(browser)]
+        if prefix and (prefix[0] != 'env' or not all('=' in p and not p.startswith('-') for p in prefix[1:])):
+            raise RuntimeError('Designer host gate recipe changed; update distributed coverage')
+        matches.append((command, dict(p.split('=', 1) for p in prefix[1:])))
+    if len(matches) != 1:
+        raise RuntimeError('Designer host gate recipe changed; update distributed coverage')
+    return matches[0]
+
+
 def host_preparation_config(config):
     prepared = copy.deepcopy(config)
     row = next(s for s in prepared['surfaces'] if s['repository'] == HOST)
-    browser = ['npm', 'run', 'test:browser']
-    if row['verify'].count(browser) != 1:
-        raise RuntimeError('Designer host gate recipe changed; update distributed coverage')
-    row['verify'].remove(browser)
+    command, _ = host_browser_command(prepared)
+    row['verify'].remove(command)
     return prepared
 
 
@@ -367,7 +386,7 @@ def prepare_host(args):
     root, _ = train.repository_root(args.workspace, source, HOST)
     train.assert_clean_repository(root, HOST)
     result = train.prepare_repository(args, plan, host_preparation_config(config), HOST)
-    env = environment(args, plan, HOST)
+    env = {**environment(args, plan, HOST), **host_browser_command(config)[1]}
     archive_candidate(args, plan, HOST, {'result': result,
         'appSha256': train.path_sha256(root / 'app'),
         'browser': inventory(root, env, 'browser'), 'visual': []})
@@ -400,7 +419,7 @@ def check_host(args):
     shard = int(args.lane)
     if not 1 <= shard <= SHARDS:
         raise ValueError('Invalid Designer host shard')
-    env = environment(args, plan, HOST)
+    env = {**environment(args, plan, HOST), **host_browser_command(config)[1]}
     train.run_command(['npm', 'ci'], root, env)
     train.run_command(['npm', '--prefix', 'browser', 'ci'], root, env)
     train.run_command(host_browser_install(config), root, env)

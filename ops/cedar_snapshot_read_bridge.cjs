@@ -24,6 +24,11 @@
 // summarised by ValidationPolicy, which is what the editor's Save follows. Its "canSave" is the answer
 // the Java validator's verdict must equal, and the findings that block saving come with it.
 //
+// A template, element or field read also carries the library's save decision for the document as
+// stored, as "schemaValidation": SchemaArtifactValidator's verdict, which is what the embeddable
+// designer's Save follows, with the findings that block saving. Its "canSave" is the answer the Java
+// validator's verdict must equal, as an instance's is.
+//
 // A read request stating "crossYaml": true also has the artifact the strict reader read written as
 // YAML by this library, full and compact, and read back by its strict YAML readers. The answer's
 // "renderer" carries "yamlRead" and "compactYamlRead", each "read", "refused" or "failed" with a
@@ -45,6 +50,10 @@ if (!libraryPath) {
 }
 const library = require(libraryPath);
 const { JsonSourcePolicy } = library;
+// The schema artifact validator is packaged as an entry of its own, beside the bundle.
+const { SchemaArtifactValidator } = library.SchemaArtifactValidator
+  ? library
+  : require(require('node:path').join(require('node:path').dirname(libraryPath), 'esm', 'schema.js'));
 function readersFor(behavior) {
   return {
     template: library.JsonTemplateReader[behavior](),
@@ -125,6 +134,7 @@ function read(kind, source, templateId, crossYaml) {
   const verdict = readWith(strict, kind, source);
   if (crossYaml && verdict.status === 'read') verdict.renderer = render(kind, verdict.model);
   if (verdict.status === 'refused' || verdict.status === 'threw') verdict.lenient = readWith(lenient, kind, source);
+  if (kind !== 'instance') verdict.schemaValidation = judgeSchema(kind, source);
   if (kind === 'instance' && templateId) {
     const kept = templates.get(templateId);
     const template = kept?.model;
@@ -160,6 +170,27 @@ function read(kind, source, templateId, crossYaml) {
     delete verdict.lenient.model;
   }
   return verdict;
+}
+
+/** The schema artifact validator's verdict on a template, element or field as it is stored. */
+function judgeSchema(kind, source) {
+  try {
+    const summary = SchemaArtifactValidator.validate(JsonSourcePolicy.parse(source), kind);
+    const blocking = summary.findings.filter((finding) => library.ValidationPolicy.blocksSave(finding, 'template'));
+    return {
+      status: 'judged',
+      canSave: summary.canSave,
+      blocking: blocking.slice(0, ERROR_LIMIT).map((finding) => ({
+        code: finding.code,
+        category: finding.category,
+        path: truncate(finding.path),
+        message: truncate(finding.message),
+      })),
+      blockingCount: blocking.length,
+    };
+  } catch (error) {
+    return { status: 'threw', canSave: false, message: truncate(error && error.message) };
+  }
 }
 
 function keepTemplate(id, source) {

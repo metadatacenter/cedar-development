@@ -12,12 +12,20 @@
 // route no service declares is asked for too. A second section repeats refusals that once answered a
 // body of their own and can be reached without changing anything.
 //
+// The request without credentials must be answered 401 and nothing else. It carries a body that
+// parses, so an operation that authenticates first has no other reason to refuse it, and a 404 for
+// the identifier or a 400 for the body would mean the operation looked before it authenticated. The
+// request also carries every required query parameter and a required If-Match header, since an
+// operation may check those before it authenticates. An operation that still reads its input first
+// is named, with the reason, in VALIDATES_FIRST below, and may answer the status named there instead.
+//
 // Nothing a probe sends can change state. A probe names identifiers that do not exist, so there is
-// nothing for it to change, and a body that is not JSON cannot be stored. An operation that takes
-// neither an identifier nor a body is sent only the request without credentials, so an action that
-// needs no input, such as rebuilding an index, is refused before it starts. Requests that would reach
-// an external service before anything could refuse them are not sent, and each such omission is a
-// named entry below, printed with every run.
+// nothing for it to change. A credentialed body is not JSON, so it cannot be stored, and the body
+// sent without credentials is an empty object, which names nothing. An operation that takes neither
+// an identifier nor a body is sent only the request without credentials, so an action that needs no
+// input, such as rebuilding an index, is refused before it starts. Requests that would reach an
+// external service before anything could refuse them are not sent, and each such omission is a named
+// entry below, printed with every run.
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
@@ -38,7 +46,7 @@ const local = (service, port) => env[`CEDAR_${service}_BASE`]
   ?? `http://${env[`CEDAR_${service}_SERVER_HOST`] ?? 'localhost'}:${env[`CEDAR_${service}_HTTP_PORT`] ?? port}`;
 
 /** Every server that commits an OpenAPI document, where the suite reaches it. */
-const SERVERS = [
+export const SERVERS = [
   { server: 'resource', base: RESOURCE },
   { server: 'artifact', base: ARTIFACT_SERVER },
   { server: 'repo', base: local('REPO', '9002') },
@@ -70,6 +78,18 @@ const EXCLUDED = [
       + 'the deployment holds' },
   { server: 'terminology', path: /^\/bioportal\//, kinds: ['identifier'],
     reason: 'asks BioPortal before anything can refuse the request, on the API key the deployment holds' },
+];
+
+/**
+ * Operations that read their input before they authenticate, each with the status they answer a
+ * request without credentials and the reason. The status is accepted in place of 401 for exactly
+ * these operations. An entry the operation no longer needs, because it now answers 401, is printed
+ * with every run so that it can be removed.
+ */
+export const VALIDATES_FIRST = [
+  // None today. On 2026-11-16 every operation of the eleven servers answered a well-formed request
+  // without credentials with 401. Four answered 400 to the malformed body and missing query parameter
+  // that the probe sent before, which shows only that they parse what they are sent first.
 ];
 
 /**
@@ -106,9 +126,14 @@ const CEDAR_ERROR_FIELDS = new Set(['status', 'statusCode', 'errorKey', 'errorRe
 const REQUIRED_FIELDS = ['status', 'statusCode', 'errorKey', 'errorReasonKey', 'message', 'parameters', 'objects'];
 
 const MALFORMED_JSON = '{"';
+// A body that parses and names nothing, sent without credentials so that only authentication can refuse it.
+const EMPTY_JSON = '{}';
 const ANSWER_TIMEOUT_MS = 30000;
 const PROBES_IN_FLIGHT = 6;
 const WRITES = new Set(['put', 'post', 'patch', 'delete']);
+// The server errors an operation may answer when it documents them, because it relays a service
+// that did not answer or answered badly. Any other 5xx to a request naming nothing is a crash.
+const GATEWAY = new Set([502, 503]);
 
 /**
  * Why an answer is not a CedarError, or null when it is one. The status in the body must be the
@@ -133,7 +158,7 @@ export function cedarErrorProblem(res) {
   return null;
 }
 
-function readSpec(server) {
+export function readSpec(server) {
   const file = resolve(CEDAR_HOME, `cedar-${server}-server`, `cedar-${server}-server-application`,
       'src', 'main', 'resources', 'assets', 'swagger-api', 'swagger.json');
   try {
@@ -157,6 +182,42 @@ function concretePath(path) {
   const segments = path.split('/');
   return segments.map((segment, index) => /^\{.+\}$/.test(segment)
     ? enc(nonexistent(segments[index - 1])) : segment).join('/');
+}
+
+/** The operation's parameters, with references resolved. */
+function parameters(spec, op) {
+  return (op.parameters ?? []).map(parameter => parameter.$ref
+    ? spec.components?.parameters?.[parameter.$ref.split('/').pop()] ?? {}
+    : parameter);
+}
+
+/** A value for a required query parameter that names nothing, in the form its schema takes. */
+function placeholder(parameter) {
+  const schema = parameter.schema ?? {};
+  if (Array.isArray(schema.enum) && schema.enum.length) return String(schema.enum[0]);
+  if (schema.type === 'integer' || schema.type === 'number') return '1';
+  if (schema.type === 'boolean') return 'false';
+  if (/(^|_)(id|uri)$/i.test(parameter.name)) return `https://repo.${HOST}/templates/${randomUUID()}`;
+  if (parameter.name === 'resource_type') return 'template';
+  if (parameter.name === 'state') return 'draft';
+  return 'x';
+}
+
+/**
+ * What a request needs beyond its path to be well formed: every required query parameter, and an
+ * If-Match header where one is required. A revision that names nothing satisfies the header's
+ * presence and matches no stored revision.
+ */
+function wellFormed(spec, op) {
+  const query = new URLSearchParams();
+  const headers = {};
+  for (const parameter of parameters(spec, op)) {
+    if (!parameter.required) continue;
+    if (parameter.in === 'query') query.set(parameter.name, placeholder(parameter));
+    if (parameter.in === 'header' && parameter.name.toLowerCase() === 'if-match') headers['If-Match'] = '"0"';
+  }
+  const search = query.toString();
+  return { suffix: search ? `?${search}` : '', headers };
 }
 
 function requestBodyTypes(spec, op) {
@@ -192,12 +253,21 @@ export function plan(server, spec, method, path, op) {
   const add = (kind, request) => {
     const excluded = excludedBy(server, verb, path, kind);
     if (excluded) omitted.push({ kind, reason: excluded.reason });
-    else probes.push({ kind, request, ...(answered && kind === 'identifier' ? { answered: answered.reason } : {}) });
+    else probes.push({ kind, request, ...(answered && kind === 'identifier' ? { answered: answered.reason } : {}),
+      ...(gatewayStatuses.length ? { gateway: gatewayStatuses } : {}) });
   };
+  // A gateway answer is a refusal only where the operation documents one: it relays another service.
+  const gatewayStatuses = Object.keys(op.responses ?? {}).map(Number).filter(status => GATEWAY.has(status));
   // Whatever an operation is sent, it names nothing and carries no usable body, so a route that
   // failed to refuse it would still have nothing to act on.
-  const body = takesJson ? MALFORMED_JSON : undefined;
-  if (secured) add('anonymous', { method: verb, path: concretePath(path), body, auth: 'none' });
+  const validatesFirst = VALIDATES_FIRST.find(entry => entry.server === server && entry.method === verb
+    && entry.path === path);
+  if (secured) {
+    const { suffix, headers } = wellFormed(spec, op);
+    add('anonymous', { method: verb, path: `${concretePath(path)}${suffix}`, headers,
+      body: takesJson ? EMPTY_JSON : undefined, auth: 'none' });
+    if (validatesFirst) probes.at(-1).validatesFirst = validatesFirst;
+  }
   if (takesIdentifier && (!WRITES.has(method) || !takesJson)) {
     add('identifier', { method: verb, path: concretePath(path), auth: secured ? 'user' : 'none' });
   }
@@ -220,7 +290,7 @@ function withTimeout(promise) {
 
 async function send(base, request, credentials) {
   const auth = request.auth === 'none' ? null : credentials[request.auth];
-  const opts = { base };
+  const opts = { base, headers: request.headers };
   if (base === ARTIFACT_SERVER && request.auth === 'none') opts.artifactService = false;
   try {
     return await withTimeout(call(auth, request.method, request.path, request.body, opts));
@@ -305,13 +375,21 @@ async function probeServer({ server, base }, credentials, coverage) {
     answers.forEach((tried, index) => tried.forEach(res => {
       const probe = probes[index];
       statuses.push(res.failed ? 'none' : res.status);
-      if (!res.failed && res.status < 400 && probe.answered) {
+      const permitted = probe.validatesFirst?.status;
+      if (kind === 'anonymous' && !res.failed && res.status !== 401 && res.status !== permitted) {
+        failures.push(`${describe(probe, res)} (a request without credentials must be answered 401)`);
+      } else if (kind === 'anonymous' && res.status === 401 && permitted) {
+        coverage.authenticatesFirst.push(`${server}: ${probe.request.method} ${probe.request.path.slice(0, 100)} `
+          + `now answers 401, so its VALIDATES_FIRST entry can go`);
+      } else if (!res.failed && res.status < 400 && probe.answered) {
         coverage.answered.push(`${server}: ${probe.request.method} ${probe.request.path.slice(0, 100)} answered `
           + `${res.status}, which it may: it ${probe.answered}`);
       } else if (res.failed || res.status < 400 || cedarErrorProblem(res)) {
         failures.push(describe(probe, res));
-      } else if (res.status >= 500) {
+      } else if (res.status >= 500 && probe.gateway?.includes(res.status)) {
         coverage.serverErrors.push(`${server}: ${describe(probe, res)}`);
+      } else if (res.status >= 500) {
+        failures.push(`${describe(probe, res)} (a server error, which the operation does not document as a gateway answer)`);
       }
     }));
     check(failures.length === 0, `${server}: ${what}`,
@@ -350,7 +428,7 @@ async function priorBodies({ user1, homeFolderId, folderId }) {
 export async function run({ user1, admin, homeFolderId, folderId }) {
   const started = Date.now();
   const credentials = { user: user1.auth, admin: admin?.auth };
-  const coverage = { servers: [], answered: [], serverErrors: [] };
+  const coverage = { servers: [], answered: [], serverErrors: [], authenticatesFirst: [] };
   for (const server of SERVERS) await probeServer(server, credentials, coverage);
   await priorBodies({ user1, homeFolderId, folderId });
 
@@ -359,8 +437,13 @@ export async function run({ user1, admin, homeFolderId, folderId }) {
     console.log(`    ${server}: ${operations} operations; ${counts.join('; ')}`);
   }
   for (const line of coverage.answered) console.log(`    ${line}`);
-  // A server error in the shared body passes, but a request naming nothing should not be one.
-  if (coverage.serverErrors.length) console.log('  refused with a server error:');
+  if (VALIDATES_FIRST.length) console.log('  read their input before authenticating:');
+  for (const { server, method, path, status, reason } of VALIDATES_FIRST) {
+    console.log(`    ${server}: ${method} ${path} answers ${status} without credentials: ${reason}`);
+  }
+  for (const line of coverage.authenticatesFirst) console.log(`    ${line}`);
+  // A server error fails its check unless the operation documents it as a gateway answer.
+  if (coverage.serverErrors.length) console.log('  refused with a gateway answer the operation documents:');
   for (const line of coverage.serverErrors) console.log(`    ${line}`);
   console.log('  not sent:');
   for (const { server, omitted } of coverage.servers) {

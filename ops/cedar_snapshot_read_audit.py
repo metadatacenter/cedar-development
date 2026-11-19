@@ -20,7 +20,10 @@ The two libraries must also agree on every instance's verdict. The Java validato
 server stores; the TypeScript library's InstanceValidator and ValidationPolicy decide whether the
 embeddable editor lets an owner save. The summary's ``validationParity`` counts the instances on
 which they disagree, in both directions, with their causes, and ``--fail-on-disagreement`` makes any
-disagreement fail the run, which is the gate over production data.
+disagreement fail the run, which is the gate over production data. The TypeScript library's
+SchemaArtifactValidator decides whether the embeddable designer lets an owner save a template, element
+or field, so ``schemaValidationParity`` holds it to the Java validator's verdict on every one of them in
+the same way, and the same option fails the run on any difference there.
 
 Every artifact the Java library reads is also rendered as the deployment serves it, as JSON and as
 full-form YAML, and timed. The summary's ``rendering`` counts the renderings that fail, names every
@@ -167,7 +170,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--known", action="append", default=[], help="JSONL of artifacts known to be invalid")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts, for a trial")
     parser.add_argument("--fail-on-disagreement", action="store_true",
-                        help="exit non-zero when the libraries disagree on any instance's verdict, or when a "
+                        help="exit non-zero when the libraries disagree on any artifact's verdict, or when a "
                              "reader refuses the YAML either library writes of an artifact the validator accepts")
     arguments = parser.parse_args(argv)
 
@@ -193,6 +196,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     invalid_known: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     invalid_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     parity: collections.Counter = collections.Counter()
+    schema_parity: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    schema_parity_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    schema_disagreements: list[dict[str, Any]] = []
     parity_causes: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     disagreements: list[dict[str, Any]] = []
     unexpected: list[dict[str, Any]] = []
@@ -247,6 +253,24 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if len(disagreements) < 500:
                     disagreements.append({"id": record["id"], "template": record.get("template"),
                                           "direction": direction, "cause": reason})
+        else:
+            judged = record["ts"].get("schemaValidation", {})
+            if "canSave" not in judged or validation not in ("valid", "invalid"):
+                schema_parity[kind]["unjudged"] += 1
+            elif (validation == "valid") == judged["canSave"]:
+                schema_parity[kind]["agree"] += 1
+            else:
+                direction = "javaValid-tsBlocks" if validation == "valid" else "javaInvalid-tsSaves"
+                schema_parity[kind][direction] += 1
+                if direction == "javaValid-tsBlocks":
+                    first = (judged.get("blocking") or [{}])[0]
+                    reason = f"{first.get('code', judged.get('status'))} at {first.get('path')}: {cause(first.get('message'))}"
+                else:
+                    reason = cause(((record["validation"].get("errors") or [{}])[0]).get("message"))
+                schema_parity_causes[f"{kind} {direction}"][reason] += 1
+                if len(schema_disagreements) < 500:
+                    schema_disagreements.append({"type": kind, "id": record["id"], "direction": direction,
+                                                 "cause": reason})
         rendering = record.get("render")
         if rendering is not None:
             render_times[kind].append((rendering.get("nanos", 0), record.get("bytes", 0), record["id"]))
@@ -445,6 +469,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         "validationParity": {"counts": dict(parity),
                              "causes": {d: dict(c.most_common(40)) for d, c in sorted(parity_causes.items())},
                              "disagreements": disagreements},
+        "schemaValidationParity": {"byType": {kind: dict(c) for kind, c in sorted(schema_parity.items())},
+                                   "causes": {d: dict(c.most_common(40))
+                                              for d, c in sorted(schema_parity_causes.items())},
+                                   "disagreements": schema_disagreements},
         "rendering": {
             "byType": {kind: dict(sorted(counter.items())) for kind, counter in sorted(render_counts.items())},
             "causes": {group: dict(counter.most_common(40)) for group, counter in sorted(render_causes.items())},
@@ -468,7 +496,9 @@ def main(argv: Optional[list[str]] = None) -> int:
           f"read and render times by type: "
           + json.dumps({k: {m: v for m, v in t.items() if m != "slowest"} for k, t in summary["rendering"]["timing"].items()}))
     disagreeing = parity["javaValid-tsBlocks"] + parity["javaInvalid-tsSaves"]
+    disagreeing += sum(c["javaValid-tsBlocks"] + c["javaInvalid-tsSaves"] for c in schema_parity.values())
     print(f"[parity] instance verdicts: {dict(parity)}")
+    print(f"[parity] schema artifact verdicts: { {kind: dict(c) for kind, c in sorted(schema_parity.items())} }")
     print(f"[yaml] {len(yaml_refused)} artifact(s) the validator accepts have a YAML form, written by one library, "
           f"that a library's reader refuses")
     if problems:

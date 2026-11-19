@@ -14,17 +14,26 @@
 //
 // Deliberately not covered, so the absence is a decision rather than an oversight:
 //   * regenerate-search-index and generate-empty-search-index — destructive admin operations that
-//     would wipe the local index out from under the rest of the run.
+//     would wipe the local index out from under the rest of the run. The administration suite
+//     checks only that an ordinary user is refused them, and the reset commands beside them.
 //   * load-valuesets-ontology and its status — long-running, and dependent on live BioPortal.
 //   * auth-user-callback — Keycloak's own callback, not a user-facing route.
+//   * a successful administrative write, such as the monitor's index rebuild or the worker's
+//     inclusion-subgraph regeneration, for the same reason as the index operations above.
+//   * paging through an external authority — it asks the live ROR registry, so it runs in
+//     rest/live-authorities.mjs, which gates nothing. The bridge's refusals stay in pagination.
 //
 // Requires the stack up: cedar-services.sh health.
 import { runSuites, workerCount, PARALLEL_SUITES } from './rest/scheduler.mjs';
-import { argv } from 'node:process';
+import { argv, env } from 'node:process';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
+import { actors, call, group, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
+import { lost, readRetired, unretiredDrops } from './rest/inventory.mjs';
+import { signalPreflight } from './rest/preflight.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as deletion from './rest/suites/deletion.mjs';
@@ -53,11 +62,19 @@ import * as bodies from './rest/suites/bodies.mjs';
 import * as errors from './rest/suites/errors.mjs';
 import * as errorReports from './rest/suites/error-reports.mjs';
 import * as mcp from './rest/suites/mcp.mjs';
+import * as administration from './rest/suites/administration.mjs';
+import * as profiles from './rest/suites/profiles.mjs';
+import * as messaging from './rest/suites/messaging.mjs';
 
-const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, termSearch, addressing, bodies, errors, errorReports, mcp];
+const ALL = [folders, deletion, artifacts, versioning, pullVersions, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze, termSearch, addressing, bodies, errors, errorReports, mcp, administration, profiles, messaging];
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
+// Every check an inventory update may drop, each with the reason it was retired.
+const RETIRED_PATH = resolve(HERE, 'rest', 'retired-checks.json');
+// The skips a run may report, each with its reason. Any other skip fails the run, because a check
+// that skips proves nothing about the deployment, and the gate refuses it independently.
+const ALLOWED_SKIPS_PATH = resolve(HERE, 'rest', 'allowed-skips.json');
 const reportArg = argv.find(a => a.startsWith('--report='));
 const REPORT_PATH = resolve(process.cwd(), reportArg?.slice('--report='.length) ?? 'reports/rest-smoke.json');
 const workers = workerCount(argv.find(a => a.startsWith('--workers='))?.slice('--workers='.length));
@@ -86,6 +103,7 @@ if (updateInventory && selected.length !== ALL.length) {
 const started = Date.now();
 let auth1;
 let user1Profile;
+let second;
 let phaseStarted = Date.now();
 
 const stamp = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/;
@@ -99,12 +117,33 @@ const leftBehind = name => {
   return found !== undefined && found <= RUN;
 };
 
-async function stampedLeftovers(auth, homeFolderId) {
+// Both users' homes, the category tree and the groups. A suite that forgets to register what it
+// made leaves it in one of these, and the second user's home and the groups are where a suite acting
+// as the second user, or making a group, would leave it.
+async function stampedLeftovers(auth, homeFolderId, second) {
   const leftovers = [];
-  const home = await call(auth, 'GET', `/folders/${enc(homeFolderId)}/contents?limit=500`);
-  if (home.status !== 200) return [{ where: 'home listing', detail: `${home.status}: ${home.text}` }];
-  for (const node of home.body?.resources ?? []) {
-    if (leftBehind(nameOf(node))) leftovers.push({ where: 'home', detail: nameOf(node) });
+  const homes = [['home', auth, homeFolderId], ['second user home', second?.auth, second?.profile?.homeFolderId]];
+  for (const [where, as, folder] of homes) {
+    if (!as || !folder) {
+      leftovers.push({ where, detail: 'not known, so not inventoried' });
+      continue;
+    }
+    const home = await call(as, 'GET', `/folders/${enc(folder)}/contents?limit=500`);
+    if (home.status !== 200) {
+      leftovers.push({ where: `${where} listing`, detail: `${home.status}: ${home.text}` });
+      continue;
+    }
+    for (const node of home.body?.resources ?? []) {
+      if (leftBehind(nameOf(node))) leftovers.push({ where, detail: nameOf(node) });
+    }
+  }
+  const groups = await group(auth, 'GET', '/groups');
+  if (groups.status !== 200) {
+    leftovers.push({ where: 'group listing', detail: `${groups.status}: ${groups.text}` });
+  } else {
+    for (const found of groups.body?.groups ?? []) {
+      if (leftBehind(nameOf(found))) leftovers.push({ where: 'group', detail: nameOf(found) });
+    }
   }
   const categories = await call(auth, 'GET', '/categories/tree');
   if (categories.status !== 200) {
@@ -118,6 +157,37 @@ async function stampedLeftovers(auth, homeFolderId) {
   }
   return leftovers;
 }
+
+// The MCP servers live outside the train, so the gate's record names none of their commits. The mcp
+// suite runs cedar-artifact-rest-mcp's jar from its working tree, and the record has to say which
+// commit that was, whether the tree held changes no commit does, and the digest of the jar that ran.
+// The other three are recorded beside it, since a change to any of them is otherwise invisible to
+// every gate.
+const MCP_REPOSITORIES = ['cedar-artifact-rest-mcp', 'cedar-artifact-mcp', 'cedar-cee-mcp', 'bioportal-term-mcp'];
+
+function mcpSources() {
+  const home = env.CEDAR_HOME ?? resolve(HERE, '..', '..', '..');
+  return Object.fromEntries(MCP_REPOSITORIES.map(repository => {
+    const cwd = resolve(home, 'mcp', repository);
+    const git = args => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    try {
+      const source = { head: git(['rev-parse', 'HEAD']), dirty: git(['status', '--porcelain']).length > 0 };
+      if (repository === 'cedar-artifact-rest-mcp') {
+        try {
+          source.jarSha256 = createHash('sha256')
+            .update(readFileSync(resolve(cwd, 'target', 'cedar-artifact-rest-mcp.jar'))).digest('hex');
+        } catch {
+          source.jarSha256 = null;
+        }
+      }
+      return [repository, source];
+    } catch {
+      return [repository, { head: null, dirty: null }];
+    }
+  }));
+}
+// Read before any suite runs, so the record names what the mcp suite will start.
+const MCP_SOURCES = mcpSources();
 
 function checkIdentity(check) {
   return `${check.suite}\u001f${check.section}\u001f${check.name}`;
@@ -143,6 +213,19 @@ function expectedFor(suiteNames) {
 // existing `finally` does the cleanup. A second signal is the way out of a suite that will not
 // return, at the cost of the cleanup this exists to perform.
 let interrupted = false;
+// The run's own deadline, after which it stops as it does on a first signal: active suites drain,
+// queued ones do not start, and teardown runs. Each request has a timeout of its own (lib.mjs), so a
+// suite cannot hang past it for long. The gate gives the whole tier a longer budget as a backstop.
+const DEADLINE_SECONDS = Number(argv.find(a => a.startsWith('--deadline='))?.slice('--deadline='.length) ?? 1200);
+if (!Number.isFinite(DEADLINE_SECONDS) || DEADLINE_SECONDS <= 0) {
+  console.error('--deadline must be a positive number of seconds');
+  process.exit(2);
+}
+const deadline = setTimeout(() => {
+  interrupted = true;
+  console.log(`\ndeadline of ${DEADLINE_SECONDS} s reached — draining active suites, then tearing down`);
+}, DEADLINE_SECONDS * 1000);
+deadline.unref();
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     if (interrupted) {
@@ -158,13 +241,14 @@ try {
   const { user1, user2, admin } = await actors();
   auth1 = user1.auth;
   user1Profile = user1.profile;
+  second = user2;
   const homeFolderId = user1.profile.homeFolderId;
   if (!homeFolderId) throw new Error('the first user has no homeFolderId');
   console.log(`authenticated both test users; ${selected.length} suite(s) to run`);
 
   beginSuite('runner');
   suite('runner: clean-stack preflight');
-  const before = await stampedLeftovers(auth1, homeFolderId);
+  const before = await stampedLeftovers(auth1, homeFolderId, second);
   check(before.length === 0, 'the stack starts with no leftovers from an earlier REST run',
       before.map(item => `${item.where}: ${item.detail}`).join('; '));
 
@@ -173,6 +257,8 @@ try {
   const complaintsBefore = await workerComplaints();
   check(complaintsBefore.length === 0, 'the worker starts with every consumer live and no dead letters',
       complaintsBefore.map(c => `${c.name}: ${c.message}`).join('; '));
+
+  await signalPreflight(env.CEDAR_REST_PREFLIGHT_REPORT, RUN);
 
   // One parent for the per-suite working folders, so a failed teardown leaves a
   // single identifiable working subtree.
@@ -222,8 +308,8 @@ try {
   if (auth1 && user1Profile?.homeFolderId) {
     beginSuite('runner');
     suite('runner: clean-stack postflight');
-    const after = await stampedLeftovers(auth1, user1Profile.homeFolderId);
-    check(after.length === 0, 'the run leaves no stamped folders, artifacts, or categories behind',
+    const after = await stampedLeftovers(auth1, user1Profile.homeFolderId, second);
+    check(after.length === 0, 'the run leaves no stamped folders, artifacts, categories or groups behind',
         after.map(item => `${item.where}: ${item.detail}`).join('; '));
 
     // The net under every deferred effect. A suite asserts the effects it knows to look for; this
@@ -248,24 +334,55 @@ if (updateInventory) {
         `${result.failed} failure(s), interrupted=${interrupted}`);
     result = summary(selected.map(s => s.name));
   } else {
-    writeFileSync(INVENTORY_PATH, `${JSON.stringify({ version: 1, checks: observedChecks }, null, 2)}\n`);
-    console.log(`\nupdated check inventory: ${INVENTORY_PATH}`);
+    // A check leaves the inventory only with a recorded reason. Without this, a failing check deleted
+    // from its suite would leave the inventory on the next update and every later run would pass.
+    let dropped;
+    try {
+      const previous = JSON.parse(readFileSync(INVENTORY_PATH, 'utf8')).checks;
+      dropped = unretiredDrops(previous, observedChecks, readRetired(RETIRED_PATH));
+    } catch (error) {
+      dropped = [`the committed inventory or retired list cannot be read: ${error.message}`];
+    }
+    if (dropped.length) {
+      beginSuite('runner');
+      suite('runner: expected-check inventory');
+      check(false, 'an inventory update drops only the checks rest/retired-checks.json names',
+          `${dropped.length} dropped without a reason: ${dropped.slice(0, 8).map(id => id.replaceAll('\u001f', ' / ')).join(' | ')}`);
+      result = summary(selected.map(s => s.name));
+    } else {
+      writeFileSync(INVENTORY_PATH, `${JSON.stringify({ version: 1, checks: observedChecks }, null, 2)}\n`);
+      console.log(`\nupdated check inventory: ${INVENTORY_PATH}`);
+    }
   }
 } else {
   const expectedChecks = expectedFor(selected.map(s => s.name));
   inventoryMatched = JSON.stringify(observedChecks) === JSON.stringify(expectedChecks);
   if (!inventoryMatched) {
-    const expectedSet = new Set(expectedChecks);
-    const observedSet = new Set(observedChecks);
-    const missing = expectedChecks.filter(id => !observedSet.has(id));
-    const unexpected = observedChecks.filter(id => !expectedSet.has(id));
+    // Counted as often as each identity occurs, so a lost repetition of a repeated check is named.
+    const readable = id => id.replaceAll('\u001f', ' / ');
+    const missing = lost(expectedChecks, observedChecks).map(readable);
+    const unexpected = lost(observedChecks, expectedChecks).map(readable);
     beginSuite('runner');
     suite('runner: expected-check inventory');
     check(false, 'the run executes the committed check inventory',
-        `missing ${missing.length}: ${missing.slice(0, 8).join(' | ')}; `
-        + `unexpected ${unexpected.length}: ${unexpected.slice(0, 8).join(' | ')}`);
+        missing.length || unexpected.length
+          ? `missing ${missing.length}: ${missing.slice(0, 8).join(' | ')}; `
+            + `unexpected ${unexpected.length}: ${unexpected.slice(0, 8).join(' | ')}`
+          : 'the run executed the same identities in another order');
     result = summary(selected.map(s => s.name));
   }
+}
+
+const allowedSkips = new Set(JSON.parse(readFileSync(ALLOWED_SKIPS_PATH, 'utf8')).skips
+    .map(entry => [entry.suite, entry.section, entry.name, entry.reason].join('\u001f')));
+const unallowedSkips = result.checks.filter(item => item.status === 'skipped'
+    && !allowedSkips.has([item.suite, item.section, item.name, item.reason].join('\u001f')));
+if (unallowedSkips.length) {
+  beginSuite('runner');
+  suite('runner: allowed skips');
+  check(false, 'every skipped check is allowed, with its reason, by rest/allowed-skips.json',
+      unallowedSkips.slice(0, 8).map(item => `${checkIdentity(item)} (${item.reason})`).join(' | '));
+  result = summary(selected.map(s => s.name));
 }
 
 const { passed, failed, skipped } = result;
@@ -287,6 +404,7 @@ const report = {
   phaseTimings,
   counts: { passed, failed, skipped, total: passed + failed + skipped },
   inventoryMatched,
+  mcpSources: MCP_SOURCES,
   checks: result.checks,
 };
 mkdirSync(dirname(REPORT_PATH), { recursive: true });

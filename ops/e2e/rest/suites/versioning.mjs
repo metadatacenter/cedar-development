@@ -167,7 +167,8 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     const original = await call(auth, 'GET', at(a));
     for (const change of [{'bibo:status': 'bibo:published'}, {'pav:version': '4.0.0'}, {'pav:previousVersion': a}]) {
       checkStatus(await call(auth, 'PUT', at(a), {...original.body, ...change},
-          {headers: {'If-Match': original.headers.get('etag')}}), 400, `${kind}: ordinary editing cannot change lifecycle metadata`);
+          {headers: {'If-Match': original.headers.get('etag')}}), 400,
+      `${kind}: ordinary editing cannot change ${Object.keys(change)[0]}`);
     }
     if (!checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': a, newVersion: '1.0.0'}), 200,
         `${kind}: publish root`)) continue;

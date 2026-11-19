@@ -184,9 +184,9 @@ export async function run({ user1, homeFolderId }) {
           'the moved template occurs exactly once in the destination folder',
           `the destination folder contained ${occurrences} copies of it`);
       const gone = await call(auth, 'GET', `/folders/${enc(parentId)}/contents`);
-      check(!JSON.stringify(gone.body ?? {}).includes(artName),
+      check(gone.status === 200 && !JSON.stringify(gone.body ?? {}).includes(artName),
           'and it is no longer in the folder it came from',
-          'the source folder still lists it');
+          gone.status === 200 ? 'the source folder still lists it' : `the source folder answered ${gone.status}`);
     }
 
     const newName = `${artName} via command`;

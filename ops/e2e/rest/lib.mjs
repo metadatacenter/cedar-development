@@ -51,6 +51,13 @@ const CLIENT = env.CEDAR_KEYCLOAK_CLIENT ?? 'cedar-angular-app';
 env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 export const RUN = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+/**
+ * How long one request may go unanswered. A service that accepts a connection and never answers
+ * would otherwise hold each request for Node's 300-second header timeout, one after another, and the
+ * tier with it. Generous, since the gate runs this tier beside the browser tiers on a loaded machine.
+ */
+export const REQUEST_TIMEOUT_MS = Number(env.CEDAR_REST_REQUEST_TIMEOUT_MS ?? 120_000);
 export const enc = iri => encodeURIComponent(iri);
 
 /**
@@ -107,7 +114,8 @@ export function check(condition, what, detail) {
 
 export function skip(what, detail) {
   state().results.skipped++;
-  state().results.checks.push({ suite: state().currentModule, section: state().currentSuite, name: what, status: 'skipped' });
+  state().results.checks.push({ suite: state().currentModule, section: state().currentSuite, name: what, status: 'skipped',
+    reason: detail });
   console.log(`  [${state().currentModule}] - ${what} (skipped: ${detail})`);
 }
 
@@ -217,6 +225,7 @@ export async function call(auth, method, path, body, opts = {}) {
   const res = await fetch(`${opts.base ?? RESOURCE}${path}`, {
     method,
     redirect: opts.base === ARTIFACT_SERVER ? 'manual' : 'follow',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers,
     body: body === undefined ? undefined
         : (typeof body === 'string' ? body : JSON.stringify(body)),
@@ -226,7 +235,7 @@ export async function call(auth, method, path, body, opts = {}) {
   try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
   // A create under a supplied identity is a PUT answered 201, and it can leak as a POST can.
   if ((method === 'POST' || method === 'PUT') && res.status === 201) {
-    noteCreated(json, opts.base);
+    noteCreated(json, opts.base, auth);
     noteSplitFixture(json, opts.base);
   }
   return { status: res.status, body: json, text, headers: res.headers };
@@ -320,6 +329,51 @@ export async function everybodyGroup(auth) {
   const found = (res.body?.groups ?? []).find(g => g.specialGroup === 'EVERYBODY');
   if (!found) throw new Error('no group carries the EVERYBODY marker');
   return found;
+}
+
+/**
+ * A folder of the caller's, created under `parentId` and marked special in the workspace graph.
+ *
+ * No CEDAR operation marks a folder special: a deployment's special folders are marked in the graph by
+ * hand, and the resource server's SearchByIdPermissionTest marks its fixture the same way. The mark is
+ * set through Neo4j's HTTP endpoint with the credentials the CEDAR profile exports, which `cedarcli test
+ * e2e` passes to the suites. Answers `{ id }` once the folder is marked, `{ unconfigured }` when the
+ * environment names no graph credentials, and `{ failed }` with the reason otherwise.
+ */
+export async function specialFolder(auth, parentId, name) {
+  const user = env.CEDAR_NEO4J_USER_NAME;
+  const password = env.CEDAR_NEO4J_USER_PASSWORD;
+  if (!env.CEDAR_NEO4J_HOST || !user || !password) {
+    return { unconfigured: 'the environment names no Neo4j host and credentials' };
+  }
+  const made = await call(auth, 'POST', '/folders', { folderId: parentId, name, description: 'Created by the REST suites' });
+  if (made.status !== 201) return { failed: `the folder could not be created: ${made.status}` };
+  const id = made.body['@id'];
+  cleanup('folder', `/folders/${enc(id)}`, name);
+  const graph = `http://${env.CEDAR_NEO4J_HOST}:${env.CEDAR_NEO4J_REST_PORT ?? 7474}/db/neo4j/tx/commit`;
+  try {
+    const answer = await fetch(graph, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`,
+      },
+      body: JSON.stringify({ statements: [{
+        statement: 'MATCH (folder:Folder {_id: $id}) SET folder.specialFolder = $kind RETURN count(folder)',
+        parameters: { id, kind: 'community' },
+      }] }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const body = await answer.json().catch(() => ({}));
+    // Report the database's error codes only: the request carries the graph's credentials.
+    if (!answer.ok || body.errors?.length) {
+      return { failed: `Neo4j answered ${answer.status} ${(body.errors ?? []).map(e => e.code).join(', ')}`.trim() };
+    }
+    const marked = body.results?.[0]?.data?.[0]?.row?.[0];
+    return marked === 1 ? { id } : { failed: `Neo4j marked ${marked} nodes rather than one` };
+  } catch (error) {
+    return { failed: `Neo4j could not be reached: ${error.message}` };
+  }
 }
 
 /**
@@ -418,6 +472,7 @@ const COLLECTION_PATH = {
   element: '/template-elements',
   field: '/template-fields',
   folder: '/folders',
+  group: '/groups',
 };
 
 // Every folder and artifact a POST or a create-by-PUT made, in creation order, each attributed to
@@ -436,13 +491,15 @@ function kindOfId(id) {
   return Object.entries(COLLECTION_PATH).find(([, path]) => id.includes(`${path}/`))?.[0];
 }
 
-function noteCreated(json, base) {
-  if (base && base !== RESOURCE) return;   // a group belongs to the group server's own teardown
+function noteCreated(json, base, auth) {
   const id = json?.['@id'];
   if (typeof id !== 'string') return;
-  const kind = kindOfId(id);
+  // A group lives on the group server, and only its creator may be sure of deleting it, so the
+  // credential that created it is kept for the sweep.
+  const kind = base === GROUP_SERVER ? (id.includes('/groups/') ? 'group' : undefined)
+    : !base || base === RESOURCE ? kindOfId(id) : undefined;
   if (!kind || state().created.some(c => c.id === id)) return;
-  state().created.push({ kind, id, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: state().currentSuite });
+  state().created.push({ kind, id, auth, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: state().currentSuite });
 }
 
 /**
@@ -485,13 +542,15 @@ export function cleanup(kind, path, name, auth, base, identity) {
 async function sweepUnregistered(auth) {
   const suspects = state().created.filter(c => !state().registeredIds.has(c.id));
   let swept = 0;
-  for (const kind of ['instance', 'template', 'element', 'field', 'folder']) {
+  for (const kind of ['instance', 'template', 'element', 'field', 'folder', 'group']) {
     // Newest first within a kind: a nested folder is created after the folder holding it, and a
     // folder still holding anything cannot be deleted.
     for (const item of suspects.filter(s => s.kind === kind).reverse()) {
       try {
         const path = `${COLLECTION_PATH[kind]}/${enc(item.id)}`;
-        const probe = await call(auth, 'GET', path);
+        const where = kind === 'group' ? { base: GROUP_SERVER } : {};
+        const as = kind === 'group' ? item.auth ?? auth : auth;
+        const probe = await call(as, 'GET', path, undefined, where);
         if (probe.status === 404) continue;   // the suite deleted it itself, so nothing leaked
         if (probe.status !== 200) {
           bad(`teardown: cannot verify unregistered ${kind} "${item.name}"`, `GET returned ${probe.status}`);
@@ -499,12 +558,12 @@ async function sweepUnregistered(auth) {
         }
         bad(`teardown: ${kind} "${item.name}" is left behind by the "${item.suite}" suite`,
             `created but never registered with cleanup(); ${item.id}`);
-        const del = await mutate(auth, 'DELETE', path);
+        const del = await mutate(as, 'DELETE', path, undefined, where);
         if (del.status !== 204 && del.status !== 200) {
           bad(`teardown: ${kind} "${item.name}" could not be swept`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
           continue;
         }
-        const after = await call(auth, 'GET', path);
+        const after = await call(as, 'GET', path, undefined, where);
         if (after.status !== 404) {
           bad(`teardown: swept ${kind} "${item.name}" is not confirmed absent`, `GET returned ${after.status}`);
           continue;

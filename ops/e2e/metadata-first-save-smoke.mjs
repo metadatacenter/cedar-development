@@ -26,6 +26,7 @@ import { chromium } from 'playwright';
 import * as S from './selectors.mjs';
 import { actors, call, mutate, enc } from './rest/lib.mjs';
 import { withAuthentication } from './auth-activity.mjs';
+import { smokeSteps } from './smoke-steps.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASE = process.env.CEDAR_BASE ?? `https://cedar.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
@@ -40,7 +41,9 @@ let templateId = null;
 let instanceId = null;
 const browser = await chromium.launch({ headless: !process.env.HEADED });
 
+const steps = smokeSteps('metadata-first-save-smoke');
 try {
+  steps.enter('first-save');
   const template = JSON.parse(readFileSync(resolve(HERE, 'fixtures', 'freeze-template.json'), 'utf8'));
   template['schema:name'] = `First-save smoke ${RUN}`;
   const created = await call(user1.auth, 'POST', `/templates?folder_id=${enc(folderId)}`, template);
@@ -119,7 +122,9 @@ try {
   assert.equal(stored.body['Text Field']?.['@value'], `${VALUE}, updated`);
 
   console.log('PASS: the first save kept the editor, its value and the page, and the next save updated the instance');
+  steps.pass();
 } catch (error) {
+  steps.fail();
   console.error(`FAIL: ${error.message}`);
   process.exitCode = 1;
 } finally {

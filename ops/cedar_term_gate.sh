@@ -28,7 +28,7 @@ REPORT_DIR=${TERM_REPORT_DIR:-$STORE}
 APIKEY=${CEDAR_ADMIN_USER_API_KEY:-}
 
 # Verify runs on the dev+10000 test ports so a running dev stack never collides.
-PORT=19004 ADMIN=19104 STOPPORT=19204
+PORT=19004 ADMIN=19104
 
 allowlist() { sqlite3 "$CATALOG" "SELECT group_concat(acronym) FROM (SELECT acronym FROM ontology ORDER BY acronym)"; }
 
@@ -39,7 +39,7 @@ verify() {
   [ -f "$jar" ] || { echo "build the terminology app jar first: $jar" >&2; exit 1; }
 
   echo "== launching throwaway local-store instance on :$PORT (all ontologies, localOnly) =="
-  CEDAR_TERMINOLOGY_HTTP_PORT=$PORT CEDAR_TERMINOLOGY_ADMIN_PORT=$ADMIN CEDAR_TERMINOLOGY_STOP_PORT=$STOPPORT \
+  CEDAR_TERMINOLOGY_HTTP_PORT=$PORT CEDAR_TERMINOLOGY_ADMIN_PORT=$ADMIN \
     nohup java -DterminologyStore.catalogPath="$CATALOG" \
       -DterminologyStore.localOntologies="$(allowlist)" \
       -DterminologyStore.localOnly=true \

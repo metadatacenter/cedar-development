@@ -378,7 +378,7 @@ export async function unresolvedVersionJourney(args) {
         await assertNoRecoveryFiles(page);
       } else {
         await page.locator("#message").filter({hasText: "The stored version could not be reconciled with your save. Your edits have been kept; saving remains blocked."}).waitFor();
-        await page.locator("#state").filter({hasText: /^Reload required$/}).waitFor();
+        await page.locator("#state").filter({hasText: /^Save status unconfirmed$/}).waitFor();
         assert.equal(await page.locator("#save").isDisabled(), true, "an unresolved version keeps saving blocked");
         assert.equal(await hasNotes(page), false, "the edit stays in the designer");
         assert.ok(editAddress(new URL(page.url()), "templates", templateId), "the designer stays on the source");

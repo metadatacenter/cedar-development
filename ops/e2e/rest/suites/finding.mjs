@@ -25,10 +25,15 @@ export async function run({ user1, user2, folderId }) {
   const u1 = user1.profile['@id'];
   const u2 = user2.profile['@id'];
 
-  /** Does a term search as this user turn up this identifier? */
+  /**
+   * Does a term search as this user turn up this identifier? True or false only for a page the server
+   * served with 200. Any other answer is undefined, because a failed search shows nothing about what
+   * the user can find, and reading it as "not found" would pass every negative below.
+   */
   async function findsByTerm(auth, tag, id) {
     const res = await call(auth, 'GET', `/search?q=${enc(tag)}&limit=50`);
-    return (res.body?.resources ?? []).some(r => r['@id'] === id);
+    if (res.status !== 200 || !Array.isArray(res.body?.resources)) return undefined;
+    return res.body.resources.some(r => r['@id'] === id);
   }
 
   /**
@@ -37,7 +42,8 @@ export async function run({ user1, user2, folderId }) {
    */
   async function inSharingView(auth, sharing, id) {
     const res = await call(auth, 'GET', `/search?sharing=${sharing}&limit=200`);
-    return (res.body?.resources ?? []).some(r => r['@id'] === id);
+    if (res.status !== 200 || !Array.isArray(res.body?.resources)) return undefined;
+    return res.body.resources.some(r => r['@id'] === id);
   }
 
   const until = (probe) => poll(async () => ({ done: await probe() }), { tries: 10, delayMs: 1200 });
@@ -47,7 +53,7 @@ export async function run({ user1, user2, folderId }) {
    * asserting that a mutation *did* propagate through the queue.
    */
   const dropsByTerm = (auth, tag, id) =>
-      poll(async () => ({ done: !(await findsByTerm(auth, tag, id)) }), { tries: 10, delayMs: 1200 });
+      poll(async () => ({ done: (await findsByTerm(auth, tag, id)) === false }), { tries: 10, delayMs: 1200 });
 
   /** A template in the run's working folder, tagged so only this run finds it. */
   async function template(slug) {
@@ -70,7 +76,7 @@ export async function run({ user1, user2, folderId }) {
       `it never appeared for its owner after ${indexed.attempts} attempts — the rest of this suite would be meaningless`)) return {};
 
   // Sound only because the line above proved indexing had finished.
-  check(!(await findsByTerm(user2.auth, direct.tag, direct.id)),
+  check((await findsByTerm(user2.auth, direct.tag, direct.id)) === false,
       'another user does not find it while it is unshared',
       'an unshared template was visible in another user\'s search');
 
@@ -88,7 +94,7 @@ export async function run({ user1, user2, folderId }) {
     check(inView.done, 'and sees it in what is shared with them',
         `it never appeared in shared-with-me after ${inView.attempts} attempts`);
 
-    check(!(await inSharingView(user1.auth, 'shared-with-me', direct.id)),
+    check((await inSharingView(user1.auth, 'shared-with-me', direct.id)) === false,
         'while the owner does not see their own template as shared with them',
         'the owner\'s own template appeared in their shared-with-me view');
 
@@ -109,7 +115,7 @@ export async function run({ user1, user2, folderId }) {
       'the grant is withdrawn')) {
     checkStatus(await call(user2.auth, 'GET', direct.at), 403,
         'and the second user loses access to the artifact immediately');
-    check(!(await inSharingView(user2.auth, 'shared-with-me', direct.id)),
+    check((await inSharingView(user2.auth, 'shared-with-me', direct.id)) === false,
         'and it leaves what is shared with them',
         'it was still listed as shared with them after the grant was withdrawn');
     const revoked = await dropsByTerm(user2.auth, direct.tag, direct.id);
@@ -183,7 +189,7 @@ export async function run({ user1, user2, folderId }) {
 
       const own = await until(() => findsByTerm(user1.auth, tag, insideId));
       check(own.done, 'which its owner can find', `it never appeared for its owner after ${own.attempts} attempts`);
-      check(!(await findsByTerm(user2.auth, tag, insideId)),
+      check((await findsByTerm(user2.auth, tag, insideId)) === false,
           'and the second user cannot', 'it was visible before the folder was shared');
 
       if (checkStatus(await mutate(user1.auth, 'PUT', `/folders/${enc(boxId)}/permissions`,

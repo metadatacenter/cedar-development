@@ -7,8 +7,8 @@
 // that pages, on every service, is held to the same refusal of a bad limit or offset, and those that
 // also page by number to the rule that a request pages one way or the other.
 import {
-  suite, check, checkStatus, skip, call, mutate, updateArtifact, cleanup, artifactBody, permissions, everybodyGroup,
-  poll, enc, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
+  suite, check, checkStatus, call, mutate, updateArtifact, cleanup, artifactBody, permissions, everybodyGroup,
+  poll, enc, specialFolder, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
 } from '../lib.mjs';
 import { cedarErrorProblem } from './errors.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
@@ -242,7 +242,10 @@ export async function run({ user1, user2, admin, folderId }) {
     { name: "the artifact server's fields", base: ARTIFACT_SERVER, path: '/template-fields' },
     { name: "the artifact server's instances", base: ARTIFACT_SERVER, path: '/template-instances' },
     { name: 'messages', base: MESSAGING, path: '/messages' },
-    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
+    // The bridge refuses a bad limit or offset before it asks the registry, so the refusals need no
+    // registry. A valid page does: it is asked of the live ROR registry, and is checked by
+    // rest/live-authorities.mjs, which gates nothing, so that an outside service cannot fail a release.
+    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford', registry: true },
   ];
   if (check(!!admin, 'the administrator key is configured, so the monitor listings can be paged',
       'CEDAR_ADMIN_USER_API_KEY is unset; the admin-only monitor listings cannot run')) {
@@ -254,8 +257,7 @@ export async function run({ user1, user2, admin, folderId }) {
   for (const listing of listings) {
     const sep = listing.path.includes('?') ? '&' : '?';
     const get = qs => call(listing.auth ?? auth, 'GET', `${listing.path}${sep}${qs}`, undefined, { base: listing.base });
-    const valid = await get('limit=2&offset=0');
-    if (!checkStatus(valid, 200, `${listing.name} answers a valid page`)) continue;
+    if (!listing.registry && !checkStatus(await get('limit=2&offset=0'), 200, `${listing.name} answers a valid page`)) continue;
     for (const bad of badArgs) {
       const res = await get(bad.qs);
       badQuery(res, `${listing.name} with ${bad.what} is refused with 400`);
@@ -449,13 +451,15 @@ export async function run({ user1, user2, admin, folderId }) {
     }
   }
 
-  // No API marks a folder special: a deployment's special folders are marked in the graph by hand. The
-  // view is therefore read against a special folder the deployment already has, and a deployment with
-  // none skips these checks. SearchByIdPermissionTest in the resource server marks a folder itself and
-  // holds the view to the same window.
+  // No CEDAR operation marks a folder special, so the run marks a folder of its own in the graph and
+  // holds the special-folders view to the same window as the others.
+  const marked = await specialFolder(auth, folderId, `Special pagination folder ${RUN}`);
+  check(Boolean(marked.id), 'a folder of the run is marked special in the graph', marked.failed ?? marked.unconfigured);
   const specials = await call(auth, 'GET', '/search?mode=special-folders&resource_types=folder&limit=100');
   checkStatus(specials, 200, 'special folders are listed without a window');
-  const special = (specials.body?.resources ?? []).find(row => !Number.isNaN(modifiedOn(row)));
+  const special = marked.id
+    ? (specials.body?.resources ?? []).find(row => row['@id'] === marked.id && !Number.isNaN(modifiedOn(row)))
+    : undefined;
   const specialView = { name: 'special folders', path: () => '/search?mode=special-folders&resource_types=folder&limit=100' };
   const specialChecks = [
     ['lists a folder modified inside the window', at => `&modified_after=${at - 1}&modified_before=${at + 1}`, true],
@@ -465,7 +469,8 @@ export async function run({ user1, user2, admin, folderId }) {
   ];
   for (const [what, bounds, holds] of specialChecks) {
     if (!special) {
-      skip(`special folders ${what}`, 'the deployment has no special folder this user can see');
+      check(false, `special folders ${what}`, marked.id
+        ? 'the view does not list the folder the run marked special' : 'no folder could be marked special');
       continue;
     }
     const answer = await read(specialView, special['@id'], bounds(modifiedOn(special)));
@@ -475,31 +480,14 @@ export async function run({ user1, user2, admin, folderId }) {
   suite('pagination: a listing that pages by number as well refuses both at once');
 
   // Terminology and the external authorities still take a page number and a page size, for clients
-  // that predate limit and offset. A request may page one way or the other. A link a page answers
-  // with pages by offset, so a client paging by number can follow it; the authority search's links
-  // used to carry the page number too, and every one of them was refused.
-  const byNumber = [
-    { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford' },
-  ];
-  for (const listing of byNumber) {
-    const sep = listing.path.includes('?') ? '&' : '?';
-    const both = await call(auth, 'GET', `${listing.path}${sep}page=1&pageSize=2&offset=2`, undefined,
-        { base: listing.base });
-    check(both.status === 400, `${listing.name} refuses a page number sent with an offset`,
-        `expected 400, got ${both.status}: ${(both.text ?? '').slice(0, 120)}`);
-    const numbered = await call(auth, 'GET', `${listing.path}${sep}page=1&pageSize=2`, undefined,
-        { base: listing.base });
-    if (!checkStatus(numbered, 200, `${listing.name} answers a page asked for by number`)) continue;
-    const links = Object.entries(numbered.body?.paging ?? {}).filter(([, link]) => typeof link === 'string');
-    check(links.length > 0, `${listing.name} answers a page by number with paging links`,
-        `paging was ${JSON.stringify(numbered.body?.paging ?? null).slice(0, 160)}`);
-    for (const [rel, link] of links) {
-      const followed = await call(auth, 'GET', link.replace(/^https?:[/][/][^/]+/, ''), undefined,
-          { base: listing.base });
-      check(followed.status === 200, `${listing.name}'s ${rel} link from a page by number can be followed`,
-          `${link} answered ${followed.status}: ${(followed.text ?? '').slice(0, 120)}`);
-    }
-  }
+  // that predate limit and offset. A request may page one way or the other, and the bridge refuses one
+  // that pages both ways before it asks the registry. That a page asked for by number is answered,
+  // with links that can be followed, needs the live ROR registry, so rest/live-authorities.mjs checks
+  // it outside the gate.
+  const both = await call(auth, 'GET', '/ext-auth/ror/search-by-name?q=stanford&page=1&pageSize=2&offset=2',
+      undefined, { base: BRIDGE });
+  check(both.status === 400, 'an authority search refuses a page number sent with an offset',
+      `expected 400, got ${both.status}: ${(both.text ?? '').slice(0, 120)}`);
 
   suite('pagination: a window the search index cannot serve is refused with 400');
 

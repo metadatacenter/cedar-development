@@ -84,6 +84,11 @@ if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
 fi
 # Preserve the CLI's selected Node ahead of Homebrew's unversioned Node.
 PATH="${JAVA_HOME:+$JAVA_HOME/bin:}$PATH:/opt/homebrew/bin"
+# CVE-2026-114938 (Java4Shell): on x86-64 CPUs with AVX-512 VBMI, HotSpot's Base64 decode intrinsic
+# writes past its buffer when handed a crafted string, and JDK 17.0.6 and later carry it. With the
+# intrinsic off, decoding runs the plain Java loop instead. Every server JVM this controller starts
+# gets the flag; drop it only once every host runs a JDK that has the fix.
+CEDAR_JVM_MITIGATIONS="-XX:-UseBASE64Intrinsics"
 # Loopback is safest for the native-only stack. Set this to 0.0.0.0 when Docker nginx must proxy
 # to the native Angular development servers through host.docker.internal.
 CEDAR_FRONTEND_BIND_HOST="${CEDAR_FRONTEND_BIND_HOST:-127.0.0.1}"
@@ -168,9 +173,11 @@ log_error_count() {
 # wrong on one of the two systems CEDAR runs on. Loopback accepts or refuses at once, so the timeout
 # the flag provided is not needed here.
 port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+# Beside its application port, a Dropwizard service listens on its admin port. A frontend listens
+# on no other port.
 auxiliary_ports() {
   local admin; admin=$(admin_port "$1")
-  [ "$admin" != 0 ] && printf '%s\n%s\n' "$admin" "$((admin+100))"
+  [ "$admin" != 0 ] && echo "$admin"
 }
 
 # Whoever is actually listening, pidfile or not. A listener is never assumed to be CEDAR merely
@@ -590,7 +597,9 @@ run_one_foreground() {
         # endpoints then report themselves unavailable rather than answering from BioPortal.
         [ -n "$CEDAR_TERMINOLOGY_STORE_INDEX" ] && opts="$opts -DterminologyStore.searchIndexPath=$CEDAR_TERMINOLOGY_STORE_INDEX"
       fi
-      exec java $opts -jar "$jar" server "$cfg" ;;
+      # CEDAR_JAVA_OPTS carries whitespace-separated JVM flags for every server, under the name the
+      # Docker entrypoint already reads. It follows the mitigations so that it can override them.
+      exec java $CEDAR_JVM_MITIGATIONS ${CEDAR_JAVA_OPTS:-} $opts -jar "$jar" server "$cfg" ;;
   esac
 }
 

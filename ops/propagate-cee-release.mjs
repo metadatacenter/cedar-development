@@ -21,7 +21,6 @@ function consumerFrom(repository, label, entry) {
   return Object.freeze({
     label,
     directory: within === '.' ? repository : `${repository}/${within}`,
-    legacyPeerDeps: entry.legacyPeerDeps === true,
   });
 }
 
@@ -112,7 +111,6 @@ function applyConsumers(cedarHome, version) {
   for (const consumer of CEE_CONSUMERS) {
     const root = resolve(cedarHome, consumer.directory);
     const args = ['install', '--save-exact', `${DEPENDENCY}@${spec}`];
-    if (consumer.legacyPeerDeps) args.push('--legacy-peer-deps');
     console.log(`\nUpdating ${consumer.label} (${consumer.directory})`);
     const result = spawnSync('npm', args, { cwd: root, stdio: 'inherit' });
     if (result.error) throw result.error;
