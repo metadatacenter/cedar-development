@@ -12,7 +12,7 @@ test('capture records declared regions, including shadow content, and names thos
   const directory = await mkdtemp(join(tmpdir(), 'ui-review-evidence-'));
   const browser = await chromium.launch();
   t.after(async () => {await browser.close(); await rm(directory, {recursive: true, force: true});});
-  const page = await browser.newPage({viewport: {width: 800, height: 600}});
+  const page = await (await browser.newContext({viewport: {width: 800, height: 600}})).newPage();
   await page.setContent(`<!doctype html><meta charset="utf-8"><nav class="paging"><button>Next</button></nav><div id="host"></div>
     <script>document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<section class="pager-container"><button>2</button></section>';</script>`);
   const states = [], actions = [];
@@ -22,7 +22,7 @@ test('capture records declared regions, including shadow content, and names thos
   const metrics = JSON.parse(await readFile(join(directory, 'sample.json'), 'utf8'));
   assert.deepEqual(metrics.regions.map(region => region.selector), ['.paging', '.pager-container']);
   assert.ok(metrics.controls.some(control => control.label === '2' && control.pointerTarget?.belongsToControl));
-  assert.deepEqual((await readdir(directory)).sort(), ['sample.aria.yml', 'sample.json', 'sample.png']);
+  assert.deepEqual((await readdir(directory)).sort(), ['sample.aria.yml', 'sample.checks.json', 'sample.json', 'sample.png']);
   await assert.rejects(captureState({page, directory, states, actions, flush: async () => {}, regions: []}, 'sample'),
     /duplicate/);
 });
@@ -31,7 +31,7 @@ test('keyboard stops keep a crop of each focused control, named after the next s
   const directory = await mkdtemp(join(tmpdir(), 'ui-review-focus-'));
   const browser = await chromium.launch();
   t.after(async () => {await browser.close(); await rm(directory, {recursive: true, force: true});});
-  const page = await browser.newPage({viewport: {width: 600, height: 400}});
+  const page = await (await browser.newContext({viewport: {width: 600, height: 400}})).newPage();
   await page.setContent(`<!doctype html><meta charset="utf-8"><style>body{margin:0}button{display:block;margin:40px;width:200px;height:60px;border:0;background:#c00}
     button:focus{outline:4px solid #00c}</style><div style="height:900px"></div><button>First</button><button>Second</button><div style="height:900px"></div>`);
   await page.evaluate(() => scrollTo(0, 860));
@@ -74,7 +74,7 @@ test('card crops show the visible card on a scrolled page', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ui-review-cards-'));
   const browser = await chromium.launch();
   t.after(async () => {await browser.close(); await rm(directory, {recursive: true, force: true});});
-  const page = await browser.newPage({viewport: {width: 600, height: 400}});
+  const page = await (await browser.newContext({viewport: {width: 600, height: 400}})).newPage();
   await page.setContent(`<!doctype html><meta charset="utf-8"><style>body{margin:0}app-field-card{display:block;margin:20px;height:120px;background:#0a0}</style>
     <div style="height:900px;background:#fff"></div><app-field-card></app-field-card><div style="height:900px"></div>`);
   await page.evaluate(() => scrollTo(0, 820));

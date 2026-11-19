@@ -3481,7 +3481,7 @@ unrelated artifact or discard a lock a live collector holds.
 ###### Evidence
 
 Each application directory holds screenshots, Designer card crops, accessibility snapshots, control
-geometry with labels and approximate intrinsic text widths, action records, cleanup results, an HTML
+geometry with labels and approximate intrinsic text widths, automatic check results, action records, cleanup results, an HTML
 evidence index, a coverage matrix, the collector identity, the duration and `reviewer-brief.md`.
 The collector identity in `collector.json` hashes every review module and every local module it
 imports, records the Playwright release, and hashes the corpus templates the fixtures upload.
@@ -3503,6 +3503,37 @@ obstruction under review. Capture preserves hover and focus, so collectors perfo
 hover, scroll and focus preconditions before interacting. On phone widths the Designer collector
 switches views explicitly and waits for the intended pane before inspecting or editing. An
 automation timeout alone does not establish a product defect, and capture is not a design verdict.
+
+###### Automatic Checks
+
+Some defects need no judgment to find. After recording each state, capture checks the page with axe
+and with four layout checks, and writes the results beside the state as `<state>.checks.json`. axe
+applies every rule it tags for WCAG 2.0, 2.1 and 2.2 at levels A and AA, as the application suites
+do, so colour contrast and the 24-pixel target size are included. The layout checks cover what axe
+does not test:
+
+- a page wider than its viewport, which scrolls sideways
+- text its own box cuts off without an ellipsis or a line clamp
+- a control the viewport cuts off, unless the region holding it scrolls sideways
+- text drawn over other text, unless something opaque covers the lower text
+
+The checks run once the screenshot, accessibility snapshot and geometry are written, and move
+neither pointer, focus nor scroll position. Finite animations finish first, so a tooltip or message
+is measured as it settles rather than halfway through fading in. Text is compared only where it is
+visible, so the part an ellipsis or an overflowing ancestor hides is cut away before any comparison.
+
+`capture.json` groups the results under `automaticChecks` by rule and element across states, since
+one defect seen at three widths is one problem to fix. The capture's summary line reports the number
+of open groups, and `index.html` lists each with the states it appears in.
+
+Each open group counts toward the verdict without a reviewer. A packet holding one validates as
+`FINDINGS`, never `REVIEWED`. A result that is wrong about the interface goes into
+`ops/e2e/ui-review/check-exceptions.mjs` with the application, rule, element and reason, and later
+captures record its group as excepted. A real defect stays open until the product is fixed.
+Reviewers do not repeat a group as a finding, and name one they judge mistaken under `limitations`.
+
+The checks roughly double capture time: all four applications take about seven minutes instead of
+three.
 
 ###### Reviewing
 
@@ -3528,7 +3559,8 @@ cedarcli test ui-review --app all --output /absolute/path/to/run --review /absol
 ```
 
 `review-result.html` and `review-result.json` keep the assessment. `FINDINGS` exits 1 for reported
-defects, and `DESIGN_REVIEW` also exits 1 when only design proposals or uncertainty remain.
+defects or open automatic check groups, and `DESIGN_REVIEW` also exits 1 when only design proposals
+or uncertainty remain.
 `INCOMPLETE` exits 2 for missing states or evidence, changed captures, stale sources, unverified
 served assets, browser errors or failed fixture cleanup. `REVIEWED` exits 0: a complete review with
 no unresolved findings, not release certification or proof of exhaustive coverage. Capture coverage

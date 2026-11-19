@@ -57,7 +57,9 @@ export function acceptanceBlockers(capture, errors) {
   if(capture.app){
     const ids=capture.states.map(s=>s.id);
     if(new Set(ids).size!==ids.length)evidenceErrors.push('Duplicate captured state IDs');
-    for(const state of capture.states)for(const kind of ['screenshot','aria','metrics'])
+    // A packet recorded with automatic checks must hold them for every state.
+    const kinds=['screenshot','aria','metrics',...(capture.automaticChecks?['checks']:[])];
+    for(const state of capture.states)for(const kind of kinds)
       if(typeof state[kind]!=='string'||!capture.files?.[state[kind]])evidenceErrors.push(`Missing ${kind} evidence for ${state.id}`);
     if(capture.catalogSha256!==catalogSha256(capture.app,capture.profile??'chromium'))
       evidenceErrors.push('Capture was collected against a different scenario catalog; capture again with the current one');
@@ -70,8 +72,13 @@ export function acceptanceBlockers(capture, errors) {
     ...(!capture.servedVerified ? ['Served component identity was not verified'] : [])];
 }
 
+/** Automatic check results no exception accepts. Each is a defect without a reviewer's word for it. */
+export function automaticFindings(capture) {
+  return (capture.automaticChecks?.groups ?? []).filter(group => !group.exception);
+}
+
 export function verdict(capture, review, errors) {
   if (acceptanceBlockers(capture, errors).length) return 'INCOMPLETE';
-  if (review.findings.some(f => f.kind === 'defect')) return 'FINDINGS';
+  if (automaticFindings(capture).length || review.findings.some(f => f.kind === 'defect')) return 'FINDINGS';
   return review.findings.length ? 'DESIGN_REVIEW' : 'REVIEWED';
 }

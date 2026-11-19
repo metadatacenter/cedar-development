@@ -2,7 +2,8 @@ import {readFile,writeFile,readdir,mkdir,lstat} from 'node:fs/promises';
 import {join,resolve,isAbsolute,dirname,relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
-import {hash,validateReview,verdict,acceptanceBlockers} from './contract.mjs';
+import {hash,validateReview,verdict,acceptanceBlockers,automaticFindings} from './contract.mjs';
+import {summarizeChecks} from './automatic-checks.mjs';
 import {APPS,PROFILES,profile as browserProfile,requiredStates,scenarios,regions,coverageFor,unmatchedRegions,catalogSha256} from './catalog.mjs';
 import {reviewerBrief,reportHtml} from './report.mjs';
 
@@ -43,7 +44,7 @@ async function validate(directory,app,reviewPath) {
     calibration=await scoreCalibration(join(directory,'calibration'),join(directory,'calibration-review.json'));
     if(calibration.detected!==calibration.defects||calibration.falseAlarms)errors.push('Reviewer did not distinguish all concealed calibration defects from acceptable controls');
   }catch(error){errors.push('Calibration incomplete: '+error.message);}
-  const result={app,verdict:verdict(capture,review,errors),validationErrors:errors,acceptanceBlockers:acceptanceBlockers(capture,errors),
+  const result={app,verdict:verdict(capture,review,errors),validationErrors:errors,acceptanceBlockers:acceptanceBlockers(capture,errors),automaticFindings:automaticFindings(capture),
     captureSha256:capture.captureSha256,calibration,review,scope:'Independent review of the recorded scenarios; not exhaustive UX or release certification.'};
   await writeJson(join(directory,'review-result.json'),result);
   await writeJson(join(directory,'coverage.json'),coverageFor(capture,review));
@@ -127,14 +128,16 @@ async function collect(directory,app,profile='chromium') {
   await writeJson(join(directory,'collector.json'),{catalogSha256:catalogSha256(app,profile),...collectorSources,scenarios:scenarios(app,profile),regions:regions(app)});
   const files={};
   for(const file of (await readdir(directory)).filter(f=>/\.(png|json|yml)$/.test(f)))files[file]=hash(await readFile(join(directory,file)));
-  const result={schemaVersion:1,app,profile,engine:session?.engine??null,catalogSha256:catalogSha256(app,profile),provenance,served,servedVerified,states,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
+  const automaticChecks=await summarizeChecks(directory,app,states);
+  const result={schemaVersion:1,app,profile,engine:session?.engine??null,catalogSha256:catalogSha256(app,profile),provenance,served,servedVerified,states,automaticChecks,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
   const raw=JSON.stringify(result,null,2)+'\n';
   await writeFile(join(directory,'capture.json'),raw);
   await writeJson(join(directory,'coverage.json'),coverageFor(result));
   await writeFile(join(directory,'reviewer-brief.md'),reviewerBrief(hash(raw),app,profile));
   await writeFile(join(directory,'index.html'),reportHtml(result));
   const {captureCalibration}=await import('./calibration.mjs');await captureCalibration(join(directory,'calibration'));
-  console.log(`${app}: captured ${requiredStates(app,profile).filter(id=>states.some(s=>s.id===id)).length}/${requiredStates(app,profile).length} states in ${result.durationSeconds}s; awaiting independent review. ${directory}`);
+  const open=automaticFindings(result),excepted=automaticChecks.groups.length-open.length;
+  console.log(`${app}: captured ${requiredStates(app,profile).filter(id=>states.some(s=>s.id===id)).length}/${requiredStates(app,profile).length} states in ${result.durationSeconds}s; automatic checks: ${open.length} findings${excepted?` (${excepted} excepted)`:''}; awaiting independent review. ${directory}`);
   return acceptanceBlockers(result,[]).length?2:0;
 }
 export async function main(args=process.argv.slice(2)) {

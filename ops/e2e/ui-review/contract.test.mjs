@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {STATES, validateReview, verdict} from './contract.mjs';
+import {STATES, validateReview, verdict, automaticFindings, acceptanceBlockers} from './contract.mjs';
 
 const capture = () => ({captureSha256: 'digest', states: STATES.map(id => ({id})),
   provenance: {current: true}, servedVerified: true, incomplete: [], cleanupErrors: [], runtimeErrors: []});
@@ -45,6 +45,18 @@ test('design concerns remain visible without being silently promoted to defects 
 test('functional approval cannot substitute for composition review', () => {
   const r = review(); delete r.composition;
   assert.equal(validateReview(capture(), r, new Set()).filter(e => e.includes('composition')).length, 4);
+});
+test('an automatic check result is a finding without a reviewer, unless an exception accepts it', () => {
+  const c = capture();
+  c.automaticChecks = {violations: 2, groups: [{source: 'axe', rule: 'button-name', target: '.icon', states: ['empty'], exception: null}]};
+  assert.equal(verdict(c, review(), []), 'FINDINGS');
+  assert.deepEqual(automaticFindings(c).map(g => g.rule), ['button-name']);
+  c.automaticChecks.groups[0].exception = 'Decorative duplicate of a labelled control';
+  assert.equal(verdict(c, review(), []), 'REVIEWED');
+});
+test('a packet recorded with automatic checks must hold them for every state', () => {
+  const c = {...capture(), app: 'designer', profile: 'chromium', automaticChecks: {violations: 0, groups: []}, files: {}};
+  assert.ok(acceptanceBlockers(c, []).some(e => e.startsWith('Missing checks evidence')));
 });
 test('malformed reviewer output is incomplete rather than crashing validation', () => {
   for (const r of [null, [], {...review(), inspectedStates: 17}, {...review(), findings: [null]}]) {

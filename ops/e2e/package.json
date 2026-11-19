@@ -68,6 +68,7 @@
     "report:journeys": "node journey-history.mjs"
   },
   "dependencies": {
+    "@axe-core/playwright": "4.13.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "playwright": "^1.48.0"
