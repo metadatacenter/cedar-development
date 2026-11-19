@@ -37,6 +37,8 @@ export const METADATA_TYPES = [
   ['ror','ROR'], ['pfas','PFAS'], ['rrid','RRID'], ['pubmed','PubMed'], ['nih-grant-identifier','NIH grant identifier'],
   ['doi','DOI'], ['number','Number'], ['date','Date'], ['controlled-term','Controlled term'],
 ];
+// Input types given a value they refuse, by state slug, field label and the value entered.
+export const METADATA_INVALID = [['email','Email','not an address'], ['phone','Phone','call me'], ['link','Link','example dot org']];
 // The Designer's controlled-term picker, opened from a controlled-terms field's constraints.
 export const TERM_PICKER_STATES = ['term-picker-open', 'term-picker-results', 'term-picker-term', 'term-picker-branches',
   'term-picker-ontologies', 'term-picker-done'];
@@ -90,7 +92,7 @@ const openview = [
 const metadata = [
   ...[0,1,2,5,6,12].map(n=>['occurrences-'+n,'occurrences']), ['last-page','pagination'], ['previous-page','pagination'],
   ['long-labels','composition'], ['nested','nesting'], ['nested-end','nesting'], ['keyboard','keyboard'],
-  ['edited','editing'], ['saved','save'], ['reopened','save'],
+  ['edited','editing'], ['saved','save'], ['reopened','save'], ['server-refused','failure'],
   ['occurrence-added','occurrences'], ['occurrence-copied','occurrences'], ['occurrence-deleted','occurrences'],
   ['collapsed-all','navigation'], ['download-menu','navigation'], ['readonly-top','preview'], ['readonly-repeated','preview'],
   ['new-record','empty'], ['save-warning','validation'], ['warning-expanded','validation'], ['warning-jump','validation'],
@@ -110,6 +112,9 @@ function baseScenarios(app) {
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
     .concat(app === 'workspace' ? workspaceOnce : METADATA_TYPES.map(([slug])=>({id:`type-${slug}-1440`,scenario:'field-type',category:'field-types',width:1440}))
+      .concat(METADATA_INVALID.map(([slug])=>({id:`type-${slug}-invalid-1440`,scenario:'field-type-invalid',category:'field-types',width:1440})))
+      .concat([{id:'type-single-select-list-open-1440',scenario:'field-type-open',category:'field-types',width:1440},
+        {id:'type-date-open-1440',scenario:'field-type-open',category:'field-types',width:1440}])
       .concat([{id:'static-fields-1440',scenario:'static-fields',category:'field-types',width:1440},
         {id:'static-fields-page-2-1440',scenario:'static-fields',category:'field-types',width:1440},
         {id:'attribute-value-1440',scenario:'attribute-value',category:'field-types',width:1440}]));

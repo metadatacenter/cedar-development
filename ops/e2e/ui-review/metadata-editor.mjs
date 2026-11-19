@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
-import {WIDTHS, METADATA_TYPES} from './catalog.mjs';
+import {WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
 import {pointer,keyboard,folderPage,textSizeStates} from './interactions.mjs';
 export async function collectMetadataEditor(session,record) {
   const {page}=session;await session.login();const f=await metadataFixtures(session);
@@ -50,6 +50,19 @@ export async function collectMetadataEditor(session,record) {
       assert.equal(result.status,200);assert.equal(result.body.Subject['@value'],value);
     });
     await r('reopened',async()=>{await open(f.records[12]);assert.equal(await cee.getByRole('textbox',{name:'Subject',exact:true}).inputValue(),value);});
+    // A save the server refuses with a validation report. The value is then corrected and saved, so the
+    // record holds what the next states expect.
+    const refusedReason='Deliberately refused record save';
+    const refuseRecord=route=>route.request().method()==='PUT'?route.fulfill({status:400,json:{message:'Validation failed',
+      objects:{validationReport:{errors:[{location:'/Subject/@value',message:'Name the specimen in the subject.'}],warnings:[]}}}}):route.fallback();
+    await r('server-refused',async()=>{
+      session.expectedNetworkFailures.add(refusedReason);await page.route('**/template-instances/**',refuseRecord);
+      try{
+        await cee.getByRole('textbox',{name:'Subject',exact:true}).fill(value+' refused');await status('Modified').waitFor();
+        await tap(page.locator('#button-save-metadata'));await page.getByLabel('Metadata errors',{exact:true}).waitFor();
+      }finally{await page.unroute('**/template-instances/**',refuseRecord);session.expectedNetworkFailures.delete(refusedReason);}
+    },'The harness answered this save with a validation report to show how the editor presents a refused save.');
+    await cee.getByRole('textbox',{name:'Subject',exact:true}).fill(value);await save();
     // Occurrence actions on this width's own one-tag record: add an empty tag, copy it, delete the copy.
     await r('occurrence-added',async()=>{
       await open(f.editable[width]);await tagAction('Add empty instance here').scrollIntoViewIfNeeded();
@@ -93,9 +106,27 @@ export async function collectMetadataEditor(session,record) {
   const centre=locator=>locator.first().evaluate(element=>element.scrollIntoView({block:'center'}));
   await open(f.corpus.fieldTypes,'create');
   for(const [slug,label] of METADATA_TYPES)await record(`type-${slug}-1440`,()=>centre(cee.getByText(label,{exact:true})));
+  // A value each of three types refuses, entered and left, then the list and date pickers open.
+  for(const [slug,label,text] of METADATA_INVALID)await record(`type-${slug}-invalid-1440`,async()=>{
+    const input=cee.getByRole('textbox',{name:label,exact:true});
+    await input.fill(text);await input.press('Tab');await centre(input);
+  },`"${text}" entered and left.`);
+  await record('type-single-select-list-open-1440',async()=>{
+    const select=cee.getByRole('combobox',{name:'Single select list',exact:true});
+    await centre(select);await tap(select);await page.getByRole('listbox').first().waitFor();
+  });
+  await page.keyboard.press('Escape');await page.getByRole('listbox').first().waitFor({state:'hidden'});
+  await record('type-date-open-1440',async()=>{
+    await centre(cee.getByRole('textbox',{name:'Date, select date',exact:true}));
+    await tap(cee.getByRole('button',{name:'Open calendar',exact:true}));await page.locator('mat-calendar').first().waitFor();
+  });
+  await page.keyboard.press('Escape');await page.locator('mat-calendar').first().waitFor({state:'hidden'});
+  // The new record now holds unsaved values, so leaving it answers the editor's leave-page prompt.
+  const leaveAnyway=dialog=>void dialog.accept();
+  page.on('dialog',leaveAnyway);
   // The static corpus template opens with a page break, so its first page is empty and the static
   // content is on page 2.
-  await record('static-fields-1440',()=>open(f.corpus.staticFields,'create'));
+  try{await record('static-fields-1440',()=>open(f.corpus.staticFields,'create'));}finally{page.off('dialog',leaveAnyway);}
   await record('static-fields-page-2-1440',async()=>{
     await tap(cee.getByRole('option',{name:'2',exact:true}).first());
     await cee.getByRole('option',{name:'2',exact:true,selected:true}).first().waitFor();
