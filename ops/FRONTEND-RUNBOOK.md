@@ -3675,8 +3675,10 @@ In the Metadata Editor and CEE:
   container units, so heading, content and pager align against the same width. Phone nesting insets
   are unchanged by agreement.
 - CEE remeasures paragraph controls after host width changes.
-- A link an author writes in rich text takes the primary colour rather than the browser's, and keeps
-  its underline. A colour the author set on the link still wins.
+- A link an author writes in rich text takes the strong primary colour rather than the browser's, and
+  keeps its underline. Authors set rich text on light tints, and the ordinary primary falls below
+  4.5:1 on a grey such as #e8e8e8, where the strong shade keeps 5.6:1. A colour the author set on
+  the link still wins.
 
 In every application, text is sized in pixels by agreement. A larger browser default text size
 therefore leaves it unchanged, while browser zoom enlarges it; the text-size states record that
