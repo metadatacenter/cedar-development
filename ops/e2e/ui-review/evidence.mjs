@@ -1,11 +1,11 @@
 import {writeFile, rename} from 'node:fs/promises';
 import {join} from 'node:path';
-import {automaticChecks} from './automatic-checks.mjs';
+import {automaticChecks, settleAnimations} from './automatic-checks.mjs';
 export async function captureState({page,directory,states,actions,flush,regions,pendingCrops=[],fullPage=true}, id, note = '') {
     if (!/^[a-z0-9-]+$/.test(id) || states.some(s => s.id === id)) throw new Error('Invalid or duplicate state ID');
     // Preserve hover/focus: moving the pointer for a screenshot can hide the very action
     // under review and make a subsequent click appear broken.
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await settleAnimations(page);
     const screenshot = `${id}.png`, aria = `${id}.aria.yml`, metrics = `${id}.json`;
     await page.screenshot({path: join(directory, screenshot), fullPage});
     await writeFile(join(directory, aria), await page.locator('body').ariaSnapshot());

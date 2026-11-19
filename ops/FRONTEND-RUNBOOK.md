@@ -3518,8 +3518,9 @@ does not test:
 - text drawn over other text, unless something opaque covers the lower text
 
 The checks run once the screenshot, accessibility snapshot and geometry are written, and move
-neither pointer, focus nor scroll position. Finite animations finish first, so a tooltip or message
-is measured as it settles rather than halfway through fading in. Text is compared only where it is
+neither pointer, focus nor scroll position. Before the screenshot, capture lets finite animations
+finish, those inside shadow roots included, for at most 1.5 seconds, so neither the evidence nor the
+checks catch a tooltip or message halfway through fading in. Text is compared only where it is
 visible, so the part an ellipsis or an overflowing ancestor hides is cut away before any comparison.
 
 `capture.json` groups the results under `automaticChecks` by rule and element across states, since

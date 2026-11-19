@@ -15,16 +15,30 @@ const LABEL_IN_NAME = 'label-content-name-mismatch';
  * element it concerns and what was measured.
  */
 export async function automaticChecks(page) {
-  // A tooltip or message still fading in would be measured at a contrast it never settles at. Finite
-  // animations finish first; an endless one, such as a spinner, is left running.
-  await page.evaluate(() => Promise.race([
-    Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().endTime !== Infinity)
-      .map(animation => animation.finished.catch(() => {}))),
-    new Promise(resolve => setTimeout(resolve, 1500))]));
+  await settleAnimations(page);
   const axe = await new AxeBuilder({page}).options({rules: {[LABEL_IN_NAME]: {enabled: true}}}).withTags(AXE_TAGS).analyze();
   const fromAxe = axe.violations.flatMap(rule => rule.nodes.map(node => ({source: 'axe', rule: rule.id, impact: rule.impact,
     target: node.target.flat(Infinity).join(' >>> '), detail: (node.failureSummary ?? rule.help).replace(/\s+/g, ' ').trim().slice(0, 300)})));
   return [...fromAxe, ...await page.evaluate(layoutViolations)];
+}
+
+/**
+ * Let finite animations finish, so a tooltip or message still fading in is neither photographed nor
+ * measured at a contrast it never settles at. An endless animation, such as a spinner, keeps running,
+ * and no wait lasts longer than 1.5 seconds. Each shadow root keeps its own animations, so every one
+ * is asked, after two frames in which a just-triggered animation can start.
+ */
+export async function settleAnimations(page) {
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.evaluate(() => {
+    const roots = [];
+    const walk = root => {roots.push(root); for (const node of root.querySelectorAll('*')) if (node.shadowRoot) walk(node.shadowRoot);};
+    walk(document);
+    const finite = roots.flatMap(root => root.getAnimations?.() ?? [])
+      .filter(animation => animation.effect?.getComputedTiming().endTime !== Infinity);
+    return Promise.race([Promise.all(finite.map(animation => animation.finished.catch(() => {}))),
+      new Promise(resolve => setTimeout(resolve, 1500))]);
+  });
 }
 
 /**

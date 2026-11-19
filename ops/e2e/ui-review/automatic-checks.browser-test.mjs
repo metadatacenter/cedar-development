@@ -4,7 +4,7 @@ import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'playwright';
-import {automaticChecks, layoutViolations, summarizeChecks} from './automatic-checks.mjs';
+import {automaticChecks, layoutViolations, settleAnimations, summarizeChecks} from './automatic-checks.mjs';
 import {captureState} from './evidence.mjs';
 
 // Needs only a Playwright Chromium; no CEDAR stack.
@@ -82,6 +82,21 @@ test('each captured state keeps its axe and layout results, and the capture grou
   assert.deepEqual(group.states, ['narrow', 'wide']);
   assert.equal(group.exception, 'Sample exception');
   assert.equal((await summarizeChecks(directory, 'designer', states, [])).groups.find(g => g.rule === 'button-name').exception, null);
+});
+
+test('settling waits for a fade inside a shadow root but not for an endless spinner', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await (await browser.newContext()).newPage();
+  await page.setContent(`<!doctype html><div id="host"></div><div id="spinner">Loading</div><script>
+    const message = document.querySelector('#host').attachShadow({mode: 'open'});
+    message.innerHTML = '<p>Value should be a valid phone number.</p>';
+    message.querySelector('p').animate([{opacity: 0}, {opacity: 1}], {duration: 600, fill: 'forwards'});
+    document.querySelector('#spinner').animate([{rotate: '0deg'}, {rotate: '360deg'}], {duration: 500, iterations: Infinity});</script>`);
+  const started = Date.now();
+  await settleAnimations(page);
+  assert.ok(Date.now() - started < 1400, 'the endless animation was not awaited');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#host').shadowRoot.querySelector('p')).opacity), '1');
 });
 
 test('checking a page moves neither focus nor scroll position', async t => {
