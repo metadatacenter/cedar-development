@@ -253,6 +253,17 @@ checked. `resume --rebase` runs the preflight again for every package the run ha
 takes `develop`'s present head as its base. With `--notes <package>=<file>` it also replaces that
 package's notes, for instance to fold in an entry the new commits added under `## [Unreleased]`.
 
+A preparation commit can also fail its checks for a reason it did not introduce. Before CED 0.1.3,
+CED's `develop` was already red, because its real-component job built CEE from a revision older than
+the markup CED's tests expected. A fix is a commit on `develop`, and the pull request then heads
+that commit, which the checks and the merge refuse as a moved head. Push the fix, bring the checkout
+to it, and resume with `--reprepare <package>`. The route accepts the new head only when it
+contains the preparation commit and changes none of the paths the preparation wrote. It runs the
+package's whole gate again on that head and records the head as the commit the remaining stages
+check, merge and advance from. The merge still proves that `main` holds the gated tree. The ledger
+keeps the evidence the new head replaced. A package that has not pushed, or has already merged,
+cannot be re-prepared.
+
 `cedarcli release npm abandon --reason "<why>"` closes a run before any package has merged to `main`.
 It lists what the run already pushed: a preparation commit on `develop` to revert and a pull request
 to close. After a merge, `main` holds the release preparation, so the run can only be resumed.
