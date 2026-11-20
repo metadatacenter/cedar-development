@@ -8,6 +8,8 @@ import {CHECK_EXCEPTIONS} from './check-exceptions.mjs';
 // rule that a control's visible label is part of its accessible name.
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const LABEL_IN_NAME = 'label-content-name-mismatch';
+// A state's axe run takes a second or two; one far beyond that is stuck, not slow.
+const CHECK_SECONDS = 60;
 
 /**
  * Check the rendered page as it stands, without moving the pointer, focus or scroll position, so the
@@ -16,7 +18,15 @@ const LABEL_IN_NAME = 'label-content-name-mismatch';
  */
 export async function automaticChecks(page) {
   await settleAnimations(page);
-  const axe = await new AxeBuilder({page}).options({rules: {[LABEL_IN_NAME]: {enabled: true}}}).withTags(AXE_TAGS).analyze();
+  // axe injects itself into every frame. Keycloak's hidden sign-in frames are not CEDAR's interface,
+  // and a capture once waited fifteen minutes on one, so they are left out, and a check that still
+  // does not finish fails its state rather than stalling the capture.
+  let timer;
+  const limit = new Promise((_, reject) => {timer = setTimeout(() => reject(new Error(`Automatic checks did not finish within ${CHECK_SECONDS} seconds`)), CHECK_SECONDS * 1000);});
+  const run = new AxeBuilder({page}).exclude('iframe[src*="/protocol/openid-connect/"]')
+    .options({rules: {[LABEL_IN_NAME]: {enabled: true}}}).withTags(AXE_TAGS).analyze();
+  run.catch(() => {});
+  const axe = await Promise.race([run, limit]).finally(() => clearTimeout(timer));
   const fromAxe = axe.violations.flatMap(rule => rule.nodes.map(node => ({source: 'axe', rule: rule.id, impact: rule.impact,
     target: node.target.flat(Infinity).join(' >>> '), detail: (node.failureSummary ?? rule.help).replace(/\s+/g, ' ').trim().slice(0, 300)})));
   return [...fromAxe, ...await page.evaluate(layoutViolations)];
