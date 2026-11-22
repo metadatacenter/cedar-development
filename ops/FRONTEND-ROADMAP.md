@@ -487,25 +487,27 @@ approved change needs rendered review, relevant regression checks and current-so
   after the application is interactive and outline navigation has selected a field. Retain the
   complete trace and click/scroll/settings-state sequence on recurrence.
 
+- Before attributing a stall of about 900 seconds, read `pmset -g log`. Idle maintenance sleep
+  freezes every process for 900 seconds at a time while the workstation is unattended.
+
 Preserve the existing deadlines, zero-retry policy and assertions. Controlled resource-starvation
 experiments can validate diagnostic signals but cannot establish the cause of an earlier failure.
 The frontend runbook links the retained evidence and the instrumented reproduction fixtures.
 
 ### 14. Capture the Remaining Workspace Screens
 
-- The UI review catalog holds no state for sharing and permissions, moving, renaming and editing
-  descriptions, the folder and selection deletion dialogs, the version picker, drag and drop, the
-  groups, profile, settings and messaging pages, toasts or write-failure recovery. Each is a screen
-  a user reaches in ordinary work, and each has a source module in `cedar-workspace`.
+- The UI review catalog holds no state for sharing with another account, editing descriptions, the
+  selection deletion dialog, the version picker, drag and drop, the groups, profile, settings and
+  messaging pages, toasts or write-failure recovery. Each is a screen a user reaches in ordinary
+  work, and each has a source module in `cedar-workspace`.
 - Add them to the catalog and the Workspace collector with fixtures the review owns. Sharing needs
   a second test account, so the collector must hold that account's lock as well, and it must never
   change sharing on anything outside its own fixtures.
 
 ### 15. Capture Failure, Refusal and Loading States
 
-- Apart from the Designer's interrupted save, the catalog captures only successful paths. Add save
-  failures and refusals (a conflict, a permission denial, a validation refusal), an unreachable
-  backend and slow loading for Workspace and the Metadata Editor.
+- Add an edit conflict, an unreachable backend and slow loading for Workspace and the Metadata
+  Editor, and a permission denial for the Metadata Editor's save.
 - Induce each condition by routing requests in the review browser, as the interrupted save does,
   never by changing the stack, and say in the state's note that the harness caused it, so the
   reviewer judges the product's handling rather than the cause.
