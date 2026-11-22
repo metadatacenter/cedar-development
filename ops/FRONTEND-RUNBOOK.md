@@ -3485,6 +3485,12 @@ geometry with labels and approximate intrinsic text widths, automatic check resu
 evidence index, a coverage matrix, the collector identity, the duration and `reviewer-brief.md`.
 The collector identity in `collector.json` hashes every review module and every local module it
 imports, records the Playwright release, and hashes the corpus templates the fixtures upload.
+Before capturing, the command checks that the frontends serve the selected reactor build: each
+host's installed packages carry the stamps of the sources the build names, every component copy it
+serves is those packages' bytes, and a host's recorded build identity names the selected revision
+and the tree it serves. A host that fails refuses an acceptance capture, and a diagnostic capture
+records the findings. The capture then compares the bytes the browser receives with those trees:
+Workspace's whole build, and the Designer's components and every file of its host.
 Screenshots and crops show the viewport only, so below-fold content needs explicit, recorded
 scrolling. OpenView runs under Angular's development server locally, so its own bundles can only be
 fingerprinted, while the CEE bundle it serves is compared with the installed one. That server's

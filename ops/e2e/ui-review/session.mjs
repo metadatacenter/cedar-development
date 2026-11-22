@@ -1,6 +1,6 @@
 import {openBrowserSession} from './browser-session.mjs';
-import {mkdir, readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {mkdir, readFile, readdir} from 'node:fs/promises';
+import {join, relative, sep} from 'node:path';
 import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {hash} from './contract.mjs';
 import {pointer} from './interactions.mjs';
@@ -58,8 +58,21 @@ export async function openSession(directory, options = {}) {
       if (!response.ok() || digest !== expected) throw new Error(`Served asset mismatch: ${file}`);
       verified.push({file, sha256: digest});
     }
-    const local = JSON.parse(await readFile(join(process.env.CEDAR_HOME, 'cedar-template-designer/app/components/manifest.json'), 'utf8'));
+    const app = join(process.env.CEDAR_HOME, 'cedar-template-designer/app');
+    const local = JSON.parse(await readFile(join(app, 'components/manifest.json'), 'utf8'));
     if (JSON.stringify(local) !== JSON.stringify(manifest)) throw new Error('Served and staged manifests differ');
+    // The host's own page, scripts, styles and configuration. The browser must receive exactly the
+    // tree on disk, which the host's build identity binds to the selected build.
+    const own = (await readdir(app, {recursive: true, withFileTypes: true}))
+      .filter(entry => entry.isFile() || entry.isSymbolicLink())
+      .map(entry => relative(app, join(entry.parentPath, entry.name)).split(sep).join('/'))
+      .filter(file => !file.startsWith('components/')).sort();
+    for (const file of own) {
+      const response = await context.request.get(`${base}/${file}`);
+      const digest = hash(await response.body());
+      if (!response.ok() || digest !== hash(await readFile(join(app, file)))) throw new Error(`Served host file mismatch: ${file}`);
+      verified.push({file, sha256: digest});
+    }
     return {manifest, verified, browser: browser.version()};
   }
   return {...shared, openNew, ready, addField, servedEvidence};
