@@ -5567,6 +5567,38 @@ client versions from the parent POM against the locked server images in the Dock
 check is the invariant Renovate cannot infer: a syntactically valid update is not safe when it moves
 only one half of a client/server pair.
 
+### The Dependency Graph and Dependabot
+
+Dependabot alerts come from GitHub's dependency graph, and the graph takes versions only from the
+files a repository holds. A CEDAR pom inherits every version from `cedar-parent`, so the graph built
+from it lists dependencies without versions, and Dependabot can check none of them. `cedar-parent`'s
+own graph holds the versions its `dependencyManagement` names, which is why its alerts were long the
+only Java alerts in the organization. An artifact that arrives transitively appeared in no graph at
+all. On 2026-11-18 that hid 13 advisories against Bouncy Castle 1.74, which the Keycloak adapter
+brings into every server, and one against the org.json release Jedis brings. `cedar-parent` now
+manages the fixed releases of both.
+
+Every Java repository that resolves dependencies of its own, the three Java MCP servers included,
+therefore carries `.github/workflows/dependency-graph.yml`. It runs GitHub's Maven dependency
+submission action, which resolves the complete tree with `depgraph-maven-plugin` and submits it to
+the graph. Dependabot reads only the default branch, so the workflow runs on pushes to `main` and on
+manual dispatch. In the CEDAR repositories a push to `main` happens at each release, so their alerts
+describe what the last release ships, and a fix on `develop` closes its alert only at the next
+release. The MCP servers work on `main`, and their graphs follow every push. Four repositories carry
+no such workflow. `cedar-parent`'s own graph already holds the versions it manages, `cedar-clients`
+declares no dependencies, and `cedar-libraries` and `cedar-project` cannot resolve their sibling
+paths from a lone checkout.
+
+To see what a repository resolves before a release reaches the graph, run the action's goal in its
+checkout. It writes `target/depgraph.json` in each module:
+
+```bash
+./mvnw -B --settings .m2/nexus-settings.xml com.github.ferstl:depgraph-maven-plugin:4.0.3:graph -DgraphFormat=json
+```
+
+When a transitive artifact carries an advisory, manage its fixed release in `cedar-parent`, as the
+parent does for Bouncy Castle and org.json, rather than in the repository that resolves it.
+
 ### Mutable Development Snapshots and Immutable Build Trains
 
 Java repositories with snapshot-publishing workflows deploy to Nexus at the end of a successful build.
