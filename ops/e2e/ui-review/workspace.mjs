@@ -136,7 +136,10 @@ export async function collectWorkspace(session,record) {
       await leave();
     }
     if(width!==768){
-      const reason='Deliberately refused rename',refuse=route=>route.fulfill({status:403,json:{message:'Forbidden'}});
+      // The body the resource server sends when the caller lacks the capability, so the dialog shows
+      // what a real refusal would.
+      const reason='Deliberately refused rename',refuse=route=>route.fulfill({status:403,json:{errorKey:'noWriteAccessToResource',
+        message:'You do not have the required capability on the resource'}});
       let original='';
       await record(`rename-refused-${width}`,async()=>{
         await rowAction(f.mixedTemplate,'Rename');
