@@ -3586,7 +3586,9 @@ Sealing writes `review-seal.json`, and final validation rejects an application a
 after it. Only then give the reviewer the calibration packet, never its answer key or fixture
 sources. The key is written outside the packet, under `$CEDAR_HOME/.cedar/ui-review-keys/` and
 named by the hash of `calibration/packet.json`. Validation looks it up there, so a packet changed
-after capture, or one whose key is missing, cannot be scored. The calibration assessment names every
+after capture, or one whose key is missing, cannot be scored. The packet records the digest of each
+image it shows, and scoring refuses a case whose image is missing or changed, since a reviewer judged
+the images and not the packet. The calibration assessment names every
 case as `{id, issue, reason}` under `cases` in `calibration-review.json` beside the application
 review. `--review` scores it and leaves acceptance incomplete if a concern is missed or an
 acceptable control is flagged. Findings from the application remain useful even when calibration

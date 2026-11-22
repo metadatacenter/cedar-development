@@ -202,6 +202,9 @@ export async function captureCalibration(directory, {keys = keyDirectory(), case
   try {
     for (const item of cases) packet.push(await captureCase(browser, directory, item));
   } finally {await browser.close();}
+  // The images are what the reviewer judges, so the packet, and through it the key, carries their digests.
+  for (const entry of packet)
+    entry.imageSha256 = Object.fromEntries(await Promise.all(entry.images.map(async file => [file, hash(await readFile(join(directory, file)))])));
   const raw = JSON.stringify(packet, null, 2);
   await writeFile(join(directory, 'packet.json'), raw);
   await mkdir(keys, {recursive: true});
@@ -215,6 +218,17 @@ export async function scoreCalibration(directory, reviewPath, {keys = keyDirecto
     throw error;
   }));
   assert.deepEqual(JSON.parse(raw).map(c => c.id).sort(), key.map(c => c.id).sort(), 'Calibration key and packet disagree');
+  // A score is only worth the images it was given: each must be present and unchanged since capture.
+  for (const entry of JSON.parse(raw)) {
+    const digests = entry.imageSha256 ?? {};
+    if (!Array.isArray(entry.images) || !entry.images.length || entry.images.some(file => typeof digests[file] !== 'string'))
+      throw new Error(`Calibration case ${entry.id} records no digest for its images; capture calibration again`);
+    for (const file of entry.images) {
+      if (!/^[\w.-]+$/.test(file)) throw new Error('Unsafe calibration image path: ' + file);
+      const bytes = await readFile(join(directory, file)).catch(() => null);
+      if (!bytes || hash(bytes) !== digests[file]) throw new Error('Calibration image missing or changed since capture: ' + file);
+    }
+  }
   const review = JSON.parse(await readFile(reviewPath, 'utf8'));
   if (!Array.isArray(review.cases) || review.cases.length !== key.length || new Set(review.cases.map(x => x.id)).size !== key.length)
     throw new Error('Calibration needs one assessment per case');

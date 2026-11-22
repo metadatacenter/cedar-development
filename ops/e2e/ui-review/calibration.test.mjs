@@ -14,7 +14,9 @@ async function fixture(t) {
   await mkdir(join(root, 'calibration')); await mkdir(keys);
   const key = [{id: 'one', broken: true}, {id: 'two', broken: false},
     {id: 'three', broken: true, family: 'composition'}, {id: 'four', broken: false, family: 'composition'}];
-  const packet = JSON.stringify(key.map(({id}) => ({id, images: []})));
+  for (const {id} of key) await writeFile(join(root, 'calibration', id + '.png'), 'image ' + id);
+  const digest = text => createHash('sha256').update(text).digest('hex');
+  const packet = JSON.stringify(key.map(({id}) => ({id, images: [id + '.png'], imageSha256: {[id + '.png']: digest('image ' + id)}})));
   await writeFile(join(root, 'calibration/packet.json'), packet);
   await writeFile(join(keys, createHash('sha256').update(packet).digest('hex') + '.json'), JSON.stringify(key));
   return {root, keys};
@@ -52,6 +54,14 @@ test('a changed packet, or one without its key, cannot be scored', async t => {
   await writeFile(path, JSON.stringify({cases: ['one', 'two', 'three', 'four'].map(id => ({id, issue: false, reason: 'Assessment'}))}));
   await writeFile(join(root, 'calibration/packet.json'), '[]');
   await assert.rejects(scoreCalibration(join(root, 'calibration'), path, {keys}), /No answer key matches/);
+});
+test('a missing or changed calibration image cannot be scored', async t => {
+  for (const damage of [file => rm(file), file => writeFile(file, 'altered')]) {
+    const {root, keys} = await fixture(t), path = join(root, 'calibration-review.json');
+    await writeFile(path, JSON.stringify({cases: ['one', 'two', 'three', 'four'].map(id => ({id, issue: false, reason: 'Assessment'}))}));
+    await damage(join(root, 'calibration/two.png'));
+    await assert.rejects(scoreCalibration(join(root, 'calibration'), path, {keys}), /missing or changed since capture: two\.png/);
+  }
 });
 test('an app review cannot be rewritten after sealing or sealed after calibration', async t => {
   const {root} = await fixture(t), path = join(root, 'review.json');
