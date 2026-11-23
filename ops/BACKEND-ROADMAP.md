@@ -1540,6 +1540,25 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   operations legitimately run long. A recursive deletion, an index rebuild's reads and a permission
   recalculation must not be cut short by a limit chosen for a save.
 
+  Production's query log measures how long graph queries run there. Every query sent through the
+  graph helpers in `AbstractNeo4JProxy` writes a row with its duration to `log_cypher`, and
+  `agg_cypher_hourly` holds 91 million of them rolled up since 2026-02-19. Read on 2026-11-23, it
+  shows no write longer than 1.2 seconds and no read longer than 26 seconds, with three exceptions.
+  The worker's permission recalculation, `findAllNodesVisibleByGroupId`, took up to 49 seconds. The
+  search for a template's instances, `searchIsBasedOn` and its count, took up to 166 seconds, with
+  seven runs over 30 seconds since 2026-07-29. The listing behind `GET /search` without a query,
+  `viewAll`, matches every resource the caller reaches through an unbounded `CONTAINS*0..` path and
+  sorts them all. Since 2026-07-29 it has run longer than 60 seconds 19,105 times and longer than
+  nginx's 180 seconds 13,091 times, the longest for 81 minutes. A run past 180 seconds returns its
+  result to nobody. Since 2026-09-11 almost every slow one has come from a single API key. The
+  measurements are in `$CEDAR_HOME/.cedar/audits/2026-11-23-graph-tx-durations/`.
+
+  A request-path limit of 30 seconds would therefore end only those searches. The `viewAll`
+  listing needs a bound of its own regardless. The permission recalculation runs in the worker and
+  can take a larger limit. The resource server's outboxes and relays, and the transactions opened
+  through `executeInWriteTransaction` and `executeInReadTransaction`, write no rows to `log_cypher`,
+  so their durations are not measured.
+
   Done when a lock wait that outlasts the limit fails its transaction in every environment, a
   retried save succeeds, and no request thread can wait on the graph without a deadline.
 
