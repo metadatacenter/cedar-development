@@ -426,7 +426,7 @@
       "repository": "cedar-template-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "fb8782628ae9a5736b00e51a7053962b424443031c9a63ae63a617fcf14ff86c",
+      "sha256": "4f3bbcbfe3e39c6c0db83bafc87edf9f1f8846bbffa30ac92182a5804c1434e6",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
