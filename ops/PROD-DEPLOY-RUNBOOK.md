@@ -440,11 +440,13 @@ the replay or aggregation guarantees.
 The first release that carries cedar-messaging-server `642dd58` adds a unique constraint on
 `message_sender.processId`, and its migration set includes
 `cedar-messaging-server/cedar-messaging-server-core/db-migrations/2026-11-16-message-sender-process-unique.sql`
-for the messaging database (`$CEDAR_MESSAGING_MYSQL_DB`). Run the duplicate query at the top of the
-file against production first. It must return no rows. Whether production holds duplicates has not
-been checked, and the file says how to merge any rows the query returns before running it again.
-Only then run the `ALTER TABLE`, and finish it before the new messaging server starts: that
-server's Hibernate schema update would otherwise try to add the constraint itself.
+for the messaging database (`$CEDAR_MESSAGING_MYSQL_DB`). Production has carried the constraint,
+`UK_message_sender_processId`, since the deploy of 2026-11-22, so the file applies only to a
+deployment that has not yet taken that release. On such a deployment, run the duplicate query at the
+top of the file first. It must return no rows, and the file says how to merge any rows it returns
+before running it again. Only then run the `ALTER TABLE`, and finish it before the new messaging
+server starts: that server's Hibernate schema update would otherwise try to add the constraint
+itself.
 **Log DB — on a separate host (no downtime; async worker DB):**
 The log DB may **not be reachable from the prod app host**. Use an approved host with access:
 ```bash
