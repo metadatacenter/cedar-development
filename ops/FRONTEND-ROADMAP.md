@@ -434,21 +434,16 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 11. Add Host Restrictions to the CED Embedding Contract
 
 A host cannot bound the field types an author may add. Only the author's own preference filters
-the field types on offer, and the author can lift that filter. CED reports an author's preferences
-through `preferencesChange` and accepts stored ones through `preferences`, but the Template
-Designer host stores nothing, so an author's preferences are still lost on reload.
+the field types on offer, and the author can lift that filter.
 
 Add an allowed-field-types input to the designer and field designer elements. The type picker, the
 field library sidebar and the field designer's type chooser should then offer only the allowed
 types that the author's preference also shows. Profile and preference settings can narrow the
 host's bound but must not broaden it. Preserve supplied artifact content of a type the host does
 not allow.
-
-Store the preferences in the Template Designer host. The host should keep each value
-`preferencesChange` carries and assign the latest to `preferences` when it creates the designer.
 
 The exchanged preferences include `showDefaultValue`, which the Preferences dialog and every preset
 set and no control reads. Give it an effect or remove it before a CED release publishes the type.
@@ -460,7 +455,6 @@ Agree these before implementing:
 - how the Preferences dialog presents a disallowed type
 - whether CED keeps reporting the author's own preference once a bound applies, or reports the
   state the bound leaves
-- where the Template Designer host stores the preferences
 
 Add conformance and browser tests for the new input. Cover the bounded pickers and content
 preserved under a bound. CED must never allocate identities or versions when the host replaces the

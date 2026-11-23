@@ -4656,8 +4656,9 @@ startup or for a host's own assignment, so a host can store each value it receiv
 assign the latest to the next element. An assignment may come at any time. An omitted key
 takes its default, `null` restores every default, and a value CED cannot use is named in a
 console warning and ignored. Preferences change the controls CED offers and never the
-document. The field designer has no preferences, and the Template Designer host does not
-store them yet. `src/app/core/services/preference-exchange.ts` converts between the
+document. The field designer has no preferences. The Template Designer host stores them, as
+[CED in the Split Designer Host](#ced-in-the-split-designer-host) describes.
+`src/app/core/services/preference-exchange.ts` converts between the
 designer's state and the stored value, and `browser/tests/preferences.spec.ts` runs the
 exchange through a host page in all three engines.
 
@@ -4696,6 +4697,18 @@ capabilities; edit checks the loaded artifact and its report. Invalid or unnamed
 drafts block Save even before CED discloses their errors. Failed startup and loads offer
 Reload; script loading and asynchronous element registration both have bounded waits.
 Malformed repository child lists and update assessments cannot authorize an operation.
+
+The host keeps the author's CED preferences in the browser's `localStorage`, under
+`cedar.designer.preferences:` followed by the deployment's resource API and the account. They
+therefore apply to every template and element that account opens in that browser. The host
+stores each value `preferencesChange` carries, and assigns the stored value to `preferences`
+before it connects the designer, so the first render uses it. Storage that is unavailable,
+full or holding something else costs the preferences alone: the author works in CED's
+defaults, and the page says nothing. The exchange needs a CED later than 0.1.3. An earlier
+designer ignores the assignment and announces nothing. `browser/tests/preferences.spec.mjs`
+covers the host's half with the stand-in designer. Its last case runs the whole exchange with
+the installed designer, and is left out, with that reason, while the installed designer
+predates the interface.
 
 For an existing artifact, the coordinator retains both the loaded document and the
 component's initial JSON projection. Saving applies changes relative to that projection
