@@ -445,9 +445,6 @@ types that the author's preference also shows. Profile and preference settings c
 host's bound but must not broaden it. Preserve supplied artifact content of a type the host does
 not allow.
 
-The exchanged preferences include `showDefaultValue`, which the Preferences dialog and every preset
-set and no control reads. Give it an effect or remove it before a CED release publishes the type.
-
 Agree these before implementing:
 
 - whether an existing field of a disallowed type stays editable, becomes read-only or appears in

@@ -5168,7 +5168,7 @@ below the toolbar with clearance. Field type icons are labels only: changing an
 existing field to another type or replacing it with a library field is not offered.
 
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
-Choose **semantic** in Preferences to expose Default Value. CED and CEE take typed
+Every preset shows a field's default-value control. CED and CEE take typed
 defaults and JSON/YAML serialization from the model library each of them pins.
 Imported numeric constraints and temporal settings are retained;
 temporal values are converted between the default's declared precision and CEF's
