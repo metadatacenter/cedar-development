@@ -3136,8 +3136,7 @@ record above was identified by matching the truncated source-local number and st
 No stored occurrence of the reported coal-metagenome RRID was found. The audit itself made no writes.
 The scripts, snapshot identity, registry responses, resolver checks, full occurrence inventory and
 `findings.csv`/`findings.jsonl` with artifact identifiers and JSON Pointer paths are retained under
-`$CEDAR_HOME/.cedar/audits/2026-11-15-rrid-snapshot/`. Re-read each current instance before using
-these snapshot findings to plan a repair; the backend roadmap tracks the remaining decisions.
+`$CEDAR_HOME/.cedar/audits/2026-11-15-rrid-snapshot/`.
 
 On 2026-11-15 all fourteen candidate values were re-read from production and still matched the
 snapshot findings. The two `JAX:000664` values and the `5649640` value were corrected to their
@@ -3147,6 +3146,17 @@ modification provenance. Only the intended field `@id` changed. Originals and th
 records are retained in the audit directory as `repair-apply-preimages/` and `repair-apply.jsonl`.
 The other eleven instances were left unchanged because their corrections require further evidence
 or an owner decision.
+
+On 2026-11-22 the same inventory was run over the 2026-11-16 snapshot (`2026-11-16T0828Z.tar.zst`,
+SHA-256 `88bb3f81…4931c40`), which was captured after these repairs. It read 150,599 instances and
+found 592 candidate values with 84 distinct values, the same totals as before. Compared occurrence
+by occurrence, the two snapshots differ only in the three repaired values, which appear in their
+corrected form. All eleven remaining values are still stored unchanged, and no instance adds a new
+case. Five of the eleven bodies changed between the snapshots, through `@context` terms and one
+`@type` added by other repairs. The RRID values in them did not change. The rescan and its
+`refresh-summary.json` are retained under `$CEDAR_HOME/.cedar/audits/2026-11-22-rrid-refresh/`.
+The same day all eleven were re-read live from production. Each still held its snapshot value, and
+the reads are retained beside the rescan as `live-reread.jsonl`.
 
 A subsequent authoritative-source review on the same day established no additional unambiguous
 repair. Cellosaurus has no current `CVCL_YA72` entry or mapping in its
@@ -3164,6 +3174,9 @@ the literal-null cell record has no line name or repository URL and is marked In
 All eleven values were confirmed unchanged in production, and the earlier three repairs remain
 intact. No further writes were issued. Per-artifact assessments and source evidence are retained
 in the audit directory under `followup/`.
+
+The eleven values stay as stored, by decision. They sit in old fields that predate the RRID field
+type, so no repair is planned.
 
 A green health check means a server's dependencies answer, not that its process is alive. Two
 outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*

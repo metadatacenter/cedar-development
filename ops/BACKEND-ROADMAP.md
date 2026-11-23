@@ -1647,29 +1647,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when each question has an answer recorded here or in the runbook.
 
-- **26. Review and correct stored invalid or truncated RRIDs.** Resolve the eleven remaining instances
-  identified by the retained snapshot audit; the measured scope and
-  evidence are in the [backend runbook](BACKEND-RUNBOOK.md), under "Stored RRID audit, 2026-11-15".
-  The snapshot predates the checks, so establish which values remain and whether newer instances
-  add cases before claiming a current production count.
-
-  Ask the owner to choose a replacement or removal for the `1758540` value: its matching
-  `RRID:NCBITaxon_1758540` is
-  explicitly invalid, so supplying its namespace is insufficient. Resolve the intended identities
-  of `RRID:0213` and `1234` rather than accepting the resolver's redirects as proof. Check the
-  three `CVCL_YA72` values with UCSF or Cellosaurus curators: obtain the accession for the named
-  IDG-HEK293T-KCNT2-V5-OE line, since neither the current catalogue nor the deleted-accession
-  register supplies a replacement. Obtain reliable supplier/catalog identities for the ambiguous
-  and unrecognized antibody values. Ask for the original Anti-RuBisCo supplier/catalog and the
-  unnamed ASIC4 cell line identity before replacing their placeholders; decide explicitly whether
-  unknown or test content should instead be cleared.
-
-  Apply reviewed corrections through `ops/repairs/cedar_artifact_repair.py`, with a narrow invariant,
-  saved preimages, conditional verbatim writes, validation and readback. Preserve unrelated values,
-  identifiers and provenance. Done when the scope is refreshed and every finding is
-  corrected and verified or retained as an explicit exception with its remaining decision recorded.
-
-- **27. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
+- **26. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
   runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
 
   No smoke tier creates a DOI or a draft DOI, so the gated tiers never exercise the bridge server's
@@ -1680,7 +1658,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **28. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
+- **27. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
   none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
 
   Each test JVM runs its classes one after another. The artifact server's suite now gives each class
