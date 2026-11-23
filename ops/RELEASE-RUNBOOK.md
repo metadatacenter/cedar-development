@@ -120,8 +120,10 @@ The plan settles four groups of question:
   threshold. The npmrc check reads key names only and never prints registry tokens or values. When
   the shell offers another Java or Node, the CLI looks for the required ones itself, through
   `/usr/libexec/java_home -v 17` and Homebrew's `node@24`, puts them first on PATH for the run, and
-  prints a `Toolchain:` line for each substitution. When it finds neither, the plan names the export
-  to run.
+  prints a `Toolchain:` line for each substitution. When no installed Node is 24.22.1, it provisions
+  that version from nodejs.org under `$CEDAR_HOME/.cedar/toolchains`, checked against the SHA-256
+  the CLI pins. When it finds no Java 17, or cannot provision Node, the plan names the export to
+  run.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose public package wiring the release integrates—is clean and pushed, and CI at the exact
   commit the train was built from is green wherever that commit defines a workflow: a green GitHub

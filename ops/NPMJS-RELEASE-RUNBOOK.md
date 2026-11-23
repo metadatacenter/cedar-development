@@ -64,8 +64,8 @@ token-first ordering automatically.
 ## Prerequisites
 
 The route needs Node 24.22.1, which `cedarcli` puts first on `PATH` itself when the shell offers
-another version. It also needs Java 17 for the model library's parity checks, which it resolves the
-same way.
+another version. When no installed Node is that version, the CLI provisions it from nodejs.org. The
+route also needs Java 17 for the model library's parity checks, which the CLI resolves the same way.
 
 `npm whoami --registry=https://registry.npmjs.org/` must answer `metadatacenter`. Two-factor
 authentication makes an interactive login awkward at publish time, so the working route is a

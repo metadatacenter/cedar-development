@@ -2187,18 +2187,17 @@ is the source of truth for which.
 
 CEE and the model library use the same Node version for development, builds and tests.
 
-Install it with Homebrew, keg-only so it does not displace the Node the other
-CEDAR frontends use:
+`cedarcli` provisions that exact version itself when no installed Node is 24.22.1. It downloads
+the archive nodejs.org publishes, checks it against the SHA-256 the CLI pins, and keeps it under
+`$CEDAR_HOME/.cedar/toolchains`. Homebrew's `node@24` serves only while its patch is the pinned one.
+For `npm` and `ng` run outside the CLI, put the provisioned Node in front. On Apple silicon:
 
 ```bash
-brew install node@24
+export PATH="$CEDAR_HOME/.cedar/toolchains/node-v24.22.1-darwin-arm64/bin:$PATH"
 ```
 
-Then put it in front for CEE work:
-
-```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
-```
+An Intel Mac uses `darwin-x64` in that path, and Linux uses `linux-x64` or `linux-arm64`. Any
+`cedarcli build frontends` run provisions the directory if it is missing.
 
 Verify with `node -v` before blaming anything else: a version outside Angular's
 range fails in ways that read as unrelated breakage.
@@ -2217,7 +2216,7 @@ CEE's standalone dev mode serves everything it needs from this repository, so
 one command runs it.
 
 ```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+export PATH="$CEDAR_HOME/.cedar/toolchains/node-v24.22.1-darwin-arm64/bin:$PATH"
 npm install && npx ng serve
 ```
 
@@ -2326,7 +2325,7 @@ checks sentinel host overrides and overlays under a host root-font reset.
 This is the real deliverable — a single JS file embeddable in any page.
 
 ```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+export PATH="$CEDAR_HOME/.cedar/toolchains/node-v24.22.1-darwin-arm64/bin:$PATH"
 npm run build:production
 npm --prefix visual run bundle
 ```
@@ -2366,8 +2365,9 @@ bytes on every run — the redirection emptied the staged file before `cat` fail
 on the missing inputs. The CLI has no separate copy of the packaging rules now,
 so that class of drift cannot recur.
 
-`cedarcli` selects the shared Node toolchain and verifies the actual interpreter against
-the repository requirement before installing or compiling. The current baseline is 24.22.1.
+`cedarcli` selects the shared Node toolchain, provisioning it when no installed Node is the
+pinned version, and verifies the actual interpreter against the repository requirement before
+installing or compiling. The current baseline is 24.22.1.
 
 `resolve-build-output.mjs` decides between two operations, and the difference is
 scope rather than filenames. Webpack wraps each chunk in an IIFE, so joining them
@@ -2388,7 +2388,7 @@ The canonical, non-interactive verification command is run from the CEE
 repository root:
 
 ```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+export PATH="$CEDAR_HOME/.cedar/toolchains/node-v24.22.1-darwin-arm64/bin:$PATH"
 npm run test:ci
 ```
 
@@ -2895,7 +2895,7 @@ The harness depends on the published model library, resolved from Nexus like
 CEE's own dependency, so no local build of it is needed.
 
 ```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+export PATH="$CEDAR_HOME/.cedar/toolchains/node-v24.22.1-darwin-arm64/bin:$PATH"
 npm run test:domain
 ```
 
@@ -3321,7 +3321,7 @@ focused root command builds a fresh `dist/`, prepares the visual fixtures and
 runs Playwright:
 
 ```bash
-export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+export PATH="$CEDAR_HOME/.cedar/toolchains/node-v24.22.1-darwin-arm64/bin:$PATH"
 npm run test:visual
 ```
 
