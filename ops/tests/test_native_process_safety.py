@@ -605,6 +605,30 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("Cannot reach Neo4j", result.stderr)
         self.assertIn("removed group", result.stdout)
 
+    def test_the_readiness_gate_says_which_dependency_an_unhealthy_service_waits_on(self):
+        """A missing Keycloak used to look like a hang until the whole set timed out."""
+        result = self.run_library(
+            'START_READY_TIMEOUT=2; '
+            'health_of() { echo UNHEALTHY; }; admin_port() { echo 9109; }; '
+            'curl() { printf "%s" \'{"deadlocks":{"healthy":true},'
+            '"keycloak-signing-keys":{"healthy":false,'
+            '"message":"The key set is unreachable: ConnectException: Connection refused"}}\'; }; '
+            'remove_launchd_job() { :; }; '
+            'await_ready group messaging'
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        waiting = [line for line in result.stdout.splitlines() if "waiting on" in line]
+        # Both services fail on the same cause, so it is reported once, naming both, and is not
+        # repeated on every pass while it stays the same.
+        self.assertEqual(
+            ["  waiting on group, messaging: keycloak-signing-keys: "
+             "The key set is unreachable: ConnectException: Connection refused"],
+            waiting)
+        self.assertIn("Keycloak is not answering; cedarcli native start infra starts it.", result.stdout)
+        self.assertNotIn("deadlocks", result.stdout)
+        self.assertIn("failing check keycloak-signing-keys", result.stderr)
+
     def test_the_readiness_gate_waits_for_nothing_when_nothing_launched(self):
         result = self.run_library('await_ready')
 

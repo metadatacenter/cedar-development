@@ -800,6 +800,54 @@ health_of() {  # echoes healthy|UNHEALTHY|slow|starting|down
   [ "$probe" = "$CURL_TIMEOUT_STATUS" ] && echo slow || echo starting
 }
 
+# The checks an unhealthy service reports failing, one `check: message` line each. Dropwizard answers
+# a failing /healthcheck with 500 and a body holding every check's result, and the gating checks
+# name the dependency they could not reach, so the body says why a service is not serving.
+health_failures() {
+  local admin; admin=$(admin_port "$1")
+  [ "$admin" = 0 ] && return 0
+  curl -s -m "$HEALTH_PROBE_TIMEOUT" "http://127.0.0.1:$admin/healthcheck" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    checks = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+if not isinstance(checks, dict):
+    sys.exit(0)
+for name in sorted(checks):
+    result = checks[name]
+    if isinstance(result, dict) and result.get("healthy") is False:
+        print(name + ": " + str(result.get("message") or "unhealthy"))
+'
+}
+
+# Where to look when a shared dependency fails a gating check. Keycloak, Neo4j and MongoDB come up
+# with the infrastructure, which a host may not restart after a reboot. On staging, Keycloak is not
+# a systemd unit and stays down until the infrastructure is started again.
+health_failure_hint() {
+  case "$1" in
+    keycloak-signing-keys:*) echo "Keycloak is not answering; cedarcli native start infra starts it." ;;
+    neo4j:*)                 echo "Neo4j is not answering; cedarcli native start infra starts it." ;;
+    mongo:*)                 echo "MongoDB is not answering; cedarcli native start infra starts it." ;;
+  esac
+}
+
+# Groups `service<TAB>failure` lines by failure: one line per failure, naming every service that
+# reports it, followed by its hint when one applies. Eleven services refusing on the same missing
+# Keycloak then read as one cause rather than eleven.
+summarize_health_failures() {
+  local failure services hint
+  sort -t "$(printf '\t')" -k2,2 -k1,1 | awk -F '\t' '
+    $2 != last { if (NR > 1) print last "\t" names; last = $2; names = $1; next }
+    { names = names ", " $1 }
+    END { if (NR > 0) print last "\t" names }' |
+  while IFS="$(printf '\t')" read -r failure services; do
+    echo "  waiting on $services: $failure"
+    hint=$(health_failure_hint "$failure")
+    [ -n "$hint" ] && echo "    $hint"
+  done
+}
+
 # How long the whole set has to become healthy, not each service. Twenty-two JVMs started in
 # sequence and waited for one at a time would cost the sum of their boots; polling them together
 # after launching them all costs the slowest one. A frontend compiling its bundle is that one.
@@ -891,22 +939,33 @@ frontend_verdict() {
 await_ready() {
   [ $# -gt 0 ] || return 0
   local deadline pending=("$@") still frontends n failed=0 report="" state verdict
+  local failures summary last_summary=""
   deadline=$(( $(date +%s) + START_READY_TIMEOUT ))
   echo "Waiting for ${#pending[@]} service(s) to serve (up to ${START_READY_TIMEOUT}s for the set)..."
   while [ "${#pending[@]}" -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ]; do
     still=()
     frontends=()
+    failures=""
     for n in "${pending[@]}"; do
       case "$n" in
         ui-*) frontends+=("$n") ;;
         *)
-          if [ "$(health_of "$n")" = healthy ]; then
+          state=$(health_of "$n")
+          if [ "$state" = healthy ]; then
             echo "  ready $n"
           else
             still+=("$n")
+            [ "$state" = UNHEALTHY ] && failures+=$(health_failures "$n" | sed "s/^/$n$(printf '\t')/")$'\n'
           fi ;;
       esac
     done
+    # Say why a service answers but is not healthy, and again only when the reason changes. A
+    # missing dependency otherwise looks like a hang for the whole timeout.
+    summary=$(printf '%s' "$failures" | grep -v '^$' | summarize_health_failures)
+    if [ "$summary" != "$last_summary" ]; then
+      [ -n "$summary" ] && printf '%s\n' "$summary"
+      last_summary=$summary
+    fi
     if [ "${#frontends[@]}" -gt 0 ]; then
       report=$(frontend_serves "$deadline" "${frontends[@]}")
       for n in "${frontends[@]}"; do
@@ -933,7 +992,9 @@ await_ready() {
         fi
         echo "  $n: never served its page within ${START_READY_TIMEOUT}s ($state): $verdict; last lines of $(logfile "$n"):" >&2 ;;
       *)
-        echo "  $n: never became healthy within ${START_READY_TIMEOUT}s ($state); last lines of $(logfile "$n"):" >&2 ;;
+        echo "  $n: never became healthy within ${START_READY_TIMEOUT}s ($state)" >&2
+        [ "$state" = UNHEALTHY ] && health_failures "$n" | sed 's/^/    failing check /' >&2
+        echo "    last lines of $(logfile "$n"):" >&2 ;;
     esac
     tail -n 4 "$(logfile "$n")" 2>/dev/null | sed 's/^/    /' >&2
     remove_launchd_job "$n" || true
