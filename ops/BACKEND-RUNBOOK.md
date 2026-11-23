@@ -886,6 +886,33 @@ Whether the limit would have ended the wait seen during the 2026-11-10 soak is n
 That transaction was in the wait loop that checks the limit. Terminating it did not end it, and the
 same loop checks for termination.
 
+### Graph Transaction Time Limits
+
+Every transaction the graph proxies open carries a time limit, which Neo4j enforces. The limits are
+in `GraphTransactionTimeouts` in `cedar-workspace-operations-library`:
+
+| Transactions | Limit |
+| --- | --- |
+| Every query a proxy runs, through the helpers in `AbstractNeo4JProxy` | 30 seconds |
+| The worker's read of every resource a group can see, during a permission recalculation | 10 minutes |
+
+The 30 seconds equal the restore relay's deadline, after which a save whose graph update has not
+committed is put back. Production's query log set the rest. From February to November 2026 no write
+took longer than 1.2 seconds, and no read longer than 26 seconds apart from two searches and the
+worker's read, which took 49 seconds.
+
+A transaction that reaches its limit fails with
+`Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration`. That is a client error, so
+the driver does not retry it, and the request fails with a 500. The resource server logs `Cypher
+query exceeded its transaction time limit` with the query's parameter names. On Neo4j 5.26.32 a
+query ended within 1.2 seconds of a 300-millisecond limit. Two requests reach the limit in ordinary
+use: the listing behind `GET /search` without a query, which used to run for minutes to over an
+hour, and occasionally the search for a template's instances, which took up to 166 seconds.
+
+The limit is set by the driver, not by `db.transaction.timeout`, which stays unset on every host.
+The resource server's outboxes, its relays and the version projection open drivers of their own,
+and their transactions carry no limit.
+
 ### After an Artifact Graph Update Commits
 
 Ordinary saves, DOI writes and inclusion propagation commit a `CedarVersionProjection` job in the

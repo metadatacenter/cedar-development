@@ -1497,32 +1497,24 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   either. If such a wait recurs with the limit set, the lock manager is at fault and the limit is
   not the remedy.
 
-  Nothing bounds a transaction that holds its locks and runs long: `db.transaction.timeout` is
-  unset, and the driver's transactions carry no timeout. Decide whether to set one, and which graph
-  operations legitimately run long. A recursive deletion, an index rebuild's reads and a permission
-  recalculation must not be cut short by a limit chosen for a save.
+  The queries the graph proxies run carry a 30-second limit, and the worker's permission
+  recalculation a 10-minute one, as
+  [Graph Transaction Time Limits](BACKEND-RUNBOOK.md#graph-transaction-time-limits) describes. The
+  resource server's outboxes, its relays and the version projection open drivers of their own and
+  still run without a limit. Their transactions write no rows to `log_cypher`, so how long they run
+  in production is not known. Measure them, then give each the limit its work allows.
 
-  Production's query log measures how long graph queries run there. Every query sent through the
-  graph helpers in `AbstractNeo4JProxy` writes a row with its duration to `log_cypher`, and
-  `agg_cypher_hourly` holds 91 million of them rolled up since 2026-02-19. Read on 2026-11-23, it
-  shows no write longer than 1.2 seconds and no read longer than 26 seconds, with three exceptions.
-  The worker's permission recalculation, `findAllNodesVisibleByGroupId`, took up to 49 seconds. The
-  search for a template's instances, `searchIsBasedOn` and its count, took up to 166 seconds, with
-  seven runs over 30 seconds since 2026-07-29. The listing behind `GET /search` without a query,
-  `viewAll`, matches every resource the caller reaches through an unbounded `CONTAINS*0..` path and
-  sorts them all. Since 2026-07-29 it has run longer than 60 seconds 19,105 times and longer than
-  nginx's 180 seconds 13,091 times, the longest for 81 minutes. A run past 180 seconds returns its
-  result to nobody. Since 2026-09-11 almost every slow one has come from a single API key. The
-  measurements are in `$CEDAR_HOME/.cedar/audits/2026-11-23-graph-tx-durations/`.
-
-  A request-path limit of 30 seconds would therefore end only those searches. The `viewAll`
-  listing needs a bound of its own regardless. The permission recalculation runs in the worker and
-  can take a larger limit. The resource server's outboxes and relays, and the transactions opened
-  through `executeInWriteTransaction` and `executeInReadTransaction`, write no rows to `log_cypher`,
-  so their durations are not measured.
+  The listing behind `GET /search` without a query, `viewAll`, needs a bound of its own. It matches
+  every resource the caller reaches through an unbounded `CONTAINS*0..` path and sorts them all.
+  Since 2026-07-29 it has run longer than 60 seconds 19,105 times in production, and longer than
+  nginx's 180 seconds 13,091 times. Almost every slow run since 2026-09-11 came from a single API
+  key. The limit now ends such a run at 30 seconds with an error, where it used to run for up to 81
+  minutes after nginx had answered the caller. That caller still gets nothing. The query needs a
+  form whose cost does not grow with every resource the caller can reach.
 
   Done when a lock wait that outlasts the limit fails its transaction in every environment, a
-  retried save succeeds, and no request thread can wait on the graph without a deadline.
+  retried save succeeds, no request thread can wait on the graph without a deadline, and a listing
+  without a query returns within the limit.
 
 - **22. Make search answer quickly in a production-sized store.** **Production consequence:**
   search pages take a second or more where the workstation answers in milliseconds. Against the
