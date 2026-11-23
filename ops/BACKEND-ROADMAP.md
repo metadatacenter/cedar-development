@@ -1503,8 +1503,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until the process
   was killed. The thread dumps are in `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`.
   Whether Neo4j 5.26.0 has a defect that fifty writers on one node expose is not established.
-  Staging runs 5.26.32, so a soak on that patch level would say whether the wait is specific to
-  the workstation's.
+  The wait has not recurred on 5.26.0 either: a full soak and five three-minute soaks that morning
+  completed without it. On 2026-11-22 eight 30-minute soaks ran on 5.26.32, the version staging and
+  production run, on the same JVM and settings. They completed 2.58 million iterations with no
+  graph transaction open longer than 60 seconds and no lock wait reaching the limit. The run is in
+  `$CEDAR_HOME/.cedar/audits/2026-11-22-neo4j-5.26.32-soak/`. This does not show that 5.26.32
+  fixes the defect: if the wait struck one 5.26.0 soak in seven, eight clean runs would still
+  occur by chance about three times in ten. It does show that the wait is not routine on the
+  version production runs.
 
   `db.lock.acquisition.timeout=30s` bounds an ordinary lock wait, and
   [When a Graph Write Waits for a Lock](BACKEND-RUNBOOK.md#when-a-graph-write-waits-for-a-lock)
