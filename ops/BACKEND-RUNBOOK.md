@@ -1204,6 +1204,14 @@ Call the resource server directly rather than through nginx, which answers an un
 discards the index the alias is serving, so prefer a replay when the dead-letter queue explains the
 drift.
 
+A rebuild first lists every resource from the graph, then builds their documents on eight workers
+and writes them a thousand at a time. Each document takes several small graph reads and, for an
+artifact, a request to the artifact server. One thread used to make them in turn, which at
+production size meant about five hours. On the workstation, a copy of production's 305,028
+resources took 52 minutes: 15 to list them and 37 to index them. Listing pages through the graph by offset, so each page costs
+more than the last. The `GET /command/index-job-status` route reports the phase and the rate while
+it runs.
+
 The rebuild is queued rather than performed, so the command answers `202` with the job it started:
 the body carries the job's `jobId` and state, and a `Location` header names where to poll it. Add
 `-D-` to the call above to see that header. Poll it until the state leaves `RUNNING`. It reports the
@@ -5213,6 +5221,129 @@ explanation above); a `STALE` warning means that service kept its old jar. Resta
 stragglers by name — `cedarcli native restart <name...>` — and re-check. A `health` gate alone
 will not catch this: a stale service is still healthy. This bit more than once during a fix-and-
 redeploy pass, where a truncated `restart` left the group and messaging servers a build behind.
+
+### The Large Store
+
+The workstation's own store holds a few hundred artifacts, so every profile above measures an almost
+empty graph and index. A cost that grows with the data does not show there: a label scan, a
+version-series traversal, a folder with tens of thousands of children, a search page drawn from
+300,000 documents. The large store holds a production snapshot instead, so the same profiles can
+measure those costs. Run them against it before a release that changes graph queries, search,
+lifecycle commands or permissions, when proving a performance fix before and after, and after taking
+a new snapshot.
+
+The store lives in three containers, Mongo 5.0.31, Neo4j 5.26.0 and OpenSearch 2.19.1, with the
+versions and settings the native stores had when it was built. The native stack has since moved to
+MongoDB 8.0.38 and Neo4j 5.26.32. The large store keeps the older engines because its volumes hold
+data they wrote. A 5.0 data directory does not open under 8.0, so moving it means loading it
+again. For the same reason its Neo4j installs the APOC release built for its own engine rather
+than the native one's. Their volumes, `cedar_large_store_mongo`, `cedar_large_store_neo4j` and
+`cedar_large_store_opensearch`, belong to the large store alone, so the native data is never
+written. The native microservices, Keycloak, MySQL and Redis stay as they are
+and serve whichever store is switched in. Production data stays on the workstation: the snapshot
+holds private artifacts, so the store is never built in CI or on a shared host.
+`ops/e2e/rest-perf/large-store/large_store.py` builds, loads and switches it:
+
+```bash
+python3 ops/e2e/rest-perf/large-store/large_store.py build     # snapshot to import tree
+python3 ops/e2e/rest-perf/large-store/large_store.py load      # import tree to containers
+python3 ops/e2e/rest-perf/large-store/large_store.py serve     # native stack onto the large store
+python3 ops/e2e/rest-perf/large-store/large_store.py release   # native stack back onto its own
+python3 ops/e2e/rest-perf/large-store/large_store.py status
+```
+
+`build` reads the newest snapshot under `$CEDAR_HOME/.cedar/snapshots/production/`, or the archive
+`--snapshot` names. It exports the native graph's users, groups and folders through the admin tool's
+`impex-exportAll`, which only reads, and writes them with every artifact the snapshot served as an
+import tree in the admin tool's format. Production identifiers are rewritten onto the local
+repository base. Each version series, and the instances of each template, get one of the fifty perf
+identities as owner, chosen from a hash of the identifier, so a rebuild from the same snapshot gives
+the same store. Artifacts sit in a `Large store` folder in their owner's home: schema artifacts in
+folders of 1,000, and instances in one folder per template of up to 20,000. A body the importer would
+refuse, such as one with a duplicated key, is left out and listed in `excluded.json`. The snapshot of
+2026-11-16 loads all 302,441 artifacts it served, with none left out, into 1,841 folders.
+
+`load` starts the containers on side ports (Mongo 27018, Neo4j 7475 and 7688, OpenSearch 9201), so
+the native stack keeps serving, and imports the tree with `impex-importAll`. The import writes
+documents and graph nodes directly, as an export restore does. Nothing is validated or changed on
+the way in, so the store holds what production holds, invalid artifacts included. The load of
+2026-11-23 took about 95 minutes: 63 for Neo4j to create the 305,087 nodes and 31 for their arcs,
+each in a transaction of its own.
+
+Copied documents carry no indexes, and the export carries no categories, so `load` provisions what
+an installation normally has. `artifactServer-initDB` builds the unique `@id` index on each artifact
+collection. Without it, every lookup by identifier scans its collection, and the first search
+rebuild ran at 17 resources a second. `graphDb-createGlobalObjects` creates the root category after
+the import, which empties the graph first. Without it, every artifact report answers 500 and the
+category tree 404. The importer's last step records each folder's parent, and the graph refuses two
+sibling folders whose names differ only in case. Two templates can share a name, so `build` gives
+the second instance folder of such a pair a suffix, `[2]`.
+
+`serve` stops the native microservices and the native Mongo, Neo4j and OpenSearch, publishes the
+containers on the native ports and starts the microservices against them. The first `serve` after a
+load also rebuilds the search index, which took 52 minutes, 15 of them listing the resources, and
+records the time in `state.json`. `release` reverses the switch and
+leaves the large store's volumes as they are, so the next `serve` takes minutes. Both commands stop
+and start the microservices, which interrupts anyone else using the stack, so check that no other
+session needs it first.
+
+A profile run says which store it measured. `run-rest.mjs` reads `.cedar/large-store/state.json`,
+writes the store and its snapshot to the run's `store.json`, and refuses a run whose `--store` does
+not match the store being served. `--store=native`, the default, therefore cannot measure the large
+store by accident:
+
+```bash
+cd ops/e2e && npm run perf:rest:finding -- --store=large
+```
+
+The containers have no restart policy, so a Docker Desktop restart stops them and they stay down.
+Start them again with `docker compose up -d` from the large-store directory, with the port variables
+of whichever side they were on.
+
+The first runs, on 2026-11-23 against the snapshot of 2026-11-16, show where the size of the store
+costs. Search costs most. A search for 50 results took 1,259 ms at the 95th percentile against 16 ms
+on the native store, and a sorted search 1,242 ms against 15 ms. Searches of 10 results, deep
+searches, the shared-with-me search and folder listings took 3 to 23 times as long. The first
+finding run after the rebuild, against cold caches, took ten times as long again. Under the 50-user
+soak, search, move and OpenView preflights and folder contents took about 3.5 times as long, and
+conditional saves about 2.9 times as long, around 3 seconds. Writes whose cost does not depend on
+the data hardly moved. Creating templates, instances and folders, copying and publishing all stayed
+within about 1.5 times the native figure. So did reading a single artifact. Recursive deletion took
+twice as long, and its inventory 3.4 times as long, because both walk the tree.
+
+| Route | Native p95 | Large p95 |
+|---|---|---|
+| Search of 50 | 16 ms | 1,259 ms |
+| Sorted search | 15 ms | 1,242 ms |
+| Search in a time window | 16 ms | 598 ms |
+| Sorted folder contents | 164 ms | 538 ms |
+| Deep search | 22 ms | 328 ms |
+| Soak search | 400 ms | 1,490 ms |
+| Soak conditional template save | 1,058 ms | 3,121 ms |
+| Deletion inventory | 196 ms | 664 ms |
+| Recursive deletion | 1,161 ms | 2,211 ms |
+| First publish | 201 ms | 263 ms |
+
+The native finding and lifecycle figures come from 2026-11-10 and the native soak from 2026-11-23,
+all on the engine versions the large store runs. Every request to the large store also crosses
+Docker's port forwarding, which adds a little to each store round trip. Routes that read little,
+such as group membership, ran no slower there, so that overhead is not what separates the two
+columns. No graph transaction stayed open longer than 5 seconds at any of the samples taken every
+20 seconds through the rebuild and all three profiles.
+
+The finding profile also found a defect that only size exposes. A deep-search walk keeps its
+OpenSearch point in time open between requests and releases it on its last page. On the native
+store most walks end on their first page. On the large store the profile's walks stop after three
+pages of a longer result set, so their contexts stayed open until their keep alive ran out. Within
+a minute they reached OpenSearch's limit of 300, and from then on every deep search failed with a
+500. The resource server now holds at most 200 walks open. It closes the walk that has gone longest
+without a page to make room, and closes expired contexts at once rather than waiting for
+OpenSearch's reaper. A closed walk's next page asks the client to start again. Under the same
+profile, open contexts peaked at 200 and no deep search failed.
+
+The state, the import tree and the logs of each step are under `$CEDAR_HOME/.cedar/large-store/`.
+`discard` removes the containers and their volumes once the store is released. The import tree
+stays, so `load` can rebuild the store without another `build`.
 
 ### Integration Coverage Matrix
 

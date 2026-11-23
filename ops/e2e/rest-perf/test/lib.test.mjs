@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   burstRecoveryAssessment, durationSeconds, performanceResourceDescriptor,
-  PERF_PREFIX, parallelLimit, runId, runTimestampFromRootName, tokenSubject,
+  PERF_PREFIX, parallelLimit, runId, runTimestampFromRootName, servedStore, storeMismatch, tokenSubject,
 } from '../lib.mjs';
 
 test('run ids are unique stamped identifiers that the cleanup parser accepts', () => {
@@ -74,4 +77,23 @@ test('parallelLimit preserves result order and observes the concurrency ceiling'
   });
   assert.deepEqual(values, [2, 4, 6, 8, 10]);
   assert.equal(maximum, 2);
+});
+
+test('the served store is the native one until the large-store state says otherwise', () => {
+  const home = mkdtempSync(join(tmpdir(), 'cedar-home-'));
+  assert.deepEqual(servedStore(home), { store: 'native' });
+  mkdirSync(join(home, '.cedar', 'large-store'), { recursive: true });
+  const statePath = join(home, '.cedar', 'large-store', 'state.json');
+  writeFileSync(statePath, JSON.stringify({ serving: false, loaded: 'a.tar.zst' }));
+  assert.deepEqual(servedStore(home), { store: 'native' });
+  writeFileSync(statePath, JSON.stringify({ serving: true, loaded: 'a.tar.zst', artifacts: { field: 2 } }));
+  assert.deepEqual(servedStore(home), { store: 'large', snapshot: 'a.tar.zst', artifacts: { field: 2 } });
+});
+
+test('a run refuses a store other than the one being served, and an unknown store', () => {
+  assert.equal(storeMismatch('native', { store: 'native' }), null);
+  assert.equal(storeMismatch('large', { store: 'large' }), null);
+  assert.match(storeMismatch('large', { store: 'native' }), /serve/);
+  assert.match(storeMismatch('native', { store: 'large' }), /--store=large/);
+  assert.match(storeMismatch('big', { store: 'native' }), /native or large/);
 });

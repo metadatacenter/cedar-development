@@ -176,6 +176,32 @@ export function absolute(path) {
   return resolve(process.cwd(), path);
 }
 
+/**
+ * Which store the native stack is serving: its own, or the production-sized store that
+ * large-store/large_store.py loads and switches in. That tool records the switch in a state file.
+ */
+export function servedStore(cedarHome = env.CEDAR_HOME) {
+  const path = cedarHome ? resolve(cedarHome, '.cedar', 'large-store', 'state.json') : null;
+  let state = {};
+  try {
+    state = path ? JSON.parse(readFileSync(path, 'utf8')) : {};
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return state.serving
+    ? { store: 'large', snapshot: state.loaded ?? null, artifacts: state.artifacts ?? null }
+    : { store: 'native' };
+}
+
+/** Why a run asking for one store must not proceed against the store being served, or null. */
+export function storeMismatch(requested, served) {
+  if (!['native', 'large'].includes(requested)) return `--store must be native or large; got ${requested}`;
+  if (requested === served.store) return null;
+  return requested === 'large'
+    ? 'the native stack is serving its own store; `large_store.py serve` switches it to the large store'
+    : 'the native stack is serving the large store; pass --store=large, or `large_store.py release` first';
+}
+
 export async function parallelLimit(items, limit, operation) {
   const results = new Array(items.length);
   let next = 0;

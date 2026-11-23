@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { env } from 'node:process';
 import {
   absolute, arg, assertSafeTargets, burstRecoveryAssessment, durationSeconds, intArg, readJson, runId,
+  servedStore, storeMismatch, writeJson,
 } from './lib.mjs';
 import { logSize, upstreamCallsSince } from './terminology-sample.mjs';
 
@@ -59,6 +60,11 @@ if (!Number.isInteger(vus) || vus < 1 || vus > users) {
 }
 
 if (!env.CEDAR_PERF_USER_PASSWORD) throw new Error('CEDAR_PERF_USER_PASSWORD is required');
+// A run says which store it measured, and refuses to measure a store it was not asked for, so a
+// number taken against the production-sized store is never read as one taken against the native one.
+const store = servedStore();
+const storeRefusal = storeMismatch(arg('store', 'native'), store);
+if (storeRefusal) throw new Error(storeRefusal);
 if (profile === 'resilience' && !allowServiceRestart) {
   throw new Error('the resilience profile requires --allow-service-restart=true');
 }
@@ -87,6 +93,10 @@ if (k6.error?.code === 'ENOENT') {
 if (k6.status !== 0) throw new Error(`k6 preflight failed: ${k6.stderr || k6.stdout}`);
 
 mkdirSync(runDirectory, { recursive: true });
+writeJson(resolve(runDirectory, 'store.json'), store);
+console.log(store.store === 'large'
+  ? `Store: the large store, loaded from ${store.snapshot}`
+  : 'Store: the native store');
 
 let activeChild;
 let auxiliaryChild;

@@ -104,8 +104,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data without a copy.
 
   After applying the patch, regenerate the search index from Neo4j. The rebuild reads every
-  filesystem resource from the folder server, 310,463 of them on 2026-10-03, at a rate nobody has
-  measured, so time a rebuild on staging before choosing a window. Users do not wait for it, because
+  filesystem resource from the folder server, 310,463 of them on 2026-10-03. A copy of production's
+  305,028 took 52 minutes on the workstation, so time a rebuild on staging before choosing a
+  window. Users do not wait for it, because
   search keeps serving the old index until the new one is complete. Then verify the role counts and
   representative direct, group and inherited access paths for artifacts, folders and categories.
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
@@ -1523,16 +1524,23 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when a lock wait that outlasts the limit fails its transaction in every environment, a
   retried save succeeds, and no request thread can wait on the graph without a deadline.
 
-- **22. Give the performance profiles a production-sized graph.** The workstation's graph holds
-  143 artifacts, so every REST profile measures an almost empty store. A cost that grows with the
-  data is invisible there: a label scan, a version-series traversal, a folder with tens of thousands
-  of children, a search page drawn from 300,000 documents. Production holds about 150,000 schema
-  artifacts and their instances, and `ops/cedar_snapshot.py` already keeps a verified archive of
-  them. Load a snapshot into a disposable local stack, with the owners and permissions the profiles
-  need, and run the finding, lifecycle and soak profiles against it.
+- **22. Make search answer quickly in a production-sized store.** **Production consequence:**
+  search pages take a second or more where the workstation answers in milliseconds. Against the
+  large store, a production snapshot served by the native stack, a search for 50 results took
+  1,259 ms at the 95th percentile against 16 ms on the native store, and a sorted search 1,242 ms
+  against 15 ms. Under the 50-user soak, search took 1.5 seconds and conditional saves 3 seconds,
+  about three times the native figures. The runbook's
+  [large store section](BACKEND-RUNBOOK.md#the-large-store) has the whole comparison. Where the
+  time goes is not yet measured: the OpenSearch query over 300,000 documents, the permission clauses
+  it carries, or the graph reads made for each hit afterwards.
 
-  Done when the profiles can run against a store of production size, and the runbook records which
-  routes changed with the size of the store.
+  The search rebuild has two costs of the same kind left. It lists the resources by offset, so each
+  page of the listing costs more than the last, and 305,028 resources took 15 minutes to list. Each
+  document then takes several small graph reads, one after another, which keeps eight workers to
+  about 140 resources a second.
+
+  Done when the finding profile's search routes meet their thresholds against the large store, and
+  the rebuild's listing costs the same at every page.
 
 - **23. Settle five open dependency questions.** Each is a decision to take rather than a change
   to make, and none is urgent.

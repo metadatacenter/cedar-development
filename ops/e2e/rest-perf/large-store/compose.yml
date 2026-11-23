@@ -1,0 +1,82 @@
+# The production-sized store the REST performance profiles can run against.
+#
+# Mongo, Neo4j and OpenSearch hold a loaded production snapshot in volumes of their own, so the
+# workstation's native data is never touched. The versions and settings match the native stores,
+# which keeps a measurement against this store comparable with one against the native store.
+# large_store.py drives the project: it loads on side ports while the native stores keep serving,
+# then publishes the same containers on the native ports while the native stores are stopped.
+# Every port binds 127.0.0.1 only.
+
+name: cedar-large-store
+
+services:
+  mongo:
+    image: mongo:5.0.31
+    container_name: large-store-mongo
+    # The native store runs without authentication, and so does this one.
+    command: ["mongod", "--bind_ip_all", "--wiredTigerCacheSizeGB", "2"]
+    ports:
+      - "127.0.0.1:${LARGE_STORE_MONGO_PORT:?}:27017"
+    volumes:
+      - mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongo", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  neo4j:
+    image: neo4j:5.26.0-community
+    container_name: large-store-neo4j
+    environment:
+      NEO4J_AUTH: "${CEDAR_NEO4J_USER_NAME:?}/${CEDAR_NEO4J_USER_PASSWORD:?}"
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 2g
+      NEO4J_server_memory_pagecache_size: 1g
+      NEO4J_dbms_security_procedures_unrestricted: "algo.*,apoc.*"
+      NEO4J_db_lock_acquisition_timeout: 30s
+      # The image installs the APOC release built for its own engine. The native install may run a
+      # newer Neo4j, whose APOC jar this older engine cannot load.
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "127.0.0.1:${LARGE_STORE_NEO4J_HTTP_PORT:?}:7474"
+      - "127.0.0.1:${LARGE_STORE_NEO4J_BOLT_PORT:?}:7687"
+    volumes:
+      - neo4j:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7474 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    container_name: large-store-opensearch
+    environment:
+      cluster.name: opensearch_cedar
+      discovery.type: single-node
+      # The Homebrew build the native stack runs carries no security plugin.
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports:
+      - "127.0.0.1:${LARGE_STORE_OPENSEARCH_PORT:?}:9200"
+      - "127.0.0.1:${LARGE_STORE_OPENSEARCH_TRANSPORT_PORT:?}:9300"
+    volumes:
+      - opensearch:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+volumes:
+  mongo:
+    name: cedar_large_store_mongo
+  neo4j:
+    name: cedar_large_store_neo4j
+  opensearch:
+    name: cedar_large_store_opensearch
