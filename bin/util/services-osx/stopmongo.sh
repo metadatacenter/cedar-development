@@ -4,7 +4,7 @@ echo Stopping MongoDB
 echo --------------------------------------------------------------------------------
 echo
 
-MONGO_FORMULA=mongodb-community@5.0
+MONGO_FORMULA=mongodb-community@8.0
 
 brew services stop "${MONGO_FORMULA}" 2>/dev/null
 

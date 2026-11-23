@@ -802,18 +802,14 @@ transport failure is logged with its cause; a non-2xx response is logged with st
 type and user id. Treat either message as a provisioning failure rather than accepting a healthy
 login as proof that the CEDAR account exists.
 
-**Stopping native Mongo needs `db.shutdownServer()`, not the Homebrew service.** Two things bite
-here. `brew services start mongodb-community@5.0` now fails: Homebrew refuses the `mongodb/brew` tap
-as untrusted, cannot read the formula, and writes a launch agent with no `ProgramArguments`. Run
-native Mongo directly instead, and shut it down through the shell:
+**Stop native Mongo with `stopmongo.sh`.** It stops the Homebrew service, and launchd does not
+restart it. When Homebrew refuses MongoDB's tap as untrusted, `startmongo.sh` runs `mongod` directly
+instead, and the Homebrew service knows nothing of that process. `stopmongo.sh` stops it as well.
+By hand, shut it down through the shell:
 
 ```bash
-/opt/homebrew/opt/mongodb-community@5.0/bin/mongod --config /opt/homebrew/etc/mongod.conf --fork
 mongosh --quiet --eval 'db.getSiblingDB("admin").shutdownServer()'
 ```
-
-`brew trust mongodb/brew` followed by `brew services start` restores the launchd path, at the cost of
-trusting that tap. `mongod --shutdown` is not available in this build.
 
 **A native store and its container can both hold port 27017 and nothing warns you.** Native binds
 `127.0.0.1` specifically while Docker binds the wildcard, so both listen, the more specific bind wins,

@@ -1414,7 +1414,7 @@ survives is the owner's decision rather than a repair. With a clean count, build
 mongosh "mongodb://$CEDAR_MONGO_APP_USER_NAME:$CEDAR_MONGO_APP_USER_PASSWORD@$CEDAR_MONGO_HOST:$CEDAR_MONGO_PORT/cedar" --quiet --eval 'for (const n of ["templates","template-elements","template-fields","template-instances"]) { print(n, db[n].createIndex({"@id":1},{unique:true})); }'
 ```
 
-On the pinned Mongo 5.0 the build runs online, taking an exclusive lock only briefly at each end, and
+On the pinned MongoDB 8.0 the build runs online, taking an exclusive lock only briefly at each end, and
 a collection of 150,000 small documents takes seconds. `createIndex` returns the index name on
 success and raises on a duplicate-key violation, so its output is the proof.
 
@@ -2298,28 +2298,15 @@ TypeScript, while both emit the same bytes for it.
   place. The reload is the only step that needs your password (the master is a root process; there is no
   passwordless sudo).
 
-- **`brew services start mongodb-community@5.0` breaks MongoDB** → it fails with
-  `launchctl bootstrap gui/<uid> ... exited with 5`, and running it again keeps failing because it
-  is the cause, not the victim. The formula ships its own `macos_mongodb.plist` and its `service`
-  block only names it, which is the old Homebrew convention; current `brew services` ignores that
-  and *generates* a plist from the `service` block instead. That block defines no `run`, so the
-  generated plist has an empty `ProgramArguments` and launchd has nothing to start. Each attempt
-  overwrites the good plist with the empty one.
-
-  Reinstall the formula's own plist and load it:
+- **Homebrew refuses to install or start MongoDB** → `Refusing to load formula
+  mongodb/brew/mongodb-community@8.0 from untrusted tap mongodb/brew`. The formula comes from
+  MongoDB's own tap, which Homebrew loads only once it is trusted, and `@8.0` also loads the
+  unversioned `mongodb-community` formula. Trust both, or the whole tap with `brew trust mongodb/brew`:
   ```bash
-  cp /opt/homebrew/opt/mongodb-community@5.0/homebrew.mxcl.mongodb-community@5.0.plist \
-     ~/Library/LaunchAgents/
-  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/homebrew.mxcl.mongodb-community@5.0.plist
+  brew trust --formula mongodb/brew/mongodb-community@8.0
+  brew trust --formula mongodb/brew/mongodb-community
   ```
-  It then runs under launchd with `RunAtLoad`, survives a reboot, and `brew services list` reports
-  it started. To restart it afterwards use
-  `launchctl kickstart -k gui/$(id -u)/homebrew.mxcl.mongodb-community@5.0` rather than
-  `brew services`, which would regenerate the empty plist.
-
-  The underlying cause is the pinned version: the tap has moved to MongoDB 8.x while the deployment
-  is locked to 5.0, so the 5.0 formula carries a convention Homebrew no longer honours. Expect this
-  to return after a Homebrew upgrade.
+  Until then `startmongo.sh` starts the installed `mongod` directly, and `stopmongo.sh` stops it.
 
   A `mongod` whose executable is under `~/.embedmongo` belongs to an embedded test run, not the
   native stack. An abnormally terminated test JVM can leave one behind with its ephemeral loopback
@@ -5386,13 +5373,14 @@ OpenSearch to verify permission-filter semantics rather than merely the shape of
 `cedar-monitor-server`'s suites boot the embedded MariaDB and Neo4j that its other suites share,
 with the graph and OpenSearch on dead ports where a test needs neither, so a new dependence on a
 running store fails rather than reading the developer's. One other exception comes from a real
-dependency rather than from CEDAR code: the embedded MongoDB that `cedar-artifact-server` and
-`cedar-admin-tool` boot is the 5.0 line the deployment runs, whose only Linux build links against
-OpenSSL 1.1. Ubuntu 24.04
-and later ship OpenSSL 3, so those jobs, and the jobs of `cedar-project`, `cedar-openview-server`
-and `cedar-repo-server`, install `libssl1.1` on the runner first. Without it `mongod` cannot start
-and every resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at
-the cost of testing against a different engine than production runs.
+dependency rather than from CEDAR code. The embedded MongoDB that `cedar-artifact-server` and
+`cedar-admin-tool` boot was the 5.0 line, whose only Linux build links against OpenSSL 1.1, while
+Ubuntu 24.04 and later ship OpenSSL 3. Those jobs, and the jobs of `cedar-project`,
+`cedar-openview-server` and `cedar-repo-server`, therefore install `libssl1.1` on the runner first.
+Without it `mongod` cannot start and every resource test errors out. The suites now boot MongoDB
+8.0, the line production runs, which also has Linux builds linked against OpenSSL 3. Whether the
+step is still needed depends on which build flapdoodle chooses for the runner's Ubuntu release, so
+remove it only after a CI run without it passes.
 
 The runners also need flapdoodle to recognize their Ubuntu release, because it chooses the MongoDB
 build by release. The `de.flapdoodle.os` 1.10.0 that flapdoodle 4.22.0 brings predates Ubuntu
@@ -5708,10 +5696,10 @@ development: Redis to 7.2.7, OpenSearch to 2.19.1, Mongo to 5.0.31 and Neo4j to 
 the version already running natively. MySQL and Keycloak have not moved in the images.
 
 The native workstation stack holds the lock only where Homebrew is told to. MongoDB comes from the
-versioned `mongodb-community@5.0` formula. MySQL comes from the versioned `mysql@8.4` formula, the
-8.4 LTS line the images pin and the newest line Keycloak supports. `redis`, `opensearch` and
-`mysql@8.4` are also pinned with `brew pin`. Check `brew list --pinned` before upgrading Homebrew
-on a workstation.
+versioned `mongodb-community@8.0` formula, with its data in `/opt/homebrew/var/mongodb-8.0`. MySQL
+comes from the versioned `mysql@8.4` formula, the 8.4 LTS line the images pin and the newest line
+Keycloak supports. `mongodb-community@8.0`, `redis`, `opensearch` and `mysql@8.4` are also pinned
+with `brew pin`. Check `brew list --pinned` before upgrading Homebrew on a workstation.
 
 A workstation that still runs the unversioned `mysql` formula has whatever Innovation release
 Homebrew last installed, and `startmysql.sh` refuses to start it. An 8.4 server cannot open a data
@@ -5773,6 +5761,11 @@ followed by a local microservice redeploy and whole-stack smoke. The startup ban
 comes from `jetty-util`, so a banner alone is not proof of dependency alignment.
 
 Jersey follows the same pattern. `cedar-parent` imports `org.glassfish.jersey:jersey-bom` at the
+Two moved again on 2026-11-23, to the versions production runs: Mongo to 8.0.38 and Neo4j to
+5.26.32, on the workstation and in the embedded store the suites start. The images still pin 5.0.31
+and 5.26.0, because the MongoDB 8.0 image cannot start under Docker Desktop's current kernel. The
+backend roadmap's server-upgrade item tracks the move.
+
 `org.glassfish.jersey.version` property, and the inherited `enforce-jersey-alignment` rule rejects
 any resolved Jersey module at another version. Until 2026-10-19 the parent managed only
 `jersey-container-servlet` and `jersey-hk2`, so `jersey-common`, `jersey-server`, `jersey-client`

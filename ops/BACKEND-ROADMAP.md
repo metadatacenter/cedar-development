@@ -713,34 +713,54 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the persistence migration tracked in the Docker roadmap.
 
   Production and the image pins disagree in both directions. On 2026-11-22 production
-  (`cedr-prd-app-07`) ran the servers below, beside the pins in `cedar-docker-build/bin/cedar-images-base.sh`.
+  (`cedr-prd-app-07`) ran the servers below. The pins are those in
+  `cedar-docker-build/bin/cedar-images-base.sh`.
 
-  | Server     | Production | Image pin | Work                                             |
-  |------------|------------|-----------|--------------------------------------------------|
-  | MongoDB    | 8.0.38     | 5.0.31    | Move the pin to 8.0; a 5.0 engine cannot open production's data |
-  | Neo4j      | 5.26.32    | 5.26.0    | Move the pin to 5.26.32 or later                 |
-  | nginx      | 1.30.7     | 1.30.4    | Move the pin to 1.30.7 or later                  |
-  | MySQL      | 8.0.46     | 8.4.11    | Upgrade production to 8.4                        |
-  | Redis      | 7.0.15     | 7.2.7     | Upgrade production to 7.2                        |
-  | OpenSearch | 2.15.0     | 2.19.1    | Upgrade production to 2.19                       |
-  | Keycloak   | 22.0.4     | 22.0.4    | Item 6                                           |
+  | Server     | Production | Image pin | Work                                         |
+  |------------|------------|-----------|----------------------------------------------|
+  | MongoDB    | 8.0.38     | 5.0.31    | Move the pin once Docker can run 8.0          |
+  | Neo4j      | 5.26.32    | 5.26.0    | Move the pin with MongoDB's                   |
+  | nginx      | 1.30.7     | 1.30.4    | Move the pin with MongoDB's                   |
+  | MySQL      | 8.0.46     | 8.4.11    | Upgrade production to 8.4                     |
+  | Redis      | 7.0.15     | 7.2.7     | Upgrade production to 7.2                     |
+  | OpenSearch | 2.15.0     | 2.19.1    | Upgrade production to 2.19                    |
+  | Keycloak   | 22.0.4     | 22.0.4    | Item 6                                        |
 
-  The three pins behind production are the blockers for containerizing it, and MongoDB's is the
-  largest: three major versions, with the image never tested against data written by 8.0. Every
-  test and smoke run so far has exercised the 5.0 pin, so moving it needs a full e2e pass of its own.
+  The three pins behind production are the blockers for containerizing it. The workstation and the
+  test suites already run production's MongoDB and Neo4j lines, and the full Java build and every
+  e2e tier passed on them on 2026-11-23, so the pins are what remains. The edit that moves them to
+  8.0.38, 5.26.32 and 1.30.7 is ready, but it cannot land until the Docker acceptance gate passes on
+  the images it builds, and that gate cannot run on Docker Desktop yet.
+
+  The obstacle is the kernel. Linux 6.19 changed how restartable sequences behave, which breaks the
+  tcmalloc allocator MongoDB 8.0 uses, and kernels 7.0.14 and 7.1.0 restore the old behaviour.
+  MongoDB 8.0.30 and later refuse to start on a kernel between 6.19.0 and 7.0.13
+  ([SERVER-125742](https://jira.mongodb.org/browse/SERVER-125742)). Docker Desktop's virtual machine
+  runs 7.0.12, so the 8.0.38 image exits at startup. MongoDB offers no override, so the gate waits
+  for a Docker Desktop release whose kernel is 7.0.14 or later. The same check refuses Ubuntu's
+  7.0.14-based kernels, because `uname -r` reports them as 7.0.0
+  ([SERVER-136848](https://jira.mongodb.org/browse/SERVER-136848)). That matters to any Linux host
+  that moves to Ubuntu 26.04, production included, and to CI. The embedded MongoDB the suites start
+  is 8.0.16, which predates the refusal and is listed as crashing after about a minute on the
+  affected kernels. It ran for two minutes under load on Docker's 7.0.12 without a fault, so the
+  listing describes a risk the GitHub runners may or may not meet.
+
+  The Docker volumes need migrating when the pin moves, since a 5.0 data directory does not open
+  under 8.0. Stepping a copy of `mongo_data` through the 6.0, 7.0 and 8.0 images, raising the
+  feature compatibility version at each, worked on 2026-11-23 up to the 8.0 start that the kernel
+  refused. The `cedar_large_store_*` volumes stay on 5.0.31 and 5.26.0 and are reloaded rather than
+  migrated.
 
   The three servers production runs behind the pins are upgrades of production itself. MySQL 8.0
   lost upstream support in April 2026, and Ubuntu's package is what keeps it patched. Its target is
   8.4, the LTS line the images pin, supported until about 2032, rather than a 9.x release. Keycloak
   decides this. Its realm lives in this MySQL, and Keycloak's supported configurations list only
   MySQL 8.0 and 8.4, so stay on 8.4 until a Keycloak release CEDAR runs supports a 9.x LTS. The
-  client is ready either way, since Connector/J 9.7.0 supports MySQL 8.0 and later. The OpenSearch
-  upgrade to 2.19 needs `search.request_stats_enabled=false` with it, as the
-  [production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) describes.
-
-  Staging matched production's OpenSearch 2.15.0 and Neo4j 5.26.32 on 2026-11-10. The lock wait
-  that never ended was seen on Neo4j 5.26.0 only, the workstation's and the pin's version, 32 patch
-  releases behind both.
+  client is ready either way, since Connector/J 9.7.0 supports MySQL 8.0 and later. Ubuntu 24.04
+  ships MySQL 8.0 and Redis 7.0 only, so each upgrade comes from its vendor's own APT repository.
+  The OpenSearch upgrade to 2.19 needs `search.request_stats_enabled=false` with it, as the
+  [production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) describes. Staging ran
+  production's OpenSearch 2.15.0 on 2026-11-10, so it can rehearse that upgrade.
 
   Production is the part this item owns for every store: each version rehearsed on a copy of
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
@@ -1026,18 +1046,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   dry run and made just after a release.
 
   Embedded Mongo 4.22.0 to 4.33.0 and 5.0.0 belongs here too, and it is the deployed Mongo it
-  follows rather than a framework. The obstacle is the binary. MongoDB published no macOS ARM build
-  before 6.0, and flapdoodle 4.22.0 and earlier resolve the x86-64 build there instead. From 4.23.0,
-  5.0.0 included, flapdoodle offers no mongod 5.0 package for macOS on ARM, so every suite that
-  starts the embedded store dies at `could not resolve package for
-  V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start. Linux
-  CI does not see the failure; every Apple silicon workstation does. Staying on 4.22.0 has its own
-  cost on Linux. Its operating-system detection predates Ubuntu 26.04, so `cedar-parent` overrides
-  `de.flapdoodle.os` to 1.11.1 for the CI runners, and the upgrade would drop that override. Taking the upgrade therefore
-  means running the suites against a different major from the deployed 5.0.31, which is the one
-  thing `EmbeddedCedarMongo` exists to avoid. It moves with item 13. Version 5.0.0 also costs one
-  import, since flapdoodle moved `de.flapdoodle.reverse` to `de.flapdoodle.commons.reverse`, and
-  `EmbeddedCedarMongo` is the estate's only consumer.
+  follows rather than a framework. Flapdoodle 4.23.0 and later offer no mongod 5.0 package for
+  macOS on ARM, which held the suites on 4.22.0 while they ran 5.0. They now run 8.0, as production
+  does, and 8.0 resolves on every platform, so the upgrade can be taken. It drops the
+  `de.flapdoodle.os` 1.11.1 override that `cedar-parent` carries for the CI runners' Ubuntu 26.04,
+  and the CI runs that follow show whether the runners still need `libssl1.1`. Version 5.0.0 also
+  costs one import, since flapdoodle moved `de.flapdoodle.reverse` to
+  `de.flapdoodle.commons.reverse`, and `EmbeddedCedarMongo` is the estate's only consumer.
 
   Logback 1.6 belongs here rather than among the upgrades to make. SLF4J does not hold it back,
   since the newest 1.6 release, 1.6.6, builds against slf4j 2.0.19 and the estate carries 2.0.20.

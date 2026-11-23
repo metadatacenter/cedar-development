@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../services-generic/wait-for-port.sh"
 
 MONGO_PORT="${CEDAR_MONGO_PORT:-27017}"
 MONGO_WAIT_SECONDS=60
-MONGO_FORMULA=mongodb-community@5.0
+MONGO_FORMULA=mongodb-community@8.0
 
 if cedar_port_is_open "${MONGO_PORT}"; then
   echo "MongoDB is already accepting connections on port ${MONGO_PORT}."
@@ -21,13 +21,11 @@ mongod_conf="${brew_prefix}/etc/mongod.conf"
 
 # Start it directly, for when Homebrew will not.
 #
-# MongoDB removed the end-of-life 5.0 formula from its own tap, so a machine whose tap has updated
-# since can no longer resolve a service definition for it: `brew services start` answers "has not
-# implemented #plist, #service or provided a locatable service file" while the installed keg -- the
-# binaries, the configuration, the data directory and even the plist -- is entirely intact. CEDAR
-# pins this version deliberately, so the answer is not to upgrade the server but to start the one
-# that is installed. Every developer's machine hits this on its next tap update, and without a
-# fallback the whole stack stops at Mongo with an error about Homebrew internals.
+# Homebrew can refuse to start an installed keg whose binaries, configuration and data directory are
+# all intact. It refuses formulae from a tap it has not been told to trust, and MongoDB withdraws a
+# formula from its tap once the release line reaches end of life, as it did with 5.0. Either way
+# `brew services start` fails with an error about Homebrew internals. CEDAR pins this version
+# deliberately, so the answer is not to upgrade the server but to start the one that is installed.
 start_mongod_directly() {
   if [ ! -x "${mongod_bin}" ]; then
     echo "       No mongod to run at ${mongod_bin}" >&2
