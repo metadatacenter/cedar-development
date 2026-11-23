@@ -436,35 +436,36 @@ validation requests, publishing, version allocation and provenance.
 
 ### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
 
-A host cannot bound the field types an author may add, and it cannot keep an author's preferences.
-Only the author's own preference filters the field types on offer, and the author can lift that
-filter. Preferences live in memory for each element, start at the Modular profile and are lost on
-reload.
+A host cannot bound the field types an author may add. Only the author's own preference filters
+the field types on offer, and the author can lift that filter. CED reports an author's preferences
+through `preferencesChange` and accepts stored ones through `preferences`, but the Template
+Designer host stores nothing, so an author's preferences are still lost on reload.
 
 Add an allowed-field-types input to the designer and field designer elements. The type picker, the
 field library sidebar and the field designer's type chooser should then offer only the allowed
 types that the author's preference also shows. Profile and preference settings can narrow the
 host's bound but must not broaden it. Preserve supplied artifact content of a type the host does
-not allow, and of a type a restricted profile hides.
+not allow.
 
-Define how the host supplies preference state and how CED reports the author's changes to it. The
-host chooses where and how to store that state. The Template Designer host should store it, so
-that an author's preferences survive a reload.
+Store the preferences in the Template Designer host. The host should keep each value
+`preferencesChange` carries and assign the latest to `preferences` when it creates the designer.
+
+The exchanged preferences include `showDefaultValue`, which the Preferences dialog and every preset
+set and no control reads. Give it an effect or remove it before a CED release publishes the type.
 
 Agree these before implementing:
 
 - whether an existing field of a disallowed type stays editable, becomes read-only or appears in
   the validation report
 - how the Preferences dialog presents a disallowed type
-- whether CED reports the author's own preference or the state left after the bound applies
-- whether the author's edits to the preset definitions travel with the preferences
-- where the Template Designer host stores the state
+- whether CED keeps reporting the author's own preference once a bound applies, or reports the
+  state the bound leaves
+- where the Template Designer host stores the preferences
 
-Add conformance and browser tests for the new input, the preference property and its event. Cover
-the bounded pickers, a preference round trip across a reload, and content preserved under a bound
-and under a restricted profile. CED must never allocate identities or versions when the host
-replaces the artifact or supplies an editable draft. Add a test for the move from read-only
-published content to a host-supplied editable document that asserts this.
+Add conformance and browser tests for the new input. Cover the bounded pickers and content
+preserved under a bound. CED must never allocate identities or versions when the host replaces the
+artifact or supplies an editable draft. Add a test for the move from read-only published content
+to a host-supplied editable document that asserts this.
 
 ## Independent UI Review
 

@@ -4618,8 +4618,8 @@ that names paths only the repository has.
 
 ### Embedding It
 
-A host loads one script and then has the element. Two properties and one event
-are the whole contract today.
+A host loads one script and then has the element. This example uses two of its
+properties and one of its events, and CED's README documents the complete contract.
 
 ```html
 <cedar-embeddable-designer id="designer"></cedar-embeddable-designer>
@@ -4648,6 +4648,18 @@ into the bundle. CED passes the language on to the term picker and to the CEE an
 elements it embeds. The Template Designer host sets it from the browser's preferred
 language. `npm test` runs a guard that fails on a user-visible string written outside
 the maps; deliberate exceptions go in `src/app/i18n/i18n-allowlist.json` with a reason.
+
+`preferences` reads and replaces an author's preferences together with the preset
+definitions, and `preferencesChange` carries the complete state after each change the
+author makes. CED keeps preferences in memory for one element. It sends no event at
+startup or for a host's own assignment, so a host can store each value it receives and
+assign the latest to the next element. An assignment may come at any time. An omitted key
+takes its default, `null` restores every default, and a value CED cannot use is named in a
+console warning and ignored. Preferences change the controls CED offers and never the
+document. The field designer has no preferences, and the Template Designer host does not
+store them yet. `src/app/core/services/preference-exchange.ts` converts between the
+designer's state and the stored value, and `browser/tests/preferences.spec.ts` runs the
+exchange through a host page in all three engines.
 
 ### CED in the Split Designer Host
 
