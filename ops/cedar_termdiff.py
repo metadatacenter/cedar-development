@@ -54,11 +54,15 @@ def atom_id(atom, input_text):
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
-def post_search(server, value_constraints, input_text, page, page_size, api_key, timeout):
-    """POST one page of integrated-search; return the parsed PagedResults dict."""
+# The largest `limit` an offset-paged route accepts; a larger one is refused with 400.
+MAX_LIMIT = 500
+
+
+def post_search(server, value_constraints, input_text, limit, offset, api_key, timeout):
+    """POST one window of integrated-search; return the parsed PagedResults dict."""
     body = json.dumps({
         "parameterObject": {"valueConstraints": value_constraints, "inputText": input_text},
-        "page": page, "pageSize": page_size,
+        "limit": limit, "offset": offset,
     }).encode()
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if api_key:
@@ -69,35 +73,41 @@ def post_search(server, value_constraints, input_text, page, page_size, api_key,
 
 
 def fetch_all(server, value_constraints, input_text, probe_size, max_results, api_key, timeout, retries):
-    """Fetch the complete result set in a single sized request; return (ids, {id: prefLabel},
-    total, truncated).
+    """Fetch the result set by walking offsets; return (ids, {id: prefLabel}, total, truncated).
 
-    The endpoint's pagination is unusable for browse: `page`/`nextPage` are inert (every page
-    returns the first `pageSize` rows), but a request with `pageSize >= totalCount` returns the whole
-    set at once. So probe once to learn `totalCount`, then, if needed, refetch sized to it (capped at
-    `max_results`; a larger set is marked truncated and must not be used for set-equality)."""
-    def req(page_size):
+    Each request asks for at most `MAX_LIMIT` rows. The first one, `probe_size` rows at offset 0,
+    learns `totalCount`; the walk then continues from the offset the server answered until it holds
+    `min(totalCount, max_results)` rows. A set larger than `max_results` is marked truncated and must
+    not be used for set-equality. A window the server refuses, or one that comes back empty before
+    the walk is done, also marks the set truncated rather than failing the atom outright."""
+    def req(limit, offset):
         for attempt in range(retries):
             try:
-                return post_search(server, value_constraints, input_text, 1, page_size, api_key, timeout)
+                return post_search(server, value_constraints, input_text, limit, offset, api_key, timeout)
             except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
                 if attempt == retries - 1:
                     raise
                 time.sleep(min(20, 2 ** attempt))
 
-    data = req(probe_size)
+    limit = max(1, min(probe_size, MAX_LIMIT))
+    data = req(limit, 0)
     total = data.get("totalCount")
-    coll = data.get("collection") or []
+    coll = list(data.get("collection") or [])
     truncated = total is not None and total > max_results
-    if total is not None and len(coll) < total:
+    if total is not None:
         want = min(total, max_results)
-        if want > len(coll):
+        offset = data.get("currentOffset", 0) + len(coll)
+        while len(coll) < want:
             try:
-                coll = req(want).get("collection") or coll
+                window = req(min(MAX_LIMIT, want - len(coll)), offset).get("collection") or []
             except urllib.error.HTTPError:
-                # The endpoint caps pageSize (here ~5000); a larger request 400s. Keep the probe
-                # results and mark the set incomplete rather than failing the atom outright.
                 truncated = True
+                break
+            if not window:
+                truncated = True
+                break
+            coll.extend(window)
+            offset += len(window)
 
     ids, labels, seen = [], {}, set()
     for r in coll[:max_results]:
@@ -365,11 +375,12 @@ def main():
         p.add_argument("--ontology", nargs="*", help="Restrict to these acronyms.")
         p.add_argument("--kinds", nargs="*", help="Restrict to these kinds (ontology/branch/class/valueSet).")
         p.add_argument("--input-text", default="", help='inputText to send (default "" = enumerate).')
-        p.add_argument("--probe-size", type=int, default=1000,
-                       help="pageSize of the initial probe; covers most branches in one request.")
+        p.add_argument("--probe-size", type=int, default=MAX_LIMIT,
+                       help=f"limit of the first request; covers most branches in one request. "
+                            f"No request asks for more than {MAX_LIMIT}, the most the endpoint accepts.")
         p.add_argument("--max-results", type=int, default=5000,
-                       help="Cap on the fetched result set AND the largest pageSize requested (the "
-                            "endpoint 400s above ~5000). A larger result set is marked truncated and "
+                       help="Cap on the fetched result set, reached by walking offsets in windows of "
+                            f"at most {MAX_LIMIT}. A larger result set is marked truncated and "
                             "excluded from the set-equality gate (browse enumeration is not the right "
                             "bar for whole ontologies / very large branches).")
         p.add_argument("--timeout", type=float, default=120, help="Per-request timeout seconds (BioPortal is slow).")

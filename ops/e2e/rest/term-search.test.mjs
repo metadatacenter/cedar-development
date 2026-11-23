@@ -22,7 +22,7 @@ const answer = () => ({
   },
 });
 
-const properties = () => ({ total: 1, page: 1, pageSize: 5, items: [{ sourceAcronym: 'DOID', versionId: 'a1b2',
+const properties = () => ({ totalCount: 1, request: { limit: 5, offset: 0 }, currentOffset: 0, items: [{ sourceAcronym: 'DOID', versionId: 'a1b2',
   property: { iri: 'http://purl.obolibrary.org/obo/RO_0001025', kind: 'object', label: 'located in', obsolete: false,
     hasChildren: false } }] });
 
@@ -60,7 +60,19 @@ test('a property answer missing a field the picker maps is refused', () => {
     change(body);
     assert.deepEqual(propertyRefusals(body), ['property item 0 lacks a field the picker maps']);
   }
-  assert.deepEqual(propertyRefusals({ total: 1, items: [] }), ['the answer lacks its total, page, page size or items']);
+  const legacy = ['the answer lacks its total count, request, current offset or items'];
+  // The legacy fields the server no longer answers are not a substitute for the envelope.
+  assert.deepEqual(propertyRefusals({ total: 1, page: 1, pageSize: 5, items: [] }), legacy);
+  for (const change of [
+    body => { delete body.totalCount; },
+    body => { delete body.request; },
+    body => { body.request.limit = '5'; },
+    body => { delete body.currentOffset; },
+  ]) {
+    const body = properties();
+    change(body);
+    assert.deepEqual(propertyRefusals(body), legacy);
+  }
 });
 
 const CLASS = 'http://purl.obolibrary.org/obo/DOID_1909';

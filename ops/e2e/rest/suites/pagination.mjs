@@ -4,14 +4,16 @@
 //
 // Two listings are covered directly: a folder's contents, which nothing else touches, and search,
 // which the search suite reaches for propagation but not for the shape of a page. Every other listing
-// that pages, on every service, is held to the same refusal of a bad limit or offset, and those that
-// also page by number to the rule that a request pages one way or the other.
+// that pages, on every service, is held to the same refusal of a bad limit or offset, and to the
+// refusal of a page number. One listing of each application is also held to the envelope a page
+// answers: the window that was asked for, the total, where the page starts, and the links of a GET.
 import {
   suite, check, checkStatus, call, mutate, updateArtifact, cleanup, artifactBody, permissions, everybodyGroup,
-  poll, enc, specialFolder, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE,
+  poll, enc, specialFolder, RUN, ARTIFACT_SERVER, MESSAGING, MONITOR, BRIDGE, TERMINOLOGY,
 } from '../lib.mjs';
 import { cedarErrorProblem } from './errors.mjs';
 import { responseContractProblem } from '../response-contract.mjs';
+import { envelopeProblems } from '../paging-envelope.mjs';
 
 export const name = 'pagination';
 
@@ -25,6 +27,16 @@ function badQuery(res, what) {
   check(!problem && res.body?.status === 'BAD_REQUEST', `${what}: the refusal is a CedarError`,
       problem ?? `status was ${res.body?.status}`);
 }
+
+/** Holds an answer to the paging envelope of the window it was asked for, in one check. */
+function checkEnvelope(res, what, window) {
+  const problems = res.status === 200 ? envelopeProblems(res.body, window)
+    : [`it answered ${res.status}: ${(res.text ?? '').slice(0, 120)}`];
+  check(problems.length === 0, what, problems.slice(0, 4).join('; '));
+}
+
+// The largest limit a listing accepts. One more is refused.
+const MAX_LIMIT = 500;
 
 export async function run({ user1, user2, admin, folderId }) {
   const auth = user1.auth;
@@ -97,6 +109,11 @@ export async function run({ user1, user2, admin, folderId }) {
       `paging was ${JSON.stringify(paging).slice(0, 200)}`);
   check(typeof paging.last === 'string' && paging.last.includes('limit=2'),
       'and a last-page link', `paging was ${JSON.stringify(paging).slice(0, 200)}`);
+
+  // A page from the middle carries every link, and its offset is not the zero a default would give.
+  checkEnvelope(await call(auth, 'GET', `${contents}?limit=2&offset=2`),
+      'a page from the middle states its window, total, current offset and every link',
+      { limit: 2, offset: 2, links: true });
 
   suite('pagination: the contents-extract projection pages the same way');
 
@@ -210,7 +227,7 @@ export async function run({ user1, user2, admin, folderId }) {
     { what: 'a non-numeric offset', qs: 'offset=null' },
   ];
   const endpoints = [
-    { name: 'folder contents', path: contents },
+    { name: 'folder contents', path: contents, limits: true },
     { name: 'folder contents-extract', path: extract },
     { name: 'search', path: `/search?q=${enc(PAGE_TAG)}` },
     { name: 'the category listing', path: '/categories' },
@@ -227,6 +244,11 @@ export async function run({ user1, user2, admin, folderId }) {
     const nonNumeric = await call(auth, 'GET', `${endpoint.path}${sep}limit=abc`);
     badQuery(nonNumeric,
         `${endpoint.name} with a non-numeric limit is a client error, not a server fault`);
+    if (!endpoint.limits) continue;
+    checkStatus(await call(auth, 'GET', `${endpoint.path}${sep}limit=${MAX_LIMIT}`), 200,
+        `${endpoint.name} accepts the largest limit, ${MAX_LIMIT}`);
+    badQuery(await call(auth, 'GET', `${endpoint.path}${sep}limit=${MAX_LIMIT + 1}`),
+        `${endpoint.name} with a limit of ${MAX_LIMIT + 1} is refused with 400`);
   }
 
   suite('pagination: every other listing refuses an invalid limit or offset with 400');
@@ -237,21 +259,23 @@ export async function run({ user1, user2, admin, folderId }) {
   // administrator may read; a run without the key fails rather than leaving them unread.
   const listings = [
     { name: 'search-deep', path: `/search-deep?q=${enc(PAGE_TAG)}` },
-    { name: "the artifact server's templates", base: ARTIFACT_SERVER, path: '/templates' },
+    { name: "the artifact server's templates", base: ARTIFACT_SERVER, path: '/templates', envelope: true },
     { name: "the artifact server's elements", base: ARTIFACT_SERVER, path: '/template-elements' },
     { name: "the artifact server's fields", base: ARTIFACT_SERVER, path: '/template-fields' },
     { name: "the artifact server's instances", base: ARTIFACT_SERVER, path: '/template-instances' },
-    { name: 'messages', base: MESSAGING, path: '/messages' },
+    { name: 'messages', base: MESSAGING, path: '/messages', envelope: true },
     // The bridge refuses a bad limit or offset before it asks the registry, so the refusals need no
     // registry. A valid page does: it is asked of the live ROR registry, and is checked by
     // rest/live-authorities.mjs, which gates nothing, so that an outside service cannot fail a release.
+    // The envelope of that page is checked there too.
     { name: 'an authority search', base: BRIDGE, path: '/ext-auth/ror/search-by-name?q=stanford', registry: true },
   ];
   if (check(!!admin, 'the administrator key is configured, so the monitor listings can be paged',
       'CEDAR_ADMIN_USER_API_KEY is unset; the admin-only monitor listings cannot run')) {
     for (const path of ['/logs/explorer/requests', '/logs/explorer/cypher', '/logs/explorer/outliers/requests',
       '/logs/explorer/outliers/cypher', '/logs/usage/endpoints', '/logs/usage/cypher', '/logs/usage/users']) {
-      listings.push({ name: `the monitor's ${path}`, base: MONITOR, path, auth: admin.auth });
+      listings.push({ name: `the monitor's ${path}`, base: MONITOR, path, auth: admin.auth,
+        envelope: path === '/logs/usage/endpoints' });
     }
   }
   for (const listing of listings) {
@@ -265,6 +289,15 @@ export async function run({ user1, user2, admin, folderId }) {
     const nonNumeric = await get('limit=abc');
     badQuery(nonNumeric,
         `${listing.name} with a non-numeric limit is a client error, not a server fault`);
+    // The registry-backed listing can only be refused here: a page of it is asked of the registry.
+    if (listing.envelope || listing.registry) {
+      badQuery(await get(`limit=${MAX_LIMIT + 1}`), `${listing.name} with a limit of ${MAX_LIMIT + 1} is refused with 400`);
+    }
+    if (!listing.envelope) continue;
+    checkStatus(await get(`limit=${MAX_LIMIT}`), 200, `${listing.name} accepts the largest limit, ${MAX_LIMIT}`);
+    checkEnvelope(await get('limit=2&offset=1'),
+        `${listing.name} states its window, total, current offset and links at an offset past the first row`,
+        { limit: 2, offset: 1, links: true });
   }
 
   suite('pagination: typed listings refuse invalid sorting and filters');
@@ -477,17 +510,43 @@ export async function run({ user1, user2, admin, folderId }) {
     check(holds ? listed(answer) : absent(answer), `special folders ${what}`, said(answer, 'folder'));
   }
 
-  suite('pagination: a listing that pages by number as well refuses both at once');
+  suite('pagination: a page number is refused, since every listing pages by limit and offset');
 
-  // Terminology and the external authorities still take a page number and a page size, for clients
-  // that predate limit and offset. A request may page one way or the other, and the bridge refuses one
-  // that pages both ways before it asks the registry. That a page asked for by number is answered,
-  // with links that can be followed, needs the live ROR registry, so rest/live-authorities.mjs checks
-  // it outside the gate.
-  const both = await call(auth, 'GET', '/ext-auth/ror/search-by-name?q=stanford&page=1&pageSize=2&offset=2',
-      undefined, { base: BRIDGE });
-  check(both.status === 400, 'an authority search refuses a page number sent with an offset',
-      `expected 400, got ${both.status}: ${(both.text ?? '').slice(0, 120)}`);
+  // Terminology and the external authorities once took a page number and a page size as well, for
+  // clients that predated limit and offset. They take limit and offset alone now, and a GET that
+  // names a page or a page size is refused rather than answered from a page nobody asked for. The
+  // bridge refuses before it asks the registry, so these need no registry.
+  const numbered = [['a page number', 'page=1'], ['a page size', 'pageSize=2'],
+    ['a page number and a page size', 'page=1&pageSize=2']];
+  for (const [what, qs] of numbered) {
+    const res = await call(auth, 'GET', `/ext-auth/ror/search-by-name?q=stanford&${qs}`, undefined, { base: BRIDGE });
+    check(res.status === 400, `an authority search refuses ${what}`,
+        `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
+  }
+  for (const [what, qs] of [...numbered, ['a page size spelled page_size', 'page_size=2'],
+    ['a page number and a page_size', 'page=1&page_size=2']]) {
+    const res = await call(auth, 'GET', `/bioportal/search?q=melanoma&${qs}`, undefined, { base: TERMINOLOGY });
+    check(res.status === 400, `a terminology search refuses ${what}`,
+        `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
+  }
+
+  // A POST body is the exception. Published CEE sends `page: 1` and a page size in its integrated
+  // search, so the first page asked for by number is still answered, and any other page is refused.
+  const integrated = paging => call(auth, 'POST', '/bioportal/integrated-search', {
+    parameterObject: {
+      valueConstraints: {
+        ontologies: [{ uri: 'https://data.bioontology.org/ontologies/DOID', acronym: 'DOID', numTerms: 0, name: 'DOID' }],
+        branches: [], classes: [], valueSets: [],
+      },
+      inputText: 'disease',
+    },
+    ...paging,
+  }, { base: TERMINOLOGY });
+  checkStatus(await integrated({ page: 1, pageSize: 50 }), 200,
+      'an integrated search sent the first page by number, as published CEE sends it, answers');
+  const second = await integrated({ page: 2, pageSize: 50 });
+  check(second.status === 400, 'an integrated search refuses any other page number',
+      `expected 400, got ${second.status}: ${(second.text ?? '').slice(0, 120)}`);
 
   suite('pagination: a window the search index cannot serve is refused with 400');
 

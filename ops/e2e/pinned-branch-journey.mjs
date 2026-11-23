@@ -44,8 +44,8 @@ async function offered(inputText, version) {
       inputText,
       valueConstraints: { ontologies: [], valueSets: [], classes: [], branches: [branch(version)], actions: [] },
     },
-    page: 1,
-    pageSize: 50,
+    limit: 50,
+    offset: 0,
   }, { base: TERMINOLOGY });
   assert.equal(reply.status, 200, reply.text);
   return reply.body.collection.map(term => term.prefLabel);

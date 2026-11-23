@@ -66,7 +66,7 @@ async function post(base, token, path, body) {
  */
 async function sampleSource(database, base, token, acronym, perSource) {
   const scoped = await post(base, null, '/search', {
-    query: acronym, pageSize: 1, sources: [{ sourceAcronym: acronym }],
+    query: acronym, limit: 1, offset: 0, sources: [{ sourceAcronym: acronym }],
   });
   const served = scoped.status === 200 && (scoped.body?.sources ?? []).length > 0
       && scoped.body.sources.every(entry => entry.served === 'local');
@@ -81,8 +81,8 @@ async function sampleSource(database, base, token, acronym, perSource) {
         valueConstraints: { ontologies: [ontologyConstraint(acronym)], branches: [], classes: [], valueSets: [] },
         inputText: term.label,
       },
-      page: 1,
-      pageSize: 25,
+      limit: 25,
+      offset: 0,
     });
     const listed = found.status === 200 && (found.body?.collection ?? []).some(entry => entry['@id'] === term.iri);
     if (!listed) continue;

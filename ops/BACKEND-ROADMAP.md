@@ -47,58 +47,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## CEDAR 3.0.0
 
-- **2. Finish converging on the body paging envelope.** Every route that pages by offset answers
-  CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
-  `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
-  `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
-  still accept beside the envelope, and settling what the estate has not yet made uniform.
+- **2. Deploy the spreadsheet validator's offset paging before releasing the paging withdrawal.**
+  **Production consequence:** until it is deployed, a release that carries the terminology server's
+  withdrawal of page-number paging makes the spreadsheet validator check each categorical column
+  against only the first 100 values of its value set, and report valid values as errors.
 
-  **Withdraw the page-number forms once their clients move.** The terminology server still accepts a
-  one-based `page` with `pageSize` or `page_size`, and still answers BioPortal's flat `page`,
-  `pageCount`, `pageSize`, `prevPage` and `nextPage` beside the envelope, on its GET routes, on
-  integrated search and retrieve, on the versioned `POST /search` and on the property search. Four
-  clients still use them: the Template Editor, whose controlled-term autocomplete pages by `nextPage`
-  (`autocomplete.service.js:303`); CEE, which asks integrated search for page 1 and reads only
-  `collection` (`controlled-field-data.service.ts:47`); cadsr-tools, which walks integrated search by
-  page number (`TemplateFieldsHandler.java:122`); and the artifact library's
-  `TerminologyServerClient`, which walks integrated retrieve the same way. The bridge's
-  `search-by-name` still accepts a zero-based `page` and `pageSize` and still answers `found`,
-  `page` and `pageSize`; no client in the estate sends or reads the paging pair, though CEE reads
-  `found`. CEE is published, so moving it costs a public release; price that against the release
-  calendar before choosing when. Record a withdrawal date for each form once its last client has
-  moved.
+  The validator, in `spreadsheet-validator-api`, asks integrated search for `page: 1` with a
+  `pageSize` of 1000 and reads that one page. The withdrawal serves such a body at the default limit
+  of 100. The validator's change to read by `limit` and `offset`, 500 rows at a time, is
+  [spreadsheet-validator-api#7](https://github.com/metadatacenter/spreadsheet-validator-api/pull/7).
+  It works against the current terminology server, so it can be merged and deployed first.
 
-  **Make the rest uniform.** Defaults and maxima are still set per surface: 100/500 on the resource
-  server, the monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500
-  on the artifact server and on categories (`cedar-main.yml:360`), 100/500 on the bridge, the
-  configured default up to 1,000 on the terminology server's BioPortal routes, 20/200 on its
-  versioned and property searches, and 50/500 on a hierarchy's children. Choose one default and one
-  maximum. The terminology server's `page_size`/`pageSize` alias still resolves by argument position,
-  and its route families pass the arguments in opposite orders (`AbstractTerminologyServerResource.java`,
-  `resolvePageSize`), so a request sending both spellings gets a route-dependent answer; resolve it
-  centrally, or let it go with the page-number forms. Three variations on the envelope are worth
-  documenting where the API is described rather than removing: a POST route carries no `paging`
-  links, since it has no URL to link to, and a client asks for the next page by sending the offset;
-  a listing that cannot afford or cannot know an exact total answers `countCapped` and leaves out the
-  `last` link, as the monitor's raw logs, the bridge's ROR and NIH RePORTER, integrated search past
-  its 1,000-result window and the property hierarchies do; and the bridge keys its rows by term IRI
-  rather than listing them, which is what CEE reads.
-
-  **Document the two cursor walks as the exception.** `?continuation=` on `/search-deep`, and the
-  monitor's log query with its `"<iso>,<id>"` keyset `cursor` (`SearchContinuation.java`,
-  `LogQuerySpec.java:29`), page a whole result set at one request per page, which an offset cannot.
-  They are two cursor encodings rather than one, and the API documentation should say both are the
-  stated exception to the envelope.
-
-  Done when every page-number form is withdrawn or carries a recorded withdrawal date, one default and
-  one maximum page size apply everywhere, and the variations and cursor walks are documented. The
-  REST smoke has to assert the envelope on a route from each application that serves one. Today
-  `rest/suites/pagination.mjs` asserts `request`, `totalCount` and the `paging` links on the
-  resource server's listings, and the `paging` links alone on the bridge's authority search. For
-  the artifact server, messaging and the monitor it checks only that a valid page answers and that
-  an invalid argument is refused. `rest/suites/term-search.mjs` checks `totalCount` on the
-  terminology server's versioned search and nothing else of the envelope. No suite asserts
-  `currentOffset` on any route.
+  Done when the validator running at metadatavalidator.metadatacenter.org reads by `limit` and
+  `offset`, before the release.
 
 - **3. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be

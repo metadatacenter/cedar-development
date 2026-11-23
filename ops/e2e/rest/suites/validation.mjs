@@ -203,8 +203,8 @@ async function semanticVerificationOnWrite(auth, folderId) {
       },
       inputText: 'disease',
     },
-    page: 1,
-    pageSize: 5,
+    limit: 5,
+    offset: 0,
   }, { base: TERMINOLOGY }) : null;
   const terms = (found?.body?.collection ?? []).filter(entry => entry['@id'] && entry.prefLabel)
       .map(entry => ({ iri: entry['@id'], label: entry.prefLabel }));

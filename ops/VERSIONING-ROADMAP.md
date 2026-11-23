@@ -1151,11 +1151,10 @@ POST /search
 }
 ```
 
-A request pages each type's block either by `limit` and `offset`, as the picker sends them, or by
-`page` and `pageSize`. The server refuses a request that sends both. The picker sends an `offset`
-only past the first page, so this request asks for the first twenty. Each block of the answer states
-its page by number, as `page` and `pageSize`, and by `limit` and `offset` in its `request`, which the
-example below leaves out.
+A request pages each type's block by `limit` and `offset`: a limit of 100 when none is sent, and
+at most 500. The picker sends an `offset` only past the first page, so this request asks for the
+first twenty. Each block of the answer states the page it holds by `limit` and `offset` in its
+`request`, and by `currentOffset`, which the example below leaves out.
 
 A source may be named once. A hit carries the addressing pair and no version of its own, so the
 same acronym at two versions would leave every hit from it unable to say which one answered; the
@@ -1188,10 +1187,10 @@ page inside one tab, ask for that type alone.
   "query": "melanoma",
   "sources": [ … ],
   "results": {
-    "ontology": { "totalCount": 0,    "countCapped": false, "page": 1, "pageSize": 20, "collection": [] },
-    "branch":   { "totalCount": 412,  "countCapped": false, "page": 1, "pageSize": 20, "collection": [ … ] },
-    "class":    { "totalCount": 9572, "countCapped": false, "page": 1, "pageSize": 20, "collection": [ … ] },
-    "valueSet": { "totalCount": 13,   "countCapped": false, "page": 1, "pageSize": 20, "collection": [ … ] }
+    "ontology": { "totalCount": 0,    "countCapped": false, "collection": [] },
+    "branch":   { "totalCount": 412,  "countCapped": false, "collection": [ … ] },
+    "class":    { "totalCount": 9572, "countCapped": false, "collection": [ … ] },
+    "valueSet": { "totalCount": 13,   "countCapped": false, "collection": [ … ] }
   }
 }
 ```

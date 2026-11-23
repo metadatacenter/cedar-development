@@ -7931,8 +7931,8 @@ python3 ops/cedar_termdiff.py verify --matrix matrix.jsonl --goldens goldens \
 `record` is resumable (one file per atom; already-recorded atoms are skipped, failures left
 unrecorded to retry). Equivalence bar for the enumerate path (`inputText=""`): set-equality on result
 IRIs plus preferred-label agreement — ordering and BioPortal-only metadata are ignored, since the
-snapshot holds hierarchy plus preferred labels. The endpoint caps `pageSize` (~5000) and its
-`page`/`nextPage` are inert, so the harness fetches each set in one request sized to `totalCount`;
+snapshot holds hierarchy plus preferred labels. The endpoint serves at most 500 rows a request, so
+the harness walks each set by `offset` until it has `totalCount` rows;
 sets larger than `--max-results` are marked truncated and excluded from the gate (whole-ontology
 enumeration is not a browse test). `verify` emits a per-ontology readiness report; an ontology that is
 100% set-equal with no errors is safe to add to `localOntologies`. The migration plan this feeds is
@@ -7986,7 +7986,7 @@ Quick check (integrated-search serves anonymous callers, so no token is needed):
 ```bash
 curl -s -X POST 'http://localhost:9004/bioportal/integrated-search?lang=fr' \
   -H 'Content-Type: application/json' \
-  -d '{"parameterObject":{"valueConstraints":{"ontologies":[{"acronym":"ONTOPARON"}],"branches":[],"valueSets":[],"classes":[]},"inputText":"occupational"},"page":1,"pageSize":3}' \
+  -d '{"parameterObject":{"valueConstraints":{"ontologies":[{"acronym":"ONTOPARON"}],"branches":[],"valueSets":[],"classes":[]},"inputText":"occupational"},"limit":3}' \
   | python3 -c 'import sys,json;[print(c["prefLabel"]) for c in json.load(sys.stdin)["collection"]]'
 # -> professionnel / accident du travail / ergothérapie  (English by default)
 ```

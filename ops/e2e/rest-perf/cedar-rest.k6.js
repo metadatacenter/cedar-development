@@ -2330,8 +2330,8 @@ function integratedSearch(data, index, acronym, inputText, operation) {
       valueConstraints: { ontologies: [ontologyConstraint(acronym)], branches: [], classes: [], valueSets: [] },
       inputText,
     },
-    page: 1,
-    pageSize: 25,
+    limit: 25,
+    offset: 0,
   }, operation);
 }
 
@@ -2380,7 +2380,8 @@ export function terminology(data) {
       const specific = corpusWideTerms[acronym];
       const found = terminologyCall(data, index, 'POST', '/search', {
         query: scoped ? term.label : specific[(__ITER * 7 + index) % specific.length].label,
-        pageSize: 25,
+        limit: 25,
+        offset: 0,
         ...(scoped ? { sources: [{ sourceAcronym: acronym }] } : {}),
       }, name);
       if (accepted(found, [200], `${name} succeeds`) && scoped) {

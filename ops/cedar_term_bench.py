@@ -40,7 +40,7 @@ def get(path, timeout=300):
     return time.perf_counter() - t, json.loads(payload)
 
 
-def integrated(acronym, text, page_size=25):
+def integrated(acronym, text, limit=25):
     """The lookup the authoring UI performs for an ontology-constrained field."""
     return post("/bioportal/integrated-search", {
         "parameterObject": {
@@ -49,11 +49,11 @@ def integrated(acronym, text, page_size=25):
                                 "acronym": acronym, "numTerms": 0, "name": acronym}],
                 "branches": [], "classes": [], "valueSets": []},
             "inputText": text},
-        "page": 1, "pageSize": page_size})
+        "limit": limit, "offset": 0})
 
 
-def versioned(text, sources=None, page_size=25):
-    body = {"query": text, "pageSize": page_size}
+def versioned(text, sources=None, limit=25):
+    body = {"query": text, "limit": limit, "offset": 0}
     if sources:
         body["sources"] = [{"sourceAcronym": a} for a in sources]
     return post("/search", body)
@@ -102,12 +102,12 @@ def main():
             ts = [integrated(acr, pfx)[0] for _ in range(reps)]
             row(f"{acr} ({size:,}) prefix {pfx!r}", stats(ts))
 
-    print("\n=== C. Page size sweep (DOID, exact labels)\n")
+    print("\n=== C. Limit sweep (DOID, exact labels)\n")
     labels = sample_labels(conn, "DOID", reps)
     for ps in [10, 25, 50, 100]:
         integrated("DOID", labels[0], ps)
         ts = [integrated("DOID", labels[i % len(labels)], ps)[0] for i in range(reps)]
-        row(f"pageSize={ps}", stats(ts))
+        row(f"limit={ps}", stats(ts))
 
     print("\n=== D. Versioned POST /search, source-scoped vs corpus-wide\n")
     for acr in ["DOID", "NCIT"]:

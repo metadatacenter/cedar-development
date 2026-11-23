@@ -14,6 +14,7 @@
 // suite relies on. When the local store does not serve them, as in production by default, the
 // suite skips.
 import { suite, check, checkStatus, skip, call, TERMINOLOGY } from '../lib.mjs';
+import { envelopeProblems } from '../paging-envelope.mjs';
 
 export const name = 'term-search';
 
@@ -31,6 +32,19 @@ const searchChecks = what => [`the search for ${what} answers`,
   `the answer for ${what} is one the picker accepts`, `and it finds ${what}`];
 const PROPERTY_CHECKS = ['the property search for DOID "material" answers',
   'its answer carries every field the picker maps', 'and it finds a DOID property'];
+// The paging envelope, asked of a window past the first row so that the current offset cannot be the
+// zero a default would give: the GET search CED and the metadata editor use, which links its pages,
+// and the versioned POST search the picker uses, which states its window in each kind's results and
+// has no links. The GET search also takes the largest limit and refuses one more.
+const ENVELOPE_GET = '/bioportal/search?q=melanoma&sources=DOID';
+const ENVELOPE_POST = { query: 'melanoma', types: ['class'], sources: [{ sourceAcronym: 'DOID' }], limit: 2, offset: 1 };
+const MAX_LIMIT = 500;
+const ENVELOPE_CHECKS = [
+  'the GET search states its window, total, current offset and links at an offset past the first row',
+  'the versioned search states its window, total and current offset in its class results',
+  `the GET search accepts the largest limit, ${MAX_LIMIT}`,
+  `the GET search refuses a limit of ${MAX_LIMIT + 1} with 400`,
+];
 // GET /search/hierarchy, the picker's second call, which it makes when an author opens a class hit.
 // Asked of the first class the melanoma search finds.
 const HIERARCHY_CHECKS = ['the hierarchy of a DOID class answers', 'its answer is one the picker accepts',
@@ -111,8 +125,9 @@ export function hierarchyRefusals(body, acronym, termIri) {
 
 /** What searchProperties would map to nothing, one line per reason. */
 export function propertyRefusals(body) {
-  if (!object(body) || !count(body.total) || !count(body.page) || !count(body.pageSize) || !Array.isArray(body.items)) {
-    return ['the answer lacks its total, page, page size or items'];
+  if (!object(body) || !count(body.totalCount) || !object(body.request) || !count(body.request.limit)
+      || !count(body.request.offset) || !count(body.currentOffset) || !Array.isArray(body.items)) {
+    return ['the answer lacks its total count, request, current offset or items'];
   }
   const found = [];
   body.items.forEach((item, i) => {
@@ -147,7 +162,7 @@ export async function run({ user1 }) {
   if (!doid || !cedarvs) {
     const reason = `the local terminology store does not serve DOID/CEDARVS (DOID: ${doid}, CEDARVS: ${cedarvs})`;
     for (const what of [...SEARCHES.flatMap(search => searchChecks(search.what)), ...PROPERTY_CHECKS,
-      ...HIERARCHY_CHECKS]) skip(what, reason);
+      ...ENVELOPE_CHECKS, ...HIERARCHY_CHECKS]) skip(what, reason);
     return {};
   }
 
@@ -177,6 +192,22 @@ export async function run({ user1 }) {
     skip(accepted, 'the search did not answer');
     skip(finds, 'the search did not answer');
   }
+
+  const [getEnvelope, postEnvelope, acceptsMax, refusesOver] = ENVELOPE_CHECKS;
+  const envelope = (res, window) => (res.status === 200 ? envelopeProblems(res.body, window)
+    : [`it answered ${res.status}: ${(res.text ?? '').slice(0, 120)}`]);
+  const got = await call(null, 'GET', `${ENVELOPE_GET}&limit=2&offset=1`, undefined, { base: TERMINOLOGY });
+  const gotProblems = envelope(got, { limit: 2, offset: 1, links: true });
+  check(gotProblems.length === 0, getEnvelope, gotProblems.slice(0, 4).join('; '));
+  const posted = await call(null, 'POST', '/search', ENVELOPE_POST, { base: TERMINOLOGY });
+  const postedProblems = posted.status === 200
+    ? envelopeProblems(posted.body?.results?.class, { limit: 2, offset: 1, links: false })
+    : envelope(posted, {});
+  check(postedProblems.length === 0, postEnvelope, postedProblems.slice(0, 4).join('; '));
+  checkStatus(await call(null, 'GET', `${ENVELOPE_GET}&limit=${MAX_LIMIT}`, undefined, { base: TERMINOLOGY }),
+      200, acceptsMax);
+  checkStatus(await call(null, 'GET', `${ENVELOPE_GET}&limit=${MAX_LIMIT + 1}`, undefined, { base: TERMINOLOGY }),
+      400, refusesOver);
 
   const [hierarchyAnswers, hierarchyAccepted, placed] = HIERARCHY_CHECKS;
   if (!check(iri(classHit?.termIri), 'the class search names a class whose hierarchy to ask',

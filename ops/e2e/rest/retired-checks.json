@@ -72,6 +72,12 @@
       "section": "content negotiation: YAML in and out",
       "name": "an unsupported Accept is either refused with 406 or falls back deliberately",
       "reason": "Accepted a 200 fallback that its own comment ruled out; the resource server answers 406, and the check now requires it."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: a listing that pages by number as well refuses both at once",
+      "name": "an authority search refuses a page number sent with an offset",
+      "reason": "No listing pages by number any more. The bridge and the terminology server refuse page and pageSize on their own, which the section on refusing a page number checks; a page number sent with an offset is one case of that."
     }
   ]
 }

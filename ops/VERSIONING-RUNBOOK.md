@@ -871,8 +871,8 @@ identical result sets. Exact counting was slower than snapshot lookup in the DDS
 ## Checking Ontology Filter Completeness
 
 The **Ontologies** filter makes a separate `POST /search` request with
-`types: ["ontology"]`, `ontologyOrder: "matches"`, `page: 1`, and `pageSize: 200`.
-The picker loads subsequent pages until a short page ends the list. A query can
+`types: ["ontology"]`, `ontologyOrder: "matches"` and a `limit` of 200.
+The picker loads subsequent pages, by `offset`, until a short page ends the list. A query can
 match more than 1,000 ontologies; the filter must retain every page.
 
 `SearchIndexStore.vocabularyFacet` counts distinct matching term IDs before joining
@@ -1051,8 +1051,8 @@ Future ingests extract properties before calculating the ontology version automa
 The local-only API is unauthenticated, like version-aware class search:
 
 - `POST /properties/search`: `query`, optional `sources: [{sourceAcronym, versionId}]`, optional
-  `kinds` (`object`, `datatype`, `annotation`), and either `limit` and `offset` or `page` and
-  `pageSize`. Unscoped search uses the index; a scoped request reads the requested ontology
+  `kinds` (`object`, `datatype`, `annotation`), and `limit` and
+  `offset`. Unscoped search uses the index; a scoped request reads the requested ontology
   snapshot. Every hit reports the ontology version that answered, including when the corpus index is
   behind the catalog.
 - `GET /properties?sourceAcronym=...&versionId=...&propertyIri=...&kind=...`: one property and its
@@ -1179,7 +1179,7 @@ release or the current one. Both are designed in
 
 ```bash
 curl -s -X POST http://localhost:9004/search -H 'Content-Type: application/json' \
-  -d '{"query":"melanoma","pageSize":25}' | python3 -m json.tool | head -40
+  -d '{"query":"melanoma","limit":25}' | python3 -m json.tool | head -40
 ```
 
 Naming no source searches the whole corpus through the index; naming one searches its snapshot, can
