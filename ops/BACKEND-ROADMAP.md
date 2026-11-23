@@ -708,28 +708,39 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   remaining server upgrades except Keycloak's, which item 6 owns. Order them by risk, lowest first.
   Rehearse each upgrade on a copy of production data and gate on the end-to-end smoke.
 
-  Containerizing the production data stores needs each image pin moved up to the version already
-  running, because an older engine cannot open existing data files, so this item unblocks the
-  persistence migration tracked in the Docker roadmap. MySQL is the real decision left among the
-  data stores.
+  Containerizing the production data stores needs each image pin moved up to at least the version
+  already running, because an older engine cannot open existing data files, so this item unblocks
+  the persistence migration tracked in the Docker roadmap.
 
-  For MySQL the choice is between the 8.4 LTS line the images pin, supported until about 2032, and
-  9.7, the first 9.x LTS, released in April 2026. Every 9.x release before it was an Innovation
-  release, supported only until the next one, and after 9.7 MySQL numbers releases by year and
-  month, so 26.7 is the July 2026 Innovation release. Keycloak settles it for now. Its realm lives
-  in this MySQL, and Keycloak's supported configurations list only MySQL 8.0 and 8.4, so stay on 8.4
-  until a Keycloak release CEDAR runs supports a 9.x LTS. The client is ready either way, since
-  Connector/J 9.7.0 supports MySQL 8.0 and later.
+  Production and the image pins disagree in both directions. On 2026-11-22 production
+  (`cedr-prd-app-07`) ran the servers below, beside the pins in `cedar-docker-build/bin/cedar-images-base.sh`.
 
-  These documents do not record production's MySQL version. Confirm it with `SELECT VERSION()`
-  before planning its move.
+  | Server     | Production | Image pin | Work                                             |
+  |------------|------------|-----------|--------------------------------------------------|
+  | MongoDB    | 8.0.38     | 5.0.31    | Move the pin to 8.0; a 5.0 engine cannot open production's data |
+  | Neo4j      | 5.26.32    | 5.26.0    | Move the pin to 5.26.32 or later                 |
+  | nginx      | 1.30.7     | 1.30.4    | Move the pin to 1.30.7 or later                  |
+  | MySQL      | 8.0.46     | 8.4.11    | Upgrade production to 8.4                        |
+  | Redis      | 7.0.15     | 7.2.7     | Upgrade production to 7.2                        |
+  | OpenSearch | 2.15.0     | 2.19.1    | Upgrade production to 2.19                       |
+  | Keycloak   | 22.0.4     | 22.0.4    | Item 6                                           |
 
-  The environments do not run the same versions. On 2026-11-10 staging ran OpenSearch 2.15.0 and
-  Neo4j 5.26.32, where the workstation and the Docker build manifest have 2.19.1 and 5.26.0.
-  Production's were not read. Two things follow. An OpenSearch upgrade to 2.19 needs
-  `search.request_stats_enabled=false` with it, as the
-  [production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) describes. And the
-  lock wait that never ended was seen on Neo4j 5.26.0 only, 32 patch releases behind staging.
+  The three pins behind production are the blockers for containerizing it, and MongoDB's is the
+  largest: three major versions, with the image never tested against data written by 8.0. Every
+  test and smoke run so far has exercised the 5.0 pin, so moving it needs a full e2e pass of its own.
+
+  The three servers production runs behind the pins are upgrades of production itself. MySQL 8.0
+  lost upstream support in April 2026, and Ubuntu's package is what keeps it patched. Its target is
+  8.4, the LTS line the images pin, supported until about 2032, rather than a 9.x release. Keycloak
+  decides this. Its realm lives in this MySQL, and Keycloak's supported configurations list only
+  MySQL 8.0 and 8.4, so stay on 8.4 until a Keycloak release CEDAR runs supports a 9.x LTS. The
+  client is ready either way, since Connector/J 9.7.0 supports MySQL 8.0 and later. The OpenSearch
+  upgrade to 2.19 needs `search.request_stats_enabled=false` with it, as the
+  [production runbook](PROD-DEPLOY-RUNBOOK.md#opensearch-request-statistics) describes.
+
+  Staging matched production's OpenSearch 2.15.0 and Neo4j 5.26.32 on 2026-11-10. The lock wait
+  that never ended was seen on Neo4j 5.26.0 only, the workstation's and the pin's version, 32 patch
+  releases behind both.
 
   Production is the part this item owns for every store: each version rehearsed on a copy of
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
