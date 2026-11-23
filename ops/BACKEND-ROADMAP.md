@@ -959,25 +959,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **19. Prove the whole-stack smoke on a hosted runner, and keep it passing nightly.**
-  **Production consequence:** none at runtime. Until the smoke job has passed once, a train can stop
-  at its last job, after its Maven, npm and Docker artifacts are published but before it completes.
-
-  The train workflow's last job now runs every smoke tier against the candidate's Docker stack,
-  through `cedarcli test e2e --train`, and the record step refuses to complete a train without a
-  passing run judged by the same `smoke_gate` code the dispatch preflight uses.
-  `whole-stack-smoke.yml` repeats the run nightly against the current completed train. Neither has
-  run yet. The tiers were written against a workstation, and the runner may lack something they
-  read: a seeded user or key, a sibling checkout `docker_acceptance.py smoke-sources` does not
-  provide, a Java or Chromium path, or the time the split and REST tiers need on four cores. The job
-  allows 240 minutes.
-
-  Dispatch a train from a source that includes this change, fix what its smoke job reports until
-  the train completes, and then let the nightly run take the current train. Done when a train has
-  completed with `wholeStackSmoke` in its completion record and the nightly run has passed on
-  consecutive days.
-
-- **20. Take the dependency upgrades that need code changes.** The versions that could move without
+- **19. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
   What stayed behind stayed deliberately, and it separates into work to do, versions that follow
   something else, and versions whose newest release is not a final.
@@ -1106,7 +1088,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **21. Resolve the remaining production artifact defects, review semantic migrations, and decide
+- **20. Resolve the remaining production artifact defects, review semantic migrations, and decide
   what happens to existing instances when a draft template changes.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
@@ -1504,7 +1486,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **22. Bound every graph transaction in time.** During the 50-user soak on 2026-11-10 one save's
+- **21. Bound every graph transaction in time.** During the 50-user soak on 2026-11-10 one save's
   first statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for 24 minutes
   with no other transaction open. Its request thread in the resource server never returned.
   `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until the process
@@ -1529,7 +1511,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when a lock wait that outlasts the limit fails its transaction in every environment, a
   retried save succeeds, and no request thread can wait on the graph without a deadline.
 
-- **23. Give the performance profiles a production-sized graph.** The workstation's graph holds
+- **22. Give the performance profiles a production-sized graph.** The workstation's graph holds
   143 artifacts, so every REST profile measures an almost empty store. A cost that grows with the
   data is invisible there: a label scan, a version-series traversal, a folder with tens of thousands
   of children, a search page drawn from 300,000 documents. Production holds about 150,000 schema
@@ -1540,7 +1522,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the profiles can run against a store of production size, and the runbook records which
   routes changed with the size of the store.
 
-- **24. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
+- **23. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
   server asks the terminology server about every distinct controlled-term value of a write, one
   request after another. Against a source the local store serves, a check takes a few milliseconds:
   at 10 users the authoring profile validates an instance holding three DOID terms in a median of
@@ -1585,7 +1567,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when a save has a stated bound that does not depend on BioPortal answering.
 
-- **25. Settle five open dependency questions.** Each is a decision to take rather than a change
+- **24. Settle five open dependency questions.** Each is a decision to take rather than a change
   to make, and none is urgent.
 
   - **Which JAX-RS implementation a server's static helpers use.** Every server carries Jersey for
@@ -1633,7 +1615,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when each question has an answer recorded here or in the runbook.
 
-- **26. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
+- **25. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
   runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
 
   No smoke tier creates a DOI or a draft DOI, so the gated tiers never exercise the bridge server's
@@ -1644,7 +1626,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **27. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
+- **26. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
   none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
 
   Each test JVM runs its classes one after another. The artifact server's suite now gives each class
