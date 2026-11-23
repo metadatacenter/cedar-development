@@ -47,7 +47,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## CEDAR 3.0.0
 
-- **2. Deploy the spreadsheet validator's offset paging before releasing the paging withdrawal.**
+- **2. Deploy the spreadsheet validator's offset paging and release the envelope-reading term
+  picker before releasing the paging withdrawal.**
   **Production consequence:** until it is deployed, a release that carries the terminology server's
   withdrawal of page-number paging makes the spreadsheet validator check each categorical column
   against only the first 100 values of its value set, and report valid values as errors.
@@ -58,8 +59,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   [spreadsheet-validator-api#7](https://github.com/metadatacenter/spreadsheet-validator-api/pull/7).
   It works against the current terminology server, so it can be merged and deployed first.
 
+  The term picker has the same dependency. Every release of `cedar-embeddable-term-picker` on
+  npmjs reads property search's flat `total`, `page` and `pageSize` fields, which the withdrawal
+  removes, so a host that embeds a published picker shows no property results. The picker's
+  `develop` head reads the envelope, and the Template Designer and CED's integration CI already
+  follow it through its Nexus development package and source revision. No npmjs release carries it
+  yet.
+
   Done when the validator running at metadatavalidator.metadatacenter.org reads by `limit` and
-  `offset`, before the release.
+  `offset`, and an npmjs release of the term picker reads the envelope, before the release.
 
 - **3. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
