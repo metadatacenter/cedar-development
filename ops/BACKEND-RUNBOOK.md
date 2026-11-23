@@ -5931,9 +5931,9 @@ comes from `jetty-util`, so a banner alone is not proof of dependency alignment.
 
 Jersey follows the same pattern. `cedar-parent` imports `org.glassfish.jersey:jersey-bom` at the
 Two moved again on 2026-11-23, to the versions production runs: Mongo to 8.0.38 and Neo4j to
-5.26.32, on the workstation and in the embedded store the suites start. The images still pin 5.0.31
-and 5.26.0, because the MongoDB 8.0 image cannot start under Docker Desktop's current kernel. The
-backend roadmap's server-upgrade item tracks the move.
+5.26.32, on the workstation, in the embedded store the suites start, and in the images. The
+MongoDB image needs Docker Desktop 4.93.0 or later, and an existing Docker volume needs migrating,
+as the [Docker runbook](DOCKER-RUNBOOK.md#moving-a-mongodb-50-volume-to-80) describes.
 
 `org.glassfish.jersey.version` property, and the inherited `enforce-jersey-alignment` rule rejects
 any resolved Jersey module at another version. Until 2026-10-19 the parent managed only

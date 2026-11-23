@@ -682,44 +682,27 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   already running, because an older engine cannot open existing data files, so this item unblocks
   the persistence migration tracked in the Docker roadmap.
 
-  Production and the image pins disagree in both directions. On 2026-11-22 production
-  (`cedr-prd-app-07`) ran the servers below. The pins are those in
-  `cedar-docker-build/bin/cedar-images-base.sh`.
+  Production and the image pins disagree. On 2026-11-22 production (`cedr-prd-app-07`) ran the
+  servers below. The pins are those in `cedar-docker-build/bin/cedar-images-base.sh`. MongoDB,
+  Neo4j and nginx are absent because their pins match production.
 
-  | Server     | Production | Image pin | Work                                         |
-  |------------|------------|-----------|----------------------------------------------|
-  | MongoDB    | 8.0.38     | 5.0.31    | Move the pin once Docker can run 8.0          |
-  | Neo4j      | 5.26.32    | 5.26.0    | Move the pin with MongoDB's                   |
-  | nginx      | 1.30.7     | 1.30.4    | Move the pin with MongoDB's                   |
-  | MySQL      | 8.0.46     | 8.4.11    | Upgrade production to 8.4                     |
-  | Redis      | 7.0.15     | 7.2.7     | Upgrade production to 7.2                     |
-  | OpenSearch | 2.15.0     | 2.19.1    | Upgrade production to 2.19                    |
-  | Keycloak   | 22.0.4     | 22.0.4    | Item 6                                        |
+  | Server     | Production | Image pin | Work                       |
+  |------------|------------|-----------|----------------------------|
+  | MySQL      | 8.0.46     | 8.4.11    | Upgrade production to 8.4  |
+  | Redis      | 7.0.15     | 7.2.7     | Upgrade production to 7.2  |
+  | OpenSearch | 2.15.0     | 2.19.1    | Upgrade production to 2.19 |
+  | Keycloak   | 22.0.4     | 22.0.4    | Item 6                     |
 
-  The three pins behind production are the blockers for containerizing it. The workstation and the
-  test suites already run production's MongoDB and Neo4j lines, and the full Java build and every
-  e2e tier passed on them on 2026-11-23, so the pins are what remains. The edit that moves them to
-  8.0.38, 5.26.32 and 1.30.7 is ready, but it cannot land until the Docker acceptance gate passes on
-  the images it builds, and that gate cannot run on Docker Desktop yet.
-
-  The obstacle is the kernel. Linux 6.19 changed how restartable sequences behave, which breaks the
-  tcmalloc allocator MongoDB 8.0 uses, and kernels 7.0.14 and 7.1.0 restore the old behaviour.
-  MongoDB 8.0.30 and later refuse to start on a kernel between 6.19.0 and 7.0.13
-  ([SERVER-125742](https://jira.mongodb.org/browse/SERVER-125742)). Docker Desktop's virtual machine
-  runs 7.0.12, so the 8.0.38 image exits at startup. MongoDB offers no override, so the gate waits
-  for a Docker Desktop release whose kernel is 7.0.14 or later. The same check refuses Ubuntu's
-  7.0.14-based kernels, because `uname -r` reports them as 7.0.0
+  MongoDB constrains which Linux kernel any host may move to. Linux 6.19 changed how restartable
+  sequences behave, which breaks the tcmalloc allocator MongoDB 8.0 uses, and kernels 7.0.14 and
+  7.1.0 restore the old behaviour. MongoDB 8.0.30 and later refuse to start on a kernel between
+  6.19.0 and 7.0.13 ([SERVER-125742](https://jira.mongodb.org/browse/SERVER-125742)). The same
+  check refuses Ubuntu's 7.0.14-based kernels, because `uname -r` reports them as 7.0.0
   ([SERVER-136848](https://jira.mongodb.org/browse/SERVER-136848)). That matters to any Linux host
   that moves to Ubuntu 26.04, production included, and to CI. The embedded MongoDB the suites start
   is 8.0.16, which predates the refusal and is listed as crashing after about a minute on the
-  affected kernels. It ran for two minutes under load on Docker's 7.0.12 without a fault, so the
+  affected kernels. It ran for two minutes under load on a 7.0.12 kernel without a fault, so the
   listing describes a risk the GitHub runners may or may not meet.
-
-  The Docker volumes need migrating when the pin moves, since a 5.0 data directory does not open
-  under 8.0. Stepping a copy of `mongo_data` through the 6.0, 7.0 and 8.0 images, raising the
-  feature compatibility version at each, worked on 2026-11-23 up to the 8.0 start that the kernel
-  refused. The `cedar_large_store_*` volumes stay on 5.0.31 and 5.26.0 and are reloaded rather than
-  migrated.
 
   The three servers production runs behind the pins are upgrades of production itself. MySQL 8.0
   lost upstream support in April 2026, and Ubuntu's package is what keeps it patched. Its target is

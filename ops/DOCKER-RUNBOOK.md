@@ -36,6 +36,9 @@ Homebrew/local data. `docker compose down` retains named volumes and therefore r
 ## Prerequisites
 
 - Docker Engine with Compose v2; Compose 5.3 or newer is the known-good version.
+- On macOS, Docker Desktop 4.93.0 or later. Its virtual machine runs Linux 7.0.14, and the MongoDB
+  image refuses to start on a kernel between 6.19.0 and 7.0.13. Check the kernel with
+  `docker run --rm alpine uname -r`.
 - For a normal published-image deployment: `cedar-cli`, `cedar-development`,
   `cedar-docker-build`, and `cedar-docker-deploy`. After installing the CLI,
   `cedarcli git clone docker` retrieves the latter three.
@@ -714,7 +717,7 @@ Expect to see them, and expect the regenerate log to say it is not touching them
 inflates. Count root documents with a `match_all` search instead, and compare that against the
 `FileSystemResource` nodes in Neo4j.
 
-**Mongo and Neo4j.** Use 5.0.31 and 5.26.0, the versions running natively. These
+**Mongo and Neo4j.** Use 8.0.38 and 5.26.32, the versions running natively and in production. These
 are the two that carry the source of truth, so each is a real migration rather than a rebuild.
 
 Mongo goes through `mongodump` and `mongorestore`. Restore only the `cedar` database: the container
@@ -932,6 +935,42 @@ cedarcli mode native --profile develop
 
 The CLI supplies the selected profile internally; do not mix native and Docker profile values in the
 calling shell.
+
+## Moving a MongoDB 5.0 Volume to 8.0
+
+The MongoDB image moved from 5.0.31 to 8.0.38 on 2026-11-23. A `mongo_data` volume the older image
+wrote does not open under 8.0. MongoDB opens data written by the previous major version only, and
+only after its feature compatibility version has been raised to that version. The volume therefore
+steps through the 6.0 and 7.0 images on the way.
+
+Stop the Docker deployment and copy the volume first:
+
+```bash
+docker run --rm -v mongo_data:/from -v mongo_data_5.0_backup:/to alpine cp -a /from/. /to/
+```
+
+Then start each upstream image on the volume in turn, raise the feature compatibility version, and
+stop it. The upstream images run `mongod` without `--auth`, so the shell needs no credentials, and
+the users the CEDAR image created stay in place. The containers publish no ports, so a native stack
+can keep running. MongoDB 6.0 rejects the `confirm` field that 7.0 and 8.0 require.
+
+```bash
+step() {
+  docker run -d --name mongo-fcv -v mongo_data:/data/db "mongo:$1" mongod --bind_ip 127.0.0.1
+  until docker exec mongo-fcv mongosh --quiet --eval 'db.adminCommand({ping: 1})' >/dev/null 2>&1
+  do sleep 2; done
+  docker exec mongo-fcv mongosh --quiet \
+    --eval "db.adminCommand({setFeatureCompatibilityVersion: '$2'$3})"
+  docker stop -t 60 mongo-fcv && docker rm mongo-fcv
+}
+step 6.0 6.0 ''
+step 7.0 7.0 ', confirm: true'
+step 8.0.38 8.0 ', confirm: true'
+```
+
+The Neo4j volume needs no such step, since 5.26.32 opens data that 5.26.0 wrote. The large-store
+volumes are separate and keep their own engines, as the
+[backend runbook](BACKEND-RUNBOOK.md) describes.
 
 ## Known Limitations
 
