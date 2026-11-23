@@ -1522,52 +1522,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the profiles can run against a store of production size, and the runbook records which
   routes changed with the size of the store.
 
-- **23. Bound what a save's term checks cost when BioPortal has to answer them.** The artifact
-  server asks the terminology server about every distinct controlled-term value of a write, one
-  request after another. Against a source the local store serves, a check takes a few milliseconds:
-  at 10 users the authoring profile validates an instance holding three DOID terms in a median of
-  18 ms. For a source the local store does not serve, the terminology server asks BioPortal, with
-  up to 256 lookups and 20 seconds for one check, inside a write's own budget of 256 checks and 30
-  seconds. A save of an instance whose terms come from such a source therefore waits on BioPortal,
-  and waits 30 seconds when BioPortal does not answer. No profile measures this path, because the
-  harness does not load BioPortal.
-
-  On 2026-11-22 staging, running release 2.9.37 with the SQLite store serving 1,214 ontologies,
-  measured the path while BioPortal answered. Staging's own traffic made about seven term checks in
-  ten days, so the measurement saved instances from the production snapshot of 2026-11-16 through
-  the resource server, three times each, and deleted them afterwards. The save time is the first
-  save's, then the range of the two repeats.
-
-  | Instance | Checks | Answered by BioPortal | Save time |
-  |---|---|---|---|
-  | Four terms from served sources | 4 | 0 | 0.16 s, then 0.13–0.14 s |
-  | One SNOMEDCT term among six | 6 | 1 | 0.37 s, then 0.16–0.17 s |
-  | Largest WHO-ART and NDDF instance | 309 | 299 | 13.6 s, then 2.2 s |
-
-  BioPortal sits on the same campus as staging, so a single check it answers costs tens of
-  milliseconds, and at most 1.2 s when its answer is not cached. An ordinary save therefore does not
-  wait on it noticeably. The largest instance reached the limit of 256 checks. Its other 53 values
-  were recorded as unavailable and the instance was stored. `SemanticValueVerification` logged its
-  rate-limited warning once, but each save also wrote all 53 per-value findings of its validation
-  report to the artifact server log.
-
-  Measured against staging's store, 143,182 of the snapshot's 150,599 instances hold controlled
-  terms, with a median of four distinct checks each. 11,582 of them, 8%, hold a term from a source
-  the store does not serve: SNOMEDCT in 11,168, WHO-ART in 225 with 15,537 values between them,
-  NDDF in 200, and a long tail of Library of Congress vocabularies and value-set collections. Five
-  instances, all compound-screening records with WHO-ART and NDDF terms, hold between 260 and 309
-  distinct checks. A save of any of them is cut off at the limit every time.
-
-  Three things remain. Measure a save holding terms of an unserved source against a stub that
-  answers slowly or not at all, since the 30-second budget, not BioPortal's speed, sets the cost of
-  an outage. Confirm that the production store serves the same sources as staging's. Then decide
-  whether a save asks BioPortal at all, or records such a value as unverified and leaves the check
-  to the validation command, and whether a save cut off at the limit should log every value it
-  leaves unchecked.
-
-  Done when a save has a stated bound that does not depend on BioPortal answering.
-
-- **24. Settle five open dependency questions.** Each is a decision to take rather than a change
+- **23. Settle five open dependency questions.** Each is a decision to take rather than a change
   to make, and none is urgent.
 
   - **Which JAX-RS implementation a server's static helpers use.** Every server carries Jersey for
@@ -1615,7 +1570,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when each question has an answer recorded here or in the runbook.
 
-- **25. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
+- **24. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
   runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
 
   No smoke tier creates a DOI or a draft DOI, so the gated tiers never exercise the bridge server's
@@ -1626,7 +1581,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **26. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
+- **25. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
   none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
 
   Each test JVM runs its classes one after another. The artifact server's suite now gives each class

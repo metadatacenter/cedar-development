@@ -3057,6 +3057,25 @@ of that service is unavailable without a call. A save therefore waits at most fi
 that does not answer, which is what the terminology service does while BioPortal hangs. There is no
 persistent success cache.
 
+The terminology service asks BioPortal about every term whose source the local store does not serve.
+Measured against the production snapshot of 2026-11-16 and staging's store, 8% of instances hold such
+a term, mostly SNOMEDCT, and a few hold WHO-ART or NDDF terms by the hundred. On 2026-11-23 the
+workstation saved three such instances with its terminology server pointed at a BioPortal that
+accepted connections and never answered. Each was saved three times and stored every time.
+
+| Instance | Distinct checks | Save time | Checks recorded as unavailable |
+|---|---|---|---|
+| Four terms from served sources | 4 | 0.11–0.20 s | 0 |
+| One SNOMEDCT term among six | 6 | 5.1–5.2 s | 4–5 |
+| Largest WHO-ART and NDDF instance | 309 | 5.3 s | 306 |
+
+Before the per-call limit, the last two waited thirty seconds. The unresponsive mark applies to the
+terminology service as a whole, not to one vocabulary, so after BioPortal's first timeout the write's
+checks of served terms go unasked too, and the artifact server logs one finding for each. When
+BioPortal answers, the cost is small: on staging, which shares BioPortal's campus, the six-term save
+took 0.37 s and the 309-check save 13.6 s, falling to 0.17 s and 2.2 s once BioPortal had cached its
+answers. That save reached the limit of 256 checks and recorded its other 53 values as unavailable.
+
 The artifact server builds both addresses from `CEDAR_TERMINOLOGY_SERVER_HOST`,
 `CEDAR_TERMINOLOGY_HTTP_PORT`, `CEDAR_BRIDGE_SERVER_HOST` and `CEDAR_BRIDGE_HTTP_PORT`, which
 `CedarConfigEnvironmentDescriptor` declares for it. Before 2026-11-10 it declared none of them, so
