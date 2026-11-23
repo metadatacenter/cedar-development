@@ -27,7 +27,14 @@ class AcceptanceTest(unittest.TestCase):
             env={'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted','GITHUB_WORKSPACE':directory,
                  'CEDAR_TRAIN_VERSION':train,'GITHUB_REPOSITORY':'metadatacenter/cedar-development','GITHUB_RUN_ID':'123'}
             with patch.dict(os.environ,env,clear=True):
-                for defect in ('missing','failed','duplicate','lab','overlay','patched','different-images',None):
+                smoke={'finishedAt':'later','sourcesDigest':'d'*16,'durationSeconds':1.0,
+                       'tiers':{tier:{'verdict':'PASS'} for tier in ('rest','browser','split','search')}}
+                smoke_path=root/'smoke.json';smoke_path.write_text(json.dumps(smoke))
+                judged=[]
+                def judge(report,judged_state,version):
+                    judged.append((report,judged_state,version))
+                    return ['the browser smoke was FAIL'] if defect=='smoke' else []
+                for defect in ('missing','failed','duplicate','lab','overlay','patched','different-images','smoke',None):
                     with self.subTest(defect=defect):
                         candidate=copy.deepcopy(report)
                         if defect=='missing':candidate['samples'].pop()
@@ -40,13 +47,18 @@ class AcceptanceTest(unittest.TestCase):
                         target.write_text(json.dumps(completion));before=target.read_bytes()
                         report_path=root/'report.json';report_path.write_text(json.dumps(candidate))
                         if defect:
-                            with self.assertRaises(ValueError):acceptance.record(root/'CEDAR',state,report_path)
+                            with self.assertRaises(ValueError):acceptance.record(root/'CEDAR',state,report_path,smoke_path,judge)
                             self.assertEqual(target.read_bytes(),before)
                         else:
-                            acceptance.record(root/'CEDAR',state,report_path)
-                            proof=json.loads(target.read_text())['freshStackAcceptance']
+                            acceptance.record(root/'CEDAR',state,report_path,smoke_path,judge)
+                            written=json.loads(target.read_text())
+                            proof=written['freshStackAcceptance']
                             self.assertEqual(proof['successfulSamples'],34)
                             self.assertEqual(proof['status'],'passed')
+                            smoke_proof=written['wholeStackSmoke']
+                            self.assertEqual(smoke_proof['status'],'passed')
+                            self.assertEqual(smoke_proof['tiers'],{tier:'PASS' for tier in ('rest','browser','split','search')})
+                            self.assertEqual(judged[-1][1:],(state,train))
 
     def test_train_cannot_publish_before_acceptance(self):
         workflow=(Path(__file__).resolve().parents[2]/'.github/workflows/build-train.yml').read_text()
@@ -56,6 +68,7 @@ class AcceptanceTest(unittest.TestCase):
         ordered=['Pull and verify all 27 core images','Initialize an empty installation without compatibility mounts',
                  'Start the verified candidate from empty volumes',
                  'Check real deployed pages and standalone components with real APIs and SSO',
+                 'Run every whole-stack smoke tier against the candidate',
                  'Record required fresh-stack acceptance','Advance the completed Docker-train pointer']
         positions=[names.index(name) for name in ordered]
         self.assertEqual(positions,sorted(positions))

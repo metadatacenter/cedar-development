@@ -385,10 +385,26 @@ cold/warm checks), including authenticated Workspace, Designer, Monitoring and B
 OpenView, content, and standalone CEE/CED/CETP. Only standalone fixtures use the private static lab;
 application payloads are not patched or substituted. Production DNS is blocked in the browser.
 Timings remain reporting-only; failed loading, readiness, interactions or fixture cleanup fail the
-train. The completion record carries `freshStackAcceptance`, with the workflow URL, report hash,
-coverage and runtime identities; the `docker-fresh-stack-acceptance` artifact retains screenshots
-and reports for 30 days. Sanitized diagnostics remain for 14 days. The runner stops its stack on
+train.
+
+The same stack then runs every whole-stack smoke tier through `cedarcli test e2e --train <TRAIN_ID>
+--train-state <workspace>/build-trains`. Before the tiers run, `docker_acceptance.py smoke-sources`
+checks out the train's repositories at their captured commits, installs the term picker's
+dependencies and builds the REST MCP jar from the MCP repositories' `main`, since the tiers read all
+of these beside the stack. A train run records the captured commits rather than working trees, and
+refuses to start, or fails, when any container runs an image other than the digest the train
+verified. The record step judges that run with the same `smoke_gate` code the dispatch preflight
+uses, so a train completes only on a passing smoke, whether `cedarcli publish train` or the Actions
+page dispatched it. The completion record carries `freshStackAcceptance` and `wholeStackSmoke`, each
+with the workflow URL and report hash; the `docker-fresh-stack-acceptance` artifact retains
+screenshots, the smoke reports and the performance reports for 30 days. Sanitized diagnostics remain for 14 days. The runner stops its stack on
 success or failure and never uses a workstation.
+
+`whole-stack-smoke.yml` repeats the smoke every night, and on dispatch, against the current
+completed Docker train or a named one, so a failure that depends on time, an external service or the
+runner image shows between trains. It starts the train the same way, keeps the smoke reports for 30
+days and writes nothing to the state branch. It needs a train whose captured CLI has the `--train`
+option, so it cannot smoke a train completed before that option landed.
 
 The internal `docker start all --verified-state <workspace>/build-trains --train <TRAIN_ID>` option
 lets this GitHub-hosted gate read the controller's local verification record before publication;

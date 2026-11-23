@@ -8010,6 +8010,12 @@ in OpenView, and conditionally deletes its artifacts. Pass = exit 0; a failure l
 in `ops/e2e/failures/`. The direct commands below run the legacy browser tier for diagnosis;
 they do not replace the full CLI smoke gate or its development freshness prerequisite.
 
+The same tiers run against a completed Docker train with `cedarcli test e2e --train <TRAIN_ID>
+--train-state <build-trains checkout>`. The record then names the commits the train captured, and the
+run is refused unless every container runs an image whose digest the train verified. The train
+workflow runs it before it completes a train, and `whole-stack-smoke.yml` repeats it nightly; the
+[build runbook](BUILD-RUNBOOK.md) describes both.
+
 ```bash
 cd ops/e2e
 npm install            # once per machine

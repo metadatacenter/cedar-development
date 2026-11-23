@@ -959,37 +959,23 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
-  **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
-  and somewhere to keep the reports.
+- **19. Prove the whole-stack smoke on a hosted runner, and keep it passing nightly.**
+  **Production consequence:** none at runtime. Until the smoke job has passed once, a train can stop
+  at its last job, after its Maven, npm and Docker artifacts are published but before it completes.
 
-  Neither smoke tier runs in GitHub Actions. `cedar-development` carries six workflows —
-  `angular-build-isolation-canary`, `build-train`, `publication-preflight-canary`,
-  `realm-seed-hardening`, `release-tooling-ci` and `snapshot-freshness` — and none of them invokes
-  `cedarcli test e2e`, the REST tier or the browser tier. No workflow in any other repository does
-  either, and per-repository CI proves a different thing: that each Java repository compiles and its
-  unit and embedded integration suites pass.
+  The train workflow's last job now runs every smoke tier against the candidate's Docker stack,
+  through `cedarcli test e2e --train`, and the record step refuses to complete a train without a
+  passing run judged by the same `smoke_gate` code the dispatch preflight uses.
+  `whole-stack-smoke.yml` repeats the run nightly against the current completed train. Neither has
+  run yet. The tiers were written against a workstation, and the runner may lack something they
+  read: a seeded user or key, a sibling checkout `docker_acceptance.py smoke-sources` does not
+  provide, a Java or Chromium path, or the time the split and REST tiers need on four cores. The job
+  allows 240 minutes.
 
-  The gate is also entered two ways with two answers. `cedarcli publish train` and `release
-  plan|start` refuse a source no passing run covers, but `build-train.yml:94` calls
-  `python3 controller/ops/build_train.py preflight`, which names no smoke gate, so a train
-  dispatched through Actions is ungated while the same train dispatched from the CLI is not.
-
-  The gate also records a run against services it cannot vouch for. When a Docker container owns a
-  service's port, the native controller reports that service's health as `docker`
-  (`inspect_status` in `cedar-services.sh`), and `smoke_gate.HEALTHY` counts it as healthy,
-  although the controller never assesses a container's health. The same row reads `-` in the
-  binary column, so the check that each jar is newer than its repository's `develop` head skips it
-  too. A run against a hybrid or Docker stack is therefore recorded as evidence for the `develop`
-  heads, and nothing shows that the containers run them. Refuse a Docker-owned row until the gate
-  can establish which source its image was built from.
-
-  Add a scheduled and manually dispatchable whole-stack workflow that brings up a known source, runs
-  every tier through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
-  train call the same gate implementation the CLI calls rather than a second preflight path. Done
-  when every tier runs unattended on a cadence, their reports are retained, a train dispatched
-  through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`, and
-  no run is recorded against a service whose source the gate cannot establish.
+  Dispatch a train from a source that includes this change, fix what its smoke job reports until
+  the train completes, and then let the nightly run take the current train. Done when a train has
+  completed with `wholeStackSmoke` in its completion record and the nightly run has passed on
+  consecutive days.
 
 - **20. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.

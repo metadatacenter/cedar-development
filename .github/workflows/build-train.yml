@@ -1564,7 +1564,7 @@ jobs:
   verify-docker-train:
     needs: [record-docker-plan, java-base, microservice-base, infrastructure, microservices, frontends]
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 240
     env:
       CEDAR_HOME: ${{ github.workspace }}/CEDAR
       CEDAR_TRAIN_VERSION: ${{ inputs.version }}
@@ -1664,8 +1664,18 @@ jobs:
       - name: Check real deployed pages and standalone components with real APIs and SSO
         run: bash "$CEDAR_HOME/cedar-cli/cli.sh" test frontend-performance --samples 1 --profiles normal --deployment-manifest "$RUNNER_TEMP/acceptance-inputs/manifest.json" --output "$RUNNER_TEMP/docker-acceptance"
 
+      - name: Check out the sources the smoke tiers read beside the stack
+        run: python controller/ops/docker_acceptance.py smoke-sources --state "$GITHUB_WORKSPACE/build-trains" --settings controller/ops/maven-train-settings.xml
+
+      - name: Run every whole-stack smoke tier against the candidate
+        run: bash "$CEDAR_HOME/cedar-cli/cli.sh" test e2e --train "$TRAIN_VERSION" --train-state "$GITHUB_WORKSPACE/build-trains"
+
       - name: Record required fresh-stack acceptance
-        run: python controller/ops/docker_acceptance.py record --state "$GITHUB_WORKSPACE/build-trains" --report "$RUNNER_TEMP/docker-acceptance/report.json"
+        run: |
+          "$CEDAR_HOME/cedar-cli/.venv/bin/python" controller/ops/docker_acceptance.py record \
+            --state "$GITHUB_WORKSPACE/build-trains" \
+            --report "$RUNNER_TEMP/docker-acceptance/report.json" \
+            --smoke-report "$CEDAR_HOME/cedar-development/ops/e2e/reports/smoke-gate/latest.json"
 
       - name: Advance the completed Docker-train pointer
         run: |
@@ -1678,6 +1688,7 @@ jobs:
         with:
           name: docker-fresh-stack-acceptance
           path: |
+            ${{ env.CEDAR_HOME }}/cedar-development/ops/e2e/reports/smoke-gate
             ${{ runner.temp }}/docker-acceptance/report.json
             ${{ runner.temp }}/docker-acceptance/report.html
             ${{ runner.temp }}/docker-acceptance/samples.csv
