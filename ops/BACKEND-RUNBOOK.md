@@ -3050,8 +3050,12 @@ Artifact-server verification calls `POST /bioportal/validate-term` on terminolog
 and complete `_valueConstraints`, or the authority-specific bridge `POST /ext-auth/{authority}/verify`.
 Wire field types map to existing bridge routes: `ext-pubmed` → `pmid`, `ext-pfas` → `comp-tox`,
 `ext-nih-grant-id` → `nih-grant`; ORCID, ROR, RRID and DOI retain their names. Calls forward caller
-authorization and use request-local caching keyed by endpoint and the complete request, a twenty-five-second
-per-call timeout, thirty-second request budget and 256 unique checks. There is no persistent success cache.
+authorization and use request-local caching keyed by endpoint and the complete request. Each call may
+take five seconds, and a write's checks share thirty seconds and at most 256 unique checks. A call that
+fails or runs out of time marks its service unresponsive for the rest of the write, and every later check
+of that service is unavailable without a call. A save therefore waits at most five seconds for a service
+that does not answer, which is what the terminology service does while BioPortal hangs. There is no
+persistent success cache.
 
 The artifact server builds both addresses from `CEDAR_TERMINOLOGY_SERVER_HOST`,
 `CEDAR_TERMINOLOGY_HTTP_PORT`, `CEDAR_BRIDGE_SERVER_HOST` and `CEDAR_BRIDGE_HTTP_PORT`, which
