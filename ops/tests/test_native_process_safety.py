@@ -533,8 +533,10 @@ class NativeProcessSafetyTest(unittest.TestCase):
             'touch "$base/target/cedar-group-server-application-$CEDAR_VERSION.jar"; '
             'touch "$base/src/main/resources/config.yml"; '
             'port_open() { return 1; }; uname() { echo Linux; }; '
-            # Stands in for the launched service: backgrounded by the script, so $! is a live pid.
-            'nohup() { sleep 2; }; '
+            # Stands in for the launched service. setsid and nohup run programs rather than shell
+            # functions, so the stand-in is a script of its own and not a function.
+            'SCRIPT_PATH="$CEDAR_HOME/service"; printf "#!/bin/sh\\nexec sleep 2\\n" > "$SCRIPT_PATH"; '
+            'chmod +x "$SCRIPT_PATH"; '
             'launchctl() { echo "launchctl reached on Linux: $*"; }; '
             'start_one group'
         )
@@ -543,6 +545,39 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("launched group", result.stdout)
         self.assertNotIn("launchctl reached on Linux", result.stdout)
         self.assertNotIn("submit -l", result.stdout)
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "command -v setsid"],
+                                        capture_output=True).returncode == 0,
+                         "setsid is a Linux tool; macOS starts services through launchd")
+    def test_linux_start_puts_each_service_in_a_session_of_its_own(self):
+        """An interrupted cedarcli terminates its process group, which once held every service."""
+        result = self.run_library(
+            'base="$CEDAR_HOME/cedar-group-server/cedar-group-server-application"; '
+            'mkdir -p "$base/target" "$base/src/main/resources"; '
+            'touch "$base/target/cedar-group-server-application-$CEDAR_VERSION.jar"; '
+            'touch "$base/src/main/resources/config.yml"; '
+            'port_open() { return 1; }; uname() { echo Linux; }; '
+            'SCRIPT_PATH="$CEDAR_HOME/service"; '
+            'printf "#!/bin/sh\\necho \\"service \\$\\$\\" > \\"\\$CEDAR_HOME/service.pid\\"\\nexec sleep 5\\n" '
+            '> "$SCRIPT_PATH"; chmod +x "$SCRIPT_PATH"; '
+            'start_one group >/dev/null; '
+            'for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$CEDAR_HOME/service.pid" ] && break; sleep 0.2; done; '
+            'launched=$(cat "$(pidfile group)"); '
+            'echo "launched=$launched"; cat "$CEDAR_HOME/service.pid"; '
+            'echo "caller=$(ps -o sid= -p $$ | tr -d " ")"; '
+            'echo "session=$(ps -o sid= -p "$launched" | tr -d " ")"; '
+            'kill "$launched"'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+        service = next(line.split()[1] for line in result.stdout.splitlines()
+                       if line.startswith("service "))
+        # The pidfile names the service itself, not a launcher standing between them.
+        self.assertEqual(values["launched"], service)
+        # The service leads a session of its own, out of reach of the caller's group and terminal.
+        self.assertEqual(values["launched"], values["session"])
+        self.assertNotEqual(values["caller"], values["session"])
 
     def test_macos_start_refuses_a_job_launchd_would_start_without_a_profile(self):
         """launchd hands a submitted job its own environment, so an unnamed profile is fatal."""

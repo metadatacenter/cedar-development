@@ -7,8 +7,8 @@
 # being split out of it each use a Node host script; the other Angular applications use `ng serve`,
 # as detached background processes, each logging to $CEDAR_HOME/log/, PIDs in $CEDAR_HOME/log/run/.
 # macOS uses a non-restarting launchd submitted job so the services survive shells whose command
-# runner reaps its whole process group; other systems retain the nohup launcher. One `status` view
-# shows PID / port / health / error-count.
+# runner reaps its whole process group; other systems start each service in a session of its own
+# with setsid, for the same reason. One `status` view shows PID / port / health / error-count.
 # Frontend health probes the served root (they have no Dropwizard /healthcheck). A failed
 # Angular compiler still leaves its development server listening, so a port-only check lies.
 # The wait after a start asks more of a frontend: the page and everything it loads (frontend_ready.py).
@@ -712,7 +712,17 @@ start_one() {
     done
     [ -n "$p" ] || { echo "  $name: launchd did not report a child PID" >&2; return 1; }
   else
-    nohup "$SCRIPT_PATH" run-one "$name" >"$log" 2>&1 &
+    # A background job of this script shares its process group, and so the group of the cedarcli
+    # command that ran it. When that command is interrupted, it terminates its whole group, and a
+    # closed terminal signals the group in the foreground. Either way every service it had just
+    # started went with it, killed in Jetty's graceful stop, so no log recorded why. setsid gives
+    # each service a session and a group of its own, which neither reaches. A background job is
+    # never a group leader, so setsid runs in place of it and $! remains the service's PID.
+    if command -v setsid >/dev/null 2>&1; then
+      setsid nohup "$SCRIPT_PATH" run-one "$name" </dev/null >"$log" 2>&1 &
+    else
+      nohup "$SCRIPT_PATH" run-one "$name" </dev/null >"$log" 2>&1 &
+    fi
     p=$!
   fi
   # A PID proves only that the launcher spawned something, and a submitted job restarts when it
