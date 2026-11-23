@@ -3058,7 +3058,7 @@ accepted connections and never answered. Each was saved three times and stored e
 
 Before the per-call limit, the last two waited thirty seconds. The unresponsive mark applies to the
 terminology service as a whole, not to one vocabulary, so after BioPortal's first timeout the write's
-checks of served terms go unasked too, and the artifact server logs one finding for each. When
+checks of served terms go unasked too. When
 BioPortal answers, the cost is small: on staging, which shares BioPortal's campus, the six-term save
 took 0.37 s and the 309-check save 13.6 s, falling to 0.17 s and 2.2 s once BioPortal had cached its
 answers. That save reached the limit of 256 checks and recorded its other 53 values as unavailable.
@@ -3068,8 +3068,19 @@ The artifact server builds both addresses from `CEDAR_TERMINOLOGY_SERVER_HOST`,
 `CedarConfigEnvironmentDescriptor` declares for it. Before 2026-11-10 it declared none of them, so
 the host was held back, the port took the placeholder 0, and neither service could be requested:
 from 2026-10-18 every check answered `unavailable` in every environment, which a save tolerates.
-An unavailable check now logs its reason in the artifact server's log, at most once a minute with
-a count of the checks that failed in between. The REST smoke's validation suite saves a DOID term
+A write whose checks were unavailable logs one warning, which counts those values by service and
+reason. The largest instance's save logged this, on the workstation, with BioPortal not answering:
+
+```text
+Semantic verification was unavailable for 306 values of this write:
+1 because http://127.0.0.1:9004/bioportal/validate-term java.net.http.HttpTimeoutException: request timed out;
+252 because http://127.0.0.1:9004/bioportal/validate-term an earlier check of this write found it unresponsive;
+53 because http://127.0.0.1:9004/bioportal/validate-term the write reached its limit of 256 distinct checks
+```
+
+The warning is one line in the log and is wrapped here at each reason. The validation report the
+artifact server logs for the write leaves those values out, and the report returned to the caller
+still lists each one. The REST smoke's validation suite saves a DOID term
 and requires it to come back verified, and skips that check when the local store does not serve DOID.
 
 Semantic facts distinguish `passed`, `failed`, `notChecked`, and `unavailable`. An outage, missing
