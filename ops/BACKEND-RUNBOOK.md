@@ -5738,7 +5738,7 @@ dashboard approval. It holds Java at 17, the Jakarta EE APIs with Jersey and Hib
 EE 10 lines, Logback below 1.6 and logback-access below 2.0.14, Netty on 4.1, embedded Mongo below
 4.23.0, and the OpenSearch client on the server's 2.19 line. It offers nothing for the pins that
 carry another artifact's choice: Lucene and reactor-core follow OpenSearch, hk2-locator follows
-Jersey, Jandex follows RESTEasy and protobuf-java follows Connector/J. Nor does it offer the MariaDB
+Jersey and protobuf-java follows Connector/J. Nor does it offer the MariaDB
 test binaries, whose single version property has to exist for three platforms. Those move by hand.
 
 What the backend repositories have in common is one preset, `renovate-backend.json` in
@@ -5965,6 +5965,41 @@ any resolved Jersey module at another version. Until 2026-10-19 the parent manag
 `jersey-container-servlet` and `jersey-hk2`, so `jersey-common`, `jersey-server`, `jersey-client`
 and every other Jersey module ran the 3.1.11 that the Dropwizard bundle names, beside those two at
 3.1.12.
+
+Metrics follows it too. `cedar-parent` imports `io.dropwizard.metrics:metrics-bom` at the
+`dropwizard.metrics.version` property, and the inherited `enforce-metrics-alignment` rule rejects
+any resolved Metrics artifact at another version. The BOM and its parent manage Metrics artifacts
+and nothing else. Until 2026-11-24 the parent managed only `metrics-annotation` and
+`metrics-healthchecks`, so the other ten Metrics artifacts ran the 4.2.39 that Dropwizard 5.0.2
+names, beside those two at 4.2.40.
+
+**Every server names Jersey's `RuntimeDelegate`.** Every server carries two JAX-RS
+implementations: Jersey for its own resources, and RESTEasy as the Keycloak admin client's
+transport. Both register a `jakarta.ws.rs.ext.RuntimeDelegate`, the class behind `Response`,
+`UriBuilder`, `Link` and the header delegates. The API consults `ServiceLoader` before a system
+property, so without a choice made in code the first line of the shaded jar's merged service file
+answers, and that line follows the order of dependency declarations. Until 2026-11-24 RESTEasy's
+delegate answered in the artifact, messaging, resource and terminology servers and Jersey's in the
+other seven, and the admin tool's jar supplied Jersey's server-side variant. Now
+`JaxRsRuntime.useJerseyRuntimeDelegate()` in `cedar-server-rest-library` installs Jersey's, and
+both `CedarMicroserviceApplication` and the admin tool's `CedarAdmin` call it in their static
+initializers, so the order no longer matters. RESTEasy never installs its own delegate. When the
+installed one is not RESTEasy's, its client builds a provider factory of its own, and a heap
+histogram of the user and monitor servers showed Jersey's delegate still installed after each had
+built the admin client.
+
+**One Jandex.** RESTEasy declares `org.jboss:jandex` 2.4.5 and Hibernate declares
+`io.smallrye:jandex` 3.2.0, and both releases hold classes of the same names in `org.jboss.jandex`.
+A shaded jar keeps the first copy of each class, so with both present nine servers carried all 120
+classes of 2.4.5 together with the 78 that only 3.2.0 has, a mixture neither release ships. The
+admin tool and the group and messaging servers carried 3.2.0 with the 5 classes only 2.4.5 has.
+Nothing failed because nothing loads Jandex: only RESTEasy's resource scanner and Java SE bootstrap
+and Hibernate's bootstrap refer to it, and no running server had loaded a single Jandex class.
+RESTEasy needs Jandex only to scan for server resources, which CEDAR never does with it, so the
+parent's `cedar-application` profile manages `resteasy-core` with `org.jboss:jandex` excluded.
+Every application now carries 3.2.0 alone. The profile is active wherever the Keycloak provider
+registration is missing, so a provider module still takes RESTEasy and Jandex at the Keycloak
+platform's versions, and the parent no longer pins `org.jboss:jandex` at all.
 
 **The Keycloak event listener follows its host platform.** The service registration file
 `META-INF/services/org.keycloak.events.EventListenerProviderFactory` activates the parent's
