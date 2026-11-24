@@ -25,7 +25,8 @@ Refer to the concrete change by name in commits.
   Editor states from an earlier catalogue. OpenView has never been reviewed.
 - Remove the coordinator's Designer-only check, and name the captured application in its reviewer
   instructions, scope and report. The agreed layout behavior in the frontend runbook already has
-  entries for Workspace and the Metadata Editor. OpenView needs its own before its first review.
+  entries for Workspace and the Metadata Editor. OpenView has none yet. A review can run without
+  them, and the answers to its first review's findings can supply them.
 - Capture all three applications under both profiles from the current build, and review each
   capture as the Designer was reviewed. Every state then receives a calibrated assessment, the
   batch's second look and verification of each finding.
