@@ -183,9 +183,11 @@ jobs:
         working-directory: cedar-development
         run: node --test ops/test-*.mjs ops/e2e/rest-perf/test/*.test.mjs ops/e2e/frontend-cache-policy.test.mjs ops/e2e/ui-review/*.test.mjs
 
-      - name: Install Chromium for the isolated performance harness tests
+      # The UI review evidence tests check card crops in all three engines, so they need Firefox
+      # and WebKit as well as the Chromium the performance harness drives.
+      - name: Install the browsers the harness and UI review tests drive
         working-directory: cedar-development/ops/e2e
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium firefox webkit
 
       - name: Test performance measurements and failure handling without a stack
         working-directory: cedar-development/ops/e2e
@@ -203,6 +205,7 @@ jobs:
       # When the four shared one shell block, a failing frontend-train test ended the block, and the
       # repair tool's suite did not run on twelve pushes.
       - name: Install the ops suites' Python dependencies
+        if: ${{ !cancelled() }}
         working-directory: cedar-development
         run: python -m pip install -r ../cedar-cli/requirements.txt
 
