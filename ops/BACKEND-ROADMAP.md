@@ -118,9 +118,36 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
   `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
 
+- **4. Bound graph lock waits on staging and production.** During the 50-user soak on 2026-11-10
+  one save's first statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for
+  24 minutes with no other transaction open. Its request thread in the resource server never
+  returned. `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until
+  the process was killed. The thread dumps are in
+  `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`. Whether Neo4j 5.26.0 has a defect that
+  fifty writers on one node expose is not established. The wait has not recurred on 5.26.0 either:
+  a full soak and five three-minute soaks that morning completed without it. On 2026-11-22 eight
+  30-minute soaks ran on 5.26.32, the version staging and production run, on the same JVM and
+  settings. They completed 2.58 million iterations with no graph transaction open longer than 60
+  seconds and no lock wait reaching the limit. The run is in
+  `$CEDAR_HOME/.cedar/audits/2026-11-22-neo4j-5.26.32-soak/`. This does not show that 5.26.32
+  fixes the defect: if the wait struck one 5.26.0 soak in seven, eight clean runs would still
+  occur by chance about three times in ten. It does show that the wait is not routine on the
+  version production runs.
+
+  `db.lock.acquisition.timeout=30s` bounds an ordinary lock wait, and
+  [When a Graph Write Waits for a Lock](BACKEND-RUNBOOK.md#when-a-graph-write-waits-for-a-lock)
+  gives what a blocked write then does. Staging and production do not carry the setting. The
+  [production runbook](PROD-DEPLOY-RUNBOOK.md#neo4j-lock-acquisition-limit) has the step, which
+  needs a restart of Neo4j. Whether the limit would have ended the wait above is not established
+  either. If such a wait recurs with the limit set, the lock manager is at fault and the limit is
+  not the remedy.
+
+  Done when a lock wait that outlasts the limit fails its transaction in every environment and a
+  retried save succeeds.
+
 ## Features
 
-- **4. Let an author renumber a draft.** A draft's version is the number its publication will
+- **5. Let an author renumber a draft.** A draft's version is the number its publication will
   carry. The Workspace asks for it when the draft is created, starting at the next patch and
   accepting anything higher, and asks again at publication, where it accepts anything no lower.
   Between the two, nothing can change it. An ordinary update refuses any change to `pav:version`,
@@ -148,7 +175,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   agree afterwards, and the command refuses a published artifact, a draft with a successor and a
   version not above its predecessor's.
 
-- **5. Decide who may read DOI metadata with the repository's DataCite credential.** **Production
+- **6. Decide who may read DOI metadata with the repository's DataCite credential.** **Production
   consequence:** a narrower gate refuses some callers that read today. No data migration.
 
   The DataCite metadata route (`DataCiteResource.getDOIMetadata`) asks DataCite what it holds for a
@@ -163,7 +190,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Security
 
-- **6. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
+- **7. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
   22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
   ended at 22.0.5. On 2026-11-22 Dependabot reported 101 open advisories against the Keycloak
   artifacts `cedar-parent` manages, 28 of them high. Three of the high ones are recent:
@@ -347,7 +374,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     identity provider, and CVE-2026-2575 lets an unauthenticated caller exhaust the server's memory
     through the SAML redirect binding regardless.
   - Cap the request size on the token endpoint, and rate limit it and the login endpoints on the
-    terms item 9 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
+    terms item 10 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
     oversized `scope` parameter, and the limit slows the parallel guessing CVE-2024-4629 describes.
 
   Four changes belong in the realm and server configuration:
@@ -383,7 +410,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   CVE-2023-6841. They keep the upgrade itself urgent. Red Hat's subscription build carries fixes on
   the 22 line through 22.0.13, and it is the only way to patch Keycloak without leaving that line.
 
-- **7. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+- **8. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-two repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
@@ -453,7 +480,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   an ordinary push to `main`, a release lands `main` as the app, and the preflight refuses a
   repository whose rules would refuse the release.
 
-- **8. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **9. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Four terminology routes answer an anonymous caller, and that stays.** `GET /bioportal/search`,
   the class-descendants route, `POST /bioportal/integrated-search` and `POST
@@ -467,7 +494,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Descendants was opened for OpenView in 2019. No CEDAR client calls integrated retrieve without a
   key; it stays anonymous because every release since 2024 has served it so, and a gate could break
   callers outside CEDAR. Requiring a credential is therefore not the remedy. What bounds the cost is
-  the edge rate limit in item 9, which covers `/ext-auth/*` and should cover these four on the same
+  the edge rate limit in item 10, which covers `/ext-auth/*` and should cover these four on the same
   terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
@@ -509,11 +536,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **9. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+- **10. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
   anonymous caller can spend the deployment's third-party quota, and only the development host
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. The four
-  anonymous BioPortal routes item 8 lists belong in the same limit, since each spends the
+  anonymous BioPortal routes item 9 lists belong in the same limit, since each spends the
   deployment's BioPortal key.
 
   A limit rather than a credential is deliberate. The embeddable editor calls integrated search from a
@@ -588,7 +615,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   environment states the mode and rates its authenticated quotas run at, both are recorded where the
   deployment is documented rather than only in the config, and a probe shows each taking effect.
 
-- **10. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+- **11. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
   messaging, monitor and worker restart into the change. No schema migration.
 
@@ -620,7 +647,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
   certificate, and the timezone is set by the profile that owns the data it was chosen for.
 
-- **11. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+- **12. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
   consequence:** a browser application fails cross-origin unless its exact origins are configured
   first, so every environment needs its list before the default changes.
 
@@ -633,7 +660,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
   hosted by third parties and calls `POST /bioportal/integrated-search` from origins CEDAR does not
-  know, which is one reason item 8 keeps that route anonymous. A deny-by-default list closes it
+  know, which is one reason item 9 keeps that route anonymous. A deny-by-default list closes it
   unless the policy names it.
 
   Default to no CORS headers rather than to `*`, require the allow-list in each deployment profile,
@@ -642,7 +669,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fallback, each environment's origins are recorded where it is documented, and tests cover blank,
   exact, multiple and wildcard configurations.
 
-- **12. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+- **13. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
   **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
   data and invalidates keys people and integrations hold, so it needs a rotation plan,
   rollback and operator communication. A backup taken before it still contains usable keys and has
@@ -670,10 +697,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Maintenance
 
-- **13. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **14. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock. This item owns the
-  remaining server upgrades except Keycloak's, which item 6 owns. Order them by risk, lowest first.
+  remaining server upgrades except Keycloak's, which item 7 owns. Order them by risk, lowest first.
   Rehearse each upgrade on a copy of production data and gate on the end-to-end smoke.
 
   Containerizing the production data stores needs each image pin moved up to at least the version
@@ -689,7 +716,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | MySQL      | 8.0.46     | 8.4.11    | Upgrade production to 8.4  |
   | Redis      | 7.0.15     | 7.2.7     | Upgrade production to 7.2  |
   | OpenSearch | 2.15.0     | 2.19.1    | Upgrade production to 2.19 |
-  | Keycloak   | 22.0.4     | 22.0.4    | Item 6                     |
+  | Keycloak   | 22.0.4     | 22.0.4    | Item 7                     |
 
   MongoDB constrains which Linux kernel any host may move to. Linux 6.19 changed how restartable
   sequences behave, which breaks the tcmalloc allocator MongoDB 8.0 uses, and kernels 7.0.14 and
@@ -717,7 +744,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **14. Make database schema evolution an explicit, privileged release operation.** Application
+- **15. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -778,7 +805,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **15. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **16. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -807,7 +834,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **16. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **17. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -887,7 +914,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **17. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **18. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -899,7 +926,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: nine services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 16. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 17. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -911,7 +938,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **18. Choose the response timeouts from the durations the request log now carries, and give a
+- **19. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -941,7 +968,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **19. Take the dependency upgrades that need code changes.** The versions that could move without
+- **20. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
   What stayed behind stayed deliberately, and it separates into work to do, versions that follow
   something else, and versions whose newest release is not a final.
@@ -988,9 +1015,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
   9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 13 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 6's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
-  Keycloak client stack, which item 6 owns.
+  against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
+  their own. Keycloak 22.0.4 to 25.0.3 is item 7's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
+  Keycloak client stack, which item 7 owns.
 
   Maven 3.9.16 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
   own wrapper, so the move is one change across all of them, gated on the full build and a train
@@ -1065,7 +1092,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **20. Resolve the remaining production artifact defects, review semantic migrations, and decide
+- **21. Resolve the remaining production artifact defects, review semantic migrations, and decide
   what happens to existing instances when a draft template changes.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
@@ -1462,33 +1489,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   answered or explicitly abandoned for its tail, no constraint lacks a `sourceSystem` the sweep could
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
-
-- **21. Bound graph lock waits on staging and production.** During the 50-user soak on 2026-11-10
-  one save's first statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for
-  24 minutes with no other transaction open. Its request thread in the resource server never
-  returned. `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until
-  the process was killed. The thread dumps are in
-  `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`. Whether Neo4j 5.26.0 has a defect that
-  fifty writers on one node expose is not established. The wait has not recurred on 5.26.0 either:
-  a full soak and five three-minute soaks that morning completed without it. On 2026-11-22 eight
-  30-minute soaks ran on 5.26.32, the version staging and production run, on the same JVM and
-  settings. They completed 2.58 million iterations with no graph transaction open longer than 60
-  seconds and no lock wait reaching the limit. The run is in
-  `$CEDAR_HOME/.cedar/audits/2026-11-22-neo4j-5.26.32-soak/`. This does not show that 5.26.32
-  fixes the defect: if the wait struck one 5.26.0 soak in seven, eight clean runs would still
-  occur by chance about three times in ten. It does show that the wait is not routine on the
-  version production runs.
-
-  `db.lock.acquisition.timeout=30s` bounds an ordinary lock wait, and
-  [When a Graph Write Waits for a Lock](BACKEND-RUNBOOK.md#when-a-graph-write-waits-for-a-lock)
-  gives what a blocked write then does. Staging and production do not carry the setting. The
-  [production runbook](PROD-DEPLOY-RUNBOOK.md#neo4j-lock-acquisition-limit) has the step, which
-  needs a restart of Neo4j. Whether the limit would have ended the wait above is not established
-  either. If such a wait recurs with the limit set, the lock manager is at fault and the limit is
-  not the remedy.
-
-  Done when a lock wait that outlasts the limit fails its transaction in every environment and a
-  retried save succeeds.
 
 - **22. Make search answer quickly in a production-sized store.** **Production consequence:**
   search pages take a second or more where the workstation answers in milliseconds. Against the
