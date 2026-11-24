@@ -48,6 +48,7 @@ jobs:
           const sha=refs.components[process.env.COMPONENT];
           if(!/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('Missing calibration reference');
           console.log('sha='+sha);
+          console.log('published='+(refs.published?.[process.env.COMPONENT]?'true':'false'));
           JS
 
       - uses: actions/checkout@v7
@@ -64,9 +65,18 @@ jobs:
             source/package-lock.json
             cedar-development/ops/e2e/package-lock.json
 
+      # A reference whose code is a release's is read from that release's public bundle, because
+      # the development packages its locks name are deleted from Nexus a few days after publishing.
       - name: Build the control once, before any measurements
         working-directory: source
+        env:
+          REFERENCE_PUBLISHED: ${{ steps.reference.outputs.published }}
         run: |
+          if [ "$REFERENCE_PUBLISHED" = true ]; then
+            node ../cedar-development/ops/e2e/frontend-perf/published-bundle.mjs \
+              --component "$COMPONENT" --output ../control-input
+            exit 0
+          fi
           npm ci
           case "$COMPONENT" in
             cee)

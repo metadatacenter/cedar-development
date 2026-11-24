@@ -5,5 +5,13 @@
     "cee": "bedf17dd6747af2c0dc48839678b2ecf48824989",
     "ced": "7fe0c264c78bc9c5ec64d8756841b920fcbfd649",
     "designer": "a290539d6ba56752b98cc27113f658a198338ff2"
+  },
+  "published": {
+    "cee": {
+      "package": "cedar-embeddable-editor",
+      "version": "2.0.33",
+      "registry": "https://registry.npmjs.org/",
+      "why": "bedf17dd advanced CEE to its next development version after release 2.0.33, so its code is 2.0.33's. Its locks name development packages Nexus deletes, while the release's public bundle never expires. CED and Designer references install only packages npm-cedar-releases retains."
+    }
   }
 }

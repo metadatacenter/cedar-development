@@ -58,10 +58,11 @@ jobs:
           if(!/^[0-9a-f]{40}$/.test(sha ?? '')) throw new Error('Missing fixed reference');
           console.log('sha='+sha);
           console.log('bundle='+(sha===process.env.BASELINE_REF?'baseline-input':'reference-input'));
+          console.log('published='+(config.published?.[process.env.COMPONENT]?'true':'false'));
           JS
 
       - name: Check out the fixed reference when it differs from the comparison base
-        if: steps.reference.outputs.sha != inputs.baseline-ref
+        if: steps.reference.outputs.sha != inputs.baseline-ref && steps.reference.outputs.published != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.reference.outputs.sha }}
@@ -92,27 +93,14 @@ jobs:
         id: released
         run: |
           version=$(node -p "require('./baseline-source/package.json').version")
-          case "$COMPONENT" in
-            cee) package=cedar-embeddable-editor ;;
-            ced) package=cedar-embeddable-designer ;;
-            *) package= ;;
-          esac
-          if [ -n "$package" ] && printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            mkdir -p "$RUNNER_TEMP/released"
-            tarball=$(npm pack "$package@$version" --registry=https://registry.npmjs.org/ \
-              --pack-destination "$RUNNER_TEMP/released" --silent)
-            tar -xzf "$RUNNER_TEMP/released/$tarball" -C "$RUNNER_TEMP/released" "package/$package.js"
-            cp "$RUNNER_TEMP/released/package/$package.js" baseline-input
-            echo "Base $BASELINE_REF is $package $version; measuring the bundle npmjs serves for it." >> "$GITHUB_STEP_SUMMARY"
-            echo "public=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "public=false" >> "$GITHUB_OUTPUT"
-          fi
+          node cedar-development/ops/e2e/frontend-perf/published-bundle.mjs \
+            --component "$COMPONENT" --version "$version" --output baseline-input >> "$GITHUB_OUTPUT"
 
       - name: Build comparison inputs before starting measurements
         env:
           REFERENCE_BUNDLE: ${{ steps.reference.outputs.bundle }}
-          RELEASED_BASE: ${{ steps.released.outputs.public }}
+          RELEASED_BASE: ${{ steps.released.outputs.published }}
+          REFERENCE_PUBLISHED: ${{ steps.reference.outputs.published }}
         run: |
           build_bundle() (
             cd "$1"
@@ -135,7 +123,12 @@ jobs:
             build_bundle baseline-source baseline-input
           fi
           if [ "$REFERENCE_BUNDLE" = reference-input ]; then
-            build_bundle reference-source reference-input
+            if [ "$REFERENCE_PUBLISHED" = true ]; then
+              node cedar-development/ops/e2e/frontend-perf/published-bundle.mjs \
+                --component "$COMPONENT" --output reference-input
+            else
+              build_bundle reference-source reference-input
+            fi
           fi
 
       - name: Install the locked harness and browser

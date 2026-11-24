@@ -107,7 +107,17 @@ The existing candidate build artifact is reused. The comparison also builds the 
 reference in `ops/e2e/frontend-perf/references.json`, so small regressions cannot disappear by
 merging them one at a time. The reference never advances automatically: changing it requires
 an explicit reviewed source change and matching harness-pin updates. Byte-identical reference
-and PR-base outputs share measurements while both source revisions remain recorded. All
+and PR-base outputs share measurements while both source revisions remain recorded.
+
+A rebuild of an old commit installs the packages its locks name, and Nexus deletes development
+packages a few days after publishing them. Two inputs are therefore read from published packages
+by `ops/e2e/frontend-perf/published-bundle.mjs` rather than rebuilt. A base that carries a release
+version, as `main` does on a CEE or CED release pull request, is measured from the bundle npmjs
+serves for that version. A reference listed under `published` in `references.json` is measured
+from the release whose code its commit carries. The CEE reference is the commit that advanced CEE
+after release 2.0.33, so it is read from `cedar-embeddable-editor@2.0.33`. The CED and Designer
+references install only packages `npm-cedar-releases` retains, and are still built from source.
+The calibration workflow reads its control the same way. All
 comparison builds/installations finish before Chromium starts. Both versions are measured
 sequentially on the same Ubuntu 24.04 runner with the harness lockfile's Chromium.
 No performance job runs inside the development reactor, and no package pins are rewritten.
