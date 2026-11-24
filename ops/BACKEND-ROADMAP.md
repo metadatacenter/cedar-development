@@ -695,9 +695,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a key that can be read, authentication verifies without reversing one, and the rotation is
   recorded against the deployments it covered.
 
+- **14. Decide whether the versioned terminology routes require a login.** **Production
+  consequence:** a login requirement refuses anonymous callers that read today. Leaving the routes
+  open changes nothing at runtime.
+
+  Item 9 settles the four `/bioportal` routes that answer anonymously. The newer routes have no such
+  decision. `POST /search`, `GET /search/hierarchy`, every route under `/properties`,
+  `POST /bioportal/validate-term` and `/resources/description` build no request context, so they
+  neither resolve a user nor refuse a credential that fails to resolve. Meanwhile
+  `/bioportal/property_search` and the `/bioportal/ontologies/{o}/classes` and `…/properties` routes
+  require `LoggedIn`. An ontology's properties therefore need a login on one route and none on the
+  other.
+
+  Decide per route, then state the decision in code: `@AnonymousAccess` with
+  `buildAnonymousRequestContext()` for an open route, and `LoggedIn` for the rest. Integrated search
+  and integrated retrieve express item 9's decision only as a commented-out check
+  (`IntegratedSearchResource.java:94-95`, `IntegratedRetrieveResource.java:81-82`). Replace those
+  comments with `@AnonymousAccess` as well. Done when every terminology route either carries
+  `@AnonymousAccess` or requires a login, and a test asserts the anonymous set.
+
 ## Maintenance
 
-- **14. Make search answer quickly in a production-sized store.** **Production consequence:**
+- **15. Make search answer quickly in a production-sized store.** **Production consequence:**
   search pages take a second or more where the workstation answers in milliseconds. Against the
   large store, a production snapshot served by the native stack, a search for 50 results took
   1,259 ms at the 95th percentile against 16 ms on the native store, and a sorted search 1,242 ms
@@ -715,7 +734,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the finding profile's search routes meet their thresholds against the large store, and
   the rebuild's listing costs the same at every page.
 
-- **15. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **16. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock. This item owns the
   remaining server upgrades except Keycloak's, which item 7 owns. Order them by risk, lowest first.
@@ -762,7 +781,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **16. Make database schema evolution an explicit, privileged release operation.** Application
+- **17. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -823,7 +842,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **17. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **18. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -852,7 +871,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **18. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **19. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -932,7 +951,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **19. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **20. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -944,7 +963,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: nine services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 18. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 19. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -956,7 +975,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **20. Choose the response timeouts from the durations the request log now carries, and give a
+- **21. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -986,7 +1005,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **21. Take the dependency upgrades that need code changes.** The versions that could move without
+- **22. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
   What stayed behind stayed deliberately, and it separates into work to do, versions that follow
   something else, and versions whose newest release is not a final.
@@ -1033,7 +1052,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
   9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 15 rather than taken on
+  against the pinned server it talks to, so these are sequenced behind item 16 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 7's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
   Keycloak client stack, which item 7 owns.
 
@@ -1109,7 +1128,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **22. Resolve the remaining production artifact defects, review semantic migrations, and decide
+- **23. Resolve the remaining production artifact defects, review semantic migrations, and decide
   what happens to existing instances when a draft template changes.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
@@ -1507,7 +1526,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **23. Settle two open dependency questions.** Each is a decision to take rather than a change
+- **24. Settle two open dependency questions.** Each is a decision to take rather than a change
   to make, and neither is urgent.
 
   - **Whether `cedar-parent` manages the 25 artifacts that modules import and it gives no version.**
@@ -1536,7 +1555,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when each question has an answer recorded here or in the runbook.
 
-- **24. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
+- **25. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
   runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
 
   No smoke tier creates a DOI or a draft DOI, so the gated tiers never exercise the bridge server's
@@ -1547,7 +1566,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **25. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
+- **26. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
   none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
 
   Each test JVM runs its classes one after another. The artifact server's suite now gives each class
@@ -1570,3 +1589,162 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   store, before any suite turns concurrency on. Until then, never run a suite class-concurrently on a
   workstation with the stack running. Done when the artifact server's suite passes with class-level
   concurrency on, twice, with the development stack up and untouched.
+
+- **27. Refuse page-number paging the same way on every server.** **Production consequence:** a
+  caller that sends `page`, `pageSize` or `page_size` to a server that ignores them today gets 400
+  instead of the first page.
+
+  Every paging route reads `limit` and `offset`, but only two servers refuse the page-number
+  parameters those replaced, and the two disagree. The terminology server refuses `page`, `pageSize`
+  and `page_size`, and its error names the parameter (`AbstractTerminologyServerResource.java:48`).
+  The bridge server refuses `page` and `pageSize` but not `page_size`, with a plain message that
+  names no parameter (`ExternalAuthorityResource.java:209`). The resource, artifact, messaging,
+  monitor and openview servers do not check. They answer `?page=2` from offset 0, as though the
+  caller had asked for the first page, which is the case the bridge's own comment warns of.
+
+  Move the refusal into the shared paging helper, `PagedQuery` in `cedar-server-rest-library`, with
+  the terminology server's error shape, and have every paging route use it. The JSON bodies that
+  still accept a deprecated `page` of 1 and `pageSize` belong to the withdrawal that item 2
+  sequences, not to this item. Done when every paging route on every server refuses all three names
+  with the same error, and each server has a test that asserts it.
+
+- **28. Bring the monitor's log routes onto the paging rule.** **Production consequence:** a caller
+  that asks for more rows than a route allows gets 400 rather than a shorter answer than it asked
+  for.
+
+  Every other paging route refuses a limit above 500 with 400. The monitor's raw-row log query pages
+  by cursor, defaults its limit to 100 and quietly lowers anything larger to 2000
+  (`LogQueryBuilder.java:46,147`). Its db-share route takes a `limit` but no `offset`, and quietly
+  caps the limit at 500 (`LogQueryResource.java:268,276`). A caller of either route cannot tell a
+  truncated answer from a complete one.
+
+  Decide whether raw rows keep cursor paging, which suits a log that grows while it is read. In
+  either case, refuse an out-of-range limit instead of lowering it. Give db-share an `offset`, or
+  document that it returns a single page. Done when no monitor route lowers a limit silently.
+
+- **29. Adopt a REST naming convention, and apply it behind aliases.** **Production consequence:**
+  none while the aliases stand. Withdrawing an old name later breaks any caller that still uses it.
+
+  The core create, read, update and delete routes are consistent. The newer and peripheral routes
+  name the same things in several ways:
+  - Query parameters are snake_case except on the terminology server's versioned routes
+    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`) and the monitor (`minDurationMs`,
+    `maxSpans`). Path parameters mix `{folder_id}` and `{vs_collection}` with `{jobId}`, `{keyId}`
+    and `{globalRequestId}`.
+  - An artifact is `{template_id}`, or its field, element and instance variant, on the resource
+    server, and `{id}` on the artifact, openview and repo servers and under `/open`. Sibling
+    terminology routes use `ontologies/{id}` and `ontologies/{ontology}/classes`, and
+    `value-sets/{id}` and `value-sets/{vs}/values`.
+  - A term IRI is `subtree_root_id`, `termIri`, `propertyIri`, `uri`, `iri` or `termUri`, depending
+    on the route. `GET /bioportal/search` takes both `source` and `sources`, with unrelated meanings.
+  - A time range is `modified_after` and `modified_before` in epoch milliseconds on folder contents
+    and search, `from` and `to` as ISO-8601 instants on the monitor, and `from` and `to` as version
+    identifiers on `/versions/diff`.
+  - A template's output format is chosen by `Accept`. An instance's is chosen by `?format=`, which
+    overrides `Accept`, and `/command/convert` takes `?format=` alone.
+  - `create-draft-artifact` takes `folderId` and `draftId` in its body, while
+    `publish-create-draft-template/{template_id}` takes `?folder_name` and `?draft_id`.
+  - The monitor serves `/resource/templates?id=` beside `/resources/counts`. It reports each
+    server's `/healthcheck` as `/health-check/{server}`, and relays each server's `/insight/*` routes
+    as `/server-report/{server}/insight`.
+  - The resource server's 32 `/command/*` routes are actions, and most take their target in the
+    body, while recursive folder deletion also has a resource form, `/folders/{folder_id}/deletion`.
+    `/command/annotations/doi` is the only nested command path. `property_search` is the only path
+    segment on any server that is not kebab-case.
+
+  Write the convention into the backend runbook: snake_case query parameters, kebab-case path
+  segments, one path variable per entity, one name per concept, one form for a time range and one
+  way to choose a format. Decide there whether a new operation is a command or a resource. Apply the
+  convention first to the terminology server's versioned routes and the monitor, which have few
+  callers. Add each new name beside the old one, as the paging change did, and date the old name's
+  withdrawal. Done when the convention is in the runbook and every route either follows it or
+  carries a dated alias.
+
+- **30. Give background jobs one polling shape.** **Production consequence:** none while the
+  current routes stay as aliases.
+
+  Every job start answers 202, but a job's status is read in four ways:
+  `GET /command/index-job-status[/{jobId}]` and
+  `GET /command/load-valuesets-ontology-status[/{jobId}]` on the resource server, the worker's start
+  path reused as `GET …/{jobId}`, and the monitor's `/search-index/job-status`. The two reset routes
+  are named `reset-search-index-job` and `reset-valuesets-import`. Choose one shape, such as a
+  `Location` header on the 202 that identifies the job's status resource, and apply it to every job.
+  Keep the current routes as aliases until their callers move. Done when every 202 identifies where
+  its status is read, and every status and reset route has the same form.
+
+- **31. Retire the first generation of terminology routes.** **Production consequence:** a caller
+  still on a retired route breaks when it is withdrawn, so callers move first.
+
+  The terminology server carries two generations of API. `GET /bioportal/search` overlaps
+  `POST /search`, `GET /bioportal/property_search` overlaps `POST /properties/search`, and
+  `/bioportal/ontologies/{o}/properties/*` overlaps `/properties`, `/properties/hierarchy` and
+  `/properties/roots`. Under `/bioportal`, three routes resolve a current version:
+  `ontologies/{id}/versions/current`, `classes/version-current?uri=` and
+  `vs-collections/version-current?collection=`.
+
+  List the callers of each first-generation route, from the embeddable editor, designer and term
+  picker to the spreadsheet validator and, through the request log, callers outside CEDAR. Move
+  CEDAR's own callers, then withdraw the old routes on a dated schedule. Item 9 keeps
+  `GET /bioportal/search` anonymous for embedding hosts, so its successor must answer them on the
+  same terms. Reduce the current-version lookups to one form. Done when each overlapping pair has
+  one survivor and the survivors' callers are recorded.
+
+- **32. Put withdrawal dates on the redundant resource-server and messaging routes.** **Production
+  consequence:** a caller still on a withdrawn route breaks. The request log shows whether any
+  remain.
+
+  These routes duplicate another route or could be folded into one:
+  - `POST …/download` for each of the four artifact types, which the source keeps only for existing
+    callers beside `GET …/download`.
+  - `attach-category` beside `attach-categories`. Detach has only the single form, so attach and
+    detach should end with the same forms.
+  - The four commands `make-artifact-open`, `make-artifact-not-open`, `make-folder-open` and
+    `make-folder-not-open`, which one operation with a target and a state would replace.
+  - Messaging's top-level `GET /summary`, which belongs at `/messages/summary`, and
+    `POST /command/mark-all-as-read` beside `PATCH /messages/{id}`.
+
+  Check the request log for each route's remaining callers, add any replacement, and record a
+  withdrawal date here. Done when each route is withdrawn or has a recorded reason to stay.
+
+- **33. Correct the routes whose method or documented status contradicts what they do.**
+  **Production consequence:** none for the documentation. A changed method runs behind an alias
+  until its callers move.
+
+  In each case below, the method, the path or the documented status misdescribes the route.
+  - The user server's `PUT /users/{id}` applies dotted `uiPreferences` paths and answers 403 unless
+    `id` is the caller (`UsersResource.java:211-243`). It is a partial update, so it should be a
+    `PATCH`, as the group server's is. A `/users/me` form would match the group server's
+    `/membership/me`.
+  - The bridge server's `GET /datacite/create-doi` only reads, and its own description says nothing
+    is minted there. `GET /datacite/get-doi-metadata/{id}` puts a verb in the path. Give both a
+    resource path.
+  - The bridge server documents 401 for a caller who cannot edit the source artifact
+    (`DataCiteResource.java:129-130,198-199`). That refusal is a 403. Check what the routes return as
+    well as what they document.
+
+  Done when each route's method matches its effect and its documented statuses match what it
+  returns.
+
+- **34. Name parameters through the shared constants everywhere.** **Production consequence:** none.
+
+  `cedar-model-library` holds the shared parameter names, but most servers spell some names as
+  literals, which lets them drift apart unnoticed. The terminology server uses no constant at all
+  and spells 102 names as literals. The monitor spells 39, the resource server 28, the artifact
+  server 17 and the bridge 7, and `"compact"` alone appears 32 times across the artifact and
+  resource servers. The resource server keeps `QP_DRAFT_ID` as a private constant in
+  `CommandVersionResource`, `QP_DEBUG` has no user, and the monitor reads a query parameter through
+  the path constant `PP_ID`. Move every name into the shared constants, delete `QP_DEBUG`, and add a
+  test over the resource classes that refuses a literal name. The constants then carry the
+  convention of item 29. Done when no resource class names a parameter with a literal.
+
+- **35. Give anonymous folder reads a home under `/open`.** **Production consequence:** none until a
+  route is withdrawn.
+
+  Two surfaces answer anonymous reads: the resource server's `/open` routes and the openview server.
+  The resource server describes its `/open` routes as a compatibility adapter
+  (`OpenArtifactsResource.java:34`), while openview's route descriptions say that server exists to
+  hand out open artifacts anonymously. Openview's `GET /folders/{id}` has no counterpart under
+  `/open`, so neither surface can be reduced to an adapter of the other. Decide which surface is
+  canonical. If it is `/open`, add `/open/folders/{id}` and move OpenView onto it. If it is
+  openview, record why the resource server keeps `/open`. Done when anonymous reads have one
+  canonical surface, and the other has a dated withdrawal or a recorded reason to stay.
