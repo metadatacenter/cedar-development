@@ -3633,8 +3633,11 @@ and the coordinator refuses a turn that used any other. The provider still recei
 local runner is not offline inference. `--model` chooses a model, and omission uses the reviewer's
 default. For comparable repeated assessments, specify the same reviewer and model. Each reviewer
 keeps its own session records, so calibration can resume the session whose assessment it tests.
-Claude Code keeps them under `~/.claude/projects`, named after the session's directory in the
-system temporary directory.
+Claude Code keeps a transcript under `~/.claude/projects` and a copy of every image it receives,
+about 1.3 GB over a full Designer review. The coordinator deletes them, with the session's
+directory, after the session's last turn: calibration, or the single consolidation turn. A session
+whose calibration has not completed is kept so a resumed run can finish it. The review directory
+keeps every turn's prompt, image digests, events and answer either way.
 
 The default partitions eight states per reviewer with two concurrent jobs. `--batch-size` accepts
 1–12, `--workers` accepts 1–4, and `--timeout` bounds each model turn (900 seconds by default).
