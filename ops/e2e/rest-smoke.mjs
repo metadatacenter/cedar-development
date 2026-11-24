@@ -83,13 +83,17 @@ const phaseTimings = {};
 const updateInventory = argv.includes('--update-inventory');
 
 const requested = argv.slice(2).filter(a => !a.startsWith('-'));
-const selected = requested.length
-    ? ALL.filter(s => requested.includes(s.name))
-    : ALL;
+// Suites to leave out of a run, for a runner that cannot host them: the in-network Docker gate runs
+// in a Node container with no Java, so the MCP suite runs from the host instead.
+const excluded = argv.filter(a => a.startsWith('--exclude='))
+    .flatMap(a => a.slice('--exclude='.length).split(',')).filter(Boolean);
+const selected = (requested.length ? ALL.filter(s => requested.includes(s.name)) : ALL)
+    .filter(s => !excluded.includes(s.name));
 
-if (requested.length && selected.length !== requested.length) {
+const unknown = [...requested, ...excluded].filter(name => !ALL.some(s => s.name === name));
+if (unknown.length) {
   const known = ALL.map(s => s.name).join(', ');
-  console.error(`unknown suite. known suites: ${known}`);
+  console.error(`unknown suite: ${unknown.join(', ')}. known suites: ${known}`);
   process.exit(2);
 }
 

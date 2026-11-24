@@ -832,13 +832,25 @@ backend without involving any frontend. This is a direct `docker run`, not a ced
 the shell must load the Docker profile to obtain the container addresses used below.
 
 ```bash
-export CEDAR_HOME=$HOME/CEDAR
+export CEDAR_HOME=$HOME/CEDAR CEDAR_PROFILE=develop
 source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
+E2E=$CEDAR_HOME/cedar-development/ops/e2e
+mkdir -p "$E2E/reports" "$CEDAR_HOME/.cedar/locks"
+hosts=()
+for name in resource terminology repo user group messaging monitor bridge auth artifact worker openview schema; do
+  hosts+=(--add-host "$name.metadatacenter.orgx:$CEDAR_NGINX_HOST")
+done
+services=()
+for service in ARTIFACT BRIDGE GROUP MESSAGING MONITOR OPENVIEW REPO RESOURCE TERMINOLOGY USER WORKER; do
+  services+=(-e "CEDAR_${service}_SERVER_HOST")
+done
 
-docker run --rm --network cedarnet \
-  --add-host resource.metadatacenter.orgx:"$CEDAR_NGINX_HOST" \
-  --add-host terminology.metadatacenter.orgx:"$CEDAR_NGINX_HOST" \
-  -v "$CEDAR_HOME/cedar-development/ops/e2e:/work:ro" -w /work \
+docker run --rm --network cedarnet "${hosts[@]}" "${services[@]}" \
+  -v "$CEDAR_HOME:/cedar:ro" \
+  -v "$E2E/reports:/cedar/cedar-development/ops/e2e/reports" \
+  -v "$CEDAR_HOME/.cedar/locks:/cedar/.cedar/locks" \
+  -w /cedar/cedar-development/ops/e2e \
+  -e CEDAR_HOME=/cedar \
   -e CEDAR_RESOURCE_BASE=https://resource.metadatacenter.orgx \
   -e CEDAR_USER_BASE=http://server-user:9005 \
   -e CEDAR_GROUP_BASE=http://server-group:9009 \
@@ -847,20 +859,41 @@ docker run --rm --network cedarnet \
   -e CEDAR_OPENVIEW_BASE=http://server-openview:9013 \
   -e CEDAR_WORKER_BASE=http://server-worker:9011 \
   -e CEDAR_KEYCLOAK_BASE=http://infra-keycloak:8080 \
+  -e CEDAR_NEO4J_HOST -e CEDAR_NEO4J_USER_NAME -e CEDAR_NEO4J_USER_PASSWORD \
   -e CEDAR_ADMIN_USER_API_KEY \
   -e CEDAR_ARTIFACT_SERVICE_API_KEY \
   -e CEDAR_FRONTEND_local_USER1_LOGIN \
   -e CEDAR_FRONTEND_local_USER1_PASSWORD \
   -e CEDAR_FRONTEND_local_USER2_LOGIN \
   -e CEDAR_FRONTEND_local_USER2_PASSWORD \
-  node:20-alpine node rest-smoke.mjs
+  node:20-alpine node rest-smoke.mjs --exclude=mcp
 ```
 
 Resource and Terminology deliberately go through containerized nginx so this also covers their
 published API and Swagger UI routes. Artifact stays on its internal service address, and Worker is
-addressed directly because its diagnostic-authentication checks have no nginx vhost. Every suite
-must pass with the committed `rest/expected-checks.json` inventory and final result `PASS`.
-The first invocation may pull `node:20-alpine`.
+addressed directly because its diagnostic-authentication checks have no nginx vhost. The suites
+that call a service directly, rather than through its vhost, take its address from the
+`CEDAR_<SERVICE>_SERVER_HOST` values the Docker profile records. Several suites read the sibling
+repositories under `$CEDAR_HOME`, so the whole tree is mounted, read-only apart from the reports
+the run writes and the locks it takes.
+
+The MCP suite starts the REST MCP server with `java`, which the Node image does not have, so this
+run leaves it out and the host runs it afterwards, in the same shell. The Docker profile's container
+addresses do not route from a macOS host, so the worker and Keycloak are named by their published
+ports:
+
+```bash
+cd $CEDAR_HOME/cedar-development/ops/e2e
+CEDAR_WORKER_BASE=http://127.0.0.1:9011 CEDAR_KEYCLOAK_BASE=http://127.0.0.1:8080 \
+  NODE_TLS_REJECT_UNAUTHORIZED=0 node rest-smoke.mjs mcp
+```
+
+Between them, the two runs must pass every suite with the committed `rest/expected-checks.json`
+inventory and final result `PASS`. The first invocation may pull `node:20-alpine`.
+
+The runner refuses to start on a store holding fixtures an earlier run left behind, which an
+interrupted run does. Their names end in that run's timestamp, so they can be found and deleted
+from the Workspace before running again.
 
 The artifact service key authenticates this trusted internal test runner. Ordinary-user boundary
 probes explicitly omit it. Provision and rotate the key using the backend runbook's

@@ -67,7 +67,16 @@ function startServer(apiKey) {
     try { message = JSON.parse(line); } catch { return; }
     waiting.get(message.id)?.(message);
   });
-  const exited = new Promise(done => child.on('exit', code => done(code)));
+  // A server that cannot start at all, such as one with no java on the path, reports an error
+  // event rather than an exit. Either ends every waiting request instead of crashing the runner.
+  const exited = new Promise(done => {
+    child.on('exit', code => done(code));
+    child.on('error', error => {
+      stderr += `${error.message}\n`;
+      done(null);
+    });
+  });
+  child.stdin.on('error', () => {});
 
   async function request(method, params) {
     const id = nextId++;
