@@ -697,7 +697,25 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Maintenance
 
-- **14. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **14. Make search answer quickly in a production-sized store.** **Production consequence:**
+  search pages take a second or more where the workstation answers in milliseconds. Against the
+  large store, a production snapshot served by the native stack, a search for 50 results took
+  1,259 ms at the 95th percentile against 16 ms on the native store, and a sorted search 1,242 ms
+  against 15 ms. Under the 50-user soak, search took 1.5 seconds and conditional saves 3 seconds,
+  about three times the native figures. The runbook's
+  [large store section](BACKEND-RUNBOOK.md#the-large-store) has the whole comparison. Where the
+  time goes is not yet measured: the OpenSearch query over 300,000 documents, the permission clauses
+  it carries, or the graph reads made for each hit afterwards.
+
+  The search rebuild has two costs of the same kind left. It lists the resources by offset, so each
+  page of the listing costs more than the last, and 305,028 resources took 15 minutes to list. Each
+  document then takes several small graph reads, one after another, which keeps eight workers to
+  about 140 resources a second.
+
+  Done when the finding profile's search routes meet their thresholds against the large store, and
+  the rebuild's listing costs the same at every page.
+
+- **15. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock. This item owns the
   remaining server upgrades except Keycloak's, which item 7 owns. Order them by risk, lowest first.
@@ -744,7 +762,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **15. Make database schema evolution an explicit, privileged release operation.** Application
+- **16. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -805,7 +823,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **16. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **17. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -834,7 +852,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **17. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **18. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -914,7 +932,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **18. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **19. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -926,7 +944,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: nine services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 17. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 18. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -938,7 +956,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **19. Choose the response timeouts from the durations the request log now carries, and give a
+- **20. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -968,7 +986,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **20. Take the dependency upgrades that need code changes.** The versions that could move without
+- **21. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
   What stayed behind stayed deliberately, and it separates into work to do, versions that follow
   something else, and versions whose newest release is not a final.
@@ -1015,7 +1033,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
   9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 14 rather than taken on
+  against the pinned server it talks to, so these are sequenced behind item 15 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 7's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
   Keycloak client stack, which item 7 owns.
 
@@ -1092,7 +1110,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **21. Resolve the remaining production artifact defects, review semantic migrations, and decide
+- **22. Resolve the remaining production artifact defects, review semantic migrations, and decide
   what happens to existing instances when a draft template changes.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
@@ -1489,24 +1507,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   answered or explicitly abandoned for its tail, no constraint lacks a `sourceSystem` the sweep could
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
-
-- **22. Make search answer quickly in a production-sized store.** **Production consequence:**
-  search pages take a second or more where the workstation answers in milliseconds. Against the
-  large store, a production snapshot served by the native stack, a search for 50 results took
-  1,259 ms at the 95th percentile against 16 ms on the native store, and a sorted search 1,242 ms
-  against 15 ms. Under the 50-user soak, search took 1.5 seconds and conditional saves 3 seconds,
-  about three times the native figures. The runbook's
-  [large store section](BACKEND-RUNBOOK.md#the-large-store) has the whole comparison. Where the
-  time goes is not yet measured: the OpenSearch query over 300,000 documents, the permission clauses
-  it carries, or the graph reads made for each hit afterwards.
-
-  The search rebuild has two costs of the same kind left. It lists the resources by offset, so each
-  page of the listing costs more than the last, and 305,028 resources took 15 minutes to list. Each
-  document then takes several small graph reads, one after another, which keeps eight workers to
-  about 140 resources a second.
-
-  Done when the finding profile's search routes meet their thresholds against the large store, and
-  the rebuild's listing costs the same at every page.
 
 - **23. Settle five open dependency questions.** Each is a decision to take rather than a change
   to make, and none is urgent.
