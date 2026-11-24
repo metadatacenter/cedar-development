@@ -905,9 +905,15 @@ A transaction that reaches its limit fails with
 `Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration`. That is a client error, so
 the driver does not retry it, and the request fails with a 500. The resource server logs `Cypher
 query exceeded its transaction time limit` with the query's parameter names. On Neo4j 5.26.32 a
-query ended within 1.2 seconds of a 300-millisecond limit. Two requests reach the limit in ordinary
-use: the listing behind `GET /search` without a query, which used to run for minutes to over an
-hour, and occasionally the search for a template's instances, which took up to 166 seconds.
+query ended within 1.2 seconds of a 300-millisecond limit. One request can reach the limit in
+ordinary use: the search for a template's instances, which took up to 166 seconds in production.
+
+The listing behind `GET /search` without a query walks down from the caller through what they own
+and what is shared with them, then sorts and pages that set. Its cost therefore follows what the
+caller can reach rather than the size of the store. On a synthetic store of 302,723 resources it
+listed a page in 2 ms for a caller reaching about a thousand resources, and in 57 ms at offset 10,000
+for one reaching 30,000. A caller who reads every resource is not walked at all: the listing reads
+the store directly.
 
 The limit is set by the driver, not by `db.transaction.timeout`, which stays unset on every host.
 The resource server's outboxes, its relays and the version projection open drivers of their own,

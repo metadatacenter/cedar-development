@@ -1495,17 +1495,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   still run without a limit. Their transactions write no rows to `log_cypher`, so how long they run
   in production is not known. Measure them, then give each the limit its work allows.
 
-  The listing behind `GET /search` without a query, `viewAll`, needs a bound of its own. It matches
-  every resource the caller reaches through an unbounded `CONTAINS*0..` path and sorts them all.
-  Since 2026-07-29 it has run longer than 60 seconds 19,105 times in production, and longer than
-  nginx's 180 seconds 13,091 times. Almost every slow run since 2026-09-11 came from a single API
-  key. The limit now ends such a run at 30 seconds with an error, where it used to run for up to 81
-  minutes after nginx had answered the caller. That caller still gets nothing. The query needs a
-  form whose cost does not grow with every resource the caller can reach.
-
   Done when a lock wait that outlasts the limit fails its transaction in every environment, a
-  retried save succeeds, no request thread can wait on the graph without a deadline, and a listing
-  without a query returns within the limit.
+  retried save succeeds, and no request thread can wait on the graph without a deadline.
 
 - **22. Make search answer quickly in a production-sized store.** **Production consequence:**
   search pages take a second or more where the workstation answers in milliseconds. Against the
