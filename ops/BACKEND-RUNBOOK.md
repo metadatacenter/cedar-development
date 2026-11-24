@@ -905,15 +905,22 @@ A transaction that reaches its limit fails with
 `Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration`. That is a client error, so
 the driver does not retry it, and the request fails with a 500. The resource server logs `Cypher
 query exceeded its transaction time limit` with the query's parameter names. On Neo4j 5.26.32 a
-query ended within 1.2 seconds of a 300-millisecond limit. One request can reach the limit in
-ordinary use: the search for a template's instances, which took up to 166 seconds in production.
+query ended within 1.2 seconds of a 300-millisecond limit.
 
-The listing behind `GET /search` without a query walks down from the caller through what they own
-and what is shared with them, then sorts and pages that set. Its cost therefore follows what the
-caller can reach rather than the size of the store. On a synthetic store of 302,723 resources it
-listed a page in 2 ms for a caller reaching about a thousand resources, and in 57 ms at offset 10,000
-for one reaching 30,000. A caller who reads every resource is not walked at all: the listing reads
-the store directly.
+Two query shapes keep the permission checks behind search within the limit. Production's measurements
+set both, as of 2026-11-23: a typical user's groups reach about 112,000 of the store's 310,000
+resources.
+
+- **A check on a single resource walks up from it.** The queries that test candidate resources one
+  at a time, such as the search for a template's instances, ask whether the user owns the resource or
+  a folder above it, or whether the user or one of their groups holds a role there. Written as a path
+  from the user, the group check walked down through everything the groups could see once for every
+  candidate: a search over a template's 592 instances took 137 seconds. Walking up, it takes 63 ms.
+- **A listing walks down from the user once.** The listing behind `GET /search` without a query
+  collects what the user owns and what is shared with them, then sorts and pages that set, so its cost
+  follows what the user can reach rather than the size of the store. For a user reaching 112,000
+  resources a page takes about 0.3 seconds. A user who reads every resource is not walked at all: the
+  listing reads the store directly.
 
 The limit is set by the driver, not by `db.transaction.timeout`, which stays unset on every host.
 The resource server's outboxes, its relays and the version projection open drivers of their own,
