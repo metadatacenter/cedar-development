@@ -894,7 +894,7 @@ limits are in `GraphTransactionTimeouts` in `cedar-workspace-operations-library`
 | Transactions | Limit |
 | --- | --- |
 | Every query a proxy runs, through the helpers in `AbstractNeo4JProxy`, and every transaction of the outboxes, their relays and the version projection | 30 seconds |
-| A transaction that holds a lock while it calls another service: the restore relay's put-back and the create-cleanup relay's delete | 60 seconds |
+| A transaction that holds a lock on its own job while it calls another service: the restore relay's put-back and the create-cleanup relay's delete | 60 seconds |
 | The worker's read of every resource a group can see, during a permission recalculation, and the schema statements a service runs at start-up | 10 minutes |
 
 The 30 seconds equal the restore relay's deadline, after which a save whose graph update has not
@@ -1020,10 +1020,13 @@ the workspace node. A lost graph-commit acknowledgement or a subsequent indexing
 cannot cause successful content to be deleted.
 
 The request attempts pending cleanup immediately; resource and worker relays resume jobs after thirty
-seconds and poll every five seconds. Cleanup commits its registration fence before calling the
-artifact server, then holds the shared lifecycle lock while checking for a workspace node and issuing
-`DELETE` with the recorded `If-Match`. If the delete succeeds but its acknowledgement is lost, the
-fence still prevents a delayed create from registering the missing document. Retrying a missing
+seconds and poll every five seconds. Cleanup commits its registration fence under the shared
+lifecycle lock before calling the artifact server. From then on every registration of the record
+refuses, so the delete takes only a lock on the record itself while it checks for a workspace node
+and issues `DELETE` with the recorded `If-Match`. Other graph changes go ahead while the call is
+out. A record whose revision arrived after its fence ran is not deleted on that pass. It is due again
+at once, and the next pass fences it first. If the delete succeeds but its acknowledgement is lost,
+the fence still prevents a delayed create from registering the missing document. Retrying a missing
 artifact (404) finishes the job. A changed or recreated document (412) is retained and the job parked.
 
 A create by `PUT`, a copy with `copyId` and a draft with `draftId` or `draft_id` each write at an
