@@ -2,9 +2,74 @@ import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {TEXT_SIZE_WIDTHS} from './catalog.mjs';
 
+// Poll from Node: Angular patches browser Promises, and mobile WebKit can resolve
+// waitForFunction's thenable before its predicate is true.
+export async function waitForPage(page, predicate, argument, {timeout = 30000, interval = 50} = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    if (await page.evaluate(predicate, argument)) return;
+    if (Date.now() >= deadline) throw new Error('Page condition did not become true within ' + timeout + 'ms');
+    await new Promise(resolve => setTimeout(resolve, Math.min(interval, deadline - Date.now())));
+  }
+}
+
+// Safari's default macOS keyboard setting uses Option-Tab to include buttons.
+export function tabKey(page, key = 'Tab', platform = process.platform) {
+  return platform === 'darwin' && page.context().browser()?.browserType().name() === 'webkit'
+    ? `Alt+${key}` : key;
+}
+
+// Hold real search responses long enough to capture loading, then drain the handler before
+// removing it. Unrouting an unresolved handler lets another route handle that same request.
+export async function holdSearchRequests(page) {
+  let release, started;
+  const gate = new Promise(resolve => {release = resolve;});
+  const intercepted = new Promise(resolve => {started = resolve;});
+  const pending = new Set(), requests = new Set(), errors = [];
+  const handler = async route => {
+    requests.add(route.request());
+    const work = (async () => {
+      try {
+        if (route.request().method() === 'POST') await gate;
+        await route.fallback();
+      } catch (error) {errors.push(error);}
+    })();
+    pending.add(work);
+    if (route.request().method() === 'POST') started();
+    await work;
+    pending.delete(work);
+  };
+  await page.route('**/search', handler);
+  return {waitForSearch: async () => {
+    let timer;
+    try {
+      await Promise.race([intercepted, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Initial term search was not intercepted within 15 seconds')), 15000);
+      })]);
+    } finally {clearTimeout(timer);}
+  }, release: async () => {
+    release();
+    while (pending.size) await Promise.all([...pending]);
+    // fallback resolves before the context handler has finished. Updating interception patterns
+    // at that point can re-dispatch the same request, so wait for its response too.
+    let timer;
+    try {
+      await Promise.race([
+        Promise.all([...requests].map(async request => {
+          const response = await request.response();
+          if (response) await response.finished();
+        })),
+        new Promise((_, reject) => {timer = setTimeout(() => reject(new Error('Released search did not finish within 30 seconds')), 30000);}),
+      ]);
+    } finally {clearTimeout(timer);}
+    await page.unroute('**/search', handler);
+    if (errors.length) throw errors[0];
+  }};
+}
+
 export async function listingReady(page, ids) {
   await page.locator('.table-scroll[aria-busy="false"]').waitFor();
-  if(ids)await page.waitForFunction(expected=>{
+  if(ids)await waitForPage(page, expected=>{
     const actual=[...document.querySelectorAll('[data-resource-id]')].map(n=>n.getAttribute('data-resource-id'));
     return expected.length===actual.length&&expected.every(id=>actual.includes(id));
   },ids);
@@ -40,7 +105,7 @@ export async function keyboard(session,start,{stops=12}={}) {
   const {page}=session;
   await start.focus();
   for(let stop=1;stop<=stops;stop++){
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(tabKey(page));
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     const focus=await page.evaluate(()=>{
       let n=document.activeElement;while(n?.shadowRoot?.activeElement)n=n.shadowRoot.activeElement;

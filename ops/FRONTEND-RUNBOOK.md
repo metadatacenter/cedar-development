@@ -1563,6 +1563,9 @@ a hit verifies and restores those outputs into the disposable copy before depend
 Missing or malformed records, missing outputs and damaged archives cause execution again.
 Successful stage logs are retained beside the records. Reports print each reused task or gate
 stage, its key and original pass time.
+The JavaScript gate bounds each optional cache subprocess to one minute. A timeout is reported
+as unavailable cache evidence: the executed check keeps its actual result, and the build continues.
+It never turns a failed check into a pass or saves an incomplete cache entry as passing evidence.
 
 A unit specification edit in Workspace reuses its production build and browser result. A browser
 specification edit keeps the build and unit result, then runs the browser suite. Shared fixtures,
@@ -3389,6 +3392,11 @@ frontend build:
 cedarcli test ui-review --app all --output /absolute/path/to/new-run
 ```
 
+Capture holds the shared local-stack lock from the provenance check through collector cleanup.
+It waits for deployments, whole-stack smoke and load tests that use that lock, and prevents a
+deployment from replacing the interface midway through capture. Planning, sealing, validation
+and coordinated review of existing evidence remain offline and do not take the stack lock.
+
 `all` collects the four applications in turn, keeping each application's evidence in its own
 subdirectory. The root `index.html`, `summary.json` and `coverage.json` link and summarize the
 packets, and a failure in one application does not skip the others. Together they cover the
@@ -3420,11 +3428,11 @@ inspection are separate.
 
 ###### What the Catalog Covers
 
-The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **403 states** under the Chromium profile and 395 under the touch profile:
+The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **460 states** under the Chromium profile and 452 under the touch profile:
 
 | Application | Required states | Coverage |
 | --- | ---: | --- |
-| Designer | 123 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery, a save the server refuses with its findings listed and expanded, the retained draft offered after a reload and restored with those findings, the field-type picker open, and a template address no artifact has; desktop, tablet and phone layouts. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. At 1440 and 375 pixels, the controlled-term picker opened, searched, with a term chosen, on its Branches and Ontologies tabs, and closed. |
+| Designer | 180 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery, a save the server refuses with its findings listed and expanded, the retained draft offered after a reload and restored with those findings, the field-type picker open, and a template address no artifact has; desktop, tablet and phone layouts. Trailing creation controls are inspected at rest, with the pointer, reached by Tab and activated by both pointer and Enter, after panel toggles, with nested content and after enabling multiple values at 1100 pixels. After deleting the last field, Save is retried with a repeated server refusal and then succeeds after a correction. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. At 1440 and 375 pixels, the controlled-term picker opened, during a deliberately held initial search, after that query settles, searched, with a term inspected, on its Branches and Ontologies tabs, and closed. Follow-ups scroll to and activate source release controls on each tab; attempt edits and record normal Tab entry into both read-only Attribute Value controls; check disabled reorder activation, nested pointer reveal and activation, settings footers, Preview top reachability, and phone authoring scroll restoration. Further states verify DOI and break-setting footer reachability, the 900-pixel Property IRI row, the Page Break chooser tile, the settled card header after Overview selection, initial search feedback without delayed responses, first/last release rows and return to search. Server findings and the retained-draft offer are also captured at 375 × 667 pixels. |
 | Workspace | 129 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, each dialog a row's actions open (Rename, Copy, Move, Permissions, Publish, Delete and folder deletion) left unconfirmed, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. At 1440 and 375 pixels, a rename the server refuses. |
 | Metadata Editor | 116 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, a save the server refuses with its errors listed, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, a value the email, phone and link types refuse, the single-select list and the date picker open, the static types on both pages of their template, and an attribute-value field. |
 | OpenView | 35 | An open template from top to end, an open record and its repeated field, an open element, field and folder, the corpus template holding every input type from top to end, a template that is not open and an identifier no artifact has, at 1440, 768 and 375 pixels. |
@@ -3434,6 +3442,9 @@ every collector records last. They set Chromium's default text size to 32 pixels
 16, as a user does in the browser's settings: text sized in rem, em or percentages follows it and
 text fixed in pixels does not, which is what the states show. Playwright reaches that setting only
 in Chromium, so the touch profile's catalog omits them, and the catalog hash differs by profile.
+On macOS, WebKit uses Option-Tab to include every control under Safari's default keyboard
+settings. Designer's touch catalog retains all six trailing-creation keyboard states; only the
+two Chromium-specific default-text-size states are omitted, giving 178 touch states.
 
 The repeated-field counts cover zero, one, several, the page boundary, one past it and several
 pages, because a review that only ever shows two occurrences never displays a paginator. The
@@ -3578,6 +3589,93 @@ Review evidence is immutable. A correction gets a new build and a fresh reviewer
 sealed report remains evidence of its own build. Optional design proposals need agreement before
 they are implemented, and they neither authorize a redesign nor block an otherwise accepted fix.
 
+###### Coordinated Designer Review
+
+`cedarcli test ui-review-coordinate` reviews an **existing Designer application capture** with
+Codex. It does not capture the live stack, change product code, replace baselines, or run as part
+of a frontend build. The input is the directory containing Designer's `capture.json`, not the
+parent of an `--app all` capture. The output must be a new, separate directory.
+
+```bash
+cedarcli test ui-review-coordinate --capture /absolute/path/to/capture/designer \
+  --output /absolute/path/to/designer-assessment --plan
+cedarcli test ui-review-coordinate --capture /absolute/path/to/capture/designer \
+  --output /absolute/path/to/designer-assessment
+# Continue exactly the same packet, rules and model selection after interruption:
+cedarcli test ui-review-coordinate --capture /absolute/path/to/capture/designer \
+  --output /absolute/path/to/designer-assessment --resume
+```
+
+The plan verifies file hashes and assigns **every captured state**, supplemental states included.
+It performs no model calls and writes nothing. Execution copies the evidence into the review output;
+the original packet stays unchanged. Legacy calibration packets without image hashes must be
+replaced by a new capture. The matching calibration key must be available locally.
+
+Codex must be installed and authenticated. Execution sends the screenshots, crops, accessibility
+snapshots, visible geometry, recorded actions and approved layout rules to the configured Codex
+service. It disables command, browser, plugin and image-loading tools and project instructions,
+uses an isolated working directory, and attaches all images explicitly. The provider still receives
+the evidence; a local runner is not offline inference. `--model` chooses a model; omission uses the
+runner's default. For comparable repeated assessments, specify the same model. Codex session records
+are retained by Codex so each reviewer can resume for calibration.
+
+The default partitions eight states per reviewer with two concurrent jobs. `--batch-size` accepts
+1–12, `--workers` accepts 1–4, and `--timeout` bounds each model turn (900 seconds by default).
+Every supplied state and crop requires an explicit assessment. One state per partition is reviewed
+independently a second time, and reported candidates receive independent verification. Each of these
+reviewers' assessments is sealed before that same Codex session sees the concealed calibration cases.
+Failed calibration remains a blocker on resume; it is not rerolled until it passes. Infrastructure
+failures may resume without rerunning completed jobs. A forced termination can leave
+`.coordinator-lock/owner.json`; confirm its PID is no longer running before removing that lock.
+
+Validator corrections may revalidate saved answers without rerolling them. The output records each
+coordinator revision in `coordinator-history.json`; each job still checks its exact prompt, schema,
+images and sealed response. Tighter validation schemas recheck existing responses; a changed review
+prompt requires a new review directory. A structurally invalid assessment that has not been sealed
+or exposed to calibration gets one fresh attempt, with the original retained as `invalid-assessment`.
+Integrity failures and sealed or calibrated answers never receive that retry.
+Findings from reviewers that failed calibration are explicitly provisional, even when another
+reviewer agreed with them; the report remains incomplete.
+
+The capture can link before/after sequences through each state's `relatedStates`. Every reference
+must name a captured state. Independent verification receives those related states even when they
+belong to another primary batch, so a follow-up outcome can settle an earlier uncertainty. These
+links carry no verdict and do not substitute for the follow-up state's own primary assessment.
+Geometry is sent as column/value tables with original row indices. This retains every supplied
+value while reducing the size of related-state verification requests; it does not
+trim controls or replace screenshot evidence. The exact submitted text remains in each job's prompt.
+If combining candidates would exceed 900,000 characters, each candidate gets its own verification
+job with all its referenced and related states. An oversized single-candidate request then shares
+repeated values through an indexed table; recursively expanding those references reproduces the
+original evidence exactly. Requests that already fit retain their original prompt bytes, so sealed
+reviews can still be resumed. A request that still exceeds the limit remains an explicit blocker;
+evidence is never truncated to force a request through.
+
+Supplemental card crops intersect the viewport and every clipping ancestor, including ancestors
+outside a shadow host. Cards hidden behind a scrolling pane cannot become blank crops, and capture
+never scrolls to make a crop. Each new state's `cropBounds` records the exact visible portion and
+the coordinator supplies that scope to its reviewer. A partial crop is not a full-card screenshot;
+explicitly recorded scrolling supplies below-fold evidence.
+
+`report.html` presents grouped actionable findings and design decisions, with uncertainty explicit.
+An additional text-only consolidation groups repeated findings without changing their verdicts or
+wording. It must retain every occurrence exactly once, cannot mix defects with design proposals or
+uncertainty, and chooses its representative from the existing findings. Its prompt and receipt are
+retained under `consolidation/`; it does not claim another visual review or calibration pass.
+`report.json` retains all occurrences, verifier dismissals and blockers. `coverage.json` holds every
+state's assessment, image hashes and link to the runner receipt. `jobs/` retains structured responses,
+sealed digests, prompts, image-delivery receipts, event logs and individual calibration scores.
+Missing assessments, changed evidence, tool use, failed calibration and original capture blockers
+make the report `INCOMPLETE` (exit 2). Confirmed defects or automatic findings produce `FINDINGS`
+(exit 1); design proposals or uncertainty produce `DESIGN_REVIEW` (exit 1); otherwise it is
+`REVIEWED` (exit 0). Image delivery and assessment coverage are mechanically accounted for, but model
+attention and the absence of missed defects cannot be proved. A historical packet's verdict concerns
+that packet, not today's deployment.
+
+The coordinator's report is separate from the single-reviewer `review.json` format and does not
+replace a prior sealed review. Its offline tests use a protocol stand-in, which proves orchestration
+and failure handling rather than visual quality.
+
 ###### Sealing and Calibration
 
 Keep `calibration/packet.json` and its images out of the reviewer's first pass. Once the
@@ -3603,9 +3701,12 @@ prevents acceptance.
 Each capture draws its own sixteen miniature interfaces, eight behavior cases and eight composition
 cases. Every probe can render either a concern or an acceptable control. Behavior probes cover an
 overview toggle, cancellation, a save action that enables on input, a clipped action label and a
-covered pointer target. Composition probes cover identities that fit or must wrap, detached labels,
-interrupted and coherent settings groups, and aligned or misaligned row controls. Each family holds
-every probe at least once and between two and six concerns, and each case's polarity, wording set,
+covered pointer target. Composition probes cover overlapping identity text, clipped setting labels,
+overlapping input controls, and aligned or misaligned row controls, with acceptable fitting/wrapped
+identities and wide/narrow settings as controls. The identity and input-overlap probes assert
+rectangle intersections in the browser, and clipped labels must overflow their visible boxes.
+Short stacked identities, detached labels and interrupted settings groups are no longer scored
+as defects. Each family holds every probe at least once and between two and six concerns, and each case's polarity, wording set,
 identifier and position are random. Neither the set of probes nor the number of concerns therefore
 reveals an answer, and a reviewer who has seen an earlier packet holds no answers to the next.
 Composition misses and false alarms are scored separately from behavior. The generator proves each
@@ -3652,8 +3753,12 @@ In the Designer:
 - The Designer updates or retires its own validation-count announcement when the issue set changes,
   preserving queued action feedback and newer unrelated announcements.
 - On a device that cannot hover, the actions between two cards show above the selected card, and
-  tapping a card selects it. Escape dismisses them, and selecting another card ends the dismissal. A
-  mouse, or keyboard focus, reveals them as before.
+  tapping a card selects it. Their full wrapped height is reserved above the card, so they do not
+  cover its identity, Delete action or the preceding card. Escape dismisses them without collapsing
+  that space; selecting another card moves the reserved row to that card and ends the dismissal.
+  Keyboard focus or pointer hover on an insertion row also reserves its height on these devices,
+  and the row keeps that space while its field picker is open. Mouse devices keep
+  their existing hover/focus overlay behavior.
 
 In Workspace:
 
@@ -3697,8 +3802,63 @@ behavior rather than a defect.
 Review packets are kept under `$CEDAR_HOME/.cedar/reports/ui-review/`, outside version control.
 Each directory's `review-result.html` or assessment page records what was reviewed and found.
 
+The 2026-11-23 follow-up passed 687 term-picker browser cases, 4,764 CEE cases, 3,492 CED
+cases and 2,235 Designer-host cases. Forty repeated focus checks and twelve lower-concurrency
+Firefox validation checks passed without retries. The frontend reactor deployed and verified its
+served packages; whole-stack smoke refused the backend binaries because newer backend commits
+were not deployed. Those services were left untouched. Capture readiness polls from Node, since
+Angular-patched browser promises can otherwise let WebKit continue while the screen is still
+loading or saving; the harness's 39 unit and 16 browser checks pass.
+
+The subsequent diagnostic review assessed all 318 captured states (163 mouse and 155 touch).
+Delivery receipts, assessment image lists and SHA-256 checks agree for all 564 state images/crops.
+This is assessment coverage, not acceptance: only 139 mouse and 48 touch primary states have
+passing calibration, and both reports remain `INCOMPLETE`. The touch packet predates restoration
+of six Safari keyboard creation states; the restored catalog then required 161. The complete
+recapture attempt (`designer-independent-fixes-touch-diagnostic-20261123-04/`) stopped before its
+first state because the profile service returned 503. Services were not restarted.
+
+Follow-up source fixes keep a phone branch's release count beside its version, contain the nested
+results grid's excess outer scroll range, and preserve a full-strength focus ring on an unavailable
+Overview move button while keeping its arrow muted. These pass 33 picker and 21 Overview browser
+checks across Chromium, Firefox and WebKit, but are not in the deployed capture above. Future
+calibration packets also show readable rows after the acceptable paging action and use a narrow
+settings example whose labels demonstrably require stacking in every wording set. Existing sealed
+review answers and calibration scores were not changed or rerolled.
+
+The later offline touch update reserves the full insertion row and keeps it stable through
+focus-to-pointer transitions, picker opening and Escape dismissal. Its final targeted run passes
+36 browser cases across Chromium, Firefox and WebKit, including 15 new phone/tablet/split-pane,
+nested-destination and short-phone insertion checks. Another 189 read-only cases pass; the broader
+insertion/keyboard/header/reorder run passed 231 cases, with its three touch-expansion failures
+resolved and included in the final 36-case run. The Designer's 17,129 unit tests and coverage gate,
+source lint, typecheck and production build pass. The review harness passes 55 checks, and the CLI
+review/coordinator suite passes 49 tests plus three subtests. Rendered evidence, the tested bundle
+manifest and logs are retained in `$CEDAR_HOME/.cedar/reports/designer-touch-offline-20261123/`.
+These are isolated component checks, not a backend capture or a new AI acceptance review.
+
+The fresh 2026-11-23 review uses deployed graph
+`337272cb68f0980bda160a6007af8d101b3b5f25dca5b35d544387ec7ba53c56`. Both profiles have
+complete catalogue coverage: 163 Chromium states and 161 WebKit touch states, all assessed and
+calibrated. All 582 state screenshots/crops match the capture hashes, delivery receipts and sealed
+assessment image lists. All 80 primary, duplicate-audit and finding-verification reviewer sessions
+pass calibration; both reports are `FINDINGS`, with no review-completeness blockers. The captures
+have no automatic findings, browser errors or cleanup errors. Infrastructure-interrupted jobs were
+resumed without changing completed sealed reviews, and earlier summary groupings were retained
+before regrouping the recovered findings. The combined proof is
+`$CEDAR_HOME/.cedar/reports/ui-review-coordinator/designer-fresh-20261123-summary/coverage-audit.json`;
+the reports are in the sibling `designer-fresh-mouse-20261123/` and
+`designer-fresh-touch-20261123/` directories. This proves delivery and recorded assessment coverage,
+not absence of missed defects or coverage of interactions outside the catalogue. Outstanding
+presentation choices and focused evidence gaps remain on the frontend roadmap.
+
 | Directory | Contents |
 | --- | --- |
+| `designer-independent-fixes-diagnostic-20261123/` | 163/163 mouse-profile states on frontend graph `83a9ba4b253203632103c5dda0d2cd449642a6b21b48daf13eb30e9c1b598164`, with zero automatic findings or cleanup errors and one unattributed browser 404. Includes real Tab entry with fully visible Attribute Value labels, the missing Configuration footers and multiple-value creation controls. Diagnostic: another session committed a test-mock update after deployment, so source-freshness acceptance is blocked. The matching coordinator directory uses the same name. |
+| `designer-independent-fixes-touch-diagnostic-20261123-03/` | All 155 captured touch states assessed on the same deployed graph; six additional keyboard creation states are required by the current 161-state catalog. No runtime or cleanup errors. Eight grouped automatic target-size findings require verification, including field names, delete actions and validation badges. The coordinator directory is `designer-independent-fixes-touch-diagnostic-20261123/`. |
+| `designer-confirmed-fixes-20261122-03/` | 154/154 Designer states assessed, with 279 state images/crops and no automatic findings, runtime errors or cleanup errors. The matching coordinator directory is `designer-confirmed-fixes-20261122-02/`; its report remains `INCOMPLETE`: 22 of 36 reviewer sessions passed calibration, while 14 rejected the same short-identity stacking probe. All image hashes match the capture; 114 primary states have passing calibration. No reviewer was rerolled. |
+| `designer-confirmed-fixes-20261122-02/` | 154 Designer states and 279 state images/crops after the initial presentation fixes. The matching coordinator directory `designer-confirmed-fixes-20261122/` assessed all 154 states but remains `INCOMPLETE`: one reviewer missed calibration and four verification requests exceeded the runner's text limit. This packet and those answers are retained unchanged. |
+| `designer-calibration-behaviors-20261122-03/` | 139 Designer states, including trailing creation controls reached and activated by pointer and keyboard, a post-deletion save refusal and successful correction, and initial term search loading/settled outcomes at desktop and phone widths. Includes the corrected calibration fixtures. Coordinated results are under `$CEDAR_HOME/.cedar/reports/ui-review-coordinator/designer-calibration-behaviors-20261122/`. |
 | `20261115-designer-pilot/` | The first Designer review, with `pilot-assessment.html`; `reviewer-audit.json` records a withdrawn pointer finding. |
 | `20261115-rubric-comparison/` | The same screenshot regions reviewed under the original and the revised rubric. |
 | `20261115-designer-integrated-review/` and `20261115-designer-current-review/` | Sealed Designer reviews; each has its assessment in the matching `-assessment/` directory. |
@@ -3708,6 +3868,79 @@ Each directory's `review-result.html` or assessment page records what was review
 | `20261117-responsive-final-review/` | Reviews of the responsive corrections, including the open long-path tablet layout proposal and the smoke runner correction under `runner-correction/`. |
 | `20261117-approved-layout-review/` | Focused acceptance of the List/Grid grouping and read-only Preview names. |
 | `20261118-maintained-verified/` | The first capture by the maintained collectors, never reviewed, and collected against an earlier catalog that validation now refuses. |
+
+The 23 November Designer follow-up used reactor graph
+`e80d4ed7da06d4917513a1235678fae2901eb697888c9e545d189271f6362e6f`.
+The frontend gates and served-bundle verification passed, including 3,477 Designer browser checks,
+25 visual comparisons, 17,071 Designer unit tests, 4,756 CEE browser checks, 678 term-picker checks,
+2,235 Designer-host checks and the three framework consumer demos. Whole-stack smoke stopped at
+backend freshness: the running services used `cedar-microservice-libraries` source `42085c06`
+while the checkout was `5e9e1592`. No backend redeployment was performed for this UI follow-up.
+The build report is `.cedar/build-reports/frontend-runs/20261123T134648Z-909aedd6.json`.
+
+The final coordinated report retains four grouped findings and six design/uncertainty groups.
+Two findings concern hidden loaded ontology release history and abbreviated phone source details;
+each includes an occurrence with both primary and verifier calibration passing. The other two
+request visible creation or result-disclosure cues. Treat those as design decisions, not permission
+to add UI. The retained loading-state evidence in the preceding capture also shows a temporary
+“0 releases” heading while releases are being read; the final capture waits for loaded rows and
+does not supersede that observation. Its follow-up belongs with the remaining term-picker work.
+The complete review remains unqualified despite full assessment coverage: all 14 calibration
+failures concern the same readable two-line identity, which the answer key requires on one line.
+These responses and their scores remain unchanged. The frontend roadmap tracks the remaining
+product findings, evidence gaps and design/calibration decisions.
+
+##### Final Designer Verification on 23 November (24 November UTC)
+
+The expanded catalogue has 180 Chromium states and 178 WebKit touch states. The complete
+coordinated review of graph `065ecb914b666ab80ce803335e4f39b06172094696e5a9a42c29f3518d2e2770`
+assessed and calibrated all 358 states: 100% of that catalogue. All 47 primary, duplicate-audit
+and finding-verification jobs passed calibration. The 625 state screenshots/crops match the
+capture hashes, delivery receipts and sealed assessments. Three oversized related-state
+verification requests were recovered using lossless evidence-value sharing; completed answers
+were preserved, not rerolled. The capture has no automatic findings, runtime or cleanup errors.
+The proof is `$CEDAR_HOME/.cedar/reports/designer-verification-followup-20261123/coverage-audit.json`;
+the full reports are under `.cedar/reports/ui-review-coordinator/designer-verified-fixes-{mouse,touch}-20261123/`.
+
+The added states record ordinary scroll reachability for DOI and break settings, the 900-pixel
+Property IRI action row, the Page Break creation choice, the settled Overview-selected card header,
+initial search feedback without delayed responses, first/last release rows, restored search
+scrolling, and phone validation and retained-draft screens. The capture remains a finite catalogue,
+not a claim to cover every possible document or interaction.
+
+Subsequent fixes align wrapped validation bullets with their first line, prevent a touch Save
+from leaving a hover tooltip over its failure message, and clip supplemental card crops to the
+portions actually visible through their scrolling ancestors. A fresh 31-state follow-up on graph
+`df0640ed9cfd50765e50c886f87e999d233abcd1bc7aba772270251aa2d10458` reviewed every state rendering
+the affected finding links, plus normal, collapsed, draft and touch failure controls. Each state
+received two independent assessments; all eight jobs passed calibration. Its proof is
+`designer-verification-followup-20261123/targeted-alignment-audit.json` under the reports root.
+
+That review identified one further defect: inactive field and element reorder grips remained
+full-strength during retained-draft recovery. Both now use the existing disabled opacity only
+while the component is inert. Six engine/width regression cases fail against the prior deployed
+bundle at the grip check and pass against the correction, also checking normal and restored editing.
+The final reactor passed 3,507 Designer and 2,273 host browser checks, with one declared Firefox
+case skipped because touch coverage runs in Chromium and WebKit. Build, deployment, served-byte
+verification and whole-stack smoke passed. The timing record is
+`.cedar/build-reports/frontend-runs/20261124T072737Z-32cdbaad.json`.
+
+Fresh final captures contain all 358 states and 1,075 viewport/card images on graph
+`bdf6eef742425749f2ee6e2d888d1c8e07265666d3b43eb842073fb385a1c34f`, with no automatic findings,
+runtime or cleanup errors. The final grip follow-up independently reviewed six states per profile
+twice: empty, single, nested, desktop/phone draft offered, and draft restored. All four jobs passed
+calibration; image hashes, sealed answers, delivery receipts and same-thread calibration agree.
+Its proof is `designer-verification-followup-20261123/targeted-grip-audit.json` under the reports root;
+the reports are in `ui-review-coordinator/designer-grip-final-targeted-{mouse,touch}-20261123/`.
+This is focused verification of the final change, not a second whole-catalogue review.
+
+No confirmed defect remains in this scoped follow-up. The mouse reviewers repeated a question
+about hidden resting creation controls; the agreed mouse hover/focus behavior and recorded
+activation evidence already settle it. Preserve that design. The phone toolbar also preserves its
+existing wrap: its contents and required gap need 352.94–353.02 pixels in a 351-pixel space.
+The remaining six product choices are in the frontend roadmap and
+`designer-verification-followup-20261123/design-decisions.json`. Raw review answers remain intact;
+`final-triage.json` beside that file records the disposition separately.
 
 ##### Investigating intermittent browser timing failures
 

@@ -503,3 +503,22 @@ The frontend runbook links the retained evidence and the instrumented reproducti
 - Induce each condition by routing requests in the review browser, as the interrupted save does,
   never by changing the stack, and say in the state's note that the harness caused it, so the
   reviewer judges the product's handling rather than the cause.
+
+### 16. Agree the Remaining Designer Presentation Choices
+
+- Decide whether changing any part of a submitted artifact should retire its prior server findings,
+  as today, or whether guidance should remain until the flagged value changes. A fresh save retry
+  still obtains the current validation verdict; retaining guidance changes the interaction contract.
+- Agree whether expandable term rows need a visible disclosure cue and whether release-count labels
+  should explicitly name releases instead of saying “of 2”.
+- Decide whether ontology names should remain visible while their release histories scroll, through
+  a retained or repeated heading. Preserve the current scrolling behavior until agreed.
+- Decide whether Term details should retain the last inspected term with clearer context or follow
+  the active tab and selection. This changes displayed information or selection behavior.
+- Agree whether missing Image and YouTube notices should include each complete authored field name.
+- Decide whether Preview should stack version metadata earlier at intermediate widths to keep the
+  build identifier together; at 900 pixels its final two characters wrap, while all metadata remains
+  available.
+
+The frontend runbook links the complete calibrated Designer review and focused follow-up evidence.
+These are product choices, not permission to add controls, hide information or rearrange the interface.

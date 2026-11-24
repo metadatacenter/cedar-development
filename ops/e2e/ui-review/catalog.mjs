@@ -7,15 +7,25 @@ export const DESIGNER_STATES = [
   'width-1440', 'width-1100', 'width-900', 'width-768', 'width-375', 'nested',
   'both-panels-1440', 'both-panels-1100', 'both-panels-1024', 'both-panels-900', 'both-panels-768',
   'phone-preview-375', 'phone-editor-375', 'phone-preview-short', 'phone-editor-short',
-  'configuration-end-768', 'configuration-end-375',
+  'configuration-end-900', 'configuration-end-768', 'configuration-end-375',
+  'multiple-1100-creation-page-break-reached', 'overview-selection-header-reached',
+  'type-doi-configuration-end', 'type-section-break-configuration-end', 'type-page-break-configuration-end',
   'both-panels-multiple-1100', 'both-panels-multiple-768', 'phone-preview-multiple-375', 'phone-editor-multiple-375',
   'required-preview-1100', 'required-preview-768', 'required-preview-375',
   'required-configuration-1100', 'required-configuration-768', 'required-configuration-375',
   'required-overview-1440', 'required-overview-768',
   'saved', 'reopened', 'save-unconfirmed', 'save-status-checked',
   'server-findings', 'server-findings-expanded', 'draft-offered', 'draft-restored',
+  'server-findings-375', 'server-findings-expanded-375', 'draft-offered-375',
   'last-field-removed', 'removed-panel-a', 'removed-panel-b', 'keyboard', 'field-type-picker',
-  'missing-template',
+  'missing-template', 'disabled-move-checked', 'nested-hover-checked', 'nested-activation-checked',
+  'type-checkboxes-configuration-end', 'type-email-configuration-end', 'attribute-value-readonly-checked',
+  'type-controlled-terms-configuration-end', 'type-pfas-configuration-end',
+  'attribute-name-keyboard-focus', 'attribute-value-keyboard-focus',
+  'preview-top-checked', 'phone-scroll-restored', 'phone-editor-top-checked',
+  ...['single', 'nested', 'multiple-1100'].flatMap(prefix => ['idle', 'pointer', 'pointer-open', 'keyboard', 'keyboard-open']
+    .map(state => `${prefix}-creation-${state}`)),
+  'last-field-save-rechecked', 'last-field-save-corrected',
 ];
 // Every type the Designer's field picker offers, by state slug and picker label. Rich Text renders
 // nothing in Preview until given content, and Page Break shows only as the Preview's page selector,
@@ -40,8 +50,9 @@ export const METADATA_TYPES = [
 // Input types given a value they refuse, by state slug, field label and the value entered.
 export const METADATA_INVALID = [['email','Email','not an address'], ['phone','Phone','call me'], ['link','Link','example dot org']];
 // The Designer's controlled-term picker, opened from a controlled-terms field's constraints.
-export const TERM_PICKER_STATES = ['term-picker-open', 'term-picker-results', 'term-picker-term', 'term-picker-branches',
-  'term-picker-ontologies', 'term-picker-done'];
+export const TERM_PICKER_STATES = ['term-picker-initial-feedback', 'term-picker-open', 'term-picker-loading', 'term-picker-settled', 'term-picker-results', 'term-picker-term', 'term-picker-branches',
+  'term-picker-ontologies', 'term-picker-done', 'term-picker-term-scrolled', 'term-picker-branches-scrolled', 'term-picker-ontologies-scrolled',
+  'term-picker-ontologies-release-first', 'term-picker-ontologies-release-last', 'term-picker-search-restored'];
 export const TERM_PICKER_WIDTHS = [1440, 375];
 export const APPS = ['designer', 'workspace', 'metadata-editor', 'openview'];
 // Browser profiles a capture can run under. The default drives Chromium with a mouse; the touch

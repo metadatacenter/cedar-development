@@ -33,7 +33,7 @@ export async function versionPanel(page, kind) {
   await cards.first().waitFor();
   let card;
   for (const candidate of await cards.all()) {
-    const input = candidate.locator(kind === 'field' ? 'input.field-name' : 'input[name="shownName"]').first();
+    const input = candidate.locator(kind === 'field' ? '.field-name' : '[name="shownName"]').first();
     if (await input.inputValue() === 'Reused') { card = candidate; break; }
   }
   assert.ok(card, `The ${kind} placement named Reused is present`);

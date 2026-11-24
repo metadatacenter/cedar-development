@@ -23,6 +23,14 @@ test('every probe variant satisfies its premise in every wording set', async t =
             const entry = await captureCase(browser, directory, item);
             assert.equal(entry.id, item.id);
             assert(entry.images.length, `${category}/${theme}: no image`);
+            if (probe.kind === 'save-enable')
+              assert(!entry.accessibility.includes(THEMES[theme].prompt), 'entered values must not retain an unmet-requirement hint');
+            if (probe.kind === 'occlusion') {
+              const number = broken ? 1 : 2;
+              assert(entry.accessibility.includes(`text: Page ${number}`), 'page label must match the click outcome');
+              assert(entry.accessibility.includes(`${THEMES[theme].item} ${broken ? 1 : 9}`), 'rows must match the displayed page');
+              assert(!entry.accessibility.includes(`text: Page ${broken ? 2 : 1}`), 'no conflicting old page label');
+            }
           }
 });
 

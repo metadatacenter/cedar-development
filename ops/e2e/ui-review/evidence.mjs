@@ -37,22 +37,39 @@ export async function captureState({page,directory,states,actions,flush,regions,
           [...root.querySelectorAll(selector)].map(el => ({selector, ...describe(el)}))))};
     }, regions);
     await writeFile(join(directory, metrics), JSON.stringify(geometry, null, 2));
-    const crops = [];
+    const crops = [], cropBounds = [];
     const cards = page.locator('app-field-card');
-    for (let i = 0; i < Math.min(await cards.count(), 3); i++) {
+    const cardCount = await cards.count();
+    for (let i = 0; i < cardCount && crops.length < 3; i++) {
       if (!await cards.nth(i).isVisible()) continue;
       // Locator screenshots scroll their target into view. Crop the current viewport instead:
       // evidence collection must not change scroll/hover preconditions for the next interaction.
-      const box = await cards.nth(i).boundingBox(), viewport = page.viewportSize();
-      if (!box || !viewport) continue;
-      const x = Math.max(0, box.x), y = Math.max(0, box.y);
-      const width = Math.min(viewport.width, box.x + box.width) - x;
-      const height = Math.min(viewport.height, box.y + box.height) - y;
-      if (width <= 0 || height <= 0) continue;
+      const clip = await cards.nth(i).evaluate(card => {
+        const box = card.getBoundingClientRect();
+        let left = Math.max(0, box.left), top = Math.max(0, box.top);
+        let right = Math.min(innerWidth, box.right), bottom = Math.min(innerHeight, box.bottom);
+        // A card can intersect the browser viewport while being wholly outside its
+        // scrolling pane. Cross shadow hosts as well as ordinary DOM ancestors.
+        const parent = node => node.parentElement || node.getRootNode().host;
+        for (let node = parent(card); node; node = parent(node)) {
+          const style = getComputedStyle(node), bounds = node.getBoundingClientRect();
+          if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) {
+            left = Math.max(left, bounds.left + node.clientLeft);
+            right = Math.min(right, bounds.left + node.clientLeft + node.clientWidth);
+          }
+          if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
+            top = Math.max(top, bounds.top + node.clientTop);
+            bottom = Math.min(bottom, bounds.top + node.clientTop + node.clientHeight);
+          }
+        }
+        return right > left && bottom > top ? {x: left, y: top, width: right - left, height: bottom - top} : null;
+      });
+      if (!clip) continue;
       const file = `${id}-card-${i + 1}.png`;
       // A viewport screenshot takes its clip in viewport coordinates, the frame boundingBox reports.
-      await page.screenshot({path: join(directory, file), clip: {x, y, width, height}});
+      await page.screenshot({path: join(directory, file), clip});
       crops.push(file);
+      cropBounds.push({file, cardIndex: i, clip, scope: 'Only the card portion visible inside its scrolling ancestors; not a full-card screenshot.'});
     }
     // Focus crops taken while reaching this state are named after it, in traversal order.
     for (const [index, file] of pendingCrops.entries()) {
@@ -65,6 +82,6 @@ export async function captureState({page,directory,states,actions,flush,regions,
     const checks = `${id}.checks.json`, violations = await automaticChecks(page);
     await writeFile(join(directory, checks), JSON.stringify(violations, null, 2));
     const regionsMatched = [...new Set(geometry.regions.map(region => region.selector))];
-    states.push({id, note, screenshot, aria, metrics, checks, checkViolations: violations.length, crops, regionsMatched, cropCoverage: 'Visible viewport only; scroll explicitly to inspect below-fold content.', viewport: page.viewportSize(), actionCount: actions.length});
+    states.push({id, note, screenshot, aria, metrics, checks, checkViolations: violations.length, crops, cropBounds, regionsMatched, cropCoverage: 'Visible viewport only; scroll explicitly to inspect below-fold content.', viewport: page.viewportSize(), actionCount: actions.length});
     await flush();
   }

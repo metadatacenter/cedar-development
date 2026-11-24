@@ -3,7 +3,7 @@ import {mkdir, readFile, readdir} from 'node:fs/promises';
 import {join, relative, sep} from 'node:path';
 import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {hash} from './contract.mjs';
-import {pointer} from './interactions.mjs';
+import {pointer, waitForPage} from './interactions.mjs';
 
 const base = process.env.CEDAR_DESIGNER_BASE || 'https://designer.metadatacenter.orgx';
 // Review fixtures may only be created on the local development deployment.
@@ -19,8 +19,8 @@ export async function openSession(directory, options = {}) {
     returnTo: 'https://workspace.metadatacenter.orgx/dashboard'});
 
   async function ready() {
-    await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer')?.shadowRoot?.querySelector('input, button'));
-    await page.waitForFunction(() => ['Unmodified', 'Modified', 'Saved'].includes(document.getElementById('state')?.textContent));
+    await waitForPage(page, () => document.querySelector('cedar-embeddable-designer')?.shadowRoot?.querySelector('input, button'));
+    await waitForPage(page, () => ['Unmodified', 'Modified', 'Saved'].includes(document.getElementById('state')?.textContent));
     await page.evaluate(() => document.fonts.ready);
   }
   async function openNew() {
@@ -40,7 +40,7 @@ export async function openSession(directory, options = {}) {
       const add = page.getByRole('button', {name: /^Add field$/}).last();
       await pointer(shared, add);
       await pointer(shared, page.locator('app-field-type-picker').getByRole('button', {name: type, exact: true}));
-      const input = page.locator('input[aria-label="Enter field name"]:focus');
+      const input = page.locator('[aria-label="Enter field name"]:focus');
       await input.fill(name); await input.press('Tab');
     });
   }

@@ -19,12 +19,12 @@ function inert() {
     apply: () => inert(),
   });
 }
-async function dryRun(app, profileName = 'chromium') {
+async function dryRun(app, profileName = 'chromium', capturedStates = []) {
   let minted = 0;
   const recorded = [];
   const session = {
     page: inert(), base: 'https://ui-review.test', user: {profile: {homeFolderId: 'https://repo.test/folders/home'}},
-    actions: [], expectedNetworkFailures: new Set(), states: [],
+    actions: [], expectedNetworkFailures: new Set(), states: capturedStates,
     flush: async () => {}, login: async () => {}, openNew: async () => {}, ready: async () => {},
     addField: async () => {}, action: async () => {}, capture: async () => {},
     put: async collection => `https://repo.test/${collection}/${++minted}`,
@@ -32,7 +32,7 @@ async function dryRun(app, profileName = 'chromium') {
     request: async () => ({status: 200, body: {}, headers: new Headers({etag: '"stand-in"'})}),
     anonymousRead: async () => ({status: 200}),
   };
-  await (await collectorFor(app))(session, async id => {recorded.push(id);});
+  await (await collectorFor(app))(session, async id => {recorded.push(id); capturedStates.push({id});});
   return recorded;
 }
 
@@ -57,6 +57,35 @@ test('every application declares the regions its capture must find', () => {
   for (const app of APPS) {
     assert.ok(REGIONS[app].length, `${app}: no regions`);
     assert.equal(new Set(REGIONS[app]).size, REGIONS[app].length, `${app}: duplicate region selector`);
+  }
+});
+
+test('Designer retains overlapping follow-ups and links scrolled Configuration evidence', async () => {
+  const states = [];
+  await dryRun('designer', 'chromium', states);
+  const related = id => states.find(state => state.id === id).relatedStates;
+  assert.ok(related('keyboard').includes('nested-creation-keyboard-open'));
+  assert.ok(related('keyboard').includes('disabled-move-checked'));
+  assert.ok(related('nested').includes('nested-creation-idle'));
+  assert.ok(related('nested').includes('nested-activation-checked'));
+  assert.ok(related('width-375').includes('configuration-end-375'));
+  assert.ok(related('both-panels-768').includes('configuration-end-768'));
+  assert.ok(related('both-panels-multiple-1100').includes('multiple-1100-creation-keyboard-open'));
+  assert.ok(related('type-pfas').includes('type-pfas-configuration-end'));
+  assert.ok(related('type-doi').includes('type-doi-configuration-end'));
+  assert.ok(related('type-page-break').includes('type-page-break-configuration-end'));
+  assert.ok(related('both-panels-900').includes('configuration-end-900'));
+  assert.ok(related('multiple-1100-creation-keyboard-open').includes('multiple-1100-creation-page-break-reached'));
+  assert.ok(related('type-controlled-terms-preview').includes('overview-selection-header-reached'));
+  assert.ok(related('draft-offered').includes('draft-offered-375'));
+  assert.ok(related('server-findings').includes('server-findings-expanded-375'));
+  assert.ok(related('term-picker-open-375').includes('term-picker-initial-feedback-375'));
+  assert.ok(related('term-picker-ontologies-375').includes('term-picker-ontologies-release-last-375'));
+  assert.ok(related('term-picker-ontologies-375').includes('term-picker-search-restored-375'));
+  assert.ok(related('attribute-value-readonly-checked').includes('attribute-value-keyboard-focus'));
+  for (const state of states) {
+    assert.equal(new Set(state.relatedStates).size, state.relatedStates?.length ?? 0);
+    assert.ok(!state.relatedStates?.includes(state.id));
   }
 });
 

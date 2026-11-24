@@ -5889,6 +5889,11 @@ Four of those six moved on 2026-08-08, deliberately and as part of containerizin
 development: Redis to 7.2.7, OpenSearch to 2.19.1, Mongo to 5.0.31 and Neo4j to 5.26.0, each set to
 the version already running natively. MySQL and Keycloak have not moved in the images.
 
+Two moved again on 2026-11-23, to the versions production runs: Mongo to 8.0.38 and Neo4j to
+5.26.32, on the workstation, in the embedded store the suites start, and in the images. The
+MongoDB image needs Docker Desktop 4.93.0 or later, and an existing Docker volume needs migrating,
+as the [Docker runbook](DOCKER-RUNBOOK.md#moving-a-mongodb-50-volume-to-80) describes.
+
 The native workstation stack holds the lock only where Homebrew is told to. MongoDB comes from the
 versioned `mongodb-community@8.0` formula, with its data in `/opt/homebrew/var/mongodb-8.0`. MySQL
 comes from the versioned `mysql@8.4` formula, the 8.4 LTS line the images pin and the newest line
@@ -5955,11 +5960,6 @@ followed by a local microservice redeploy and whole-stack smoke. The startup ban
 comes from `jetty-util`, so a banner alone is not proof of dependency alignment.
 
 Jersey follows the same pattern. `cedar-parent` imports `org.glassfish.jersey:jersey-bom` at the
-Two moved again on 2026-11-23, to the versions production runs: Mongo to 8.0.38 and Neo4j to
-5.26.32, on the workstation, in the embedded store the suites start, and in the images. The
-MongoDB image needs Docker Desktop 4.93.0 or later, and an existing Docker volume needs migrating,
-as the [Docker runbook](DOCKER-RUNBOOK.md#moving-a-mongodb-50-volume-to-80) describes.
-
 `org.glassfish.jersey.version` property, and the inherited `enforce-jersey-alignment` rule rejects
 any resolved Jersey module at another version. Until 2026-10-19 the parent managed only
 `jersey-container-servlet` and `jersey-hk2`, so `jersey-common`, `jersey-server`, `jersey-client`

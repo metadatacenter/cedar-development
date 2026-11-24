@@ -116,7 +116,7 @@ const editorReady = async page => {
   assert.equal(await field.isEnabled(),true);
 };
 const designerReady = async page => {
-  const field = page.locator('cedar-embeddable-designer input.field-name').first();
+  const field = page.locator('cedar-embeddable-designer .field-name').first();
   await field.waitFor();
   await page.waitForFunction(() => {
     const el = document.querySelector('cedar-embeddable-designer');
@@ -137,7 +137,7 @@ const typeAnswer = async page => {
   assert.equal(await field.inputValue(),'Performance answer');
 };
 const renameField = async page => {
-  const field = page.locator('cedar-embeddable-designer input.field-name').first();
+  const field = page.locator('cedar-embeddable-designer .field-name').first();
   await field.fill('Measured field'); await field.press('Tab');
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer')?.currentTemplate?._ui?.propertyLabels?.['Field 001'] === 'Measured field');
 };

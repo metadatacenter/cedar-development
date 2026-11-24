@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp, readFile, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {chromium} from 'playwright';
+import {chromium, firefox, webkit} from 'playwright';
 import {captureState} from './evidence.mjs';
 import {keyboard, pointer} from './interactions.mjs';
 
@@ -89,4 +89,36 @@ test('card crops show the visible card on a scrolled page', async t => {
     return [image.width, image.height, ...[...context.getImageData(Math.floor(image.width / 2), Math.floor(image.height / 2), 1, 1).data].slice(0, 3)];
   }, 'data:image/png;base64,' + png.toString('base64'));
   assert.deepEqual(centre, [560, 120, 0, 170, 0]);
+});
+
+for (const engine of [chromium, firefox, webkit]) test(`${engine.name()}: card crops respect a shadow host's scrolling ancestor without scrolling it`, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ui-review-clipped-cards-'));
+  const browser = await engine.launch();
+  t.after(async () => {await browser.close(); await rm(directory, {recursive: true, force: true});});
+  const page = await (await browser.newContext({viewport: {width: 600, height: 400}})).newPage();
+  await page.setContent(`<!doctype html><meta charset="utf-8"><style>
+    body{margin:0;background:white}#pane{margin-top:150px;width:240px;height:100px;overflow:auto}#host{display:block}
+    </style><div id="pane"><div id="host"></div></div><script>
+    document.querySelector('#host').attachShadow({mode:'open'}).innerHTML=
+      '<style>app-field-card{display:block;height:100px;background:#a00}app-field-card:last-child{background:#0a0}</style>'+
+      '<app-field-card></app-field-card>'.repeat(4);
+    document.querySelector('#pane').scrollTop=300;</script>`);
+  const states = [];
+  const session = {page, directory, states, actions: [], flush: async () => {}, regions: [], fullPage: false};
+  const pixels = async file => page.evaluate(async source => {
+    const image = new Image(); image.src = source; await image.decode();
+    const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
+    return [image.height, ...context.getImageData(Math.floor(image.width / 2), Math.floor(image.height / 2), 1, 1).data.slice(0, 3)];
+  }, 'data:image/png;base64,' + (await readFile(join(directory, file))).toString('base64'));
+  await captureState(session, 'nested-scroll');
+  assert.deepEqual(states[0].crops, ['nested-scroll-card-4.png']);
+  assert.deepEqual(await pixels(states[0].crops[0]), [100, 0, 170, 0]);
+  assert.equal(await page.locator('#pane').evaluate(node => node.scrollTop), 300);
+  await page.locator('#pane').evaluate(node => {node.scrollTop = 250;});
+  await captureState(session, 'partial');
+  assert.deepEqual(states[1].crops, ['partial-card-3.png', 'partial-card-4.png']);
+  assert.deepEqual(await pixels(states[1].crops[0]), [50, 170, 0, 0]);
+  assert.deepEqual(await pixels(states[1].crops[1]), [50, 0, 170, 0]);
+  assert.equal(await page.locator('#pane').evaluate(node => node.scrollTop), 250);
 });

@@ -55,7 +55,7 @@ async function enabled(locator) {
 /** The settings of the field placed as Reused, found by its name as versionPanel finds it. */
 async function reusedSettings(page) {
   for (const card of await page.locator("app-field-card").all())
-    if (await card.locator("input.field-name").first().inputValue() === "Reused") return card.locator("app-field-settings");
+    if (await card.locator(".field-name").first().inputValue() === "Reused") return card.locator("app-field-settings");
   assert.fail("The field placement named Reused is present");
 }
 

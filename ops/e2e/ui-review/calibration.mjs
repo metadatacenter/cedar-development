@@ -95,12 +95,17 @@ async function captureOcclusion(browser, directory, item, t) {
       button{font:inherit;padding:8px 12px}#status{margin:20px 0}
       </style><main><div class="intro"><h1>${t.records}</h1><p>${t.recordsIntro}</p></div>
       <div class="listing"><table><thead><tr><th>${t.column}</th></tr></thead><tbody>${Array.from({length: 8}, (_, i) => `<tr><td>${t.item} ${i + 1}</td></tr>`).join('')}</tbody></table></div>
-      <footer><span>Page 1</span><button>Next</button></footer></main><p id="status">Page 1 selected.</p>
-      <script>document.querySelector('button').onclick=()=>{document.querySelector('#status').textContent='Page 2 selected.'}</script>`);
+      <footer><span id="page">Page 1</span><button>Next</button></footer></main><p id="status">Page 1 selected.</p>
+      <script>document.querySelector('button').onclick=()=>{
+        document.querySelector('#page').textContent='Page 2';
+        document.querySelectorAll('tbody td').forEach((cell,i)=>cell.textContent=${JSON.stringify(t.item)}+' '+(i+9));
+        document.querySelector('#status').textContent='Page 2 selected.';
+      }</script>`);
     await page.evaluate(() => document.fonts.ready);
-    await page.locator('main').evaluate(main => {
-      main.scrollTop += main.querySelector('th').getBoundingClientRect().top - main.querySelector('button').getBoundingClientRect().top;
-    });
+    await page.locator('main').evaluate((main, broken) => {
+      if (broken) main.scrollTop += main.querySelector('th').getBoundingClientRect().top - main.querySelector('button').getBoundingClientRect().top;
+      else main.scrollTop = main.scrollHeight;
+    }, item.broken);
     const target = await page.locator('button').evaluate(button => {
       const r = button.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
       const top = document.elementFromPoint(x, y);
@@ -112,6 +117,17 @@ async function captureOcclusion(browser, directory, item, t) {
     // A locator click may scroll away the overlap, hiding the ordinary pointer failure.
     await page.mouse.click(target.x, target.y);
     assert.equal(await page.locator('#status').textContent(), item.broken ? 'Page 1 selected.' : 'Page 2 selected.');
+    assert.equal(await page.locator('#page').textContent(), item.broken ? 'Page 1' : 'Page 2');
+    assert.equal(await page.locator('tbody td').first().textContent(), `${t.item} ${item.broken ? 1 : 9}`);
+    if (!item.broken) {
+      const readable = await page.locator('tbody td').first().evaluate(cell => {
+        const row = cell.getBoundingClientRect(), pane = cell.closest('main').getBoundingClientRect();
+        const header = cell.closest('table').querySelector('th').getBoundingClientRect();
+        const footer = cell.closest('main').querySelector('footer').getBoundingClientRect();
+        return row.top >= Math.max(pane.top, header.bottom) && row.bottom <= footer.top;
+      });
+      assert(readable, 'Unobscured action control must also show a complete result after paging');
+    }
     await page.screenshot({path: join(directory, images[1])});
     return {id: item.id, images, actions: ['Scrolled the record pane, then clicked the center of Next without further scrolling.'],
       pointerTarget: target, accessibility: await page.locator('body').ariaSnapshot()};
@@ -131,11 +147,14 @@ async function captureForm(browser, directory, item, t) {
     const narrow = category === 'intentional-responsive-wrap' || category === 'clipped-primary-action-narrow';
     const content = panel
       ? `<button id="toggle" aria-expanded="false">${t.overview}</button><aside id="panel" hidden>${t.empty}</aside>`
-      : `<div class="row"><label>${t.name}<input id="name" value="${cancel ? t.original : ''}"></label><label>${t.description}<textarea></textarea></label></div><div class="actions"><button id="save" ${enable ? 'disabled' : ''}>${t.save}</button><button id="cancel">${t.cancel}</button></div><p id="status">${cancel ? `${t.stored}: ${t.original}` : t.prompt}</p>`;
+      : `<div class="row"><label>${t.name}<input id="name" value="${cancel || kind === 'clipping' ? t.original : ''}"></label><label>${t.description}<textarea></textarea></label></div><div class="actions"><button id="save" ${enable ? 'disabled' : ''}>${t.save}</button><button id="cancel">${t.cancel}</button></div><p id="status">${cancel ? `${t.stored}: ${t.original}` : enable ? t.prompt : ''}</p>`;
     await page.setContent(`<!doctype html><meta charset="utf-8"><style>body{font:18px system-ui;margin:40px;color:#173e3c}main{border:1px solid #bdcccc;padding:24px;width:${narrow ? '330' : '800'}px}h1{font-size:24px}.row{display:flex;gap:20px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:6px}input,textarea,button{font:inherit;padding:9px}input,textarea{width:280px}.actions{display:flex;gap:12px;margin-top:20px}aside{margin-top:20px;border:1px solid #bdcccc;padding:20px}${clipped ? '#save{width:44px;white-space:nowrap;overflow:hidden}' : ''}</style><main><h1>${t.form}</h1>${content}</main><script>
       let stored=${JSON.stringify(t.original)};
       document.querySelector('#toggle')?.addEventListener('click',e=>{e.target.setAttribute('aria-expanded',e.target.getAttribute('aria-expanded')!=='true');${panel && !broken ? "document.querySelector('#panel').hidden=!document.querySelector('#panel').hidden" : ''}});
-      ${enable && broken ? '' : "document.querySelector('#name')?.addEventListener('input',e=>{document.querySelector('#save').disabled=!e.target.value.trim()});"}
+      document.querySelector('#name')?.addEventListener('input',e=>{
+        ${enable && broken ? '' : "document.querySelector('#save').disabled=!e.target.value.trim();"}
+        ${enable ? "document.querySelector('#status').hidden=!!e.target.value.trim();" : ''}
+      });
       function save(){stored=document.querySelector('#name').value;document.querySelector('#status').textContent=${JSON.stringify(t.stored + ': ')}+stored}
       document.querySelector('#save')?.addEventListener('click',save);
       document.querySelector('#cancel')?.addEventListener('click',()=>{${cancel && broken ? 'save()' : "document.querySelector('#name').value=stored"}});
@@ -169,6 +188,7 @@ async function captureForm(browser, directory, item, t) {
       if (await page.locator('#name').inputValue() !== expected) fail('name after cancellation differs from intent');
     }
     if (enable && await page.locator('#save').isEnabled() === broken) fail('save availability differs from intent');
+    if (enable && await page.locator('#status').isVisible()) fail('obsolete required-value hint remains after entry');
     if (kind === 'clipping') {
       const overflow = await page.locator('button').evaluateAll(buttons => buttons.map(b => b.scrollWidth > b.clientWidth));
       if (overflow[0] !== clipped || overflow.slice(1).some(Boolean)) fail('button clipping differs from intent');
