@@ -84,9 +84,35 @@ jobs:
           name: ${{ inputs.candidate-artifact }}
           path: candidate
 
+      # A release pull request compares against the previous release on main. That tree's lock names
+      # development packages Nexus deletes a few days after publishing them, so it cannot be built
+      # again. Its bundle is the one npmjs serves for that version, which never expires, so a base
+      # carrying a release version is measured from its public tarball instead of a rebuild.
+      - name: Take a released base from its public package
+        id: released
+        run: |
+          version=$(node -p "require('./baseline-source/package.json').version")
+          case "$COMPONENT" in
+            cee) package=cedar-embeddable-editor ;;
+            ced) package=cedar-embeddable-designer ;;
+            *) package= ;;
+          esac
+          if [ -n "$package" ] && printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            mkdir -p "$RUNNER_TEMP/released"
+            tarball=$(npm pack "$package@$version" --registry=https://registry.npmjs.org/ \
+              --pack-destination "$RUNNER_TEMP/released" --silent)
+            tar -xzf "$RUNNER_TEMP/released/$tarball" -C "$RUNNER_TEMP/released" "package/$package.js"
+            cp "$RUNNER_TEMP/released/package/$package.js" baseline-input
+            echo "Base $BASELINE_REF is $package $version; measuring the bundle npmjs serves for it." >> "$GITHUB_STEP_SUMMARY"
+            echo "public=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "public=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build comparison inputs before starting measurements
         env:
           REFERENCE_BUNDLE: ${{ steps.reference.outputs.bundle }}
+          RELEASED_BASE: ${{ steps.released.outputs.public }}
         run: |
           build_bundle() (
             cd "$1"
@@ -105,7 +131,9 @@ jobs:
               cp dist-bundle/cedar-embeddable-designer.js "$GITHUB_WORKSPACE/$2"
             fi
           )
-          build_bundle baseline-source baseline-input
+          if [ "$RELEASED_BASE" != true ]; then
+            build_bundle baseline-source baseline-input
+          fi
           if [ "$REFERENCE_BUNDLE" = reference-input ]; then
             build_bundle reference-source reference-input
           fi
