@@ -13,11 +13,28 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
+## UI Review Coverage
+
+### 1. Extend the Coordinated Review to Workspace, the Metadata Editor and OpenView
+
+- `cedarcli test ui-review-coordinate` refuses any capture that is not the Designer's. Workspace,
+  the Metadata Editor and OpenView have catalogues and collectors, with 129, 116 and 35 states
+  under Chromium and 127, 114 and 33 under WebKit touch. They have had only the single-reviewer
+  review, in which one reviewer inspects the whole capture and no second reviewer verifies its
+  findings. Their most recent reviews, on 17 November, covered 82 Workspace states and 97 Metadata
+  Editor states from an earlier catalogue. OpenView has never been reviewed.
+- Remove the coordinator's Designer-only check, and name the captured application in its reviewer
+  instructions, scope and report. The agreed layout behavior in the frontend runbook already has
+  entries for Workspace and the Metadata Editor. OpenView needs its own before its first review.
+- Capture all three applications under both profiles from the current build, and review each
+  capture as the Designer was reviewed. Every state then receives a calibrated assessment, the
+  batch's second look and verification of each finding.
+
 ## Browser Automation
 
 <a id="chrome-automation-authentication"></a>
 
-### 1. Restore Automated Staging Sign-In in Chrome
+### 2. Restore Automated Staging Sign-In in Chrome
 
 Resolve the **unfixed** staging sign-in failure when Browser Use controls Chrome navigation from
 the start. Workspace reports “Sign-in failed. Please reload.” Normal Chrome navigation followed
@@ -84,7 +101,7 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 ## Modern Frontend Performance Gates
 
-### 2. Calibrate Browser Performance Gates
+### 3. Calibrate Browser Performance Gates
 
 - Investigate the Designer host's warm small-document layout shift against the fixed reference:
   the 2026-11-13 paired report measures median CLS 0.5083 versus 0.0127, with all five candidate
@@ -100,7 +117,7 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 ## CED Validation Failures
 
-### 3. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
+### 4. Consider Work Preservation and Bug Reporting for Unexpected Validation Failures
 
 Evaluate a fallback for a document CED considers saveable but the server rejects for a
 structural problem the author cannot repair through Designer controls. Treat this as a possible
@@ -126,7 +143,7 @@ that the fallback preserves work while the rejected write remains blocked.
 
 <a id="pull-version-management"></a>
 
-### 4. Complete Pull-Based Reusable Artifact Version Management
+### 5. Complete Pull-Based Reusable Artifact Version Management
 
 - **Richer compatibility proofs and impact.** Recognize safe schema widenings beyond
   validation-shape equality. Assess the actual invalidated record count when schemas
@@ -169,7 +186,7 @@ that the fallback preserves work while the rejected write remains blocked.
 
 ## Static Frontend Delivery
 
-### 5. Finish Frontend Cache Delivery
+### 6. Finish Frontend Cache Delivery
 
 A deployment should make a new code revision visible without a hand-set token, and no browser
 should reuse a file that an earlier build served. Neither holds on staging or production yet.
@@ -259,7 +276,7 @@ routing without inventing one.
 
 <a id="doi-minting-recovery"></a>
 
-### 6. Make DOI Minting Recovery-Safe
+### 7. Make DOI Minting Recovery-Safe
 
 The backend runbook's [DOI Records](BACKEND-RUNBOOK.md#doi-records) describes the bridge's
 recovery behavior, which the work below verifies and completes.
@@ -281,7 +298,7 @@ procedure is in the [backend runbook](BACKEND-RUNBOOK.md#recovering-an-existing-
 
 ## Embeddable Editor and Model Library
 
-### 7. Whole-Component Runtime Theme Overrides
+### 8. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -290,7 +307,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 8. Authoring Feedback for Unsupported Markup
+### 9. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in CED's markup input. Configure the input to produce
 supported markup and warn when CEE's
@@ -305,7 +322,7 @@ data images.
 
 ## Frontend Dependencies
 
-### 9. Take the Frontend Dependency Upgrades That Need Code Changes
+### 10. Take the Frontend Dependency Upgrades That Need Code Changes
 
 No dependency below can move by a lock update alone. Some wait on an upstream release, some have
 not been tried, and some need code changes. The versions are the newest that `npm outdated`
@@ -380,7 +397,7 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 ## Accessibility
 
-### 10. Complete Accessibility Verification
+### 11. Complete Accessibility Verification
 
 Close the remaining Fails, Partial and Unverified ratings in the
 [conformance report](FRONTEND-RUNBOOK.md#accessibility-conformance), against all 55 WCAG 2.2 A/AA
@@ -434,7 +451,7 @@ Keep CED responsible for editing, rendering, local validation and host-facing UI
 contracts. The embedding host owns storage, authentication, permissions, server
 validation requests, publishing, version allocation and provenance.
 
-### 11. Add Host Restrictions to the CED Embedding Contract
+### 12. Add Host Restrictions to the CED Embedding Contract
 
 A host cannot bound the field types an author may add. Only the author's own preference filters
 the field types on offer, and the author can lift that filter.
@@ -460,7 +477,7 @@ to a host-supplied editable document that asserts this.
 
 ## Independent UI Review
 
-### 12. Agree the Workspace Long-Path Tablet Layout
+### 13. Agree the Workspace Long-Path Tablet Layout
 
 - Develop and agree a more legible tablet arrangement for very long ancestor paths with both panels
   explicitly open. The center column is about 238 pixels and requires extra scrolling. Preserve
@@ -469,7 +486,7 @@ to a host-supplied editable document that asserts this.
 The sealed review evidence and this proposal are linked from the frontend runbook. Any
 approved change needs rendered review, relevant regression checks and current-source acceptance.
 
-### 13. Resolve the Remaining Intermittent Browser Timing Failures
+### 14. Resolve the Remaining Intermittent Browser Timing Failures
 
 - Capture correlated browser responsiveness, server request/event-loop timings, and host/container
   CPU and memory pressure when CEE readiness/navigation or Workspace navigation next stalls.
@@ -486,7 +503,7 @@ Preserve the existing deadlines, zero-retry policy and assertions. Controlled re
 experiments can validate diagnostic signals but cannot establish the cause of an earlier failure.
 The frontend runbook links the retained evidence and the instrumented reproduction fixtures.
 
-### 14. Capture the Remaining Workspace Screens
+### 15. Capture the Remaining Workspace Screens
 
 - The UI review catalog holds no state for sharing with another account, editing descriptions, the
   selection deletion dialog, the version picker, drag and drop, the groups, profile, settings and
@@ -496,7 +513,7 @@ The frontend runbook links the retained evidence and the instrumented reproducti
   a second test account, so the collector must hold that account's lock as well, and it must never
   change sharing on anything outside its own fixtures.
 
-### 15. Capture Failure, Refusal and Loading States
+### 16. Capture Failure, Refusal and Loading States
 
 - Add an edit conflict, an unreachable backend and slow loading for Workspace and the Metadata
   Editor, and a permission denial for the Metadata Editor's save.
@@ -504,7 +521,7 @@ The frontend runbook links the retained evidence and the instrumented reproducti
   never by changing the stack, and say in the state's note that the harness caused it, so the
   reviewer judges the product's handling rather than the cause.
 
-### 16. Agree the Remaining Designer Presentation Choices
+### 17. Agree the Remaining Designer Presentation Choices
 
 - Decide whether changing any part of a submitted artifact should retire its prior server findings,
   as today, or whether guidance should remain until the flagged value changes. A fresh save retry
