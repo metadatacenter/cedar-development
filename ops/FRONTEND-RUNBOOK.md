@@ -3602,7 +3602,7 @@ they are implemented, and they neither authorize a redesign nor block an otherwi
 ###### Coordinated Designer Review
 
 `cedarcli test ui-review-coordinate` reviews an **existing Designer application capture** with
-Codex. It does not capture the live stack, change product code, replace baselines, or run as part
+Codex or Claude. It does not capture the live stack, change product code, replace baselines, or run as part
 of a frontend build. The input is the directory containing Designer's `capture.json`, not the
 parent of an `--app all` capture. The output must be a new, separate directory.
 
@@ -3621,19 +3621,29 @@ It performs no model calls and writes nothing. Execution copies the evidence int
 the original packet stays unchanged. Legacy calibration packets without image hashes must be
 replaced by a new capture. The matching calibration key must be available locally.
 
-Codex must be installed and authenticated. Execution sends the screenshots, crops, accessibility
-snapshots, visible geometry, recorded actions and approved layout rules to the configured Codex
-service. It disables command, browser, plugin and image-loading tools and project instructions,
-uses an isolated working directory, and attaches all images explicitly. The provider still receives
-the evidence; a local runner is not offline inference. `--model` chooses a model; omission uses the
-runner's default. For comparable repeated assessments, specify the same model. Codex session records
-are retained by Codex so each reviewer can resume for calibration.
+`--reviewer` chooses the reviewer: `codex`, the default, or `claude` for Claude Code. Either must be
+installed and signed in. Claude Code is found on `PATH` or at the path `CEDAR_UI_REVIEW_CLAUDE`
+names, and the coordinator refuses to start while `claude auth status` reports no sign-in.
+Execution sends the screenshots, crops, accessibility snapshots, visible geometry, recorded actions
+and approved layout rules to the reviewer's service. Each reviewer works in an isolated directory
+outside `CEDAR_HOME`, receives no project instructions, and gets every image attached explicitly.
+Codex runs with its command, browser, plugin and image-loading tools disabled. Claude Code runs in
+safe mode with no settings, MCP servers or slash commands and no tool besides its structured answer,
+and the coordinator refuses a turn that used any other. The provider still receives the evidence. A
+local runner is not offline inference. `--model` chooses a model, and omission uses the reviewer's
+default. For comparable repeated assessments, specify the same reviewer and model. Each reviewer
+keeps its own session records, so calibration can resume the session whose assessment it tests.
+Claude Code keeps them under `~/.claude/projects`, named after the session's directory in the
+system temporary directory.
 
 The default partitions eight states per reviewer with two concurrent jobs. `--batch-size` accepts
 1–12, `--workers` accepts 1–4, and `--timeout` bounds each model turn (900 seconds by default).
+A partition whose evidence exceeds the reviewer's limits, 900,000 characters for either reviewer and
+100 images for Claude, is refused before any call, and a smaller `--batch-size` avoids it.
+Verification splits its candidates to stay within the same limits.
 Every supplied state and crop requires an explicit assessment. One state per partition is reviewed
 independently a second time, and reported candidates receive independent verification. Each of these
-reviewers' assessments is sealed before that same Codex session sees the concealed calibration cases.
+reviewers' assessments is sealed before that same session sees the concealed calibration cases.
 Failed calibration remains a blocker on resume; it is not rerolled until it passes. Infrastructure
 failures may resume without rerunning completed jobs. A forced termination can leave
 `.coordinator-lock/owner.json`; confirm its PID is no longer running before removing that lock.
@@ -3685,6 +3695,50 @@ that packet, not today's deployment.
 The coordinator's report is separate from the single-reviewer `review.json` format and does not
 replace a prior sealed review. Its offline tests use a protocol stand-in, which proves orchestration
 and failure handling rather than visual quality.
+
+###### Triaging Retained Reviews
+
+A review ends with findings that still need a person's answer. `cedarcli test ui-review-board`
+serves a local board for giving them. It reads every coordinated review under
+`.cedar/reports/ui-review-coordinator` and every single-reviewer `review.json` under
+`.cedar/reports/ui-review`, newest first and grouped by application. Each finding appears with its
+verifier's decision and reasoning, its severity, whether a reviewer behind it failed calibration,
+and the screenshots it cites. Screens shows the review's per-state assessments.
+
+```bash
+cedarcli test ui-review-board --plan
+cedarcli test ui-review-board
+```
+
+`--plan` lists the reviews and decisions the board would show and serves nothing. Otherwise the
+board listens on port 47831 of the loopback interface only. `--port` chooses another port, and 0
+lets the system choose one. `--reports` names another report root. The page lists its keyboard
+shortcuts in its header.
+
+The board writes nothing in a review. Answers are kept in
+`.cedar/reports/ui-review-board/answers.json`. Every review identifies its findings afresh, so the
+same problem reported by two runs carries two identifiers. An answer therefore belongs to an issue.
+The board opens an issue when a finding is first answered and numbers it within its application, as
+in `designer-0001`. A later finding joins the issue when it is linked to it, and from then on shows
+and shares its answer. Unlink detaches it again, and an issue with no linked finding is dropped. A
+design decision and a captured state keep their own identifiers, which are already stable.
+
+For an unlinked finding the board suggests up to three answered issues it resembles, best first,
+and `l` links it to the first. Wording is compared by cosine similarity and captured states by
+overlap, each weighted by inverse frequency, since a word or state most findings share says little
+about which problem a finding describes. Suggestions start at a score of 0.5 and count as likely from
+0.65, thresholds set by scoring every pair of findings across six retained Designer runs. A
+suggestion can miss. Two findings worded differently on different states may describe one problem
+and score lower.
+
+The design decisions put to a person live in `decisions.json` beside the answers. Each has a
+slug, a title, a summary, numbered options of which at most one is recommended, and evidence paths
+relative to the report root.
+
+A review produced outside the coordinator appears on the board once it is stored in the
+coordinator's format. `designer-claude-mouse-20261124` holds a Claude review of the final November
+Designer mouse capture this way, with its method and its departures from the coordinator in
+`method.json`.
 
 ###### Sealing and Calibration
 
