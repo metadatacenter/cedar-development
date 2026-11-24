@@ -6064,6 +6064,19 @@ arrive through the `junit-jupiter` aggregator, 51 have no version in `cedar-pare
 MCP servers and the Keycloak provider, and 7 are Keycloak and Neo4j harness artifacts that another
 module declares with exclusions. Hold any new declaration to the same two conditions.
 
+An artifact that modules import but receive only through another dependency gets a version in
+`cedar-parent` when it belongs to a family the parent already versions under one property, and
+the entry uses that property. The MongoDB driver core and BSON, four OpenSearch artifacts,
+`dropwizard-util`, `resteasy-client-api`, `lucene-join`, `mariaDB4j-core`, `hk2-api` and the Neo4j
+harness's `neo4j-configuration` and `neo4j-graphdb-api` are managed on that rule, and adding them
+changed no resolved artifact, version or scope in any of the 52 reactor modules. An artifact whose
+version comes from its owner's POM stays unmanaged, because an entry would be a pin to move by hand
+whenever the owner moves. On 2026-11-24 that left nine: `exec` from MariaDB4j, Flapdoodle's
+`embed.process` and `reverse` from embedded Mongo, `commons-pool2` from Jedis, `httpasyncclient`
+from the OpenSearch client, `hibernate-validator` from Dropwizard, `sesame-model` and
+`sesame-rio-api` from the terminology ingest's RDF stack, and `opentest4j` from JUnit. Managing a
+version moves no jar on a classpath. Only a declaration does.
+
 The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
 1.18.17-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
 names 1.18.8-jdk5. The managed pair is intentional, so that both share one version. Keep the core and

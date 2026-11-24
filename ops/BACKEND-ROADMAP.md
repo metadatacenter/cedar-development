@@ -1526,34 +1526,25 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **24. Settle two open dependency questions.** Each is a decision to take rather than a change
-  to make, and neither is urgent.
+- **24. Decide what to do with the 130 imports whose declaration would change jar order.** It is a
+  decision to take rather than a change to make, and it is not urgent. Declaring one of these
+  imports would move two jars past each other on some runtime classpath while they share a class, a
+  resource, a service registration or a package, or would change a resolved version. The runbook's
+  dependency section describes the check, which is strict. Of the 130, 71 trace to a reordering in
+  the declaring module's own classpath. In 17 of those the two jars share only a package. They are
+  CEDAR libraries that split packages such as `org.metadatacenter.model` between them, which has no
+  effect on a classpath whose jars are not sealed, and none is. In 54 they share a service
+  registration, together with a package in 11 of them. Most of those services have a consumer that
+  loads every provider, such as Jackson's modules and Dropwizard's discoverable types, where order
+  matters only when two providers answer for the same thing. No consumer has been identified for
+  Jackson's `JsonFactory` and `ObjectCodec` registrations. Every server installs Jersey's
+  `RuntimeDelegate` in code, so a reordering of the two JAX-RS registrations no longer chooses one.
+  The other 59 were dropped because the check blamed every declaration on the path to a reordered
+  jar, in consuming modules as well, so some were bystanders.
 
-  - **Whether `cedar-parent` manages the 25 artifacts that modules import and it gives no version.**
-    Thirteen resolve at the version of an artifact the parent already manages under one property,
-    so an entry for each adds no version to maintain: the MongoDB driver core and BSON, four
-    OpenSearch artifacts, `dropwizard-util`, `resteasy-client-api`, `lucene-join`, `mariaDB4j-core`,
-    `hk2-api` and two Neo4j artifacts that come with the test harness. The other twelve take their
-    version from an owner's POM, and an entry would be a pin that has to follow it.
-  - **What to do with the 130 imports whose declaration would change jar order.** Declaring one
-    would move two jars past each other on some runtime classpath while they share a class, a
-    resource, a service registration or a package, or would change a resolved version. The
-    runbook's dependency section describes the check, which is strict. Of the 130, 71 trace to a
-    reordering in the declaring module's own classpath. In 17 of those the two jars share only a
-    package. They are CEDAR libraries that split packages such as `org.metadatacenter.model`
-    between them, which has no effect on a classpath whose jars are not sealed, and none is. In 54
-    they share a service registration, together with a package in 11 of them. Most of those
-    services have a consumer that loads every provider, such as Jackson's modules and Dropwizard's
-    discoverable types, where order matters only when two providers answer for the same thing.
-    No consumer has been identified for Jackson's `JsonFactory` and `ObjectCodec` registrations.
-    Every server installs Jersey's `RuntimeDelegate` in code, so a reordering of the two JAX-RS
-    registrations no longer chooses one. The other 59 were dropped because the check blamed every
-    declaration on the path to a reordered jar, in consuming modules as well, so some were
-    bystanders. Either leave them undeclared, or narrow the check to shared classes, resources and
-    services that answer with one provider, attribute each reordering to the single declaration
-    that causes it, and run it again.
-
-  Done when each question has an answer recorded here or in the runbook.
+  Either leave them undeclared, or narrow the check to shared classes, resources and services that
+  answer with one provider, attribute each reordering to the single declaration that causes it, and
+  run it again. Done when the decision is recorded in the runbook.
 
 - **25. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
   runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
