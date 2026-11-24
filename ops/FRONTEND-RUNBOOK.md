@@ -3639,6 +3639,13 @@ directory, after the session's last turn: calibration, or the single consolidati
 whose calibration has not completed is kept so a resumed run can finish it. The review directory
 keeps every turn's prompt, image digests, events and answer either way.
 
+Claude Code sends the answer schema as a tool definition at the head of the prompt, so a turn with a
+schema of its own writes the whole cached conversation again. Every turn of a Claude session
+therefore uses one schema, with a field for the first answer and one for calibration, and each turn
+fills its own field. The resumed calibration turn then reads the conversation from the cache, which
+roughly halves the cost of a review. The reviewer consequently sees from its first turn that a
+calibration answer may follow. The calibration cases stay concealed until its assessment is sealed.
+
 The default partitions eight states per reviewer with two concurrent jobs. `--batch-size` accepts
 1–12, `--workers` accepts 1–4, and `--timeout` bounds each model turn (900 seconds by default).
 A partition whose evidence exceeds the reviewer's limits, 900,000 characters for either reviewer and
