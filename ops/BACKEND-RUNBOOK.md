@@ -888,18 +888,27 @@ same loop checks for termination.
 
 ### Graph Transaction Time Limits
 
-Every transaction the graph proxies open carries a time limit, which Neo4j enforces. The limits are
-in `GraphTransactionTimeouts` in `cedar-workspace-operations-library`:
+Every graph transaction a backend service opens carries a time limit, which Neo4j enforces. The
+limits are in `GraphTransactionTimeouts` in `cedar-workspace-operations-library`:
 
 | Transactions | Limit |
 | --- | --- |
-| Every query a proxy runs, through the helpers in `AbstractNeo4JProxy` | 30 seconds |
-| The worker's read of every resource a group can see, during a permission recalculation | 10 minutes |
+| Every query a proxy runs, through the helpers in `AbstractNeo4JProxy`, and every transaction of the outboxes, their relays and the version projection | 30 seconds |
+| A transaction that holds a lock while it calls another service: the restore relay's put-back and the create-cleanup relay's delete | 60 seconds |
+| The worker's read of every resource a group can see, during a permission recalculation, and the schema statements a service runs at start-up | 10 minutes |
 
 The 30 seconds equal the restore relay's deadline, after which a save whose graph update has not
 committed is put back. Production's query log set the rest. From February to November 2026 no write
 took longer than 1.2 seconds, and no read longer than 26 seconds apart from two searches and the
-worker's read, which took 49 seconds.
+worker's read, which took 49 seconds. The outboxes' and the version projection's transactions each
+read or write a few nodes found through unique constraints, and finish in milliseconds. The 60
+seconds exceed the longest response a call to another CEDAR service waits for, 20 seconds by default,
+so the limit cannot end the transaction while its call is still out.
+
+A transaction that calls another service is an explicit transaction rather than a transaction
+function. The driver runs a transaction function again after a transient failure to commit, and the
+call with it. Once the restore relay has marked a put-back as started, the next pass settles a
+put-back whose outcome failed to commit.
 
 A transaction that reaches its limit fails with
 `Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration`. That is a client error, so
@@ -923,8 +932,8 @@ resources.
   listing reads the store directly.
 
 The limit is set by the driver, not by `db.transaction.timeout`, which stays unset on every host.
-The resource server's outboxes, its relays and the version projection open drivers of their own,
-and their transactions carry no limit.
+`ops/tests/test_graph_transaction_time_limit_policy.py` fails on any session call in a backend
+repository's main sources that names no limit.
 
 ### After an Artifact Graph Update Commits
 

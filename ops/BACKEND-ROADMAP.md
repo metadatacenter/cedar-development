@@ -1465,16 +1465,17 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **21. Bound every graph transaction in time.** During the 50-user soak on 2026-11-10 one save's
-  first statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for 24 minutes
-  with no other transaction open. Its request thread in the resource server never returned.
-  `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until the process
-  was killed. The thread dumps are in `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`.
-  Whether Neo4j 5.26.0 has a defect that fifty writers on one node expose is not established.
-  The wait has not recurred on 5.26.0 either: a full soak and five three-minute soaks that morning
-  completed without it. On 2026-11-22 eight 30-minute soaks ran on 5.26.32, the version staging and
-  production run, on the same JVM and settings. They completed 2.58 million iterations with no
-  graph transaction open longer than 60 seconds and no lock wait reaching the limit. The run is in
+- **21. Bound graph lock waits on staging and production.** During the 50-user soak on 2026-11-10
+  one save's first statement, the lifecycle lock, waited in `ForsetiClient.acquireExclusive` for
+  24 minutes with no other transaction open. Its request thread in the resource server never
+  returned. `TERMINATE TRANSACTIONS` did not release it, and `neo4j stop` then waited on it until
+  the process was killed. The thread dumps are in
+  `$CEDAR_HOME/.cedar/audits/2026-11-10-neo4j-stuck-lock/`. Whether Neo4j 5.26.0 has a defect that
+  fifty writers on one node expose is not established. The wait has not recurred on 5.26.0 either:
+  a full soak and five three-minute soaks that morning completed without it. On 2026-11-22 eight
+  30-minute soaks ran on 5.26.32, the version staging and production run, on the same JVM and
+  settings. They completed 2.58 million iterations with no graph transaction open longer than 60
+  seconds and no lock wait reaching the limit. The run is in
   `$CEDAR_HOME/.cedar/audits/2026-11-22-neo4j-5.26.32-soak/`. This does not show that 5.26.32
   fixes the defect: if the wait struck one 5.26.0 soak in seven, eight clean runs would still
   occur by chance about three times in ten. It does show that the wait is not routine on the
@@ -1488,15 +1489,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   either. If such a wait recurs with the limit set, the lock manager is at fault and the limit is
   not the remedy.
 
-  The queries the graph proxies run carry a 30-second limit, and the worker's permission
-  recalculation a 10-minute one, as
-  [Graph Transaction Time Limits](BACKEND-RUNBOOK.md#graph-transaction-time-limits) describes. The
-  resource server's outboxes, its relays and the version projection open drivers of their own and
-  still run without a limit. Their transactions write no rows to `log_cypher`, so how long they run
-  in production is not known. Measure them, then give each the limit its work allows.
-
-  Done when a lock wait that outlasts the limit fails its transaction in every environment, a
-  retried save succeeds, and no request thread can wait on the graph without a deadline.
+  Done when a lock wait that outlasts the limit fails its transaction in every environment and a
+  retried save succeeds.
 
 - **22. Make search answer quickly in a production-sized store.** **Production consequence:**
   search pages take a second or more where the workstation answers in milliseconds. Against the
