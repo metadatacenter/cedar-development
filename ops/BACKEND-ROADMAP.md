@@ -11,7 +11,7 @@ Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROA
 the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
-## Configuration
+## On Next Release
 
 - **1. Report configuration entries that nothing reads.** **Production consequence:** none until the
   runtime check is switched on. From then, a deployment that still sets a retired key, or passes a
@@ -44,8 +44,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   and the image scripts read, and fail on an export nothing reads.
 
   Done when an entry that nothing reads, in any of these, fails a build or a startup.
-
-## CEDAR 3.0.0
 
 - **2. Deploy the spreadsheet validator's offset paging and release the envelope-reading term
   picker before releasing the paging withdrawal.**
