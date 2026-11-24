@@ -53,7 +53,9 @@ def smoke_sources(home, state, settings):
         if not target.exists():
             docker_train.run(['git', 'clone', '--quiet', '--depth', '1', '--branch', MCP_BRANCH,
                               f'https://github.com/metadatacenter/{repository}.git', str(target)])
-    docker_train.run(['mvn', '-q', '-B', '-s', str(settings), 'package', '-DskipTests'],
+    # Maven runs in the MCP checkout, so a settings path relative to the workflow's directory
+    # would name a file that does not exist there.
+    docker_train.run(['mvn', '-q', '-B', '-s', str(Path(settings).resolve()), 'package', '-DskipTests'],
                      cwd=home/'mcp'/'cedar-artifact-rest-mcp')
 
 

@@ -60,6 +60,23 @@ class AcceptanceTest(unittest.TestCase):
                             self.assertEqual(smoke_proof['tiers'],{tier:'PASS' for tier in ('rest','browser','split','search')})
                             self.assertEqual(judged[-1][1:],(state,train))
 
+    def test_smoke_sources_gives_maven_settings_it_can_open_from_the_mcp_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)/'CEDAR'
+            (home/'cedar-embeddable-term-picker').mkdir(parents=True)
+            for repository in acceptance.MCP_REPOSITORIES:
+                (home/'mcp'/repository).mkdir(parents=True)
+            commands = []
+            with patch.object(acceptance.full_stack_ci, 'guard', return_value='2.9.38-dev.20261124.1851'), \
+                 patch.object(acceptance.docker_train, 'source_manifest', return_value=({'repositories': {}}, None)), \
+                 patch.object(acceptance.docker_train, 'run', side_effect=lambda command, **options: commands.append((command, options))):
+                acceptance.smoke_sources(home, Path(directory)/'state', Path('controller/ops/maven-train-settings.xml'))
+            [(maven, options)] = [entry for entry in commands if entry[0][0] == 'mvn']
+            settings = Path(maven[maven.index('-s')+1])
+            self.assertTrue(settings.is_absolute())
+            self.assertEqual(settings, Path('controller/ops/maven-train-settings.xml').resolve())
+            self.assertEqual(options['cwd'], home/'mcp'/'cedar-artifact-rest-mcp')
+
     def test_train_cannot_publish_before_acceptance(self):
         workflow=(Path(__file__).resolve().parents[2]/'.github/workflows/build-train.yml').read_text()
         final=workflow.split('  verify-docker-train:',1)[1]
