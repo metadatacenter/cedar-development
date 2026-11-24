@@ -3809,9 +3809,11 @@ In the Designer:
 - Settings tabs wrap with a 4-pixel row gap, 16-pixel horizontal spacing and 36-pixel targets.
 - Minimum and Maximum share a row at the 210-pixel intermediate Configuration width and stack at
   the 125.5-pixel phone width, keeping full labels and keyboard order.
-- The two Property IRI actions form one wrapping group. At 1024 and 900 pixels both move beneath
-  the full-width value, and in the narrowest pane they wrap within the group, keeping both controls
-  and the complete IRI.
+- The two Property IRI actions form one group that wraps as a unit. Its place follows the width of
+  the Configuration pane, not the viewport. It sits beside the IRI value when both fit on one row
+  and moves beneath the full-width value when they do not, as with both panels open at 1024 and
+  900 pixels. In the narrowest pane the actions wrap within the group. Both controls and the
+  complete IRI stay available throughout.
 - In an overflowing annotation table, keyboard focus brings the removal button and its focus ring
   fully into view, and the table keeps its ordinary horizontal scrolling.
 - The Designer updates or retires its own validation-count announcement when the issue set changes,
