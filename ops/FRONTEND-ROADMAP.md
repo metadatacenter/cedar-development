@@ -357,12 +357,30 @@ reported on 2026-11-05, after every in-range update had been taken.
   accept only Babel 7, so both upgrades wait until those accept Babel 8. `@eslint/js` 10 moves with
   ESLint, and `@babel/plugin-proposal-decorators` and `@babel/plugin-transform-runtime` 8 move with
   Babel.
+- **Playwright 1.65** in the browser and visual suites of every application, which pin 1.64.1, in
+  the container image their run scripts name, and in the vitest browser runners of Bridging,
+  Monitoring and OpenView. WebKit in 1.65.1 delivers pointer events on CETP's controls to the
+  document element, so clicks and hovers time out. Under it, 30 of CETP's 33 WebKit accessibility
+  tests fail and Monitoring's column-help tooltip never opens. Under 1.64.1 all of them pass. The
+  npm pins and the image tag move together once a later release passes those suites.
+
+**Held by design.**
+
+- **lucide-static past 1.69.0** in the design tokens, which pin 1.69.0 exactly. Of the 99 icons
+  the registry draws, only `help` (`circle-help`) changed between 1.69.0 and 1.80.0. Release 1.72.0
+  redrew its question mark as a wider, flatter arc whose tail drops more steeply into the stem. The
+  release notes do not mention the change, which arrived with
+  [lucide-icons/lucide#5184](https://github.com/lucide-icons/lucide/pull/5184), a pull request that
+  adds new question-mark icons. The redraw rewrites 49 of CEE's pixel baselines, and on 2026-11-25
+  the icon was kept as it is. Compare each new Lucide release's drawings of the registry's icons
+  with 1.69.0, since the release notes cannot be relied on to list a redrawn icon. Move the pin
+  when a release brings an icon CEDAR needs or the redrawn question mark is accepted, and review
+  every changed baseline as a design change.
 
 **Not yet tried.**
 
 - **The Ember demo's other lint and build packages.** `eslint-plugin-n` 18, `eslint-config-prettier`
-  10, `globals` 17 and `concurrently` 10 are new majors, and ember-cli 7.3 and ember-source 7.4 fall
-  outside the demo's `~7.2.0` ranges. None of them waits on ESLint 10 or Babel 8. Both ESLint
+  10, `globals` 17 and `concurrently` 10 are new majors. None of them waits on ESLint 10 or Babel 8. Both ESLint
   packages accept ESLint 9, `globals` declares no peer, and `concurrently` 10 needs only Node 22.
   Stylelint 18 and `stylelint-config-standard` 41 are new majors as well. The configuration
   requires Stylelint 18, which needs Node 24.15 or later, and the demo runs Node 24.22.1.
