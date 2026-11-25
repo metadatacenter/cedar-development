@@ -471,11 +471,11 @@ The credential is shared by the trusted resource and worker services; it does no
 grant either one a new user role, or encrypt HTTP. Keep artifact on the private backend network and
 use a protected transport across untrusted networks.
 
-OpenView's four artifact reads proxy to resource's JSON-only anonymous endpoints:
-GET /open/templates/{id}, /open/template-elements/{id}, /open/template-fields/{id}, and
-/open/template-instances/{id}. Both bare identifiers and encoded full IRIs resolve to the same
-document. Resource alone checks explicit or inherited openness; owner credentials and workspace
-grants cannot broaden these anonymous reads. The shared anonymous context never resolves supplied
+OpenView's four artifact reads and its folder listing proxy to resource's JSON-only anonymous
+endpoints: GET /open/templates/{id}, /open/template-elements/{id}, /open/template-fields/{id},
+/open/template-instances/{id} and /open/folders/{id}. Both bare identifiers and encoded full IRIs
+resolve to the same artifact or folder. Resource alone checks explicit or inherited openness; owner
+credentials and workspace grants cannot broaden these anonymous reads. The shared anonymous context never resolves supplied
 credentials. OpenView sends no Authorization, cookies or service key downstream, follows no
 redirects, and returns resource's status and JSON without a Mongo fallback. Both hops use no-store
 because openness can change without changing the document revision. The ordinary resource routes
@@ -484,11 +484,20 @@ still require authentication.
 After proving openness, resource reads artifact using the configured internal service key and its
 existing backend administrator identity; it never uses the anonymous HTTP caller's credentials.
 OpenView receives only resource host/port and no artifact service credential. Its artifact Mongo
-initialization and document-operation dependency are removed. Its folder listings still use the
-workspace graph, and the shared bootstrap retains the estate's user-details Mongo configuration.
+initialization and document-operation dependency are removed, and no OpenView route reads the
+workspace graph. The shared bootstrap still connects OpenView to Neo4j for its user service and
+user-summary cache, and retains the estate's user-details Mongo configuration.
+
+The folder listing forwards only the parameters its route declares (`resource_types`, `version`,
+`publication_status`, `sort`, `limit` and `offset`), never the caller's raw query. Resource builds
+the listing's `paging` links from its own URL, so on a 200 OpenView moves each link onto its own
+request path and keeps the normalized query resource wrote. Every other answer, refusals included,
+is relayed byte for byte.
 
 Deploy the changed config/shared libraries and resource first, verify the new /open reads, then
-redeploy OpenView. Existing public OpenView URLs and successful JSON bodies remain unchanged.
+redeploy OpenView. An OpenView that relays folders answers 404 for every folder against a resource
+server without `/open/folders`. Existing public OpenView URLs and successful JSON bodies remain
+unchanged.
 Errors use resource's common error response; identifiers in those errors are resolved IRIs, and
 an unavailable resource hop returns a sanitized 503. Rolling OpenView
 back requires its old configuration and document-store connectivity; no stored artifacts need
