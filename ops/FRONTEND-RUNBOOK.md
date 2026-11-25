@@ -3601,12 +3601,14 @@ Review evidence is immutable. A correction gets a new build and a fresh reviewer
 sealed report remains evidence of its own build. Optional design proposals need agreement before
 they are implemented, and they neither authorize a redesign nor block an otherwise accepted fix.
 
-###### Coordinated Designer Review
+###### Coordinated Review
 
-`cedarcli test ui-review-coordinate` reviews an **existing Designer application capture** with
-Codex or Claude. It does not capture the live stack, change product code, replace baselines, or run as part
-of a frontend build. The input is the directory containing Designer's `capture.json`, not the
-parent of an `--app all` capture. The output must be a new, separate directory.
+`cedarcli test ui-review-coordinate` reviews an **existing application capture** of the Designer,
+Workspace, the Metadata Editor or OpenView with Codex or Claude, naming the captured application in
+its instructions, scope and report. It does not capture the live stack, change product code,
+replace baselines, or run as part of a frontend build. The input is the directory containing the
+application's `capture.json`, not the parent of an `--app all` capture. The output must be a new,
+separate directory.
 
 ```bash
 cedarcli test ui-review-coordinate --capture /absolute/path/to/capture/designer \
@@ -3641,16 +3643,19 @@ directory, after the session's last turn: calibration, or the single consolidati
 whose calibration has not completed is kept so a resumed run can finish it. The review directory
 keeps every turn's prompt, image digests, events and answer either way.
 
-A Claude review costs far more than its assessments alone. The review of the 178-state Designer
-touch capture on 24 November used about $195 at API prices. A claude.ai sign-in counts that against
-the plan's usage instead of billing it. The 26 review jobs took $80 and the 33 verification jobs
-$114. Fourteen of those verification jobs were split to one candidate each because their combined
-evidence exceeded the reviewer's limits, and each split job carries its candidate's complete
-evidence again.
-Calibration costs about as much as the assessment it calibrates. Its turn adds 24 labelled images,
-some 50 content blocks, so the prompt cache's lookup no longer reaches the cached conversation, and
-the turn writes the whole conversation again. Claude Code writes its cache at the one-hour rate. The
-run took about 35 minutes with three workers.
+A Claude review uses far more tokens than its assessments alone. The review of the 178-state
+Designer touch capture on 24 November used about 23.8 million tokens and took about 35 minutes with
+three workers: 9.6 million for its 26 review jobs and 14.1 million for its 33 verification jobs.
+Fourteen of those verification jobs were split to one candidate each because their combined evidence
+exceeded the reviewer's limits, and each split job carries its candidate's complete evidence again.
+Calibration accounted for 12.9 million of the total. Its turn adds 24 labelled images, some 50
+content blocks, so the prompt cache's lookup no longer reaches the cached conversation, and the turn
+writes the whole conversation again.
+
+With a claude.ai sign-in those tokens count against the plan's 5-hour and weekly limits. Once a
+limit is reached, further use draws on the account's extra usage where that is enabled, and extra
+usage is billed. Claude Code also reports a `total_cost_usd`, about $195 for this run, which is an
+estimate at API list prices and not a charge. Check the plan's usage before a large run.
 
 The default partitions eight states per reviewer with two concurrent jobs. `--batch-size` accepts
 1–12, `--workers` accepts 1–4, and `--timeout` bounds each model turn (900 seconds by default).
@@ -3662,6 +3667,9 @@ one caption in `evidenceCaptions` saying what it shows for that finding, and an 
 one uncaptioned is refused. One state per partition is reviewed
 independently a second time, and reported candidates receive independent verification. Each of these
 reviewers' assessments is sealed before that same session sees the concealed calibration cases.
+Its calibration answer must answer each case exactly once, and the answer schema names every case.
+An answer that skips or repeats one has not been scored, so the same session is asked once more;
+a second such answer leaves the job incomplete, with its session kept for a resumed run.
 Failed calibration remains a blocker on resume; it is not rerolled until it passes. Infrastructure
 failures may resume without rerunning completed jobs. A forced termination can leave
 `.coordinator-lock/owner.json`; confirm its PID is no longer running before removing that lock.
