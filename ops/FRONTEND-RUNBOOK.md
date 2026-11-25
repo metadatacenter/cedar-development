@@ -3639,12 +3639,16 @@ directory, after the session's last turn: calibration, or the single consolidati
 whose calibration has not completed is kept so a resumed run can finish it. The review directory
 keeps every turn's prompt, image digests, events and answer either way.
 
-Claude Code sends the answer schema as a tool definition at the head of the prompt, so a turn with a
-schema of its own writes the whole cached conversation again. Every turn of a Claude session
-therefore uses one schema, with a field for the first answer and one for calibration, and each turn
-fills its own field. The resumed calibration turn then reads the conversation from the cache, which
-roughly halves the cost of a review. The reviewer consequently sees from its first turn that a
-calibration answer may follow. The calibration cases stay concealed until its assessment is sealed.
+A Claude review costs far more than its assessments alone. The review of the 178-state Designer
+touch capture on 24 November used about $195 at API prices. A claude.ai sign-in counts that against
+the plan's usage instead of billing it. The 26 review jobs took $80 and the 33 verification jobs
+$114. Fourteen of those verification jobs were split to one candidate each because their combined
+evidence exceeded the reviewer's limits, and each split job carries its candidate's complete
+evidence again.
+Calibration costs about as much as the assessment it calibrates. Its turn adds 24 labelled images,
+some 50 content blocks, so the prompt cache's lookup no longer reaches the cached conversation, and
+the turn writes the whole conversation again. Claude Code writes its cache at the one-hour rate. The
+run took about 35 minutes with three workers.
 
 The default partitions eight states per reviewer with two concurrent jobs. `--batch-size` accepts
 1–12, `--workers` accepts 1–4, and `--timeout` bounds each model turn (900 seconds by default).
