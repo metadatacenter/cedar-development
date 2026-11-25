@@ -392,13 +392,6 @@ reported on 2026-11-05, after every in-range update had been taken.
 
 **Needing code changes.**
 
-- **ngx-translate 18.1** in CEE, CED, CETP and Workspace, which hold 18.0.x with a `~18.0.0` range.
-  Release 18.1.0 rebuilds the service around signals. Under it, `onTranslationChange` fires three
-  times rather than twice when a host names a language map after CEE has its template, which fails
-  the late-language specification in the wrapper component's suite. CED's bundle also grows by
-  about 4.7 KB raw and 1.7 KB compressed, past all four of its size ceilings. Taking it needs a
-  decision on whether the third announcement is acceptable, and on whether CED's ceilings rise or
-  something else in the bundle shrinks.
 - **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring, and the adapter that
   Workspace and the Template Designer host load from `app/scripts/keycloak/`. The installed
   keycloak-angular 13.1.0 declares Angular 15 as its peer and is forced onto Angular 22 through
