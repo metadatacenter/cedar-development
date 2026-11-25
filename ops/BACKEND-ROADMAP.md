@@ -541,7 +541,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. The four
   anonymous BioPortal routes item 9 lists belong in the same limit, since each spends the
-  deployment's BioPortal key.
+  deployment's BioPortal key, and so does `POST /bioportal/validate-term`, which item 14 describes.
 
   A limit rather than a credential is deliberate. The embeddable editor calls integrated search from a
   browser with nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every
@@ -706,6 +706,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `POST /resources/description`. Meanwhile `/bioportal/property_search` and the
   `/bioportal/ontologies/{o}/classes` and `…/properties` routes require `LoggedIn`. An ontology's
   properties therefore need a login on one route and none on the other.
+
+  One of these routes is not like the others. `validate-term` checks membership in the local store
+  where a snapshot holds the vocabulary, and otherwise asks BioPortal with the server's own key
+  (`TermMembershipVerifier.remoteClass`), because `terminologyStore.localOnly` defaults to false.
+  An anonymous caller can therefore spend the deployment's BioPortal quota through it, as through
+  item 9's four. A per-request lookup budget bounds one call but not the total. Until it is decided
+  here, it belongs under item 10's limit with those four. None of the other ten calls BioPortal.
 
   Decide per route, then state the decision in code: `@AnonymousAccess` with
   `buildAnonymousRequestContext()` for an open route, and `LoggedIn` for the rest.
