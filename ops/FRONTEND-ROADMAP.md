@@ -524,9 +524,6 @@ The frontend runbook links the retained evidence and the instrumented reproducti
 
 ### 17. Agree the Remaining Designer Presentation Choices
 
-- Decide whether changing any part of a submitted artifact should retire its prior server findings,
-  as today, or whether guidance should remain until the flagged value changes. A fresh save retry
-  still obtains the current validation verdict; retaining guidance changes the interaction contract.
 - Agree whether expandable term rows need a visible disclosure cue and whether release-count labels
   should explicitly name releases instead of saying “of 2”.
 - Decide whether ontology names should remain visible while their release histories scroll, through
