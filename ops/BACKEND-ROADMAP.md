@@ -1519,31 +1519,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **24. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
-  none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
-
-  Each test JVM runs its classes one after another. The artifact server's suite now gives each class
-  its own application and cleanup bookkeeping, but a run with JUnit's class-level concurrency turned
-  on still fails 64 of 1,736 tests, on state the libraries share across a JVM:
-  - `CedarEnvironmentSource` in cedar-config-library holds one process-wide override, which
-    `EmbeddedCedarMongo.startAndRedirectEnvironment` rewrites for each class and
-    `CedarEnvironmentClassIsolationExtension` clears after it. A class that boots while it is
-    cleared reads the shell's development profile, so it can bind the running stack's ports and open
-    the developer's own Mongo.
-  - `CedarConfig.getInstance` and `CedarDataServices` are singletons, and a second boot replaces the
-    Mongo client the first one holds.
-  - `CedarMicroserviceApplicationWithMongo` keeps the template and instance services in static fields,
-    which every boot overwrites.
-  - `TestAuthUtil` keeps one in-memory user service for the JVM.
-  - Every class shares one embedded Mongo, so a count over a whole collection sees other classes'
-    writes.
-
-  Give each class its own environment, configuration, services and store, or a namespace within the
-  store, before any suite turns concurrency on. Until then, never run a suite class-concurrently on a
-  workstation with the stack running. Done when the artifact server's suite passes with class-level
-  concurrency on, twice, with the development stack up and untouched.
-
-- **25. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
+- **24. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
   consequence:** a caller outside CEDAR that still uses an old name breaks. CEDAR's own callers move
   in the same change.
 
@@ -1584,7 +1560,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   host has taken it. Done when the convention is in the runbook and every route follows it, or
   waits only on a published package.
 
-- **26. Give background jobs one polling shape.** **Production consequence:** none, provided the
+- **25. Give background jobs one polling shape.** **Production consequence:** none, provided the
   monitor and the caDSR tools move in the same change.
 
   Every job start answers 202, but a job's status is read in four ways:
@@ -1597,7 +1573,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   change. Done when every 202 identifies where its status is read, and every status and reset route
   has the same form.
 
-- **27. Retire the first generation of terminology routes.** **Production consequence:** a caller
+- **26. Retire the first generation of terminology routes.** **Production consequence:** a caller
   still on a retired route breaks when it is withdrawn, so callers move first.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps
@@ -1633,7 +1609,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   current-version lookups, so one replacement must exist before they can be reduced to it. Done
   when each overlapping pair has one survivor.
 
-- **28. Fold the open-state commands into one operation, and replace mark-all-as-read.**
+- **27. Fold the open-state commands into one operation, and replace mark-all-as-read.**
   **Production consequence:** none, provided the Template Editor and the Workspace move in the same
   change.
 
@@ -1641,6 +1617,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `make-folder-not-open` commands do one job, which one operation with a target and a state would
   replace. The Template Editor and the Workspace both call them. Messaging's
   `POST /command/mark-all-as-read` sits beside `PATCH /messages/{id}`, and only the Template Editor
-  calls it. Name the replacements under the convention of item 25, move both clients and the e2e
+  calls it. Name the replacements under the convention of item 24, move both clients and the e2e
   suites, and withdraw the old forms in the same change. Done when no command remains for either
   job.

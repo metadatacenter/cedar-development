@@ -2602,8 +2602,17 @@ Maven 3 would only warn and build the servers against whatever libraries `~/.m2`
 `cedarcli build libraries` and `cedarcli build project` still run their own reactors. The
 embedded-Mongo guards surround each Maven process. Test classes remain serial
 within each test JVM; Maven thread count does not enable JUnit concurrent execution.
-The resource application uses four isolated reusable Surefire JVMs as described below;
-other modules retain their existing fork settings.
+Surefire runs `cedar.test.forkCount` test JVMs per module at once, a property `cedar-parent` sets
+to 1. Each JVM is reused for the classes Surefire assigns it, so a test class shares the
+process-global environment, the service singletons and the embedded stores only with the classes
+in its own JVM, and every JVM starts its stores on ports the OS assigns. Any count is therefore
+safe, and the choice is one of speed. A module tested on its own gains from more: the artifact
+server's suite took 47 seconds in one JVM and 28 in four with `-Dcedar.test.forkCount=4`, all
+2,058 tests passing each time. The full build loses: it already tests up to sixteen modules at
+once, and took 270 seconds with a quarter of the cores per module against 220 with one (measured
+2026-11-24). A test that writes outside the JVM, such as the admin tool's export and import
+directories, takes a path of its own per JVM from `${surefire.forkNumber}`. The resource
+application sets its own count, as described below.
 Embedded MariaDB instances use private extraction and data directories beneath the
 executable build scratch space, even when Maven workers share `java.io.tmpdir`.
 CLI command timings and exit codes are retained under `.cedar/build-reports/`. Each Maven command's
@@ -2621,10 +2630,9 @@ process-global CEDAR environment, service singletons and class cleanup isolated.
 fixtures request OS-assigned ports. Each JVM has its own Neo4j store, and every class in that JVM
 shares it: `EmbeddedCedarNeo4j` keeps one static harness, seeded once, so data and jobs one class
 leaves behind can reach the next class's assertions. Surefire writes
-class-specific reports, and each class is assigned to one fork. This adds at most three
-test JVMs beyond the reactor's usual module concurrency, rather than multiplying forks
-across the estate. The module's Maven property `cedar.resource.test.forks` defaults to
-four; setting it to one restores its serial diagnostic path. Four were chosen on 2026-11-16, when the
+class-specific reports, and each class is assigned to one fork. The module's Maven property
+`cedar.resource.test.forks` defaults to four, whatever the host's core count, and takes the place
+of `cedar.test.forkCount`; setting it to one restores its serial diagnostic path. Four were chosen on 2026-11-16, when the
 module's suite took 83.9 seconds at four forks against 120.5 at two, run back to back on one copy of
 the sources, with all 1,354 tests passing both times. `--jobs 1` controls reactor
 threads alone and does not override this module property.
@@ -3944,11 +3952,20 @@ wildcard and a loopback listener, after which a loopback request may reach the w
 Outage tests keep their allocated listener bound and fail traffic through `TcpFaultProxy`; they do
 not stop a dependency and assume its former port remains unused. Redirection goes through
 `CedarEnvironmentSource.setOverride(map)`, a process-global test override read by the whole config
-layer. `cedar-test-support-library` contributes an auto-detected JUnit extension that clears that
-override after every test class; abstract harnesses reapply their embedded-backend redirect in each
-inherited `@BeforeAll`. This prevents one class's allocated dependency port from becoming the next
-class's configuration when surefire's `reuseForks=true` shares a JVM. `CedarConfig` rebuilds whenever
-the active environment changes, and no reflective `--add-opens` environment mutation is involved.
+layer. A test builds its map by copying `CedarEnvironmentSource.getAll()` and redirecting the stores
+it embeds, so whatever that copy holds for the other stores reaches the application it boots.
+
+In a JVM that carries `cedar-test-support-library`, that copy is never the shell's environment. The
+library's launcher-session listener installs `CedarTestBaseline` as the override when the JVM's test
+session opens. The baseline is the process environment with its addresses replaced: every
+`CEDAR_*_HOST` becomes `127.0.0.1`, every server's HTTP, admin and stop port becomes `0`, and every
+other `CEDAR_*_PORT` becomes `1`. A store a test does not embed is therefore unreachable rather
+than the developer's own, and a server a test boots without choosing its port binds one the OS
+assigns. An auto-detected JUnit extension restores the baseline after every test class, so one
+class's allocated dependency port never becomes the next class's configuration. Abstract harnesses
+reapply their embedded-backend redirect in each inherited `@BeforeAll`. `CedarConfig` rebuilds
+whenever the active environment changes, and no reflective `--add-opens` environment mutation is
+involved.
 
 The same support library registers a JUnit launcher-session listener that explicitly stops its
 shared embedded MongoDB and MariaDB once the suite closes. The JVM shutdown hook remains a fallback
