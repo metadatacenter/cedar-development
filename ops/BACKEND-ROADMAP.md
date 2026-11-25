@@ -1526,9 +1526,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   The backend runbook's [REST Naming Convention](BACKEND-RUNBOOK.md#rest-naming-convention) sets
   the rules. The newer and peripheral routes break them in several ways:
   - Query parameters are snake_case except on the terminology server's versioned routes
-    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`) and the monitor (`minDurationMs`,
-    `maxSpans`). Path parameters mix `{folder_id}` and `{vs_collection}` with `{jobId}`, `{keyId}`
-    and `{globalRequestId}`.
+    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`). Path parameters mix `{folder_id}` and
+    `{vs_collection}` with `{jobId}` and `{keyId}`.
   - An artifact is `{template_id}`, or its field, element and instance variant, on the resource
     server, and `{id}` on the artifact, openview and repo servers and under `/open`. Sibling
     terminology routes use `ontologies/{id}` and `ontologies/{ontology}/classes`, and
@@ -1550,12 +1549,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `/command/annotations/doi` is the only nested command path. `property_search` is the only path
     segment on any server that is not kebab-case.
 
-  Move them in this order. The monitor goes first, because the monitoring application is its only
-  client. The resource server's draft commands and path variables follow, then the open-state
-  commands and the job routes of items 25 and 27, and the terminology server last. Each move takes
-  its callers and the e2e suites with it and deletes the old name. The term picker's camelCase query
-  parameters wait for a picker release that sends the new names. Done when every route follows the
-  convention, or waits only on a published package.
+  Move them in this order. The resource server's draft commands and path variables go first, then
+  the open-state commands and the job routes of items 25 and 27, and the terminology server last.
+  Each move takes its callers and the e2e suites with it and deletes the old name. The term picker's
+  camelCase query parameters wait for a picker release that sends the new names. Done when every
+  route follows the convention, or waits only on a published package.
 
 - **25. Give background jobs one polling shape.** **Production consequence:** none, provided the
   monitor and the caDSR tools move in the same change.

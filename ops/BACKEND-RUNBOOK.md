@@ -2875,6 +2875,11 @@ them. Include them in the release notice to external API callers.
   1 to 500, and `GET /logs/db-share` takes one from 1 to 500. A limit outside the range answers 400
   instead of a shortened result.
 
+**Client-visible change:** the monitor's request and Cypher explorers take `min_duration_ms`, and its
+trace route, now documented as `/logs/trace/{id}`, takes `max_spans`. The old `minDurationMs` and
+`maxSpans` answer 400 with an error that names them. Only the monitoring application calls these
+routes, and it sends neither old name.
+
 ## Artifact Versioning Contract
 
 Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;

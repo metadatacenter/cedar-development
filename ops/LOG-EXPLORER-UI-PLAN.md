@@ -10,7 +10,7 @@ query contract, board catalog and UI grammar. Everything below is measured again
 
 ## 0. Why — what the current explorer can't do
 
-`/logs-explorer` today is `LogExplorerResource` (`GET /logs/explorer/{requests,cypher}?q&minDurationMs&limit`)
+`/logs-explorer` today is `LogExplorerResource` (`GET /logs/explorer/{requests,cypher}?q&min_duration_ms&limit`)
 over `LogExplorerDAO`, rendered as a flat newest-first table with an expandable detail row. Three
 hard limits, all structural:
 
@@ -143,7 +143,7 @@ MySQL 8 has no `PERCENTILE_CONT`. Two implementations, chosen by source:
 | `POST /logs/query` | the engine above (raw rows, aggregates, both tables) | **built** |
 | `GET /logs/facets/{column}?table&from&to` | distinct values + counts for a dimension → dropdowns | **built** |
 | `GET /logs/coverage` | queryable column surface + row counts + real time span + the §9 caveats | **built** |
-| `GET /logs/trace/{globalRequestId}` | full trace: all component request rows + all cypher rows, ordered, with a computed waterfall | **built** |
+| `GET /logs/trace/{id}` | full trace: all component request rows + all cypher rows, ordered, with a computed waterfall | **built** |
 | `GET /logs/boards` | board catalog (id, title, question, spec) — so the UI's board list is server-owned | **built** |
 | `GET /logs/db-share` | per handler: handler time vs the Cypher time underneath (joins both tables) | **built** |
 
@@ -338,7 +338,7 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
      GROUP BY) rather than being rejected — that is what the KPI-tile boards are.
    - Still to do here: URL serialization of board + filter state (deep links), and KPI tiles rendered
      as tiles rather than a one-row table.
-4. **Cross-table** — ✅ **done 2026-07-31** (visual pass pending). `GET /logs/trace/{globalRequestId}`
+4. **Cross-table** — ✅ **done 2026-07-31** (visual pass pending). `GET /logs/trace/{id}`
    resolves one id into every component that handled it plus every Cypher query underneath, with
    `handlerMs` / `dbMs` / `dbSharePct` / `spanMs`; the UI renders it as an overlay with six summary
    tiles and a waterfall (request spans teal, Cypher violet). Capped at 500 spans/table (2,000 max).

@@ -96,7 +96,7 @@ export const VALIDATES_FIRST = [
  * Requests that need not be refused, each with the reason. A success they answer is not a failure.
  */
 const ANSWERED = [
-  { server: 'monitor', method: 'GET', path: '/logs/trace/{globalRequestId}',
+  { server: 'monitor', method: 'GET', path: '/logs/trace/{id}',
     reason: 'reports the trace of a request identifier, which is empty for one no service logged' },
   ...['templates', 'template-elements', 'template-fields', 'template-instances', 'folders', 'users', 'groups']
     .map((kind) => ({ server: 'monitor', method: 'GET', path: `/resources/${kind}/{id}`,
