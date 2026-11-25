@@ -15,21 +15,16 @@ Refer to the concrete change by name in commits.
 
 ## UI Review Coverage
 
-### 1. Extend the Coordinated Review to Workspace, the Metadata Editor and OpenView
+### 1. Extend the Coordinated Review to Workspace
 
-- `cedarcli test ui-review-coordinate` refuses any capture that is not the Designer's. Workspace,
-  the Metadata Editor and OpenView have catalogues and collectors, with 129, 116 and 35 states
-  under Chromium and 127, 114 and 33 under WebKit touch. They have had only the single-reviewer
-  review, in which one reviewer inspects the whole capture and no second reviewer verifies its
-  findings. Their most recent reviews, on 17 November, covered 82 Workspace states and 97 Metadata
-  Editor states from an earlier catalogue. OpenView has never been reviewed.
-- Remove the coordinator's Designer-only check, and name the captured application in its reviewer
-  instructions, scope and report. The agreed layout behavior in the frontend runbook already has
-  entries for Workspace and the Metadata Editor. OpenView has none yet. A review can run without
-  them, and the answers to its first review's findings can supply them.
-- Capture all three applications under both profiles from the current build, and review each
-  capture as the Designer was reviewed. Every state then receives a calibrated assessment, the
-  batch's second look and verification of each finding.
+- Workspace, with 129 states under Chromium and 127 under WebKit touch, has had only the
+  single-reviewer review, in which one reviewer inspects the whole capture and no second reviewer
+  verifies its findings. Its most recent review, on 17 November, covered 82 states from an earlier
+  catalogue.
+- Capture Workspace under both profiles from the current build, and review each capture with
+  `cedarcli test ui-review-coordinate`, as the other applications are reviewed.
+- OpenView has no agreed layout behavior in the frontend runbook. Record it from the answers given
+  to the findings of its coordinated reviews.
 
 ## Browser Automation
 
