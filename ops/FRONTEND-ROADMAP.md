@@ -318,38 +318,35 @@ data images.
 
 ## Frontend Dependencies
 
-### 10. Take the Frontend Dependency Upgrades That Need Code Changes
+### 10. Take the Held Frontend Dependency Upgrades
 
-No dependency below can move by a lock update alone. Some wait on an upstream release, some have
-not been tried, and some need code changes. The versions are the newest that `npm outdated`
-reported on 2026-11-05, after every in-range update had been taken.
+Apart from the legacy Template Editor, whose npm dependencies are frozen, every frontend
+dependency is at its newest release except the ones below. Most of them wait on an upstream
+release, one waits on the Keycloak server, one is held by a design decision and one failed its
+trial. The figures were measured on 2026-11-25.
 
 **Waiting on upstream.**
 
 - **TypeScript 7.** TypeScript 7.0 ships without the JavaScript compiler API, and Angular's
   compiler, ts-jest and typescript-eslint are all built on that API. None accepted TypeScript 7 on
-  2026-11-13.
-  - Angular's compiler, `@angular/build` and ng-packagr accept only `>=6.0 <6.1`, in 22.2.6 and in
-    22.3.0-rc.0. Every Angular project builds with them.
+  2026-11-25.
+  - Angular's compiler, `@angular/build` and ng-packagr 22.3.0 accept only `>=6.0 <6.1`. Every
+    Angular project builds with them.
   - ts-jest 29.4.15, the newest release, accepts only `>=4.3 <7`. The model library, which has no
     Angular, runs its tests through it.
-  - typescript-eslint 8.72.2 accepts only `>=4.8.4 <6.1.0`. CEE, CED, CETP, Workspace, the Angular
+  - typescript-eslint 8.74.0 accepts only `>=4.8.4 <6.1.0`. CEE, CED, CETP, Workspace, the Angular
     demo and the model library lint with it.
 
   TypeScript 7.1 is expected to ship a new API. Its
   [iteration plan](https://github.com/microsoft/TypeScript/issues/63703) set the stable release for
-  2026-11-24, the beta then slipped two weeks, and no revised date is posted. Angular closed the
-  request to widen the 22.x range as not planned. The team is
+  2026-11-24. That date has passed with the 7.1 beta published and no revised stable date.
+  Angular closed the request to widen the 22.x range as not planned. The team is
   [writing a compiler front end](https://blog.angular.dev/an-update-on-angulars-typescript-7-powered-compiler-9619a35e2b0a)
   that uses the 7.1 API for type-checking, and has named no release for it. The post expects
   breaking changes, so the likely release is Angular 23, listed for about June 2027. The model
   library can move once ts-jest and typescript-eslint each release against the 7.1 API, and neither
   has announced one. Measure the three ranges again before acting on any of these dates.
 - **`@types/node` 26.** The types follow the supported runtime's major, and the projects target Node 24.
-- **deepmerge in Jest.** The TypeScript model library's test-only `jest-config` dependency
-  brings `deepmerge` 4.3.1, affected by GHSA-gcqx-w48m-w2h4. Adopt a patched upstream release
-  when available, refresh the audit baseline and repeat the model library's gate. The current
-  npm suggestion downgrades Jest to 25 and is not an acceptable fix.
 - **ESLint 10 and Babel 8 in the Ember demo.** The two move together. The demo's lint
   configuration parses JavaScript with `@babel/eslint-parser`, whose 7.x releases accept nothing
   newer than ESLint 9 and whose 8.x releases require `@babel/core` 8. The newest releases of
@@ -390,15 +387,17 @@ reported on 2026-11-05, after every in-range update had been taken.
   under 4.14.1, so it leaves with the move, and any new finding goes in the
   [Accessibility](#accessibility) item.
 
-**Needing code changes.**
+**Waiting on the Keycloak server.**
 
 - **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring, and the adapter that
-  Workspace and the Template Designer host load from `app/scripts/keycloak/`. The installed
-  keycloak-angular 13.1.0 declares Angular 15 as its peer and is forced onto Angular 22 through
-  `overrides`, the only override either application still carries. The Workspace and Designer copy
-  was committed in March 2023 outside npm, so neither `npm outdated` nor `npm audit` sees it. The
-  adapter's major follows the Keycloak server, so all of these move with "Upgrade Keycloak to a
-  supported release" in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
+  Workspace, the Template Designer host and the legacy Template Editor load from
+  `app/scripts/keycloak/`. The installed keycloak-angular 13.1.0 declares Angular 15 as its peer
+  and is forced onto Angular 22 through `overrides`, the only override either application still
+  carries. The other three load one identical copy of keycloak-js 21, committed in March 2023
+  outside npm, so neither `npm outdated` nor `npm audit` sees it. The adapter's major follows the
+  Keycloak server, so all of these move with "Upgrade Keycloak to a supported release" in
+  [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md). keycloak-angular 22 also changes how the adapter is
+  set up, so Bridging and Monitoring need code changes when it moves.
 
 <a id="accessibility"></a>
 

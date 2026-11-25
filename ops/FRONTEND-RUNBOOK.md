@@ -2688,32 +2688,30 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-The supported frontend toolchain uses Node **24.22.1**, Angular CLI and build **22.2.6**,
-Angular CDK and Material **22.2.6**, and Angular core **22.2.4**. Angular's 22.2.6 builder
-selects Vite 8.3.5. The development-server advisories against the Vite 8.3 line are fixed from
-8.3.3, so no project overrides Vite.
+The supported frontend toolchain uses Node **24.22.1** and Angular **22.3.0** throughout: CLI,
+build, core, CDK and Material. Angular's 22.3.0 builder selects Vite 8.3.8. The
+development-server advisories against the Vite 8.3 line are fixed from 8.3.3, so no project
+overrides Vite.
 
-CEE, CED, CETP and Workspace hold `@ngx-translate/core` at 18.0.x with a `~18.0.0` range.
-Release 18.1.0 changes how often the service announces a translation change, which fails
-CEE's late-language specification, and it enlarges CED's bundle past its size ceilings.
-The upgrade is tracked in [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md). OpenView, Bridging and
-Monitoring take 18.1 with a `^18.1.0` range and register it through its provider functions; none of
-them selects a language at run time.
+Every Angular frontend takes `@ngx-translate/core` 18.1. Release 18.1.0 deletes a language's
+stored map before `reloadLang` fetches it again, and announces the deletion as a change to an
+empty map. CEE therefore never calls `reloadLang`. When a host names a new language map source
+after CEE has loaded its maps, CEE fetches each language through its translation loader and
+stores it with `setTranslation`, which replaces the map and announces it once. OpenView,
+Bridging and Monitoring register the service through its provider functions, and none of them
+selects a language at run time.
 
-A fresh audit of the eight changed modern frontend locks on 2026-11-06 reports zero moderate,
-high or critical findings, including development dependencies. Seven report no findings; the
-TypeScript model library retains the six low findings described below. Every one of the 24
+On 2026-11-25 every registered modern frontend lock records no audit findings at any severity,
+including development dependencies. The six low findings the TypeScript model library
+used to carry came from GHSA-gcqx-w48m-w2h4, against `deepmerge` 4.3.1, which GitHub withdrew on
+2026-11-16. Every one of the 24
 registered frontend locks matches its reviewed baseline. The registered locks include the
 Playwright test packages in the `browser/` directories of
 Workspace, the Template Designer host, OpenView, Monitoring, Bridging, CETP and CED. Each
 declares an empty `allowScripts` policy, because none of them locks a package with an
 install script, and the train holds them to it as it holds every other registered lock.
-The TypeScript model library's lock reports six low findings, all from one advisory,
-GHSA-gcqx-w48m-w2h4, which reports prototype poisoning in `deepmerge` 4.3.1. The package
-reaches the library through `jest-config`, and Jest runs only the library's tests. No
-patched `deepmerge` exists, and the fix `npm audit` offers is Jest 25, a downgrade. The
-train baseline records the six findings. The legacy Template Editor is separate from that
-result.
+The legacy Template Editor, whose npm dependencies are frozen, is separate from that result,
+and its baseline records the findings its frozen tree carries.
 
 The affected modern tool trees override only `minimatch@>=7 <11.0.1` to 11.0.5; the model
 library and Ember demo also override `glob@>=9 <14.0.2` to 14.0.4. These remove
