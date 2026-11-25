@@ -377,17 +377,17 @@ reported on 2026-11-05, after every in-range update had been taken.
   when a release brings an icon CEDAR needs or the redrawn question mark is accepted, and review
   every changed baseline as a design change.
 
-**Not yet tried.**
+**Held after a trial.**
 
-- **The Ember demo's other lint and build packages.** `eslint-plugin-n` 18, `eslint-config-prettier`
-  10, `globals` 17 and `concurrently` 10 are new majors. None of them waits on ESLint 10 or Babel 8. Both ESLint
-  packages accept ESLint 9, `globals` declares no peer, and `concurrently` 10 needs only Node 22.
-  Stylelint 18 and `stylelint-config-standard` 41 are new majors as well. The configuration
-  requires Stylelint 18, which needs Node 24.15 or later, and the demo runs Node 24.22.1.
-  Each move needs its range changed and the demo's lint, build and tests run under it.
-- **`@axe-core/playwright` 4.14** in the Playwright test packages of CEE, CED, CETP and Workspace,
-  which pin 4.13.0 exactly. A new axe release can add rules or change what an existing rule
-  reports, so the move needs every accessibility scan rerun and any new finding placed in the
+- **`@axe-core/playwright` 4.14** in the browser and visual suites of every application, which pin
+  4.13.0 exactly. Under 4.14.1, axe no longer measures the colour contrast of text inside the
+  shadow roots of the term picker and CEE. It reports the text's background as covered by another
+  element and leaves the check undecided, and the suites fail on an undecided result. The term
+  picker fails twelve Chromium scans at 375 and 1280 px, and CEE fails its open calendar in
+  Firefox. Under 4.13.0 the same elements measure and pass. Find out whether 4.14 detects a real
+  overlap or misreads shadow-root layering before the pin moves, rather than recording the
+  undecided checks as exceptions. Monitoring's exception for its user menu no longer reproduces
+  under 4.14.1, so it leaves with the move, and any new finding goes in the
   [Accessibility](#accessibility) item.
 
 **Needing code changes.**
