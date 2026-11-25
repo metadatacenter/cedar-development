@@ -18,6 +18,9 @@ from cedar_search_readonly_probe import NoRedirect, origin
 
 TYPES = ['folder', 'field', 'element', 'template', 'instance']
 SCHEMA_TYPES = ['field', 'element', 'template']
+# Modification-time bounds are ISO-8601 instants, written as the server writes them into a paging link.
+EPOCH = '1970-01-01T00:00:00Z'
+Y2020 = '2020-01-01T00:00:00Z'
 META = ['@id', 'resourceType', 'schema:name', 'bibo:status', 'isLatestVersion',
         'isLatestDraftVersion', 'isLatestPublishedVersion', 'pav:lastUpdatedOn',
         'pav:createdOn', 'activeUserCanRead', 'isOpen', 'isOpenImplicitly']
@@ -68,10 +71,10 @@ def metadata_errors(params, resources):
                     reasons.append('latest-by-status')
         if 'modified_after' in params or 'modified_before' in params:
             try:
-                timestamp = datetime.fromisoformat(resource['pav:lastUpdatedOn'].replace('Z', '+00:00')).timestamp() * 1000
-                if timestamp < int(params.get('modified_after', '-9223372036854775808')):
+                timestamp = instant_ms(resource['pav:lastUpdatedOn'])
+                if 'modified_after' in params and timestamp < instant_ms(params['modified_after']):
                     reasons.append('modified-after')
-                if timestamp >= int(params.get('modified_before', '9223372036854775807')):
+                if 'modified_before' in params and timestamp >= instant_ms(params['modified_before']):
                     reasons.append('modified-before')
             except (KeyError, ValueError, TypeError):
                 reasons.append('missing-modified-time')
@@ -80,6 +83,11 @@ def metadata_errors(params, resources):
         if reasons:
             errors.append({'id': resource.get('@id'), 'reasons': reasons})
     return errors
+
+
+def instant_ms(value):
+    """An ISO-8601 instant, the form of a stored time and of a modification-time bound, in epoch milliseconds."""
+    return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp() * 1000
 
 
 def comparable_params(params):
@@ -254,10 +262,10 @@ def run(a):
                {'version': 'latest', 'publication_status': 'bibo:published'},
                {'version': 'latest-by-status', 'publication_status': 'bibo:draft'},
                {'sharing': 'shared-with-everybody'}, {'sharing': 'shared-with-me'},
-               {'modified_after': 0, 'modified_before': 1577836800000},
-               {'modified_after': 1577836800000},
+               {'modified_after': EPOCH, 'modified_before': Y2020},
+               {'modified_after': Y2020},
                {'resource_types': 'field', 'version': 'latest', 'publication_status': 'bibo:published',
-                'modified_after': 1577836800000, 'sharing': 'shared-with-everybody'}]
+                'modified_after': Y2020, 'sharing': 'shared-with-everybody'}]
     for q in ['"Rad"', '"Moles/volume"', '"Dried blood spot"', 'Sex:Male', 'ALT:', '[pv]*']:
         counts = {}
         for i, f in enumerate(filters):
@@ -307,10 +315,10 @@ def run(a):
         rows = a.walk(q, endpoint='/search-deep', continuation=True, limit=43, label=f'continuation/{q}')
         a.equal_sets('continuation-complete-set/' + q, cohorts[q], rows)
     rows = a.walk('"Dried blood spot"', {'resource_types': 'field', 'version': 'latest',
-                  'publication_status': 'bibo:published', 'modified_after': 0},
+                  'publication_status': 'bibo:published', 'modified_after': EPOCH},
                   endpoint='/search-deep', continuation=True, limit=47, label='continuation/combined-filters')
     reference = a.walk('"Dried blood spot"', {'resource_types': 'field', 'version': 'latest',
-                      'publication_status': 'bibo:published', 'modified_after': 0}, label='offset/combined-filters')
+                      'publication_status': 'bibo:published', 'modified_after': EPOCH}, label='offset/combined-filters')
     a.equal_sets('continuation-combined-filter-set', reference, rows)
 
     # Invalid grammar and unsupported syntax should fail as client errors in all lanes.
@@ -322,8 +330,9 @@ def run(a):
                       ({'publication_status': 'no-such-status'}, 400), ({'resource_types': 'no-such-type'}, 400),
                       ({'sort': 'no-such-sort'}, 400),
                       ({'sharing': 'no-such-sharing'}, 400), ({'modified_after': 'yesterday'}, 400),
-                      ({'modified_after': 10, 'modified_before': 10}, 400),
-                      ({'modified_after': 20, 'modified_before': 10}, 400)]
+                      ({'modified_after': 1577836800000}, 400), ({'modified_before': '2020-01-01'}, 400),
+                      ({'modified_after': Y2020, 'modified_before': Y2020}, 400),
+                      ({'modified_after': '2020-01-01T00:00:00.020Z', 'modified_before': '2020-01-01T00:00:00.010Z'}, 400)]
     for ep, cont in [('/search', {}), ('/search-deep', {}), ('/search-deep', {'continuation': 'start'})]:
         for q in bad_queries:
             a.search(q, {'limit': 1, **cont}, 'invalid-syntax/' + repr(q), ep, 400)
@@ -341,7 +350,7 @@ def run(a):
         token = start['continuation']
         for mutation in [{'q': '"ALT"'}, {'sort': '-name'}, {'resource_types': 'field'},
                          {'version': 'latest'}, {'publication_status': 'bibo:published'},
-                         {'sharing': 'shared-with-everybody'}, {'modified_after': 0}]:
+                         {'sharing': 'shared-with-everybody'}, {'modified_after': EPOCH}]:
             a.search('"Rad"', {'limit': 7, 'continuation': token, **mutation}, 'token/binding', '/search-deep', 400)
         finish = a.search('"Rad"', {'limit': 100, 'continuation': token}, 'token/change-page-size', '/search-deep')
         if finish:
@@ -446,7 +455,7 @@ def followup(a, reference):
     absent_template = 'https://repo.metadatacenter.org/templates/00000000-0000-0000-0000-000000000000'
     for ep in ['/search', '/search-deep']:
         for extra in [{}, {'resource_types': 'template'}, {'publication_status': 'bibo:draft'},
-                      {'publication_status': 'bibo:published'}, {'modified_before': 1},
+                      {'publication_status': 'bibo:published'}, {'modified_before': '1970-01-01T00:00:00.001Z'},
                       {'offset': 1}, {'q': 'CedarAuditDeliberatelyAbsent20261019'}]:
             params = {'id': witness, 'limit': 3, 'sort': 'name', **extra}
             body = a.get(ep, params, 'graph/id-selector', expected=(200, 400))

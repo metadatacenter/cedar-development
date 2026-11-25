@@ -18,9 +18,11 @@ BACKEND_REPOSITORIES = sorted(CEDAR_HOME.glob("cedar-*-server")) + [
     CEDAR_HOME / "cedar-microservice-libraries"
 ]
 
-# The value may follow `value =`, and the annotation may break across lines.
+# The value may follow `value =`, the annotation may break across lines, and its name may be
+# fully qualified.
 LITERAL_PARAMETER = re.compile(
-    r'@(?P<kind>QueryParam|PathParam|FormParam)\(\s*(?:value\s*=\s*)?"(?P<name>[^"]*)"\s*\)'
+    r'@(?:(?:jakarta|javax)\.ws\.rs\.)?(?P<kind>QueryParam|PathParam|FormParam)'
+    r'\(\s*(?:value\s*=\s*)?"(?P<name>[^"]*)"\s*\)'
 )
 
 
@@ -71,10 +73,12 @@ class RestParameterConstantsTest(unittest.TestCase):
     @QueryParam(value = "offset") Optional<Integer> offset,
     @FormParam(
         "state") String state,
-    @PathParam(PP_ID) String other) {
+    @PathParam(PP_ID) String other,
+    @jakarta.ws.rs.QueryParam("uri") String uri) {
 """
         self.assertEqual(
-            [(2, '@PathParam("id")'), (4, '@QueryParam("offset")'), (5, '@FormParam("state")')],
+            [(2, '@PathParam("id")'), (4, '@QueryParam("offset")'), (5, '@FormParam("state")'),
+             (8, '@QueryParam("uri")')],
             literal_parameters(java),
         )
 

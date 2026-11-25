@@ -2479,7 +2479,8 @@ export function finding(data) {
           'returns only the kinds it asked for');
       break;
     case 'search-window':
-      findingSearch(data, index, `q=${term}&limit=20&modified_after=${runStartedMs - 60000}`,
+      findingSearch(data, index,
+          `q=${term}&limit=20&modified_after=${encodeURIComponent(new Date(runStartedMs - 60000).toISOString())}`,
           'finding search in a time window', body => Array.isArray(body?.resources), 'returns a page');
       break;
     case 'search-shared':

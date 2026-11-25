@@ -35,6 +35,9 @@ function checkEnvelope(res, what, window) {
   check(problems.length === 0, what, problems.slice(0, 4).join('; '));
 }
 
+/** A time in epoch milliseconds as the ISO-8601 instant a modification-time bound takes. */
+const instant = milliseconds => new Date(milliseconds).toISOString();
+
 // The largest limit a listing accepts. One more is refused.
 const MAX_LIMIT = 500;
 
@@ -304,12 +307,12 @@ export async function run({ user1, user2, admin, folderId }) {
 
   // These routes declare the same typed query. Unknown parameters and arbitrary search text are
   // not invalid by definition; probe only values the declared sort and filter contracts reject.
-  // The modification-time bounds are epoch milliseconds, and a value before March 1973 is refused as
-  // most likely a time in seconds. A window that closes before it opens is refused, and so is a bound
-  // given twice, even when the two values agree. Each of those refusals identifies the parameter at
-  // fault, which the third entry names.
+  // The modification-time bounds are ISO-8601 instants, and a number or a date alone is refused. A
+  // window that closes before it opens is refused, and so is a bound given twice, even when the two
+  // values agree. Each of those refusals identifies the parameter at fault, which the third entry names.
   const typedListings = [...endpoints.slice(0, 3), { name: 'search-deep', path: `/search-deep?q=${enc(PAGE_TAG)}` }];
   const NOON = 1_794_571_200_000; // 13 November 2026, 12:00 UTC
+  const NOON_INSTANT = enc(instant(NOON));
   const badFilters = [
     ['an unknown sort field', 'sort=not-a-sort'],
     ['a delimiter-bearing sort field', `sort=${enc('name;DROP TABLE')}`],
@@ -319,12 +322,13 @@ export async function run({ user1, user2, admin, folderId }) {
     ['a delimiter-only version filter', 'version=,'],
     ['an unknown publication filter', 'publication_status=not-a-status'],
     ['a delimiter-only publication filter', 'publication_status=,'],
-    ['a reversed modification-time window', `modified_after=${NOON + 1}&modified_before=${NOON}`,
+    ['a reversed modification-time window', `modified_after=${enc(instant(NOON + 1))}&modified_before=${NOON_INSTANT}`,
       ['modified_after', 'modified_before']],
-    ['modified_after given twice', `modified_after=${NOON}&modified_after=${NOON}`, ['modified_after']],
-    ['modified_before given twice', `modified_before=${NOON}&modified_before=${NOON}`, ['modified_before']],
-    ['a modified_after in seconds', `modified_after=${NOON / 1000}`, ['modified_after']],
-    ['a modified_before that is not a number', 'modified_before=yesterday', ['modified_before']],
+    ['modified_after given twice', `modified_after=${NOON_INSTANT}&modified_after=${NOON_INSTANT}`, ['modified_after']],
+    ['modified_before given twice', `modified_before=${NOON_INSTANT}&modified_before=${NOON_INSTANT}`, ['modified_before']],
+    ['a modified_after in epoch milliseconds', `modified_after=${NOON}`, ['modified_after']],
+    ['a modified_before that is a date alone', 'modified_before=2026-11-13', ['modified_before']],
+    ['a modified_before that is not an instant', 'modified_before=yesterday', ['modified_before']],
   ];
   for (const listing of typedListings) {
     const sep = listing.path.includes('?') ? '&' : '?';
@@ -416,14 +420,14 @@ export async function run({ user1, user2, admin, folderId }) {
     if (!check(seen.done, `${view.name} reports the second ${kind} as modified after the first`,
         `it reported ${seen.from} and ${seen.to} after ${seen.attempts} attempts`)) return;
     const { from, to } = seen;
-    const window = `&modified_after=${from + 1}&modified_before=${to + 1}`;
+    const window = `&modified_after=${enc(instant(from + 1))}&modified_before=${enc(instant(to + 1))}`;
     const inside = await read(view, second.id, window);
     check(listed(inside), `${view.name} lists ${one} modified inside the window`, said(inside, kind));
     const earlier = await read(view, first.id, window);
     check(absent(earlier), `${view.name} does not list ${one} modified before the window`, said(earlier, kind));
-    const atLower = await read(view, second.id, `&modified_after=${to}`);
+    const atLower = await read(view, second.id, `&modified_after=${enc(instant(to))}`);
     check(listed(atLower), `${view.name} lists ${one} modified exactly at modified_after`, said(atLower, kind));
-    const atUpper = await read(view, second.id, `&modified_before=${to}`);
+    const atUpper = await read(view, second.id, `&modified_before=${enc(instant(to))}`);
     check(absent(atUpper), `${view.name} does not list ${one} modified exactly at modified_before`,
         said(atUpper, kind));
   }
@@ -495,10 +499,11 @@ export async function run({ user1, user2, admin, folderId }) {
     : undefined;
   const specialView = { name: 'special folders', path: () => '/search?mode=special-folders&resource_types=folder&limit=100' };
   const specialChecks = [
-    ['lists a folder modified inside the window', at => `&modified_after=${at - 1}&modified_before=${at + 1}`, true],
-    ['does not list a folder modified before the window', at => `&modified_after=${at + 1}`, false],
-    ['lists a folder modified exactly at modified_after', at => `&modified_after=${at}`, true],
-    ['does not list a folder modified exactly at modified_before', at => `&modified_before=${at}`, false],
+    ['lists a folder modified inside the window',
+      at => `&modified_after=${enc(instant(at - 1))}&modified_before=${enc(instant(at + 1))}`, true],
+    ['does not list a folder modified before the window', at => `&modified_after=${enc(instant(at + 1))}`, false],
+    ['lists a folder modified exactly at modified_after', at => `&modified_after=${enc(instant(at))}`, true],
+    ['does not list a folder modified exactly at modified_before', at => `&modified_before=${enc(instant(at))}`, false],
   ];
   for (const [what, bounds, holds] of specialChecks) {
     if (!special) {

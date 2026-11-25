@@ -1524,28 +1524,33 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   in the same change.
 
   The backend runbook's [REST Naming Convention](BACKEND-RUNBOOK.md#rest-naming-convention) sets
-  the rules. The newer and peripheral routes break them in several ways:
-  - Query parameters are snake_case except on the terminology server's versioned routes
-    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`).
-  - Sibling terminology routes use `ontologies/{id}` and `ontologies/{ontology}/classes`, and
-    `value-sets/{id}` and `value-sets/{vs}/values`.
-  - A term IRI is `subtree_root_id`, `termIri`, `propertyIri`, `uri`, `iri` or `termUri`, depending
-    on the route. `GET /bioportal/search` takes both `source` and `sources`, with unrelated meanings.
-  - A time range is `modified_after` and `modified_before` in epoch milliseconds on folder contents
-    and search, `from` and `to` as ISO-8601 instants on the monitor, and `from` and `to` as version
-    identifiers on `/versions/diff`.
-  - A template's output format is chosen by `Accept`. An instance's is chosen by `?format=`, which
-    overrides `Accept`, and `/command/convert` takes `?format=` alone.
-  - The monitor relays each server's `/insight/*` routes as `/server-report/{server}/insight`.
-  - The resource server's 20 `/command/*` routes are actions, and most take their target in the
-    body, while recursive folder deletion also has a resource form, `/folders/{id}/deletion`.
-    `property_search` is the only path
-    segment on any server that is not kebab-case.
+  the rules. Four pieces of work remain.
 
-  Move the terminology server's routes last. Each move takes its callers and the e2e suites with it
-  and deletes the old name. The term picker's camelCase query parameters wait for a picker release
-  that sends the new names. Done when every route follows the convention, or waits only on a
-  published package.
+  Template, element and field reads and downloads take no `?format=`, so a browser link cannot
+  choose YAML for them. Instances already take it, and `/command/convert` takes it alone. Add
+  `?format=` with the instance's values to the other three kinds on the resource and artifact
+  servers, overriding `Accept` as it does for instances. This removes nothing.
+
+  The terminology server keeps names that no published package sends:
+  - `GET /bioportal/property_search` is the only path segment on any server that is not kebab-case.
+    It becomes `/bioportal/property-search`, and the Template Editor moves with it.
+  - A term IRI is `subtree_root_id`, `uri` or `termUri`, depending on the route, and becomes
+    `term_iri` in a query and `termIri` in a body. The resource server's freeze-on-publish sends
+    `uri` to `classes/version-current`, and the Template Editor sends `subtree_root_id`.
+  - `GET /bioportal/search` takes both `source` and `sources`, with unrelated meanings. `source` is
+    the ontology of a subtree search and needs a name that says so.
+  - Sibling routes name one ontology `{id}` and `{ontology}`, and one value set `{id}` and `{vs}`.
+    These path variables become `{acronym}` and `{id}`, which changes only the OpenAPI document.
+
+  Some names wait on published packages. Every release of the term picker sends `sourceAcronym`,
+  `versionId`, `propertyIri` and `termIri` as query parameters on the versioned routes, and every
+  CEE release since 2.0.24 and every CED release send `iri` in the `validate-term` body. Each moves
+  once a release of its package sends the new name and its hosts have taken it.
+
+  The resource server's 20 `/command/*` routes also need a pass against the convention's rule that
+  a change to one resource's state is a `PATCH` on that resource. `rename-resource`, for one, changes
+  a single resource. Done when every route follows the convention, or waits only on a published
+  package.
 
 - **25. Retire the first generation of terminology routes.** **Production consequence:** a caller
   still on a retired route breaks when it is withdrawn, so callers move first.

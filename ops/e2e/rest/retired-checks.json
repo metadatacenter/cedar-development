@@ -444,6 +444,150 @@
       "section": "administration: commands over shared state refuse an ordinary user",
       "name": "the resource server refuses to reset the value sets import",
       "reason": "The two reset commands were replaced by POST /jobs/{id}/reset, which one check of the same section probes."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents with a modified_after in seconds is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents with a modified_after in seconds is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents with a modified_after in seconds: the refusal identifies modified_after",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents with a modified_before that is not a number is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents with a modified_before that is not a number is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents with a modified_before that is not a number: the refusal identifies modified_before",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents-extract with a modified_after in seconds is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents-extract with a modified_after in seconds is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents-extract with a modified_after in seconds: the refusal identifies modified_after",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents-extract with a modified_before that is not a number is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents-extract with a modified_before that is not a number is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "folder contents-extract with a modified_before that is not a number: the refusal identifies modified_before",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search with a modified_after in seconds is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search with a modified_after in seconds is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search with a modified_after in seconds: the refusal identifies modified_after",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search with a modified_before that is not a number is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search with a modified_before that is not a number is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search with a modified_before that is not a number: the refusal identifies modified_before",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search-deep with a modified_after in seconds is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search-deep with a modified_after in seconds is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search-deep with a modified_after in seconds: the refusal identifies modified_after",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search-deep with a modified_before that is not a number is refused with 400",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search-deep with a modified_before that is not a number is refused with 400: the refusal is a CedarError",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "pagination",
+      "section": "pagination: typed listings refuse invalid sorting and filters",
+      "name": "search-deep with a modified_before that is not a number: the refusal identifies modified_before",
+      "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
     }
   ]
 }

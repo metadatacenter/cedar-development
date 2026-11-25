@@ -2920,6 +2920,18 @@ resource server's. The worker's job document renames `id`, `status`, `completedA
 monitoring application, the caDSR ingestor and the `ops/e2e` suites moved with the change. Include
 it in the release notice to external API callers.
 
+**Client-visible change:** `modified_after` and `modified_before` on folder contents, the contents
+extract, `/search` and `/search-deep` take ISO-8601 instants, such as `2026-11-25T00:00:00Z`, in
+place of epoch milliseconds. An offset such as `+01:00` may replace `Z`, percent-encoded as `%2B01:00`
+in a query string. `modified_after` is inclusive and `modified_before` exclusive, as before. A number,
+a date alone or a value given twice answers 400 with an error that names the parameter, and a paging
+link carries each bound as an instant in UTC. The terminology server's
+`GET /bioportal/ontologies/{id}/versions/diff` takes its two versions as `from_version` and
+`to_version`. The old `from` and `to` answer 400 with an error that names them, and so does a
+request that leaves out either version. The monitor's `from` and `to` were already instants bounding an
+inclusive-exclusive window and are unchanged. The Workspace and the `ops` search tools moved with the
+change. Include it in the release notice to external API callers.
+
 ## Artifact Versioning Contract
 
 Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;

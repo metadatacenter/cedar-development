@@ -25,10 +25,10 @@ class SearchMatrixAuditTest(unittest.TestCase):
                     'isLatestVersion': True, 'isLatestPublishedVersion': True,
                     'pav:lastUpdatedOn': '2020-01-01T00:00:00Z'}
         valid = {'resource_types': 'field', 'version': 'latest-by-status',
-                 'publication_status': 'bibo:published', 'modified_after': 1577836800000}
+                 'publication_status': 'bibo:published', 'modified_after': '2020-01-01T00:00:00Z'}
         self.assertEqual([], audit.metadata_errors(valid, [resource]))
         invalid = {**valid, 'resource_types': 'template', 'publication_status': 'bibo:draft',
-                   'modified_before': 1577836800000}
+                   'modified_before': '2020-01-01T00:00:00Z'}
         self.assertEqual(['resource-type', 'publication-status', 'latest-by-status', 'modified-before'],
                          audit.metadata_errors(invalid, [resource])[0]['reasons'])
 
