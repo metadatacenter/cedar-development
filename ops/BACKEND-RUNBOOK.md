@@ -5526,8 +5526,24 @@ proves an endpoint correct.
 `openview` accepts anonymous requests, so a blanket missing-credential 401 is not its contract.
 OpenView strips caller credentials and proxies resource's anonymous artifact responses.
 `OpenViewProxyTest` covers success, 401, 404 and upstream failures without fallback;
-`OpenViewResourceOutageTest` covers unavailable resource service. `OpenViewFolderReadTest` covers
-inherited folder openness, public projection and 401 for a closed tree.
+`OpenViewResourceOutageTest` covers unavailable resource service. `OpenViewFolderProxyTest` covers
+the folder relay: only declared parameters travel, paging links point back at OpenView, refusals pass
+through unchanged, and page numbers are refused before anything is relayed.
+
+`terminology` answers fifteen routes without a credential, and each handler declares it with
+`@AnonymousAccess`:
+- the index `GET /` and the BioPortal icon;
+- `GET /bioportal/search`, class descendants, integrated search and integrated retrieve;
+- the versioned routes `POST /search`, `GET /search/hierarchy` and the five under `/properties`;
+- `POST /bioportal/validate-term` and `POST /resources/description`.
+
+The embeddable editor, the embeddable designer and the term picker call these from browsers that
+hold no CEDAR session, often on a third party's page, so a login would break every host that embeds
+them. Five of them can reach BioPortal on the deployment's key, which is what the edge rate limit
+bounds: search, descendants, integrated search, integrated retrieve and `validate-term`.
+`AnonymousRouteSetTest` sends every operation in the published document without a credential and
+fails if the set that answers changes, or if any route in it lacks the annotation. The first-generation
+`/bioportal` class and property routes still require a login.
 
 ### Known Gaps
 

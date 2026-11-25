@@ -541,7 +541,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. The four
   anonymous BioPortal routes item 9 lists belong in the same limit, since each spends the
-  deployment's BioPortal key, and so does `POST /bioportal/validate-term`, which item 14 describes.
+  deployment's BioPortal key, and so does `POST /bioportal/validate-term`, which asks BioPortal on
+  that key whenever the local store does not hold the vocabulary.
 
   A limit rather than a credential is deliberate. The embeddable editor calls integrated search from a
   browser with nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every
@@ -695,34 +696,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a key that can be read, authentication verifies without reversing one, and the rotation is
   recorded against the deployments it covered.
 
-- **14. Decide whether the versioned terminology routes require a login.** **Production
-  consequence:** a login requirement refuses anonymous callers that read today. Leaving the routes
-  open changes nothing at runtime.
-
-  Item 9 settles the four `/bioportal` routes that answer anonymously, and each carries
-  `@AnonymousAccess`. Eleven other routes build no request context, so they neither resolve a user
-  nor refuse a credential that fails to resolve: `GET /`, the BioPortal icon, `POST /search`,
-  `GET /search/hierarchy`, the five routes under `/properties`, `POST /bioportal/validate-term` and
-  `POST /resources/description`. Meanwhile `/bioportal/property_search` and the
-  `/bioportal/ontologies/{o}/classes` and `…/properties` routes require `LoggedIn`. An ontology's
-  properties therefore need a login on one route and none on the other.
-
-  One of these routes is not like the others. `validate-term` checks membership in the local store
-  where a snapshot holds the vocabulary, and otherwise asks BioPortal with the server's own key
-  (`TermMembershipVerifier.remoteClass`), because `terminologyStore.localOnly` defaults to false.
-  An anonymous caller can therefore spend the deployment's BioPortal quota through it, as through
-  item 9's four. A per-request lookup budget bounds one call but not the total. Until it is decided
-  here, it belongs under item 10's limit with those four. None of the other ten calls BioPortal.
-
-  Decide per route, then state the decision in code: `@AnonymousAccess` with
-  `buildAnonymousRequestContext()` for an open route, and `LoggedIn` for the rest.
-  `AnonymousRouteSetTest` pins the set of routes that answer an anonymous caller, so the decision
-  shows as a change to that set. Done when every terminology route either carries
-  `@AnonymousAccess` or requires a login.
-
 ## Maintenance
 
-- **15. Make search answer quickly in a production-sized store.** **Production consequence:**
+- **14. Make search answer quickly in a production-sized store.** **Production consequence:**
   search pages take a second or more where the workstation answers in milliseconds. Against the
   large store, a production snapshot served by the native stack, a search for 50 results took
   1,259 ms at the 95th percentile against 16 ms on the native store, and a sorted search 1,242 ms
@@ -740,7 +716,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when the finding profile's search routes meet their thresholds against the large store, and
   the rebuild's listing costs the same at every page.
 
-- **16. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **15. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock. This item owns the
   remaining server upgrades except Keycloak's, which item 7 owns. Order them by risk, lowest first.
@@ -787,7 +763,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **17. Make database schema evolution an explicit, privileged release operation.** Application
+- **16. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -848,7 +824,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **18. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **17. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -877,7 +853,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **19. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **18. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -957,7 +933,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **20. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **19. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -969,7 +945,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: nine services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 19. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 18. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -981,7 +957,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **21. Choose the response timeouts from the durations the request log now carries, and give a
+- **20. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -1011,7 +987,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **22. Take the dependency upgrades that need code changes.** The versions that could move without
+- **21. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved, or arrive through Renovate once they pass its fourteen-day release age.
   What stayed behind stayed deliberately, and it separates into work to do, versions that follow
   something else, and versions whose newest release is not a final.
@@ -1058,7 +1034,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.3.0, MySQL Connector/J 9.7.0 to 26.10.0, the OpenSearch client 2.19.7 to 3.9.0, the Lucene pin
   9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 16 rather than taken on
+  against the pinned server it talks to, so these are sequenced behind item 15 rather than taken on
   their own. Keycloak 22.0.4 to 25.0.3 is item 7's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
   Keycloak client stack, which item 7 owns.
 
@@ -1134,7 +1110,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **23. Resolve the remaining production artifact defects, review semantic migrations, and decide
+- **22. Resolve the remaining production artifact defects, review semantic migrations, and decide
   what happens to existing instances when a draft template changes.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
@@ -1532,7 +1508,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **24. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
+- **23. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
   runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
 
   No smoke tier creates a DOI or a draft DOI, so the gated tiers never exercise the bridge server's
@@ -1543,7 +1519,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **25. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
+- **24. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
   none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
 
   Each test JVM runs its classes one after another. The artifact server's suite now gives each class
@@ -1567,7 +1543,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   workstation with the stack running. Done when the artifact server's suite passes with class-level
   concurrency on, twice, with the development stack up and untouched.
 
-- **26. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
+- **25. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
   consequence:** a caller outside CEDAR that still uses an old name breaks. CEDAR's own callers move
   in the same change.
 
@@ -1608,7 +1584,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   host has taken it. Done when the convention is in the runbook and every route follows it, or
   waits only on a published package.
 
-- **27. Give background jobs one polling shape.** **Production consequence:** none, provided the
+- **26. Give background jobs one polling shape.** **Production consequence:** none, provided the
   monitor and the caDSR tools move in the same change.
 
   Every job start answers 202, but a job's status is read in four ways:
@@ -1621,7 +1597,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   change. Done when every 202 identifies where its status is read, and every status and reset route
   has the same form.
 
-- **28. Retire the first generation of terminology routes.** **Production consequence:** a caller
+- **27. Retire the first generation of terminology routes.** **Production consequence:** a caller
   still on a retired route breaks when it is withdrawn, so callers move first.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps
@@ -1657,7 +1633,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   current-version lookups, so one replacement must exist before they can be reduced to it. Done
   when each overlapping pair has one survivor.
 
-- **29. Fold the open-state commands into one operation, and replace mark-all-as-read.**
+- **28. Fold the open-state commands into one operation, and replace mark-all-as-read.**
   **Production consequence:** none, provided the Template Editor and the Workspace move in the same
   change.
 
@@ -1665,6 +1641,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `make-folder-not-open` commands do one job, which one operation with a target and a state would
   replace. The Template Editor and the Workspace both call them. Messaging's
   `POST /command/mark-all-as-read` sits beside `PATCH /messages/{id}`, and only the Template Editor
-  calls it. Name the replacements under the convention of item 26, move both clients and the e2e
+  calls it. Name the replacements under the convention of item 25, move both clients and the e2e
   suites, and withdraw the old forms in the same change. Done when no command remains for either
   job.
