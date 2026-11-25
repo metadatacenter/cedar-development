@@ -1526,27 +1526,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   have written, each kind of draft-template edit has a stated policy for the instances it affects,
   and an author sees that effect before the save lands.
 
-- **24. Decide what to do with the 130 imports whose declaration would change jar order.** It is a
-  decision to take rather than a change to make, and it is not urgent. Declaring one of these
-  imports would move two jars past each other on some runtime classpath while they share a class, a
-  resource, a service registration or a package, or would change a resolved version. The runbook's
-  dependency section describes the check, which is strict. Of the 130, 71 trace to a reordering in
-  the declaring module's own classpath. In 17 of those the two jars share only a package. They are
-  CEDAR libraries that split packages such as `org.metadatacenter.model` between them, which has no
-  effect on a classpath whose jars are not sealed, and none is. In 54 they share a service
-  registration, together with a package in 11 of them. Most of those services have a consumer that
-  loads every provider, such as Jackson's modules and Dropwizard's discoverable types, where order
-  matters only when two providers answer for the same thing. No consumer has been identified for
-  Jackson's `JsonFactory` and `ObjectCodec` registrations. Every server installs Jersey's
-  `RuntimeDelegate` in code, so a reordering of the two JAX-RS registrations no longer chooses one.
-  The other 59 were dropped because the check blamed every declaration on the path to a reordered
-  jar, in consuming modules as well, so some were bystanders.
-
-  Either leave them undeclared, or narrow the check to shared classes, resources and services that
-  answer with one provider, attribute each reordering to the single declaration that causes it, and
-  run it again. Done when the decision is recorded in the runbook.
-
-- **25. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
+- **24. Add an e2e journey that creates a DOI and a draft DOI.** **Production consequence:** none at
   runtime. A findable DOI is permanent, so the journey must never reach production DataCite.
 
   No smoke tier creates a DOI or a draft DOI, so the gated tiers never exercise the bridge server's
@@ -1557,7 +1537,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **26. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
+- **25. Make the Java test suites safe to run classes concurrently.** **Production consequence:**
   none. The gain is build time, and the risk is a test run that reaches a developer's live stores.
 
   Each test JVM runs its classes one after another. The artifact server's suite now gives each class
@@ -1581,7 +1561,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   workstation with the stack running. Done when the artifact server's suite passes with class-level
   concurrency on, twice, with the development stack up and untouched.
 
-- **27. Refuse page-number paging the same way on every server.** **Production consequence:** a
+- **26. Refuse page-number paging the same way on every server.** **Production consequence:** a
   caller that sends `page`, `pageSize` or `page_size` to a server that ignores them today gets 400
   instead of the first page.
 
@@ -1599,7 +1579,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   sequences, not to this item. Done when every paging route on every server refuses all three names
   with the same error, and each server has a test that asserts it.
 
-- **28. Bring the monitor's log routes onto the paging rule.** **Production consequence:** a caller
+- **27. Bring the monitor's log routes onto the paging rule.** **Production consequence:** a caller
   that asks for more rows than a route allows gets 400 rather than a shorter answer than it asked
   for.
 
@@ -1613,7 +1593,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   either case, refuse an out-of-range limit instead of lowering it. Give db-share an `offset`, or
   document that it returns a single page. Done when no monitor route lowers a limit silently.
 
-- **29. Adopt a REST naming convention, and apply it behind aliases.** **Production consequence:**
+- **28. Adopt a REST naming convention, and apply it behind aliases.** **Production consequence:**
   none while the aliases stand. Withdrawing an old name later breaks any caller that still uses it.
 
   The core create, read, update and delete routes are consistent. The newer and peripheral routes
@@ -1651,7 +1631,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   withdrawal. Done when the convention is in the runbook and every route either follows it or
   carries a dated alias.
 
-- **30. Give background jobs one polling shape.** **Production consequence:** none while the
+- **29. Give background jobs one polling shape.** **Production consequence:** none while the
   current routes stay as aliases.
 
   Every job start answers 202, but a job's status is read in four ways:
@@ -1663,7 +1643,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Keep the current routes as aliases until their callers move. Done when every 202 identifies where
   its status is read, and every status and reset route has the same form.
 
-- **31. Retire the first generation of terminology routes.** **Production consequence:** a caller
+- **30. Retire the first generation of terminology routes.** **Production consequence:** a caller
   still on a retired route breaks when it is withdrawn, so callers move first.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps
@@ -1680,7 +1660,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   same terms. Reduce the current-version lookups to one form. Done when each overlapping pair has
   one survivor and the survivors' callers are recorded.
 
-- **32. Put withdrawal dates on the redundant resource-server and messaging routes.** **Production
+- **31. Put withdrawal dates on the redundant resource-server and messaging routes.** **Production
   consequence:** a caller still on a withdrawn route breaks. The request log shows whether any
   remain.
 
@@ -1697,7 +1677,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Check the request log for each route's remaining callers, add any replacement, and record a
   withdrawal date here. Done when each route is withdrawn or has a recorded reason to stay.
 
-- **33. Correct the routes whose method or documented status contradicts what they do.**
+- **32. Correct the routes whose method or documented status contradicts what they do.**
   **Production consequence:** none for the documentation. A changed method runs behind an alias
   until its callers move.
 
@@ -1716,7 +1696,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each route's method matches its effect and its documented statuses match what it
   returns.
 
-- **34. Name parameters through the shared constants everywhere.** **Production consequence:** none.
+- **33. Name parameters through the shared constants everywhere.** **Production consequence:** none.
 
   `cedar-model-library` holds the shared parameter names, but most servers spell some names as
   literals, which lets them drift apart unnoticed. The terminology server uses no constant at all
@@ -1726,9 +1706,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `CommandVersionResource`, `QP_DEBUG` has no user, and the monitor reads a query parameter through
   the path constant `PP_ID`. Move every name into the shared constants, delete `QP_DEBUG`, and add a
   test over the resource classes that refuses a literal name. The constants then carry the
-  convention of item 29. Done when no resource class names a parameter with a literal.
+  convention of item 28. Done when no resource class names a parameter with a literal.
 
-- **35. Give anonymous folder reads a home under `/open`.** **Production consequence:** none until a
+- **34. Give anonymous folder reads a home under `/open`.** **Production consequence:** none until a
   route is withdrawn.
 
   Two surfaces answer anonymous reads: the resource server's `/open` routes and the openview server.

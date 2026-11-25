@@ -6055,14 +6055,34 @@ that share a class or a service. In the bridge and repo servers it put RESTEasy'
 order of `org.jboss:jandex` and `io.smallrye:jandex`, which hold 115 classes of the same name. It
 was withdrawn.
 
-The declarations that stand met two conditions on every module's runtime classpath. No resolved
-version or scope changed. Every pair of jars that hold an entry of the same name, or classes in the
-same package, kept its relative order. Each declaration sits directly after the dependency that
-already brought the artifact, which moves it least. 187 of the 319 met both conditions. Of the 278
-artifacts still undeclared, 132 would change such an order or a version, 65 are JUnit artifacts that
-arrive through the `junit-jupiter` aggregator, 51 have no version in `cedar-parent`, 22 are in the
-MCP servers and the Keycloak provider, and 7 are Keycloak and Neo4j harness artifacts that another
-module declares with exclusions. Hold any new declaration to the same two conditions.
+A declaration stands when two conditions hold on every module's test classpath, which contains the
+runtime one. No resolved artifact, version or scope changes. No two jars whose order decides what
+runs change places: two jars that hold the same class or resource, or that register different
+providers of a service whose consumers take the first. Jars may change places when they share only
+a package, a resource that nothing reads at runtime or that is read as every copy, or a service
+whose consumers load every provider. Neo4j's `PublicApi.txt`, Netty's version properties, GraalVM
+and ProGuard configuration and Log4j's plugin cache are such resources. Jackson's `JsonFactory` and
+`ObjectCodec` registrations are such services: the only classes on any CEDAR classpath that call
+`ServiceLoader` and name either type are `ObjectMapper` and `MapperBuilder`, and both load `Module`.
+Each declaration sits directly after the dependency that already brought the artifact, which moves
+it least.
+
+`ops/cedar_dependency_order_check.py` holds declarations to those conditions. It plans one
+declaration per used-undeclared artifact, applies them, compares every module's resolved tree and
+classpath with the state before, and blames each violation on the applied declarations that moved
+either jar. Withdraw what it blames, apply again from clean POMs, and repeat until nothing is
+blamed.
+
+On 2026-11-24 the analysis reported 278 used-undeclared artifacts across 38 modules. The 63 JUnit
+artifacts that arrive through the `junit-jupiter` aggregator and the 18 with no version in
+`cedar-parent` are not declared. Of the other 197, 158 meet both conditions and are declared. Seven
+stay undeclared because they would change what resolves. `keycloak-adapter-core`,
+`keycloak-admin-client-jakarta` and `neo4j-harness` are declared elsewhere with exclusions that a
+second declaration would not carry, and `dropwizard-configuration` would move `jakarta.el-api` from
+5.0.1 to 5.0.0. The remaining 32 stay undeclared because they would reorder Jersey's and RESTEasy's
+`RuntimeDelegate` or `ClientBuilder` registrations, or commons-logging against `jcl-over-slf4j` and
+`spring-jcl`. Most of them declare `cedar-config-library` or a Dropwizard or Jersey module. Hold any
+new declaration to the same two conditions.
 
 An artifact that modules import but receive only through another dependency gets a version in
 `cedar-parent` when it belongs to a family the parent already versions under one property, and
