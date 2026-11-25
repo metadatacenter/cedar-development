@@ -8,7 +8,7 @@ function fixture(options={}){
   const request=async(method,path,body,opts)=>{
     events.push({method,path,body,opts});
     if(path==='/users/test'){
-      if(method==='PUT')for(const [key,value]of Object.entries(body)){
+      if(method==='PATCH')for(const [key,value]of Object.entries(body)){
         if(value===null)delete prefs[key.slice(14)];else prefs[key.slice(14)]=value;
       }
       return reply(200,{uiPreferences:prefs});
@@ -49,7 +49,7 @@ test('missing revisions and concurrent-change refusals fail cleanup without unco
 test('cleanup restores all preference groups, removes newly introduced groups and verifies equality',async()=>{
   const f=fixture();f.changePreferences();await f.ledger.close();
   assert.deepEqual(f.ledger.preferencesRestored,{ok:true});assert.deepEqual(f.ledger.cleanupErrors,[]);
-  assert.equal(f.events.filter(e=>e.method==='PUT'&&e.path==='/users/test').length,3);
+  assert.equal(f.events.filter(e=>e.method==='PATCH'&&e.path==='/users/test').length,3);
 });
 
 test('cleanup waits for an in-flight create and prevents a later create from racing deletion',async()=>{

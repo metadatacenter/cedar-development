@@ -78,6 +78,42 @@
       "section": "pagination: a listing that pages by number as well refuses both at once",
       "name": "an authority search refuses a page number sent with an offset",
       "reason": "No listing pages by number any more. The bridge and the terminology server refuse page and pageSize on their own, which the section on refusing a page number checks; a page number sent with an offset is one case of that."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "attach a category: a body that is not JSON is refused with 400",
+      "reason": "POST /command/attach-category was removed; attach-categories is the only attach command. The same malformed bodies are sent to it under its own check names."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "attach a category: an empty body is refused with 400",
+      "reason": "POST /command/attach-category was removed; attach-categories is the only attach command. The same malformed bodies are sent to it under its own check names."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "attach a category: an array is refused with 400",
+      "reason": "POST /command/attach-category was removed; attach-categories is the only attach command. The same malformed bodies are sent to it under its own check names."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "attach a category: a bare number is refused with 400",
+      "reason": "POST /command/attach-category was removed; attach-categories is the only attach command. The same malformed bodies are sent to it under its own check names."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "attach a category: an empty object is refused with 400",
+      "reason": "POST /command/attach-category was removed; attach-categories is the only attach command. The same malformed bodies are sent to it under its own check names."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "attach a category: a property the write does not take is refused with 400",
+      "reason": "POST /command/attach-category was removed; attach-categories is the only attach command. The same malformed bodies are sent to it under its own check names."
     }
   ]
 }

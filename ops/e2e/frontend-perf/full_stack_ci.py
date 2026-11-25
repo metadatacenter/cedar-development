@@ -216,7 +216,7 @@ def monitor_account(home, candidate_state=None):
     profile=request('/users/'+users[0]['id'],token=viewer_token,origin='http://127.0.0.1:9005')
     if 'monitorManager' not in profile.get('roles',[]) or 'userAdministrator' in profile.get('roles',[]):
         raise ValueError('Dedicated CI monitoring profile lacks its read-only capability')
-    request('/health-check/monitor',token=viewer_token,origin='http://127.0.0.1:9014')
+    request('/healthcheck/monitor',token=viewer_token,origin='http://127.0.0.1:9014')
     hidden['CEDAR_PERF_MONITOR_PASSWORD']=password;hidden_path.write_text(json.dumps(hidden))
     with open(os.environ['GITHUB_ENV'],'a') as stream:
         stream.write('CEDAR_PERF_MONITOR_LOGIN='+username+'\nCEDAR_PERF_MONITOR_PASSWORD='+password+'\n')

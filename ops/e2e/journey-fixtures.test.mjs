@@ -12,7 +12,7 @@ test("preferences are restored on success and failure, without replacing unrelat
   let account = {uiPreferences: {workspace: {viewMode: "grid", resourceTypes: ["folder"]}, other: "kept"}};
   const original = structuredClone(account), writes = [];
   t.mock.method(globalThis, "fetch", async (_url, options) => {
-    if (options.method === "PUT") {
+    if (options.method === "PATCH") {
       const body = JSON.parse(options.body);
       writes.push(body);
       account.uiPreferences.workspace = body["uiPreferences.workspace"];
@@ -35,7 +35,7 @@ test("preferences are restored on success and failure, without replacing unrelat
 
 test("a failed preference restore reports cleanup failure and preserves the journey failure", async t => {
   let workspace = {viewMode: "grid"};
-  t.mock.method(globalThis, "fetch", async (_url, options) => options.method === "PUT"
+  t.mock.method(globalThis, "fetch", async (_url, options) => options.method === "PATCH"
     ? new Response("restore refused", {status: 503})
     : new Response(JSON.stringify({uiPreferences: {workspace}}), {status: 200}));
   const user = {profile: {"@id": "https://repo.example/users/u1"}};

@@ -2769,6 +2769,25 @@ A nonempty patch whose values already match still returns 200 with the same ETag
 still removes the description, and cannot remove the name. Include this change in the release
 notice to external API callers. Messaging merge patches already require `notificationStatus`.
 
+**Client-visible change:** the routes below were renamed or removed, and every CEDAR caller moved
+with them. The production request log from 2026-07-29 to 2026-11-24 holds no API-key call to any of
+them. Include them in the release notice to external API callers.
+- `POST …/download` for templates, elements, fields and instances is gone. `GET …/download` takes
+  the same `Accept` header and `?compact` parameter.
+- `POST /command/attach-category` is gone. `POST /command/attach-categories` takes a list of
+  category identifiers.
+- Messaging's `GET /summary` is now `GET /messages/summary`.
+- A profile update is `PATCH /users/{id}`, with the same body and rules. `PUT` answers 405.
+- The bridge's `GET /datacite/create-doi` is now `GET /datacite/doi-form`, and
+  `GET /datacite/get-doi-metadata/{id}` is now `GET /datacite/doi-metadata/{id}`.
+  `POST /datacite/create-doi` is unchanged. Both DataCite routes now answer 403 rather than 401 to
+  a caller who cannot edit the source artifact.
+- The monitor serves `/healthcheck/{server}`, `/resources/{kind}/{id}` and
+  `/resources/lookup?input=` in place of `/health-check/{server}`, `/resource/{kind}?id=` and
+  `/command/resource-id-lookup?input=`.
+- Every route that pages by `limit` and `offset` refuses `page`, `pageSize` and `page_size` with
+  400, and the error names the parameter. Before, only the terminology server refused all three.
+
 ## Artifact Versioning Contract
 
 Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;

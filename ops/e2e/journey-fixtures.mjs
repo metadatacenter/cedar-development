@@ -219,8 +219,7 @@ export async function captureCreates(context, created, bodies = new Map()) {
   await context.route("**/*", async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (!["POST", "PUT"].includes(request.method()) ||
-        !/^\/(folders|templates|template-elements|template-fields|template-instances|command\/)/.test(path) ||
-        path.endsWith("/download"))
+        !/^\/(folders|templates|template-elements|template-fields|template-instances|command\/)/.test(path))
       return route.continue();
     let response;
     try {

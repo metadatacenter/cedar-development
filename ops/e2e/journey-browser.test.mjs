@@ -14,7 +14,7 @@ test("listing setup in independent contexts never writes another journey's saved
   let preferences = {viewMode: "grid", resourceTypes: ["folder"], sortDirection: "desc"};
   const original = structuredClone(preferences), writes = [];
   const server = createServer(async (request, response) => {
-    if (request.method === "PUT") {
+    if (request.method === "PATCH") {
       let body = "";
       for await (const chunk of request) body += chunk;
       preferences = JSON.parse(body);
@@ -27,7 +27,7 @@ test("listing setup in independent contexts never writes another journey's saved
       const choose = () => list.setAttribute('aria-pressed', 'true');
       if (new URL(location.href).searchParams.get('view') === 'list') choose();
       list.onclick = async () => {
-        await fetch('/users/u1', {method: 'PUT', body: JSON.stringify({viewMode: 'list', resourceTypes: [], sortDirection: 'asc'})});
+        await fetch('/users/u1', {method: 'PATCH', body: JSON.stringify({viewMode: 'list', resourceTypes: [], sortDirection: 'asc'})});
         choose();
       };
       fetch('/folders/root/contents').then(() => document.querySelector('.table-scroll').setAttribute('aria-busy', 'false'));
@@ -47,7 +47,7 @@ test("listing setup in independent contexts never writes another journey's saved
     assert.deepEqual(preferences, original);
     assert.equal(new URL(dashboardAddress(base)).searchParams.get("view"), "list");
     // Prove the stand-in detects the actual regression: a control click overwrites all preferences.
-    await Promise.all([first.waitForResponse(answer => answer.request().method() === "PUT"),
+    await Promise.all([first.waitForResponse(answer => answer.request().method() === "PATCH"),
       first.getByRole("button", {name: "List view", exact: true}).click()]);
     assert.equal(writes.length, 1);
     assert.notDeepEqual(preferences, original);

@@ -1096,11 +1096,12 @@ function changeCategoryAclAs(data, actorIndex, category, operation, expectedStat
 }
 
 function classifyArtifactAs(data, actorIndex, category, artifact, attach, operation, expectedStatus) {
-  const command = attach ? 'attach-category' : 'detach-category';
-  const response = cedar(data, actorIndex, 'POST', `/command/${command}`, {
-    artifactId: artifact.id,
-    categoryId: category.id,
-  }, operation, {}, resource, [expectedStatus]);
+  const command = attach ? 'attach-categories' : 'detach-category';
+  const body = attach
+    ? { artifactId: artifact.id, categoryIds: [category.id] }
+    : { artifactId: artifact.id, categoryId: category.id };
+  const response = cedar(data, actorIndex, 'POST', `/command/${command}`, body,
+      operation, {}, resource, [expectedStatus]);
   return accepted(response, [expectedStatus], `${operation} returns ${expectedStatus}`);
 }
 

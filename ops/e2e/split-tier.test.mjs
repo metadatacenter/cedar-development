@@ -90,7 +90,7 @@ if (mode === "preferences-hang") {
   const {keepingListingPreferences} = await import(${JSON.stringify(fixtures)});
   let workspace = {viewMode: "grid", resourceTypes: ["folder"], sortDirection: "desc"};
   globalThis.fetch = async (url, options) => {
-    if (options.method === "PUT") workspace = JSON.parse(options.body)["uiPreferences.workspace"];
+    if (options.method === "PATCH") workspace = JSON.parse(options.body)["uiPreferences.workspace"];
     return new Response(JSON.stringify({uiPreferences: {workspace}}), {status: 200});
   };
   const user = {profile: {"@id": "https://repo.example/users/u2"}};
@@ -444,7 +444,7 @@ function restStandIn(items, {accounts = {}} = {}) {
     if (stored.status) return {status: stored.status, text: "unavailable"};
     if (stored.owner !== userOf[auth]) return {status: 403};
     if (method === "GET" && !keyId) return {status: 200, body: {apiKeys: stored.apiKeys, uiPreferences: stored.uiPreferences}};
-    if (method === "PUT" && !keyId) {
+    if (method === "PATCH" && !keyId) {
       stored.uiPreferences = {...stored.uiPreferences, workspace: body["uiPreferences.workspace"]};
       return {status: 200, body: stored};
     }
@@ -571,7 +571,7 @@ test("a killed preference journey is restored even after a completed visit in th
   assert.equal(entries.length, 2);
   assert.notEqual(entries[0].key, entries[1].key);
   assert.ok(pending.restores.some(entry => entry.restored === entries[0].key));
-  assert.deepEqual(calls.filter(call => call.includes("/users/")), ["user2 GET /users/u2", "user2 PUT /users/u2"]);
+  assert.deepEqual(calls.filter(call => call.includes("/users/")), ["user2 GET /users/u2", "user2 PATCH /users/u2"]);
   assert.deepEqual(accounts.get("/users/u2").uiPreferences, {
     workspace: {viewMode: "grid", resourceTypes: ["folder"], sortDirection: "desc"}, unrelated: "kept",
   });
@@ -579,7 +579,7 @@ test("a killed preference journey is restored even after a completed visit in th
   const again = await sweep({...pending, rest});
   assert.equal(again.restored.length, 0);
   assert.equal(again.alreadyRestored.length, 1, "a second cleanup performs no write");
-  assert.equal(calls.filter(call => call.includes("PUT /users/")).length, 1);
+  assert.equal(calls.filter(call => call.includes("PATCH /users/")).length, 1);
 });
 
 test("a sweep applies only the restore entries a process left unmarked, and reports each outcome", async () => {

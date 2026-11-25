@@ -73,7 +73,7 @@ const KINDS = [
  * reported. The operation's other probes are still sent.
  */
 const EXCLUDED = [
-  { server: 'bridge', method: 'GET', path: '/datacite/get-doi-metadata/{id}', kinds: ['identifier'],
+  { server: 'bridge', method: 'GET', path: '/datacite/doi-metadata/{id}', kinds: ['identifier'],
     reason: 'asks DataCite for the DOI before anything can refuse the request, on the repository credentials '
       + 'the deployment holds' },
   { server: 'terminology', path: /^\/bioportal\//, kinds: ['identifier'],
@@ -98,6 +98,9 @@ export const VALIDATES_FIRST = [
 const ANSWERED = [
   { server: 'monitor', method: 'GET', path: '/logs/trace/{globalRequestId}',
     reason: 'reports the trace of a request identifier, which is empty for one no service logged' },
+  ...['templates', 'template-elements', 'template-fields', 'template-instances', 'folders', 'users', 'groups']
+    .map((kind) => ({ server: 'monitor', method: 'GET', path: `/resources/${kind}/{id}`,
+      reason: 'reports what each store holds about an identifier, which is an empty answer for one no store knows' })),
 ];
 
 /**
@@ -110,13 +113,13 @@ const UNREACHABLE = [
     'needs a propagation write the artifact server refuses, so it needs a write'],
   ['worker', 'POST /command/regenerate-inclusion-subgraph 409', 'needs a regeneration in flight, which rebuilds '
     + 'the inclusion graph'],
-  ['bridge', 'GET /datacite/get-doi-metadata/{id} 404 and 502, POST /datacite/create-doi 4xx and 502 from DataCite',
+  ['bridge', 'GET /datacite/doi-metadata/{id} 404 and 502, POST /datacite/create-doi 4xx and 502 from DataCite',
     'needs DataCite to answer'],
   ['bridge', 'GET /ext-auth/{authority}/search-by-name and GET /ext-auth/{authority}/{id} 4xx and 502 '
     + 'from a registry, and 503 when it does not answer',
     'asks the registry, three of them on credentials the deployment holds. Each authority route is probed only '
       + 'under a segment no authority is registered under, which is refused before any registry is asked.'],
-  ['every server', 'GET /healthcheck 500, monitor GET /health-check/{server} 500',
+  ['every server', 'GET /healthcheck 500, monitor GET /healthcheck/{server} 500',
     'a health report, not an error body, answered when a dependency is down'],
 ];
 
@@ -419,7 +422,7 @@ async function priorBodies({ user1, homeFolderId, folderId }) {
   // The DOI routes read the artifact through the resource server before DataCite is asked anything, so
   // an artifact that does not exist stops them there. The refusal says why rather than giving a status alone.
   const missing = enc(`https://repo.${HOST}/templates/${randomUUID()}`);
-  refusal(await call(auth, 'GET', `/datacite/create-doi?source_artifact_id=${missing}`, undefined, { base: BRIDGE }),
+  refusal(await call(auth, 'GET', `/datacite/doi-form?source_artifact_id=${missing}`, undefined, { base: BRIDGE }),
       'opening the DOI form for an artifact that does not exist is refused with a message', { message: true });
   refusal(await call(auth, 'POST', `/datacite/create-doi?source_artifact_id=${missing}&state=draft`, {},
       { base: BRIDGE }), 'and so is registering a DOI for it', { message: true });

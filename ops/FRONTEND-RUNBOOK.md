@@ -381,7 +381,7 @@ environment variables above for subsequent runs. Never commit that file or inclu
 contents in a report. The local realm required the documented `monitorViewer` role setup;
 CEDAR's stored permissions were then updated for this account alone using its existing
 permission-expansion/user-service libraries. The added permission was exactly
-`permission_monitor_read`, and the protected `/health-check/monitor` endpoint returned 200.
+`permission_monitor_read`, and the protected `/healthcheck/monitor` endpoint returned 200.
 
 Each repetition starts with a fresh browser context and cleared HTTP cache. It measures a
 cold navigation, leaves the page, then measures a warm navigation in the same tab. Interaction

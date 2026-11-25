@@ -123,8 +123,8 @@ export async function run({ user1, admin, folderId }) {
           parentCategoryId: rootCategoryId, 'schema:identifier': `bodies-extra-${RUN}` } },
       { name: 'rename a category', method: 'PUT', path: categoryAt, etag: categoryAt, auth: admin.auth,
         valid: { 'schema:name': `Bodies Category ${RUN} renamed`, 'schema:description': 'renamed' } },
-      { name: 'attach a category', method: 'POST', path: '/command/attach-category',
-        valid: { artifactId: tid, categoryId: decodeURIComponent(categoryAt.split('/').pop()) } });
+      { name: 'attach categories', method: 'POST', path: '/command/attach-categories',
+        valid: { artifactId: tid, categoryIds: [decodeURIComponent(categoryAt.split('/').pop())] } });
   }
 
   suite('bodies: every write refuses every malformed body with 400');

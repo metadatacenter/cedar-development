@@ -74,7 +74,7 @@ function plans() {
 test('no request reaches DataCite, BioPortal or an external registry', () => {
   const all = plans();
   const of = (server, method, path) => all.find(p => p.server === server && p.method === method && p.path === path);
-  assert.deepEqual(of('bridge', 'GET', '/datacite/get-doi-metadata/{id}').probes.map(p => p.kind), ['anonymous']);
+  assert.deepEqual(of('bridge', 'GET', '/datacite/doi-metadata/{id}').probes.map(p => p.kind), ['anonymous']);
   for (const path of ['/bioportal/search', '/bioportal/ontologies/{ontology}/classes/{id}/descendants']) {
     assert.deepEqual(of('terminology', 'GET', path).probes, [], path);
   }

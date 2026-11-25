@@ -57,7 +57,7 @@ export class FixtureLedger {
       const actual = current.body.uiPreferences;
       for (const key of new Set([...Object.keys(this.preferences??{}),...Object.keys(actual??{})])) {
         if (isDeepStrictEqual(this.preferences?.[key],actual?.[key])) continue;
-        const restored = await this.request('PUT',this.userPath,{['uiPreferences.'+key]:this.preferences?.[key]??null},options);
+        const restored = await this.request('PATCH',this.userPath,{['uiPreferences.'+key]:this.preferences?.[key]??null},options);
         if (restored.status !== 200) throw new Error(`Preference restore returned ${restored.status}`);
       }
       const final = await this.request('GET',this.userPath,undefined,options);

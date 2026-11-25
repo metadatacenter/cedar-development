@@ -1,7 +1,7 @@
 // Downloading and reading artifacts as JSON and YAML, and the compact YAML form.
 //
 // The `negotiation` suite covers YAML on GET/PUT and the compact-refused-on-write contract, but only
-// for templates and only on the CRUD routes. The `POST /{kind}/{id}/download` endpoints — which offer
+// for templates and only on the CRUD routes. The `GET /{kind}/{id}/download` endpoints — which offer
 // the same Accept-header JSON/YAML choice plus a YAML-only `?compact` flag — were untested for every
 // kind, and the compact *output* form was untested anywhere. This suite closes both: the full
 // download matrix per kind, the read-only nature of the compact form, and YAML/compact on the plain
@@ -45,7 +45,7 @@ export async function run({ user1, folderId }) {
     const dl = `${at}/download`;
 
     // JSON — the default (no Accept, or */*, or application/json).
-    const j = await call(auth, 'POST', dl);
+    const j = await call(auth, 'GET', dl);
     if (checkStatus(j, 200, `${kind}: downloads as JSON`)) {
       check(header(j, 'content-type').includes('json'), `${kind}: JSON download is typed JSON`,
           `content-type was ${header(j, 'content-type')}`);
@@ -57,7 +57,7 @@ export async function run({ user1, folderId }) {
     }
 
     // YAML — full form.
-    const yf = await call(auth, 'POST', dl, undefined, { accept: DL_YAML });
+    const yf = await call(auth, 'GET', dl, undefined, { accept: DL_YAML });
     let fullYaml = null;
     if (checkStatus(yf, 200, `${kind}: downloads as YAML`)) {
       fullYaml = yf.text ?? '';
@@ -73,7 +73,7 @@ export async function run({ user1, folderId }) {
     }
 
     // YAML — compact form.
-    const yc = await call(auth, 'POST', `${dl}?compact=true`, undefined, { accept: DL_YAML });
+    const yc = await call(auth, 'GET', `${dl}?compact=true`, undefined, { accept: DL_YAML });
     if (checkStatus(yc, 200, `${kind}: downloads as compact YAML`) && fullYaml !== null) {
       const compactYaml = yc.text ?? '';
       if (kind === 'template') compactTemplateYaml = compactYaml;
@@ -89,6 +89,11 @@ export async function run({ user1, folderId }) {
           `${kind}: the compact form is smaller than the full form`,
           `compact ${compactYaml.length} >= full ${fullYaml.length} bytes`);
     }
+
+    // The download is a read, so only GET serves it.
+    const viaPost = await call(auth, 'POST', dl);
+    check(viaPost.status === 405, `${kind}: a POST to the download is not allowed`,
+        `expected 405, got ${viaPost.status}`);
   }
 
   suite('download: both YAML media types are accepted');
@@ -97,7 +102,7 @@ export async function run({ user1, folderId }) {
   // download matches the CRUD routes, which advertise both. (A regression here would be download's
   // @Produces losing one of the two YAML media types.)
   if (baseTemplateId) {
-    const xy = await call(auth, 'POST', `/templates/${enc(baseTemplateId)}/download`, undefined,
+    const xy = await call(auth, 'GET', `/templates/${enc(baseTemplateId)}/download`, undefined,
         { accept: XYAML });
     check(xy.status === 200 && (xy.headers.get('content-type') || '').includes('yaml'),
         'download also accepts application/x-yaml',

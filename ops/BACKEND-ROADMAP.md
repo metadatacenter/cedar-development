@@ -699,20 +699,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   consequence:** a login requirement refuses anonymous callers that read today. Leaving the routes
   open changes nothing at runtime.
 
-  Item 9 settles the four `/bioportal` routes that answer anonymously. The newer routes have no such
-  decision. `POST /search`, `GET /search/hierarchy`, every route under `/properties`,
-  `POST /bioportal/validate-term` and `/resources/description` build no request context, so they
-  neither resolve a user nor refuse a credential that fails to resolve. Meanwhile
-  `/bioportal/property_search` and the `/bioportal/ontologies/{o}/classes` and `…/properties` routes
-  require `LoggedIn`. An ontology's properties therefore need a login on one route and none on the
-  other.
+  Item 9 settles the four `/bioportal` routes that answer anonymously, and each carries
+  `@AnonymousAccess`. Eleven other routes build no request context, so they neither resolve a user
+  nor refuse a credential that fails to resolve: `GET /`, the BioPortal icon, `POST /search`,
+  `GET /search/hierarchy`, the five routes under `/properties`, `POST /bioportal/validate-term` and
+  `POST /resources/description`. Meanwhile `/bioportal/property_search` and the
+  `/bioportal/ontologies/{o}/classes` and `…/properties` routes require `LoggedIn`. An ontology's
+  properties therefore need a login on one route and none on the other.
 
   Decide per route, then state the decision in code: `@AnonymousAccess` with
-  `buildAnonymousRequestContext()` for an open route, and `LoggedIn` for the rest. Integrated search
-  and integrated retrieve express item 9's decision only as a commented-out check
-  (`IntegratedSearchResource.java:94-95`, `IntegratedRetrieveResource.java:81-82`). Replace those
-  comments with `@AnonymousAccess` as well. Done when every terminology route either carries
-  `@AnonymousAccess` or requires a login, and a test asserts the anonymous set.
+  `buildAnonymousRequestContext()` for an open route, and `LoggedIn` for the rest.
+  `AnonymousRouteSetTest` pins the set of routes that answer an anonymous caller, so the decision
+  shows as a change to that set. Done when every terminology route either carries
+  `@AnonymousAccess` or requires a login.
 
 ## Maintenance
 
@@ -1561,25 +1560,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   workstation with the stack running. Done when the artifact server's suite passes with class-level
   concurrency on, twice, with the development stack up and untouched.
 
-- **26. Refuse page-number paging the same way on every server.** **Production consequence:** a
-  caller that sends `page`, `pageSize` or `page_size` to a server that ignores them today gets 400
-  instead of the first page.
-
-  Every paging route reads `limit` and `offset`, but only two servers refuse the page-number
-  parameters those replaced, and the two disagree. The terminology server refuses `page`, `pageSize`
-  and `page_size`, and its error names the parameter (`AbstractTerminologyServerResource.java:48`).
-  The bridge server refuses `page` and `pageSize` but not `page_size`, with a plain message that
-  names no parameter (`ExternalAuthorityResource.java:209`). The resource, artifact, messaging,
-  monitor and openview servers do not check. They answer `?page=2` from offset 0, as though the
-  caller had asked for the first page, which is the case the bridge's own comment warns of.
-
-  Move the refusal into the shared paging helper, `PagedQuery` in `cedar-server-rest-library`, with
-  the terminology server's error shape, and have every paging route use it. The JSON bodies that
-  still accept a deprecated `page` of 1 and `pageSize` belong to the withdrawal that item 2
-  sequences, not to this item. Done when every paging route on every server refuses all three names
-  with the same error, and each server has a test that asserts it.
-
-- **27. Bring the monitor's log routes onto the paging rule.** **Production consequence:** a caller
+- **26. Bring the monitor's log routes onto the paging rule.** **Production consequence:** a caller
   that asks for more rows than a route allows gets 400 rather than a shorter answer than it asked
   for.
 
@@ -1593,8 +1574,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   either case, refuse an out-of-range limit instead of lowering it. Give db-share an `offset`, or
   document that it returns a single page. Done when no monitor route lowers a limit silently.
 
-- **28. Adopt a REST naming convention, and apply it behind aliases.** **Production consequence:**
-  none while the aliases stand. Withdrawing an old name later breaks any caller that still uses it.
+- **27. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
+  consequence:** a caller outside CEDAR that still uses an old name breaks. CEDAR's own callers move
+  in the same change.
 
   The core create, read, update and delete routes are consistent. The newer and peripheral routes
   name the same things in several ways:
@@ -1615,9 +1597,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     overrides `Accept`, and `/command/convert` takes `?format=` alone.
   - `create-draft-artifact` takes `folderId` and `draftId` in its body, while
     `publish-create-draft-template/{template_id}` takes `?folder_name` and `?draft_id`.
-  - The monitor serves `/resource/templates?id=` beside `/resources/counts`. It reports each
-    server's `/healthcheck` as `/health-check/{server}`, and relays each server's `/insight/*` routes
-    as `/server-report/{server}/insight`.
+  - The monitor relays each server's `/insight/*` routes as `/server-report/{server}/insight`.
+  - The user server takes the caller's own profile as `/users/{id}`, refusing any other id, while
+    the group server names the caller `/membership/me`.
   - The resource server's 32 `/command/*` routes are actions, and most take their target in the
     body, while recursive folder deletion also has a resource form, `/folders/{folder_id}/deletion`.
     `/command/annotations/doi` is the only nested command path. `property_search` is the only path
@@ -1626,13 +1608,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Write the convention into the backend runbook: snake_case query parameters, kebab-case path
   segments, one path variable per entity, one name per concept, one form for a time range and one
   way to choose a format. Decide there whether a new operation is a command or a resource. Apply the
-  convention first to the terminology server's versioned routes and the monitor, which have few
-  callers. Add each new name beside the old one, as the paging change did, and date the old name's
-  withdrawal. Done when the convention is in the runbook and every route either follows it or
-  carries a dated alias.
+  convention first to the monitor, whose only client is the monitoring application. Move each
+  route's callers and withdraw the old name in the same change, as the runbook's one-version API
+  policy requires. Every release of the term picker sends the camelCase names of the terminology
+  server's versioned routes, so those stay until a picker release sends the new names and every
+  host has taken it. Done when the convention is in the runbook and every route follows it, or
+  waits only on a published package.
 
-- **29. Give background jobs one polling shape.** **Production consequence:** none while the
-  current routes stay as aliases.
+- **28. Give background jobs one polling shape.** **Production consequence:** none, provided the
+  monitor and the caDSR tools move in the same change.
 
   Every job start answers 202, but a job's status is read in four ways:
   `GET /command/index-job-status[/{jobId}]` and
@@ -1640,10 +1624,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   path reused as `GET …/{jobId}`, and the monitor's `/search-index/job-status`. The two reset routes
   are named `reset-search-index-job` and `reset-valuesets-import`. Choose one shape, such as a
   `Location` header on the 202 that identifies the job's status resource, and apply it to every job.
-  Keep the current routes as aliases until their callers move. Done when every 202 identifies where
-  its status is read, and every status and reset route has the same form.
+  The monitor and the caDSR value-set import poll the current routes, so they move in the same
+  change. Done when every 202 identifies where its status is read, and every status and reset route
+  has the same form.
 
-- **30. Retire the first generation of terminology routes.** **Production consequence:** a caller
+- **29. Retire the first generation of terminology routes.** **Production consequence:** a caller
   still on a retired route breaks when it is withdrawn, so callers move first.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps
@@ -1653,62 +1638,45 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `ontologies/{id}/versions/current`, `classes/version-current?uri=` and
   `vs-collections/version-current?collection=`.
 
-  List the callers of each first-generation route, from the embeddable editor, designer and term
-  picker to the spreadsheet validator and, through the request log, callers outside CEDAR. Move
-  CEDAR's own callers, then withdraw the old routes on a dated schedule. Item 9 keeps
-  `GET /bioportal/search` anonymous for embedding hosts, so its successor must answer them on the
-  same terms. Reduce the current-version lookups to one form. Done when each overlapping pair has
-  one survivor and the survivors' callers are recorded.
+  The newer routes cannot yet replace the old ones for the Template Editor, the only CEDAR client
+  of the first-generation search and property routes. They read only the local versioned store,
+  while the old search sends everything except a single-ontology or subtree class search to live
+  BioPortal, and the old property routes always do. A comparison on the development store on
+  2026-11-24 found these gaps:
+  - 141 of the 1,355 BioPortal ontologies are not served, among them SNOMEDCT, ICD10, CPT, the
+    LC vocabularies and CEDARPC, CEDAR's provisional classes. A search for "melanoma" across all
+    ontologies returned 9,496 classes from the old route and 6,411 from the new.
+  - CADSR-VS is not served. NLMVS is served but not recorded as a value-set collection, so
+    `POST /search` finds none of its 600 value sets. A value set a user creates appears only after
+    a re-ingest.
+  - A value is returned only inside its value set's `matchedTerms`, so the editor's values mode has
+    no direct counterpart.
+  - `POST /search` has no subtree search. `POST /bioportal/integrated-search` with a branch
+    constraint returns the old route's descendants in the same order, so it is the successor for
+    subtree autocomplete.
+  - The property routes require a `kind`, return a different set of roots, and have no tree form,
+    so the editor's property browser needs reworking rather than a new address.
 
-- **31. Put withdrawal dates on the redundant resource-server and messaging routes.** **Production
-  consequence:** a caller still on a withdrawn route breaks. The request log shows whether any
-  remain.
+  Close the coverage gaps, move the Template Editor, then withdraw the old routes. The embeddable
+  designer's published bundles still contain a `GET /bioportal/search` call, but nothing reaches
+  it. Item 9 keeps `GET /bioportal/search` anonymous for embedding hosts, so its successor must
+  answer them on the same terms. The resource server's freeze-on-publish calls all three
+  current-version lookups, so one replacement must exist before they can be reduced to it. Done
+  when each overlapping pair has one survivor.
 
-  These routes duplicate another route or could be folded into one:
-  - `POST …/download` for each of the four artifact types, which the source keeps only for existing
-    callers beside `GET …/download`.
-  - `attach-category` beside `attach-categories`. Detach has only the single form, so attach and
-    detach should end with the same forms.
-  - The four commands `make-artifact-open`, `make-artifact-not-open`, `make-folder-open` and
-    `make-folder-not-open`, which one operation with a target and a state would replace.
-  - Messaging's top-level `GET /summary`, which belongs at `/messages/summary`, and
-    `POST /command/mark-all-as-read` beside `PATCH /messages/{id}`.
+- **30. Fold the open-state commands into one operation, and replace mark-all-as-read.**
+  **Production consequence:** none, provided the Template Editor and the Workspace move in the same
+  change.
 
-  Check the request log for each route's remaining callers, add any replacement, and record a
-  withdrawal date here. Done when each route is withdrawn or has a recorded reason to stay.
+  The resource server's `make-artifact-open`, `make-artifact-not-open`, `make-folder-open` and
+  `make-folder-not-open` commands do one job, which one operation with a target and a state would
+  replace. The Template Editor and the Workspace both call them. Messaging's
+  `POST /command/mark-all-as-read` sits beside `PATCH /messages/{id}`, and only the Template Editor
+  calls it. Name the replacements under the convention of item 27, move both clients and the e2e
+  suites, and withdraw the old forms in the same change. Done when no command remains for either
+  job.
 
-- **32. Correct the routes whose method or documented status contradicts what they do.**
-  **Production consequence:** none for the documentation. A changed method runs behind an alias
-  until its callers move.
-
-  In each case below, the method, the path or the documented status misdescribes the route.
-  - The user server's `PUT /users/{id}` applies dotted `uiPreferences` paths and answers 403 unless
-    `id` is the caller (`UsersResource.java:211-243`). It is a partial update, so it should be a
-    `PATCH`, as the group server's is. A `/users/me` form would match the group server's
-    `/membership/me`.
-  - The bridge server's `GET /datacite/create-doi` only reads, and its own description says nothing
-    is minted there. `GET /datacite/get-doi-metadata/{id}` puts a verb in the path. Give both a
-    resource path.
-  - The bridge server documents 401 for a caller who cannot edit the source artifact
-    (`DataCiteResource.java:129-130,198-199`). That refusal is a 403. Check what the routes return as
-    well as what they document.
-
-  Done when each route's method matches its effect and its documented statuses match what it
-  returns.
-
-- **33. Name parameters through the shared constants everywhere.** **Production consequence:** none.
-
-  `cedar-model-library` holds the shared parameter names, but most servers spell some names as
-  literals, which lets them drift apart unnoticed. The terminology server uses no constant at all
-  and spells 102 names as literals. The monitor spells 39, the resource server 28, the artifact
-  server 17 and the bridge 7, and `"compact"` alone appears 32 times across the artifact and
-  resource servers. The resource server keeps `QP_DRAFT_ID` as a private constant in
-  `CommandVersionResource`, `QP_DEBUG` has no user, and the monitor reads a query parameter through
-  the path constant `PP_ID`. Move every name into the shared constants, delete `QP_DEBUG`, and add a
-  test over the resource classes that refuses a literal name. The constants then carry the
-  convention of item 28. Done when no resource class names a parameter with a literal.
-
-- **34. Give anonymous folder reads a home under `/open`.** **Production consequence:** none until a
+- **31. Give anonymous folder reads a home under `/open`.** **Production consequence:** none until a
   route is withdrawn.
 
   Two surfaces answer anonymous reads: the resource server's `/open` routes and the openview server.

@@ -33,19 +33,19 @@ export async function run({ user1, user2 }) {
   if (!check(typeof original === 'boolean', 'the profile carries the preference the suite changes',
       `uiPreferences.infoPanel.opened was ${JSON.stringify(original)}`)) return {};
 
-  checkStatus(await call(user2.auth, 'PUT', at, { 'uiPreferences.infoPanel.opened': !original }, onUserServer), 403,
+  checkStatus(await call(user2.auth, 'PATCH', at, { 'uiPreferences.infoPanel.opened': !original }, onUserServer), 403,
       'another user cannot change it');
-  checkStatus(await call(user1.auth, 'PUT', at, { homeFolderId: 'https://repo.example/folders/elsewhere' },
+  checkStatus(await call(user1.auth, 'PATCH', at, { homeFolderId: 'https://repo.example/folders/elsewhere' },
       onUserServer), 400, 'the user cannot write a field outside the preferences');
   check(isDeepStrictEqual(await profile(), before), 'and neither refusal changed the stored profile',
       'the profile changed');
 
-  if (checkStatus(await call(user1.auth, 'PUT', at, { 'uiPreferences.infoPanel.opened': !original }, onUserServer),
+  if (checkStatus(await call(user1.auth, 'PATCH', at, { 'uiPreferences.infoPanel.opened': !original }, onUserServer),
       200, 'the user changes the preference')) {
     check(opened(await profile()) === !original, 'and the stored profile holds the change',
         `uiPreferences.infoPanel.opened is ${JSON.stringify(opened(await profile()))}`);
   }
-  checkStatus(await call(user1.auth, 'PUT', at, { 'uiPreferences.infoPanel.opened': original }, onUserServer), 200,
+  checkStatus(await call(user1.auth, 'PATCH', at, { 'uiPreferences.infoPanel.opened': original }, onUserServer), 200,
       'the user puts it back');
   check(opened(await profile()) === original, 'and the stored profile holds the original value again',
       `uiPreferences.infoPanel.opened is ${JSON.stringify(opened(await profile()))}`);

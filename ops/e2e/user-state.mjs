@@ -19,7 +19,7 @@ export const RESTORERS = Object.freeze({
     const account = await call(auth, "GET", entry.userPath, undefined, {base: USER_SERVER});
     if (account.status !== 200) return {ok: false, status: account.status, text: account.text};
     if (isDeepStrictEqual(account.body?.uiPreferences?.workspace, entry.preferences)) return {ok: true, changed: 0};
-    const written = await call(auth, "PUT", entry.userPath,
+    const written = await call(auth, "PATCH", entry.userPath,
       {"uiPreferences.workspace": entry.preferences}, {base: USER_SERVER});
     return written.status === 200 ? {ok: true, changed: 1}
       : {ok: false, status: written.status, text: written.text};

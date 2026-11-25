@@ -124,8 +124,8 @@ export async function run({ user1, user2, admin, folderId }) {
     // Classifying your own artifact under a category needs a grant on the category, not merely on
     // the artifact. With an administrator-owned vocabulary, the user needs the Classifier role on
     // the category before the category picker can apply it.
-    const before = await call(auth, 'POST', '/command/attach-category',
-        { artifactId: artId, categoryId: id });
+    const before = await call(auth, 'POST', '/command/attach-categories',
+        { artifactId: artId, categoryIds: [id] });
     check(before.status === 403,
         'a user cannot attach a category they have no grant on, even to their own artifact',
         `expected 403, got ${before.status}`);
@@ -137,8 +137,8 @@ export async function run({ user1, user2, admin, folderId }) {
     });
     checkStatus(grant, 200, 'the administrator grants Classifier on the category');
 
-    const attach = await call(auth, 'POST', '/command/attach-category',
-        { artifactId: artId, categoryId: id });
+    const attach = await call(auth, 'POST', '/command/attach-categories',
+        { artifactId: artId, categoryIds: [id] });
     let attachedReport;
     if (checkStatus(attach, [200, 201, 204], 'with Classifier granted, the user can categorise their artifact')) {
       const report = await call(auth, 'GET', `/templates/${enc(artId)}/report`);
@@ -149,10 +149,10 @@ export async function run({ user1, user2, admin, folderId }) {
     }
 
     // Attaching twice must neither fail nor attach the category a second time. The graph write
-    // merges the relation (CypherQueryBuilderCategory.attachCategoryToArtifact), so the repeat
+    // merges the relation (CypherQueryBuilderCategory.attachCategoriesToArtifact), so the repeat
     // answers 200, and the report names the category as often as it did after the first attach.
-    const again = await call(auth, 'POST', '/command/attach-category',
-        { artifactId: artId, categoryId: id });
+    const again = await call(auth, 'POST', '/command/attach-categories',
+        { artifactId: artId, categoryIds: [id] });
     if (checkStatus(again, 200, 'attaching the same category twice succeeds') && attachedReport !== undefined) {
       const report = JSON.stringify((await call(auth, 'GET', `/templates/${enc(artId)}/report`)).body ?? {});
       const mentions = text => text.split(id).length - 1;
