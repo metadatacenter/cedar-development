@@ -1560,7 +1560,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `POST /search`, `GET /bioportal/property_search` overlaps `POST /properties/search`, and
   `/bioportal/ontologies/{o}/properties/*` overlaps `/properties`, `/properties/hierarchy` and
   `/properties/roots`. The legacy Template Editor is the only CEDAR client of the first-generation
-  routes: its controlled-term search, autocomplete and property browser use them. That editor will be
+  routes. Its controlled-term search, autocomplete and property browser use them. That editor will be
   retired, so it is not moved onto the newer routes. Those read only the local versioned store, which
   on 2026-11-24 lacked 141 BioPortal ontologies, CADSR-VS and CEDAR's provisional content, so moving
   the editor would also lose results its users get today.
@@ -1571,7 +1571,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `classes/version-current?uri=` and `vs-collections/version-current?collection=`. The resource
     server's freeze-on-publish calls all three, so they serve publication rather than the editor.
     Replace them with one lookup, and move freeze-on-publish onto it.
-  - Production answered about 3,700 anonymous `GET /bioportal/search` calls between July and November
+  - Production answered at least 3,700 anonymous `GET /bioportal/search` calls between July and November
     2026. The editor always sends a credential, so these come from another client. Identify it from the
     request log before the route is withdrawn. Item 9 keeps the route anonymous for embedding hosts,
     so any successor must answer such callers on the same terms.
