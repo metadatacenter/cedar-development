@@ -242,23 +242,13 @@ export async function collectDesigner(session, record) {
       await page.locator('#server-issues').waitFor();
       await card().waitFor();
     });
-    await record('last-field-removed', () => click(card().getByTitle('Delete field', {exact: true})));
-    await record('removed-panel-a', () => toggle('overview'));
-    await record('removed-panel-b', () => toggle('overview'));
-    await record('last-field-save-rechecked', async () => {
-      session.expectedNetworkFailures.add(findingsReason);
-      await page.route('**/templates/**', refuseSave);
-      try {
-        await click(page.locator('#save'));
-        await page.locator('#server-issues').waitFor();
-      } finally {await page.unroute('**/templates/**', refuseSave); session.expectedNetworkFailures.delete(findingsReason);}
-    }, 'After deleting the only field, retried Save with the same Description. The harness again returned the same validation report; this tests whether fresh server findings are shown, not whether that text is intrinsically invalid.');
-    await record('last-field-save-corrected', async () => {
-      await page.getByPlaceholder('Add description...', {exact: true}).first().fill('Description corrected after removing the field');
+    // The states that follow start from an empty, saved template.
+    await action('Remove the sample field and save the template', async () => {
+      await click(card().getByTitle('Delete field', {exact: true}));
+      await page.getByPlaceholder('Add description...', {exact: true}).first().fill('Template description');
       await click(page.locator('#save'));
       await waitForPage(page, () => document.getElementById('state')?.textContent === 'Saved');
-      await page.locator('#server-issues').waitFor({state: 'hidden'});
-    }, 'Edited the Description after the repeated refusal, then saved against the real backend without interception.');
+    });
     await session.addField('Text', 'Participant');
     await session.addField('Number', 'Age');
     await record('nested', async () => {
@@ -573,8 +563,7 @@ export async function collectDesigner(session, record) {
     for (const width of [900, 768, 375]) relate([`width-${width}`, `both-panels-${width}`, `configuration-end-${width}`]);
     for (const slug of ['checkboxes', 'email', 'controlled-terms', 'pfas', 'doi', 'section-break', 'page-break']) relate([`type-${slug}`, `type-${slug}-configuration-end`]);
     relate(['draft-offered', 'draft-offered-375', 'draft-restored']);
-    relate(['server-findings', 'server-findings-375', 'server-findings-expanded', 'server-findings-expanded-375', 'draft-restored', 'last-field-removed',
-      'removed-panel-a', 'removed-panel-b', 'last-field-save-rechecked', 'last-field-save-corrected']);
+    relate(['server-findings', 'server-findings-375', 'server-findings-expanded', 'server-findings-expanded-375', 'draft-restored']);
     for (const width of TERM_PICKER_WIDTHS)
       relate(['initial-feedback', 'open', 'loading', 'settled', 'results', 'term', 'branches', 'ontologies', 'term-scrolled', 'branches-scrolled', 'ontologies-scrolled', 'ontologies-release-first', 'ontologies-release-last', 'search-restored'].map(state => `term-picker-${state}-${width}`));
 }

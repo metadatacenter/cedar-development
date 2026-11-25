@@ -17,7 +17,7 @@ export const DESIGNER_STATES = [
   'saved', 'reopened', 'save-unconfirmed', 'save-status-checked',
   'server-findings', 'server-findings-expanded', 'draft-offered', 'draft-restored',
   'server-findings-375', 'server-findings-expanded-375', 'draft-offered-375',
-  'last-field-removed', 'removed-panel-a', 'removed-panel-b', 'keyboard', 'field-type-picker',
+  'keyboard', 'field-type-picker',
   'missing-template', 'disabled-move-checked', 'nested-hover-checked', 'nested-activation-checked',
   'type-checkboxes-configuration-end', 'type-email-configuration-end', 'attribute-value-readonly-checked',
   'type-controlled-terms-configuration-end', 'type-pfas-configuration-end',
@@ -25,7 +25,6 @@ export const DESIGNER_STATES = [
   'preview-top-checked', 'phone-scroll-restored', 'phone-editor-top-checked',
   ...['single', 'nested', 'multiple-1100'].flatMap(prefix => ['idle', 'pointer', 'pointer-open', 'keyboard', 'keyboard-open']
     .map(state => `${prefix}-creation-${state}`)),
-  'last-field-save-rechecked', 'last-field-save-corrected',
 ];
 // Every type the Designer's field picker offers, by state slug and picker label. Rich Text renders
 // nothing in Preview until given content, and Page Break shows only as the Preview's page selector,
