@@ -485,9 +485,9 @@ After proving openness, resource reads artifact using the configured internal se
 existing backend administrator identity; it never uses the anonymous HTTP caller's credentials.
 OpenView receives only resource host/port and no artifact service credential. Its artifact Mongo
 initialization and document-operation dependency are removed, and no OpenView route reads the
-workspace graph. Its application declares that it does not use the graph, so the shared bootstrap
-starts neither the Neo4j services nor the user service, OpenView builds no user-summary cache, and
-its health does not depend on Neo4j. It retains the estate's user-details Mongo configuration.
+workspace graph, and OpenView builds no user-summary cache. It keeps the Neo4j user service, because
+the shared insight and server-report routes it serves, which the monitor relays, authorize their
+caller through it. It retains the estate's user-details Mongo configuration.
 
 OpenView stays as a relay. Its routes keep the links already published under its host resolving,
 while the resource server's `/open` routes are the canonical anonymous reads that a new client
