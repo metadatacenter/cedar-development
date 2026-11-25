@@ -3745,9 +3745,23 @@ about which problem a finding describes. Suggestions start at a score of 0.5 and
 suggestion can miss. Two findings worded differently on different states may describe one problem
 and score lower.
 
-The design decisions put to a person live in `decisions.json` beside the answers. Each has a
-slug, a title, a summary, numbered options of which at most one is recommended, and evidence paths
-relative to the report root.
+The design decisions put to a person live in `decisions.json` beside the answers. A decision is
+only worth a person's time if a real user reaches its situation in ordinary use, so check that
+before writing one. A behavior seen only on a failure path the capture stages, or only in a
+development build, is not a decision. Every decision takes the same form, which the board
+checks:
+
+- `summary` asks one question, ending in a question mark.
+- `background` says how a user reaches the situation and what is going on there, in terms a
+  person who has not read the review can follow.
+- `steps` walks through the screens in order. Each step has a `path` to a screenshot relative to
+  the report root, a short `title`, and a `caption` saying what that screen shows and why it
+  matters. Look at every screenshot before captioning it.
+- `options` offers at least two numbered choices, each with a `label` and a `detail`, and at most
+  one marked `recommended`.
+
+A decision that departs from this form is marked "Not ready to decide" on the board with what it
+lacks, and `cedarcli test ui-review-board --plan` lists it and exits 1.
 
 A review produced outside the coordinator appears on the board once it is stored in the
 coordinator's format. `designer-claude-mouse-20261124` holds a Claude review of the final November
