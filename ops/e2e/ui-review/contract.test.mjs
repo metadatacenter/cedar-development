@@ -31,12 +31,28 @@ test('runtime, cleanup, collection and browser failures remain incomplete despit
 test('findings must identify actual evidence and explain impact and reproduction', () => {
   const c = capture(), r = review();
   r.findings = [{id: 'one', title: 'Problem', kind: 'defect', severity: 'medium', steps: ['Click'],
-    observed: 'Nothing changes', expected: 'Panel opens', impact: 'Control appears broken', evidence: ['screen.png']}];
+    observed: 'Nothing changes', expected: 'Panel opens', impact: 'Control appears broken', evidence: ['screen.png'],
+    evidenceCaptions: [{file: 'screen.png', caption: 'The toolbar after the click, with the panel still closed.'}]}];
   assert.ok(validateReview(c, r, new Set()).some(e => e.includes('unknown evidence')));
   assert.deepEqual(validateReview(c, r, new Set(['screen.png'])), []);
   assert.equal(verdict(c, r, []), 'FINDINGS');
   r.findings[0].steps = [];
   assert.ok(validateReview(c, r, new Set(['screen.png'])).length);
+});
+test('every cited evidence file has exactly one caption saying what it shows', () => {
+  const c = capture(), available = new Set(['screen.png', 'crop.png']);
+  const finding = captions => ({id: 'one', title: 'Problem', kind: 'defect', severity: 'low', steps: ['Click'],
+    observed: 'Nothing changes', expected: 'Panel opens', impact: 'Control appears broken', evidence: ['screen.png', 'crop.png'],
+    ...(captions === undefined ? {} : {evidenceCaptions: captions})});
+  const both = [{file: 'screen.png', caption: 'The toolbar.'}, {file: 'crop.png', caption: 'The closed panel.'}];
+  const r = review();
+  r.findings = [finding(both)];
+  assert.deepEqual(validateReview(c, r, available), []);
+  for (const captions of [undefined, both.slice(0, 1), [...both, both[0]], [both[0], {file: 'crop.png', caption: ' '}],
+    [...both, {file: 'other.png', caption: 'Not cited.'}]]) {
+    r.findings = [finding(captions)];
+    assert.ok(validateReview(c, r, available).some(e => e.includes('caption each cited evidence file')), JSON.stringify(captions));
+  }
 });
 test('design concerns remain visible without being silently promoted to defects or accepted as clean', () => {
   const r = review(); r.findings = [{kind: 'design-proposal'}];

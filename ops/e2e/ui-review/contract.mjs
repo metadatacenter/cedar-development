@@ -39,6 +39,14 @@ export function validateReview(capture, review, available) {
     require(Array.isArray(finding.evidence) && finding.evidence.length > 0, `${finding.id}: missing evidence`);
     for (const file of Array.isArray(finding.evidence) ? finding.evidence : [])
       require(available.has(file), `${finding.id}: unknown evidence ${file}`);
+    // Each cited file says what it shows, so a reader who has not seen the capture can follow it.
+    const captions = Array.isArray(finding.evidenceCaptions) ? finding.evidenceCaptions : [];
+    const captioned = captions.map(caption => caption?.file);
+    require(captions.every(caption => caption && typeof caption.file === 'string' && typeof caption.caption === 'string' && caption.caption.trim())
+      && new Set(captioned).size === captioned.length
+      && Array.isArray(finding.evidence) && captioned.length === new Set(finding.evidence).size
+      && finding.evidence.every(file => captioned.includes(file)),
+      `${finding.id}: caption each cited evidence file exactly once in evidenceCaptions`);
   }
   require(typeof review.limitations === 'string', 'Explicit limitations are required');
   require(typeof review.acceptableObservations === 'string' && review.acceptableObservations.trim(),

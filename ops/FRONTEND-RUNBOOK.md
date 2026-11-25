@@ -3571,12 +3571,14 @@ further in a separate directory with `session.mjs` (`openSession`) for the Desig
 `browser-session.mjs` (`openBrowserSession(directory, app)`) for the other applications, and
 writes `review.json`. The review distinguishes observed defects from design proposals and
 uncertainty, explains user impact, names its evidence, reports acceptable behavior and discloses
-missing coverage. It may not change product code or baselines, and it does not authorize a
-redesign. Each review assesses grouping, hierarchy, wrapping and use of space under `composition`,
-because readability and containment alone do not establish good composition. A claim that wrapping
-is necessary must rest on the actual contents, control and text widths, spacing and available
-width. A narrow viewport alone is not evidence, and the review states its uncertainty when fit
-cannot be established.
+missing coverage. Each finding captions every file it cites in `evidenceCaptions`, saying what that
+file shows for the finding to a reader who has not seen the capture, and a finding that leaves a
+cited file uncaptioned fails validation. It may not change product code or baselines, and it does
+not authorize a redesign. Each review assesses grouping, hierarchy, wrapping and use of space under
+`composition`, because readability and containment alone do not establish good composition. A claim
+that wrapping is necessary must rest on the actual contents, control and text widths, spacing and
+available width. A narrow viewport alone is not evidence, and the review states its uncertainty when
+fit cannot be established.
 
 Validate the completed review with:
 
@@ -3655,7 +3657,9 @@ The default partitions eight states per reviewer with two concurrent jobs. `--ba
 A partition whose evidence exceeds the reviewer's limits, 900,000 characters for either reviewer and
 100 images for Claude, is refused before any call, and a smaller `--batch-size` avoids it.
 Verification splits its candidates to stay within the same limits.
-Every supplied state and crop requires an explicit assessment. One state per partition is reviewed
+Every supplied state and crop requires an explicit assessment. Every image a finding cites carries
+one caption in `evidenceCaptions` saying what it shows for that finding, and an answer that leaves
+one uncaptioned is refused. One state per partition is reviewed
 independently a second time, and reported candidates receive independent verification. Each of these
 reviewers' assessments is sealed before that same session sees the concealed calibration cases.
 Failed calibration remains a blocker on resume; it is not rerolled until it passes. Infrastructure
@@ -3717,7 +3721,9 @@ serves a local board for giving them. It reads every coordinated review under
 `.cedar/reports/ui-review-coordinator` and every single-reviewer `review.json` under
 `.cedar/reports/ui-review`, newest first and grouped by application. Each finding appears with its
 verifier's decision and reasoning, its severity, whether a reviewer behind it failed calibration,
-and the screenshots it cites. Screens shows the review's per-state assessments.
+and the screenshots it cites, each beside the reviewer's caption where the review has one. Reviews
+made before captions were required show the screenshots alone. Screens shows the review's per-state
+assessments.
 
 ```bash
 cedarcli test ui-review-board --plan
