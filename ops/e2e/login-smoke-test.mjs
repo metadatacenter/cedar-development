@@ -369,10 +369,12 @@ async function waitForAnonymousArtifact(templateId, expectedStatus, label) {
 }
 
 // Drive an OpenView visibility change through the row menu. Search indexing can briefly leave the
-// old menu state in the listing after the preceding command, so reload until the intended action is
-// enabled rather than bypassing the UI with a REST command.
+// old menu state in the listing after the preceding change, so reload until the intended action is
+// enabled rather than bypassing the UI with a REST call.
 async function setOpenViewThroughWorkspace(page, folderId, title, kind, makeOpen) {
-  const command = `make-${kind}-${makeOpen ? 'open' : 'not-open'}`;
+  const command = `PATCH ${kind} {"isOpen": ${makeOpen}}`;
+  const collections = kind === 'folder' ? ['folders']
+    : ['templates', 'template-elements', 'template-fields', 'template-instances'];
   const selector = makeOpen ? S.MENU_ENABLE_OPENVIEW : S.MENU_DISABLE_OPENVIEW;
   const item = await poll(36_000, async () => {
     await waitForListingRow(page, folderId, title);
@@ -386,8 +388,12 @@ async function setOpenViewThroughWorkspace(page, folderId, title, kind, makeOpen
   });
   if (!item) throw new Error(`${title}: Workspace never enabled ${command}`);
 
-  const pending = page.waitForResponse(response => response.request().method() === 'POST'
-      && response.url().includes(`/command/${command}`), { timeout: 15_000 }).catch(() => null);
+  const pending = page.waitForResponse(response => {
+    if (response.request().method() !== 'PATCH') return false;
+    const [collection, id] = new URL(response.url()).pathname.split('/').slice(-2);
+    return collections.includes(collection) && !!id
+      && JSON.parse(response.request().postData() ?? '{}').isOpen === makeOpen;
+  }, { timeout: 15_000 }).catch(() => null);
   await item.click();
   const response = await pending;
   if (!response) throw new Error(`${title}: Workspace sent no ${command} request`);
@@ -1860,31 +1866,34 @@ async function verifyPublishDraftLifecycle(browser, page, folderId, user1) {
 // ── OpenView helpers ───────────────────────────────────────────────────────────
 
 // Publish a template to OpenView via the row ⋮ → "Enable OpenView" menu item. That
-// item POSTs make-artifact-open and shows a success flash — there is no confirm
-// dialog (unlike delete). The frontend first reads the graph details ETag and sends it
-// as If-Match; the successful command returns the new graph ETag. The command body also
-// carries the artifact's @id, which is what the OpenView URL is built from.
+// item PATCHes the template with {"isOpen": true} and shows a success flash — there is no
+// confirm dialog (unlike delete). The frontend first reads the graph details ETag and sends
+// it as If-Match; the successful patch returns the new graph ETag. The patched address
+// identifies the artifact, which is what the OpenView URL is built from.
 async function enableOpenView(page, folderId, templateName) {
   await gotoListing(page, folderId);
   await openRowMenu(page, templateName);
   const item = page.locator(S.MENU_ENABLE_OPENVIEW).filter({ visible: true }).first();
   await item.waitFor({ timeout: 8000 });
+  const patched = (r) => r.request().method() === 'PATCH'
+    && /\/templates\/[^/?]+$/.test(new URL(r.url()).pathname);
   // Armed before the click so a fast response is not missed.
-  const pending = page
-    .waitForResponse(r => r.url().includes('/command/make-artifact-open')
-      && r.request().method() === 'POST', { timeout: 15_000 })
-    .catch(() => null);
+  const pending = page.waitForResponse(patched, { timeout: 15_000 }).catch(() => null);
   await item.click();
   const resp = await pending;
-  if (!resp) throw new Error('Enable OpenView sent no make-artifact-open request');
-  if (!resp.ok()) throw new Error(`make-artifact-open answered ${resp.status()}`);
+  if (!resp) throw new Error('Enable OpenView sent no PATCH to the template');
+  if (!resp.ok()) throw new Error(`the OpenView PATCH answered ${resp.status()}`);
   const ifMatch = await resp.request().headerValue('if-match');
   const returnedEtag = await resp.headerValue('etag');
   if (!ifMatch || !returnedEtag) {
-    throw new Error(`make-artifact-open omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
+    throw new Error(`the OpenView PATCH omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
   }
-  const id = JSON.parse(resp.request().postData() ?? '{}')['@id'];
-  if (!id) throw new Error('make-artifact-open request carried no @id');
+  if (JSON.parse(resp.request().postData() ?? '{}').isOpen !== true) {
+    throw new Error('the OpenView PATCH did not carry {"isOpen": true}');
+  }
+  const segment = new URL(resp.url()).pathname.split('/').pop();
+  const id = decodeURIComponent(segment);
+  if (!id) throw new Error('the OpenView PATCH addressed no template');
   return id;
 }
 
@@ -1898,7 +1907,7 @@ async function enableOpenView(page, folderId, templateName) {
 // unknown custom element attached while the page shows only its footer, which used to let this
 // check pass. Require a registered custom element, rendered shadow content, and the template name.
 //
-// The OpenView server's view of the grant can lag the make-open command by a moment,
+// The OpenView server's view of the grant can lag the open-state change by a moment,
 // and the app fetches once per load and latches an error, so the page is loaded only once
 // the server answers an anonymous read of the template. Should the page still come up
 // without the editor, it is reloaded rather than polled in place.
@@ -2223,7 +2232,7 @@ try {
   // 3c. Publish the template to OpenView, then confirm an anonymous visitor — a
   //     fresh browser with no CEDAR session — sees it presented on the OpenView
   //     site (its name in the title bar, its Disease field rendered). This exercises
-  //     the make-open command, the OpenView server's anonymous read, and OpenView's
+  //     the open-state PATCH, the OpenView server's anonymous read, and OpenView's
   //     CEE-based rendering end to end.
   step = steps.enter('enable-openview');
   const openedTemplateId = await enableOpenView(page, folderId, TEMPLATE_NAME);

@@ -360,16 +360,16 @@ if (profile === 'finding') {
     }
     await shareFilesystemRoles(actor, actor.readTemplate.path, [{ id: peer.cedarUserId, role: 'viewer' }]);
 
-    const opened = await currentMutation(actor.token, 'POST', '/command/make-artifact-open',
-        { '@id': actor.openViewTemplate.id }, { etagPath: `${actor.openViewTemplate.path}/details` });
+    const opened = await currentMutation(actor.token, 'PATCH', actor.openViewTemplate.path,
+        { isOpen: true }, { etagPath: `${actor.openViewTemplate.path}/details` });
     if (opened.status !== 200) {
       throw new Error(`${actor.username}: open the OpenView template: ${opened.status} ${opened.text}`);
     }
     const openFolderId = await createFolder(actor, actor.rootFolderId, 'Finding open folder');
     const openFolderPath = `/folders/${enc(openFolderId)}`;
     const inOpenFolder = await createArtifact(actor, openFolderId, 'Finding open folder template');
-    const folderOpened = await currentMutation(actor.token, 'POST', '/command/make-folder-open',
-        { '@id': openFolderId }, { etagPath: openFolderPath });
+    const folderOpened = await currentMutation(actor.token, 'PATCH', openFolderPath,
+        { isOpen: true }, { etagPath: openFolderPath });
     if (folderOpened.status !== 200) {
       throw new Error(`${actor.username}: open the folder: ${folderOpened.status} ${folderOpened.text}`);
     }

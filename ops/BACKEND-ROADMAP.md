@@ -1538,13 +1538,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - A template's output format is chosen by `Accept`. An instance's is chosen by `?format=`, which
     overrides `Accept`, and `/command/convert` takes `?format=` alone.
   - The monitor relays each server's `/insight/*` routes as `/server-report/{server}/insight`.
-  - The resource server's 32 `/command/*` routes are actions, and most take their target in the
+  - The resource server's 26 `/command/*` routes are actions, and most take their target in the
     body, while recursive folder deletion also has a resource form, `/folders/{id}/deletion`.
     `property_search` is the only path
     segment on any server that is not kebab-case.
 
-  Move them in this order. The open-state commands and the job routes of items 25 and 27 go first,
-  and the terminology server last.
+  Move them in this order. The job routes of item 25 go first, and the terminology server last.
   Each move takes its callers and the e2e suites with it and deletes the old name. The term picker's
   camelCase query parameters wait for a picker release that sends the new names. Done when every
   route follows the convention, or waits only on a published package.
@@ -1598,14 +1597,3 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   answer them on the same terms. The resource server's freeze-on-publish calls all three
   current-version lookups, so one replacement must exist before they can be reduced to it. Done
   when each overlapping pair has one survivor.
-
-- **27. Replace the open-state commands with a `PATCH` on the resource.** **Production
-  consequence:** none, provided the Template Editor and the Workspace move in the same change.
-
-  The resource server's `make-artifact-open`, `make-artifact-not-open`, `make-folder-open` and
-  `make-folder-not-open` commands each change one resource's state, which the convention expresses
-  as a `PATCH` on that resource with `{"isOpen": true}` or `{"isOpen": false}`. The Template Editor
-  and the Workspace both call the commands. Add the `PATCH` to the folder and artifact routes, move
-  both clients and the e2e suites, and delete the four commands in the same change. Messaging's
-  `POST /command/mark-all-as-read` stays a command, since it changes every unread message at once.
-  Done when no open-state command remains.

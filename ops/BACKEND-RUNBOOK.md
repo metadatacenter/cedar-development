@@ -2891,6 +2891,14 @@ trace route, now documented as `/logs/trace/{id}`, takes `max_spans`. The old `m
 `maxSpans` answer 400 with an error that names them. Only the monitoring application calls these
 routes, and it sends neither old name.
 
+**Client-visible change:** a folder or artifact is made open or not open by a `PATCH` on its own
+route, as in `PATCH /templates/{id}` with `{"isOpen": true}` or `{"isOpen": false}`. The body takes
+no other property, and a body without a boolean `isOpen` answers 400. The permission, the If-Match
+requirement, the statuses and the response are those of the commands it replaces:
+`POST /command/make-artifact-open`, `make-artifact-not-open`, `make-folder-open` and
+`make-folder-not-open`, which now answer 404. The Template Editor and the Workspace moved with the
+change. Include it in the release notice to external API callers.
+
 ## Artifact Versioning Contract
 
 Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;

@@ -813,16 +813,14 @@ function moveArtifact(data, index, actor) {
 
 function toggleOpenView(data, index, actor) {
   const state = actorState[index] || (actorState[index] = { inSource: true, open: false });
-  const id = actor.openViewTemplate.id;
-  const details = cedar(data, index, 'GET', `/templates/${encodeURIComponent(id)}/details`,
-      undefined, 'OpenView preflight');
+  const at = `/templates/${encodeURIComponent(actor.openViewTemplate.id)}`;
+  const details = cedar(data, index, 'GET', `${at}/details`, undefined, 'OpenView preflight');
   const revision = etag(details);
   if (!accepted(details, [200], 'OpenView preflight succeeds') || !revision) {
     unexpectedResponses.add(true, { operation: 'OpenView missing ETag' });
     return;
   }
-  const command = state.open ? 'make-artifact-not-open' : 'make-artifact-open';
-  const changed = cedar(data, index, 'POST', `/command/${command}`, { '@id': id },
+  const changed = cedar(data, index, 'PATCH', at, { isOpen: !state.open },
       'conditional OpenView toggle', { 'If-Match': revision });
   if (accepted(changed, [200], 'conditional OpenView toggle succeeds')) state.open = !state.open;
   check(changed, { 'OpenView toggle returns a fresh ETag': result => etag(result) && etag(result) !== revision });
@@ -1024,8 +1022,8 @@ function exerciseOpenViewAuthority(data, fixture) {
       undefined, 'permission OpenView preflight');
   let revision = requireEtag(details, 'permission OpenView enable preflight');
   if (!revision) return;
-  const enabled = cedar(data, actor, 'POST', '/command/make-artifact-open',
-      { '@id': fixture.directField.id }, 'permission OpenView enable', { 'If-Match': revision });
+  const enabled = cedar(data, actor, 'PATCH', fixture.directField.path,
+      { isOpen: true }, 'permission OpenView enable', { 'If-Match': revision });
   if (!accepted(enabled, [200], 'Manager can enable OpenView')) return;
   details = cedar(data, actor, 'GET', `${fixture.directField.path}/details`,
       undefined, 'permission OpenView preflight');
@@ -1034,8 +1032,8 @@ function exerciseOpenViewAuthority(data, fixture) {
     samePermissionActions(result.json()?.currentUserPermissions?.availableActions,
         ['copyFromResource', 'disableOpenView']));
   if (!revision) return;
-  const disabled = cedar(data, actor, 'POST', '/command/make-artifact-not-open',
-      { '@id': fixture.directField.id }, 'permission OpenView disable', { 'If-Match': revision });
+  const disabled = cedar(data, actor, 'PATCH', fixture.directField.path,
+      { isOpen: false }, 'permission OpenView disable', { 'If-Match': revision });
   accepted(disabled, [200], 'Manager can disable OpenView');
 }
 
@@ -1765,9 +1763,8 @@ function graphRace(data, kind) {
       }, operation, revision, { expected: [201, 412] }));
     } else {
       const operation = `${kind} graph OpenView`;
-      const command = state.open ? `make-${kind}-not-open` : `make-${kind}-open`;
       operations.push(operation);
-      requests.push(batchRequest(data, index, 'POST', resource, `/command/${command}`, { '@id': fixture.id },
+      requests.push(batchRequest(data, index, 'PATCH', resource, fixture.path, { isOpen: !state.open },
           operation, revision));
     }
   }
@@ -1981,8 +1978,7 @@ function wildcardMutation(data, type) {
     const current = cedar(data, actor, 'GET', path, undefined, getOperation);
     const revision = requireEtag(current, `${type} preflight`);
     if (!revision) return;
-    const command = graph.open ? 'make-artifact-not-open' : 'make-artifact-open';
-    const changed = cedar(data, actor, 'POST', `/command/${command}`, { '@id': fixture.id },
+    const changed = cedar(data, actor, 'PATCH', fixture.path, { isOpen: !graph.open },
         mutationOperation, { 'If-Match': '*' });
     if (accepted(changed, [200], `${type} succeeds`)) graph.open = !graph.open;
     verifyRevision(data, actor, resource, path, revision, verificationOperation, type);

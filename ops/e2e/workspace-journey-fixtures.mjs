@@ -142,13 +142,14 @@ export async function menu(p, name, label) {
   await item.click();
 }
 
-// OpenView changes, publications and drafts confirm with "Ok" rather than "Save".
-const confirmLabel = path => /-open|publish-artifact|create-draft-artifact/.test(path) ? "Ok" : "Save";
+// OpenView changes, the only PATCH a dialog sends, publications and drafts confirm with "Ok" rather than "Save".
+const confirmLabel = (method, path) =>
+  method === "PATCH" || /publish-artifact|create-draft-artifact/.test(path) ? "Ok" : "Save";
 
 /** Confirms the open dialog, asserts the write the confirmation sends, and returns once the dialog has closed. */
 export async function save(p, write, method, path, status = 200, conditional = false) {
   const data = await write(p, method, path,
-    () => modal(p).getByRole("button", { name: confirmLabel(path), exact: true }).click(),
+    () => modal(p).getByRole("button", { name: confirmLabel(method, path), exact: true }).click(),
     status, conditional);
   await modal(p).waitFor({ state: "hidden" });
   return data;

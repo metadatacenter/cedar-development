@@ -228,6 +228,210 @@
       "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
       "name": "resource: DELETE /template-instances/{template_instance_id} distinguishes pending and complete cleanup",
       "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "a template is created to guard",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "the artifact details representation supplies its graph ETag",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "the owner cannot change artifact visibility without If-Match",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "the owner can open it with the current graph ETag",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "the visibility change returns a fresh graph ETag",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "a stale graph ETag cannot close the artifact",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "the rejected stale close leaves the artifact open",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "the fresh graph ETag closes the artifact",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "and the successful close removes anonymous access",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "a user with no access to the artifact cannot make it open",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "and it stayed closed",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "an anonymous caller cannot make it open",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "make-artifact-open refuses a body with no @id as a bad request",
+      "reason": "The open-state commands were replaced by a PATCH on the resource, which refuses a body without a boolean isOpen; those refusals and the commands' 404 are checked under the renamed section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "make-artifact-not-open refuses a body with no @id as a bad request",
+      "reason": "The open-state commands were replaced by a PATCH on the resource, which refuses a body without a boolean isOpen; those refusals and the commands' 404 are checked under the renamed section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "make-folder-open refuses a body with no @id as a bad request",
+      "reason": "The open-state commands were replaced by a PATCH on the resource, which refuses a body without a boolean isOpen; those refusals and the commands' 404 are checked under the renamed section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "make-folder-not-open refuses a body with no @id as a bad request",
+      "reason": "The open-state commands were replaced by a PATCH on the resource, which refuses a body without a boolean isOpen; those refusals and the commands' 404 are checked under the renamed section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: who may make something open, and what the commands refuse",
+      "name": "OpenView answers 404 for an artifact that does not exist",
+      "reason": "The section was renamed when the four open-state commands became a PATCH on the resource. The check runs under the new section."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: an Editor may not open or close what they edit",
+      "name": "artifact: an Editor is refused make-artifact-open",
+      "reason": "The open-state commands were replaced by a PATCH on the resource. The same refusal is checked as an Editor refused opening or closing it."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: an Editor may not open or close what they edit",
+      "name": "artifact: an Editor is refused make-artifact-not-open",
+      "reason": "The open-state commands were replaced by a PATCH on the resource. The same refusal is checked as an Editor refused opening or closing it."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: an Editor may not open or close what they edit",
+      "name": "folder: an Editor is refused make-folder-open",
+      "reason": "The open-state commands were replaced by a PATCH on the resource. The same refusal is checked as an Editor refused opening or closing it."
+    },
+    {
+      "suite": "openness",
+      "section": "openness: an Editor may not open or close what they edit",
+      "name": "folder: an Editor is refused make-folder-not-open",
+      "reason": "The open-state commands were replaced by a PATCH on the resource. The same refusal is checked as an Editor refused opening or closing it."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-artifact-open documents its required If-Match header",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-artifact-open documents stale and missing preconditions",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-artifact-open documents the resulting ETag",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-artifact-not-open documents its required If-Match header",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-artifact-not-open documents stale and missing preconditions",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-artifact-not-open documents the resulting ETag",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-folder-open documents its required If-Match header",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-folder-open documents stale and missing preconditions",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-folder-open documents the resulting ETag",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-folder-not-open documents its required If-Match header",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-folder-not-open documents stale and missing preconditions",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: make-folder-not-open documents the resulting ETag",
+      "reason": "The open-state commands were replaced by a PATCH on each folder and artifact route, whose If-Match, precondition responses and ETag are checked instead."
+    },
+    {
+      "suite": "addressing",
+      "section": "addressing: typed selectors and legacy identities",
+      "name": "folder openness accepts a type-qualified selector",
+      "reason": "Folder openness is now a PATCH on the folder's own route, so it takes the identifier in its path. The check is now that it accepts the bare identifier there."
     }
   ]
 }

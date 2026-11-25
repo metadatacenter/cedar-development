@@ -161,7 +161,7 @@ by name in commits.
   `/report` and `/versions` are read-only metadata the server already serves and no tool reaches.
 
 - **13. Support the draft-to-publish lifecycle.** `/command/create-draft-artifact`,
-  `/command/publish-artifact`, `make-artifact-open` and `make-artifact-not-open` carry that
+  `/command/publish-artifact` and an artifact's `PATCH` with `{"isOpen": …}` carry that
   workflow. They mutate, and publishing is partly irreversible, so take them deliberately rather
   than as part of a CRUD sweep.
 

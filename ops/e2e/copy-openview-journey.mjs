@@ -38,8 +38,8 @@ export async function copyOpenViewJourney(args) {
 
   await listed(page, base, destination, names.copy);
   await menu(page, names.copy, "Enable Openview");
-  await save(page, write, "POST", "/command/make-artifact-open", 200, true);
-  // OpenView follows a change of openness after the command has answered, so read it until it agrees.
+  await save(page, write, "PATCH", "/templates/", 200, true);
+  // OpenView follows a change of openness after the patch has answered, so read it until it agrees.
   const openViewStatus = async (open, what) => {
     const outcome = await poll(async () => {
       const r = await call(null, "GET", "/templates/" + enc(copy["@id"]), undefined, { base: OPENVIEW });
@@ -67,16 +67,16 @@ export async function copyOpenViewJourney(args) {
   }
   assert.deepEqual(errors, [], "uncaught browser errors on the public OpenView page");
   await menu(page, names.copy, "Disable Openview");
-  await save(page, write, "POST", "/command/make-artifact-not-open", 200, true);
+  await save(page, write, "PATCH", "/templates/", 200, true);
   await openViewStatus(false, "Closed artifact remains public");
   pass("artifact-openview", "OpenView open/render/close");
 
   await listed(page, base, folderId, names.destination);
   await menu(page, names.destination, "Enable Openview");
-  await save(page, write, "POST", "/command/make-folder-open", 200, true);
+  await save(page, write, "PATCH", "/folders/", 200, true);
   await openViewStatus(true, "An open folder did not make its child artifact public");
   await menu(page, names.destination, "Disable Openview");
-  await save(page, write, "POST", "/command/make-folder-not-open", 200, true);
+  await save(page, write, "PATCH", "/folders/", 200, true);
   await openViewStatus(false, "A closed folder left its child artifact public");
   pass("folder-openview", "Folder OpenView grant and revocation apply to its child artifact");
 

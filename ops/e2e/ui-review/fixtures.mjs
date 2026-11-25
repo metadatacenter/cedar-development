@@ -92,13 +92,13 @@ export async function workspaceFixtures(session) {
 }
 
 // Open an artifact or folder to anonymous OpenView visitors, then wait until OpenView's server
-// answers an anonymous read, since its view of the grant can lag the command.
+// answers an anonymous read, since its view of the grant can lag the change.
 export async function makeOpen(session, collection, id) {
   const folder = collection === 'folders';
   const current = await session.request('GET', `/${collection}/${enc(id)}${folder ? '' : '/details'}`);
   const etag = current.headers?.get('etag');
   if (!etag) throw new Error(`No ETag to open ${id}`);
-  const opened = await session.request('POST', `/command/${folder ? 'make-folder-open' : 'make-artifact-open'}`, {'@id': id}, {headers: {'If-Match': etag}});
+  const opened = await session.request('PATCH', `/${collection}/${enc(id)}`, {isOpen: true}, {headers: {'If-Match': etag}});
   if (opened.status !== 200) throw new Error(`Opening ${id} returned ${opened.status}`);
   for (const deadline = Date.now() + 30000; ; await new Promise(resolve => setTimeout(resolve, 500))) {
     if ((await session.anonymousRead(`/${collection}/${enc(id)}`)).status === 200) return;

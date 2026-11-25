@@ -96,15 +96,15 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
     `${role}: and the grants are still exactly the owner's`,
     `before ${aclBefore.status} ${aclBefore.text?.slice(0, 160)}, after ${aclAfter.status} ${aclAfter.text?.slice(0, 160)}`);
 
-    const opened = await mutate(user2.auth, 'POST', '/command/make-folder-open', { '@id': id }, { etagPath: at });
+    const opened = await mutate(user2.auth, 'PATCH', at, { isOpen: true }, { etagPath: at });
     checkStatus(opened, expected, `${role}: the grantee ${may} make it open`);
     const anonymous = await call(null, 'GET', at, undefined, { base: OPENVIEW });
     check(anonymous.status === (allowed ? 200 : 401),
         `${role}: and OpenView ${allowed ? 'serves' : 'still refuses'} it anonymously`,
         `OpenView answered ${anonymous.status}`);
     if (allowed && opened.status === 200) {
-      checkStatus(await mutate(user2.auth, 'POST', '/command/make-folder-not-open', { '@id': id },
-          { etagPath: at }), 200, `${role}: the grantee can close it again`);
+      checkStatus(await mutate(user2.auth, 'PATCH', at, { isOpen: false }, { etagPath: at }), 200,
+          `${role}: the grantee can close it again`);
     }
 
     if (!destinationId) return;

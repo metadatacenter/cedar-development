@@ -92,20 +92,24 @@ export async function run() {
           'resource: duplicate category creation documents its conflict response',
           'POST /categories omitted 409');
 
-      for (const command of [
-        'make-artifact-open', 'make-artifact-not-open', 'make-folder-open', 'make-folder-not-open',
+      for (const resourcePath of [
+        '/folders/{id}',
+        '/templates/{id}',
+        '/template-elements/{id}',
+        '/template-fields/{id}',
+        '/template-instances/{id}',
       ]) {
-        const operation = paths[`/command/${command}`]?.post;
+        const operation = paths[resourcePath]?.patch;
         check(operation?.parameters?.some(parameter =>
           parameter?.$ref === '#/components/parameters/IfMatch'),
-        `resource: ${command} documents its required If-Match header`,
-        `POST /command/${command} omitted the shared IfMatch parameter`);
+        `resource: PATCH ${resourcePath} documents its required If-Match header`,
+        `PATCH ${resourcePath} omitted the shared IfMatch parameter`);
         check(!!operation?.responses?.['412'] && !!operation?.responses?.['428'],
-            `resource: ${command} documents stale and missing preconditions`,
-            `POST /command/${command} omitted 412 or 428`);
+            `resource: PATCH ${resourcePath} documents stale and missing preconditions`,
+            `PATCH ${resourcePath} omitted 412 or 428`);
         check(!!operation?.responses?.['200']?.headers?.ETag,
-            `resource: ${command} documents the resulting ETag`,
-            `POST /command/${command} response 200 omitted ETag`);
+            `resource: PATCH ${resourcePath} documents the resulting ETag`,
+            `PATCH ${resourcePath} response 200 omitted ETag`);
       }
 
       for (const detailsPath of [

@@ -97,7 +97,7 @@ export async function fixtures(directory) {
       const made = await call(user.auth,'PUT','/templates/'+enc(id)+'?folder_id='+enc(folderId),body,{headers:{'If-None-Match':'*'}});
       assert.equal(made.status,201,made.text);
       ids[size] = id; await save();
-      const opened = await mutate(user.auth,'POST','/command/make-artifact-open',{'@id':id}, {etagPath:'/templates/'+enc(id)+'/details'});
+      const opened = await mutate(user.auth,'PATCH','/templates/'+enc(id),{isOpen:true}, {etagPath:'/templates/'+enc(id)+'/details'});
       assert.equal(opened.status,200,opened.text);
     }
     return {ids,folderId,cleanup};

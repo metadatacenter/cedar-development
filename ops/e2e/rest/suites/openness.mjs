@@ -17,12 +17,12 @@ export async function run({ user1, user2, folderId }) {
   /** The OpenView server, with no credential of any kind. */
   const anonymously = (path) => call(null, 'GET', path, undefined, { base: OPENVIEW });
   // Visibility lives in the resource graph, not in the artifact document. Read the graph
-  // representation immediately before the command and condition the change on that revision.
-  const open = async (command, id, etagPath) => {
+  // representation immediately before the patch and condition the change on that revision.
+  const setOpen = async (at, isOpen, etagPath) => {
     const current = await call(auth, 'GET', etagPath);
     const etag = current.headers?.get('etag');
     if (!etag) return current;
-    return call(auth, 'POST', `/command/${command}`, { '@id': id }, {
+    return call(auth, 'PATCH', at, { isOpen }, {
       headers: { 'If-Match': etag },
     });
   };
@@ -58,7 +58,7 @@ export async function run({ user1, user2, folderId }) {
     checkStatus(await call(auth, 'GET', `/open${at}`), 401,
         `${kind}: owner credentials cannot broaden resource anonymous access`);
 
-    if (!checkStatus(await open('make-artifact-open', id, `${at}/details`), 200,
+    if (!checkStatus(await setOpen(at, true, `${at}/details`), 200,
         `${kind}: made open by its owner`)) continue;
 
     const after = await anonymously(at);
@@ -80,7 +80,7 @@ export async function run({ user1, user2, folderId }) {
         `${kind}: and the resource server still refuses the same anonymous caller`,
         `expected 401 from the resource server, got ${direct.status}`);
 
-    if (checkStatus(await open('make-artifact-not-open', id, `${at}/details`), 200,
+    if (checkStatus(await setOpen(at, false, `${at}/details`), 200,
         `${kind}: made not open again`)) {
       const closed = await anonymously(at);
       check(closed.status === 401, `${kind}: and OpenView refuses it once more`,
@@ -109,7 +109,7 @@ export async function run({ user1, user2, folderId }) {
       check((await anonymously(at)).status === 401, 'which is refused anonymously to begin with',
           'it was served before anything was made open');
 
-      if (checkStatus(await open('make-folder-open', nestedId, `/folders/${enc(nestedId)}`), 200,
+      if (checkStatus(await setOpen(`/folders/${enc(nestedId)}`, true, `/folders/${enc(nestedId)}`), 200,
           'the folder is made open')) {
         const inherited = await anonymously(at);
         check(inherited.status === 200,
@@ -117,7 +117,7 @@ export async function run({ user1, user2, folderId }) {
             `expected 200, got ${inherited.status}`);
       }
 
-      if (checkStatus(await open('make-folder-not-open', nestedId, `/folders/${enc(nestedId)}`), 200,
+      if (checkStatus(await setOpen(`/folders/${enc(nestedId)}`, false, `/folders/${enc(nestedId)}`), 200,
           'the folder is made not open')) {
         check((await anonymously(at)).status === 401, 'and the template is refused again',
             'it stayed readable after the folder was closed');
@@ -160,7 +160,7 @@ export async function run({ user1, user2, folderId }) {
       check((await listing(leaf.id)).status === 401, 'and its folder cannot be listed anonymously either',
           'the listing was served before anything was made open');
 
-      if (checkStatus(await open('make-folder-open', top.id, `/folders/${enc(top.id)}`), 200,
+      if (checkStatus(await setOpen(`/folders/${enc(top.id)}`, true, `/folders/${enc(top.id)}`), 200,
           'the top of the branch is made open')) {
         check((await anonymously(at)).status === 200,
             'the template two levels below becomes readable anonymously',
@@ -187,7 +187,7 @@ export async function run({ user1, user2, folderId }) {
             'the parent of the open folder was listed anonymously');
       }
 
-      if (checkStatus(await open('make-folder-not-open', top.id, `/folders/${enc(top.id)}`), 200,
+      if (checkStatus(await setOpen(`/folders/${enc(top.id)}`, false, `/folders/${enc(top.id)}`), 200,
           'the top of the branch is closed again')) {
         check((await anonymously(at)).status === 401, 'the buried template is refused once more',
             'it stayed readable after the branch was closed');
@@ -197,7 +197,7 @@ export async function run({ user1, user2, folderId }) {
     }
   }
 
-  suite('openness: who may make something open, and what the commands refuse');
+  suite('openness: who may make something open, and what the patch refuses');
 
   const guardedName = `Openness Guarded ${RUN}`;
   const guarded = await call(auth, 'POST', `/templates?folder_id=${enc(holderId)}`,
@@ -212,10 +212,10 @@ export async function run({ user1, user2, folderId }) {
     const initialEtag = initial.headers?.get('etag');
     check(!!initialEtag, 'the artifact details representation supplies its graph ETag',
         `GET ${guardedDetails} returned ${initial.status} without an ETag`);
-    checkStatus(await call(auth, 'POST', '/command/make-artifact-open', { '@id': gid }), 428,
+    checkStatus(await call(auth, 'PATCH', guardedAt, { isOpen: true }), 428,
         'the owner cannot change artifact visibility without If-Match');
 
-    const opened = await call(auth, 'POST', '/command/make-artifact-open', { '@id': gid }, {
+    const opened = await call(auth, 'PATCH', guardedAt, { isOpen: true }, {
       headers: initialEtag ? { 'If-Match': initialEtag } : {},
     });
     if (checkStatus(opened, 200, 'the owner can open it with the current graph ETag')) {
@@ -223,14 +223,14 @@ export async function run({ user1, user2, folderId }) {
       check(!!openedEtag && openedEtag !== initialEtag,
           'the visibility change returns a fresh graph ETag',
           `before ${initialEtag}; after ${openedEtag}`);
-      checkStatus(await call(auth, 'POST', '/command/make-artifact-not-open', { '@id': gid }, {
+      checkStatus(await call(auth, 'PATCH', guardedAt, { isOpen: false }, {
         headers: initialEtag ? { 'If-Match': initialEtag } : {},
       }), 412, 'a stale graph ETag cannot close the artifact');
       check((await anonymously(guardedAt)).status === 200,
           'the rejected stale close leaves the artifact open',
           'the stale mutation changed visibility');
       if (openedEtag) {
-        checkStatus(await call(auth, 'POST', '/command/make-artifact-not-open', { '@id': gid }, {
+        checkStatus(await call(auth, 'PATCH', guardedAt, { isOpen: false }, {
           headers: { 'If-Match': openedEtag },
         }), 200, 'the fresh graph ETag closes the artifact');
         check((await anonymously(guardedAt)).status === 401,
@@ -240,22 +240,37 @@ export async function run({ user1, user2, folderId }) {
     }
 
     // Making something open is a publication decision, so it takes write access, not mere reach.
-    checkStatus(await call(user2.auth, 'POST', '/command/make-artifact-open', { '@id': gid }), [403, 404],
+    checkStatus(await call(user2.auth, 'PATCH', guardedAt, { isOpen: true }, { headers: { 'If-Match': '*' } }), [403, 404],
         'a user with no access to the artifact cannot make it open');
     check((await anonymously(`/templates/${enc(gid)}`)).status === 401,
-        'and it stayed closed', 'the refused command made it open anyway');
+        'and it stayed closed', 'the refused patch made it open anyway');
 
-    checkStatus(await call(null, 'POST', '/command/make-artifact-open', { '@id': gid }), 401,
+    checkStatus(await call(null, 'PATCH', guardedAt, { isOpen: true }, { headers: { 'If-Match': '*' } }), 401,
         'an anonymous caller cannot make it open');
   }
 
-  // The four open commands guard the identifier: a body with no @id is a malformed request and is
-  // refused as one, rather than becoming a lookup for the null id that answered 404.
+  // The patch body is closed: isOpen alone, as a JSON boolean. Anything else is a malformed request,
+  // refused before the If-Match is weighed, so a wildcard precondition cannot hide it.
+  const refusedBodies = [
+    ['with no isOpen', { note: 'no isOpen here' }],
+    ['whose isOpen is not a boolean', { isOpen: 'true' }],
+    ['with a property beside isOpen', { isOpen: true, '@id': 'ignored' }],
+  ];
+  for (const [label, at] of [['a folder', `/folders/${enc(holderId)}`],
+    ['an artifact', guarded.body?.['@id'] ? `/templates/${enc(guarded.body['@id'])}` : null]]) {
+    if (!at) continue;
+    for (const [shape, body] of refusedBodies) {
+      const res = await call(auth, 'PATCH', at, body, { headers: { 'If-Match': '*' } });
+      check(res.status === 400, `the patch on ${label} refuses a body ${shape} as a bad request`,
+          `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 160)}`);
+    }
+  }
+
+  // The commands the patch replaced are gone rather than kept as aliases.
   for (const command of ['make-artifact-open', 'make-artifact-not-open', 'make-folder-open', 'make-folder-not-open']) {
-    const res = await call(auth, 'POST', `/command/${command}`, { note: 'no @id here' });
-    check(res.status === 400,
-        `${command} refuses a body with no @id as a bad request`,
-        `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 160)}`);
+    const res = await call(auth, 'POST', `/command/${command}`, { '@id': holderId });
+    check(res.status === 404, `POST /command/${command} is gone`,
+        `expected 404, got ${res.status}: ${(res.text ?? '').slice(0, 160)}`);
   }
 
   checkStatus(await anonymously(`/templates/${enc('https://repo.metadatacenter.orgx/templates/does-not-exist')}`),
@@ -264,8 +279,8 @@ export async function run({ user1, user2, folderId }) {
   suite('openness: an Editor may not open or close what they edit');
 
   // Opening is a Manager's capability. An Editor may change the content but not who can read it, so
-  // each command an Editor sends is refused and the stored state stays as it was, whichever way the
-  // command would turn it. The owner sets each starting state.
+  // each change an Editor sends is refused and the stored state stays as it was, whichever way the
+  // change would turn it. The owner sets each starting state.
   const editorOf = async (at, label) => {
     checkStatus(await mutate(auth, 'PUT', `${at}/permissions`, {
       owner: { '@id': user1.profile['@id'] },
@@ -281,8 +296,8 @@ export async function run({ user1, user2, folderId }) {
     const at = `/templates/${enc(id)}`;
     cleanup('template', at, editedName);
     await editorOf(at, 'artifact');
-    targets.push({ label: 'artifact', id, etagPath: `${at}/details`, open: 'make-artifact-open',
-      close: 'make-artifact-not-open', isOpen: async () => (await call(auth, 'GET', `${at}/details`)).body?.isOpen });
+    targets.push({ label: 'artifact', at, etagPath: `${at}/details`,
+      isOpen: async () => (await call(auth, 'GET', `${at}/details`)).body?.isOpen });
   }
   const editedFolderName = `Openness Edited Folder ${RUN}`;
   const editedFolder = await call(auth, 'POST', '/folders',
@@ -292,20 +307,20 @@ export async function run({ user1, user2, folderId }) {
     const at = `/folders/${enc(id)}`;
     cleanup('folder', at, editedFolderName);
     await editorOf(at, 'folder');
-    targets.push({ label: 'folder', id, etagPath: at, open: 'make-folder-open', close: 'make-folder-not-open',
+    targets.push({ label: 'folder', at, etagPath: at,
       isOpen: async () => (await call(auth, 'GET', at)).body?.isOpen });
   }
-  for (const { label, id, etagPath, open: opening, close, isOpen } of targets) {
-    for (const [command, from] of [[opening, false], [close, true]]) {
+  for (const { label, at, etagPath, isOpen } of targets) {
+    for (const from of [false, true]) {
       if (from) {
-        checkStatus(await open(opening, id, etagPath), 200, `${label}: the owner opens it`);
+        checkStatus(await setOpen(at, true, etagPath), 200, `${label}: the owner opens it`);
       }
-      checkStatus(await mutate(user2.auth, 'POST', `/command/${command}`, { '@id': id }, { etagPath }), 403,
-          `${label}: an Editor is refused ${command}`);
+      checkStatus(await mutate(user2.auth, 'PATCH', at, { isOpen: !from }, { etagPath }), 403,
+          `${label}: an Editor is refused ${from ? 'closing' : 'opening'} it`);
       const stored = await isOpen();
       check(stored === from, `${label}: and it is ${from ? 'still' : 'still not'} open`, `isOpen is ${stored}`);
     }
-    checkStatus(await open(close, id, etagPath), 200, `${label}: the owner closes it again`);
+    checkStatus(await setOpen(at, false, etagPath), 200, `${label}: the owner closes it again`);
   }
 
   return {};

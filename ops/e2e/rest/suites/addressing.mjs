@@ -20,8 +20,8 @@ export async function run({ user1, user2, homeFolderId }) {
   checkStatus(shortFolder, 200, 'folder short route is readable');
   check(shortFolder.body?.['@id'] === fid && fullFolder.headers.get('etag') === shortFolder.headers.get('etag'),
     'folder aliases preserve identity and revision', shortFolder.text);
-  checkStatus(await mutate(auth, 'POST', '/command/make-folder-open', { '@id': selector(fid) }, { etagPath: at(fid) }),
-    200, 'folder openness accepts a type-qualified selector');
+  checkStatus(await mutate(auth, 'PATCH', at(fid), { isOpen: true }, { etagPath: at(fid) }),
+    200, 'folder openness accepts the bare identifier in its path');
   checkStatus(await call(null, 'GET', at(fid), undefined, { base: OPENVIEW }), 200,
     'OpenView folder works directly without a proxy rewrite');
   let template;
