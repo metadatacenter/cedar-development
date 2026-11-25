@@ -1526,11 +1526,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   The backend runbook's [REST Naming Convention](BACKEND-RUNBOOK.md#rest-naming-convention) sets
   the rules. The newer and peripheral routes break them in several ways:
   - Query parameters are snake_case except on the terminology server's versioned routes
-    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`). Path parameters mix `{folder_id}` and
-    `{vs_collection}` with `{jobId}` and `{keyId}`.
-  - An artifact is `{template_id}`, or its field, element and instance variant, on the resource
-    server, and `{id}` on the artifact, openview and repo servers and under `/open`. Sibling
-    terminology routes use `ontologies/{id}` and `ontologies/{ontology}/classes`, and
+    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`). Path parameters mix `{vs_collection}`
+    with `{jobId}`.
+  - Sibling terminology routes use `ontologies/{id}` and `ontologies/{ontology}/classes`, and
     `value-sets/{id}` and `value-sets/{vs}/values`.
   - A term IRI is `subtree_root_id`, `termIri`, `propertyIri`, `uri`, `iri` or `termUri`, depending
     on the route. `GET /bioportal/search` takes both `source` and `sources`, with unrelated meanings.
@@ -1539,18 +1537,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     identifiers on `/versions/diff`.
   - A template's output format is chosen by `Accept`. An instance's is chosen by `?format=`, which
     overrides `Accept`, and `/command/convert` takes `?format=` alone.
-  - `create-draft-artifact` takes `folderId` and `draftId` in its body, while
-    `publish-create-draft-template/{template_id}` takes `?folder_name` and `?draft_id`.
   - The monitor relays each server's `/insight/*` routes as `/server-report/{server}/insight`.
-  - The user server takes the caller's own profile as `/users/{id}`, refusing any other id, while
-    the group server names the caller `/membership/me`.
   - The resource server's 32 `/command/*` routes are actions, and most take their target in the
-    body, while recursive folder deletion also has a resource form, `/folders/{folder_id}/deletion`.
-    `/command/annotations/doi` is the only nested command path. `property_search` is the only path
+    body, while recursive folder deletion also has a resource form, `/folders/{id}/deletion`.
+    `property_search` is the only path
     segment on any server that is not kebab-case.
 
-  Move them in this order. The resource server's draft commands and path variables go first, then
-  the open-state commands and the job routes of items 25 and 27, and the terminology server last.
+  Move them in this order. The open-state commands and the job routes of items 25 and 27 go first,
+  and the terminology server last.
   Each move takes its callers and the e2e suites with it and deletes the old name. The term picker's
   camelCase query parameters wait for a picker release that sends the new names. Done when every
   route follows the convention, or waits only on a published package.

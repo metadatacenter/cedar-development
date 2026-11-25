@@ -6,8 +6,8 @@ import {textField} from "./ordinary-editing-journey.mjs";
 import {schemaFixture} from "./repeated-schema-journey.mjs";
 import {assertNoRecoveryFiles, settled} from "./recovery-boundary-journey.mjs";
 import {
-  designerShows, editAddress, hasNotes, keep, removeUsedField, saveEnabled, versionCommand, versionedTemplate,
-  versionsOf, withoutNotes,
+  designerShows, draftIdSent, editAddress, hasNotes, keep, removeUsedField, saveEnabled, versionCommand,
+  versionedTemplate, versionsOf, withoutNotes,
 } from "./uncertain-create-journey.mjs";
 
 // Restoring a retained draft must bring back exactly what the author typed, including input that no
@@ -310,7 +310,7 @@ export async function unresolvedVersionJourney(args) {
     const sent = [];
     const count = request => {
       if (request.method() === "POST" && versionCommand(new URL(request.url())))
-        sent.push(new URL(request.url()).searchParams.get("draft_id"));
+        sent.push(draftIdSent(request));
     };
     page.on("request", count);
     try {
@@ -319,7 +319,7 @@ export async function unresolvedVersionJourney(args) {
       const lose = async route => {
         if (draftId || route.request().method() !== "POST") return route.fallback();
         try {
-          draftId = new URL(route.request().url()).searchParams.get("draft_id");
+          draftId = draftIdSent(route.request());
           keep(created, "templates", draftId);
           if (committed) {
             const response = await route.fetch();

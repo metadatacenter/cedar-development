@@ -3,7 +3,7 @@ import {actors, call, enc, mutate} from "./rest/lib.mjs";
 import {journeyFolder} from "./journey-fixtures.mjs";
 import {assertNoRecoveryFiles} from "./recovery-boundary-journey.mjs";
 import {
-  createNewDraft, designerShows, editAddress, hasNotes, keep, removeUsedField, saveEnabled,
+  createNewDraft, designerShows, draftIdSent, editAddress, hasNotes, keep, removeUsedField, saveEnabled,
   versionCommand, versionedTemplate, versionsOf, withoutNotes,
 } from "./uncertain-create-journey.mjs";
 
@@ -46,7 +46,7 @@ async function oneSuccessor(user, templateId, successorId, description) {
   if (description) assert.equal(successor["schema:description"], description);
 }
 
-const draftIdOf = response => new URL(response.url()).searchParams.get("draft_id");
+const draftIdOf = response => draftIdSent(response.request());
 
 /**
  * The server's validator refuses the submitted definition. A page-scoped rewrite removes the
@@ -68,12 +68,12 @@ export async function partialVersionDefinitionJourney(args) {
     const request = route.request();
     if (request.method() !== "POST") return route.fallback();
     try {
-      draftId = new URL(request.url()).searchParams.get("draft_id");
+      draftId = draftIdSent(request);
       assert.ok(draftId, "Designer names the draft's identity");
       keep(created, "templates", draftId);
       const body = request.postDataJSON();
-      assert.ok(body.properties["oslc:modifiedBy"], "Designer sends the oslc:modifiedBy declaration");
-      delete body.properties["oslc:modifiedBy"];
+      assert.ok(body.template.properties["oslc:modifiedBy"], "Designer sends the oslc:modifiedBy declaration");
+      delete body.template.properties["oslc:modifiedBy"];
       return await route.fallback({postData: JSON.stringify(body)});
     } catch (error) {
       // Answer, so the journey reports this failure rather than waiting for a reply that never comes.

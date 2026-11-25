@@ -109,10 +109,10 @@ export async function run() {
       }
 
       for (const detailsPath of [
-        '/templates/{template_id}/details',
-        '/template-elements/{template_element_id}/details',
-        '/template-fields/{template_field_id}/details',
-        '/template-instances/{template_instance_id}/details',
+        '/templates/{id}/details',
+        '/template-elements/{id}/details',
+        '/template-fields/{id}/details',
+        '/template-instances/{id}/details',
       ]) {
         check(!!paths[detailsPath]?.get?.responses?.['200']?.headers?.ETag,
             `resource: ${detailsPath} documents its graph ETag`,
@@ -120,10 +120,10 @@ export async function run() {
       }
 
       for (const artifactPath of [
-        '/templates/{template_id}',
-        '/template-elements/{template_element_id}',
-        '/template-fields/{template_field_id}',
-        '/template-instances/{template_instance_id}',
+        '/templates/{id}',
+        '/template-elements/{id}',
+        '/template-fields/{id}',
+        '/template-instances/{id}',
       ]) {
         const operation = paths[artifactPath]?.delete;
         check(operation?.parameters?.some(parameter =>

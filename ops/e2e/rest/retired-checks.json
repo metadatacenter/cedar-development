@@ -114,6 +114,120 @@
       "section": "bodies: every write refuses every malformed body with 400",
       "name": "attach a category: a property the write does not take is refused with 400",
       "reason": "POST /command/attach-category was removed; attach-categories is the only attach command. The same malformed bodies are sent to it under its own check names."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: drafts under a supplied identity",
+      "name": "publish-create-draft-template: a draft_id another artifact holds is refused before publishing",
+      "reason": "The command's draft identity moved from the draft_id query parameter into the draftId body property, and the check is renamed for it with the same assertion."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: drafts under a supplied identity",
+      "name": "publish-create-draft-template: a draft_id that is not a template identifier is refused",
+      "reason": "The command's draft identity moved from the draft_id query parameter into the draftId body property, and the check is renamed for it with the same assertion."
+    },
+    {
+      "suite": "versioning",
+      "section": "versioning: drafts under a supplied identity",
+      "name": "publish-create-draft-template: the draft is created under the supplied draft_id",
+      "reason": "The command's draft identity moved from the draft_id query parameter into the draftId body property, and the check is renamed for it with the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: /templates/{template_id}/details documents its graph ETag",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: /template-elements/{template_element_id}/details documents its graph ETag",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: /template-fields/{template_field_id}/details documents its graph ETag",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: /template-instances/{template_instance_id}/details documents its graph ETag",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /templates/{template_id} documents its required If-Match header",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /templates/{template_id} documents stale and missing preconditions",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /templates/{template_id} distinguishes pending and complete cleanup",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-elements/{template_element_id} documents its required If-Match header",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-elements/{template_element_id} documents stale and missing preconditions",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-elements/{template_element_id} distinguishes pending and complete cleanup",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-fields/{template_field_id} documents its required If-Match header",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-fields/{template_field_id} documents stale and missing preconditions",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-fields/{template_field_id} distinguishes pending and complete cleanup",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-instances/{template_instance_id} documents its required If-Match header",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-instances/{template_instance_id} documents stale and missing preconditions",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
+    },
+    {
+      "suite": "apidocs",
+      "section": "apidocs: each API server serves a valid, populated OpenAPI 3 spec",
+      "name": "resource: DELETE /template-instances/{template_instance_id} distinguishes pending and complete cleanup",
+      "reason": "The resource server's path variable for the resource a path ends at is now {id}, so the check names the path under its new template and makes the same assertion."
     }
   ]
 }

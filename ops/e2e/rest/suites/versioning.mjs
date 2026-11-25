@@ -285,9 +285,9 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     cleanup('template', `/templates/${enc(pcdId)}`, pcdName);  // the source, which becomes published
     const loaded = await call(auth, 'GET', `/templates/${enc(pcdId)}`);
     const body = loaded.body;
-    checkStatus(await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, body),
+    checkStatus(await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, { template: body }),
       428, 'publish-create-draft requires the loaded source ETag');
-    const res = await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, body,
+    const res = await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, { template: body },
       { headers: { 'If-Match': loaded.headers.get('etag') } });
     if (checkStatus(res, [200, 201], 'publish-create-draft-template returns')) {
       const draftId = res.body?.['@id'];
@@ -382,12 +382,13 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
       cleanup('template', sourceAt, pcdSourceName);
       const opened = await call(auth, 'GET', sourceAt);
       const etag = opened.headers.get('etag');
-      const command = draft => `/command/publish-create-draft-template/${enc(sourceId)}?draft_id=${enc(draft)}`;
-      const send = draft => call(auth, 'POST', command(draft), opened.body, { headers: { 'If-Match': etag } });
+      const command = `/command/publish-create-draft-template/${enc(sourceId)}`;
+      const send = draftId => call(auth, 'POST', command, { template: opened.body, draftId },
+          { headers: { 'If-Match': etag } });
 
       const taken = await send(occupantId);
       if (checkStatus(taken, 412,
-          'publish-create-draft-template: a draft_id another artifact holds is refused before publishing')) {
+          'publish-create-draft-template: a draftId another artifact holds is refused before publishing')) {
         check((taken.text ?? '').includes('nodeAlreadyPresent'),
             'publish-create-draft-template: and the refusal says the identity is already present',
             `body was ${(taken.text ?? '').slice(0, 200)}`);
@@ -400,16 +401,32 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
           `status ${unpublished.body?.['bibo:status']}, ETag ${etag} then ${unpublished.headers.get('etag')}, `
           + `${versionsAfterTaken} versions`);
       checkStatus(await send('not-an-identifier'), 400,
-          'publish-create-draft-template: a draft_id that is not a template identifier is refused');
+          'publish-create-draft-template: a draftId that is not a template identifier is refused');
       const afterMalformed = await call(auth, 'GET', sourceAt);
       check(afterMalformed.body?.['bibo:status'] === 'bibo:draft' && afterMalformed.headers.get('etag') === etag,
           'publish-create-draft-template: and the source is not published',
           `status ${afterMalformed.body?.['bibo:status']}, ETag ${etag} then ${afterMalformed.headers.get('etag')}`);
 
+      // The command took draft_id and folder_name as query parameters until its inputs moved into the
+      // body. Either one is refused by name rather than ignored.
+      for (const [parameter, value] of [['draft_id', mintId('templates')], ['folder_name', `Copies ${RUN}`]]) {
+        const old = await call(auth, 'POST', `${command}?${parameter}=${enc(value)}`, { template: opened.body },
+            { headers: { 'If-Match': etag } });
+        if (checkStatus(old, 400, `publish-create-draft-template: the retired ${parameter} query parameter is refused`)) {
+          check((old.text ?? '').includes(parameter),
+              `publish-create-draft-template: and the refusal names ${parameter}`,
+              `body was ${(old.text ?? '').slice(0, 200)}`);
+        }
+      }
+      const afterRetired = await call(auth, 'GET', sourceAt);
+      check(afterRetired.body?.['bibo:status'] === 'bibo:draft' && afterRetired.headers.get('etag') === etag,
+          'publish-create-draft-template: and the retired parameters publish nothing',
+          `status ${afterRetired.body?.['bibo:status']}, ETag ${etag} then ${afterRetired.headers.get('etag')}`);
+
       const draftId = mintId('templates');
       cleanup('template', `/templates/${enc(draftId)}`, `${pcdSourceName} draft`);
       const created = await send(draftId);
-      if (checkStatus(created, 200, 'publish-create-draft-template: the draft is created under the supplied draft_id')) {
+      if (checkStatus(created, 200, 'publish-create-draft-template: the draft is created under the supplied draftId')) {
         check(created.body?.['@id'] === draftId, 'publish-create-draft-template: and the reply names that identity',
             `the reply named ${created.body?.['@id']}`);
         const stored = await call(auth, 'GET', `/templates/${enc(draftId)}`);
@@ -452,8 +469,8 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
         `${verdict.status}, validates=${verdict.body?.validates}`);
     const draftId = mintId('templates');
     cleanup('template', `/templates/${enc(draftId)}`, `${invalidName} draft`);
-    const command = `/command/publish-create-draft-template/${enc(sourceId)}?draft_id=${enc(draftId)}`;
-    const refused = await call(auth, 'POST', command, broken, { headers: { 'If-Match': etag } });
+    const command = `/command/publish-create-draft-template/${enc(sourceId)}`;
+    const refused = await call(auth, 'POST', command, { template: broken, draftId }, { headers: { 'If-Match': etag } });
     if (checkStatus(refused, 400, 'an invalid definition: the command refuses it')) {
       const errors = refused.body?.objects?.validationReport?.errors;
       check(Array.isArray(errors) && errors.length > 0, 'an invalid definition: and the refusal carries the validation report',
@@ -470,7 +487,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     check(versionsAfterRefusal === 1 && successor.status === 404, 'an invalid definition: and no successor exists',
         `${versionsAfterRefusal} versions; the draft identity answered ${successor.status}`);
 
-    const corrected = await call(auth, 'POST', command, opened.body, { headers: { 'If-Match': etag } });
+    const corrected = await call(auth, 'POST', command, { template: opened.body, draftId }, { headers: { 'If-Match': etag } });
     if (checkStatus(corrected, 200, 'an invalid definition: the corrected definition with the same If-Match is accepted')) {
       const stored = await call(auth, 'GET', `/templates/${enc(draftId)}`);
       const versionsAfterRetry = await versionsOf(sourceId);
@@ -478,7 +495,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
             && versionsAfterRetry === 2,
           'an invalid definition: and exactly one successor follows the source',
           `reply ${corrected.body?.['@id']}, previous ${stored.body?.['pav:previousVersion']}, ${versionsAfterRetry} versions`);
-      checkStatus(await call(auth, 'POST', command, opened.body, { headers: { 'If-Match': etag } }), 412,
+      checkStatus(await call(auth, 'POST', command, { template: opened.body, draftId }, { headers: { 'If-Match': etag } }), 412,
           'an invalid definition: a repeat of the corrected request is refused');
       const versionsAfterRepeat = await versionsOf(sourceId);
       check(versionsAfterRepeat === 2, 'an invalid definition: and the source still has exactly two versions',
@@ -511,13 +528,13 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
         cleanup('template', ownedAt, ownedName);
         const draftId = mintId('templates');
         cleanup('template', `/templates/${enc(draftId)}`, `${ownedName} draft`);
-        const command = `/command/publish-create-draft-template/${enc(ownedId)}?draft_id=${enc(draftId)}`;
+        const command = `/command/publish-create-draft-template/${enc(ownedId)}`;
         let opened;
         if (checkStatus(await grant('viewer'), 200,
             'a parent the owner may not create in: the first user is downgraded to viewer')) {
           opened = await call(auth, 'GET', ownedAt);
           const etag = opened.headers.get('etag');
-          checkStatus(await call(auth, 'POST', command, opened.body, { headers: { 'If-Match': etag } }), 403,
+          checkStatus(await call(auth, 'POST', command, { template: opened.body, draftId }, { headers: { 'If-Match': etag } }), 403,
               'a parent the owner may not create in: the command is refused');
           const after = await call(auth, 'GET', ownedAt);
           check(after.body?.['bibo:status'] === 'bibo:draft' && after.headers.get('etag') === etag,
@@ -529,10 +546,11 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
               `${versions} versions; the draft identity answered ${successor.status}`);
         }
         // Teardown removes the template as the first user, which needs the editor grant back. With the
-        // grant back, the refused request is retried unchanged, under the same draft_id and If-Match.
+        // grant back, the refused request is retried unchanged, under the same draftId and If-Match.
         if (checkStatus(await grant('editor'), 200, "a parent the owner may not create in: the first user's grant is restored")
             && opened) {
-          const send = () => call(auth, 'POST', command, opened.body, { headers: { 'If-Match': opened.headers.get('etag') } });
+          const send = () => call(auth, 'POST', command, { template: opened.body, draftId },
+              { headers: { 'If-Match': opened.headers.get('etag') } });
           const retried = await send();
           if (checkStatus(retried, 200, 'a parent the owner may not create in: once the grant is back, the same request is accepted')) {
             const stored = await call(auth, 'GET', `/templates/${enc(draftId)}`);

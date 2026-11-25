@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
 const CEDAR_ROOT = process.env.CEDAR_HOME ?? fileURLToPath(new URL('../../../../', import.meta.url));
 const CONTRACTS = {
   group: { server: 'group', path: '/groups/{id}' },
-  permissions: { server: 'resource', path: '/folders/{folder_id}/permissions' },
-  listing: { server: 'resource', path: '/folders/{folder_id}/contents' },
+  permissions: { server: 'resource', path: '/folders/{id}/permissions' },
+  listing: { server: 'resource', path: '/folders/{id}/contents' },
 };
 // OpenAPI 3.0 Schema Objects include annotations outside JSON Schema. Ajv supports their nullable
 // keyword; leave annotation strictness off, preserve additionalProperties, and never coerce data.

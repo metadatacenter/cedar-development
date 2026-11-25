@@ -121,7 +121,7 @@ test('an anonymous probe sends a body that parses, every required query paramete
     .probes.find(probe => probe.kind === 'anonymous').request;
   assert.match(of('terminology', 'GET', '/bioportal/property_search').path, /\?q=x$/);
   assert.match(of('bridge', 'POST', '/datacite/create-doi').path, /\?source_artifact_id=.*&state=draft$/);
-  assert.equal(of('resource', 'DELETE', '/templates/{template_id}').headers['If-Match'], '"0"');
+  assert.equal(of('resource', 'DELETE', '/templates/{id}').headers['If-Match'], '"0"');
 });
 
 /** Every service as a stub: a CedarError with the status the answer function gives each request. */

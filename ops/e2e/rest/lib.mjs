@@ -148,9 +148,8 @@ async function token(login, password) {
 }
 
 /**
- * The caller's own profile, which is where homeFolderId lives. There is no /users/me: the
- * resource server exposes none, and the user server keys on the id, so the id comes from the
- * token's `sub` claim.
+ * The caller's own profile, which is where homeFolderId lives. It is read by the id in the token's
+ * `sub` claim. The authentication suite checks that /users/me answers the same profile.
  */
 async function profile(auth) {
   const claims = JSON.parse(Buffer.from(auth.split('.')[1], 'base64url').toString());

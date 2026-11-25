@@ -184,6 +184,23 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
     }
   }
 
+  suite('authentication: me identifies the caller');
+
+  // Where a path holds the caller's own user identifier, `me` stands for it. It is resolved from the
+  // credential, so a request without one has nobody to resolve to.
+  const me = await call(auth, 'GET', '/users/me', undefined, { base: USER_SERVER });
+  if (check(me.status === 200, 'GET /users/me answers', `expected 200, got ${me.status}: ${(me.text ?? '').slice(0, 200)}`)) {
+    check(me.body?.['@id'] === user1.profile['@id'], 'and it is the caller\'s own profile',
+        `expected ${user1.profile['@id']}, got ${me.body?.['@id']}`);
+  }
+  const mySummary = await call(auth, 'GET', '/users/me/summary', undefined, { base: USER_SERVER });
+  check(mySummary.status === 200 && mySummary.body?.userId === user1.profile['@id'],
+      'GET /users/me/summary answers the caller\'s summary',
+      `${mySummary.status}: ${(mySummary.text ?? '').slice(0, 200)}`);
+  const anonymousMe = await call(null, 'GET', '/users/me', undefined, { base: USER_SERVER });
+  check(anonymousMe.status === 401, 'an anonymous GET /users/me is refused with 401',
+      `expected 401, got ${anonymousMe.status}: ${(anonymousMe.text ?? '').slice(0, 200)}`);
+
   suite('authentication: a forged token cannot write either');
 
   // Demonstrated only against a throwaway subtree. A parent folder the first user owns, then a write

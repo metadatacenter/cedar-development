@@ -424,11 +424,12 @@ management handle returned with the key in the user profile. The profile UI and 
 clients regenerate or delete a key through the user server with that handle:
 
 ```text
-POST   /users/{userId}/api-keys/{keyId}/regenerate
-DELETE /users/{userId}/api-keys/{keyId}
+POST   /users/{user_id}/api-keys/{id}/regenerate
+DELETE /users/{user_id}/api-keys/{id}
 ```
 
-Never substitute the credential for `{keyId}` or put it in a URL. URLs are routinely retained in
+`{user_id}` may be `me`, which names the caller. Never substitute the credential for `{id}` or put
+it in a URL. URLs are routinely retained in
 nginx access logs, browser history, traces and monitoring. New keys receive an independent UUID when
 they are created, and regeneration preserves that ID while replacing only the credential. A key
 stored before IDs were introduced is exposed with a deterministic `legacy-<sha256>` management ID;
@@ -1044,7 +1045,7 @@ at once, and the next pass fences it first. If the delete succeeds but its ackno
 the fence still prevents a delayed create from registering the missing document. Retrying a missing
 artifact (404) finishes the job. A changed or recreated document (412) is retained and the job parked.
 
-A create by `PUT`, a copy with `copyId` and a draft with `draftId` or `draft_id` each write at an
+A create by `PUT`, a copy with `copyId` and a draft with `draftId` each write at an
 identity their caller chose, and each records that identity with its intent. When such a create
 loses its answer, the resource server reads the identity back, and a document found there is
 recorded with its revision and removed unless the graph registers it. The write can also be stored
@@ -2875,6 +2876,16 @@ them. Include them in the release notice to external API callers.
   1 to 500, and `GET /logs/db-share` takes one from 1 to 500. A limit outside the range answers 400
   instead of a shortened result.
 
+**Client-visible change:** `POST /command/publish-create-draft-template/{id}` takes its inputs in
+its body, as `{"template": <definition>, "newFolderName": "…", "draftId": "…"}`, the last two
+optional. The `folder_name` and `draft_id` query parameters it took before answer 400 with an error
+that names them. `POST /command/annotations/doi` is now `POST /command/set-doi`, with the same body,
+and the old path answers 404. The user server accepts `me` wherever a path holds the caller's own
+identifier, as in `/users/me` and `/users/me/api-keys`. The resource and user servers' path
+variables now follow the naming rule, so a client generated from their OpenAPI documents sees
+`{id}` for the resource a path ends at and `{user_id}` for the user an API-key path passes through.
+Include these in the release notice to external API callers.
+
 **Client-visible change:** the monitor's request and Cypher explorers take `min_duration_ms`, and its
 trace route, now documented as `/logs/trace/{id}`, takes `max_spans`. The old `minDurationMs` and
 `maxSpans` answer 400 with an error that names them. Only the monitoring application calls these
@@ -2891,8 +2902,8 @@ confer publication or drafting authority, and instances are not versioned.
 
 A client may choose the new artifact's identifier, so that a lost reply can be settled by reading
 it. `POST /command/create-draft-artifact` accepts `draftId`, `POST /command/copy-artifact-to-folder`
-accepts `copyId`, and `POST /command/publish-create-draft-template/{id}` accepts the `draft_id` query
-parameter. Each is a full IRI in the source's collection. A malformed identifier, or one in another
+accepts `copyId`, and `POST /command/publish-create-draft-template/{id}` accepts `draftId` beside
+the `template` definition in its body. Each is a full IRI in the source's collection. A malformed identifier, or one in another
 collection, returns 400. One that either store already holds returns 412 with `nodeAlreadyPresent`
 and writes nothing. Without one, the server mints the identifier. Registration is the same either
 way, and so is cleanup, with one addition for a chosen identity. A create whose answer was lost can
@@ -2903,7 +2914,7 @@ within about thirty-five seconds of its being stored, and a retry after that suc
 `publish-create-draft-template` publishes the source, creates its draft and applies the submitted
 definition as one operation, which either does all three or changes nothing. Before publishing, it
 refuses what a later step would refuse: 403 when the owner may not create in the source's folder,
-412 for an occupied `draft_id`, and 400 with the validator's report for a definition the artifact
+412 for an occupied `draftId`, and 400 with the validator's report for a definition the artifact
 server's PUT would refuse. The definition is judged exactly as that PUT judges the body it stores,
 transforms included, without storing anything. A step that still fails after publication, through
 an outage or a race, is undone. Any successor the command created is removed from both stores,
@@ -8744,7 +8755,7 @@ MATCH (r:CedarDoiRegistration {sourceArtifactId: $id})
 RETURN r.doi, r.state, r.supersededDois, r.createdBy, r.createdAt, r.updatedAt
 ```
 
-Recording a DOI by hand through `POST /command/annotations/doi`, as
+Recording a DOI by hand through `POST /command/set-doi`, as
 [Recovering an Existing DOI Attachment](#recovering-an-existing-doi-attachment) does, leaves the
 record as it stands until the next DOI request for the artifact. That request finds the artifact
 carrying the recorded DOI, answers 409, and moves the record to `ATTACHED`.
@@ -8752,7 +8763,8 @@ carrying the recorded DOI, answers 409, and moves the record to `ATTACHED`.
 ### Recovering an existing DOI attachment
 
 When a document already carries a DOI but its graph projection does not, production 2.9.19 can
-repair the attachment through `POST /command/annotations/doi`, with `@id` set to the full artifact
+repair the attachment through `POST /command/annotations/doi`, which later releases serve as
+`POST /command/set-doi`, with `@id` set to the full artifact
 identifier and `doi` set to the exact stored `_annotations["https://datacite.com/doi"]["@id"]` value.
 This endpoint does not mint a DOI or call DataCite. The existing-document branch updates the graph
 only; it rejects a different DOI and is idempotent for the same DOI.

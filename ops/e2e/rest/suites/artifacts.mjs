@@ -230,7 +230,7 @@ export async function run({ user1, user2, admin, folderId }) {
 
   suite('artifacts: a DOI is set once, and only by someone with write access');
 
-  // POST /command/annotations/doi sets an artifact's DOI. It needs write access, and a DOI is
+  // POST /command/set-doi sets an artifact's DOI. It needs write access, and a DOI is
   // write-once: setting the same value again is idempotent, changing it to a different value is
   // refused (doiCanNotBeAltered), and a user with no access to the artifact cannot set one at all.
   const doiName = `DOI Probe ${RUN}`;
@@ -240,20 +240,24 @@ export async function run({ user1, user2, admin, folderId }) {
     cleanup('template', `/templates/${enc(did)}`, doiName);
     const doi = 'https://doi.org/10.1234/cedar-rest-suite';
 
-    checkStatus(await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi }),
+    checkStatus(await call(auth, 'POST', '/command/set-doi', { '@id': did, doi }),
         200, 'the owner sets the DOI');
-    checkStatus(await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi }),
+    checkStatus(await call(auth, 'POST', '/command/set-doi', { '@id': did, doi }),
         200, 'and setting the same DOI again is idempotent');
 
-    const altered = await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi: 'https://doi.org/10.9999/changed' });
+    const altered = await call(auth, 'POST', '/command/set-doi', { '@id': did, doi: 'https://doi.org/10.9999/changed' });
     if (checkStatus(altered, 400, 'but changing it to a different DOI is refused')) {
       check((altered.text ?? '').includes('doiCanNotBeAltered'),
           'and the body says the DOI cannot be altered',
           `body was ${(altered.text ?? '').slice(0, 200)}`);
     }
 
-    checkStatus(await call(user2.auth, 'POST', '/command/annotations/doi', { '@id': did, doi: 'https://doi.org/10.5555/outsider' }),
+    checkStatus(await call(user2.auth, 'POST', '/command/set-doi', { '@id': did, doi: 'https://doi.org/10.5555/outsider' }),
         403, 'and a user with no write access to the artifact cannot set a DOI');
+
+    // The command was /command/annotations/doi until it took the flat name.
+    checkStatus(await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi }),
+        [404, 405], 'and the old /command/annotations/doi path is gone');
   }
 
   suite('artifacts: create under a supplied identity');

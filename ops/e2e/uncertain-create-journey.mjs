@@ -24,6 +24,8 @@ const UNCONFIRMED = "could not confirm whether";
 const MINTED = collection => new RegExp(`^https://repo\\.[^/]+/${collection}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`);
 export const VERSION_COMMAND = "/command/publish-create-draft-template/";
 export const versionCommand = url => url.origin === resource && url.pathname.startsWith(VERSION_COMMAND);
+/** The draft identity a version command names, which travels in its body as `draftId`. */
+export const draftIdSent = request => request.postDataJSON()?.draftId ?? null;
 
 // Designer controls that exist only while their condition does.
 const DESIGNER_EXCEPTIONS = ["#check-save", "#recheck-access", "#sign-in-again", "#reload", "#draft-offer", "#server-issues"];
@@ -761,7 +763,7 @@ export async function uncertainVersionJourney(args) {
     const sent = [];
     const count = request => {
       if (request.method() === "POST" && versionCommand(new URL(request.url())))
-        sent.push(new URL(request.url()).searchParams.get("draft_id"));
+        sent.push(draftIdSent(request));
     };
     page.on("request", count);
     try {
@@ -771,7 +773,7 @@ export async function uncertainVersionJourney(args) {
         const request = route.request();
         if (attempt || request.method() !== "POST") return route.fallback();
         try {
-          attempt = {draftId: new URL(request.url()).searchParams.get("draft_id"), etag: request.headers()["if-match"]};
+          attempt = {draftId: draftIdSent(request), etag: request.headers()["if-match"]};
           assert.match(attempt.draftId ?? "", MINTED("templates"), "Designer minted the draft's identity");
           keep(created, "templates", attempt.draftId);
           if (outcome === "committed") {
@@ -826,7 +828,7 @@ export async function uncertainVersionJourney(args) {
         await read(user, draftPath, 404);
         const response = await createNewDraft(page);
         assert.equal(response.status(), 200, await response.text());
-        assert.equal(new URL(response.url()).searchParams.get("draft_id"), attempt.draftId, "Save sends the same draft identity");
+        assert.equal(draftIdSent(response.request()), attempt.draftId, "Save sends the same draft identity");
         assert.equal((await response.json())["@id"], attempt.draftId);
         await page.waitForURL(url => editAddress(url, "templates", attempt.draftId));
         await page.locator("#state").filter({hasText: /^Saved$/}).waitFor();
