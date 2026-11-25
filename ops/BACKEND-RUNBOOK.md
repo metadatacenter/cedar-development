@@ -485,11 +485,17 @@ After proving openness, resource reads artifact using the configured internal se
 existing backend administrator identity; it never uses the anonymous HTTP caller's credentials.
 OpenView receives only resource host/port and no artifact service credential. Its artifact Mongo
 initialization and document-operation dependency are removed, and no OpenView route reads the
-workspace graph. The shared bootstrap still connects OpenView to Neo4j for its user service and
-user-summary cache, and retains the estate's user-details Mongo configuration.
+workspace graph. Its application declares that it does not use the graph, so the shared bootstrap
+starts neither the Neo4j services nor the user service, OpenView builds no user-summary cache, and
+its health does not depend on Neo4j. It retains the estate's user-details Mongo configuration.
+
+OpenView stays as a relay. Its routes keep the links already published under its host resolving,
+while the resource server's `/open` routes are the canonical anonymous reads that a new client
+calls.
 
 The folder listing forwards only the parameters its route declares (`resource_types`, `version`,
-`publication_status`, `sort`, `limit` and `offset`), never the caller's raw query. Resource builds
+`publication_status`, `sort`, `limit` and `offset`), never the caller's raw query, and refuses
+`page`, `pageSize` and `page_size` before relaying, as every paging route does. Resource builds
 the listing's `paging` links from its own URL, so on a 200 OpenView moves each link onto its own
 request path and keeps the normalized query resource wrote. Every other answer, refusals included,
 is relayed byte for byte.

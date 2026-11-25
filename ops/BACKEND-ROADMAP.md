@@ -1668,17 +1668,3 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   calls it. Name the replacements under the convention of item 26, move both clients and the e2e
   suites, and withdraw the old forms in the same change. Done when no command remains for either
   job.
-
-- **30. Decide whether OpenView's relays stay or are withdrawn.** **Production consequence:** none
-  while they stay. Withdrawing them breaks every published OpenView link that nginx does not redirect
-  to `/open`.
-
-  Every OpenView route now relays the resource server's `/open` route for the same artifact or
-  folder and decides nothing itself, so OpenView is a process that exists to keep its URLs resolving.
-  What remains is whether that is worth a service. Either keep the relays, record that they exist for
-  the links already published under OpenView's host, and give OpenView a bootstrap that does not
-  start the Neo4j user service and user-summary cache it no longer reads; or have nginx answer
-  OpenView's paths from `/open` and retire the process, with a date. Either way, a folder listing's
-  paging links name the URL of the request that built them, so whatever answers OpenView's paths
-  must leave them pointing somewhere a reader can follow. Done when OpenView has a recorded reason
-  to stay and a bootstrap to match, or a withdrawal date.
