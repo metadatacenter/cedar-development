@@ -2787,6 +2787,9 @@ them. Include them in the release notice to external API callers.
   `/command/resource-id-lookup?input=`.
 - Every route that pages by `limit` and `offset` refuses `page`, `pageSize` and `page_size` with
   400, and the error names the parameter. Before, only the terminology server refused all three.
+- The monitor's structured log query takes a raw-row `limit` from 1 to 2000 and a grouped one from
+  1 to 500, and `GET /logs/db-share` takes one from 1 to 500. A limit outside the range answers 400
+  instead of a shortened result.
 
 ## Artifact Versioning Contract
 

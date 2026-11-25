@@ -1560,21 +1560,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   workstation with the stack running. Done when the artifact server's suite passes with class-level
   concurrency on, twice, with the development stack up and untouched.
 
-- **26. Bring the monitor's log routes onto the paging rule.** **Production consequence:** a caller
-  that asks for more rows than a route allows gets 400 rather than a shorter answer than it asked
-  for.
-
-  Every other paging route refuses a limit above 500 with 400. The monitor's raw-row log query pages
-  by cursor, defaults its limit to 100 and quietly lowers anything larger to 2000
-  (`LogQueryBuilder.java:46,147`). Its db-share route takes a `limit` but no `offset`, and quietly
-  caps the limit at 500 (`LogQueryResource.java:268,276`). A caller of either route cannot tell a
-  truncated answer from a complete one.
-
-  Decide whether raw rows keep cursor paging, which suits a log that grows while it is read. In
-  either case, refuse an out-of-range limit instead of lowering it. Give db-share an `offset`, or
-  document that it returns a single page. Done when no monitor route lowers a limit silently.
-
-- **27. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
+- **26. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
   consequence:** a caller outside CEDAR that still uses an old name breaks. CEDAR's own callers move
   in the same change.
 
@@ -1615,7 +1601,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   host has taken it. Done when the convention is in the runbook and every route follows it, or
   waits only on a published package.
 
-- **28. Give background jobs one polling shape.** **Production consequence:** none, provided the
+- **27. Give background jobs one polling shape.** **Production consequence:** none, provided the
   monitor and the caDSR tools move in the same change.
 
   Every job start answers 202, but a job's status is read in four ways:
@@ -1628,7 +1614,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   change. Done when every 202 identifies where its status is read, and every status and reset route
   has the same form.
 
-- **29. Retire the first generation of terminology routes.** **Production consequence:** a caller
+- **28. Retire the first generation of terminology routes.** **Production consequence:** a caller
   still on a retired route breaks when it is withdrawn, so callers move first.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps
@@ -1664,7 +1650,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   current-version lookups, so one replacement must exist before they can be reduced to it. Done
   when each overlapping pair has one survivor.
 
-- **30. Fold the open-state commands into one operation, and replace mark-all-as-read.**
+- **29. Fold the open-state commands into one operation, and replace mark-all-as-read.**
   **Production consequence:** none, provided the Template Editor and the Workspace move in the same
   change.
 
@@ -1672,11 +1658,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `make-folder-not-open` commands do one job, which one operation with a target and a state would
   replace. The Template Editor and the Workspace both call them. Messaging's
   `POST /command/mark-all-as-read` sits beside `PATCH /messages/{id}`, and only the Template Editor
-  calls it. Name the replacements under the convention of item 27, move both clients and the e2e
+  calls it. Name the replacements under the convention of item 26, move both clients and the e2e
   suites, and withdraw the old forms in the same change. Done when no command remains for either
   job.
 
-- **31. Give anonymous folder reads a home under `/open`.** **Production consequence:** none until a
+- **30. Give anonymous folder reads a home under `/open`.** **Production consequence:** none until a
   route is withdrawn.
 
   Two surfaces answer anonymous reads: the resource server's `/open` routes and the openview server.
