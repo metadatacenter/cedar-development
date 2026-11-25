@@ -2751,9 +2751,10 @@ turns the sweep into a diff to read rather than a search to conduct.
 
 Two consequences worth stating. External callers hold API keys and get no migration window, so a
 breaking release needs a note that reaches them. And a correction that can be made additively should
-be: accepting a second spelling of a parameter, adding a field to an error body, adding a `GET`
-alongside an existing `POST`, or sending a header nobody reads yet costs no caller anything and needs
-no release to be coordinated around it.
+be: adding a field to an error body, adding a `GET` alongside an existing `POST`, or sending a
+header nobody reads yet costs no caller anything and needs no release to be coordinated around it. A
+rename is not additive in this sense, because the [REST Naming Convention](#rest-naming-convention)
+deletes the old name in the same change.
 
 The committed `swagger.json` and `swagger.yaml` in each server are the machine-readable side of the
 same contract. Maven regenerates them from the resource annotations and `src/main/swagger/openapi-base.yaml`
@@ -2768,6 +2769,66 @@ the bytes on the wire did not move. Never add a JAX-RS method parameter merely t
 see a body, and keep open JSON-LD artifacts open with `additionalProperties: true` rather than publishing
 a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
 request and response schemas in resource, artifact, group, messaging, and worker server CI.
+
+### REST Naming Convention
+
+Every route follows one set of naming and shape rules, so that a caller who has learned one CEDAR
+server can predict the next. The core create, read, update and delete routes already follow them.
+A route that does not is moved onto them, and the backend roadmap tracks the routes still to move.
+
+Names follow four layers, each consistent within itself:
+- A literal path segment is a lowercase kebab-case noun: `/template-instances`, `/value-sets`,
+  `/api-keys`.
+- A query parameter is snake_case: `resource_types`, `folder_id`, `source_acronym`. A parameter
+  that takes several values takes them comma-separated in one parameter, and a boolean is `true` or
+  `false`.
+- A JSON body property is camelCase: `folderId`, `uiPreferences`, `notificationStatus`. The JSON-LD
+  keys of an artifact belong to the model and are outside this rule.
+- A path variable is named for what it holds. `{id}` is the identifier of the resource the path ends
+  at, a parent the path passes through is `{<kind>_id}`, as in `/users/{user_id}/api-keys/{id}`, and
+  a value that is not an identifier is named for what it is, such as `{acronym}`, `{server}` or
+  `{column}`. A path variable's name never travels on the wire, so renaming one changes only the
+  OpenAPI document and the argument names of a client generated from it.
+
+One concept has one name everywhere. A term IRI is `term_iri` in a query and `termIri` in a body, a
+property IRI is `property_iri` and `propertyIri`, and a version identifier is `version_id` and
+`versionId`. A parameter never carries two meanings. Where a path would hold the caller's own
+identifier, it also accepts `me`, as `/users/me` and `/membership/me` do.
+
+Methods mean what HTTP defines. `GET` reads, `POST` creates or acts, `PUT` replaces a whole
+representation, `PATCH` changes part of one, and `DELETE` removes. A partial update is never a
+`PUT`, and a read is a `POST` only when its query outgrows a URL, as `POST /logs/query` and
+`POST /search` do. An operation's inputs travel in its body, and query parameters only filter, page
+or shape a read.
+
+A change to one resource's state is a `PATCH` on that resource. Making a folder open, for example, is
+`PATCH /folders/{id}` with `{"isOpen": true}`. `/command/*` holds only operations that span several
+resources or start a job, such as copying, moving and reindexing, and each is a flat verb-noun name
+under `/command`.
+
+The rest of a route's shape is fixed as follows:
+- An identifier in a path is the bare UUID or the full IRI, percent-encoded as one segment, and both
+  resolve to the same resource.
+- A listing pages by `limit`, from 1 to 500 with a default of 100, and `offset`, with a default of
+  0, and refuses `page`, `pageSize` and `page_size`. A listing that grows while it is read may page by
+  `cursor` instead. A limit out of range is refused, never adjusted.
+- A time is an ISO-8601 instant. A filter on a field is `<field>_after` and `<field>_before`, as with
+  `modified_after`. A window over the data itself is `from`, inclusive, and `to`, exclusive. Bounds
+  that are versions rather than times are `from_version` and `to_version`.
+- `Accept` chooses an output format, and `?format=`, with the same values, overrides it wherever a
+  browser link must choose, since a link cannot set a header. Every artifact read and download takes
+  both.
+- A job's start answers 202 with a `Location` header that identifies the job. Each server that runs
+  jobs serves `GET /jobs/{id}` for a job's status and `POST /jobs/{id}/reset` to clear a stuck claim.
+  The monitor relays the status of the jobs it reports.
+- A refusal is a CedarError body. 401 means no valid credential, 403 a credential without the right,
+  404 nothing at that address, and 405 a method the route does not take.
+
+A route moves onto the convention in one change. Its CEDAR callers and the `ops/e2e` suites move with
+it, the old name is deleted rather than kept as an alias, and the change is listed for the release
+notice. A name that a published npm package sends stays until a release of that package sends the
+new one and its hosts have taken it. That exception covers the term picker's camelCase query
+parameters on the terminology server's versioned routes.
 
 ### Request-body boundaries
 

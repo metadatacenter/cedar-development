@@ -1519,12 +1519,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **24. Adopt a REST naming convention, and move the remaining routes onto it.** **Production
+- **24. Move the remaining routes onto the REST naming convention.** **Production
   consequence:** a caller outside CEDAR that still uses an old name breaks. CEDAR's own callers move
   in the same change.
 
-  The core create, read, update and delete routes are consistent. The newer and peripheral routes
-  name the same things in several ways:
+  The backend runbook's [REST Naming Convention](BACKEND-RUNBOOK.md#rest-naming-convention) sets
+  the rules. The newer and peripheral routes break them in several ways:
   - Query parameters are snake_case except on the terminology server's versioned routes
     (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`) and the monitor (`minDurationMs`,
     `maxSpans`). Path parameters mix `{folder_id}` and `{vs_collection}` with `{jobId}`, `{keyId}`
@@ -1550,15 +1550,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     `/command/annotations/doi` is the only nested command path. `property_search` is the only path
     segment on any server that is not kebab-case.
 
-  Write the convention into the backend runbook: snake_case query parameters, kebab-case path
-  segments, one path variable per entity, one name per concept, one form for a time range and one
-  way to choose a format. Decide there whether a new operation is a command or a resource. Apply the
-  convention first to the monitor, whose only client is the monitoring application. Move each
-  route's callers and withdraw the old name in the same change, as the runbook's one-version API
-  policy requires. Every release of the term picker sends the camelCase names of the terminology
-  server's versioned routes, so those stay until a picker release sends the new names and every
-  host has taken it. Done when the convention is in the runbook and every route follows it, or
-  waits only on a published package.
+  Move them in this order. The monitor goes first, because the monitoring application is its only
+  client. The resource server's draft commands and path variables follow, then the open-state
+  commands and the job routes of items 25 and 27, and the terminology server last. Each move takes
+  its callers and the e2e suites with it and deletes the old name. The term picker's camelCase query
+  parameters wait for a picker release that sends the new names. Done when every route follows the
+  convention, or waits only on a published package.
 
 - **25. Give background jobs one polling shape.** **Production consequence:** none, provided the
   monitor and the caDSR tools move in the same change.
@@ -1567,8 +1564,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `GET /command/index-job-status[/{jobId}]` and
   `GET /command/load-valuesets-ontology-status[/{jobId}]` on the resource server, the worker's start
   path reused as `GET …/{jobId}`, and the monitor's `/search-index/job-status`. The two reset routes
-  are named `reset-search-index-job` and `reset-valuesets-import`. Choose one shape, such as a
-  `Location` header on the 202 that identifies the job's status resource, and apply it to every job.
+  are named `reset-search-index-job` and `reset-valuesets-import`. Apply the convention's job shape:
+  each 202 carries a `Location` header that identifies the job, and each server that runs jobs serves
+  `GET /jobs/{id}` and `POST /jobs/{id}/reset`, with the monitor relaying the status it reports.
   The monitor and the caDSR value-set import poll the current routes, so they move in the same
   change. Done when every 202 identifies where its status is read, and every status and reset route
   has the same form.
@@ -1609,14 +1607,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   current-version lookups, so one replacement must exist before they can be reduced to it. Done
   when each overlapping pair has one survivor.
 
-- **27. Fold the open-state commands into one operation, and replace mark-all-as-read.**
-  **Production consequence:** none, provided the Template Editor and the Workspace move in the same
-  change.
+- **27. Replace the open-state commands with a `PATCH` on the resource.** **Production
+  consequence:** none, provided the Template Editor and the Workspace move in the same change.
 
   The resource server's `make-artifact-open`, `make-artifact-not-open`, `make-folder-open` and
-  `make-folder-not-open` commands do one job, which one operation with a target and a state would
-  replace. The Template Editor and the Workspace both call them. Messaging's
-  `POST /command/mark-all-as-read` sits beside `PATCH /messages/{id}`, and only the Template Editor
-  calls it. Name the replacements under the convention of item 24, move both clients and the e2e
-  suites, and withdraw the old forms in the same change. Done when no command remains for either
-  job.
+  `make-folder-not-open` commands each change one resource's state, which the convention expresses
+  as a `PATCH` on that resource with `{"isOpen": true}` or `{"isOpen": false}`. The Template Editor
+  and the Workspace both call the commands. Add the `PATCH` to the folder and artifact routes, move
+  both clients and the e2e suites, and delete the four commands in the same change. Messaging's
+  `POST /command/mark-all-as-read` stays a command, since it changes every unread message at once.
+  Done when no open-state command remains.
