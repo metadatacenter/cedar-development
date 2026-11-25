@@ -1552,38 +1552,31 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a single resource. Done when every route follows the convention, or waits only on a published
   package.
 
-- **25. Retire the first generation of terminology routes.** **Production consequence:** a caller
-  still on a retired route breaks when it is withdrawn, so callers move first.
+- **25. Withdraw the first-generation terminology routes when the legacy Template Editor retires.**
+  **Production consequence:** none while the routes stay. Withdrawing them breaks any caller still on
+  them, so it waits for the editor's retirement and for the anonymous search caller to be known.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps
   `POST /search`, `GET /bioportal/property_search` overlaps `POST /properties/search`, and
   `/bioportal/ontologies/{o}/properties/*` overlaps `/properties`, `/properties/hierarchy` and
-  `/properties/roots`. Under `/bioportal`, three routes resolve a current version:
-  `ontologies/{id}/versions/current`, `classes/version-current?uri=` and
-  `vs-collections/version-current?collection=`.
+  `/properties/roots`. The legacy Template Editor is the only CEDAR client of the first-generation
+  routes: its controlled-term search, autocomplete and property browser use them. That editor will be
+  retired, so it is not moved onto the newer routes. Those read only the local versioned store, which
+  on 2026-11-24 lacked 141 BioPortal ontologies, CADSR-VS and CEDAR's provisional content, so moving
+  the editor would also lose results its users get today.
 
-  The newer routes cannot yet replace the old ones for the Template Editor, the only CEDAR client
-  of the first-generation search and property routes. They read only the local versioned store,
-  while the old search sends everything except a single-ontology or subtree class search to live
-  BioPortal, and the old property routes always do. A comparison on the development store on
-  2026-11-24 found these gaps:
-  - 141 of the 1,355 BioPortal ontologies are not served, among them SNOMEDCT, ICD10, CPT, the
-    LC vocabularies and CEDARPC, CEDAR's provisional classes. A search for "melanoma" across all
-    ontologies returned 9,496 classes from the old route and 6,411 from the new.
-  - CADSR-VS is not served. NLMVS is served but not recorded as a value-set collection, so
-    `POST /search` finds none of its 600 value sets. A value set a user creates appears only after
-    a re-ingest.
-  - A value is returned only inside its value set's `matchedTerms`, so the editor's values mode has
-    no direct counterpart.
-  - `POST /search` has no subtree search. `POST /bioportal/integrated-search` with a branch
-    constraint returns the old route's descendants in the same order, so it is the successor for
-    subtree autocomplete.
-  - The property routes require a `kind`, return a different set of roots, and have no tree form,
-    so the editor's property browser needs reworking rather than a new address.
+  This item waits on that retirement, and the change that retires the editor deletes the
+  first-generation search and property routes. Two parts do not wait:
+  - Under `/bioportal`, three routes resolve a current version: `ontologies/{id}/versions/current`,
+    `classes/version-current?uri=` and `vs-collections/version-current?collection=`. The resource
+    server's freeze-on-publish calls all three, so they serve publication rather than the editor.
+    Replace them with one lookup, and move freeze-on-publish onto it.
+  - Production answered about 3,700 anonymous `GET /bioportal/search` calls between July and November
+    2026. The editor always sends a credential, so these come from another client. Identify it from the
+    request log before the route is withdrawn. Item 9 keeps the route anonymous for embedding hosts,
+    so any successor must answer such callers on the same terms.
 
-  Close the coverage gaps, move the Template Editor, then withdraw the old routes. The embeddable
-  designer's published bundles still contain a `GET /bioportal/search` call, but nothing reaches
-  it. Item 9 keeps `GET /bioportal/search` anonymous for embedding hosts, so its successor must
-  answer them on the same terms. The resource server's freeze-on-publish calls all three
-  current-version lookups, so one replacement must exist before they can be reduced to it. Done
-  when each overlapping pair has one survivor.
+  The embeddable designer's published bundles contain a `GET /bioportal/search` call that nothing
+  reaches, so they do not block the withdrawal. Done when the version lookups have one form, the
+  anonymous caller is known, and the first-generation search and property routes are gone with the
+  editor.
