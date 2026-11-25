@@ -531,9 +531,6 @@ The frontend runbook links the retained evidence and the instrumented reproducti
 - Decide whether Term details should retain the last inspected term with clearer context or follow
   the active tab and selection. This changes displayed information or selection behavior.
 - Agree whether missing Image and YouTube notices should include each complete authored field name.
-- Decide whether Preview should stack version metadata earlier at intermediate widths to keep the
-  build identifier together; at 900 pixels its final two characters wrap, while all metadata remains
-  available.
 
 The frontend runbook links the complete calibrated Designer review and focused follow-up evidence.
 These are product choices, not permission to add controls, hide information or rearrange the interface.
