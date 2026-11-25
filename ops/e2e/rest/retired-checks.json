@@ -432,6 +432,18 @@
       "section": "addressing: typed selectors and legacy identities",
       "name": "folder openness accepts a type-qualified selector",
       "reason": "Folder openness is now a PATCH on the folder's own route, so it takes the identifier in its path. The check is now that it accepts the bare identifier there."
+    },
+    {
+      "suite": "administration",
+      "section": "administration: commands over shared state refuse an ordinary user",
+      "name": "the resource server refuses to reset the search index job",
+      "reason": "The two reset commands were replaced by POST /jobs/{id}/reset, which one check of the same section probes."
+    },
+    {
+      "suite": "administration",
+      "section": "administration: commands over shared state refuse an ordinary user",
+      "name": "the resource server refuses to reset the value sets import",
+      "reason": "The two reset commands were replaced by POST /jobs/{id}/reset, which one check of the same section probes."
     }
   ]
 }

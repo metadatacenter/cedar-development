@@ -73,8 +73,7 @@ export async function run({ user1 }) {
   suite('administration: commands over shared state refuse an ordinary user');
 
   const commands = [
-    [RESOURCE, '/command/reset-search-index-job', 'the resource server refuses to reset the search index job'],
-    [RESOURCE, '/command/reset-valuesets-import', 'the resource server refuses to reset the value sets import'],
+    [RESOURCE, '/jobs/00000000-0000-0000-0000-000000000000/reset', 'the resource server refuses to reset a job'],
     [WORKER, '/command/regenerate-inclusion-subgraph', 'the worker refuses to regenerate the inclusion subgraph'],
     [MONITOR, '/search-index/regenerate', 'the monitor refuses to rebuild the search index'],
   ];

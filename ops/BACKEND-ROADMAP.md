@@ -1526,8 +1526,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   The backend runbook's [REST Naming Convention](BACKEND-RUNBOOK.md#rest-naming-convention) sets
   the rules. The newer and peripheral routes break them in several ways:
   - Query parameters are snake_case except on the terminology server's versioned routes
-    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`). Path parameters mix `{vs_collection}`
-    with `{jobId}`.
+    (`sourceAcronym`, `versionId`, `propertyIri`, `termIri`).
   - Sibling terminology routes use `ontologies/{id}` and `ontologies/{ontology}/classes`, and
     `value-sets/{id}` and `value-sets/{vs}/values`.
   - A term IRI is `subtree_root_id`, `termIri`, `propertyIri`, `uri`, `iri` or `termUri`, depending
@@ -1538,31 +1537,17 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   - A template's output format is chosen by `Accept`. An instance's is chosen by `?format=`, which
     overrides `Accept`, and `/command/convert` takes `?format=` alone.
   - The monitor relays each server's `/insight/*` routes as `/server-report/{server}/insight`.
-  - The resource server's 26 `/command/*` routes are actions, and most take their target in the
+  - The resource server's 20 `/command/*` routes are actions, and most take their target in the
     body, while recursive folder deletion also has a resource form, `/folders/{id}/deletion`.
     `property_search` is the only path
     segment on any server that is not kebab-case.
 
-  Move them in this order. The job routes of item 25 go first, and the terminology server last.
-  Each move takes its callers and the e2e suites with it and deletes the old name. The term picker's
-  camelCase query parameters wait for a picker release that sends the new names. Done when every
-  route follows the convention, or waits only on a published package.
+  Move the terminology server's routes last. Each move takes its callers and the e2e suites with it
+  and deletes the old name. The term picker's camelCase query parameters wait for a picker release
+  that sends the new names. Done when every route follows the convention, or waits only on a
+  published package.
 
-- **25. Give background jobs one polling shape.** **Production consequence:** none, provided the
-  monitor and the caDSR tools move in the same change.
-
-  Every job start answers 202, but a job's status is read in four ways:
-  `GET /command/index-job-status[/{jobId}]` and
-  `GET /command/load-valuesets-ontology-status[/{jobId}]` on the resource server, the worker's start
-  path reused as `GET …/{jobId}`, and the monitor's `/search-index/job-status`. The two reset routes
-  are named `reset-search-index-job` and `reset-valuesets-import`. Apply the convention's job shape:
-  each 202 carries a `Location` header that identifies the job, and each server that runs jobs serves
-  `GET /jobs/{id}` and `POST /jobs/{id}/reset`, with the monitor relaying the status it reports.
-  The monitor and the caDSR value-set import poll the current routes, so they move in the same
-  change. Done when every 202 identifies where its status is read, and every status and reset route
-  has the same form.
-
-- **26. Retire the first generation of terminology routes.** **Production consequence:** a caller
+- **25. Retire the first generation of terminology routes.** **Production consequence:** a caller
   still on a retired route breaks when it is withdrawn, so callers move first.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps

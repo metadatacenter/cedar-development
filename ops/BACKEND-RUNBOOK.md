@@ -1277,12 +1277,13 @@ and writes them a thousand at a time. Each document takes several small graph re
 artifact, a request to the artifact server. One thread used to make them in turn, which at
 production size meant about five hours. On the workstation, a copy of production's 305,028
 resources took 52 minutes: 15 to list them and 37 to index them. Listing pages through the graph by offset, so each page costs
-more than the last. The `GET /command/index-job-status` route reports the phase and the rate while
-it runs.
+more than the last. The job's status, at `GET /jobs/{id}`, reports the phase and the rate while it
+runs.
 
-The rebuild is queued rather than performed, so the command answers `202` with the job it started:
-the body carries the job's `jobId` and state, and a `Location` header names where to poll it. Add
-`-D-` to the call above to see that header. Poll it until the state leaves `RUNNING`. It reports the
+The rebuild is queued rather than performed, so the command answers `202` with the job it started.
+The body carries the job's `jobId` and state, and a `Location` header names the job as
+`/jobs/{id}`. Add `-D-` to the call above to see that header. Poll it until the state leaves
+`RUNNING`. It reports the
 job this command started rather than whichever job ran last over the index, so a rebuild somebody
 started after yours cannot be mistaken for it, and a `FAILED` carries the reason — which the resource
 server log has in full.
@@ -1294,13 +1295,15 @@ alias but its own: two together leave the alias naming an index that no longer e
 command over a busy index is refused with a 409 that names the job holding it and carries the same
 `Location` a 202 would, so a caller refused a rebuild can watch the one already under way.
 
-Two routes report a job. `GET /command/index-job-status` says what became of the last rebuild of each
-index and whether one is running now, which is the question to ask about an index. Appending a job
-identifier — `GET /command/index-job-status/{jobId}` — asks about one job instead, and that is the
-question to ask about a rebuild you started. Jobs are held in memory, so an identifier from before
-the last restart, or one that twenty later jobs have pushed out, is no longer known and answers 404.
-The same exclusion and the same pair of routes cover the value sets ontology import, under
-`GET /command/load-valuesets-ontology-status`.
+Every server that runs jobs reports them under `/jobs`, in one document shape whatever the kind of
+job. `GET /jobs/{id}` says what became of one job, which is the question to ask about a rebuild you
+started. `GET /jobs?kind=search-index` lists the rebuilds the resource server knows, newest first,
+so its first job is the one running now or the one that ran last, which is the question to ask
+about an index. Jobs are held in memory, so an identifier from before the last restart, or one that
+twenty later jobs of its kind have pushed out, is no longer known and answers 404. The rebuild a
+restart interrupted is the exception, and answers as `INTERRUPTED`. The same exclusion covers the
+value sets ontology import, whose jobs are listed under `kind=value-sets-import` and carry the
+`importStatus` the caDSR ingestor reads. The monitor relays both routes at the same paths.
 
 Possible-value indexing loads `CADSR-VS.owl` lazily in each process that indexes a CADSR-constrained
 field, including the resource server and projection worker. Both need the file at
@@ -1312,16 +1315,18 @@ file on its next relevant projection. Loading alone does not populate already-in
 the controlled search rebuild above after verifying the ontology and its required value-set URIs.
 The load-command status tracks that administrative command, not every process's lazy snapshot.
 
-A job that throws releases the index whatever it threw. A job that never returns cannot, so a claim
-is believed for six hours. Past that the status reports it as `overdue`, and the refusal names the
-command that takes the index back:
+A job that throws releases the index whatever it threw. A job that never returns cannot, so a
+rebuild's claim is believed while it reports progress and for an hour after its last report, and an
+import's for six hours. Past that the status reports it as `overdue`, and the refusal names the job
+and the command that takes its claim back:
 
 ```bash
-curl -s -X POST http://localhost:9007/command/reset-search-index-job -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY"
+curl -s -X POST http://localhost:9007/jobs/<jobId>/reset -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY"
 ```
 
-`reset-valuesets-import` is the same command for the value sets import's claim.
-A reset does not stop the abandoned job, so read the resource server log first and run it only once
+The same command takes back a value sets import's claim. A reset names the job because a claim is
+held by the job that took it: only the running job of a kind holds one, and a finished job answers
+409 with nothing to reset. A reset does not stop the abandoned job, so read the resource server log first and run it only once
 that job has stopped making progress; the job it abandons can no longer report, so it cannot say
 COMPLETE over the rebuild that follows it. A claim still within its deadline is left alone and
 answers 409, and the reset asks for the same permission as the rebuild it unblocks.
@@ -2820,8 +2825,9 @@ The rest of a route's shape is fixed as follows:
   browser link must choose, since a link cannot set a header. Every artifact read and download takes
   both.
 - A job's start answers 202 with a `Location` header that identifies the job. Each server that runs
-  jobs serves `GET /jobs/{id}` for a job's status and `POST /jobs/{id}/reset` to clear a stuck claim.
-  The monitor relays the status of the jobs it reports.
+  jobs serves `GET /jobs/{id}` for a job's status, in one document shape across job kinds, and
+  `GET /jobs?kind=` to list a kind's jobs newest first. Where a job holds a claim that can outlive
+  it, `POST /jobs/{id}/reset` clears the claim. The monitor relays the status of the jobs it reports.
 - A refusal is a CedarError body. 401 means no valid credential, 403 a credential without the right,
   404 nothing at that address, and 405 a method the route does not take.
 
@@ -2898,6 +2904,21 @@ requirement, the statuses and the response are those of the commands it replaces
 `POST /command/make-artifact-open`, `make-artifact-not-open`, `make-folder-open` and
 `make-folder-not-open`, which now answer 404. The Template Editor and the Workspace moved with the
 change. Include it in the release notice to external API callers.
+
+**Client-visible change:** a job is read at `GET /jobs/{id}` on the server that runs it, and a stuck
+claim is taken back with `POST /jobs/{id}/reset`. The commands that start a job are unchanged, and
+their 202 `Location` now names `/jobs/{id}`. Every job answers in one `JobStatus` document with
+`jobId`, `kind`, `command`, `state`, the timestamps, `deadlineAt`, `overdue` and `failure`, and the
+resource server's `GET /jobs?kind=search-index` or `?kind=value-sets-import` lists its jobs newest
+first. A value sets import also carries `importStatus`. The resource server's
+`GET /command/index-job-status[/{jobId}]` and `GET /command/load-valuesets-ontology-status[/{jobId}]`,
+its `POST /command/reset-search-index-job` and `POST /command/reset-valuesets-import`, the worker's
+`GET /command/regenerate-inclusion-subgraph/{jobId}` and the monitor's `GET /search-index/job-status`
+now answer 404. The monitor serves `GET /jobs` and `GET /jobs/{id}` in their place, relaying the
+resource server's. The worker's job document renames `id`, `status`, `completedAt` and `error` to
+`jobId`, `state`, `finishedAt` and `failure`, and reports a succeeded job as `COMPLETE`. The
+monitoring application, the caDSR ingestor and the `ops/e2e` suites moved with the change. Include
+it in the release notice to external API callers.
 
 ## Artifact Versioning Contract
 
@@ -3450,14 +3471,15 @@ error text when one is unreachable. Insight endpoints are operationally sensitiv
 
 Inclusion-subgraph regeneration is a tracked single-flight worker job. An authorized
 `POST /command/regenerate-inclusion-subgraph` returns `202 Accepted`, a job document, and a
-`Location` header for `GET /command/regenerate-inclusion-subgraph/{jobId}`. While that job is queued
-or running, another POST returns `409 Conflict` in the common `CedarError` envelope, with the active
-job in `objects.job` and the same status location.
-Status records expose queued, running, succeeded and failed states, including timestamps and an
-error for failures. A succeeded record also lists `unreadableArtifacts`: the templates and elements
+`Location` header for the worker's `GET /jobs/{id}`. While that job is queued or running, another
+POST returns `409 Conflict` in the common `CedarError` envelope, with the active job in
+`objects.job` and the same status location.
+The job document has the shape the resource server's jobs have. Its `state` is `QUEUED`,
+`RUNNING`, `COMPLETE` or `FAILED`, with timestamps and a `failure` for a failed job. A complete job
+also lists `unreadableArtifacts`: the templates and elements
 the artifact server answered with anything but 200 for, whose arcs the run left as they were rather
-than rewriting them from an error body. Check that list before treating a succeeded run as a
-complete rebuild. The latest 100 records are retained in worker memory, so a worker restart loses
+than rewriting them from an error body. Check that list before treating a `COMPLETE` job as a
+full rebuild. The latest 100 records are retained in worker memory, so a worker restart loses
 history and interrupts a running regeneration; resubmit after confirming the old process stopped.
 
 ## Testing CEDAR

@@ -15,8 +15,8 @@
 // Deliberately not covered, so the absence is a decision rather than an oversight:
 //   * regenerate-search-index and generate-empty-search-index — destructive admin operations that
 //     would wipe the local index out from under the rest of the run. The administration suite
-//     checks only that an ordinary user is refused them, and the reset commands beside them.
-//   * load-valuesets-ontology and its status — long-running, and dependent on live BioPortal.
+//     checks only that an ordinary user is refused them, and the job reset that frees them.
+//   * load-valuesets-ontology and polling its job — long-running, and dependent on live BioPortal.
 //   * auth-user-callback — Keycloak's own callback, not a user-facing route.
 //   * a successful administrative write, such as the monitor's index rebuild or the worker's
 //     inclusion-subgraph regeneration, for the same reason as the index operations above.
