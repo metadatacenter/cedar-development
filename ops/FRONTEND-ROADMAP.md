@@ -15,14 +15,8 @@ Refer to the concrete change by name in commits.
 
 ## UI Review Coverage
 
-### 1. Extend the Coordinated Review to Workspace
+### 1. Record OpenView's Agreed Layout Behavior
 
-- Workspace, with 129 states under Chromium and 127 under WebKit touch, has had only the
-  single-reviewer review, in which one reviewer inspects the whole capture and no second reviewer
-  verifies its findings. Its most recent review, on 17 November, covered 82 states from an earlier
-  catalogue.
-- Capture Workspace under both profiles from the current build, and review each capture with
-  `cedarcli test ui-review-coordinate`, as the other applications are reviewed.
 - OpenView has no agreed layout behavior in the frontend runbook. Record it from the answers given
   to the findings of its coordinated reviews.
 
