@@ -13,18 +13,11 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
-## UI Review Coverage
-
-### 1. Record OpenView's Agreed Layout Behavior
-
-- OpenView has no agreed layout behavior in the frontend runbook. Record it from the answers given
-  to the findings of its coordinated reviews.
-
 ## Browser Automation
 
 <a id="chrome-automation-authentication"></a>
 
-### 2. Restore Automated Staging Sign-In in Chrome
+### 1. Restore Automated Staging Sign-In in Chrome
 
 Resolve the **unfixed** staging sign-in failure when Browser Use controls Chrome navigation from
 the start. Workspace reports “Sign-in failed. Please reload.” Normal Chrome navigation followed
@@ -91,7 +84,7 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 ## Modern Frontend Performance Gates
 
-### 3. Calibrate Browser Performance Gates
+### 2. Calibrate Browser Performance Gates
 
 - Investigate the Designer host's warm small-document layout shift against the fixed reference:
   the 2026-11-13 paired report measures median CLS 0.5083 versus 0.0127, with all five candidate
@@ -104,6 +97,24 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
 - Characterize backend and authentication variability in the hosted CI 17-scenario
   full-stack sweep before considering timing enforcement. Exclude legacy applications.
+
+## Browser Test Reliability
+
+### 3. Resolve the Remaining Intermittent Browser Timing Failures
+
+- Capture correlated browser responsiveness, server request/event-loop timings, and host/container
+  CPU and memory pressure when CEE readiness/navigation or Workspace navigation next stalls.
+  The historical traces do not establish which layer delayed execution; do not attribute them to
+  competing Java builds from coincidence alone.
+- Investigate CED's read-only settings-tab inspection separately from startup. Its failure occurs
+  after the application is interactive and outline navigation has selected a field. Retain the
+  complete trace and click/scroll/settings-state sequence on recurrence.
+- Before attributing a stall of about 900 seconds, read `pmset -g log`. Idle maintenance sleep
+  freezes every process for 900 seconds at a time while the workstation is unattended.
+
+Preserve the existing deadlines, zero-retry policy and assertions. Controlled resource-starvation
+experiments can validate diagnostic signals but cannot establish the cause of an earlier failure.
+The frontend runbook links the retained evidence and the instrumented reproduction fixtures.
 
 ## CED Validation Failures
 
@@ -480,61 +491,26 @@ to a host-supplied editable document that asserts this.
 
 ## Independent UI Review
 
-### 13. Agree the Workspace Long-Path Tablet Layout
+### 13. Record OpenView's Agreed Layout Behavior
+
+- OpenView has no agreed layout behavior in the frontend runbook. Record it from the answers given
+  to the findings of its coordinated reviews.
+
+### 14. Agree the Remaining Presentation Choices
+
+The independent reviews left these product choices open. They are not permission to add controls,
+hide information or rearrange the interface. Any approved change needs rendered review, relevant
+regression checks and current-source acceptance.
+
+**Workspace.**
 
 - Develop and agree a more legible tablet arrangement for very long ancestor paths with both panels
   explicitly open. The center column is about 238 pixels and requires extra scrolling. Preserve
   full ancestor names and explicit panel control; do not automatically hide information or panels.
 
-The sealed review evidence and this proposal are linked from the frontend runbook. Any
-approved change needs rendered review, relevant regression checks and current-source acceptance.
+The sealed review evidence and this proposal are linked from the frontend runbook.
 
-### 14. Resolve the Remaining Intermittent Browser Timing Failures
-
-- Capture correlated browser responsiveness, server request/event-loop timings, and host/container
-  CPU and memory pressure when CEE readiness/navigation or Workspace navigation next stalls.
-  The historical traces do not establish which layer delayed execution; do not attribute them to
-  competing Java builds from coincidence alone.
-- Investigate CED's read-only settings-tab inspection separately from startup. Its failure occurs
-  after the application is interactive and outline navigation has selected a field. Retain the
-  complete trace and click/scroll/settings-state sequence on recurrence.
-
-- Before attributing a stall of about 900 seconds, read `pmset -g log`. Idle maintenance sleep
-  freezes every process for 900 seconds at a time while the workstation is unattended.
-
-Preserve the existing deadlines, zero-retry policy and assertions. Controlled resource-starvation
-experiments can validate diagnostic signals but cannot establish the cause of an earlier failure.
-The frontend runbook links the retained evidence and the instrumented reproduction fixtures.
-
-### 15. Capture the Remaining Workspace Screens
-
-- The UI review catalog holds no state for sharing with another account, editing descriptions, the
-  selection deletion dialog, drag and drop, the groups, profile, settings, privacy and sign-out
-  pages, toasts, the confirmation that closing a dialog or the Metadata Editor with unsaved changes
-  asks for, or write-failure recovery. Each is a screen a user reaches in ordinary work, and each has
-  a source module in `cedar-workspace`.
-- `cedarcli test ui-review-coverage` confirms the gaps it can see: no capture renders the five
-  account pages, the account shell that holds them or the drag preview, and none shows the
-  confirmation. A toast's region is on screen in most states whether or not it holds a message, so
-  the census cannot say whether a toast was ever captured.
-- Add them to the catalog and the Workspace collector with fixtures the review owns. Sharing needs
-  a second test account, so the collector must hold that account's lock as well, and it must never
-  change sharing on anything outside its own fixtures.
-
-### 16. Capture the Embedded Components No Review Shows
-
-- `cedarcli test ui-review-coverage` finds components of the embeddable packages and OpenView that
-  no capture renders, or renders without ever putting on screen.
-  - CEE: the time and timezone pickers, the term link, and a field's problems and specification.
-  - CED: the child picker, the field library sidebar, manual IRI entry, element labels, the
-    preferences and preset-definitions modals, and the property types picker.
-  - Term picker: the property detail.
-  - OpenView: the dashboard, the artifact preview and the loading spinner.
-- For each, find the journey a user takes to it and add that state to the catalog and its
-  collector, or record why no user reaches it. The standalone field designer,
-  `cedar-embeddable-field-designer`, renders in none of the four applications.
-
-### 17. Agree the Remaining Designer Presentation Choices
+**Designer.**
 
 - Agree whether expandable term rows need a visible disclosure cue and whether release-count labels
   should explicitly name releases instead of saying “of 2”.
@@ -545,4 +521,34 @@ The frontend runbook links the retained evidence and the instrumented reproducti
 - Agree whether missing Image and YouTube notices should include each complete authored field name.
 
 The frontend runbook links the complete calibrated Designer review and focused follow-up evidence.
-These are product choices, not permission to add controls, hide information or rearrange the interface.
+
+### 15. Capture the Screens No Review Shows
+
+The UI review catalog leaves out screens and components that users reach in ordinary work.
+`cedarcli test ui-review-coverage` finds many of these gaps, but not all of them.
+
+**Workspace.**
+
+- The catalog holds no state for sharing with another account, editing descriptions, the
+  selection deletion dialog, drag and drop, the groups, profile, settings, privacy and sign-out
+  pages, toasts, the confirmation that closing a dialog or the Metadata Editor with unsaved changes
+  asks for, or write-failure recovery. Each has a source module in `cedar-workspace`.
+- The coverage census confirms the gaps it can see: no capture renders the five account pages, the
+  account shell that holds them or the drag preview, and none shows the confirmation. A toast's
+  region is on screen in most states whether or not it holds a message, so the census cannot say
+  whether a toast was ever captured.
+- Add them to the catalog and the Workspace collector with fixtures the review owns. Sharing needs
+  a second test account, so the collector must hold that account's lock as well, and it must never
+  change sharing on anything outside its own fixtures.
+
+**Embedded components and OpenView.**
+
+- The census finds components that no capture renders, or renders without ever putting on screen.
+  - CEE: the time and timezone pickers, the term link, and a field's problems and specification.
+  - CED: the child picker, the field library sidebar, manual IRI entry, element labels, the
+    preferences and preset-definitions modals, and the property types picker.
+  - Term picker: the property detail.
+  - OpenView: the dashboard, the artifact preview and the loading spinner.
+- For each, find the journey a user takes to it and add that state to the catalog and its
+  collector, or record why no user reaches it. The standalone field designer,
+  `cedar-embeddable-field-designer`, renders in none of the four applications.
