@@ -32,7 +32,7 @@ export async function numericConstraintJourney({page,base,user,folderId,name,cre
   const latest=(await call(user.auth,'GET','/templates/'+enc(tid))).body;
   for(const key of ['Low','High'])Object.assign(latest.properties[key]._valueConstraints,{minValue:150,maxValue:175});
   const tightened=await mutate(user.auth,'PUT','/templates/'+enc(tid),latest);assert.equal(tightened.status,200,tightened.text);
-  const report=await call(user.auth,'POST','/command/validate?resource_type=instance',{
+  const report=await call(user.auth,'POST','/artifact-validations/instance',{
     ...before.body,Low:{'@value':'125','@type':'xsd:decimal'},High:{'@value':'190','@type':'xsd:decimal'},
   });
   assert.equal(report.status,200,report.text);

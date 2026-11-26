@@ -70,14 +70,14 @@ export async function run() {
     }
 
     if (s.label === 'resource') {
-      const rename = paths['/command/rename-resource']?.post;
+      const rename = paths['/templates/{id}']?.patch;
       const renameParameters = rename?.parameters ?? [];
       check(renameParameters.some(parameter => parameter?.$ref === '#/components/parameters/IfMatch'),
           'resource: rename documents its required If-Match header',
-          'POST /command/rename-resource omitted the shared IfMatch parameter');
+          'PATCH /templates/{id} omitted the shared IfMatch parameter');
       check(!!rename?.responses?.['412'] && !!rename?.responses?.['428'],
           'resource: rename documents stale and missing preconditions',
-          'POST /command/rename-resource omitted 412 or 428');
+          'PATCH /templates/{id} omitted 412 or 428');
       const move = paths['/command/move-resource-to-folder']?.post;
       check(move?.parameters?.some(parameter => parameter?.$ref === '#/components/parameters/IfMatch'),
           'resource: move documents its required source If-Match header',

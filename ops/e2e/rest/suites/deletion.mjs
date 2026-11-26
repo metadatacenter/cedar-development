@@ -45,7 +45,7 @@ async function buildChain(auth, kind, versions, places, label) {
       res = await call(auth, 'POST', `${COLLECTION[kind]}?folder_id=${enc(parent)}`, artifactBody(kind, label));
       if (res.status !== 201) return null;
     } else {
-      const published = await call(auth, 'POST', '/command/publish-artifact', { '@id': ids[i - 1], newVersion: versions[i - 1][0] });
+      const published = await call(auth, 'PATCH', publicationPath(ids[i - 1]), { newVersion: versions[i - 1][0] });
       if (![200, 201].includes(published.status)) return null;
       res = await call(auth, 'POST', '/command/create-draft-artifact',
           { '@id': ids[i - 1], folderId: parent, newVersion: version, propagateSharing: false });
@@ -121,4 +121,9 @@ async function deleteTemplateWithInstances(auth, homeFolderId) {
       `${outcome.status}: ${JSON.stringify(outcome.body)}`);
   check(outcome.body?.deleted?.instance === instances && outcome.body?.deleted?.template === ids.length,
       'every instance and version is counted as deleted', JSON.stringify(outcome.body?.deleted));
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

@@ -60,7 +60,7 @@ const published = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)
 assert.equal(published.status, 201, `published template: ${published.text?.slice(0, 300)}`);
 const publishedId = published.body['@id'];
 created.push({ collection: 'templates', id: publishedId });
-const release = await call(auth, 'POST', '/command/publish-artifact', { '@id': publishedId, newVersion: '1.0.0' });
+const release = await call(auth, 'PATCH', publicationPath(publishedId), { newVersion: '1.0.0' });
 assert.equal(release.status, 200, `publish: ${release.text?.slice(0, 300)}`);
 
 const draftName = `Bubbling DRAFT ${RUN}`;
@@ -193,4 +193,9 @@ try {
     const result = await mutate(auth, 'DELETE', `/${item.collection}/${enc(item.id)}`);
     assert.ok([200, 204].includes(result.status), `Cleanup failed: ${result.text}`);
   }
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

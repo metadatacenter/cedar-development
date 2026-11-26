@@ -75,7 +75,7 @@ test('no request reaches DataCite, BioPortal or an external registry', () => {
   const all = plans();
   const of = (server, method, path) => all.find(p => p.server === server && p.method === method && p.path === path);
   assert.deepEqual(of('bridge', 'GET', '/datacite/doi-metadata/{id}').probes.map(p => p.kind), ['anonymous']);
-  for (const path of ['/bioportal/search', '/bioportal/ontologies/{ontology}/classes/{id}/descendants']) {
+  for (const path of ['/bioportal/search', '/bioportal/ontologies/{acronym}/classes/{id}/descendants']) {
     assert.deepEqual(of('terminology', 'GET', path).probes, [], path);
   }
   for (const p of all.filter(p => p.server === 'terminology' && p.path.startsWith('/bioportal/') && p.method === 'GET')) {
@@ -119,7 +119,7 @@ test('an anonymous probe sends a body that parses, every required query paramete
   }
   const of = (server, method, path) => plans().find(p => p.server === server && p.method === method && p.path === path)
     .probes.find(probe => probe.kind === 'anonymous').request;
-  assert.match(of('terminology', 'GET', '/bioportal/property_search').path, /\?q=x$/);
+  assert.match(of('terminology', 'GET', '/bioportal/property-search').path, /\?q=x$/);
   assert.match(of('bridge', 'POST', '/datacite/create-doi').path, /\?source_artifact_id=.*&state=draft$/);
   assert.equal(of('resource', 'DELETE', '/templates/{id}').headers['If-Match'], '"0"');
 });
@@ -166,12 +166,12 @@ test('every anonymous check passes when each service answers 401 without credent
 });
 
 test('an operation named as validating first may answer its named status, and only that one', async t => {
-  const entry = { server: 'terminology', method: 'GET', path: '/bioportal/property_search', status: 400,
+  const entry = { server: 'terminology', method: 'GET', path: '/bioportal/property-search', status: 400,
     reason: 'an entry for this test' };
   errors.VALIDATES_FIRST.push(entry);
   try {
     const answer = status => (url, options) => (options.headers?.Authorization ? 404
-      : url.pathname.endsWith('/bioportal/property_search') ? status : 401);
+      : url.pathname.endsWith('/bioportal/property-search') ? status : 401);
     const terminology = verdicts => verdicts.find(c => c.name.startsWith('terminology:')).status;
     assert.equal(terminology(await anonymousVerdicts(t, answer(400))), 'passed');
     assert.equal(terminology(await anonymousVerdicts(t, answer(404))), 'failed');

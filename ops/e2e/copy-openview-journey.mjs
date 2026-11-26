@@ -89,7 +89,7 @@ export async function copyOpenViewJourney(args) {
   // CED checks template update impact before saving; deletion is caught there
   // before a conditional PUT can be sent.
   const deletedRead = page.waitForResponse(response =>
-    new URL(response.url()).pathname === "/command/check-update-template/" + pathId(copy["@id"]) &&
+    new URL(response.url()).pathname === "/template-update-checks/" + pathId(copy["@id"]) &&
     response.status() === 404);
   await page.locator("#save").click();
   await deletedRead;

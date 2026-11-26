@@ -67,7 +67,7 @@ export async function templateSharingJourney(args) {
     assert.ok(await sharedWithMeLists(reader, templateName), "Shared with Me does not list the template");
     await menu(reader, templateName, "Rename");
     await modal(reader).getByLabel("Description", { exact: true }).fill("Changed by editor");
-    await save(reader, write, "POST", "/command/rename-resource", 200, true);
+    await save(reader, write, "PATCH", /\/(?:templates|template-elements|template-fields|template-instances|folders)\/[^/]+$/, 200, true);
     // The editor opened with permission; another user removes that permission while
     // its draft is still open. This differs from initially opening a read-only page.
     await reader.goto(designer + "/templates/edit/" + enc(templateId));
@@ -167,7 +167,7 @@ export async function ownershipTransferJourney(args) {
   const permissionPath = "/templates/" + enc(templateId) + "/permissions";
   const transferOwnership = async (p, toName, toUser) => {
     const confirmation = p.locator("dialog.confirmation-dialog");
-    const permissions = await write(p, "POST", "/command/transfer-resource-ownership", async () => {
+    const permissions = await write(p, "PATCH", /\/permissions$/, async () => {
       await modal(p).getByRole("checkbox", { name: `Make ${toName} the owner`, exact: true }).click();
       await confirmation.getByRole("button", { name: "Yes", exact: true }).click();
     }, 200);
@@ -213,8 +213,8 @@ export async function ownershipTransferJourney(args) {
     // while the second user owns it hands it back first.
     const acl = await call(user2.auth, "GET", permissionPath);
     if (acl.status === 200 && acl.body.owner?.["@id"] === user2.profile["@id"]) {
-      const back = await mutate(user2.auth, "POST", "/command/transfer-resource-ownership",
-        { "@id": templateId, newOwnerId: user.profile["@id"] }, { etagPath: permissionPath });
+      const back = await mutate(user2.auth, "PATCH", permissionPath,
+        { newOwnerId: user.profile["@id"] }, { etagPath: permissionPath });
       assert.equal(back.status, 200, back.text);
     }
   }

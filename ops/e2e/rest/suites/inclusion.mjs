@@ -1,4 +1,4 @@
-// Element inclusion and its propagation subgraph: POST /command/inclusions-subgraph-{preview,update}.
+// Element inclusion and its propagation subgraph: POST /inclusion-subgraphs/query and /command/update-inclusions-subgraph.
 //
 // When a template embeds an element, a change to the element affects the template. On create the
 // resource server records an inclusion arc template -> element; these two endpoints compute the tree of
@@ -55,7 +55,7 @@ export async function run({ user1, user2, folderId }) {
   cleanup('template', `/templates/${enc(tid)}`, tLabel);
 
   // Previewing the tree affected by a change to the element must list the embedding template.
-  const preview = await call(auth, 'POST', '/command/inclusions-subgraph-preview', { '@id': eid });
+  const preview = await call(auth, 'POST', '/inclusion-subgraphs/query', { '@id': eid });
   if (checkStatus(preview, 200, 'previewing the element\'s affected tree returns')) {
     check(preview.body?.['@id'] === eid && !!preview.body?.templates && !!preview.body?.elements,
         'the response echoes the id and carries the affected elements and templates',
@@ -73,9 +73,9 @@ export async function run({ user1, user2, folderId }) {
       'the source element is changed after it was embedded');
   if (preview.body?.templates?.[tid]) {
     preview.body.templates[tid].operation = 'update';
-    const selected = await call(auth, 'POST', '/command/inclusions-subgraph-preview', preview.body);
+    const selected = await call(auth, 'POST', '/inclusion-subgraphs/query', preview.body);
     if (checkStatus(selected, 200, 'the selector can submit the complete preview with a selection')) {
-      checkStatus(await call(auth, 'POST', '/command/inclusions-subgraph-update', selected.body),
+      checkStatus(await call(auth, 'POST', '/command/update-inclusions-subgraph', selected.body),
           200, 'applying the inclusion-subgraph update succeeds');
       const stored = await call(auth, 'GET', `/templates/${enc(tid)}`);
       check(stored.body?.properties?.embeddedElement?.['schema:description'] === changedDescription,
@@ -91,7 +91,7 @@ export async function run({ user1, user2, folderId }) {
   const solo = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, artifactBody('template', soloName));
   if (checkStatus(solo, 201, 'a standalone template is created')) {
     cleanup('template', `/templates/${enc(solo.body['@id'])}`, soloName);
-    const empty = await call(auth, 'POST', '/command/inclusions-subgraph-preview', { '@id': solo.body['@id'] });
+    const empty = await call(auth, 'POST', '/inclusion-subgraphs/query', { '@id': solo.body['@id'] });
     if (checkStatus(empty, 200, 'previewing a standalone artifact returns')) {
       check(Object.keys(empty.body?.templates ?? {}).length === 0 && Object.keys(empty.body?.elements ?? {}).length === 0,
           'and its affected tree is empty', `it was ${JSON.stringify(empty.body).slice(0, 160)}`);
@@ -119,7 +119,7 @@ export async function run({ user1, user2, folderId }) {
     checkStatus(await shareRead(`/template-elements/${enc(eid)}`), 200, 'the element is shared with the second user');
     checkStatus(await shareRead(`/templates/${enc(tid)}`), 200, 'one of the two embedding templates is shared with them');
 
-    const theirs = await call(user2.auth, 'POST', '/command/inclusions-subgraph-preview', { '@id': eid });
+    const theirs = await call(user2.auth, 'POST', '/inclusion-subgraphs/query', { '@id': eid });
     if (checkStatus(theirs, 200, 'the second user can preview the element shared with them')) {
       const seen = Object.keys(theirs.body?.templates ?? {});
       check(seen.includes(tid), 'the template shared with them is in their affected tree',
@@ -130,7 +130,7 @@ export async function run({ user1, user2, folderId }) {
 
     // The owner still sees both, so the filtering above is the caller's access rather than a tree that
     // lost an entry for some other reason.
-    const mine = await call(auth, 'POST', '/command/inclusions-subgraph-preview', { '@id': eid });
+    const mine = await call(auth, 'POST', '/inclusion-subgraphs/query', { '@id': eid });
     if (checkStatus(mine, 200, 'the owner previews the same element')) {
       const seen = Object.keys(mine.body?.templates ?? {});
       check(seen.includes(tid) && seen.includes(pid), 'and sees both embedding templates',
@@ -150,7 +150,7 @@ export async function run({ user1, user2, folderId }) {
 
     // Reading a target is not authority to rewrite it.
     const readable = await stored(tid);
-    checkStatus(await call(user2.auth, 'POST', '/command/inclusions-subgraph-update',
+    checkStatus(await call(user2.auth, 'POST', '/command/update-inclusions-subgraph',
         { '@id': eid, templates: { [tid]: { operation: 'update' } } }), 403,
         'propagating into a template they may read but not write is refused');
     const readableAfter = await stored(tid);
@@ -161,7 +161,7 @@ export async function run({ user1, user2, folderId }) {
     // for it and nothing is written. The private template still holds the element as it was before the
     // change above, so a propagation into it would change what it stores.
     const hidden = await stored(pid);
-    const unseen = await call(user2.auth, 'POST', '/command/inclusions-subgraph-update',
+    const unseen = await call(user2.auth, 'POST', '/command/update-inclusions-subgraph',
         { '@id': eid, templates: { [pid]: { operation: 'update' } } });
     if (checkStatus(unseen, 200, 'naming a template they cannot see succeeds')) {
       check((unseen.body?.outcomes ?? []).length === 0, 'having planned no work at all',
@@ -174,11 +174,11 @@ export async function run({ user1, user2, folderId }) {
 
   suite('inclusion: the requests the endpoints must refuse');
 
-  checkStatus(await call(auth, 'POST', '/command/inclusions-subgraph-preview', {}), 400,
+  checkStatus(await call(auth, 'POST', '/inclusion-subgraphs/query', {}), 400,
       'a preview with no @id is refused with 400');
-  checkStatus(await call(auth, 'POST', '/command/inclusions-subgraph-update', {}), 400,
+  checkStatus(await call(auth, 'POST', '/command/update-inclusions-subgraph', {}), 400,
       'an update with no @id is refused with 400');
-  const anon = await fetch(`${RESOURCE}/command/inclusions-subgraph-preview`,
+  const anon = await fetch(`${RESOURCE}/inclusion-subgraphs/query`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ '@id': eid }) });
   check(anon.status === 401, 'an anonymous caller is refused with 401', `got ${anon.status}`);
 

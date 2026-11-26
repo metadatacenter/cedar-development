@@ -903,7 +903,7 @@ async function verifyDeleteVsStaleSave(page, user1, folderId) {
     };
     stalePage.on('request', observePut);
     const pendingRefusal = stalePage.waitForResponse(response =>
-      (response.request().method() === 'POST' && /\/command\/check-update-template\//.test(response.url())
+      (response.request().method() === 'POST' && /\/template-update-checks\//.test(response.url())
           && response.status() === 404)
         || (response.request().method() === 'PUT' && /\/templates\//.test(response.url())
           && response.status() === 412),
@@ -996,8 +996,8 @@ async function renameViaMenu(page, from, to) {
   // The modal fetches the current resource before binding it, and its previous input is already
   // visible on a second open; wait for that load before editing or it can replace the new name.
   await setText(field, to);
-  const renamed = page.waitForResponse(response => response.request().method() === 'POST'
-    && /\/command\/rename-resource(?:\?|$)/.test(response.url()));
+  const renamed = page.waitForResponse(response => response.request().method() === 'PATCH'
+    && /\/(templates|template-elements|template-fields|template-instances|folders)\/[^/?]+(?:\?|$)/.test(response.url()));
   await modal.locator('div.modal-footer button.btn-save').first().click();
   const response = await renamed;
   if (!response.ok()) throw new Error(`rename answered ${response.status()}: ${await response.text()}`);
@@ -1101,8 +1101,7 @@ async function revokeUserShare(page, folderId, templateName, userName) {
 async function transferTemplateOwnership(from, to, templateId) {
   const newOwnerId = to.profile?.['@id'] ?? to.profile?.id;
   if (!newOwnerId) throw new Error('the ownership-transfer recipient has no user identifier');
-  const response = await restMutate(from.auth, 'POST', '/command/transfer-resource-ownership', {
-    '@id': templateId,
+  const response = await restMutate(from.auth, 'PATCH', `/templates/${enc(templateId)}/permissions`, {
     newOwnerId,
   }, { etagPath: `/templates/${enc(templateId)}/permissions` });
   if (response.status !== 200) {
@@ -1246,7 +1245,7 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     await setText(recipientPage.getByRole('textbox', { name: 'Description' }).first(), deniedValue);
     const deniedPending = recipientPage.waitForResponse(response => response.status() === 403
         && ((response.request().method() === 'PUT' && /\/templates\//.test(response.url()))
-          || (response.request().method() === 'POST' && /\/command\/check-update-template\//.test(response.url()))),
+          || (response.request().method() === 'POST' && /\/template-update-checks\//.test(response.url()))),
       { timeout: 20_000 });
     await recipientPage.getByRole('button', { name: 'Save Template' }).click();
     await deniedPending;
@@ -1744,8 +1743,8 @@ async function publishFromWorkspace(page, folderId, templateName, version) {
       'a.publish:visible', true, 'Workspace disabled Publish for a writable draft');
   await publish.click();
   const modal = await setVersionModal(page, version);
-  const pending = page.waitForResponse(response => response.request().method() === 'POST'
-      && /\/command\/publish-artifact(?:\?|$)/.test(response.url()) && response.ok(),
+  const pending = page.waitForResponse(response => response.request().method() === 'PATCH'
+      && /\/publication(?:\?|$)/.test(response.url()) && response.ok(),
     { timeout: 20_000 });
   await modal.locator('button.confirm').click();
   return pending;

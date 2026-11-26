@@ -76,7 +76,7 @@ export async function run({ user1, folderId }) {
   const pid = created.body['@id'];
   cleanup('template', `/templates/${enc(pid)}`, template['schema:name']);
 
-  const published = await call(auth, 'POST', '/command/publish-artifact', { '@id': pid, newVersion: '1.0.0' });
+  const published = await call(auth, 'PATCH', publicationPath(pid), { newVersion: '1.0.0' });
   if (!checkStatus(published, [200, 201], 'it publishes (the injected version fields pass validation)')) {
     return;
   }
@@ -100,4 +100,9 @@ export async function run({ user1, folderId }) {
   const unserved = of('valueSets').find(e => e.key === 'ZZVS');
   check(!!unserved && unserved.versionId === null,
       'an unserved value-set constraint is left unpinned', JSON.stringify(unserved));
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

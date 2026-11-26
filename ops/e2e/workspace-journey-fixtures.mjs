@@ -144,7 +144,7 @@ export async function menu(p, name, label) {
 
 // OpenView changes, the only PATCH a dialog sends, publications and drafts confirm with "Ok" rather than "Save".
 const confirmLabel = (method, path) =>
-  method === "PATCH" || /publish-artifact|create-draft-artifact/.test(path) ? "Ok" : "Save";
+  (method === "PATCH" && typeof path === "string") || /publication|create-draft-artifact/.test(path) ? "Ok" : "Save";
 
 /** Confirms the open dialog, asserts the write the confirmation sends, and returns once the dialog has closed. */
 export async function save(p, write, method, path, status = 200, conditional = false) {

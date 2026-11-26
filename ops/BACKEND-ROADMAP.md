@@ -1333,45 +1333,20 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **24. Move the remaining routes onto the REST naming convention.** **Production
-  consequence:** a caller outside CEDAR that still uses an old name breaks. CEDAR's own callers move
-  in the same change.
-
-  The backend runbook's [REST Naming Convention](BACKEND-RUNBOOK.md#rest-naming-convention) sets
-  the rules. Four pieces of work remain.
-
-  Template, element and field reads and downloads take no `?format=`, so a browser link cannot
-  choose YAML for them. Instances already take it, and `/command/convert` takes it alone. Add
-  `?format=` with the instance's values to the other three kinds on the resource and artifact
-  servers, overriding `Accept` as it does for instances. This removes nothing.
-
-  The terminology server keeps names that no published package sends:
-  - `GET /bioportal/property_search` is the only path segment on any server that is not kebab-case.
-    It becomes `/bioportal/property-search`, and the Template Editor moves with it.
-  - A term IRI is `subtree_root_id`, `uri` or `termUri`, depending on the route, and becomes
-    `term_iri` in a query and `termIri` in a body. The resource server's freeze-on-publish sends
-    `uri` to `classes/version-current`, and the Template Editor sends `subtree_root_id`.
-  - `GET /bioportal/search` takes both `source` and `sources`, with unrelated meanings. `source` is
-    the ontology of a subtree search and needs a name that says so.
-  - Sibling routes name one ontology `{id}` and `{ontology}`, and one value set `{id}` and `{vs}`.
-    These path variables become `{acronym}` and `{id}`, which changes only the OpenAPI document.
-
-  Some names wait on published packages. Every release of the term picker sends `sourceAcronym`,
-  `versionId`, `propertyIri` and `termIri` as query parameters on the versioned routes, and every
-  CEE release since 2.0.24 and every CED release send `iri` in the `validate-term` body. Each moves
-  once a release of its package sends the new name and its hosts have taken it.
-
-  The resource server's 20 `/command/*` routes also need a pass against the convention's rule that
-  a change to one resource's state is a `PATCH` on that resource. `rename-resource`, for one, changes
-  a single resource. Done when every route follows the convention, or waits only on a published
-  package.
+- **24. Withdraw terminology compatibility names after published components and hosts migrate.**
+  **Production consequence:** removing a name before every supported released caller has moved
+  breaks that caller. Publish a term picker that sends `source_acronym`, `version_id`,
+  `property_iri` and `term_iri` on versioned query routes, and CEE/CED releases that send `termIri`
+  in the `validate-term` body. Confirm adoption by their hosts before removing the server's
+  camelCase query compatibility and its `iri` body compatibility. Keep the release and host-adoption
+  evidence with the removal. The artifact model's `termUri` properties are outside this migration.
 
 - **25. Withdraw the first-generation terminology routes when the legacy Template Editor retires.**
   **Production consequence:** none while the routes stay. Withdrawing them breaks any caller still on
   them, so it waits for the editor's retirement and for the anonymous search caller to be known.
 
   The terminology server carries two generations of API. `GET /bioportal/search` overlaps
-  `POST /search`, `GET /bioportal/property_search` overlaps `POST /properties/search`, and
+  `POST /search`, `GET /bioportal/property-search` overlaps `POST /properties/search`, and
   `/bioportal/ontologies/{o}/properties/*` overlaps `/properties`, `/properties/hierarchy` and
   `/properties/roots`. The legacy Template Editor is the only CEDAR client of the first-generation
   routes. Its controlled-term search, autocomplete and property browser use them. That editor will be
@@ -1381,8 +1356,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   This item waits on that retirement, and the change that retires the editor deletes the
   first-generation search and property routes. Two parts do not wait:
-  - Under `/bioportal`, three routes resolve a current version: `ontologies/{id}/versions/current`,
-    `classes/version-current?uri=` and `vs-collections/version-current?collection=`. The resource
+  - Under `/bioportal`, three routes resolve a current version: `ontologies/{acronym}/versions/current`,
+    `classes/version-current?term_iri=` and `vs-collections/version-current?collection=`. The resource
     server's freeze-on-publish calls all three, so they serve publication rather than the editor.
     Replace them with one lookup, and move freeze-on-publish onto it.
   - Production answered at least 3,700 anonymous `GET /bioportal/search` calls between July and November

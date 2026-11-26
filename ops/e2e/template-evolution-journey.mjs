@@ -72,7 +72,7 @@ export async function templateEvolutionJourney({page, base, designer, user, fold
     await page.locator("#save").click();
     await dialog.waitFor();
     const [response] = await Promise.all([
-      page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname.startsWith("/command/publish-create-draft-template/")),
+      page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname.startsWith("/template-drafts/")),
       dialog.getByRole("button", {name: "Create new draft", exact: true}).click(),
     ]);
     assert.ok(response.ok(), await response.text());

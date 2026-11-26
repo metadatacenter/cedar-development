@@ -588,6 +588,54 @@
       "section": "pagination: typed listings refuse invalid sorting and filters",
       "name": "search-deep with a modified_before that is not a number: the refusal identifies modified_before",
       "reason": "The modification-time bounds became ISO-8601 instants. The checks of 'a modified_after in epoch milliseconds' and 'a modified_before that is not an instant' hold the refusals in their place."
+    },
+    {
+      "suite": "folders",
+      "section": "folders: a malformed command body",
+      "name": "rename-resource answers 400 to a body with no identifier",
+      "reason": "The identifier is now in PATCH /folders/{id}; the suite checks that the retired rename command is absent and the PATCH malformed-body matrix covers the replacement."
+    },
+    {
+      "suite": "validation",
+      "section": "validate: the resource_type parameter itself",
+      "name": "a missing resource_type is refused with 400",
+      "reason": "Validation now names the resource type in /artifact-validations/{resource_type}; the suite checks that the missing path segment returns 404."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "rename by command: a body that is not JSON is refused with 400",
+      "reason": "Replaced by the same malformed-body check for PATCH /folders/{id}, named patch folder metadata; the retired command no longer accepts writes."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "rename by command: an empty body is refused with 400",
+      "reason": "Replaced by the same malformed-body check for PATCH /folders/{id}, named patch folder metadata; the retired command no longer accepts writes."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "rename by command: an array is refused with 400",
+      "reason": "Replaced by the same malformed-body check for PATCH /folders/{id}, named patch folder metadata; the retired command no longer accepts writes."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "rename by command: a bare number is refused with 400",
+      "reason": "Replaced by the same malformed-body check for PATCH /folders/{id}, named patch folder metadata; the retired command no longer accepts writes."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "rename by command: an empty object is refused with 400",
+      "reason": "Replaced by the same malformed-body check for PATCH /folders/{id}, named patch folder metadata; the retired command no longer accepts writes."
+    },
+    {
+      "suite": "bodies",
+      "section": "bodies: every write refuses every malformed body with 400",
+      "name": "rename by command: a property the write does not take is refused with 400",
+      "reason": "Replaced by the same malformed-body check for PATCH /folders/{id}, named patch folder metadata; the retired command no longer accepts writes."
     }
   ]
 }

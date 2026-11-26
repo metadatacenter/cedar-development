@@ -192,18 +192,18 @@ export async function run({ user1, homeFolderId }) {
     const newName = `${artName} via command`;
     const beforeRename = await call(auth, 'GET', `/templates/${enc(artId)}`);
     const renameEtag = beforeRename.headers?.get('etag');
-    checkStatus(await call(auth, 'POST', '/command/rename-resource',
-        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' }),
+    checkStatus(await call(auth, 'PATCH', `/templates/${enc(artId)}`,
+        { 'schema:name': newName, 'schema:description': 'renamed by command' }),
     428, 'template command rename without If-Match is refused');
-    const rename = await call(auth, 'POST', '/command/rename-resource',
-        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' },
+    const rename = await call(auth, 'PATCH', `/templates/${enc(artId)}`,
+        { 'schema:name': newName, 'schema:description': 'renamed by command' },
         { headers: renameEtag ? { 'If-Match': renameEtag } : {} });
     if (checkStatus(rename, [200, 201, 204], 'template renamed by command')) {
       const after = await call(auth, 'GET', `/templates/${enc(artId)}/details`);
       check(after.body?.['schema:name'] === newName, 'the command rename is visible on a fresh read',
           `name was "${after.body?.['schema:name']}"`);
-      checkStatus(await call(auth, 'POST', '/command/rename-resource',
-          { '@id': artId, 'schema:name': `${newName} stale` },
+      checkStatus(await call(auth, 'PATCH', `/templates/${enc(artId)}`,
+          { 'schema:name': `${newName} stale` },
           { headers: renameEtag ? { 'If-Match': renameEtag } : {} }),
       412, 'template command rename with a stale If-Match is refused');
     }
@@ -226,8 +226,8 @@ export async function run({ user1, homeFolderId }) {
   // missing field was a null dereference, and rename read its identifier without checking it. They
   // now read through CedarParameter with must(...).be(NonEmpty), matching the sibling
   // CommandCategoriesResource, so a malformed request is a bad request rather than a server fault.
-  checkStatus(await call(auth, 'POST', '/command/rename-resource', { 'schema:name': 'no id supplied' }),
-      400, 'rename-resource answers 400 to a body with no identifier');
+  checkStatus(await call(auth, 'POST', '/command/rename-resource', { 'schema:name': 'retired' }),
+      404, 'the retired rename command is absent');
   checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', { targetFolderId: destId }),
       400, 'move-resource-to-folder answers 400 to a body with no identifier');
   checkStatus(await call(auth, 'POST', '/command/copy-artifact-to-folder', { targetFolderId: destId }),

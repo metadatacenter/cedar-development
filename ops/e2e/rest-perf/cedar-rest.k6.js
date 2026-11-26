@@ -709,7 +709,7 @@ function mutableResponseBody(response) {
 // an unrecognized property rather than ignoring it. A body copied from a response is therefore
 // reduced to the request before it is sent. The owner is left out on purpose: it is optional, an
 // omitted owner leaves ownership unchanged, and this harness transfers ownership through
-// /command/transfer-category-ownership rather than through an ACL write.
+// PATCH /categories/{id}/permissions rather than through an ACL write.
 function permissionGrants(body, key, principal) {
   return entriesFor(body, key)
       .filter(entry => entry?.[principal]?.['@id'] && entry.role)
@@ -1172,8 +1172,7 @@ function exerciseCategoryOwnershipTransfer(data, fixture) {
     return;
   }
   const newOwnerId = manifest.actors[fixture.managerIndex].cedarUserId;
-  const transferred = cedar(data, 'admin', 'POST', '/command/transfer-category-ownership', {
-    '@id': category.id, newOwnerId,
+  const transferred = cedar(data, 'admin', 'PATCH', `/categories/${encodeURIComponent(category.id)}/permissions`, { newOwnerId,
   }, 'permission category transfer', { 'If-Match': revision });
   if (!accepted(transferred, [200], 'category owner can transfer ownership')) return;
   // The new owner still receives Viewer through Everyone, independently of ownership.
@@ -1182,8 +1181,7 @@ function exerciseCategoryOwnershipTransfer(data, fixture) {
   verifyCategoryPermissionReport(data, 'admin', category, 'manager');
   const transferredRevision = requireEtag(transferred, 'permission category transfer return preflight');
   if (!transferredRevision) return;
-  const returned = cedar(data, fixture.managerIndex, 'POST', '/command/transfer-category-ownership', {
-    '@id': category.id, newOwnerId: originalOwnerId,
+  const returned = cedar(data, fixture.managerIndex, 'PATCH', `/categories/${encodeURIComponent(category.id)}/permissions`, { newOwnerId: originalOwnerId,
   }, 'permission category transfer return', { 'If-Match': transferredRevision });
   if (accepted(returned, [200], 'new category owner can return ownership')) {
     verifyCategoryPermissionReport(data, 'admin', category, 'owner', 'manager');
@@ -2168,7 +2166,7 @@ function formatsValidate(data, index, actor, kind, yaml) {
   const validateOperation = `formats ${kind} ${form} validation`;
   const source = cedar(data, index, 'GET', fixture.path, undefined, sourceOperation, yaml ? yamlAccept : {});
   if (!accepted(source, [200], `${sourceOperation} succeeds`)) return;
-  const path = `/command/validate?resource_type=${kind}`;
+  const path = `/artifact-validations/${kind}`;
   const report = yaml
     ? cedarText(data, index, 'POST', path, String(source.body), 'application/yaml', validateOperation)
     : cedar(data, index, 'POST', path, mutableResponseBody(source), validateOperation);
@@ -2259,7 +2257,7 @@ function authoringInstanceValidate(data, index, fixture) {
   const instance = fixture.instances[(__ITER + index) % fixture.instances.length];
   const current = cedar(data, index, 'GET', instance.path, undefined, 'authoring instance GET');
   if (!accepted(current, [200], 'authoring instance GET succeeds')) return;
-  const report = cedar(data, index, 'POST', '/command/validate?resource_type=instance',
+  const report = cedar(data, index, 'POST', '/artifact-validations/instance',
       mutableResponseBody(current), 'authoring instance validation');
   if (!accepted(report, [200], 'authoring instance validation succeeds')) return;
   invariant(report, 'authoring instance validation finds the stored instance valid', result => {
@@ -2389,7 +2387,7 @@ export function terminology(data) {
     }
     case 'hierarchy': {
       const found = terminologyCall(data, index, 'GET',
-          `/search/hierarchy?sourceAcronym=${encodeURIComponent(acronym)}&termIri=${encodeURIComponent(term.iri)}`,
+          `/search/hierarchy?source_acronym=${encodeURIComponent(acronym)}&term_iri=${encodeURIComponent(term.iri)}`,
           undefined, 'terminology hierarchy GET');
       if (accepted(found, [200], 'terminology hierarchy GET succeeds')) {
         invariant(found, 'terminology hierarchy GET answers for the source it was asked about',
@@ -2583,7 +2581,10 @@ export function finding(data) {
 }
 
 function lifecycleCommand(data, index, command, body, operation, statuses) {
-  const response = cedar(data, index, 'POST', `/command/${command}`, body, operation);
+  const publication = command === 'publish-artifact';
+  const response = cedar(data, index, publication ? 'PATCH' : 'POST',
+    publication ? `/templates/${encodeURIComponent(body['@id'])}/publication` : `/command/${command}`,
+    publication ? {newVersion: body.newVersion} : body, operation);
   return accepted(response, statuses, `${operation} succeeds`) ? response : null;
 }
 

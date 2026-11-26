@@ -162,7 +162,7 @@ export async function pinnedBranchJourney(args) {
   const record = (await call(user.auth, "GET", "/template-instances/" + enc(saved["@id"]))).body;
   assert.equal(record.Diagnosis["@id"], PINNED_ONLY.iri);
   assert.equal(record.Diagnosis["rdfs:label"], PINNED_ONLY.label);
-  const report = await call(user.auth, "POST", "/command/validate?resource_type=instance", record);
+  const report = await call(user.auth, "POST", "/artifact-validations/instance", record);
   assert.equal(report.status, 200, report.text);
   assert.equal(report.body.isValid, true, report.text);
   // The newest release does not hold the term in the branch, so a pass here is a check at the pin.
@@ -176,7 +176,7 @@ export async function pinnedBranchJourney(args) {
 
   // Publishing freezes every unpinned constraint at the current release. A constraint the author
   // pinned already names a release, and publishing must leave it at that one.
-  const published = await call(user.auth, "POST", "/command/publish-artifact", { "@id": templateId, newVersion: "1.0.0" });
+  const published = await call(user.auth, 'PATCH', publicationPath(templateId), { newVersion: "1.0.0" });
   assert.ok([200, 201].includes(published.status), published.text);
   const frozen = (await call(user.auth, "GET", "/templates/" + enc(templateId))).body;
   assert.equal(frozen["bibo:status"], "bibo:published");
@@ -223,4 +223,9 @@ async function offersPinnedBranch(page, field) {
     assert.deepEqual(search.valueConstraints.branches.map(entry => entry.version?.id), [RELEASE.id],
       `Editor searched for ${JSON.stringify(search.inputText)} without the pinned release`);
   }
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

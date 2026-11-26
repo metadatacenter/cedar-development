@@ -104,7 +104,7 @@ export async function run({ user1, admin, folderId }) {
     const pid = toPublish.body['@id'];
     const pat = `/templates/${enc(pid)}`;
     cleanup('template', pat, pubLabel);
-    if (checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': pid, newVersion: '1.0.0' }),
+    if (checkStatus(await call(auth, 'PATCH', publicationPath(pid), { newVersion: '1.0.0' }),
         [200, 201], 'the template is published')) {
       const as = await artifact(auth, 'GET', pat);
       const graph = await call(auth, 'GET', `${pat}/details`);
@@ -127,7 +127,7 @@ export async function run({ user1, admin, folderId }) {
   if (checkStatus(drBase, 201, 'a template is created to publish then draft')) {
     const bid = drBase.body['@id'];
     cleanup('template', `/templates/${enc(bid)}`, drLabel);
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': bid, newVersion: '1.0.0' }),
+    checkStatus(await call(auth, 'PATCH', publicationPath(bid), { newVersion: '1.0.0' }),
         [200, 201], 'it is published first');
     const draft = await call(auth, 'POST', '/command/create-draft-artifact',
         { '@id': bid, folderId, newVersion: '1.0.1', propagateSharing: false });
@@ -317,8 +317,7 @@ async function derivedWrites(auth, folderId) {
     if (!versioned) continue;
 
     // Publish rewrites the artifact in place, so the identifier it lands under is the source's.
-    const published = await call(auth, 'POST', '/command/publish-artifact',
-        { '@id': source, newVersion: '1.0.0' });
+    const published = await call(auth, 'PATCH', publicationPath(source), { newVersion: '1.0.0' });
     await landed(auth, kind, published, `a published ${kind}`, source);
 
     const drafted = await call(auth, 'POST', '/command/create-draft-artifact',
@@ -369,4 +368,9 @@ async function landed(auth, kind, res, what, expectedId) {
   check(viaResource.status === 200 && viaArtifact.status === 200,
       `${what} is readable from both stores`,
       `resource server ${viaResource.status}, artifact server ${viaArtifact.status}`);
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

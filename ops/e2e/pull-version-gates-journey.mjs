@@ -25,7 +25,7 @@ function writesOf(page) {
   const note = request => {
     const url = new URL(request.url());
     if (url.origin === resource && !["GET", "HEAD", "OPTIONS"].includes(request.method()) &&
-        !url.pathname.startsWith("/command/check-update-template/")) writes.push(request.method() + " " + url.pathname);
+        !url.pathname.startsWith("/template-update-checks/")) writes.push(request.method() + " " + url.pathname);
   };
   page.on("request", note);
   return {writes, stop: () => page.off("request", note)};
@@ -83,7 +83,7 @@ async function releases(auth, folderId, label, versions, own) {
       ids.push(drafted.body["@id"]);
       own(drafted.body["@id"]);
     }
-    const published = await call(auth, "POST", "/command/publish-artifact", {"@id": ids.at(-1), newVersion: version});
+    const published = await call(auth, 'PATCH', publicationPath(ids.at(-1)), { newVersion: version});
     assert.equal(published.status, 200, published.text);
   }
   return ids;
@@ -440,4 +440,9 @@ export async function reusableChangedDraftJourney(ctx) {
     assert.equal((await embedded())["pav:derivedFrom"], identity);
     pass(`${kind}-parent-edited-${fault}`, `${kind}: a parent edited while Save as reusable draft is ${fault === "pending" ? "pending" : fault === "unsent" ? "unsent" : "unconfirmed after a lost reply"} keeps its edit, attaches one stored artifact on repetition, and saves and reopens`);
   }
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

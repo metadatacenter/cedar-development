@@ -1675,9 +1675,9 @@ Two things to know before relying on it:
   version while retaining the document-root artifact identifier and dropping nested artifact IDs.
   Writing it back is rejected with a `400` naming the compact form. Write the full form, or omit
   `id` to author minimally. Semantic IDs used as controlled-term or link values are data and remain.
-- **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
-  representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
-  An `Accept` of `application/n-quads` asks for the representation `rdf-nquad` names.
+- **Artifact reads and downloads take `?format=` ahead of `Accept`.** Use `jsonld`, `json`,
+  `yaml`, or `rdf-nquad`; `compact=true` selects compact YAML. N-Quads is supported for instances;
+  schema artifacts return 406 because their JSON Schema terms have no RDF mapping.
 
 Storage stays JSON on both servers: YAML is a request and response representation, transcoded per
 request, never a stored form.
@@ -2847,9 +2847,12 @@ The rest of a route's shape is fixed as follows:
 - A time is an ISO-8601 instant. A filter on a field is `<field>_after` and `<field>_before`, as with
   `modified_after`. A window over the data itself is `from`, inclusive, and `to`, exclusive. Bounds
   that are versions rather than times are `from_version` and `to_version`.
-- `Accept` chooses an output format, and `?format=`, with the same values, overrides it wherever a
-  browser link must choose, since a link cannot set a header. Every artifact read and download takes
-  both.
+- `Accept` chooses an output format. Every artifact read and download also takes
+  `?format=jsonld|json|yaml|rdf-nquad`, which overrides `Accept`, including an incompatible header.
+  `jsonld` preserves the stored document, `json` omits JSON-LD structure, `yaml` renders YAML, and
+  `rdf-nquad` requests N-Quads. Schema artifacts contain JSON Schema terms with no RDF mapping;
+  those requests return 406 rather than silently discarding the schema. `compact=true` applies to YAML.
+  An unknown or repeated format is a 400. The override applies to reads only; it does not change write-response negotiation.
 - A job's start answers 202 with a `Location` header that identifies the job. Each server that runs
   jobs serves `GET /jobs/{id}` for a job's status, in one document shape across job kinds, and
   `GET /jobs?kind=` to list a kind's jobs newest first. Where a job holds a claim that can outlive
@@ -2860,8 +2863,48 @@ The rest of a route's shape is fixed as follows:
 A route moves onto the convention in one change. Its CEDAR callers and the `ops/e2e` suites move with
 it, the old name is deleted rather than kept as an alias, and the change is listed for the release
 notice. A name that a published npm package sends stays until a release of that package sends the
-new one and its hosts have taken it. That exception covers the term picker's camelCase query
-parameters on the terminology server's versioned routes.
+new one and its hosts have taken it. The compatibility exceptions are the term picker's camelCase query
+parameters and the `iri` property sent by released CEE/CED term-verification clients. Canonical
+queries are `source_acronym`, `version_id`, `property_iri` and `term_iri`; verification bodies use
+`termIri`. The server accepts the published spellings until new package releases and host adoption
+permit withdrawal. Sending both spellings is a 400. Artifact value-constraint properties, including
+an action's `termUri`, remain part of the artifact model and are not REST parameter names.
+
+**Client-visible changes: remaining REST route migration.** Include these changes in the release
+notice. CEDAR callers move with the server; the old routes are absent.
+
+| Previous request | Current request |
+| --- | --- |
+| `POST /command/rename-resource` | `PATCH /{collection}/{id}` with `schema:name` and/or `schema:description` |
+| `POST /command/transfer-resource-ownership` | `PATCH /{collection}/{id}/permissions` with `newOwnerId` |
+| `POST /command/transfer-category-ownership` | `PATCH /categories/{id}/permissions` with `newOwnerId` |
+| `POST /command/set-doi` | `PATCH /{collection}/{id}/annotations` with `doi` |
+| `POST /command/publish-artifact` | `PATCH /{schema-collection}/{id}/publication` with `newVersion` |
+| `POST /command/check-update-template/{id}` | `POST /template-update-checks/{id}` with the proposed template |
+| `POST /command/publish-create-draft-template/{id}` | `POST /template-drafts/{id}` with `template`, optional `newFolderName` and `draftId` |
+| `POST /command/validate?resource_type={type}` | `POST /artifact-validations/{resource_type}` on resource and artifact |
+| `POST /command/convert?format={format}` | `POST /artifact-conversions?format={format}` |
+| `POST /command/inclusions-subgraph-preview` | `POST /inclusion-subgraphs/query` |
+| `POST /command/inclusions-subgraph-update` | `POST /command/update-inclusions-subgraph` |
+| `GET /bioportal/property_search` | `GET /bioportal/property-search` |
+| `GET /bioportal/search?source=…&subtree_root_id=…` | `GET /bioportal/search?source_acronym=…&term_iri=…`; `sources` keeps its existing meaning |
+| `GET /bioportal/classes/version-current?uri=…` | `GET /bioportal/classes/version-current?term_iri=…` |
+
+`collection` is `folders`, `templates`, `template-elements`, `template-fields` or
+`template-instances`, as applicable. A DOI annotation is for an artifact, and publication is for a
+schema artifact. The path supplies the identifier; mutation bodies no longer carry `@id`. Rename
+uses the artifact/folder ETag; ownership uses the permissions ETag. Publication retains its
+owner-only rule and DOI annotation retains its immutable, idempotent behavior. The existing
+`PATCH {"isOpen": …}` remains a separate body shape: it cannot be mixed with a rename.
+
+The command review retains copying and moving (source and destination), draft creation (source,
+new artifact and destination), category attachment/detachment (artifact and categories), user
+initialization (user and home-folder state), ontology loading, index generation/regeneration, and
+inclusion-subgraph updates (multiple artifacts or jobs). Pure validation/conversion and a large
+read query have named operation routes above; single-resource changes use PATCH. Renaming
+ontology path variables to `{acronym}` and value-set variables to `{id}` changes the OpenAPI
+parameter names only, not request URLs.
+
 
 ### Request-body boundaries
 
@@ -4554,8 +4597,9 @@ one template through `update_template`. Each step is confirmed through the resou
 fails when the jar is missing or older than its sources, so run `mvn package` in
 `mcp/cedar-artifact-rest-mcp` first. The report's `mcpSources` records the head commit and
 uncommitted state of the four MCP repositories under `$CEDAR_HOME/mcp`, and the REST MCP jar's
-SHA-256. `cedarcli test e2e` refuses REST evidence that names no clean commit of
-`cedar-artifact-rest-mcp`, since a jar built from uncommitted changes holds code no commit does.
+SHA-256. Native development smoke accepts an uncommitted REST MCP build when the report
+identifies its jar by SHA-256, and marks that evidence development-only. Train smoke and release
+gates still require a clean MCP commit; a development result cannot authorize a release.
 
 `errors` sends each server only the kinds of refusal its operations allow, so a server whose
 operations take no JSON body gets no malformed-body check. It requires 401 for every operation

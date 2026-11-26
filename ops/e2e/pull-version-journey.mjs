@@ -58,7 +58,7 @@ export async function pullVersionJourney(ctx) {
     const source = artifactBody(kind, 'Reused');
     if (kind === 'element') insert(source, 'Value', artifactBody('field', 'Value'));
     const old = await create(kind, source);
-    const publish = id => request('POST', '/command/publish-artifact', {'@id': id, newVersion: id === old['@id'] ? '1.0.0' : '2.0.0'});
+    const publish = id => request('PATCH', publicationPath(id), { newVersion: id === old['@id'] ? '1.0.0' : '2.0.0'});
     await publish(old['@id']);
     const original = await read(kind, old['@id']);
     const makeDraft = async (from, version) => {
@@ -122,9 +122,10 @@ export async function reusablePublicationJourney(ctx) {
     await open(ctx, template, folderId);
     const panel = await versionPanel(page, kind);
     let writes = 0, publications = 0;
-    const target = url => url.origin === new URL(RESOURCE).origin && (url.pathname.startsWith(`/${collection(kind)}/`) || url.pathname === '/command/publish-artifact');
+    const target = url => url.origin === new URL(RESOURCE).origin && (url.pathname.startsWith(`/${collection(kind)}/`));
     const intercept = async route => {
-      const publishing = route.request().method() === 'POST';
+      const publishing = route.request().method() === 'PATCH'
+        && new URL(route.request().url()).pathname.endsWith('/publication');
       if (!publishing && route.request().method() !== 'PUT') return route.fallback();
       if (publishing) publications++; else writes++;
       const response = await route.fetch(); assert.equal(response.status(), publishing ? 200 : 201, await response.text());
@@ -150,4 +151,9 @@ export async function reusablePublicationJourney(ctx) {
       pass(`${kind}-${publish ? 'published' : 'draft'}-${fault}`, `${kind} reusable ${publish ? 'publication' : 'draft'} ${fault} reply: one stored artifact survives parent save and reopen`);
     } finally { await page.unroute(target, intercept); }
   }
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

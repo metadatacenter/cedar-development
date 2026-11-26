@@ -248,7 +248,7 @@ export async function workspaceRenamedBreadcrumbJourney(args) {
   await menu(page, parent.title, "Rename");
   const revised = name + " Renamed parent";
   await modal(page).getByLabel("Name", { exact: true }).fill(revised);
-  await save(page, write, "POST", "/command/rename-resource", 200, true);
+  await save(page, write, "PATCH", /\/(?:templates|template-elements|template-fields|template-instances|folders)\/[^/]+$/, 200, true);
   await change(page, parent.id, () => row(page, revised).getByRole("link", { name: revised, exact: true }).click());
   await change(page, child.id, () => row(page, child.title).getByRole("link", { name: child.title, exact: true }).click());
   assert.equal((await page.locator(`.breadcrumbs [data-drop-id="${parent.id}"]`).innerText()).trim(), revised);

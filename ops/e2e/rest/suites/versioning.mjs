@@ -18,7 +18,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
   check((await call(auth, 'GET', at)).body?.['bibo:status'] === 'bibo:draft',
       'a new template is a draft', 'it was not');
 
-  const publish = await call(auth, 'POST', '/command/publish-artifact', { '@id': id, newVersion: '1.0.0' });
+  const publish = await call(auth, 'PATCH', publicationPath(id), { newVersion: '1.0.0' });
   if (checkStatus(publish, [200, 201], 'template published')) {
     const after = await call(auth, 'GET', at);
     check(after.body?.['bibo:status'] === 'bibo:published', 'publishing set the status to published',
@@ -60,9 +60,9 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
   if (second.status === 201) {
     const sid = second.body['@id'];
     cleanup('template', `/templates/${enc(sid)}`, `Republish Probe ${RUN}`);
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.0' }),
+    checkStatus(await call(auth, 'PATCH', publicationPath(sid), { newVersion: '1.0.0' }),
         [200, 201], 'the probe template is published once');
-    const again = await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.1' });
+    const again = await call(auth, 'PATCH', publicationPath(sid), { newVersion: '1.0.1' });
     checkStatus(again, 400, 're-publishing an already-published artifact is refused');
   }
 
@@ -76,11 +76,9 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     const gat = `/templates/${enc(gid)}`;
     cleanup('template', gat, guardName);
 
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact',
-        { '@id': gid, newVersion: 'not-a-version' }), 400,
+    checkStatus(await call(auth, 'PATCH', publicationPath(gid), { newVersion: 'not-a-version' }), 400,
         'a malformed publication version is refused');
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact',
-        { '@id': gid, newVersion: '0.0.0' }), 400,
+    checkStatus(await call(auth, 'PATCH', publicationPath(gid), { newVersion: '0.0.0' }), 400,
         'a publication version below the current draft is refused');
     const stillDraft = await call(auth, 'GET', gat);
     check(stillDraft.body?.['bibo:status'] === 'bibo:draft'
@@ -88,8 +86,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
         'failed publication attempts leave the draft and version unchanged',
         `status ${stillDraft.body?.['bibo:status']}, version ${stillDraft.body?.['pav:version']}`);
 
-    if (checkStatus(await call(auth, 'POST', '/command/publish-artifact',
-        { '@id': gid, newVersion: '1.0.0' }), [200, 201], 'the next valid version publishes')) {
+    if (checkStatus(await call(auth, 'PATCH', publicationPath(gid), { newVersion: '1.0.0' }), [200, 201], 'the next valid version publishes')) {
       for (const newVersion of ['1.0.0', '0.9.9']) {
         checkStatus(await call(auth, 'POST', '/command/create-draft-artifact',
             { '@id': gid, folderId, newVersion, propagateSharing: false }), 400,
@@ -129,24 +126,20 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     const tid = transfer.body['@id'];
     const tat = `/templates/${enc(tid)}`;
     cleanup('template', tat, transferName);
-    const ownership = await mutate(auth, 'POST', '/command/transfer-resource-ownership', {
-      '@id': tid,
+    const ownership = await mutate(auth, 'PATCH', `${tat}/permissions`, {
       newOwnerId: user2.profile['@id'],
     }, { etagPath: `${tat}/permissions` });
     if (checkStatus(ownership, 200, 'the owner transfers the artifact to the second user')) {
       // The former owner still owns the folder the template sits in, so they can still read it, and
       // the command refuses them under the rule that only an owner publishes. An operation only the
       // owner may perform answers 403 to anyone else, whatever role they hold, with the rule's own key.
-      const formerOwner = await call(auth, 'POST', '/command/publish-artifact',
-          { '@id': tid, newVersion: '1.0.0' });
+      const formerOwner = await call(auth, 'PATCH', publicationPath(tid), { newVersion: '1.0.0' });
       check(formerOwner.status === 403 && formerOwner.body?.errorKey === 'versioningOnlyByOwner',
           'the former owner can no longer publish it',
           `expected 403 versioningOnlyByOwner, got ${formerOwner.status}: ${(formerOwner.text ?? '').slice(0, 300)}`);
-      checkStatus(await call(user2.auth, 'POST', '/command/publish-artifact',
-          { '@id': tid, newVersion: '1.0.0' }), [200, 201],
+      checkStatus(await call(user2.auth, 'PATCH', publicationPath(tid), { newVersion: '1.0.0' }), [200, 201],
           'the new owner can publish it');
-      checkStatus(await mutate(user2.auth, 'POST', '/command/transfer-resource-ownership', {
-        '@id': tid,
+      checkStatus(await mutate(user2.auth, 'PATCH', `${tat}/permissions`, {
         newOwnerId: user1.profile['@id'],
       }, { etagPath: `${tat}/permissions` }), 200,
       'the new owner can transfer it back to the former owner');
@@ -170,13 +163,13 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
           {headers: {'If-Match': original.headers.get('etag')}}), 400,
       `${kind}: ordinary editing cannot change ${Object.keys(change)[0]}`);
     }
-    if (!checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': a, newVersion: '1.0.0'}), 200,
+    if (!checkStatus(await call(auth, 'PATCH', publicationPath(a), { newVersion: '1.0.0'}), 200,
         `${kind}: publish root`)) continue;
     const next = await call(auth, 'POST', '/command/create-draft-artifact',
         {'@id': a, folderId, newVersion: '2.0.0', propagateSharing: false});
     if (!checkStatus(next, 201, `${kind}: create second version`)) continue;
     const b = next.body['@id']; cleanup(kind, at(b), `${label} B`);
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': b, newVersion: '2.0.0'}), 200,
+    checkStatus(await call(auth, 'PATCH', publicationPath(b), { newVersion: '2.0.0'}), 200,
         `${kind}: publish second version`);
     const copied = await call(auth, 'POST', '/command/copy-artifact-to-folder',
         {'@id': b, targetFolderId: folderId, nameTemplate: `Independent${kind}${RUN.replace(/[^0-9]/g, '')}`});
@@ -220,7 +213,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     });
     check(results.done, `${kind}: Latest search contains exactly the surviving release and draft`, JSON.stringify(results.ids));
     // Reconnecting a published successor is a system-maintained history update, not a content edit.
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': c, newVersion: '3.0.0'}), 200,
+    checkStatus(await call(auth, 'PATCH', publicationPath(c), { newVersion: '3.0.0'}), 200,
         `${kind}: publish the surviving draft`);
     const publishedBefore = (await call(auth, 'GET', at(c))).body;
     checkStatus(await mutate(auth, 'DELETE', at(a)), [202, 204], `${kind}: delete the first version`);
@@ -254,7 +247,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     cleanup('template', `/templates/${enc(cuId)}`, cuName);
     const body = (await call(auth, 'GET', `/templates/${enc(cuId)}`)).body;
 
-    const zero = await call(auth, 'POST', `/command/check-update-template/${enc(cuId)}`, body);
+    const zero = await call(auth, 'POST', `/template-update-checks/${enc(cuId)}`, body);
     if (checkStatus(zero, 200, 'check-update answers for a template with no instances')) {
       check(zero.body?.canBeUpdated === true, 'a template with no instances can always be updated',
           `canBeUpdated was ${zero.body?.canBeUpdated}`);
@@ -265,7 +258,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
         artifactBody('instance', instName, { 'schema:isBasedOn': cuId }));
     if (checkStatus(inst, 201, 'an instance is created on it')) {
       cleanup('instance', `/template-instances/${enc(inst.body['@id'])}`, instName);
-      const same = await call(auth, 'POST', `/command/check-update-template/${enc(cuId)}`, body);
+      const same = await call(auth, 'POST', `/template-update-checks/${enc(cuId)}`, body);
       if (checkStatus(same, 200, 'check-update answers with an instance present')) {
         check(same.body?.numberOfInstances === 1 && same.body?.destructiveChanges === 0
             && same.body?.nonDestructiveChanges === 0 && same.body?.canBeUpdated === true,
@@ -285,9 +278,9 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     cleanup('template', `/templates/${enc(pcdId)}`, pcdName);  // the source, which becomes published
     const loaded = await call(auth, 'GET', `/templates/${enc(pcdId)}`);
     const body = loaded.body;
-    checkStatus(await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, { template: body }),
+    checkStatus(await call(auth, 'POST', `/template-drafts/${enc(pcdId)}`, { template: body }),
       428, 'publish-create-draft requires the loaded source ETag');
-    const res = await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, { template: body },
+    const res = await call(auth, 'POST', `/template-drafts/${enc(pcdId)}`, { template: body },
       { headers: { 'If-Match': loaded.headers.get('etag') } });
     if (checkStatus(res, [200, 201], 'publish-create-draft-template returns')) {
       const draftId = res.body?.['@id'];
@@ -325,7 +318,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     if (checkStatus(draftSource, 201, 'create-draft-artifact: a template is created to draft')) {
       const sourceId = draftSource.body['@id'];
       cleanup('template', `/templates/${enc(sourceId)}`, draftSourceName);
-      if (checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': sourceId, newVersion: '1.0.0' }),
+      if (checkStatus(await call(auth, 'PATCH', publicationPath(sourceId), { newVersion: '1.0.0' }),
           [200, 201], 'create-draft-artifact: and published')) {
         const request = { '@id': sourceId, folderId, newVersion: '1.0.1', propagateSharing: false };
         const taken = await call(auth, 'POST', '/command/create-draft-artifact', { ...request, draftId: occupantId });
@@ -382,7 +375,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
       cleanup('template', sourceAt, pcdSourceName);
       const opened = await call(auth, 'GET', sourceAt);
       const etag = opened.headers.get('etag');
-      const command = `/command/publish-create-draft-template/${enc(sourceId)}`;
+      const command = `/template-drafts/${enc(sourceId)}`;
       const send = draftId => call(auth, 'POST', command, { template: opened.body, draftId },
           { headers: { 'If-Match': etag } });
 
@@ -463,13 +456,13 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
     const broken = structuredClone(opened.body);
     delete broken.properties['oslc:modifiedBy'];
     // The validator must refuse the definition, or the refusal below would prove nothing.
-    const verdict = await call(auth, 'POST', '/command/validate?resource_type=template', broken);
+    const verdict = await call(auth, 'POST', '/artifact-validations/template', broken);
     check(verdict.status === 200 && verdict.body?.validates === 'false',
         'an invalid definition: without its oslc:modifiedBy declaration the definition does not validate',
         `${verdict.status}, validates=${verdict.body?.validates}`);
     const draftId = mintId('templates');
     cleanup('template', `/templates/${enc(draftId)}`, `${invalidName} draft`);
-    const command = `/command/publish-create-draft-template/${enc(sourceId)}`;
+    const command = `/template-drafts/${enc(sourceId)}`;
     const refused = await call(auth, 'POST', command, { template: broken, draftId }, { headers: { 'If-Match': etag } });
     if (checkStatus(refused, 400, 'an invalid definition: the command refuses it')) {
       const errors = refused.body?.objects?.validationReport?.errors;
@@ -528,7 +521,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
         cleanup('template', ownedAt, ownedName);
         const draftId = mintId('templates');
         cleanup('template', `/templates/${enc(draftId)}`, `${ownedName} draft`);
-        const command = `/command/publish-create-draft-template/${enc(ownedId)}`;
+        const command = `/template-drafts/${enc(ownedId)}`;
         let opened;
         if (checkStatus(await grant('viewer'), 200,
             'a parent the owner may not create in: the first user is downgraded to viewer')) {
@@ -583,8 +576,7 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
   if (checkStatus(cloneSource, 201, 'a template is created to clone instances from')) {
     const cloneId = cloneSource.body['@id'];
     cleanup('template', `/templates/${enc(cloneId)}`, cloneName);
-    const published = await call(auth, 'POST', '/command/publish-artifact',
-        { '@id': cloneId, newVersion: '1.0.0' });
+    const published = await call(auth, 'PATCH', publicationPath(cloneId), { newVersion: '1.0.0' });
 
     if (checkStatus(published, [200, 201], 'the template to clone from is published')) {
       for (let i = 1; i <= INSTANCES; i++) {
@@ -636,4 +628,9 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
   }
 
   return {};
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

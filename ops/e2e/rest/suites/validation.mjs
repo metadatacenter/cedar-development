@@ -67,7 +67,7 @@ async function numericRangeJourney(auth, folderId) {
   latestTemplate.body.properties.Code._valueConstraints.regex = '^[A-Z]+$';
   latestTemplate.body.properties.Choice._valueConstraints.literals = [{label:'Allowed'}];
   if (!checkStatus(await updateArtifact(auth,templatePath,latestTemplate.body),200,'tighten bounds, regex and literal membership while the client holds the old record')) return;
-  const validation = await call(auth,'POST','/command/validate?resource_type=instance',current.body);
+  const validation = await call(auth,'POST','/artifact-validations/instance',current.body);
   check(validation.status === 200 && validation.body?.validates === 'true' && validation.body?.canSave === true && validation.body?.isValid === false,
     'well-formed answers outside current constraints are saveable quality findings',validation.text);
   for (const [code,location] of [['minValue','/Measurements/0/@value'],['maxValue','/Measurements/1/@value'],['regex','/Code/@value'],['choiceMembership','/Choice/@value']]) {
@@ -98,7 +98,7 @@ async function numericRangeJourney(auth, folderId) {
 
   // A present empty answer is incomplete, while an absent required structural property is malformed.
   const empty = structuredClone(current.body); empty.Measurements[0]['@value'] = null;
-  const emptyReport = await call(auth,'POST','/command/validate?resource_type=instance',empty);
+  const emptyReport = await call(auth,'POST','/artifact-validations/instance',empty);
   check(emptyReport.status === 200 && emptyReport.body?.canSave === true && emptyReport.body?.isValid === false &&
       emptyReport.body?.findings?.some(f=>f.category === 'completeness' && f.path === '/Measurements/0/@value'),
     'a present null numeric answer is incomplete and saveable, not a missing structural value',emptyReport.text);
@@ -109,7 +109,7 @@ async function numericRangeJourney(auth, folderId) {
     ['missing required property',b=>{delete b.Measurements;}],
   ]) {
     const broken = structuredClone(current.body); damage(broken);
-    const report = await call(auth,'POST','/command/validate?resource_type=instance',broken);
+    const report = await call(auth,'POST','/artifact-validations/instance',broken);
     check(report.status === 200 && report.body?.validates === 'false' && report.body?.canSave === false && report.body?.errors?.length > 0,
       `${label} is a structural refusal in the common report`,report.text);
     checkStatus(await call(auth,'PUT',path,broken,{headers:{'If-Match':current.headers.get('etag')}}),400,`${label} cannot update a record`);
@@ -133,7 +133,7 @@ async function numericRangeJourney(auth, folderId) {
 
   const definition = await call(auth,'GET',templatePath), inconsistent = structuredClone(definition.body);
   inconsistent.properties.Measurements.items._valueConstraints.defaultValue = '999';
-  const defaultReport = await call(auth,'POST','/command/validate?resource_type=template',inconsistent);
+  const defaultReport = await call(auth,'POST','/artifact-validations/template',inconsistent);
   check(defaultReport.status === 200 && defaultReport.body?.canSave === false && defaultReport.body?.validates === 'false',
     'an out-of-range numeric default makes the template unsaveable',defaultReport.text);
   checkStatus(await call(auth,'PUT',templatePath,inconsistent,{headers:{'If-Match':definition.headers.get('etag')}}),400,
@@ -153,7 +153,7 @@ async function numericRangeJourney(auth, folderId) {
   const reopened = await call(auth,'GET',path);
   check(isDeepStrictEqual(content(reopened.body),content(correction)) && reopened.headers.get('etag') !== current.headers.get('etag'),
     'all corrected answers reopen exactly, with every other property preserved and a new ETag');
-  const correctedReport = await call(auth,'POST','/command/validate?resource_type=instance',reopened.body);
+  const correctedReport = await call(auth,'POST','/artifact-validations/instance',reopened.body);
   check(correctedReport.status === 200 && correctedReport.body?.canSave === true && correctedReport.body?.isValid === true,
     'corrected answers satisfy the current template as well as the save policy',correctedReport.text);
 }
@@ -242,7 +242,7 @@ async function semanticVerificationOnWrite(auth, folderId) {
   cleanup('instance', path, `Verified term answers ${RUN}`);
 
   const stored = await call(auth, 'GET', path);
-  const report = await call(auth, 'POST', '/command/validate?resource_type=instance', stored.body);
+  const report = await call(auth, 'POST', '/artifact-validations/instance', stored.body);
   const verdicts = (report.body?.findings ?? []).filter(finding => finding.category === 'verification');
   check(report.status === 200 && report.body?.isValid === true && verdicts.length === 3
       && verdicts.every(finding => finding.verificationStatus === 'passed' && finding.code === 'controlledTermVerified'),
@@ -250,7 +250,7 @@ async function semanticVerificationOnWrite(auth, folderId) {
 
   const foreign = structuredClone(stored.body);
   foreign.Disease = { '@id': 'https://example.org/not-a-disease', 'rdfs:label': 'not a disease' };
-  const refused = await call(auth, 'POST', '/command/validate?resource_type=instance', foreign);
+  const refused = await call(auth, 'POST', '/artifact-validations/instance', foreign);
   const membership = (refused.body?.findings ?? []).find(finding => finding.path === '/Disease/@id');
   check(refused.status === 200 && refused.body?.canSave === true && refused.body?.isValid === false
       && membership?.verificationStatus === 'failed' && membership?.code === 'controlledTermMembership',
@@ -291,7 +291,7 @@ export async function run({ user1, folderId }) {
     if (kind === 'instance' && !hostId) continue;
     const body = load(file);
     if (kind === 'instance') body['schema:isBasedOn'] = hostId;
-    const res = await call(auth, 'POST', `/command/validate?resource_type=${kind}`, body);
+    const res = await call(auth, 'POST', `/artifact-validations/${kind}`, body);
     if (!checkStatus(res, 200, `${kind}: validation answers`)) continue;
     check(res.body?.validates === 'true', `${kind}: the fixture validates`,
         `validates=${res.body?.validates}, errors=${JSON.stringify(res.body?.errors ?? []).slice(0, 250)}`);
@@ -306,7 +306,7 @@ export async function run({ user1, folderId }) {
   // and a 500 would be worse.
   const broken = load('minimal-template.json');
   delete broken.properties['oslc:modifiedBy'];
-  const bad = await call(auth, 'POST', '/command/validate?resource_type=template', broken);
+  const bad = await call(auth, 'POST', '/artifact-validations/template', broken);
   if (checkStatus(bad, 200, 'a broken template still gets a 200 with a report')) {
     check(bad.body?.validates === 'false', 'the report says it does not validate',
         `validates=${bad.body?.validates}`);
@@ -324,7 +324,7 @@ export async function run({ user1, folderId }) {
   }
 
   // Nonsense is invalid rather than fatal.
-  const nonsense = await call(auth, 'POST', '/command/validate?resource_type=template',
+  const nonsense = await call(auth, 'POST', '/artifact-validations/template',
       { 'schema:name': 'not a template' });
   if (checkStatus(nonsense, 200, 'an object that is not an artifact gets a report too')) {
     check(nonsense.body?.validates === 'false', 'and it does not validate',
@@ -334,7 +334,7 @@ export async function run({ user1, folderId }) {
   // An instance validated as a template must fail: otherwise resource_type is decorative.
   const crossedBody = load('minimal-instance.json');
   if (hostId) crossedBody['schema:isBasedOn'] = hostId;
-  const crossed = await call(auth, 'POST', '/command/validate?resource_type=template', crossedBody);
+  const crossed = await call(auth, 'POST', '/artifact-validations/template', crossedBody);
   if (crossed.status === 200) {
     check(crossed.body?.validates === 'false',
         'an instance does not validate as a template — resource_type selects the schema',
@@ -350,7 +350,7 @@ export async function run({ user1, folderId }) {
   // derive it, though CedarErrorType.INVALID_ARGUMENT already declares BAD_REQUEST. errorType() now
   // adopts the type's status unless one was chosen explicitly, so the status and the reported type
   // agree. Asserting both together is the point: either alone would not show they had diverged.
-  const unknownType = await call(auth, 'POST', '/command/validate?resource_type=banana',
+  const unknownType = await call(auth, 'POST', '/artifact-validations/banana',
       load('minimal-template.json'));
   if (checkStatus(unknownType, 400, 'an unknown resource_type is refused with 400')) {
     check(/invalidArgument/.test(unknownType.text ?? ''),
@@ -358,8 +358,8 @@ export async function run({ user1, folderId }) {
         `body was ${(unknownType.text ?? '').slice(0, 200)}`);
   }
 
-  checkStatus(await call(auth, 'POST', '/command/validate', load('minimal-template.json')),
-      400, 'a missing resource_type is refused with 400');
+  checkStatus(await call(auth, 'POST', '/artifact-validations/', load('minimal-template.json')),
+      404, 'a validation route without a resource type is absent');
 
   suite('convert: each declared output format');
 
@@ -368,19 +368,19 @@ export async function run({ user1, folderId }) {
   const instance = load('minimal-instance.json');
   if (hostId) instance['schema:isBasedOn'] = hostId;
 
-  const asJson = await call(auth, 'POST', '/command/convert?format=json', instance);
+  const asJson = await call(auth, 'POST', '/artifact-conversions?format=json', instance);
   if (checkStatus(asJson, 200, 'convert to json')) {
     check(asJson.body?.['schema:isBasedOn'] !== undefined,
         'the json form keeps the instance fields', `body began ${(asJson.text ?? '').slice(0, 120)}`);
   }
 
-  const asJsonLd = await call(auth, 'POST', '/command/convert?format=jsonld', instance);
+  const asJsonLd = await call(auth, 'POST', '/artifact-conversions?format=jsonld', instance);
   if (checkStatus(asJsonLd, 200, 'convert to jsonld')) {
     check(asJsonLd.body?.['@context'] !== undefined,
         'the jsonld form carries an @context', `body began ${(asJsonLd.text ?? '').slice(0, 120)}`);
   }
 
-  const asNquad = await call(auth, 'POST', '/command/convert?format=rdf-nquad', instance);
+  const asNquad = await call(auth, 'POST', '/artifact-conversions?format=rdf-nquad', instance);
   if (checkStatus(asNquad, 200, 'convert to rdf-nquad')) {
     const text = asNquad.text ?? '';
     check(text.trimStart().startsWith('<'), 'the nquad form is triples rather than JSON',
@@ -392,11 +392,11 @@ export async function run({ user1, folderId }) {
 
   // No format at all: the endpoint applies a deliberate default (OutputFormatTypeDetector picks one),
   // so it is accepted rather than an error.
-  const noFormat = await call(auth, 'POST', '/command/convert', instance);
+  const noFormat = await call(auth, 'POST', '/artifact-conversions', instance);
   checkStatus(noFormat, 200, 'convert with no format applies a default and is accepted');
 
   // Fixed by the same one-line change as the resource_type cases above.
-  const badFormat = await call(auth, 'POST', '/command/convert?format=banana', instance);
+  const badFormat = await call(auth, 'POST', '/artifact-conversions?format=banana', instance);
   if (checkStatus(badFormat, 400, 'an unknown format is refused with 400')) {
     check(/invalidArgument/.test(badFormat.text ?? ''),
         'and the body agrees, reporting invalidArgument',
@@ -413,7 +413,7 @@ export async function run({ user1, folderId }) {
   // about to replace. Create used to accept the omitted key, which made it the one shape that created
   // here and failed validation there.
   const base = () => Object.assign(load('minimal-template.json'), { 'schema:name': `Id Shape ${RUN}` });
-  const validate = body => call(auth, 'POST', '/command/validate?resource_type=template', body);
+  const validate = body => call(auth, 'POST', '/artifact-validations/template', body);
   const create = async (body, label) => {
     const r = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, body);
     if (r.status === 201 && r.body?.['@id']) cleanup('template', `/templates/${enc(r.body['@id'])}`, label);
@@ -490,7 +490,7 @@ export async function run({ user1, folderId }) {
   // routes do.
   for (const [fixture, kind] of [['template-minimal.yml', 'template'], ['template-full.yml', 'template'],
                                  ['element-full.yml', 'element'], ['field-minimal.yml', 'field']]) {
-    const validated = await call(auth, 'POST', `/command/validate?resource_type=${kind}`, yaml(fixture), asYaml);
+    const validated = await call(auth, 'POST', `/artifact-validations/${kind}`, yaml(fixture), asYaml);
     check(validated.status === 200 && validated.body?.validates === 'true',
         `${fixture} validates as YAML`,
         `${validated.status}: ${(validated.text ?? '').slice(0, 160)}`);
@@ -498,7 +498,7 @@ export async function run({ user1, folderId }) {
 
   // And a body it cannot read is the client's mistake, so it answers 400 rather than 500 — which is
   // what this route used to do with any YAML at all.
-  const unreadable = await call(auth, 'POST', '/command/validate?resource_type=template',
+  const unreadable = await call(auth, 'POST', '/artifact-validations/template',
       'type: template\nname: X\nid: https://repo.metadatacenter.org/templates/11111111-1111-1111-1111-111111111111\n',
       asYaml);
   check(unreadable.status === 400,

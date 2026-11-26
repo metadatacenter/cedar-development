@@ -205,8 +205,8 @@ export async function run({ user1, user2, admin, folderId }) {
   // hands it back, so the category ends owned as it began and teardown deletes it as before.
   const ownerOf = async () => (await call(adm, 'GET', `${at}/permissions`)).body?.owner?.['@id'];
   const administrator = await ownerOf();
-  const transfer = (as, newOwnerId) => mutate(as, 'POST', '/command/transfer-category-ownership',
-      { '@id': id, newOwnerId }, { etagPath: `${at}/permissions`, etagAuth: adm });
+  const transfer = (as, newOwnerId) => mutate(as, 'PATCH', `${at}/permissions`,
+      { newOwnerId }, { etagPath: `${at}/permissions`, etagAuth: adm });
   if (check(typeof administrator === 'string', 'the category\'s owner is read', 'its permissions name no owner')) {
     checkStatus(await transfer(auth, user1.profile['@id']), 403, 'a classifier cannot take ownership of it');
     check(await ownerOf() === administrator, 'and the refusal left the owner as it was',

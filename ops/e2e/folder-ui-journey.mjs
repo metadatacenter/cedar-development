@@ -22,7 +22,7 @@ export async function folderUiJourney(args) {
   await listed(page, base, folderId, names.destination);
   await menu(page, names.destination, "Rename");
   await modal(page).getByLabel("Name", { exact: true }).fill(names.destination + " renamed");
-  await save(page, write, "POST", "/command/rename-resource", 200, true);
+  await save(page, write, "PATCH", /\/(?:templates|template-elements|template-fields|template-instances|folders)\/[^/]+$/, 200, true);
   names.destination += " renamed";
   pass("folder-rename", "Create folder and conditional rename");
 
@@ -101,7 +101,7 @@ export async function folderUiJourney(args) {
   const external = await mutate(user.auth, "PUT", "/folders/" + enc(destination),
     { "schema:description": "Concurrent description" });
   assert.equal(external.status, 200, external.text);
-  await write(page, "POST", "/command/rename-resource",
+  await write(page, "PATCH", /\/(?:templates|template-elements|template-fields|template-instances|folders)\/[^/]+$/,
     () => modal(page).getByRole("button", { name: "Save", exact: true }).click(), 412, true);
   // The dialog keeps the edit and says why once it has handled the refusal.
   await modal(page).getByRole("alert").filter({ hasText: "changed since" }).waitFor();

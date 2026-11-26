@@ -36,6 +36,35 @@ export async function run({ user1, user2, admin, folderId }) {
     check(get.body?.['schema:name'] === label, `${kind}: served content matches what was stored`,
         `expected "${label}", got "${get.body?.['schema:name']}"`);
 
+    // Explicit browser-link formats must win over Accept on reads and attachments alike.
+    for (const suffix of ['', '/download']) {
+      const negotiated = await call(auth, 'GET', `${at}${suffix}`, undefined,
+        {accept: 'application/n-quads, application/json;q=0.5'});
+      checkStatus(negotiated, 200, `${kind}${suffix}: mixed Accept finds a supported representation`);
+      check(negotiated.headers?.get('content-type')?.startsWith(
+          kind === 'instance' ? 'application/n-quads' : 'application/json'),
+        `${kind}${suffix}: mixed Accept preserves the supported preference`);
+      for (const [format, media] of [['yaml', 'application/yaml'], ['jsonld', 'application/json'],
+          ['json', 'application/json'], ['rdf-nquad', 'application/n-quads']]) {
+        const selected = await call(auth, 'GET', `${at}${suffix}?format=${format}`, undefined,
+          {accept: format === 'yaml' ? 'text/html' : 'application/yaml'});
+        if (format === 'rdf-nquad' && kind !== 'instance') {
+          checkStatus(selected, 406, `${kind}${suffix}: schemas without an RDF form are refused`);
+          continue;
+        }
+        if (!checkStatus(selected, 200, `${kind}${suffix}: format=${format} overrides Accept`)) continue;
+        check(selected.headers?.get('content-type')?.startsWith(media),
+          `${kind}${suffix}: ${format} is labelled correctly`, selected.headers?.get('content-type'));
+        if (format === 'yaml') check(selected.text.startsWith('type:'), `${kind}${suffix}: YAML is rendered`, selected.text);
+        if (format === 'jsonld') check(selected.body?.['@id'] === id, `${kind}${suffix}: JSON-LD preserves identity`);
+        if (format === 'json') check(!selected.body?.['@context'], `${kind}${suffix}: plain JSON omits the context`);
+        if (suffix) check(!!selected.headers?.get('content-disposition')?.includes('attachment'),
+          `${kind}: ${format} download is an attachment`);
+      }
+      checkStatus(await call(auth, 'GET', `${at}${suffix}?format=unknown`), 400,
+        `${kind}${suffix}: unsupported format is refused`);
+    }
+
     // Repo dereferences the permanent identifier through the same authorized resource read.
     const repo = { base: process.env.CEDAR_REPO_BASE ?? `https://repo.${HOST}` };
     const repoPath = `${path}/${enc(id.slice(id.lastIndexOf('/') + 1))}`;
@@ -230,7 +259,7 @@ export async function run({ user1, user2, admin, folderId }) {
 
   suite('artifacts: a DOI is set once, and only by someone with write access');
 
-  // POST /command/set-doi sets an artifact's DOI. It needs write access, and a DOI is
+  // PATCH /templates/{id}/annotations sets an artifact's DOI. It needs write access, and a DOI is
   // write-once: setting the same value again is idempotent, changing it to a different value is
   // refused (doiCanNotBeAltered), and a user with no access to the artifact cannot set one at all.
   const doiName = `DOI Probe ${RUN}`;
@@ -240,19 +269,19 @@ export async function run({ user1, user2, admin, folderId }) {
     cleanup('template', `/templates/${enc(did)}`, doiName);
     const doi = 'https://doi.org/10.1234/cedar-rest-suite';
 
-    checkStatus(await call(auth, 'POST', '/command/set-doi', { '@id': did, doi }),
+    checkStatus(await call(auth, 'PATCH', `/templates/${enc(did)}/annotations`, { doi }),
         200, 'the owner sets the DOI');
-    checkStatus(await call(auth, 'POST', '/command/set-doi', { '@id': did, doi }),
+    checkStatus(await call(auth, 'PATCH', `/templates/${enc(did)}/annotations`, { doi }),
         200, 'and setting the same DOI again is idempotent');
 
-    const altered = await call(auth, 'POST', '/command/set-doi', { '@id': did, doi: 'https://doi.org/10.9999/changed' });
+    const altered = await call(auth, 'PATCH', `/templates/${enc(did)}/annotations`, { doi: 'https://doi.org/10.9999/changed' });
     if (checkStatus(altered, 400, 'but changing it to a different DOI is refused')) {
       check((altered.text ?? '').includes('doiCanNotBeAltered'),
           'and the body says the DOI cannot be altered',
           `body was ${(altered.text ?? '').slice(0, 200)}`);
     }
 
-    checkStatus(await call(user2.auth, 'POST', '/command/set-doi', { '@id': did, doi: 'https://doi.org/10.5555/outsider' }),
+    checkStatus(await call(user2.auth, 'PATCH', `/templates/${enc(did)}/annotations`, { doi: 'https://doi.org/10.5555/outsider' }),
         403, 'and a user with no write access to the artifact cannot set a DOI');
 
     // The command was /command/annotations/doi until it took the flat name.

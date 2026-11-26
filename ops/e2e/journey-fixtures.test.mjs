@@ -64,7 +64,7 @@ test("only a create is recorded, whether or not its reply was read", () => {
   assert.equal(createdFixture("PUT", `${resource}/templates/${uuid}`, 200, {"@id": full}), undefined);
   assert.deepEqual(createdFixture("PUT", `${resource}/templates/${uuid}`, 201, undefined), {collection: "templates", id: full});
   assert.deepEqual(createdFixture("PUT", `https://elsewhere.test/templates/${uuid}`, 201, {"@id": full}), {collection: "templates", id: full});
-  assert.deepEqual(createdFixture("POST", `${resource}/command/publish-create-draft-template/x`, 200, {"@id": full}),
+  assert.deepEqual(createdFixture("POST", `${resource}/template-drafts/x`, 200, {"@id": full}),
     {collection: "templates", id: full});
   assert.equal(createdFixture("POST", `${resource}/command/copy-artifact-to-folder`, 412, {"@id": full}), undefined);
   assert.equal(createdFixture("POST", `${resource}/groups`, 201, {"@id": `https://repo.metadatacenter.orgx/groups/${uuid}`}), undefined);

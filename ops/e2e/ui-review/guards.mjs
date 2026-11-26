@@ -5,5 +5,5 @@ export function requireLocal(url) {
 }
 // These POSTs assess a submitted document; they do not mutate the repository.
 export function readOnlyResourcePost(method,pathname) {
-  return method==='POST'&&(pathname==='/command/validate'||/^\/command\/check-update-(template|element|field)\/[^/]+$/.test(pathname));
+  return method==='POST'&&(/^\/artifact-validations\/[^/]+$/.test(pathname)||/^\/template-update-checks\/[^/]+$/.test(pathname));
 }

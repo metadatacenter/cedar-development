@@ -109,7 +109,7 @@ const ANSWERED = [
  * stand-ins for the artifact server, the regeneration job, DataCite and the external registries.
  */
 const UNREACHABLE = [
-  ['resource', 'POST /command/inclusions-subgraph-update 502',
+  ['resource', 'POST /command/update-inclusions-subgraph 502',
     'needs a propagation write the artifact server refuses, so it needs a write'],
   ['worker', 'POST /command/regenerate-inclusion-subgraph 409', 'needs a regeneration in flight, which rebuilds '
     + 'the inclusion graph'],

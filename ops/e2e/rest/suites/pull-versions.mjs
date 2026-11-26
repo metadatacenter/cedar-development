@@ -40,7 +40,7 @@ export async function run({user1, folderId}) {
     after.properties.Added = inserted; after._ui.order.push('Added'); after._ui.propertyLabels.Added = 'Added';
     after.properties['@context'].properties.Added = {enum: ['https://example.org/pull/Added']};
     if (assessed) {
-      const assessment = await call(auth, 'POST', `/command/check-update-template/${enc(id)}`, after);
+      const assessment = await call(auth, 'POST', `/template-update-checks/${enc(id)}`, after);
       check(assessment.status === 200 && assessment.body.canBeUpdated === true && assessment.body.numberOfInstances === 0,
         `${label}: assessment explicitly reports zero records`, assessment.text);
     }
@@ -69,7 +69,7 @@ export async function run({user1, folderId}) {
     changed.properties['@context'].properties.Added = {enum: ['https://example.org/pull/Added']};
     checkStatus(await call(auth, 'PUT', at, changed, {headers: {'If-Match': opened.headers.get('etag')}}), 200,
       'an unreferenced schema can change');
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': id, newVersion: '1.0.0'}), 200, 'publish the parent');
+    checkStatus(await call(auth, 'PATCH', publicationPath(id), { newVersion: '1.0.0'}), 200, 'publish the parent');
     const released = await call(auth, 'GET', at);
     checkStatus(await call(auth, 'PUT', at, {...released.body, 'schema:description': 'Cannot edit release'},
       {headers: {'If-Match': released.headers.get('etag')}}), 400, 'published parents remain immutable');
@@ -81,7 +81,7 @@ export async function run({user1, folderId}) {
     if (!checkStatus(made, 201, `${kind}: create source`)) continue;
     const source = made.body['@id'], sourceAt = `/${collection}/${enc(source)}`;
     cleanup(kind, sourceAt, `Pull ${kind} source ${RUN}`);
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': source, newVersion: '1.0.0'}), 200,
+    checkStatus(await call(auth, 'PATCH', publicationPath(source), { newVersion: '1.0.0'}), 200,
       `${kind}: publish source`);
     const old = (await call(auth, 'GET', sourceAt)).body;
     const drafted = await call(auth, 'POST', '/command/create-draft-artifact',
@@ -97,7 +97,7 @@ export async function run({user1, folderId}) {
       proposed.properties['@context'].properties.Value = {enum: ['https://example.org/pull/Value']};
     }
     checkStatus(await mutate(auth, 'PUT', nextAt, proposed), 200, `${kind}: edit successor definition`);
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': next, newVersion: '2.0.0'}), 200,
+    checkStatus(await call(auth, 'PATCH', publicationPath(next), { newVersion: '2.0.0'}), 200,
       `${kind}: publish successor`);
     const release = (await call(auth, 'GET', nextAt)).body;
     const history = await call(auth, 'GET', `${sourceAt}/versions`);
@@ -132,7 +132,7 @@ export async function run({user1, folderId}) {
     if (!checkStatus(sameDraft, 201, `${kind}: create an equivalent successor`)) continue;
     const sameId = sameDraft.body['@id'], sameAt = `/${collection}/${enc(sameId)}`;
     cleanup(kind, sameAt, `Pull ${kind} equivalent ${RUN}`);
-    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': sameId, newVersion: '3.0.0'}), 200,
+    checkStatus(await call(auth, 'PATCH', publicationPath(sameId), { newVersion: '3.0.0'}), 200,
       `${kind}: publish the equivalent successor`);
     const sameRelease = (await call(auth, 'GET', sameAt)).body;
     const body = artifactBody('template', `${RUN} pull ${kind} equivalent`);
@@ -158,4 +158,9 @@ export async function run({user1, folderId}) {
       JSON.stringify({expected: sameRelease.properties, actual: saved.properties.Reused.properties}));
   }
   return {};
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

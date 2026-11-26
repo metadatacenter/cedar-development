@@ -21,7 +21,7 @@ let writeCount = 0;
 // Capture writes before fulfilling them, so each response body stays readable whatever the page does next.
 // A create is a PUT to the identity Designer minted, so its address identifies the fixture; a
 // version command names the draft it created in its reply.
-await page.route(url => /^\/(templates|template-elements|template-fields|command\/publish-create-draft-template)(?:\/|$)/.test(url.pathname), async intercepted => {
+await page.route(url => /^\/(templates|template-elements|template-fields|template-drafts)(?:\/|$)/.test(url.pathname), async intercepted => {
   const req = intercepted.request();
   if (!['POST', 'PUT'].includes(req.method())) return intercepted.continue();
   writeCount++;
@@ -207,7 +207,7 @@ try {
       const concurrent = await mutate(user1.auth, 'PUT', `/${collection}/${enc(id)}`,
         { ...latest.body, 'schema:description': 'Changed while version confirmation was open' });
       assert.equal(concurrent.status, 200, concurrent.text);
-      const rejectedResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/command/publish-create-draft-template/'));
+      const rejectedResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/template-drafts/'));
       await page.getByRole('button', { name: 'Create new draft', exact: true }).click();
       assert.equal((await rejectedResponse).status(), 412);
       await page.waitForFunction(() => document.getElementById('message').textContent.includes('changed since'));
@@ -223,7 +223,7 @@ try {
       await page.getByRole('textbox', { name: 'Enter field name', exact: true }).fill('Added after metadata');
       await save();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
-      const versionResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/command/publish-create-draft-template/'));
+      const versionResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/template-drafts/'));
       await page.getByRole('button', { name: 'Create new draft', exact: true }).click();
       const version = await versionResponse;
       const versionBody = responseBodies.get('POST ' + version.url());

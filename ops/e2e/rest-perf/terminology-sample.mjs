@@ -118,7 +118,7 @@ async function sampleSource(database, base, token, acronym, perSource) {
   }
 
   const hierarchy = terms.length ? await request(null, 'GET',
-      `/search/hierarchy?sourceAcronym=${encodeURIComponent(acronym)}&termIri=${encodeURIComponent(terms[0].iri)}`,
+      `/search/hierarchy?source_acronym=${encodeURIComponent(acronym)}&term_iri=${encodeURIComponent(terms[0].iri)}`,
       undefined, { base }) : null;
   if (terms.length < 3 || !children.length || !parents.length || hierarchy?.status !== 200) {
     return {

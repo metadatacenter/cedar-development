@@ -98,7 +98,7 @@ export async function groupAccessJourney({page, reader, base, designer, owner, m
         // Total access loss can refuse the impact check before a PUT is allowed.
         const [denied] = await Promise.all([
           reader.waitForResponse(r => r.status() >= 400 && (
-            r.request().method() === "POST" && new URL(r.url()).pathname.startsWith("/command/check-update-template/") ||
+            r.request().method() === "POST" && new URL(r.url()).pathname.startsWith("/template-update-checks/") ||
             r.request().method() === "PUT" && new URL(r.url()).pathname.startsWith("/templates/"))),
           save.click(),
         ]);

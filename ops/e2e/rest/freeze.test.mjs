@@ -61,7 +61,7 @@ test('available vocabularies execute all seven assertions', async t => {
     if (url.includes('/versions/current')) return answer(200, { id: 'doid-version' });
     if (url.includes('/version-current')) return answer(200, { id: 'vs-version' });
     if (options.method === 'POST' && url.includes('/templates?')) return answer(201, { '@id': id });
-    if (options.method === 'POST' && url.includes('/command/publish-artifact')) return answer(200);
+    if (options.method === 'PATCH' && url.endsWith('/publication')) return answer(200);
     if (options.method === 'GET' && url.includes('/templates/')) return answer(200, {
       _valueConstraints: {
         ontologies: [{ acronym: 'DOID', version: { id: 'doid-version' } }],

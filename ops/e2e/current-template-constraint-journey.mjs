@@ -50,7 +50,7 @@ export async function currentTemplateConstraintJourney({page, base, user, folder
 
   const draft = structuredClone(before.body);
   draft.Code["@value"] = "lowercase";
-  const report = await call(user.auth, "POST", "/command/validate?resource_type=instance", draft);
+  const report = await call(user.auth, "POST", "/artifact-validations/instance", draft);
   assert.equal(report.status, 200, report.text);
   assert.equal(report.body.canSave, true); assert.equal(report.body.isValid, false); assert.equal(report.body.validates, "true");
   assert.ok(report.body.warnings.some(error => error.location === "/Code/@value"), report.text);

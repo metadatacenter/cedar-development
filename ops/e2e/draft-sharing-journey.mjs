@@ -145,7 +145,7 @@ export async function workspaceDraftSharingJourney(args) {
   for (const role of ROLES) {
     const sourceName = name + " shared draft source " + roleName(role);
     const sourceId = await create("templates", artifactBody("template", sourceName));
-    const published = await call(user.auth, "POST", "/command/publish-artifact", {"@id": sourceId, newVersion: "1.0.0"});
+    const published = await call(user.auth, 'PATCH', publicationPath(sourceId), { newVersion: "1.0.0"});
     assert.ok([200, 201].includes(published.status), published.text);
     const sourceAcl = await share(sourceId, role);
 
@@ -223,7 +223,7 @@ export async function designerDraftSharingJourney(args) {
     const dialog = page.locator("#version-dialog");
     await dialog.waitFor();
     const [response] = await Promise.all([
-      page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname.startsWith("/command/publish-create-draft-template/")),
+      page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname.startsWith("/template-drafts/")),
       dialog.getByRole("button", {name: "Create new draft", exact: true}).click(),
     ]);
     assert.ok(response.ok(), await response.text());
@@ -244,4 +244,9 @@ export async function designerDraftSharingJourney(args) {
     await context.close();
   }
   pass("designer-grants", "Designer Create new draft: the editor edits the draft, the viewer reads it, a person without a grant cannot open it, and the original's grants are unchanged");
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

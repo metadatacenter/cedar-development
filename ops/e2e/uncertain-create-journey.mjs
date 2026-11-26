@@ -22,7 +22,7 @@ const resource = new URL(RESOURCE).origin;
 const uuid = id => id.split("/").at(-1);
 const UNCONFIRMED = "could not confirm whether";
 const MINTED = collection => new RegExp(`^https://repo\\.[^/]+/${collection}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`);
-export const VERSION_COMMAND = "/command/publish-create-draft-template/";
+export const VERSION_COMMAND = "/template-drafts/";
 export const versionCommand = url => url.origin === resource && url.pathname.startsWith(VERSION_COMMAND);
 /** The draft identity a version command names, which travels in its body as `draftId`. */
 export const draftIdSent = request => request.postDataJSON()?.draftId ?? null;
@@ -611,7 +611,7 @@ const ACTIONS = {
     sourceCollection: "templates",
     async source({user, folderId, label}) {
       const id = await createIn(user, folderId, "templates", artifactBody("template", label));
-      const published = await call(user.auth, "POST", "/command/publish-artifact", {"@id": id, newVersion: "1.0.0"});
+      const published = await call(user.auth, 'PATCH', publicationPath(id), { newVersion: "1.0.0"});
       assert.ok([200, 201].includes(published.status), published.text.slice(0, 600));
       return id;
     },
@@ -628,7 +628,7 @@ const ACTIONS = {
   },
   publish: {
     label: "Publish",
-    sends: request => request.method() === "POST" && new URL(request.url()).pathname === "/command/publish-artifact",
+    sends: request => request.method() === "PATCH" && new URL(request.url()).pathname.endsWith("/publication"),
     identity: () => null,
     statuses: [200, 201],
     version: "1.0.0",
@@ -856,4 +856,9 @@ export async function uncertainVersionJourney(args) {
     } finally { page.off("request", count); }
     pass(`version-${outcome}`, `Designer Create new draft: ${outcome === "uncommitted" ? "an" : "a"} ${outcome} version whose reply was lost is settled by its draft identity with exactly one successor`);
   }
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

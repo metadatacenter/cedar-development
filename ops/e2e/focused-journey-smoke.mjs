@@ -133,7 +133,7 @@ async function write(
     p.waitForResponse(
       (r) =>
         r.request().method() === method &&
-        new URL(r.url()).pathname.startsWith(path),
+        (path instanceof RegExp ? path.test(new URL(r.url()).pathname) : new URL(r.url()).pathname.startsWith(path)),
     ),
     gesture(),
   ]);

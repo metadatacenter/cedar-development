@@ -356,7 +356,7 @@ export async function unresolvedVersionJourney(args) {
         assert.equal(changed.status, 200, changed.text.slice(0, 600));
       }
       if (outcome === "published-source") {
-        const published = await call(user.auth, "POST", "/command/publish-artifact", {"@id": templateId, newVersion: "0.0.1"});
+        const published = await call(user.auth, 'PATCH', publicationPath(templateId), { newVersion: "0.0.1"});
         assert.equal(published.status, 200, published.text.slice(0, 600));
       }
       const sourceBefore = await read(sourcePath);
@@ -396,4 +396,9 @@ export async function unresolvedVersionJourney(args) {
       ? "Designer Create new draft: a restored draft whose version reply was lost cannot be discarded until checked, and the check then settles one successor"
       : `Designer Create new draft: a check that finds ${outcome === "changed-draft" ? "the committed draft changed by another client" : "the uncommitted source published by another client"} keeps the edit and the save guard, adopts nothing and sends no version`);
   }
+}
+
+function publicationPath(id) {
+  const parts = String(id).split('/');
+  return '/' + parts.at(-2) + '/' + encodeURIComponent(parts.at(-1)) + '/publication';
 }

@@ -16,7 +16,7 @@ export async function publicationJourney(args) {
   await listed(page, base, record.folderId, templateName);
   await menu(page, templateName, "Publish");
   await enterVersion(page, "1.0.0");
-  await save(page, write, "POST", "/command/publish-artifact", [200, 201]);
+  await save(page, write, "PATCH", /\/publication$/, [200, 201]);
   await listed(page, base, record.folderId, templateName);
   await menu(page, templateName, "Create Draft");
   await enterVersion(page, "1.1.0");
