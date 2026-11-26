@@ -506,14 +506,33 @@ The frontend runbook links the retained evidence and the instrumented reproducti
 ### 15. Capture the Remaining Workspace Screens
 
 - The UI review catalog holds no state for sharing with another account, editing descriptions, the
-  selection deletion dialog, the version picker, drag and drop, the groups, profile, settings and
-  messaging pages, toasts or write-failure recovery. Each is a screen a user reaches in ordinary
-  work, and each has a source module in `cedar-workspace`.
+  selection deletion dialog, drag and drop, the groups, profile, settings, privacy and sign-out
+  pages, toasts, the confirmation that closing a dialog or the Metadata Editor with unsaved changes
+  asks for, or write-failure recovery. Each is a screen a user reaches in ordinary work, and each has
+  a source module in `cedar-workspace`.
+- `cedarcli test ui-review-coverage` confirms the gaps it can see: no capture renders the five
+  account pages, the account shell that holds them or the drag preview, and none shows the
+  confirmation. A toast's region is on screen in most states whether or not it holds a message, so
+  the census cannot say whether a toast was ever captured.
 - Add them to the catalog and the Workspace collector with fixtures the review owns. Sharing needs
   a second test account, so the collector must hold that account's lock as well, and it must never
   change sharing on anything outside its own fixtures.
 
-### 16. Capture Failure, Refusal and Loading States
+### 16. Capture the Embedded Components No Review Shows
+
+- `cedarcli test ui-review-coverage` finds components of the embeddable packages and OpenView that
+  no capture renders, or renders without ever putting on screen.
+  - CEE: the time and timezone pickers, the term link, and a field's problems and specification.
+  - CED: the child picker, the field library sidebar, manual IRI entry, element labels, the
+    preferences and preset-definitions modals, and the property types picker.
+  - Term picker: the property detail.
+  - OpenView: the dashboard, the artifact preview and the loading spinner.
+- For each, find the journey a user takes to it and add that state to the catalog and its
+  collector, or record why no user reaches it. The standalone field designer,
+  `cedar-embeddable-field-designer`, renders in none of the four applications. CEE's
+  `app-component-prod` renders nowhere, and no module refers to it, so it is probably dead code.
+
+### 17. Capture Failure, Refusal and Loading States
 
 - Add an edit conflict, an unreachable backend and slow loading for Workspace and the Metadata
   Editor.
@@ -521,7 +540,7 @@ The frontend runbook links the retained evidence and the instrumented reproducti
   never by changing the stack, and say in the state's note that the harness caused it, so the
   reviewer judges the product's handling rather than the cause.
 
-### 17. Agree the Remaining Designer Presentation Choices
+### 18. Agree the Remaining Designer Presentation Choices
 
 - Agree whether expandable term rows need a visible disclosure cue and whether release-count labels
   should explicitly name releases instead of saying “of 2”.
