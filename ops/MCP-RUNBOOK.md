@@ -6,6 +6,18 @@ Open work is in [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 The [CEDAR MCPs Tutorial](https://metadatacenter.readthedocs.io/en/latest/tutorials/cedar_mcps_tutorial/)
 covers conversational authoring, terminology lookup, form rendering and persistence end to end.
 
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Choose a server and its credentials | [Server inventory](#the-four-servers) |
+| Build and register a server | [Build](#build), [configuration](#configure), [client restart](#restart-after-rebuilds-or-configuration-changes) |
+| Verify a change | [Tests](#test) |
+| Update the rendered form or session styling | [CEE bundle](#upgrading-the-cee-bundle), [design tokens](#advancing-the-session-pages-design-tokens) |
+| Diagnose startup failures or output | [Dependency conflicts](#dependency-conflicts), [written files](#what-the-servers-write) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
+
 ## The Four Servers
 
 | Repository | Language | What it does | Credentials |
@@ -16,6 +28,9 @@ covers conversational authoring, terminology lookup, form rendering and persiste
 | `cedar-artifact-rest-mcp` | Java 17, Maven | Creates, fetches, updates, deletes and validates artifacts on a live CEDAR server | `CEDAR_API_KEY`, `CEDAR_BASE_URL` |
 
 ## Build
+
+The MCP repositories are outside `cedarcli build java`; build them directly. Run the Maven
+commands with Java 17, as described in the [native environment setup](BACKEND-RUNBOOK.md#environment-select-the-native-mode-first).
 
 ```bash
 cd $CEDAR_HOME/mcp/cedar-artifact-mcp && mvn package     # and the other two Maven servers

@@ -8,12 +8,25 @@ shapes of the endpoints the picker reads, are sections of that same roadmap —
 [The Search API](./VERSIONING-ROADMAP.md#the-search-api).
 
 Sibling runbooks:
+
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the CEDAR stack the terminology server sits
   in, and the port map.
 - [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee) — the CEDAR Embeddable Editor, the other Angular Web Component
   in the estate and the setup the picker follows.
 
----
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Inspect the catalog and snapshot identities | [The store](#the-store) |
+| Ingest or rebuild | [Ingestion](#ingesting), [publication and interruption](#publication-interruption-and-cleanup), [index rebuilding](#index-rebuild-performance) |
+| Serve or relocate the store | [Serving](#serving-the-store), [host migration](#moving-the-store-to-another-host) |
+| Diagnose search results or latency | [Store routing](#which-store-answers), [ontology filters](#checking-ontology-filter-completeness), [slow lookups](#when-a-lookup-is-slow) |
+| Verify a term against constraints | [Exact membership](#exact-identifier-membership-verification) |
+| Enrich older snapshots or migrate a catalog | [Versioned properties](#versioned-properties-in-ontology-snapshots), [catalog conversions](#one-time-catalog-conversions) |
+| Develop and distribute the term picker | [Run](#running-the-picker), [build and test](#building-and-testing-the-picker), [release](#releasing-the-picker) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
 
 ## Exact identifier membership verification
 

@@ -10,7 +10,22 @@ Native operation is covered in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md). Remai
 delivery work is tracked in
 [DOCKER-ROADMAP.md](./DOCKER-ROADMAP.md).
 
-## Current Verdict
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Prepare the host and change topology | [Prerequisites](#prerequisites), [VM sizing](#sizing-dockers-virtual-machine), [mode configuration](#configure-the-deployment-mode) |
+| Obtain images and initialize data | [Images](#build-or-obtain-the-images), [one-time setup](#one-time-docker-setup) |
+| Start and verify | [Startup](#start-the-docker-deployment), [health](#health-gate), [REST](#rest-acceptance-gate), [browser acceptance](#browser-acceptance-gate) |
+| Use native frontend development servers | [Supported hybrid mode](#optional-hybrid-native-frontends-through-docker-nginx) |
+| Rotate authentication keys | [Keycloak signing keys](#keycloak-signing-keys) |
+| Stop, restart or migrate stored data | [Lifecycle and data retention](#stop-restart-and-preserve-data), [MongoDB migration](#moving-a-mongodb-50-volume-to-80) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
+
+<a id="current-verdict"></a>
+
+## Supported Deployments
 
 Local Docker and hybrid deployments support completed immutable trains and explicit builds from
 checked-out source. Use the health, REST and browser gates in this guide to verify each deployment;

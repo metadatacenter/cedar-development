@@ -6,10 +6,9 @@ commits. Versions are changed only in disposable checkouts; native `develop` kee
 Nexus `cedar-maven-dev`.
 
 For local development, use `cedarcli build frontends` (build, checks, redeploy and smoke) or
-`cedarcli test frontends` (build and checks). Both use current working-tree sources, including
-uncommitted edits, and supply local packages to consumers without registry publication or tracked
-pin changes. Their [SNAPSHOT completion contract](FRONTEND-RUNBOOK.md#the-reactor) is independent
-of the clean, captured-source publication requirements below. The explicit
+`cedarcli test frontends` (build and checks), under the
+[SNAPSHOT completion contract](FRONTEND-RUNBOOK.md#the-reactor). The clean, captured-source
+requirements below apply to train publication. The explicit
 `split-frontends --server-payload` path follows the
 [deployment procedure](PROD-DEPLOY-RUNBOOK.md#6--verify-and-rebuild-every-cee-host-to-the-intended-version).
 
@@ -32,6 +31,19 @@ Keep the three identities distinct:
 
 Operators never type the timestamp for a new train. `cedarcli` allocates it. The only train ID an
 operator supplies is an existing one passed to `--resume` or `--train`.
+
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Prepare publication targets | [One-time administration](#one-time-administration) |
+| Check readiness and publish | [Create a train](#create-a-train) |
+| Recover an interrupted or failed publication | [Resume](#resume-a-failed-train), [failure diagnosis](#failure-diagnosis) |
+| Inspect recorded artifacts and state | [State branch](#what-the-state-branch-contains), [timing and writes](#train-timing-and-state-writes) |
+| Deploy the completed images | [Use a train for Docker](#use-a-train-for-docker) |
+| Check registry availability | [Publication-target canary](#publication-target-canary) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
 
 ## One-Time Administration
 

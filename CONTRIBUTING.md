@@ -65,13 +65,15 @@ pin update, commit, push or CI wait. `cedarcli test frontends` runs the source b
 without deployment. Narrow development selectors also include required local producers;
 registry and old-artifact fallback are refused. Release and train procedures remain separate.
 
-Every server suite runs without a backend. `cedar-test-support-library` supplies an in-memory authorization
-service and embedded Neo4j, Mongo and MariaDB on random ports, and the suites bind their HTTP ports in the
-19xxx range — the development ports plus ten thousand — so a running development stack never collides with a
-test run.
+Every server's default suite runs without a live backend. `cedar-test-support-library` supplies
+in-memory authorization and embedded Neo4j, Mongo and MariaDB. Test servers, stubs and stores bind
+`127.0.0.1` on OS-assigned ports, so concurrent tests and the development stack do not compete for
+listeners. `ops/tests/test_backend_test_port_policy.py` enforces that rule.
 
-The tests that do need an external service are tagged and excluded by default: terminology's under
-`bioportal`, the bridge server's under `datacite`. Run those deliberately, with credentials, or not at all.
+Terminology and DOI tests use local BioPortal and DataCite fakes and need no external credentials.
+The default build includes unit and embedded integration tests. The OpenSearch suites run separately
+under `-Popensearch-it`, as CI does; see the
+[test environment](ops/BACKEND-RUNBOOK.md#default-test-environment) for selection and setup.
 
 Two shared helpers refuse to pass vacuously, and a new test should follow them. `PermissionMatrix` fails when
 the matrix it was given is empty, and `RouteSurface` fails when reflection found no endpoints. A test that
@@ -79,24 +81,26 @@ asserts nothing reports success for a system that does nothing.
 
 A green suite is necessary and not sufficient. Suites verify logic; a redeploy and an end-to-end run verify
 reality, and real runtime failures have passed green suites. After any change to inter-service HTTP, to
-validation, or to startup wiring, bring the stack up and exercise it:
+validation, or to startup wiring, rebuild and redeploy it. With native infrastructure running:
 
 ```bash
-cedarcli native start all
+cedarcli native restart all
 cedarcli native status
 ```
 
 `cedarcli native status` prints a BINARY column and marks an unmanaged process with `~pid`, so a healthy row
 cannot hide a service still running an old jar. Confirm every row reads `current` after a redeploy.
 `cedarcli native health` exits non-zero unless every managed application is healthy, which is what to call
-from a script. `cedarcli native restart <service>` redeploys one service, `cedarcli native logs <service>`
-follows its log, and `cedarcli native watch` refreshes the whole table. The
+from a script. `cedarcli native restart microservice <service>` redeploys one Java service;
+`cedarcli native logs <service>` follows its log, and `cedarcli native watch` refreshes the whole table. The
 [native mode](https://metadatacenter.readthedocs.io/en/latest/developer-guide/cedarcli/native/) page covers
 the rest, and [modes](https://metadatacenter.readthedocs.io/en/latest/developer-guide/cedarcli/modes/)
 explains how native, hybrid and Docker differ.
 
-Then, from `ops/e2e`, `npm run smoke:rest` walks the REST surface and `npm run smoke` drives a browser
-through a real login, a template round trip and a controlled-term lookup. The
+Then run `cedarcli test e2e` for every whole-stack smoke tier and its recorded acceptance evidence.
+Use a verified current frontend reactor selection; rebuild with `cedarcli build frontends` when
+frontend inputs have changed. Focused commands under `ops/e2e` support diagnosis but do not replace
+the complete gate. The
 [REST API reference](https://metadatacenter.readthedocs.io/en/latest/developer-guide/cedar-rest-apis/)
 describes what those exercise.
 

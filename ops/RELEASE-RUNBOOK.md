@@ -5,12 +5,25 @@ Cut a CEDAR release from a completed [build train](BUILD-RUNBOOK.md). For deploy
 [BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md). The optional
 [release monitor](cedar-release-monitor.html) opens directly in a browser.
 
-These are release requirements. An ordinary development frontend build uses
-`cedarcli build frontends` with current-source SNAPSHOT packages, including uncommitted edits.
-It needs no release preparation, registry publication, pin update or additional authorization.
+For an ordinary development frontend build, use `cedarcli build frontends` under the
+[SNAPSHOT completion contract](FRONTEND-RUNBOOK.md#the-reactor). The preparation and publication
+requirements below apply to releases.
 
 > Replace `<VER>` and `<NEXT>` with the release version and the next development version, for
 > example `2.9.4` and `2.9.5-SNAPSHOT`.
+
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Prepare a new release host | [One-time setup](#before-the-first-release-on-a-new-host) |
+| Check readiness and plan | [The route](#the-route), [plan checks](#what-plan-checks) |
+| Execute and verify the release | [Run](#running-the-release), [watch and finish](#watching-and-finishing) |
+| Resume after a failure | [Failure recovery](#if-a-phase-fails) |
+| Write the announcement | [Release notes](#release-notes) |
+| Understand independent package versions | [Independent publication](#what-publishes-independently), [branch layout](#branch-layout-for-publication) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
 
 ## The Route
 

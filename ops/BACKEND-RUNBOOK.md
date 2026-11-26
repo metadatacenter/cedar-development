@@ -3,6 +3,9 @@
 Operating guide for native CEDAR, backend contracts, tests and artifact audits. Open work belongs
 in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 
+Paths beginning `ops/` are relative to `"$CEDAR_HOME/cedar-development"`. See the
+[runbook index and command conventions](../README.md#find-a-runbook) for other workflows.
+
 ## Find the Procedure
 
 | Task | Start here |
@@ -10,8 +13,9 @@ in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 | Configure or start a native stack | [Environment](#environment-select-the-native-mode-first), [bring-up](#bring-up-sequence) |
 | Restart, inspect health or logs | [Native controller](#the-controller-cedarcli-native), [ports](#port-map), [gotchas](#known-gotchas-and-fixes-the-expensive-ones) |
 | Diagnose authorization or queued work | [Artifact routes](#artifact-route-ownership), [permissions](#artifact-and-folder-permissions), [queues](#the-redis-queues-and-where-failed-permission-events-go), [log backlog](LOG-QUEUE-RUNBOOK.md) |
-| Build and test | [Build](#building-cedar), [tests](#testing-cedar), [whole-stack smoke](#end-to-end-smoke-test-opse2e), [CI](#continuous-integration) |
-| Audit or repair stored artifacts | [REST inventory](#auditing-production-artifacts-through-rest), [validation](#validating-every-stored-artifact-with-the-library), [repair](#repairing-a-defect-across-the-stored-population) |
+| Build and test | [Build](#building-cedar), [test selection](#testing-cedar), [test environment](#default-test-environment), [whole-stack smoke](#end-to-end-smoke-test-opse2e), [CI](#continuous-integration) |
+| Audit or repair stored artifacts | [REST inventory](#auditing-production-artifacts-through-rest), [snapshots](#keeping-a-snapshot-of-production), [validation](#validating-every-stored-artifact-with-the-library), [repair](#repairing-a-defect-across-the-stored-population) |
+| Compare Java and TypeScript artifact handling | [Corpus gates](#comparing-the-two-model-libraries), [snapshot audit](#reading-every-artifact-with-both-libraries), [YAML round trip](#round-tripping-every-instance-through-yaml) |
 | Docker or hybrid operation | [Docker runbook](DOCKER-RUNBOOK.md) |
 | Publish a train, release or deploy | [Build trains](BUILD-RUNBOOK.md), [releases](RELEASE-RUNBOOK.md), [production](PROD-DEPLOY-RUNBOOK.md) |
 | Frontends, terminology or MCPs | [Frontend](FRONTEND-RUNBOOK.md), [versioning](VERSIONING-RUNBOOK.md), [MCP](MCP-RUNBOOK.md) |
@@ -73,6 +77,19 @@ before selecting native. The complete transition commands are in the
 [Docker runbook](./DOCKER-RUNBOOK.md#prerequisites). Do not select a second mode over a running
 deployment.
 
+For a direct script, Maven or npm invocation that needs CEDAR variables, load the native profile
+into the calling shell after checking `cedarcli env status`. Match the profile recorded for this
+host; `develop` below is only for a workstation:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+export CEDAR_PROFILE=develop  # use server on a staging or production host
+source "$CEDAR_HOME/cedar-development/bin/templates/cedar-profile-native.sh"
+```
+
+This prepares the shell; it does not select or change the CLI's persisted mode. CLI commands need
+only `CEDAR_HOME` and load the selected profile themselves.
+
 Use JDK 17 for direct Java or Keycloak commands outside `cedarcli`. Newer default JDKs (23/25)
 can crash Keycloak with `Failed to start caches … getSubject is supported only if a security
 manager is allowed`. On macOS:
@@ -102,14 +119,18 @@ cedarcli native status
 # Log in
 open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2@test.com / test2)
 
-# Optional: prove the stack end to end (login, folder + template round-trip; ~30 s)
-(cd ops/e2e && npm run smoke)
+# After confirming a current frontend reactor selection, run every smoke tier:
+cedarcli test e2e
 ```
 
 `cedarcli native start all` starts infrastructure and applications headlessly. Each application
 has a PID file and log. Login and smoke remain separate steps.
 
-`start` adopts services already listening. Use `cedarcli native restart` to redeploy running
+If frontend inputs have changed or no verified runtime selection exists, use
+`cedarcli build frontends` to build, check, redeploy and smoke them. A standalone smoke run does
+not establish component freshness; see the [reactor contract](FRONTEND-RUNBOOK.md#the-reactor).
+
+`start` adopts services already listening. Use `cedarcli native restart all` to redeploy running
 applications with fresh binaries.
 
 Start waits for infrastructure, then launches and polls applications together. It reports
@@ -247,6 +268,11 @@ cedarcli native watch                 # auto-refreshing status
 cedarcli native logs <name>           # tail -f a service log
 cedarcli native health                # per-service health + summary; exit 0 only if all healthy
 ```
+
+On a server that serves static frontend payloads through nginx, use
+`cedarcli native health --group microservices`; the default `all` group also expects frontend
+development processes. Verify served pages separately, following the
+[production acceptance checks](PROD-DEPLOY-RUNBOOK.md#verify).
 
 `start`, `stop`, and `restart` name one application through `microservice <name>` or
 `frontend <name>`, and accept the `microservices` and `frontends` application groups.
@@ -3496,6 +3522,18 @@ history and interrupts a running regeneration; resubmit after confirming the old
 
 ## Testing CEDAR
 
+| Need | Command or procedure |
+| --- | --- |
+| Full Java build with unit and embedded integration tests | `cedarcli build java` |
+| Understand fixtures, tags and external-service requirements | [Default test environment](#default-test-environment) |
+| Run the OpenSearch integration suites | [OpenSearch setup and profile](#default-test-environment) |
+| Verify a deployed change across services | [Whole-stack smoke](#end-to-end-smoke-test-opse2e); `cedarcli test e2e` |
+| Reproduce test-order failures | [Class-order reproducer](#reproducing-a-flake-that-depends-on-class-order) |
+| Review coverage and performance evidence | [Test coverage](#test-coverage), [code coverage](#code-coverage), [REST performance](#rest-performance-testing) |
+
+The dated audit records below explain regression coverage at their recorded revisions; their
+counts and timings do not establish the current checkout's test result.
+
 <a id="backend-sequence-audit-reproducers"></a>
 
 ### Backend sequence audits and regression coverage
@@ -5424,26 +5462,26 @@ redeploy, and run `cedarcli test e2e` before trusting green suites.
 The full gate, in order:
 
 ```bash
-cedarcli build java                                                # authoritative full build
-cedarcli native restart          # all managed applications — pass no names
+cedarcli build java              # authoritative full build
+cedarcli native restart all      # all managed applications; infrastructure stays running
 cedarcli native health           # exit 0 only if all healthy
 cedarcli native status           # every BINARY entry must read current
 cedarcli test e2e                # complete smoke gate and recorded evidence
 ```
 
-Pass `restart` no service names. With no arguments it restarts everything the script manages,
-which includes frontends as well as the Dropwizard services. Naming services explicitly narrows
-that and is easy to get wrong: a list of the Java
-services alone leaves the frontend running whatever it started with, so the gate cannot catch a
-frontend regression at all. Gate on `health` rather than reading the status table. It no longer
-waits on the bridge: a CompTox registry that has not loaded leaves the bridge healthy and says so in
-its health message, so an EPA outage cannot block the gate (see the PFAS `503` entry above).
+Use `restart all` for this local full-stack gate: it restarts the frontend processes as well as
+the Dropwizard services. Restarting Java services alone leaves the frontend processes unchanged.
+A restart does not rebuild frontend sources; if they changed, complete
+`cedarcli build frontends` before accepting smoke. Gate on `health` rather than reading the status
+table. A CompTox registry that has not loaded leaves the bridge healthy and reports that condition
+in its health message, so an EPA outage does not block the gate (see the PFAS `503` entry above).
 
 A full `restart` can be cut short — a shell timeout,
 an interrupt — partway through, leaving some services on the previous build. So after it, run
 `status` and confirm the **BINARY** column reads `current` for every service (see the BINARY/`~pid`
 explanation above); a `STALE` warning means that service kept its old jar. Restart just the
-stragglers by name — `cedarcli native restart <name...>` — and re-check. A `health` gate alone
+stragglers with `cedarcli native restart microservice <name>` or
+`cedarcli native restart frontend <name>`, then re-check. A `health` gate alone
 will not catch this: a stale service is still healthy. This bit more than once during a fix-and-
 redeploy pass, where a truncated `restart` left the group and messaging servers a build behind.
 

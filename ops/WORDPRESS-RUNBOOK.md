@@ -4,6 +4,17 @@ Publish and maintain posts at **https://metadatacenter.org**. For cutting or dep
 release, use [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md) and
 [PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md).
 
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Sign in and choose categories | [Access](#site-and-access), [categories](#how-the-categories-are-wired) |
+| Draft a post | [House style](#house-style-for-a-post), [editor procedure](#writing-the-post) |
+| Check and publish | [Saved content and metadata](#verify-saved-content-and-metadata), [preview and publication](#preview-and-publish) |
+| Inspect public content or automate admin work | [Public reads](#reading-the-site-without-logging-in), [agent operation](#driving-the-admin-from-an-agent), [gotchas](#gotchas) |
+
+See the [runbook index](../README.md#find-a-runbook) for related workflows.
+
 <a id="what-the-site-is"></a>
 
 ## Site and Access
@@ -18,6 +29,7 @@ The plugins that matter while posting:
   scores. Existing posts mostly score "Focus keyphrase not set", so the scores are advisory.
 - **W3 Total Cache** fronts the public pages. Post rows in the admin list carry a "Purge from cache"
   action, which is how you force a stale public page to refresh.
+
 Sign in at `https://metadatacenter.org/wp-admin/` with the shared **CEDAR admin** account, which
 authors every post. Credentials live in the team password store, not here.
 

@@ -8,8 +8,20 @@ procedure. The plan alone does not establish whether the rollout completed. Befo
 check the recorded worklog, deployed release, schema and job state. General deployment mechanics
 belong in [PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md).
 
-Companions: `LOG-AGGREGATION-PLAN.md` (design), `PROD-LOG-AGGREGATION-ROLLOUT.md` (the prod plan this
-rehearses), `PROD-DEPLOY-RUNBOOK.md` (deploy mechanics — staging variant noted inline).
+Companions: [design](LOG-AGGREGATION-PLAN.md),
+[production rollout plan](PROD-LOG-AGGREGATION-ROLLOUT.md) and
+[deployment mechanics](PROD-DEPLOY-RUNBOOK.md) (staging variant noted inline).
+
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Establish the rehearsal's prerequisites | [Risks](#0--deployment-risks), [connection facts](#1--gather-the-connection-facts), [preflight](#2--preflight) |
+| Deploy and migrate with jobs disabled | [Deployment](#3--deploy-297-to-staging), [timed DDL](#4--log-db-migration--by-hand-timed-in-tmux), [job configuration](#5--environment--all-three-jobs-stay-off-for-the-first-boot) |
+| Verify and enable processing in stages | [First boot](#6--first-boot-and-verification), [live aggregation](#7--live-aggregation), [backfill](#8--historical-backfill), [pruning](#9--test-pruning-on-staging) |
+| Stop or complete the rehearsal | [Rollback](#11--rollback), [production carry-over](#10--carry-over-to-prod), [record results](#12--record-results) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
 
 ---
 

@@ -17,10 +17,22 @@ For development and test gates, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#
 platform release that consumes the public CEE, CED and CETP packages, see
 [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
 
-Publication is not a prerequisite for a development frontend build. Use `cedarcli build frontends`
-for the complete local SNAPSHOT workflow or `cedarcli test frontends` for source checks. Both
-include uncommitted sources and resolve component packages automatically. The explicit versions,
-clean trees, commits and registry waits here apply only to the requested publication.
+For development builds and source checks, use the
+[frontend reactor](FRONTEND-RUNBOOK.md#the-reactor). The explicit versions, clean trees, commits
+and registry waits below apply to publication.
+
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Understand package versions and dependencies | [Release contract](#release-contract) |
+| Prepare credentials and select versions | [Prerequisites](#prerequisites), [inputs](#choosing-the-inputs) |
+| Run or resume publication | [The route](#the-route), [stop conditions](#where-the-route-stops), [failure rules](#failure-rules) |
+| Verify publication and update consumers | [After the route](#after-the-route), [CEE propagation](#propagate-a-stable-cee-release) |
+| Adopt packages in a platform release | [Train-backed release](#use-the-public-packages-in-a-train-backed-cedar-release) |
+| Describe the published change | [Release notes](#release-notes) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
 
 ## Release Contract
 

@@ -9,6 +9,19 @@ restart services and verify served frontend bytes. First cut the release using
 > `<MODIFIER>` with the deploy's version modifier (see step 3). Never commit real hostnames,
 > credentials, or the raw migration SQL into this file.
 
+## Find the Procedure
+
+| Task | Start here |
+| --- | --- |
+| Review release-specific prerequisites | [Deployment sequence](#the-sequence) — review the migration notes before connecting |
+| Connect and reconcile the host | [Connect](#a--connect), [local changes](#1--reconcile-local-changes), [release checkout](#2--pull-the-release-onto-main) |
+| Build, stop and deploy | [Build](#4--build-before-stopping-java), [stop/configure](#5--stop-services-and-configure-frontends), [frontend payloads](#6--verify-and-rebuild-every-cee-host-to-the-intended-version) |
+| Migrate and restart | [Database migrations](#7--database-migrations), [startup](#8--start-java-then-bounce-nginx) |
+| Accept or diagnose the deployment | [Verification](#verify), [gotchas](#gotchas) |
+| Change split-frontend routing or undo that change | [Cutover and rollback](#split-frontend-cutover-and-rollback-migration-only) |
+
+See the [runbook index and command conventions](../README.md#find-a-runbook) for related workflows.
+
 <a id="what-a-prod-deploy-actually-is"></a>
 
 ## Deployment Model
@@ -326,10 +339,10 @@ path before OpenView depends on it. A fabricated identifier returning 404 does n
 
 ```bash
 # These adapters now depend on the upgraded resource and artifact endpoints.
-cedarcli native restart openview
-cedarcli native restart monitor
+cedarcli native restart microservice openview
+cedarcli native restart microservice monitor
 cedarcli native status
-cedarcli native health
+cedarcli native health --group microservices
 ```
 
 **Acceptance checks:**
@@ -469,7 +482,10 @@ service nginx start
 ## Verify
 
 - `cedarcli native status` — all Java services up on the new build.
-- `cedarcli native health` — every check passes. Each server's `keycloak-signing-keys` check fetches
+- `cedarcli native health --group microservices` — every Java service passes. Production serves
+  frontend payloads through nginx and does not run the frontend development processes included in
+  the default `all` group; verify those payloads with the browser checks below.
+  Each server's `keycloak-signing-keys` check fetches
   the realm's key set the way token verification does, so it fails when the host cannot reach
   `auth.<host>`.
 - `cedarcli check versions --strict` — expected version and modifier, with no checkout behind its

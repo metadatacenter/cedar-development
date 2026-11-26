@@ -7,6 +7,21 @@ Historical capacity measurements are in [LOG-PIPELINE-CAPACITY.md](LOG-PIPELINE-
 The current queue protocol and replay guarantees are in the
 [backend runbook](BACKEND-RUNBOOK.md#the-redis-queues-and-where-failed-permission-events-go).
 
+## Find the Procedure
+
+| Symptom or task | Start here |
+| --- | --- |
+| Pending queue grows | [Triage](#1--triage-in-four-commands), [drain-rate calculation](#3--draining-the-backlog) |
+| Permission work produces a surge | [Permission cascades](#2--permission-cascades) |
+| No database progress | [Consumer diagnosis](#4--if-the-consumer-really-is-dead) |
+| Messages are parked | [Dead letters](#4b--dead-lettered-log-messages), [dependency outages](#dependency-outages-and-dead-letters) |
+| Redis refuses writes | [MISCONF](#misconf-redis-refusing-writes), [host capacity](#6--check-host-capacity-and-access) |
+
+Run shell diagnostics with this host's native profile loaded; `cedarcli` loads the profile for its
+own child processes, not for later `mysql`, `redis-cli` or `curl` commands in the calling shell.
+See the [native environment setup](BACKEND-RUNBOOK.md#environment-select-the-native-mode-first)
+and the [runbook index](../README.md#find-a-runbook).
+
 ---
 
 <a id="0--the-one-thing-to-understand-first"></a>

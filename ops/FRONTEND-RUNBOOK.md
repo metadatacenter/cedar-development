@@ -1,15 +1,16 @@
 # CEDAR Frontend — Runbook
 
-Running, building, testing and releasing the embeddable editor (CEE/CEF), designer
-(CED), and the TypeScript model library used by them. Commands in each component
-section run from that repository unless stated otherwise.
+Running, building, testing and releasing CEDAR's browser applications, embeddable editor (CEE/CEF),
+designer (CED/CEFD), and TypeScript model library. Commands in each component section run from
+that repository unless stated otherwise. See the
+[runbook index and command conventions](../README.md#find-a-runbook) for shared setup.
 
 For a development frontend build, run `cedarcli build frontends`. It has Maven-like SNAPSHOT
 semantics: build current local sources, including uncommitted edits, supply their packages to every
-consumer, verify, redeploy and smoke. The request authorizes that complete local workflow without
-follow-up questions. There is no prerequisite to publish, move pins, commit, push or wait for CI.
-Use `cedarcli test frontends` when only the source build and checks are requested. Releases and
-build trains use their separate captured-source workflows.
+consumer, verify, redeploy and smoke. Use `cedarcli test frontends` for the source build and checks
+without deployment. Neither requires registry publication or tracked pin changes. The
+[reactor contract](#the-reactor) defines completion and recovery; releases and build trains use
+their separate captured-source workflows.
 
 Use [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md) for open work across these components
 and the main browser applications. Shared design values belong in
@@ -31,1406 +32,9 @@ and the main browser applications. Shared design values belong in
 | Public npmjs releases | [Npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) |
 | Term-picker operation | [Versioning runbook](VERSIONING-RUNBOOK.md) |
 | What a host serves against its components | [Component staleness](#component-staleness) |
-| Page load and interaction performance | [Reporting-only performance suite](#reporting-only-performance-suite) |
+| Page load and interaction performance | [Paired standalone checks](#paired-standalone-performance-checks), [full-stack reporting suite](#reporting-only-performance-suite) |
 | How each component measures against WCAG 2.2 | [Accessibility conformance](#accessibility-conformance) |
-
-## Paired standalone performance checks
-
-`cedarcli test frontend-performance-paired` compares prebuilt standalone CEE/CED JavaScript bundles, or two staged
-Template Designer `app/` directories with `--component designer`, without backend services, Keycloak, accounts or repository fixtures.
-The command does not build, deploy or publish anything. Use the normal reactor/CI production output;
-never pass a development-server bundle. Finish builds and other tests before measurement.
-
-```bash
-cedarcli test frontend-performance-paired --component cee \
-  --baseline /path/to/before/cedar-embeddable-editor.js \
-  --candidate /path/to/after/cedar-embeddable-editor.js \
-  --output /path/to/new-report --samples 5
-# Use --component ced with the standalone cedar-embeddable-designer.js bundle.
-```
-
-The runner freezes and hashes both inputs, uses the same fixed 5/100-field fixtures and
-readiness/editing checks as the full-stack suite, and records browser, Node, machine, suite
-and artifact identities. Five sequential pairs alternate baseline/candidate order and rotate
-fixture order. Each version has a fresh browser context, cold then warm cache, with the
-constrained profile (4× CPU, 1.6 Mbit/s down, 150 ms latency). The static HTTPS server uses
-gzip and browser caching without Playwright routing. Unknown hostnames fail DNS; unexpected
-origins are failures. There are no backend writes or cleanup credentials.
-
-Missing assets, failed requests, duplicate script requests, pending requests at the observation
-cutoff, broken rendering/editing, uncaught errors or incomplete coverage fail the command.
-Reports contain all attempts; failed samples cannot improve a median. Existing output directories
-are refused. `report.json`, `summary.md` and screenshots are retained; the local directory also
-keeps frozen inputs. CI uploads only reports/screenshots, not ephemeral TLS keys.
-
-Readiness, blocking time over 50 ms and CLS are **advisory**, pending runner calibration.
-A timing warning requires the median paired increase to exceed both 10% and 100 ms for
-readiness, or both 15% and 50 ms for blocking. CLS uses a provisional 0.02 increase.
-These are investigation triggers, not approved budgets. Fewer than five pairs, missing metrics
-or median absolute deviation above the tolerance produce an explicit inconclusive assessment.
-In CI, a complete but inconclusive comparison gets one further full paired run. Both attempts
-are retained, with the second selected; persistent noise stays explicitly inconclusive. Broken
-loading or incomplete coverage never retries into a pass. A clear regression does not rerun
-to seek a faster result. A complete advisory run still exits zero; load/measurement failures
-always exit nonzero.
-
-This measures standalone rendering, not sign-in, production latency, host integration, field
-INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute for the
-Designer-equivalent CED+CEF measurement. The existing raw/gzip build budgets remain enforced
-independently. Run the full-stack suite below for authenticated hosts and real APIs.
-
-The Designer selection measures both the real host and the equivalent bare page with its
-exact shared CEE/CEF/CETP/CED bundle. Both wait for every real CEF summary. Only copied runtime
-configuration and the session boundary change; the shipped host JS/CSS/markup and components
-remain byte-identical. Fixed HTTP API responses have real deployment-shaped resource origins,
-ETags, CORS and no-store caching. Unknown API reads and every write are refused. This excludes
-real SSO/API latency; it must not be compared as an application speedup against the full-stack
-Designer results. Normal-load checks require recovery controls to remain absent and deferred
-RDF/compatibility-validator code to remain unloaded.
-
-The equivalent page's cross-origin fonts now receive CORS headers from the lab server. The
-2026-11-07 equivalent-page measurements below predate this correction: font requests failed and
-fallback fonts could render. Their within-fixture comparisons remain recorded, but they are not
-font-equivalent comparisons with Designer. Host and standalone CEE/CED measurements are
-unaffected. Use fresh pairs with this lab for equivalent-renderer comparisons.
-
-A corrected control on 2026-11-08 completed 80/80 Designer/equivalent measurements, with both
-inputs pointing to the same staged app. All loading, editing and normal-screen checks passed;
-all paired results were within advisory tolerances. Constrained warm medians were approximately
-0.62/1.40 s for the equivalent 5/100-field pages and 1.02/1.79 s for the fixture-backed Designer.
-These validate the new benchmark and do not represent an optimization to product code.
-
-The CEE and CED `Test` workflows and Designer's `Build and package` workflow call the pinned reusable
-`.github/workflows/frontend-performance-paired.yml`. Pull requests compare their base SHA
-with the tested merge candidate; pushes compare the previous branch head with the candidate.
-The existing candidate build artifact is reused. The comparison also builds the fixed source
-reference in `ops/e2e/frontend-perf/references.json`, so small regressions cannot disappear by
-merging them one at a time. The reference never advances automatically: changing it requires
-an explicit reviewed source change and matching harness-pin updates. Byte-identical reference
-and PR-base outputs share measurements while both source revisions remain recorded.
-
-A rebuild of an old commit installs the packages its locks name, and Nexus deletes development
-packages a few days after publishing them. Two inputs are therefore read from published packages
-by `ops/e2e/frontend-perf/published-bundle.mjs` rather than rebuilt. A base that carries a release
-version, as `main` does on a CEE or CED release pull request, is measured from the bundle npmjs
-serves for that version. A reference listed under `published` in `references.json` is measured
-from the release whose code its commit carries. The CEE reference is the commit that advanced CEE
-after release 2.0.33, so it is read from `cedar-embeddable-editor@2.0.33`. The CED and Designer
-references install only packages `npm-cedar-releases` retains, and are still built from source.
-The calibration workflow reads its control the same way. All
-comparison builds/installations finish before Chromium starts. Both versions are measured
-sequentially on the same Ubuntu 24.04 runner with the harness lockfile's Chromium.
-No performance job runs inside the development reactor, and no package pins are rewritten.
-
-Loading failures fail the CI job; CEE dev publication also waits for that job. Timing/CLS
-warnings and inconclusive assessments appear in the job summary and workflow annotations.
-Reports, every retry and screenshots are retained for 30 days. `comparison.json` records the
-selected attempts and source references; each attempt retains its complete `report.json`. A baseline that cannot build is a setup
-failure, never a passing comparison. To update the harness, update both the reusable-workflow
-SHA and its `harness-ref` input together. The release-tooling CI tests measurement/failure
-semantics without a CEDAR stack on Linux and macOS.
-
-The initial local control check on 2026-11-08 ran 40 measurements for CEE and 40 for CED,
-comparing each production bundle with itself. All loads and editing checks passed; every
-paired readiness/blocking/CLS result was within its advisory tolerance. CEE's bundle SHA-256
-was `ae1034b229734c180136573898c06c40f05ea1d6e8776ebda1aaa43d909ab485` and CED's was
-`cf5f6442c5dd5720f88a0c5f03343f1a6bdfd0fe679a92372d8f6771b6147731`.
-This validates the comparison machinery, not a speed improvement or a Linux CI budget.
-
-The daily `Frontend performance calibration` workflow runs at 02:17 UTC on GitHub-hosted
-Ubuntu 24.04 runners. It pins the validated harness and source references, builds each input
-once, then compares identical bytes for standalone CEE, standalone CED and Designer/equivalent
-CEF. Each control retains every observation, including noisy results, without retrying. Reports
-and screenshots are retained for 30 days. The workflow must exist on the default branch,
-`main`, for GitHub's schedule to run; its identical file also lives on `develop` so release
-integration does not lose it. The pinned harness checkout keeps default-branch scheduling
-independent of the release source tree.
-
-Collect at least 14 distinct daily controls per stable machine/browser/suite/artifact cohort
-before reviewing hard timing limits. Inspect paired differences, noise, false warnings and
-host integration results together; a passing control alone does not approve a budget. Keep
-reviewed limits and reference updates explicit, with retained evidence. Runner or harness
-changes start a new cohort rather than silently mixing distributions.
-
-### Hosted readiness review and notifications
-
-`Frontend performance readiness review` runs entirely on GitHub-hosted Ubuntu runners after
-calibration or full-stack measurement workflows complete, daily at 05:47 UTC as a fallback, and on manual dispatch. Its
-workflow lives identically on `main` and `develop` and checks out a pinned, tested review
-implementation. It never executes downloaded artifact contents as code. Updating the implementation
-requires updating that pin on both branches, keeping release integration consistent.
-
-The review counts one earliest complete successful control per UTC date, separately for each
-component and comparable CPU/platform, browser, Node, suite, reference artifact and measurement
-settings. Failed/missing/expired reports, incomplete coverage and duplicate same-day runs cannot
-inflate the count. Noisy successful controls count and remain in the review. CEE, CED and Designer/
-equivalent CEF can reach readiness independently; full-stack results are reviewed separately
-from these paired component controls.
-
-After 14 dates, a fixed rolling window of the latest 14 daily controls is assessed for readiness,
-blocking and CLS. It reports paired median changes, ranges, median absolute deviation, baseline
-ranges, false warnings and inconclusive rows. Zero false warnings and zero inconclusive rows in
-that window support reviewing the existing provisional thresholds; otherwise the result needs
-investigation and collection continues. This is a conservative automated screen, not a statistical
-guarantee, human approval or automatic activation of timing gates.
-
-The first eligible cohort opens a GitHub issue assigned to and mentioning `@martinjoconnor`.
-Subsequent newly eligible or newly stable cohorts comment on that issue once per milestone;
-daily unchanged results do not send duplicate issue notifications. GitHub delivers those through
-the account's notification settings. The issue includes the assessment and links to source runs.
-Every run also has a job summary and machine-readable `review.json`.
-
-`performance-calibration-history` retains compact measurement reports, exact cohort identities,
-source run/artifact IDs and canonical source-report digests for 90 days. Each successful default-
-branch review restores the prior archive and carries it forward, preserving collected evidence
-beyond raw reports' 30-day retention. Download/API failures fail the review instead of pretending
-there is no history. If the review itself stops for longer than artifact retention, missing evidence
-must be collected again. Repository code, package pins and gate settings are never modified by the
-review. The earlier app-based review is superseded by this hosted workflow.
-
-`full-stack-performance-history` separately retains complete hosted full-stack reports and carries
-its archive forward on each successful default-branch review. A usable day requires all 340 samples
-(17 scenarios × two profiles × cold/warm × five repetitions), successful setup and verified fixture
-cleanup. Train images, standalone package sources, CLI/deployment tooling, suite, CPU, browser, Node
-and resource limits define a cohort; newly generated runtime configuration does not split it.
-The earliest complete run per UTC day counts, including slow observations. After 14 comparable
-dates, the review notifies the same GitHub issue that full-stack variability is ready for human
-review. Per-scenario daily medians, ranges, within-run and between-day median absolute deviations
-are retained in `full-stack-review.json`. These daily measurements are unpaired: they do not
-establish a false-positive rate or automatically approve timing thresholds.
-
-## Reporting-only performance suite
-
-`cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
-part of the frontend reactor, whole-stack smoke, train or release gates. No performance budget
-fails a run. A broken page, failed/pending asset request, duplicate script request, unexpected external
-origin, unavailable account or failed fixture cleanup does produce a nonzero exit and an explicitly
-incomplete report; failed measurements never enter medians.
-Browser operations have a 90-second availability timeout, and sign-in setup has 60 seconds.
-Workspace and Bridging landing pages must keep the standalone editor deferred. Designer and
-the equivalent CED+CEF page must keep RDF and compatibility validation code deferred. These
-loading contracts cover every modern scenario in the full-stack sweep; they do not impose
-machine-dependent timing budgets. The old equivalent-page font CORS defect is fixed by the
-shared lab server and now fails the suite if it returns. Chromium marks successful HTTP 204
-iframe responses as canceled; these no-content responses are accepted, while interrupted
-asset downloads still fail. A 2026-11-08 verification covered all 17 modern scenarios with
-normal/constrained profiles and cold/warm loads: 68/68 passed, with no setup or cleanup errors.
-This one-repetition run verifies coverage and loading contracts, not timing budgets.
-
-Use the pinned Node version and a running local `.orgx` backend/Keycloak stack. Run it while
-builds, smoke tests and other benchmarks are idle. It neither restarts nor redeploys the stack.
-
-```bash
-cedarcli test frontend-performance --plan
-cedarcli test frontend-performance --check
-cedarcli test frontend-performance --samples 5
-# A shorter investigation of the standalone components:
-cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,cee-standalone-large,ced-standalone-small,ced-standalone-large
-```
-
-### Hosted full-stack measurements
-
-`Full-stack frontend performance` runs daily at **03:17 UTC** and on manual dispatch. Its
-identical workflow lives on `main` (required for GitHub scheduling) and `develop`, with a pinned
-harness checkout independent of release source changes. It provisions a fresh Ubuntu 24.04
-GitHub-hosted runner and runs all modern scenarios against real Docker-hosted CEDAR APIs and
-Keycloak. It consumes the completed immutable train `2.9.33-dev.20261107.2016`; image digests and
-standalone CEE/CED/term-picker tarball hashes are verified before measuring. The train’s resource
-image omitted its fresh-database
-bootstrap admin-tool JAR; CI mounts the matching train JAR read-only, verifies its pinned SHA-256,
-and records that dependency separately. New image builds fail if that JAR is missing or corrupt.
-CI also mounts the corrected Designer entrypoint from the pinned Docker tooling: it verifies
-the published page inventory and only generates runtime configuration, without recompiling UI
-assets. The train image’s older entrypoint attempted a build without the source lockfile. Both
-bootstrap additions are recorded as calibration inputs; train image tags remain unchanged.
-This is a fixed calibration baseline, not a moving develop build. Updating the train or pinned
-tooling intentionally starts a new comparable cohort.
-
-The job generates private ephemeral datastore/service credentials and a fresh read-only monitoring
-identity, uses only synthetic fixtures, and contacts no production CEDAR deployment. It uses the
-existing Nexus image credentials to pull published images. No self-hosted runner, workstation
-session, local monitoring account or open application is needed. Fixed text-field scenarios need
-no production terminology corpus and do not benchmark external BioPortal searches.
-
-Published application assets are copied from the verified containers into the existing HTTPS
-performance lab, with real SSO/API calls still reaching the isolated stack. Standalone bundles come
-from the same train's verified npm completion record. `--deployment-manifest` selects these inputs
-without a local reactor build; the default developer command continues to use local sources.
-All resource ceilings, source identities, image digests, browser/Node versions and machine metadata
-are recorded. OpenView, Monitoring and Bridging in this train compile the production domain into
-one environment literal rather than reading the container's domain setting. The lab verifies the
-captured bytes first, changes only that literal to `.orgx` in its copy, and records before/after
-hashes. Chromium blocks production `.org` hostnames before authentication; this DNS guard preserves
-HTTP caching, unlike request interception. Java services have 512 MiB heaps / 768 MiB limits,
-OpenSearch and Neo4j 512 MiB heaps / 1536 MiB limits, and Keycloak a 512 MiB heap / 1024 MiB limit.
-These are CI fixture settings, not production sizing guidance. Shared hosted hardware can be
-noisy; timings stay reporting-only.
-
-Reports, CSV, screenshots and immutable input evidence are retained as `full-stack-performance`
-for 90 days, sanitized service diagnostics for 14 days. The readiness review archives compact
-measurements beyond individual artifact retention. The job stops its stack even after failures;
-GitHub disposes of the runner and its temporary volumes. Broken pages, loading contracts and
-fixture cleanup still fail the job; timing values alone do not.
-
-Manual dispatch accepts five repetitions for calibration or one for a coverage check. A single-
-repetition run has 68 samples and never counts toward the 14-day full-stack review.
-
-The [initial hosted baseline](https://github.com/metadatacenter/cedar-development/actions/runs/42497465804)
-on 2026-11-08 passed all 340 samples with verified fixture cleanup. Its
-[automatic review](https://github.com/metadatacenter/cedar-development/actions/runs/42499993039)
-retained the evidence as the first comparable daily run. Hosted and workstation measurements are
-separate cohorts; their timings are not a before/after comparison.
-
-The fixed baseline's executable inputs are retained in place under narrow Nexus cleanup
-exceptions: all 27 images of this exact train, its three standalone CEE/CED/term-picker packages,
-and its matching admin-tool component. Their URLs and bytes remain unchanged, preserving the
-existing calibration cohort. Both the three-day and thirty-day policies exclude these inputs;
-the same exceptions retain the fixed isolated CEE control's exact model and design-token
-dependencies. The isolated CED and Designer controls already resolve their internal dependencies
-from the retained npm registry.
-Downloads alone do not extend ordinary artifact retention. The reviewed policy changes and
-server-side preview evidence are in [frontend-performance-retention.json](frontend-performance-retention.json).
-The previews simulated all artifact ages and proved that every other cleanup selection remained
-unchanged. Retire these exceptions explicitly when this baseline is no longer needed; do not
-remove them merely because individual reports have been archived. A future baseline requires
-equivalent input retention before it begins collecting comparable daily runs.
-
-### Optional workstation scheduling
-
-The unattended sweep uses hosted CI; the former workstation LaunchAgent is removed. The local
-CLI remains available for explicitly requested workstation investigations. If deliberately
-installed again, its sweep runs at **03:30 Europe/Madrid**, with DST handled
-explicitly. Install or inspect it through the CLI:
-
-```bash
-cedarcli test frontend-performance-schedule --install
-cedarcli test frontend-performance-schedule --status
-cedarcli test frontend-performance-schedule --check
-# Stop future scheduled runs:
-cedarcli test frontend-performance-schedule --remove
-```
-
-The macOS user LaunchAgent checks hourly at minute 30 but runs measurements only during the
-03:30–03:39 Madrid window. It does not wake the machine or catch up outside that window.
-The user must be logged in and the local stack running. No GitHub self-hosted runner is installed.
-`--check` only reports the time/activity decision; it does not measure or modify state.
-
-A sweep needs ten minutes without keyboard/mouse input, other processes using at most 60% of
-one logical CPU, the local stack lock available, clean relevant source trees, current component
-bytes, the existing private monitoring account, and 10 GiB free disk space. It never stashes,
-pulls, deploys, publishes, starts the stack or changes permissions. It performs the normal
-isolated production preparation and five repetitions of all 17 modern scenarios (340 loads).
-Clean trees are an unattended measurement safeguard, not a prerequisite for development builds.
-
-Activity is checked every 15 seconds, excluding this sweep's own descendants. If work resumes,
-activity becomes unreadable or measurements reach 45 minutes, the suite is interrupted gracefully:
-preparation stops, Chromium closes and temporary fixtures are deleted and verified. Cleanup
-is allowed to finish. An unverified completion or cleanup error blocks later sweeps pending
-investigation; do not remove that guard without checking `fixtures.json` against the local stack.
-
-Evidence lives under `.cedar/reports/frontend-performance/scheduled/`: `latest.json` records the
-latest decision, `last-run.json` preserves the last started run and its cleanup status, and each
-`nightly-*` directory holds the report and `scheduled.json`. Skipped hours cannot erase an
-unverified run. `latest.log` records the latest sweep; `launchd.log` records scheduler invocations.
-Owned reports are retained for 30 days and their frozen lab files for seven days. Cleanup-failure
-evidence is retained for investigation. The LaunchAgent contains no credentials; the existing
-mode-0600 monitoring account file is read only into the child process environment.
-
-### Measurement coverage and method
-
-The default covers Workspace's dashboard and metadata editor, Template Designer, OpenView
-template pages, Bridging and Monitoring dashboards, the content index, standalone CEE and
-CED, and the standalone term picker. Editor pages use fixed 5-field and 100-field text
-templates. OpenView's root redirects away, so the suite measures useful artifact pages
-instead. No legacy application is opened. The term-picker measurement ends when its empty
-search control is usable; external terminology searches and DOI submissions are outside
-this baseline. Editing measurements type an answer or change a displayed field label;
-they do not save to the server.
-
-The suite copies the staged production Workspace and Template Designer into its report
-directory. OpenView, Monitoring, Bridging and Content are built there with their production
-configuration and existing dependencies. The only source adjustment in those disposable
-copies is the deployment domain, from `.org` to `.orgx`. Standalone components come from the
-hash-verified packages selected by `.reactor/runtime.json`. If application sources have
-changed since the last development build, refresh them with `cedarcli build frontends`
-before measuring. `lab/artifacts.json` records checkout revisions/status, the reactor
-selection and SHA-256/size of every served file, plus the measurement-suite files.
-In the copied Workspace/Designer `config/version.js`, `cedarDevelopmentMode` is set to false
-to select server cache behavior; otherwise native development's per-navigation URL cache
-busting would invalidate the warm measurement. These lab-only adjustments are recorded.
-
-A Chromium-private host mapping serves those files over an isolated loopback HTTPS/HTTP/1.1 server;
-normal local APIs and SSO still go through nginx. HTML uses `no-store`; assets use gzip when
-appropriate and a one-hour cache. These are explicit laboratory delivery settings, not a
-measurement of production nginx/CDN/TLS latency. Browser request interception is not used,
-because it disables the HTTP cache. Sign-in happens before measurement and its credentials
-stay in memory. Subsequent silent SSO and redirects count toward page readiness.
-
-Monitoring requires an account with `MONITOR_READ`. The suite never changes roles. To use
-an existing authorized local account, provide `CEDAR_PERF_MONITOR_LOGIN` and
-`CEDAR_PERF_MONITOR_PASSWORD` in the invocation environment; it gets a separate browser
-session. Otherwise Monitoring uses the ordinary test account. A denial is reported as missing
-coverage, and the other pages continue. See the backend runbook's read-only Monitor access
-procedure before granting access.
-
-The local baseline uses the dedicated `frontend-perf-monitor@test.com` identity with
-`normal` plus `monitorViewer`, leaving existing users unchanged. Its generated password is
-stored only in `$CEDAR_HOME/.cedar/secrets/frontend-perf-monitor.json` (owner read/write,
-mode 0600), with `username` and `password` keys; load those values into the two invocation
-environment variables above for subsequent runs. Never commit that file or include its
-contents in a report. The local realm required the documented `monitorViewer` role setup;
-CEDAR's stored permissions were then updated for this account alone using its existing
-permission-expansion/user-service libraries. The added permission was exactly
-`permission_monitor_read`, and the protected `/healthcheck/monitor` endpoint returned 200.
-
-Each repetition starts with a fresh browser context and cleared HTTP cache. It measures a
-cold navigation, leaves the page, then measures a warm navigation in the same tab. Interaction
-measurements follow the warm load only, so retained editing drafts cannot change the next
-load's content. Repetitions rotate scenario/profile order and run sequentially. Temporary
-local templates live in a dedicated folder and are deleted, with GET verification, at the
-end; `fixtures.json` records their identities and cleanup outcome. An interrupt closes the
-browser and still attempts cleanup.
-Workspace's dashboard opens that controlled two-template folder rather than a test user's
-changing home-folder contents.
-
-The default now includes two `ced-integrated-small` / `ced-integrated-large` scenarios
-(17 scenarios, 340 samples at five repetitions). These load the exact hash-verified shared
-CEE/CEF, term-picker and CED bundle from Designer's staged component manifest, plus its host
-fonts, into a minimal standalone page. They do not authenticate or fetch a repository artifact.
-Both integrated CED and Designer wait for every real CEF field summary through the components'
-shadow roots. Bare `ced-standalone-*` remains unchanged and exercises CED's lightweight fallback
-summaries without CEE. Use the integrated comparison to separate host overhead from richer
-field rendering; the bare comparison alone cannot establish wrapper cost. Capture a fresh
-before/after pair when changing this readiness predicate, rather than mixing earlier timings.
-
-| Profile | CPU | Network |
-| --- | --- | --- |
-| Normal | No slowdown | No artificial network limits |
-| Constrained | 4× slowdown | 1.6 Mbit/s download, 0.75 Mbit/s upload, 150 ms latency |
-
-The CPU multiplier is relative to the recorded machine, not a calibrated phone model.
-Reports include browser/Node versions, viewport, machine identity and load samples.
-They report median and min–max, rather than estimating population percentiles from five runs.
-Readiness/action probes target the fixture's input elements directly. CPU profiling found
-that broad accessible-name queries in the original baseline walked all 100 fields and
-contributed their own long tasks. Compare optimization results only against a rerun using
-the same direct probes; a lower measurement after changing the probe is not an application
-speedup. The original baseline below remains historical evidence, including that overhead.
-
-Workspace dashboard readiness also waits for the two fixture templates' action-report responses.
-The listing's `aria-busy` clears before that background enrichment finishes, so listing readiness
-alone can truncate real requests on a cold deployment. The probe waits for completed Resource
-Timing entries, retaining failures for missing, failed or unfinished requests; it does not add a
-fixed delay or suppress loading errors. Do not compare this readiness value with the earlier
-listing-only probe as an application speed change. The pinned daily calibration harness remains
-unchanged and retains its existing cohort.
-
-Outputs default to `.cedar/reports/frontend-performance/<timestamp>/`: `report.html`,
-`report.json`, `samples.csv`, first-run screenshots and build/fixture evidence. `--output`
-selects an **empty** directory; earlier measurements are never overwritten. JSON retains
-per-request transfer/cache/timing information without URL query strings, layout-shift and
-long-task entries, and failures. Paint and layout metrics cover the final top-level document
-through one second after controls and fonts are ready. CEDAR readiness includes navigation
-and any redirects. LCP can describe an early header rather than an editor becoming usable,
-so always read it alongside readiness. `blockingOver50Ms` is the sum of long-task duration
-beyond 50 ms in that window, **not Lighthouse TBT**. Scripted action completion and observed
-Event Timing entries are **not real-user INP** or proof of Core Web Vitals compliance.
-The [Web Vitals reference](https://web.dev/articles/vitals) describes the real-user targets
-and their 75th-percentile assessment; these five-run laboratory distributions are diagnostic.
-In particular, the lab's HTTP/1.1 connection behavior can differ from a production HTTP/2 or
-HTTP/3 delivery. Compare identical lab settings, and verify deployment timings separately.
-
-<a id="frontend-performance-baseline"></a>
-
-### Baseline — 2026-11-07
-
-Across two runs, the baseline contains **300 valid samples covering all 15 scenarios**:
-two profiles × two cache states × five repetitions per scenario. All temporary templates
-and their folders were deleted and GET-verified absent.
-
-The 12:53–13:08 UTC run collected 280 samples for 14 scenarios. Its original report remains
-explicitly incomplete (exit 1): the ordinary test account lacked `MONITOR_READ`, and no denial
-page was counted as a fast dashboard. The separate **13:29–13:30 UTC Monitoring supplement**
-used the authorized dedicated account described above and collected the remaining 20 samples.
-It completed with exit 0, no setup/sample failures and no cleanup errors. Original reports
-are preserved separately rather than rewriting the first run's coverage or source identity.
-
-Evidence is under `$CEDAR_HOME/.cedar/reports/frontend-performance/baseline-20261107/`:
-`report.html`, `report.json`, `samples.csv`, `fixtures.json` and `lab/artifacts.json`.
-Measurement code: `cedar-development@10387aaf`; CLI: `cedar-cli@323f7d0`.
-The machine was an Apple M4 Max, 16 logical CPUs, 64 GiB RAM, macOS/Darwin 25.6.0,
-Chromium 156.0.8078.4 and Node 24.22.1, at 1440×1000. Desktop applications remained running;
-a backup process used roughly one CPU before the run. One-minute load was 4.32 at the start
-and 3.35 at the end. No other build or test was launched by this suite during measurement.
-
-Monitoring evidence is under
-`$CEDAR_HOME/.cedar/reports/frontend-performance/monitoring-20261107/`, with the same report,
-CSV, fixture and artifact files. It used the same machine, browser, Node, viewport and
-measurement profiles; one-minute load was 2.99 at the start and 3.77 at the end.
-Measurement code: `cedar-development@26fd9500`; CLI: `cedar-cli@323f7d0`.
-Monitoring source was clean at `e24c81139f55bd399ef451e1b2e0788e2b8f012c`; the served output
-inventory SHA-256 is `71318f25d754d6bf55e8f876ab89f375520f787c25195c3ab298f61d29e9884d`.
-All 20 Monitoring samples recorded CLS 0. The dashboard screenshot confirms the useful page,
-and the protected Monitor endpoint returned 200 for the dedicated account before measurement.
-
-The selected reactor graph was
-`3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`.
-Standalone CEE used package `52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`;
-standalone CED used `f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847`.
-Workspace's staged reactor input was base `6a43eede` with source digest `cf092c45c6e8`,
-and Designer's was base `040db154` with source digest `0b3b2fa6c43b`; both reactor inputs
-included uncommitted edits when built. The retained output inventories identify the measured
-bytes, and the report separately records checkout heads at capture. Standalone components
-remain the self-contained package variants, including their fonts.
-
-**Page readiness, seconds: median (minimum–maximum).** Small means five text fields;
-large means 100. These are full navigations to the page, not an in-app route transition.
-Readiness includes useful controls and font readiness, with the exact predicate in the report.
-
-| Page | Normal, cold | Normal, warm | Constrained, cold | Constrained, warm |
-| --- | --- | --- | --- | --- |
-| Workspace dashboard | 0.32 (0.31–0.34) | 0.26 (0.24–0.27) | 3.67 (3.65–3.73) | 2.14 (2.13–2.21) |
-| Monitoring dashboard (supplement) | 0.34 (0.34–0.34) | 0.24 (0.22–0.33) | 3.63 (3.62–3.69) | 2.05 (2.05–2.07) |
-| Bridging dashboard | 0.24 (0.24–0.24) | 0.24 (0.21–0.24) | 3.21 (3.20–3.23) | 2.03 (2.03–2.04) |
-| Content index | 0.04 (0.04–0.04) | 0.04 (0.04–0.04) | 0.38 (0.37–0.39) | 0.22 (0.21–0.22) |
-| Standalone term picker | 0.07 (0.07–0.09) | 0.06 (0.05–0.06) | 1.53 (1.50–1.53) | 0.25 (0.23–0.26) |
-| Standalone CEE, small | 0.14 (0.14–0.17) | 0.07 (0.07–0.07) | 3.93 (3.92–3.94) | 0.49 (0.48–0.49) |
-| Standalone CEE, large | 0.21 (0.21–0.21) | 0.12 (0.12–0.12) | 4.18 (4.16–4.20) | 0.69 (0.66–0.69) |
-| Standalone CED, small | 0.17 (0.17–0.21) | 0.12 (0.11–0.12) | 3.38 (3.35–3.40) | 0.61 (0.58–0.62) |
-| Standalone CED, large | 0.51 (0.51–0.52) | 0.42 (0.42–0.44) | 4.73 (4.70–4.76) | 1.90 (1.88–1.93) |
-| Template Designer, small | 0.94 (0.94–0.96) | 0.84 (0.84–0.86) | 10.23 (10.09–10.24) | 2.75 (2.71–2.77) |
-| Template Designer, large | 1.12 (1.09–1.12) | 0.92 (0.91–0.96) | 12.49 (12.32–13.24) | 4.92 (4.86–4.96) |
-| Workspace metadata editor, small | 0.87 (0.82–0.91) | 0.34 (0.34–0.37) | 7.85 (7.80–7.88) | 2.53 (2.51–2.54) |
-| Workspace metadata editor, large | 0.96 (0.84–0.98) | 0.84 (0.36–0.86) | 8.11 (8.03–8.14) | 3.17 (3.11–3.22) |
-| OpenView template, small | 0.19 (0.17–0.26) | 0.09 (0.09–0.24) | 4.88 (4.85–4.89) | 0.52 (0.51–0.53) |
-| OpenView template, large | 0.26 (0.24–0.26) | 0.14 (0.14–0.16) | 5.01 (5.00–5.03) | 0.67 (0.63–0.68) |
-
-The original constrained medians identified these costs (historical findings, addressed below):
-
-- **Designer loading/layout:** small/large readiness is 10.23/12.49 s cold and 2.75/4.92 s
-  warm. Recorded CLS is 0.884 for both sizes and cache states. The largest shift happens
-  before editing, changing a nearly unstyled 1424×55 rectangle at (8,8) into a 1440×1000
-  rectangle at (0,0). The host inserts its stylesheet dynamically and imports further
-  stylesheets; late styling is a candidate to trace, not a proved sole cause. An early
-  header can become LCP while the editor is still loading.
-- **Large-form CPU work:** standalone CED records 1,292 ms of long-task time over 50 ms cold
-  and 1,005 ms warm; the Designer host records 2,476/2,148 ms. Standalone CEE records
-  380/145 ms. These are the explicitly defined observation-window diagnostics, not TBT.
-  Warm scripted action medians are 395 ms for typing and blurring the CEE answer, 543 ms
-  for the CED label edit, 613 ms for the hosted Designer label edit and 578 ms for the
-  Workspace answer sequence. They cover different whole gestures, not comparable INP values.
-- **OpenView layout:** the small/large template records CLS 0.097/0.134 in both cold and
-  warm constrained loads. Capture the contributing render transitions before choosing a fix.
-- **An avoidable Workspace request:** every metadata-editor sample requests
-  `/assets/i18n-cee/en.json`, receives 404 and falls back to CEE's built-in English map.
-  This also returns 404 on the normally served local Workspace. The failed request takes
-  a median 163 ms under the constrained profile; its contribution to the critical path
-  needs tracing. The configured prefix should either name a real override or be omitted
-  when built-in translations are intended.
-
-The [measured optimization comparison](#frontend-performance-optimizations) records the fixes
-and corrected before/after measurements. None of these figures is a production SLA or a field
-Core Web Vitals verdict.
-
-<a id="frontend-performance-optimizations"></a>
-
-### Measured optimizations — 2026-11-07
-
-Four changes preserve the existing completed pages and independent standalone CEE/CED use:
-
-- Workspace uses CEE's built-in translations directly, retaining language selection and
-  fallback without requesting the nonexistent external map.
-- Designer registers its versioned stylesheet in the document head before the body paints,
-  fetches independent startup modules concurrently, and shares one versioned core/state/
-  translation module graph. It retains the existing shared-editor delivery arrangement.
-- CED creates each field's settings controls when first opened, then retains their DOM and
-  unfinished input through collapse/reopen. Validation can reveal an unopened panel;
-  standalone field-document mode still starts expanded. Card summaries and previews remain.
-- OpenView reveals the footer after content or its existing error state is ready. This
-  approved change affects loading presentation only; the final footer layout and content
-  stay the same, including error pages.
-
-The corrected **before** run, `2026-11-07T13:35:28.456Z` to `2026-11-07T13:47:04.058Z`,
-contains 200 valid samples for the ten editor/form scenarios. The **after** run,
-`2026-11-07T14:24:25.041Z` to `2026-11-07T14:38:45.993Z`, contains 300 valid samples for all
-15 modern scenarios. Both use five repetitions, both profiles, both cache states, the same
-machine/browser/viewport and the same direct probes. No build or test ran alongside either
-measurement loop. Both runs completed without sample/setup failures or cleanup errors;
-temporary fixtures were deleted and GET-verified absent. Legacy pages are excluded.
-
-Evidence directories under `$CEDAR_HOME/.cedar/reports/frontend-performance/` are
-`optimization-before-20261107/` and `optimization-after-20261107/`, each containing
-`report.html`, `report.json`, `samples.csv`, screenshots and `lab/artifacts.json`.
-The measurement-suite inventory is identical:
-`41b21f4e255e8a28a4657fb9469165aeddf861cdffaf6cfadbf4efd8f6158801`
-(`cedar-development@dcc395cb`; the before capture recorded its then-uncommitted probe change).
-For the five unchanged landing/picker pages, the comparison below uses the original baseline
-and Monitoring supplement described above: their probes were unchanged by that correction.
-Thus those five rows compare separate earlier captures, not the ten-scenario corrected run.
-The report files retain every range and request rather than just the medians below.
-
-| Application | Verified and pushed change |
-| --- | --- |
-| Workspace | `6bcb6757` |
-| Standalone CED and its host consumers | `9f3ad3d` |
-| Template Designer host | `aa9173a9` |
-| OpenView | `101c676` |
-
-The before reactor graph is `3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`;
-the after graph is `5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
-The standalone CED package changed from
-`f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847` to
-`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
-Standalone CEE is byte-for-byte the same package,
-`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`.
-The reactor captured the application edits before their commits; its input/output hashes
-identify the tested bytes. The after report records the clean committed application heads.
-
-**Constrained page readiness, seconds: before → after medians.**
-
-| Page | Cold | Warm |
-| --- | --- | --- |
-| Workspace dashboard | 3.67 → 3.65 | 2.14 → 2.15 |
-| Monitoring dashboard | 3.63 → 3.62 | 2.05 → 2.05 |
-| Bridging dashboard | 3.21 → 3.20 | 2.03 → 2.03 |
-| Content index | 0.38 → 0.37 | 0.22 → 0.22 |
-| Standalone term picker | 1.53 → 1.52 | 0.25 → 0.25 |
-| Standalone CEE, 5 fields | 3.95 → 3.93 | 0.48 → 0.48 |
-| Standalone CEE, 100 fields | 4.18 → 4.19 | 0.68 → 0.68 |
-| Standalone CED, 5 fields | 3.39 → 3.29 | 0.60 → 0.51 |
-| Standalone CED, 100 fields | 4.50 → 3.68 | 1.66 → 0.85 |
-| Template Designer, 5 fields | 10.08 → 8.14 | 2.71 → 2.62 |
-| Template Designer, 100 fields | 12.40 → 9.33 | 5.00 → 3.80 |
-| Workspace editor, 5 fields | 7.83 → 7.82 | 2.52 → 2.52 |
-| Workspace editor, 100 fields | 8.10 → 8.03 | 3.17 → 3.15 |
-| OpenView, 5 fields | 4.88 → 4.90 | 0.52 → 0.52 |
-| OpenView, 100 fields | 5.06 → 5.08 | 0.68 → 0.68 |
-
-**Normal page readiness, seconds: before → after medians.**
-
-| Page | Cold | Warm |
-| --- | --- | --- |
-| Workspace dashboard | 0.32 → 0.27 | 0.26 → 0.24 |
-| Monitoring dashboard | 0.34 → 0.32 | 0.24 → 0.24 |
-| Bridging dashboard | 0.24 → 0.24 | 0.24 → 0.21 |
-| Content index | 0.04 → 0.04 | 0.04 → 0.04 |
-| Standalone term picker | 0.07 → 0.07 | 0.06 → 0.06 |
-| Standalone CEE, 5 fields | 0.14 → 0.16 | 0.07 → 0.07 |
-| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
-| Standalone CED, 5 fields | 0.17 → 0.16 | 0.11 → 0.09 |
-| Standalone CED, 100 fields | 0.46 → 0.26 | 0.37 → 0.17 |
-| Template Designer, 5 fields | 0.93 → 0.89 | 0.36 → 0.34 |
-| Template Designer, 100 fields | 1.06 → 0.89 | 0.86 → 0.59 |
-| Workspace editor, 5 fields | 0.87 → 0.86 | 0.34 → 0.34 |
-| Workspace editor, 100 fields | 0.94 → 0.92 | 0.40 → 0.39 |
-| OpenView, 5 fields | 0.19 → 0.19 | 0.09 → 0.09 |
-| OpenView, 100 fields | 0.24 → 0.24 | 0.14 → 0.14 |
-
-**Constrained large-form CPU observation, milliseconds over 50 ms: median (minimum–maximum).**
-
-| Page | Cold before | Cold after | Warm before | Warm after |
-| --- | --- | --- | --- | --- |
-| Standalone CEE, 100 fields | 411 (397–505) | 416 (376–619) | 155 (142–219) | 153 (145–272) |
-| Standalone CED, 100 fields | 1360 (1353–1411) | 586 (522–764) | 1054 (1026–1132) | 304 (301–431) |
-| Template Designer, 100 fields | 2691 (2525–2797) | 1569 (1473–2087) | 2416 (2294–2884) | 1396 (1212–1793) |
-
-**Constrained CLS medians (the cold and warm values agree).**
-
-| Page | Before | After |
-| --- | --- | --- |
-| Template Designer, 5 fields | 0.884 | 0.013 |
-| Template Designer, 100 fields | 0.884 | 0.013 |
-| OpenView, 5 fields | 0.097 | 0.000 |
-| OpenView, 100 fields | 0.134 | 0.000 |
-
-Large standalone CED warm readiness fell 49%, with 71% less observed long-task time beyond
-50 ms. Large hosted Designer readiness fell 25% cold and 24% warm. Its remaining loading and
-preview work is still included in these timings. Standalone CEE has no product change;
-variation in its timings is a useful
-control when interpreting small differences elsewhere. Workspace's improvement is removal
-of the failed request, not a demonstrated general load-time speedup.
-
-All 40 after samples for the Workspace editor omit `/assets/i18n-cee/en.json`; there is no
-fallback 404. Designer's real-browser gate verifies one request each for its core, state,
-i18n module and both language maps. OpenView records zero CLS in all 40 after samples.
-Its readiness timings remain broadly comparable; the intended gain is layout stability.
-
-The authoritative frontend reactor passed build/checks, local redeployment, served-bundle
-verification and every whole-stack smoke tier. CED passed 14,454 unit tests, 1,137 browser
-tests (one existing skip), and all 25 unchanged visual baselines. Designer passed 633 unit
-and 404 browser tests; OpenView passed 283 unit and 186 browser tests. Workspace's existing
-unit/browser checks passed too. No screenshot baseline was updated. Comparing the ten
-before/after performance screenshots found nine pixel-identical images; standalone CED's
-small image differed only at ten antialiased border pixels. Manual review also confirmed
-the normal forms and footer retain their appearance. Tests cover retained unfinished input,
-validation opening a lazy panel, and OpenView's delayed success and failure presentations.
-
-The suite remains reporting-only. These are local laboratory measurements under the stated
-network/CPU profiles, not production load times, Lighthouse TBT or real-user INP.
-
-<a id="designer-equivalent-performance"></a>
-
-### Designer startup and equivalent rendering — 2026-11-07
-
-The bare standalone CED page uses fallback summaries; Designer loads real CEF summaries,
-CEE preview and the term picker. The `ced-integrated-*` benchmark uses Designer's exact
-shared component bundle and fonts without authentication or repository reads. Comparing
-this page with Designer separates host startup from richer field rendering. Both wait for
-all five or 100 real summaries, so these results use a fresh matched baseline rather than
-reusing the earlier Designer readiness measurements.
-
-| Piece | Pushed source |
-| --- | --- |
-| Equivalent benchmark and large-only authenticated scenario selection | `cedar-development@0fa20014` |
-| Component download alongside SSO; authenticated artifact/permission reads alongside profile | `cedar-template-designer@ac958e8a` |
-| One bundled host module and stylesheet, including translations, with content-based cache identities | `cedar-template-designer@f9365046` |
-| Independent CEE/CEF translation roots, avoiding sibling language broadcasts | `cedar-embeddable-editor@299265b2` |
-
-The startup overlap preserves the authorization boundary: no private API reads before
-sign-in, and the designer stays hidden/inert until access is known. Early rejected work is
-observed and still reaches the existing error handling. Bundling preserves stylesheet
-order, existing hashed font URLs, deferred validation/RDF loading and host interactions.
-No tracked registry pin or release version changes are needed for the local reactor.
-
-The language change also fixes a demonstrated embedding defect. In the frozen before bundle,
-creating an English CEF followed by a Hungarian CEF changed the English instance to Hungarian
-(`en → hu`). The same probe against the after bundle leaves it English (`en → en`), while
-the second instance remains Hungarian. Browser tests also cover independent CEE and CEF
-instances together. Their public embedding inputs and standalone packaging remain intact.
-
-Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
-
-- `designer-equivalent-before-20261107/`: 160 valid samples, eight editor scenarios,
-  `2026-11-07T14:52:25.148Z`–`2026-11-07T15:00:31.714Z`.
-- `designer-equivalent-after-20261107/`: 340 valid samples, all 17 modern scenarios,
-  `2026-11-07T15:29:35.525Z`–`2026-11-07T15:45:14.003Z`.
-- `designer-overlap-after-20261107/`: intermediate diagnostic after startup overlap alone;
-  18 samples, three repetitions under the constrained profile, with unchanged component
-  bytes. Small/large Designer cold medians were 6.61/7.86 seconds. This shorter capture
-  isolates that piece but is not the final five-repetition comparison.
-- `designer-equivalent-profile-before-20261107/` and
-  `designer-equivalent-profile-after-20261107/`: warm CPU profiles and the language-isolation
-  probe against the respective frozen bundles; collected outside timing loops.
-
-Both main runs use five repetitions, normal/constrained profiles and cold/warm cache states,
-Chromium 156.0.8078.4 on the same Apple M4 Max, 1440×1000 viewport, and identical measurement
-suite `0fa20014` (inventory SHA256
-`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`).
-No builds or tests ran during measurement. All samples passed; both runs completed with no
-setup failures or cleanup errors, and temporary fixtures were deleted and GET-verified absent.
-Reports retain per-sample ranges, requests, source identities and screenshots. Legacy pages
-are excluded from this performance suite.
-
-**Constrained readiness, seconds: before → after medians.**
-
-| Page | Cold | Warm |
-| --- | --- | --- |
-| Standalone CEE, 5 fields | 3.93 → 3.97 | 0.48 → 0.49 |
-| Standalone CEE, 100 fields | 4.15 → 4.18 | 0.68 → 0.68 |
-| Bare standalone CED, 5 fields | 3.28 → 3.28 | 0.52 → 0.52 |
-| Bare standalone CED, 100 fields | 3.62 → 3.63 | 0.85 → 0.84 |
-| Equivalent CED with CEF, 5 fields | 4.56 → 4.56 | 0.63 → 0.62 |
-| Equivalent CED with CEF, 100 fields | 5.45 → 5.36 | 1.45 → 1.40 |
-| Template Designer, 5 fields | 8.13 → 5.54 | 2.63 → 2.14 |
-| Template Designer, 100 fields | 9.29 → 6.65 | 3.62 → 3.18 |
-
-**Normal readiness, seconds: before → after medians.**
-
-| Page | Cold | Warm |
-| --- | --- | --- |
-| Standalone CEE, 5 fields | 0.14 → 0.14 | 0.07 → 0.07 |
-| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
-| Bare standalone CED, 5 fields | 0.16 → 0.16 | 0.09 → 0.09 |
-| Bare standalone CED, 100 fields | 0.24 → 0.24 | 0.17 → 0.17 |
-| Equivalent CED with CEF, 5 fields | 0.21 → 0.21 | 0.12 → 0.12 |
-| Equivalent CED with CEF, 100 fields | 0.42 → 0.41 | 0.32 → 0.31 |
-| Template Designer, 5 fields | 0.89 → 0.36 | 0.84 → 0.35 |
-| Template Designer, 100 fields | 0.91 → 0.57 | 0.84 → 0.55 |
-
-Designer cold readiness fell 32% for five fields and 28% for 100; warm readiness fell 19%
-and 12%. Cold requests fell from 46 to 24 (warm 43 to 21). Large cold transfer fell from
-832,293 to 805,670 bytes, so eliminating request chains and overlapping work accounts for
-more of the gain than the roughly 27 KB transfer reduction. Cold constrained Designer CLS
-is now zero; warm CLS remains approximately 0.013.
-
-For 100 fields, constrained observed blocking time beyond 50 ms fell from 1,579 to 1,462 ms
-cold and 1,219 to 1,067 ms warm in Designer. Equivalent CED fell from 1,183 to 1,105 ms cold
-and 878 to 824 ms warm. The equivalent renderer's readiness change is small and its sample
-ranges overlap (warm before 1,433–1,578 ms; after 1,384–1,618 ms); this is not evidence of a
-large rendering speedup. Bare CED and standalone CEE remain essentially unchanged. Real CEF
-DOM/style construction still costs more than fallback summaries; the host additionally
-performs SSO and repository/permission reads. The page is therefore not just a negligible
-wrapper around the bare benchmark.
-
-The other nine modern scenarios were rerun as coverage/control measurements. Their after
-constrained cold/warm medians, in seconds, are Workspace dashboard 3.71/2.19, Monitoring
-3.67/2.05, Bridging 3.20/2.04, content index 0.39/0.22, term picker 1.53/0.25, Workspace editor
-5 fields 7.84/2.52 and 100 fields 8.12/3.20, OpenView 5 fields 4.88/0.52 and 100 fields
-5.08/0.68. These have no newly captured matched before run in this comparison. All 40
-OpenView samples retain zero CLS. All 40 Workspace editor samples omit the missing external
-translation request and record no network failures.
-
-The after reactor graph is
-`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0`, compared with before
-`5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
-CEE package SHA256 changed from
-`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b` to
-`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265`.
-Bare CED remains the identical package
-`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
-The report's artifact inventory identifies the host output and shared component bytes too.
-
-The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
-served-bundle verification and every whole-stack smoke tier. Designer passed 634 unit and
-406 browser tests; CEE passed 1,265 unit, 5,825 domain, 100 coordinator and 1,600 browser/visual
-tests (104 existing skips). CED passed 14,454 unit, 1,137 browser tests (one existing skip) and
-25 unchanged visual baselines. The benchmark's eight checks passed, including large-only
-authenticated selection. No visual baseline was updated. Five of eight matched performance
-screenshots are pixel-identical, including both Designer pages and both standalone CEE pages;
-the other three CED images differ only at 2, 10 and 14 border pixels by one colour level.
-Manual inspection confirms the same completed layout, controls and summaries. Measurements
-remain reporting-only local laboratory results, not production timings or real-user INP.
-
-<a id="cef-summary-performance"></a>
-
-### CEF summary initialization — 2026-11-07
-
-`cedar-embeddable-editor@8797a77e` removes a second model read from single-field
-initialization. CEF still strictly reads the supplied field, constructs its one-field
-template, and retains the canonical JSON source for validation. It passes the already-read
-model through the same model-to-component mapper used by ordinary templates, instead of
-reading its own serialized wrapper again. Each field still gets its own model, instance,
-validation state and translation service. Public embedding inputs, UI, styles and ordinary
-standalone CEE template parsing are unchanged.
-
-This is a small initialization saving, not a major page-load reduction. Five paired
-repetitions of frozen before/after builds show the following constrained medians:
-
-| 100-field page | Cold readiness, seconds | Warm readiness, seconds |
-| --- | --- | --- |
-| Standalone CEE | 4.152 → 4.151 | 0.667 → 0.668 |
-| Bare standalone CED | 3.617 → 3.619 | 0.835 → 0.835 |
-| Equivalent CED with real CEF summaries | 5.385 → 5.321 | 1.402 → 1.364 |
-| Template Designer | 6.619 → 6.584 | 3.183 → 3.114 |
-
-Equivalent CED is about 2.7% faster warm, and Designer about 2.2%. All five pairs favor the
-optimized path for both pages, cold and warm. Equivalent CED warm savings per pair are
-31–83 ms; Designer's are 16–122 ms. Unchanged standalone controls remain stable. These five
-observations do not establish population percentiles or production latency.
-
-Observed constrained blocking time beyond 50 ms also falls:
-
-| 100-field page | Cold, milliseconds | Warm, milliseconds |
-| --- | --- | --- |
-| Equivalent CED with CEF | 1122 → 1067 | 824 → 789 |
-| Template Designer | 1447 → 1406 | 1089 → 1017 |
-
-**Why the paired replay matters.** Fresh ordinary before and after runs each completed 160
-valid samples: five repetitions of eight editor scenarios, both profiles and cache states.
-Other browser activity coincided with the after capture; unchanged bare CED warm readiness
-shifted from 0.83 to 1.00 seconds and standalone CEE from 0.67 to 0.77 seconds. Equivalent CED
-shifted 1.39 → 1.56 seconds and Designer 3.17 → 3.22 seconds in those separate runs. Those
-comparisons cannot isolate this source change. All original samples are retained; none were
-removed as outliers.
-
-The supplemental replay alternates the frozen before/after artifact roots within each
-scenario/repetition, reverses version order on alternate repetitions, and rotates scenario
-order. It uses the existing suite's HTTPS/gzip server, real SSO/backend fixtures, readiness,
-font settling, instrumentation and action probes. Every version gets a fresh browser context,
-a cold navigation and then a warm navigation. Four large-form scenarios × five pairs × two
-versions × two cache states give 80 valid samples. No build, test or second benchmark ran
-alongside either ordinary capture or the paired replay. Paired controls settled near their
-original baselines. All three runs completed without sample or cleanup errors; temporary
-backend fixtures were deleted and GET-verified absent.
-
-Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
-
-- `cef-summary-before-20261107/`: 160 samples,
-  `2026-11-07T15:52:23.257Z`–`2026-11-07T15:59:51.553Z`.
-- `cef-summary-after-20261107/`: 160 samples,
-  `2026-11-07T16:17:12.871Z`–`2026-11-07T16:24:54.552Z`.
-- `cef-summary-paired-20261107/`: 80 samples,
-  `2026-11-07T16:25:20.084Z`–`2026-11-07T16:31:18.082Z`; `report.json`, `report.html`,
-  `samples.csv`, version-specific screenshots, full before/after artifact inventories,
-  fixture cleanup ledger, and `replay.mjs` retain the paired method and results.
-- `cef-summary-profile-before-20261107/`: stylesheet instrumentation and a diagnostic
-  alternating eight-pair clone experiment against the previous frozen integrated bundle.
-  Cloning a cached `<style>` node did not help: warm medians were 1,086 ms unchanged and
-  1,128 ms with cloning in that probe. No stylesheet change was adopted. This probe omits
-  the standard font/frame settling and is not directly comparable to readiness above.
-- `cef-summary-profile-after-20261107/`: CPU profiles of frozen bare/equivalent CED and a
-  language-isolation probe; English stays English after a Hungarian sibling is created.
-
-The ordinary suite inventory remains
-`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`
-(`cedar-development@4f1ab150`). Both ordinary runs use Chromium 156.0.8078.4, the same M4 Max
-and 1440×1000 viewport. The paired replay uses that same browser, viewport and constrained
-profile. It adds no performance gate and excludes legacy pages.
-
-The reactor graph changes from
-`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0` to
-`405dcf9e20f5cb6e6a379478913afc914f945b2221dc69cb21426f6060965dc2`.
-CEE package SHA256 changes from
-`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265` to
-`2f490c30da8c290a2922ddc1d0aca04ad526288b6e75d4ad524f8b97d6e48d75`.
-CED remains the identical package
-`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`;
-Designer host source remains `f9365046`. The reactor captured the optimized working-tree
-sources before their commit; its hashes identify the actual built and measured bytes.
-
-The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
-served-bundle verification and whole-stack smoke. CEE passed 1,265 unit, 5,926 domain,
-100 coordinator and 1,600 browser/visual tests (104 existing skips). The 101 new domain
-cases compare all 25 field kinds in required/optional and editable/read-only modes, including
-rendered metadata, instance data, validation reports and source immutability, plus independent
-instances sharing a supplied field object. The targeted single-field suite passes 231 tests.
-CED passed 14,454 unit, 1,137 browser tests (one existing skip), and 25 unchanged visual
-baselines; Designer passed 634 unit and 406 browser tests. No visual baseline was updated.
-Six of eight ordinary before/after screenshots are pixel-identical, including both Designer
-pages and all four standalone CEE/CED pages. The two equivalent-CED images differ only at 6 and 10
-border pixels by one colour level. Manual review confirms the same controls, field summaries,
-labels and layout. The retained cost includes real field rendering and stylesheet insertion;
-no further stylesheet optimization was established by this investigation.
-
-## Browser Metadata Editing
-
-Workspace and the combined Template Editor use CEE exclusively for creating and editing
-metadata. Settings has no editor-selection toggle; older stored editor-selection preferences
-are ignored. The split Template Designer hosts CED/CEFD for template, element and field
-authoring, while metadata population is handled by CEE in Workspace. The legacy metadata widgets, pagination, spreadsheet
-view and their supporting modules are no longer part of any of these applications.
-
-## Modern Split Workspace
-
-`cedar-workspace` serves a standalone Angular 22 application on `/`, `/dashboard`,
-`/instances/create/:templateId`, `/instances/edit/:id`, `/profile`, `/settings`, `/groups`
-and `/privacy`. These routes load no AngularJS; logout also runs in Angular without requiring a profile API response. Messaging has been removed;
-its retired URL returns to the dashboard.
-
-The Workspace uses shared design tokens, a table-only resource list, search, folder
-navigation, collapsible side panels and Info/Version tabs. Category, latest-version and
-type filters are intentionally absent. Artifact/folder menus use existing REST operations
-and server capabilities; lifecycle actions come from resource reports, not listing summaries.
-
-The Details tab names the artifact a resource was derived from, and an instance's template with its
-version and status, and it says when a template has no instances or none the user can read. The
-Version tab describes the selected artifact alone, and its Status line marks the latest version.
-Below that the tab names the latest version, the next version and the previous versions, each as a
-linked name with its version, status and a copy button. Publish and Create Draft check the version
-as it is entered. They refuse anything below 0.0.1, and Create Draft also refuses anything not
-later than the published version. Both confirm with Ok and close without a discard prompt. Create Draft asks only for the version and the
-destination folder, and the draft keeps the published version's sharing. Returning from an editor
-reselects the artifact it opened, through a `selected` parameter added to the dashboard address
-without re-encoding the rest of it.
-
-The metadata editor lists CEE's findings above the form. Errors refuse Save, and Save says
-so when the pointer rests on it. Warnings, which are an unfilled requirement or a list short
-of its minimum, leave Save available. Each finding is a link that asks CEE to `reveal` its field, which turns
-the page and moves each repeating element to the entry that holds it. A repeated element
-or field in the label carries that entry's number, as in "Author 2 · Email". Server
-validation findings join that report for the submitted draft, with the original
-location and message retained when a location cannot be mapped to a form control.
-
-The selection toolbar exposes the shared bin as an icon-only button in both grid and list views;
-its accessible name retains **Delete (N)** for assistive technology.
-Dragging items onto that bin opens the same confirmation; the drop itself never deletes them.
-The drag hint reads “Drag onto a folder or the trash icon” without a leading icon.
-The bin highlights during a drag and previews “Drop to confirm deletion” on hover. Items with
-delete permission can use this target even without move permission; folder drops still require
-move permission for every dragged item. Cancelling restores focus to the bin and keeps selection.
-When no folders are selected, it opens a compact confirmation asking “Do you want to delete these
-N items?” with Cancel and Delete. Permission/revision checks still run before Delete is enabled;
-failures show their explanation and allow another check. Selections containing folders open the
-detailed confirmation with selected names, distinct recursive counts and the complete inventory. Selected descendants are covered by their selected ancestor, so they are counted and
-deleted once. Folder operations retain their server-issued inventory tokens; individual artifacts
-use freshly read capabilities and content ETags. Any known blocker disables the entire selection.
-Each folder remains a separate deletion boundary: template references outside that folder block
-it, even if the instances are also selected. Individually selected templates with reported instances
-are refused before writes; the backend retains the authoritative reference check.
-Execution stops at the first failure and displays confirmed progress, without claiming rollback or
-retrying automatically. Refresh prepares only the remaining selection after confirmed successes;
-an uncertain result may require closing the dialog and selecting the remaining items afresh.
-The combined confirmation uses the existing shared dialog/table recipes and destructive color roles.
-`selection-deletion.spec.ts` and `browser/tests/selection-deletion.spec.mjs` cover overlap,
-permissions, conditional writes, cancellation/focus, partial failure and desktop/phone presentation.
-
-The eye preview opens artifacts read-only. **Try out**, beside the close button, remounts
-CEE/CEF in editable mode with an isolated copy of the artifact. Trial entries are never saved;
-**Back to preview** or closing the dialog discards them. Downloads remain disabled. The
-Workspace browser preview suite exercises all four artifact kinds with the real editor bundle
-in Chromium and WebKit and checks that no artifact writes occur.
-
-The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
-It shows the owner and direct user/group grants to any reader, with searchable principals
-and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
-The caller's own access is shown separately from those direct assignments, using the resource
-report's role, ownership and capabilities. Missing information stays unknown. Role help is
-visible to readers as well as managers; removing a direct role is explained without promising
-to revoke access supplied by groups or containing folders. Group sharing requires no membership
-in the group. The ownership confirmation warns that the former owner may lose access entirely.
-Everyone is Viewer-only. Ownership transfer is a separate, confirmed user-only action,
-gated by `transferOwnership`. Each write uses the permissions ETag; a stale write displays
-the failed change and requires an explicit reload. Capabilities refresh after each successful
-write, including self-demotion; a successful ownership transfer closes the dialog and refreshes
-the workspace, since the former owner may lose access. The modern Workspace smoke covers
-read-only viewing, role changes, Everyone, stale permissions, and two-user revocation.
-
-Profile provides account details and masked API-key create/regenerate/delete operations.
-Settings saves the account date preference used by Workspace. Groups has a standalone
-legacy-style Manage/Create layout with searchable group and member selectors, using shared
-design tokens instead of the account-page navigation. It uses independent
-group and membership ETags, restricts administration to group administrators and protects
-the last administrator. Privacy retains the existing policy wording in the Angular account
-shell. In `ops/e2e`, run `npm run smoke:account:all` for all four pages, or
-`npm run smoke:account -- profile` (also `settings`, `groups`, `privacy`) for one page.
-The journeys remove their temporary keys/groups and restore the original date preference.
-Groups includes a second user's non-member, member and removed-member views and a real stale-write conflict.
-The selected group distinguishes “You are not a member” from membership without administrator
-access. An authorized roster supplies the caller's own status when available; otherwise Workspace
-reads `GET /groups/{id}/membership/me`. Missing endpoints on older servers, failed requests and
-malformed responses leave status unknown and show neutral viewing guidance. They never imply
-non-membership. Status refreshes on selection/reload and from confirmed membership writes,
-including self-removal or self-demotion. Roster visibility and administrative controls retain their
-existing restrictions. The Everyone group keeps its built-in membership explanation.
-
-Start it with `cedarcli native start frontend workspace`. With the native profile sourced,
-run `npm run build` in `cedar-workspace` after changing `src/`. `npm run build:deployment` configures and assembles the native server payload.
-`npm start` performs that preparation and serves the app with a dependency-free Node server
-in develop mode; server mode exits after assembly. Workspace no longer uses Gulp or live reload.
-`cedarcli build frontends` runs its Angular build in an isolated checkout;
-`cedarcli build split-frontends` retains the explicit native deployment path. Angular builds outside the served tree;
-assets are copied before the entry document is atomically replaced. The root index loads
-`app/workspace-build/index.html` for every route. Unknown routes return to the dashboard.
-The AngularJS shell, controllers, services, templates, styles and Karma harness are removed.
-Bower vendors, legacy icon fonts, RequireJS and obsolete npm build/test dependencies are
-also removed. The Keycloak adapter and bundle are plain JavaScript used by Angular.
-
-The metadata routes use a modern Angular CEE host. It loads the staged CEE bundle
-on demand, settles read-only permissions before configuration, saves with content
-ETags and preserves the editor across saves. Its dirty guard covers field/name edits,
-exact reverts, browser unload and edits made during a pending save. The host's central
-coordinator combines CEE findings with the server's structured validation report.
-Explicit severity takes precedence; older CEE reports treat missing required values
-and minimum counts as warnings, and other problems as errors. Errors block Save;
-warnings remain saveable. Server JSON Pointer locations map to CEE paths and nested
-occurrences, including escaped property names and controls that show all choices.
-Server findings belong to the submitted draft and retire when it changes; late
-rejections cannot attach old findings to a newer draft. Unmapped findings retain
-both path and message. Failed loads offer Retry. Conflicts and missing revisions
-retain edits and require an explicit reload, with confirmation before discarding
-changes. An incomplete create acknowledgement blocks another create until its outcome is
-settled. Lost replies and server errors report an unconfirmed save for both creates and updates;
-they do not claim the server accepted the write. A create is a PUT to an instance identity the
-editor minted and journaled before sending, so **Check save status** settles an unconfirmed
-create by reading that identity, as [settling a create or version write](#create-outcome-recovery)
-explains. For an unconfirmed update to an existing instance, Check save status reads the artifact
-and its permission report without replacing CEE. The same opened revision and content permit
-another conditional write; a different revision matching the submitted content acknowledges
-that snapshot and keeps newer edits. New element IDs are accepted only at template-declared
-element positions, then bound through CEE's captured save snapshot. Existing element IDs and
-term IRIs must match. A failed read, lost permission, missing revision or unexplained content
-change keeps the draft and the write guard.
-An existing write refused with 401/403 offers **Recheck access**. Restored permission enables
-saving only if the opened content and revision still match; neither a successful permission
-check nor a similar-looking submission permits adopting a different revision.
-Token-refresh refusal is a session failure, not an uncertain create. The modern Workspace
-smoke commits a real instance update before dropping its response and verifies that the form
-retains its input and cannot repeat the write without a successful status check. The
-`uncertain-create` journey does the same for creates. The host retains the instance
-description across field edits, including the description inherited on creation. Sparse save
-acknowledgements supplement the submitted snapshot rather than dropping metadata they omit.
-CEE's save snapshot binds submitted element occurrences to their working objects. When a save
-assigns new element identifiers, Workspace reads the stored document at the write's returned
-revision (including equivalent gzip-suffixed ETags) and acknowledges those IDs without remounting
-or replacing newer input. Reordered entries
-retain their own identities; deleted entries are not restored and new entries are not assigned
-another entry's ID. Failed readback, a changed revision or an invalid acknowledgement retains
-the draft and blocks further saves with an explicit message that the write succeeded.
-For an existing update, Check save status can retry verification after failed identity readback
-or a successful reply missing its ETag. It requires the saved content to match the captured
-submission before adopting the current revision and acknowledging IDs; an old opened revision
-cannot unblock a write already known to have succeeded. Newer input remains in the same form.
-Confirmed creates still require reload when their identity acknowledgement cannot complete.
-The modern smoke compares complete stored documents after a description edit in CED/CEFD and
-a field-value edit in CEE; only the intended change and root update provenance may differ.
-Schema fixtures include identifiers and annotations authored outside the description control.
-It also imports a library element, checks that later library edits leave the imported snapshot
-unchanged, and checks that edits to the imported element leave the library source unchanged.
-The reusable-source-failure journey selects a field and an element while the parent has an
-unsaved description. Search outages and refused, missing or unreachable element loads retain
-the selection and parent draft; a mixed batch cannot partially import its successfully loaded
-field. Retrying after recovery imports each definition once, saves the retained description and
-reopens both children without changing the library sources. The failures are injected at the
-browser request boundary; recovery and writes use the real services. Run
-`npm run smoke:journey -- reusable-source-failure`; the checks also run in the modern smoke.
-The resulting instance's second save must preserve its nested element identifiers.
-`metadata-state-matrix.spec.ts`
-and the browser state-coordination suite cover these transitions. First save replaces the create URL through Angular routing; it does
-not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.
-
-`npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
-Keycloak adapter, deployment configuration, atomic staging and npm package contents.
-`groups.spec.ts`, `permissions-dialog.spec.ts`, `access-views.spec.ts` and the Workspace
-action tests carry forward the legacy group/share controller, directive, permission-model
-and conditional-request contracts. They exercise rendered controls as well as request
-shapes, independent revisions, pending-write guards, failed/cancelled changes, late reads,
-last-administrator protection, direct-user ownership transfer and read-only access.
-Bootstrap visibility and asynchronous confirmation mechanics are replaced by native-dialog
-and confirmation-event tests. Failed writes retain the last saved state and the failed
-intent; stale revisions block further writes until an explicit recovery read completes.
-Configuration and CEE assets finish writing before the development server starts.
-Workspace's operation coordinator owns listing, detail, menu, destination, description
-and preview requests by scope. Replacing a selection or closing its owner invalidates
-old replies, including failures and component callbacks. Folder navigation retains the
-last successful destination until a complete new listing arrives; malformed listings
-cannot become selectable. `workspace-state-matrix.spec.ts`,
-`preview-state-matrix.spec.ts` and the browser state-coordination suite cover reply
-ordering, permission loss, disposal, malformed responses and recovery.
-Use `npm run copy:cee` to refresh only the staged editor.
-Workspace participates in `cedarcli check design-tokens` and the shared CI adoption gate;
-its initial baseline records existing typography and layout debt.
-In `cedar-development/ops/e2e`, run
-`npm run smoke:workspace:modern:full` against the running native stack. It exercises the
-modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
-sharing between two users, CEE metadata entry, versioning, OpenView and conditional writes.
-It runs its journeys in parallel lanes, which the
-[backend runbook](BACKEND-RUNBOOK.md#what-the-suites-actually-cover) describes, and
-`-- --lanes=1` runs them one after another.
-Its two-user access journeys revoke edit permission while Designer and Editor contain unsaved
-input, verify that saving is refused and the stored document is unchanged, and cancel the
-reload confirmation to verify that the local draft remains intact.
-The group-access journey creates a group and changes its membership through the Groups page,
-with access to the template and metadata instance granted only through that group. Removing
-the member while either editor is open refuses saving and preserves both the local draft and
-stored content. Restoring membership does not silently retry the save: **Recheck access**
-verifies restored permission and the unchanged stored artifact, then enables saving the same
-refused draft without reload. Checking while access is still denied also preserves input.
-The journey restores the original artifact permissions and removes its temporary group.
-Run `npm run smoke:journey -- access-recheck` for this focused two-user check.
-The release smoke's authoring and metadata fixtures use text fields, so live BioPortal selection
-and lookup recovery do not hold up a release. Controlled-term interactions and failure handling
-remain covered by the components' hermetic browser and unit suites. The full stack still exercises
-real artifact writes, permissions, publication, metadata preservation and recovery.
-The initial-load journey injects both HTTP 503 and connection failures into Designer's artifact,
-permission-report and component-manifest reads, and Editor's metadata, permission-report,
-template, configuration and component-script reads. Neither surface enables Save or shows an
-editable partial document; its existing retry control opens the intact stored artifact once
-the fault is removed. Whole-document comparisons and request observation verify that no write
-occurs. Run these focused cases with `npm run smoke:journey -- initial-load`; they also run in
-the modern Workspace smoke. Faults are page-scoped and fixtures are removed after the run.
-The validation-rejection journey supplies server-only findings at the HTTP response boundary,
-then uses real components and conditional server writes for correction and resubmission.
-Designer retains the rejected description and links the finding to its control. A nested regex
-finding opens the correct field through a repeated element and focuses its pattern setting;
-editing clears the obsolete report, and correction saves without changing sibling content.
-Editor follows a finding into the second occurrence of a repeated element, focuses its field,
-and preserves every other answer and nested identity when the correction is saved and reopened.
-Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
-handling of a rejection, not the validator that generates it.
-The save-status journey interrupts existing template, element, standalone-field and metadata
-updates both before a write and after an actual commit. It first fails the status read, then
-holds a successful read while more input arrives, checks the appropriate baseline/revision,
-and saves and reopens again. Editor adds a repeated element before the lost reply; recovery
-and the following save retain its minted identity. Additional Designer and Editor cases commit
-the first request after an unchanged status check, proving the stale retry receives 412 and
-keeps newer input. Run `npm run smoke:journey -- save-status`; all ten checks also run in the
-modern Workspace smoke. These checks cover open-page recovery of existing updates, not
-restoration after reload or an authoritative result lookup for a create.
-Run `npm run smoke:journey -- confirmed-save-recovery` for successful-update replies with a
-missing ETag in Designer's template, element and field editors and in Editor, plus Editor's
-failed identity readback. All five cases fail the first status check, retain input typed during
-a later check and save and reopen successfully; the metadata cases also preserve assigned
-element IDs. They also run in the modern smoke.
-The recovery-element-edits journey changes repeated metadata entries while a status read is
-held after a real committed save loses its reply. One case removes an earlier occurrence and
-copies the submitted one; another removes the submitted occurrence and adds a replacement.
-Acknowledgement binds minted IDs to surviving submitted objects, does not resurrect deleted
-entries or assign their IDs to replacements, and retains the current values. The next save
-mints a distinct replacement ID; whole-document comparison and reopening verify the result.
-Run `npm run smoke:journey -- recovery-element-edits`; both cases run in the modern smoke.
-The current-template-constraint journey changes a text regex through another REST client while
-Editor holds the earlier template. Its save must receive a real server 400 with `/Code/@value`,
-retain all local answers and preserve stored content and its ETag. Clicking the finding focuses
-Code; correction saves with the existing instance revision and reopens with other content intact.
-The reopened Editor enforces the new regex locally before another write can be submitted.
-Run `npm run smoke:journey -- current-template-constraint`; it also runs in the modern Workspace
-smoke. Unlike the injected report checks above, this exercises deployed server validation.
-The pinned-branch journey follows a terminology release from authoring to a saved value. In
-Designer, the real term picker pins NCIT's Melanoma branch to release 24.01e, and the saved template
-must record that release. Editor must then offer the branch as 24.01e holds it, with
-"Melanomatosis" and without "Acral Melanoma", the reverse of the newest release, and every search
-it sends must name the pin. The chosen term saves, the server verifies it against the pinned
-release, and the record reopens with it. Publishing keeps the author's release, and a record of the
-published template reads the branch at that release too. The journey first asks the terminology
-server whether the local store still tells the two releases apart, and fails with a message about
-the store when it does not. Run `npm run smoke:journey -- pinned-branch`; it also runs in the modern
-Workspace smoke. The REST tier's `term-search` suite checks the server's answers to the picker's
-other searches, for ontologies, value sets and properties, against the rule the picker applies.
-The duplication journey copies templates, elements, standalone fields and metadata through
-Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
-It compares content, checks derivation and fresh draft-series identity, and verifies that neither
-editing direction changes the other artifact. Copies regenerate name-derived schema text and
-creation timestamps, and omit the original's external identifier; those are explicit assertions,
-not losses hidden by a normalization save. Untouched typed metadata answers remain intact.
-Run `npm run smoke:journey -- duplication` for the focused check.
-The template-evolution journey keeps unsaved metadata open in a second tab while Designer
-removes a field already used by that record. Cancelling the version dialog retains both drafts
-without changing storage; confirming publishes the original schema and creates a revised draft.
-The open record can then save and reopen its answer against the original template, while a new
-record created from the revised draft has only the remaining field. Run
-`npm run smoke:journey -- template-evolution`. This verifies structural changes through the
-supported Designer versioning path, not arbitrary in-place template changes by external clients
-or conversion between field types.
-The draft-sharing journeys check that a new draft is shared as the version it was drafted from.
-Workspace's Create Draft and Designer's Create new draft each draft three templates. The second
-test user holds no grant on the first, can view the second and can edit the third. As that user,
-the journey checks server reads and writes, how Designer opens each draft and what Shared with Me
-lists. The editor saves a change, the viewer sees the draft read only, and the user without a
-grant can neither read nor open it. Each draft keeps its owner and carries exactly its original's
-grants, the original's grants stay unchanged, and the folder grants nothing, so no access comes
-from it. Run
-`npm run smoke:journey -- draft-sharing-workspace draft-sharing-designer`; both also run in the
-modern Workspace smoke. They sign in as the second user, so they belong with the other two-user
-journeys rather than alongside single-user ones.
-The uncertain-create journeys lose real replies to creates and new versions at the browser's
-request boundary and check that each outcome is settled by the identity its client minted, never
-by repeating the write. `uncertain-create` creates a template, an element and a standalone field
-in Designer and an instance in the metadata editor, each in three series. In the first, the reply
-is lost after the server stored the artifact, and a reload and the restored draft's Check save
-status open it at its edit address. In the second, the write never reaches the server and an
-injected 401 refuses the first check for the session. Sign in again returns through the SSO cookie
-or the login form, the restored draft's check finds nothing, and Save sends the same identity
-again. In the third, a check in the open tab finds nothing, and the original request then commits
-late, modelled by a REST PUT of the body the browser sent. The next Save is refused as occupied,
-and the check adopts what was stored. Designer keeps the newer edit on screen but requires a
-reload, which discards it, before the next save. The metadata editor keeps it as an unsaved change
-that saves conditionally. `uncertain-workspace-create` loses the replies to New folder, Copy,
-Create Draft and Publish, committed or not, and settles each through the dialog's Retry. One Copy
-is reopened after a reload and takes up the retained identity and values. `uncertain-version`
-loses the reply to Designer's Create new draft, committed or not, and settles it after a reload.
-Every case ends with exactly one result: one artifact, folder, copy, successor or publication.
-Where Designer or the metadata editor created the artifact, a conditional edit follows, and the
-reopened page offers neither Restore draft nor Check save status. Run
-`npm run smoke:journey -- uncertain-create uncertain-workspace-create uncertain-version`. All three
-also run in the modern Workspace smoke, and none signs in as another user.
-The partial-version journeys check that Designer's Create new draft stores nothing when the server
-refuses it, and that a corrected retry creates exactly one successor. In
-`partial-version-definition`, a page-scoped rewrite removes the `oslc:modifiedBy` declaration from
-the submitted definition, and the server's validator refuses it with 400 before publication.
-Designer lists the findings, and editing the definition retires them. In `partial-version-draft`,
-the author owns the template, but the second test user owns its folder and has made the author a
-viewer of it, so the server refuses the draft with 403. The refusal survives a reload, a restored
-draft and an access recheck, which reads only the template's own permissions. Once the second user
-restores the editor grant, the retry succeeds. In both journeys the source stays the draft that was
-opened, at the same ETag and with one version, until the corrected retry. `partial-version-draft`
-uses the second user by REST token and never signs that user in to a browser. It writes in that
-user's home folder, so it belongs with the two-user journeys. Run
-`npm run smoke:journey -- partial-version-definition partial-version-draft`. Both also run in the
-modern Workspace smoke.
-The content-deletion journey uses temporary templates and metadata to check cancellation of
-populated-element deletion in Designer, removal of fields/elements and their parent references,
-and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
-root update provenance, preserving surviving definitions, values, order and element-instance
-identities. Reopening and explicitly discarding the retained recovery draft restores unsaved
-deletions; reopening after a successful save preserves deletions, including empty optional lists. The stored Designer fixtures are compared
-directly, without an initial normalizing save.
-Neither surface currently offers deletion Undo; explicitly discarding the recovery draft after
-reopening the saved artifact is the recovery tested here, and does not preserve other unsaved work.
-Run this check alone with `npm run smoke:journey -- content-deletion`.
-The older-artifact journey opens legacy-shaped templates, elements and standalone fields,
-edits each description twice, and verifies that unrelated schema shapes, constraints,
-annotations and identities survive saving and reopening. Editor also renames and reopens
-older metadata without losing typed answers or existing context declarations; its writer
-adds the standard `pav:derivedFrom` context declaration if absent. An unsupported historical
-field type is injected only into a GET response to verify that Designer refuses to open it,
-keeps Save disabled and sends no artifact writes. Repairing arbitrary invalid or unsupported
-artifacts is not established by these focused checks.
-The partial-selection deletion journey commits two deletes and drops the second response.
-It verifies that only the first is reported as confirmed, later items remain untouched, and
-the author can finish from a fresh selection without repeating the uncertain request.
-Hermetic bulk-delete recovery journeys extend this to a confirmed recursive-folder deletion,
-an uncertain individual delete, and an unattempted remaining record. Repeated HTTP 503 or
-disconnected inventory/listing reads retain confirmed counts and leave deletion disabled.
-Restored inventory reads recheck permissions and revisions; a revoked permission blocks the
-whole remaining selection, and recovery requires explicit confirmation using fresh ETags.
-If the uncertain item returns 403 or 404, neither response proves deletion: its count stays
-unconfirmed and the old selection stays blocked. Close the dialog, refresh Workspace after
-service recovery, and review a new selection of remaining items before confirming deletion.
-`npm --prefix browser test -- bulk-delete-recovery.spec.mjs` exercises these paths in Chromium
-and WebKit against a built Workspace. This is unit and hermetic browser coverage of the
-existing workflow; combined deletion outage cases still need live-stack verification.
-The partial-move journey refuses one grouped move at the HTTP boundary while two others
-commit at the real server. Workspace reports the two successes and the refusal, retains only
-the remaining item in its selection, and can move that item after the refusal clears without
-repeating successful moves. All stored artifact content is compared before and after. Run
-`npm run smoke:journey -- partial-move`.
-The uncertain-move journey lets all three moves commit, then drops one response. Workspace
-reports only the two confirmed successes alongside the error and refreshes the source listing,
-removing the already-moved items from selection. Opening the destination finds all three with
-their entire artifact content unchanged, and no move is replayed. Run
-`npm run smoke:journey -- uncertain-move`; the full modern smoke includes it too. This covers
-recovery through a successful listing refresh, not an outage that prevents checking placement.
-Workspace also preserves unresolved move selections through repeated listing failures and shows
-the refresh error alongside individual move failures. An explicit retry first checks every
-selected resource's current placement, capabilities and revision. A resource already directly
-inside the requested destination is confirmed without another move request; selected descendants
-stay with their selected ancestor. Unavailable or malformed placement reports prevent all writes.
-Hermetic Chromium and WebKit journeys cover lost replies both before and after commit, repeated
-listing failures, placement-check failure, and recovery without replaying confirmed moves.
-Run `npm --prefix browser test -- bulk-move-recovery.spec.mjs` against a built Workspace.
-These outage combinations have unit and hermetic browser coverage; live-stack verification is
-still pending. The isolated test build does not redeploy the shared Designer or Editor.
-The main smoke registers copies by the collection in their canonical identity, since copy
-responses are artifact documents without `resourceType`; this ensures non-template copies
-are removed from the correct collection during cleanup.
-The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
-current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
-by the REST download suite, and the main browser smoke exercises CEE download controls.
-Each Workspace run removes its fixtures. Its result and failure screenshots, including open
-second-user pages, go to a directory of the run's own: under the split tier, the evidence directory
-its report names, and otherwise a new `cedar-e2e-evidence-*` directory in the system's temporary
-directory, which the smoke prints.
-`npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
-runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
-and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).
-The existing `npm run smoke` remains the AngularJS journey for `cedar.metadatacenter.*`.
-Its script and legacy variants are retained unchanged; they are not the modern route's gate.
-See the Workspace README for the boundary, request contracts and direct build procedure.
-
-## Bundle Sizes and Duplicated Code
-
-The 2026-11-05 measurements below use the reactor's production output after modular model
-packaging, with Angular's `--stats-json` and packaged custom-element scripts measured at gzip
-level 9. The host rows count all emitted JavaScript,
-including lazy chunks and polyfills, but exclude CSS and separately copied components. They are
-not first-navigation transfer measurements. Decimal kB below means 1,000 bytes.
-
-| Surface | JavaScript, kB | gzip-9, kB | Additional component loading |
-| --- | ---: | ---: | --- |
-| Workspace | 856.4 | 239.7 | CEE loads when metadata editing is opened; the editor route is lazy too |
-| OpenView | 578.4 | 163.1 | CEE loads on artifact pages or preview, host-font variant |
-| Monitoring | 1,104.6 | 280.7 | None |
-| Bridging | 630.5 | 179.6 | CEE loads when a DOI form opens, host-font variant |
-| CEE standalone / host fonts | 2,237.8 / 2,115.1 | 607.1 / 514.4 | Includes its Angular runtime and model library |
-| CED standalone / host fonts | 1,982.3 / 1,859.6 | 473.5 / 380.3 | Includes its Angular runtime, model library and schema validator |
-| Term picker standalone / host fonts | 506.2 / 383.5 | 202.9 / 109.4 | Includes its Angular runtime and narrow policy entry |
-
-Workspace, OpenView, Bridging, Monitoring and the Template Designer register CEDAR Roboto 400/500
-through `fonts-hosted.css` from the design-token package. Its content-hashed WOFF2 files contain
-exactly the embedded faces; the browser selects the unicode subsets each page uses. Both Latin
-weights total 22,100 bytes, with another 15,412 bytes when Latin Extended is needed, instead of
-carrying all 89,452 font bytes as base64 in every host stylesheet. The four Angular hosts' initial
-CSS falls by 118,368 raw bytes (about 90 kB gzip). External font files stay in the total payload
-budget, and missing references fail the size gate. Browser checks cover subset requests and
-unchanged visual baselines; standalone CEE and CED scripts remain byte-identical.
-
-Hosts select component host-fonts bundles, which omit embedded fonts, or their coordinated
-integration modules. Standalone components retain their existing embedded fonts and require no
-additional font requests. Template Designer's staging falls back to embedded `fonts.css` when an
-older token package has no hosted-font stylesheet.
-
-The build graphs contain one installation of each contributing npm package per application;
-Angular's compiler, Moment and Lodash do not contribute to these seven modern bundles. CEE's
-unused grid-list, toolbar, list and clipboard NgModule imports retain only 594 bytes of module
-definitions, not the full controls. Removing imports based on their names alone would therefore
-overstate the savings. Its RDF processors and sanitizer are used by export and rich-text rendering.
-
-The model package exposes a modular ESM tree through `module: esm/index-namespace.js`, with browser
-mappings for `/policy` and `/schema` into the same tree. A minified esbuild consumer exposing only
-`TextPolicy` retains 661 bytes (385 gzip), compared with 527,102 bytes through the old single-file
-entry under the same esbuild options. The separate modules let a consumer discard unrelated readers,
-writers, YAML and validation code. YAML's browser modules are vendored with their license; the generated AJV
-validators retain their rules and share the ESM policy classes. CommonJS, UMD and the copyable
-single-file `*.esm.js` outputs remain available at their established paths. The ESM entry wrappers
-preserve the default namespace export as well as named exports, including Vite's CommonJS interop.
-
-`npm run test:package` builds consumers from the actual tarball, checks narrow-import size
-ceilings and browser subpath resolution, and compares readers, writers, validation and exact-number
-handling across CommonJS, native ESM, bundled ESM and UMD. `npm run build:watch` rebuilds all
-formats together so an incremental change cannot leave the modular tree stale.
-
-Separate self-contained elements each carry their own Angular and shared-library code. The
-Template Designer builds CEE, the term picker and CED into one coordinated runtime graph,
-3,443,265 raw bytes in the 2026-11-06 source build. Each keeps its own application injector.
-Its extra schema script is a fallback for old CED bundles without `validateArtifact`, so it is
-not another normal-path download. See the CED integration section for the identity checks.
-
-The legacy Template Editor requests CEE through RequireJS when an instance editor opens. Its
-full model UMD loads only for a YAML preview or copy; validation keeps using the narrow policy
-entry. CKEditor and its original AngularJS adapter load when a rich-text field is opened, with
-the same toolbar and model handling. A failed load can retry when reopened; YAML copying starts
-the clipboard operation within the click so its first library download does not lose user
-activation. Against the installed model package, these optional tools total 1,034,573 raw /
-268,386 gzip-9 bytes; their initial loaders add 5,199 / 1,808 bytes. The thin `ng-flow` adapter
-uses the single Flow.js dependency. Retired RDF preview processing is absent; JSON Schema
-preview and YAML actions remain available.
-
-OpenView folder listings and Bridging's landing page defer CEE too; loading failures use their
-existing error states, and a later OpenView preview can retry. The Template Designer uses CEE
-for ordinary field summaries and default editors as well as previews.
-
-Workspace loads profile, settings, groups, privacy and logout as route chunks; Monitoring loads
-its diagnostic screens as a lazy module. Dashboard navigation therefore avoids those downloads,
-while direct links keep their existing guards and behavior. The 2026-11-06 production comparison
-reduced Workspace's initial graph by 63,764 raw / 13,369 gzip-9 bytes and Monitoring's by
-204,100 / 41,363 bytes. Browser tests assert that the deferred chunks are absent on the dashboard
-and requested when their routes open; the existing account and diagnostic journeys still apply.
-
-Files merely present on disk, such as Moment's tests, source maps and superseded hashed bundles,
-are not evidence of browser downloads.
-
-`cedarcli check frontend-sizes` checks the built Workspace, OpenView, Bridging and Monitoring
-payloads. Use `--surface openview --root /path/to/cedar-openview-src --report /tmp/payload.json`
-for an isolated build. The same gate runs after each host's build and browser verification in
-both the frontend reactor and immutable trains. Limits live in `ops/frontend-train.json`.
-
-The initial count follows script/stylesheet tags and static imports in `browser-stats.json`;
-dynamic imports and copied component scripts also count toward the total emitted JavaScript/CSS.
-Workspace's separately served config, authentication scripts and copied components are mounted
-into this inventory. Assets are counted once per URL, with raw bytes, gzip-9 bytes and SHA-256 in
-the report. The total is a deployment inventory, not a claim that a visitor downloads every file:
-Workspace stages both CEE variants, for example. Missing assets, external script/style URLs and
-exceeded limits fail the command. Fonts embedded in scripts or CSS count with those files.
-
-Measured complete payloads for those same builds, in decimal kB:
-
-| Host | Initial, raw / gzip-9 | Total inventory, raw / gzip-9 |
-| --- | ---: | ---: |
-| Workspace | 1,016.6 / 339.9 | 5,419.9 / 1,474.8 |
-| OpenView | 725.8 / 257.9 | 2,840.9 / 772.3 |
-| Bridging | 783.4 / 275.1 | 2,898.5 / 789.5 |
-| Monitoring | 1,273.1 / 377.7 | 1,273.1 / 377.7 |
-
-| Host | Initial limit, raw / gzip-9 bytes | Total limit, raw / gzip-9 bytes |
-| --- | ---: | ---: |
-| Workspace | 1,200,000 / 360,000 | 6,200,000 / 1,700,000 |
-| OpenView | 850,000 / 320,000 | 3,200,000 / 900,000 |
-| Bridging | 930,000 / 350,000 | 3,300,000 / 950,000 |
-| Monitoring | 1,400,000 / 450,000 | 1,400,000 / 450,000 |
-
-CEE's packaged limits are separate: standalone 2,400,000 raw / 660,000 gzip bytes and host-fonts
-2,280,000 / 560,000. Its Angular initial budget is 2.3 MB warning / 2.4 MB failure; OpenView's
-is 800 / 850 kB, and Bridging's is 900 / 930 kB. These limits must not be raised to accommodate
-unexplained growth.
-
-To repeat the analysis, build isolated source copies with the normal production prerequisites
-and add `--stats-json` to their Angular build invocation. Angular 22 writes `browser-stats.json`;
-sum `outputs[*].inputs[*].bytesInOutput` by package, not the original input-file sizes. Measure
-packaged custom elements separately and trace script tags and runtime loaders, since Angular's
-`initial` budget excludes copied assets. The local audit evidence is under
-`$CEDAR_HOME/.cedar/audits/frontend-bundles-20261105/`, including production graphs, packed-package
-measurements, the narrow-import probe and host-font rendering comparisons. These diagnostics do
-not deploy a frontend or replace the reactor's source/runtime acceptance evidence.
-
-The full reactor, all three consumer demos, local deployment, served-byte verification and
-whole-stack smoke passed for this source composition on 2026-11-05. Its immutable build record is
-`01e070e087da8c3fbe8469cf0821f5de487b7eef56522b5f65abe642bc090303`; selected package SHA-256 prefixes
-are model `a3ce971ab7af`, CEE `4b30e2d83ab8`, CED `185e277ba3eb` and term picker `dc2f855979a2`.
-The full identities and source fingerprints are in `$CEDAR_HOME/.reactor/builds/<build>.json`.
-Frontend builds and native start/restart resolve the pinned Node and Java toolchain before
-invoking their workers. The native controller preserves that PATH and passes it, with JAVA_HOME,
-into launchd children. A native frontend launched on 2026-11-06 was verified against its actual
-executable at Node 24.22.1, even though the shell's unversioned Node was 26.
+| Inspect shared styling and validation contracts | [Surface inventory](#surface-inventory-and-token-coverage), [text policies](#shared-text-policies-in-browser-consumers) |
 
 <a id="component-staleness"></a>
 
@@ -2101,6 +705,546 @@ Angular's own build reports 1.6s and 3.2s.
 The check reads the workspace rather than the repository registry, so a component counts
 as one as soon as a sibling installs it.
 
+## Browser Metadata Editing
+
+Workspace and the combined Template Editor use CEE exclusively for creating and editing
+metadata. Settings has no editor-selection toggle; older stored editor-selection preferences
+are ignored. The split Template Designer hosts CED/CEFD for template, element and field
+authoring, while metadata population is handled by CEE in Workspace. The legacy metadata widgets, pagination, spreadsheet
+view and their supporting modules are no longer part of any of these applications.
+
+## Modern Split Workspace
+
+`cedar-workspace` serves a standalone Angular 22 application on `/`, `/dashboard`,
+`/instances/create/:templateId`, `/instances/edit/:id`, `/profile`, `/settings`, `/groups`
+and `/privacy`. These routes load no AngularJS; logout also runs in Angular without requiring a profile API response. Messaging has been removed;
+its retired URL returns to the dashboard.
+
+The Workspace uses shared design tokens, a table-only resource list, search, folder
+navigation, collapsible side panels and Info/Version tabs. Category, latest-version and
+type filters are intentionally absent. Artifact/folder menus use existing REST operations
+and server capabilities; lifecycle actions come from resource reports, not listing summaries.
+
+The Details tab names the artifact a resource was derived from, and an instance's template with its
+version and status, and it says when a template has no instances or none the user can read. The
+Version tab describes the selected artifact alone, and its Status line marks the latest version.
+Below that the tab names the latest version, the next version and the previous versions, each as a
+linked name with its version, status and a copy button. Publish and Create Draft check the version
+as it is entered. They refuse anything below 0.0.1, and Create Draft also refuses anything not
+later than the published version. Both confirm with Ok and close without a discard prompt. Create Draft asks only for the version and the
+destination folder, and the draft keeps the published version's sharing. Returning from an editor
+reselects the artifact it opened, through a `selected` parameter added to the dashboard address
+without re-encoding the rest of it.
+
+The metadata editor lists CEE's findings above the form. Errors refuse Save, and Save says
+so when the pointer rests on it. Warnings, which are an unfilled requirement or a list short
+of its minimum, leave Save available. Each finding is a link that asks CEE to `reveal` its field, which turns
+the page and moves each repeating element to the entry that holds it. A repeated element
+or field in the label carries that entry's number, as in "Author 2 · Email". Server
+validation findings join that report for the submitted draft, with the original
+location and message retained when a location cannot be mapped to a form control.
+
+The selection toolbar exposes the shared bin as an icon-only button in both grid and list views;
+its accessible name retains **Delete (N)** for assistive technology.
+Dragging items onto that bin opens the same confirmation; the drop itself never deletes them.
+The drag hint reads “Drag onto a folder or the trash icon” without a leading icon.
+The bin highlights during a drag and previews “Drop to confirm deletion” on hover. Items with
+delete permission can use this target even without move permission; folder drops still require
+move permission for every dragged item. Cancelling restores focus to the bin and keeps selection.
+When no folders are selected, it opens a compact confirmation asking “Do you want to delete these
+N items?” with Cancel and Delete. Permission/revision checks still run before Delete is enabled;
+failures show their explanation and allow another check. Selections containing folders open the
+detailed confirmation with selected names, distinct recursive counts and the complete inventory. Selected descendants are covered by their selected ancestor, so they are counted and
+deleted once. Folder operations retain their server-issued inventory tokens; individual artifacts
+use freshly read capabilities and content ETags. Any known blocker disables the entire selection.
+Each folder remains a separate deletion boundary: template references outside that folder block
+it, even if the instances are also selected. Individually selected templates with reported instances
+are refused before writes; the backend retains the authoritative reference check.
+Execution stops at the first failure and displays confirmed progress, without claiming rollback or
+retrying automatically. Refresh prepares only the remaining selection after confirmed successes;
+an uncertain result may require closing the dialog and selecting the remaining items afresh.
+The combined confirmation uses the existing shared dialog/table recipes and destructive color roles.
+`selection-deletion.spec.ts` and `browser/tests/selection-deletion.spec.mjs` cover overlap,
+permissions, conditional writes, cancellation/focus, partial failure and desktop/phone presentation.
+
+The eye preview opens artifacts read-only. **Try out**, beside the close button, remounts
+CEE/CEF in editable mode with an isolated copy of the artifact. Trial entries are never saved;
+**Back to preview** or closing the dialog discards them. Downloads remain disabled. The
+Workspace browser preview suite exercises all four artifact kinds with the real editor bundle
+in Chromium and WebKit and checks that no artifact writes occur.
+
+The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
+It shows the owner and direct user/group grants to any reader, with searchable principals
+and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
+The caller's own access is shown separately from those direct assignments, using the resource
+report's role, ownership and capabilities. Missing information stays unknown. Role help is
+visible to readers as well as managers; removing a direct role is explained without promising
+to revoke access supplied by groups or containing folders. Group sharing requires no membership
+in the group. The ownership confirmation warns that the former owner may lose access entirely.
+Everyone is Viewer-only. Ownership transfer is a separate, confirmed user-only action,
+gated by `transferOwnership`. Each write uses the permissions ETag; a stale write displays
+the failed change and requires an explicit reload. Capabilities refresh after each successful
+write, including self-demotion; a successful ownership transfer closes the dialog and refreshes
+the workspace, since the former owner may lose access. The modern Workspace smoke covers
+read-only viewing, role changes, Everyone, stale permissions, and two-user revocation.
+
+Profile provides account details and masked API-key create/regenerate/delete operations.
+Settings saves the account date preference used by Workspace. Groups has a standalone
+legacy-style Manage/Create layout with searchable group and member selectors, using shared
+design tokens instead of the account-page navigation. It uses independent
+group and membership ETags, restricts administration to group administrators and protects
+the last administrator. Privacy retains the existing policy wording in the Angular account
+shell. In `ops/e2e`, run `npm run smoke:account:all` for all four pages, or
+`npm run smoke:account -- profile` (also `settings`, `groups`, `privacy`) for one page.
+The journeys remove their temporary keys/groups and restore the original date preference.
+Groups includes a second user's non-member, member and removed-member views and a real stale-write conflict.
+The selected group distinguishes “You are not a member” from membership without administrator
+access. An authorized roster supplies the caller's own status when available; otherwise Workspace
+reads `GET /groups/{id}/membership/me`. Missing endpoints on older servers, failed requests and
+malformed responses leave status unknown and show neutral viewing guidance. They never imply
+non-membership. Status refreshes on selection/reload and from confirmed membership writes,
+including self-removal or self-demotion. Roster visibility and administrative controls retain their
+existing restrictions. The Everyone group keeps its built-in membership explanation.
+
+Start it with `cedarcli native start frontend workspace`. With the native profile sourced,
+run `npm run build` in `cedar-workspace` after changing `src/`. `npm run build:deployment` configures and assembles the native server payload.
+`npm start` performs that preparation and serves the app with a dependency-free Node server
+in develop mode; server mode exits after assembly. Workspace no longer uses Gulp or live reload.
+`cedarcli build frontends` runs its Angular build in an isolated checkout;
+`cedarcli build split-frontends` retains the explicit native deployment path. Angular builds outside the served tree;
+assets are copied before the entry document is atomically replaced. The root index loads
+`app/workspace-build/index.html` for every route. Unknown routes return to the dashboard.
+The AngularJS shell, controllers, services, templates, styles and Karma harness are removed.
+Bower vendors, legacy icon fonts, RequireJS and obsolete npm build/test dependencies are
+also removed. The Keycloak adapter and bundle are plain JavaScript used by Angular.
+
+The metadata routes use a modern Angular CEE host. It loads the staged CEE bundle
+on demand, settles read-only permissions before configuration, saves with content
+ETags and preserves the editor across saves. Its dirty guard covers field/name edits,
+exact reverts, browser unload and edits made during a pending save. The host's central
+coordinator combines CEE findings with the server's structured validation report.
+Explicit severity takes precedence; older CEE reports treat missing required values
+and minimum counts as warnings, and other problems as errors. Errors block Save;
+warnings remain saveable. Server JSON Pointer locations map to CEE paths and nested
+occurrences, including escaped property names and controls that show all choices.
+Server findings belong to the submitted draft and retire when it changes; late
+rejections cannot attach old findings to a newer draft. Unmapped findings retain
+both path and message. Failed loads offer Retry. Conflicts and missing revisions
+retain edits and require an explicit reload, with confirmation before discarding
+changes. An incomplete create acknowledgement blocks another create until its outcome is
+settled. Lost replies and server errors report an unconfirmed save for both creates and updates;
+they do not claim the server accepted the write. A create is a PUT to an instance identity the
+editor minted and journaled before sending, so **Check save status** settles an unconfirmed
+create by reading that identity, as [settling a create or version write](#create-outcome-recovery)
+explains. For an unconfirmed update to an existing instance, Check save status reads the artifact
+and its permission report without replacing CEE. The same opened revision and content permit
+another conditional write; a different revision matching the submitted content acknowledges
+that snapshot and keeps newer edits. New element IDs are accepted only at template-declared
+element positions, then bound through CEE's captured save snapshot. Existing element IDs and
+term IRIs must match. A failed read, lost permission, missing revision or unexplained content
+change keeps the draft and the write guard.
+An existing write refused with 401/403 offers **Recheck access**. Restored permission enables
+saving only if the opened content and revision still match; neither a successful permission
+check nor a similar-looking submission permits adopting a different revision.
+Token-refresh refusal is a session failure, not an uncertain create. The modern Workspace
+smoke commits a real instance update before dropping its response and verifies that the form
+retains its input and cannot repeat the write without a successful status check. The
+`uncertain-create` journey does the same for creates. The host retains the instance
+description across field edits, including the description inherited on creation. Sparse save
+acknowledgements supplement the submitted snapshot rather than dropping metadata they omit.
+CEE's save snapshot binds submitted element occurrences to their working objects. When a save
+assigns new element identifiers, Workspace reads the stored document at the write's returned
+revision (including equivalent gzip-suffixed ETags) and acknowledges those IDs without remounting
+or replacing newer input. Reordered entries
+retain their own identities; deleted entries are not restored and new entries are not assigned
+another entry's ID. Failed readback, a changed revision or an invalid acknowledgement retains
+the draft and blocks further saves with an explicit message that the write succeeded.
+For an existing update, Check save status can retry verification after failed identity readback
+or a successful reply missing its ETag. It requires the saved content to match the captured
+submission before adopting the current revision and acknowledging IDs; an old opened revision
+cannot unblock a write already known to have succeeded. Newer input remains in the same form.
+Confirmed creates still require reload when their identity acknowledgement cannot complete.
+The modern smoke compares complete stored documents after a description edit in CED/CEFD and
+a field-value edit in CEE; only the intended change and root update provenance may differ.
+Schema fixtures include identifiers and annotations authored outside the description control.
+It also imports a library element, checks that later library edits leave the imported snapshot
+unchanged, and checks that edits to the imported element leave the library source unchanged.
+The reusable-source-failure journey selects a field and an element while the parent has an
+unsaved description. Search outages and refused, missing or unreachable element loads retain
+the selection and parent draft; a mixed batch cannot partially import its successfully loaded
+field. Retrying after recovery imports each definition once, saves the retained description and
+reopens both children without changing the library sources. The failures are injected at the
+browser request boundary; recovery and writes use the real services. Run
+`npm run smoke:journey -- reusable-source-failure`; the checks also run in the modern smoke.
+The resulting instance's second save must preserve its nested element identifiers.
+`metadata-state-matrix.spec.ts`
+and the browser state-coordination suite cover these transitions. First save replaces the create URL through Angular routing; it does
+not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.
+
+`npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
+Keycloak adapter, deployment configuration, atomic staging and npm package contents.
+`groups.spec.ts`, `permissions-dialog.spec.ts`, `access-views.spec.ts` and the Workspace
+action tests carry forward the legacy group/share controller, directive, permission-model
+and conditional-request contracts. They exercise rendered controls as well as request
+shapes, independent revisions, pending-write guards, failed/cancelled changes, late reads,
+last-administrator protection, direct-user ownership transfer and read-only access.
+Bootstrap visibility and asynchronous confirmation mechanics are replaced by native-dialog
+and confirmation-event tests. Failed writes retain the last saved state and the failed
+intent; stale revisions block further writes until an explicit recovery read completes.
+Configuration and CEE assets finish writing before the development server starts.
+Workspace's operation coordinator owns listing, detail, menu, destination, description
+and preview requests by scope. Replacing a selection or closing its owner invalidates
+old replies, including failures and component callbacks. Folder navigation retains the
+last successful destination until a complete new listing arrives; malformed listings
+cannot become selectable. `workspace-state-matrix.spec.ts`,
+`preview-state-matrix.spec.ts` and the browser state-coordination suite cover reply
+ordering, permission loss, disposal, malformed responses and recovery.
+Use `npm run copy:cee` to refresh only the staged editor.
+Workspace participates in `cedarcli check design-tokens` and the shared CI adoption gate;
+its initial baseline records existing typography and layout debt.
+In `cedar-development/ops/e2e`, run
+`npm run smoke:workspace:modern:full` against the running native stack. It exercises the
+modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
+sharing between two users, CEE metadata entry, versioning, OpenView and conditional writes.
+It runs its journeys in parallel lanes, which the
+[backend runbook](BACKEND-RUNBOOK.md#what-the-suites-actually-cover) describes, and
+`-- --lanes=1` runs them one after another.
+Its two-user access journeys revoke edit permission while Designer and Editor contain unsaved
+input, verify that saving is refused and the stored document is unchanged, and cancel the
+reload confirmation to verify that the local draft remains intact.
+The group-access journey creates a group and changes its membership through the Groups page,
+with access to the template and metadata instance granted only through that group. Removing
+the member while either editor is open refuses saving and preserves both the local draft and
+stored content. Restoring membership does not silently retry the save: **Recheck access**
+verifies restored permission and the unchanged stored artifact, then enables saving the same
+refused draft without reload. Checking while access is still denied also preserves input.
+The journey restores the original artifact permissions and removes its temporary group.
+Run `npm run smoke:journey -- access-recheck` for this focused two-user check.
+The release smoke's authoring and metadata fixtures use text fields, so live BioPortal selection
+and lookup recovery do not hold up a release. Controlled-term interactions and failure handling
+remain covered by the components' hermetic browser and unit suites. The full stack still exercises
+real artifact writes, permissions, publication, metadata preservation and recovery.
+The initial-load journey injects both HTTP 503 and connection failures into Designer's artifact,
+permission-report and component-manifest reads, and Editor's metadata, permission-report,
+template, configuration and component-script reads. Neither surface enables Save or shows an
+editable partial document; its existing retry control opens the intact stored artifact once
+the fault is removed. Whole-document comparisons and request observation verify that no write
+occurs. Run these focused cases with `npm run smoke:journey -- initial-load`; they also run in
+the modern Workspace smoke. Faults are page-scoped and fixtures are removed after the run.
+The validation-rejection journey supplies server-only findings at the HTTP response boundary,
+then uses real components and conditional server writes for correction and resubmission.
+Designer retains the rejected description and links the finding to its control. A nested regex
+finding opens the correct field through a repeated element and focuses its pattern setting;
+editing clears the obsolete report, and correction saves without changing sibling content.
+Editor follows a finding into the second occurrence of a repeated element, focuses its field,
+and preserves every other answer and nested identity when the correction is saved and reopened.
+Run `npm run smoke:journey -- validation-rejection` for this focused check. It verifies host
+handling of a rejection, not the validator that generates it.
+The save-status journey interrupts existing template, element, standalone-field and metadata
+updates both before a write and after an actual commit. It first fails the status read, then
+holds a successful read while more input arrives, checks the appropriate baseline/revision,
+and saves and reopens again. Editor adds a repeated element before the lost reply; recovery
+and the following save retain its minted identity. Additional Designer and Editor cases commit
+the first request after an unchanged status check, proving the stale retry receives 412 and
+keeps newer input. Run `npm run smoke:journey -- save-status`; all ten checks also run in the
+modern Workspace smoke. These checks cover open-page recovery of existing updates, not
+restoration after reload or an authoritative result lookup for a create.
+Run `npm run smoke:journey -- confirmed-save-recovery` for successful-update replies with a
+missing ETag in Designer's template, element and field editors and in Editor, plus Editor's
+failed identity readback. All five cases fail the first status check, retain input typed during
+a later check and save and reopen successfully; the metadata cases also preserve assigned
+element IDs. They also run in the modern smoke.
+The recovery-element-edits journey changes repeated metadata entries while a status read is
+held after a real committed save loses its reply. One case removes an earlier occurrence and
+copies the submitted one; another removes the submitted occurrence and adds a replacement.
+Acknowledgement binds minted IDs to surviving submitted objects, does not resurrect deleted
+entries or assign their IDs to replacements, and retains the current values. The next save
+mints a distinct replacement ID; whole-document comparison and reopening verify the result.
+Run `npm run smoke:journey -- recovery-element-edits`; both cases run in the modern smoke.
+The current-template-constraint journey changes a text regex through another REST client while
+Editor holds the earlier template. Its save must receive a real server 400 with `/Code/@value`,
+retain all local answers and preserve stored content and its ETag. Clicking the finding focuses
+Code; correction saves with the existing instance revision and reopens with other content intact.
+The reopened Editor enforces the new regex locally before another write can be submitted.
+Run `npm run smoke:journey -- current-template-constraint`; it also runs in the modern Workspace
+smoke. Unlike the injected report checks above, this exercises deployed server validation.
+The pinned-branch journey follows a terminology release from authoring to a saved value. In
+Designer, the real term picker pins NCIT's Melanoma branch to release 24.01e, and the saved template
+must record that release. Editor must then offer the branch as 24.01e holds it, with
+"Melanomatosis" and without "Acral Melanoma", the reverse of the newest release, and every search
+it sends must name the pin. The chosen term saves, the server verifies it against the pinned
+release, and the record reopens with it. Publishing keeps the author's release, and a record of the
+published template reads the branch at that release too. The journey first asks the terminology
+server whether the local store still tells the two releases apart, and fails with a message about
+the store when it does not. Run `npm run smoke:journey -- pinned-branch`; it also runs in the modern
+Workspace smoke. The REST tier's `term-search` suite checks the server's answers to the picker's
+other searches, for ontologies, value sets and properties, against the rule the picker applies.
+The duplication journey copies templates, elements, standalone fields and metadata through
+Workspace's Copy dialog, then edits and reopens both the copy and the original independently.
+It compares content, checks derivation and fresh draft-series identity, and verifies that neither
+editing direction changes the other artifact. Copies regenerate name-derived schema text and
+creation timestamps, and omit the original's external identifier; those are explicit assertions,
+not losses hidden by a normalization save. Untouched typed metadata answers remain intact.
+Run `npm run smoke:journey -- duplication` for the focused check.
+The template-evolution journey keeps unsaved metadata open in a second tab while Designer
+removes a field already used by that record. Cancelling the version dialog retains both drafts
+without changing storage; confirming publishes the original schema and creates a revised draft.
+The open record can then save and reopen its answer against the original template, while a new
+record created from the revised draft has only the remaining field. Run
+`npm run smoke:journey -- template-evolution`. This verifies structural changes through the
+supported Designer versioning path, not arbitrary in-place template changes by external clients
+or conversion between field types.
+The draft-sharing journeys check that a new draft is shared as the version it was drafted from.
+Workspace's Create Draft and Designer's Create new draft each draft three templates. The second
+test user holds no grant on the first, can view the second and can edit the third. As that user,
+the journey checks server reads and writes, how Designer opens each draft and what Shared with Me
+lists. The editor saves a change, the viewer sees the draft read only, and the user without a
+grant can neither read nor open it. Each draft keeps its owner and carries exactly its original's
+grants, the original's grants stay unchanged, and the folder grants nothing, so no access comes
+from it. Run
+`npm run smoke:journey -- draft-sharing-workspace draft-sharing-designer`; both also run in the
+modern Workspace smoke. They sign in as the second user, so they belong with the other two-user
+journeys rather than alongside single-user ones.
+The uncertain-create journeys lose real replies to creates and new versions at the browser's
+request boundary and check that each outcome is settled by the identity its client minted, never
+by repeating the write. `uncertain-create` creates a template, an element and a standalone field
+in Designer and an instance in the metadata editor, each in three series. In the first, the reply
+is lost after the server stored the artifact, and a reload and the restored draft's Check save
+status open it at its edit address. In the second, the write never reaches the server and an
+injected 401 refuses the first check for the session. Sign in again returns through the SSO cookie
+or the login form, the restored draft's check finds nothing, and Save sends the same identity
+again. In the third, a check in the open tab finds nothing, and the original request then commits
+late, modelled by a REST PUT of the body the browser sent. The next Save is refused as occupied,
+and the check adopts what was stored. Designer keeps the newer edit on screen but requires a
+reload, which discards it, before the next save. The metadata editor keeps it as an unsaved change
+that saves conditionally. `uncertain-workspace-create` loses the replies to New folder, Copy,
+Create Draft and Publish, committed or not, and settles each through the dialog's Retry. One Copy
+is reopened after a reload and takes up the retained identity and values. `uncertain-version`
+loses the reply to Designer's Create new draft, committed or not, and settles it after a reload.
+Every case ends with exactly one result: one artifact, folder, copy, successor or publication.
+Where Designer or the metadata editor created the artifact, a conditional edit follows, and the
+reopened page offers neither Restore draft nor Check save status. Run
+`npm run smoke:journey -- uncertain-create uncertain-workspace-create uncertain-version`. All three
+also run in the modern Workspace smoke, and none signs in as another user.
+The partial-version journeys check that Designer's Create new draft stores nothing when the server
+refuses it, and that a corrected retry creates exactly one successor. In
+`partial-version-definition`, a page-scoped rewrite removes the `oslc:modifiedBy` declaration from
+the submitted definition, and the server's validator refuses it with 400 before publication.
+Designer lists the findings, and editing the definition retires them. In `partial-version-draft`,
+the author owns the template, but the second test user owns its folder and has made the author a
+viewer of it, so the server refuses the draft with 403. The refusal survives a reload, a restored
+draft and an access recheck, which reads only the template's own permissions. Once the second user
+restores the editor grant, the retry succeeds. In both journeys the source stays the draft that was
+opened, at the same ETag and with one version, until the corrected retry. `partial-version-draft`
+uses the second user by REST token and never signs that user in to a browser. It writes in that
+user's home folder, so it belongs with the two-user journeys. Run
+`npm run smoke:journey -- partial-version-definition partial-version-draft`. Both also run in the
+modern Workspace smoke.
+The content-deletion journey uses temporary templates and metadata to check cancellation of
+populated-element deletion in Designer, removal of fields/elements and their parent references,
+and middle/last occurrence deletion in Editor. It compares whole stored documents apart from
+root update provenance, preserving surviving definitions, values, order and element-instance
+identities. Reopening and explicitly discarding the retained recovery draft restores unsaved
+deletions; reopening after a successful save preserves deletions, including empty optional lists. The stored Designer fixtures are compared
+directly, without an initial normalizing save.
+Neither surface currently offers deletion Undo; explicitly discarding the recovery draft after
+reopening the saved artifact is the recovery tested here, and does not preserve other unsaved work.
+Run this check alone with `npm run smoke:journey -- content-deletion`.
+The older-artifact journey opens legacy-shaped templates, elements and standalone fields,
+edits each description twice, and verifies that unrelated schema shapes, constraints,
+annotations and identities survive saving and reopening. Editor also renames and reopens
+older metadata without losing typed answers or existing context declarations; its writer
+adds the standard `pav:derivedFrom` context declaration if absent. An unsupported historical
+field type is injected only into a GET response to verify that Designer refuses to open it,
+keeps Save disabled and sends no artifact writes. Repairing arbitrary invalid or unsupported
+artifacts is not established by these focused checks.
+The partial-selection deletion journey commits two deletes and drops the second response.
+It verifies that only the first is reported as confirmed, later items remain untouched, and
+the author can finish from a fresh selection without repeating the uncertain request.
+Hermetic bulk-delete recovery journeys extend this to a confirmed recursive-folder deletion,
+an uncertain individual delete, and an unattempted remaining record. Repeated HTTP 503 or
+disconnected inventory/listing reads retain confirmed counts and leave deletion disabled.
+Restored inventory reads recheck permissions and revisions; a revoked permission blocks the
+whole remaining selection, and recovery requires explicit confirmation using fresh ETags.
+If the uncertain item returns 403 or 404, neither response proves deletion: its count stays
+unconfirmed and the old selection stays blocked. Close the dialog, refresh Workspace after
+service recovery, and review a new selection of remaining items before confirming deletion.
+`npm --prefix browser test -- bulk-delete-recovery.spec.mjs` exercises these paths in Chromium
+and WebKit against a built Workspace. This is unit and hermetic browser coverage of the
+existing workflow; combined deletion outage cases still need live-stack verification.
+The partial-move journey refuses one grouped move at the HTTP boundary while two others
+commit at the real server. Workspace reports the two successes and the refusal, retains only
+the remaining item in its selection, and can move that item after the refusal clears without
+repeating successful moves. All stored artifact content is compared before and after. Run
+`npm run smoke:journey -- partial-move`.
+The uncertain-move journey lets all three moves commit, then drops one response. Workspace
+reports only the two confirmed successes alongside the error and refreshes the source listing,
+removing the already-moved items from selection. Opening the destination finds all three with
+their entire artifact content unchanged, and no move is replayed. Run
+`npm run smoke:journey -- uncertain-move`; the full modern smoke includes it too. This covers
+recovery through a successful listing refresh, not an outage that prevents checking placement.
+Workspace also preserves unresolved move selections through repeated listing failures and shows
+the refresh error alongside individual move failures. An explicit retry first checks every
+selected resource's current placement, capabilities and revision. A resource already directly
+inside the requested destination is confirmed without another move request; selected descendants
+stay with their selected ancestor. Unavailable or malformed placement reports prevent all writes.
+Hermetic Chromium and WebKit journeys cover lost replies both before and after commit, repeated
+listing failures, placement-check failure, and recovery without replaying confirmed moves.
+Run `npm --prefix browser test -- bulk-move-recovery.spec.mjs` against a built Workspace.
+These outage combinations have unit and hermetic browser coverage; live-stack verification is
+still pending. The isolated test build does not redeploy the shared Designer or Editor.
+The main smoke registers copies by the collection in their canonical identity, since copy
+responses are artifact documents without `resourceType`; this ensures non-template copies
+are removed from the correct collection during cleanup.
+The Workspace menu omits artifact downloads and clipboard identifier actions; its smoke pins the
+current action names and order. JSON/YAML/compact-YAML downloads for all artifact kinds are covered
+by the REST download suite, and the main browser smoke exercises CEE download controls.
+Each Workspace run removes its fixtures. Its result and failure screenshots, including open
+second-user pages, go to a directory of the run's own: under the split tier, the evidence directory
+its report names, and otherwise a new `cedar-e2e-evidence-*` directory in the system's temporary
+directory, which the smoke prints.
+`npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
+runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
+and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).
+The existing `npm run smoke` remains the AngularJS journey for `cedar.metadatacenter.*`.
+Its script and legacy variants are retained unchanged; they are not the modern route's gate.
+See the Workspace README for the boundary, request contracts and direct build procedure.
+
+## Bundle Sizes and Duplicated Code
+
+The 2026-11-05 measurements below use the reactor's production output after modular model
+packaging, with Angular's `--stats-json` and packaged custom-element scripts measured at gzip
+level 9. The host rows count all emitted JavaScript,
+including lazy chunks and polyfills, but exclude CSS and separately copied components. They are
+not first-navigation transfer measurements. Decimal kB below means 1,000 bytes.
+
+| Surface | JavaScript, kB | gzip-9, kB | Additional component loading |
+| --- | ---: | ---: | --- |
+| Workspace | 856.4 | 239.7 | CEE loads when metadata editing is opened; the editor route is lazy too |
+| OpenView | 578.4 | 163.1 | CEE loads on artifact pages or preview, host-font variant |
+| Monitoring | 1,104.6 | 280.7 | None |
+| Bridging | 630.5 | 179.6 | CEE loads when a DOI form opens, host-font variant |
+| CEE standalone / host fonts | 2,237.8 / 2,115.1 | 607.1 / 514.4 | Includes its Angular runtime and model library |
+| CED standalone / host fonts | 1,982.3 / 1,859.6 | 473.5 / 380.3 | Includes its Angular runtime, model library and schema validator |
+| Term picker standalone / host fonts | 506.2 / 383.5 | 202.9 / 109.4 | Includes its Angular runtime and narrow policy entry |
+
+Workspace, OpenView, Bridging, Monitoring and the Template Designer register CEDAR Roboto 400/500
+through `fonts-hosted.css` from the design-token package. Its content-hashed WOFF2 files contain
+exactly the embedded faces; the browser selects the unicode subsets each page uses. Both Latin
+weights total 22,100 bytes, with another 15,412 bytes when Latin Extended is needed, instead of
+carrying all 89,452 font bytes as base64 in every host stylesheet. The four Angular hosts' initial
+CSS falls by 118,368 raw bytes (about 90 kB gzip). External font files stay in the total payload
+budget, and missing references fail the size gate. Browser checks cover subset requests and
+unchanged visual baselines; standalone CEE and CED scripts remain byte-identical.
+
+Hosts select component host-fonts bundles, which omit embedded fonts, or their coordinated
+integration modules. Standalone components retain their existing embedded fonts and require no
+additional font requests. Template Designer's staging falls back to embedded `fonts.css` when an
+older token package has no hosted-font stylesheet.
+
+The build graphs contain one installation of each contributing npm package per application;
+Angular's compiler, Moment and Lodash do not contribute to these seven modern bundles. CEE's
+unused grid-list, toolbar, list and clipboard NgModule imports retain only 594 bytes of module
+definitions, not the full controls. Removing imports based on their names alone would therefore
+overstate the savings. Its RDF processors and sanitizer are used by export and rich-text rendering.
+
+The model package exposes a modular ESM tree through `module: esm/index-namespace.js`, with browser
+mappings for `/policy` and `/schema` into the same tree. A minified esbuild consumer exposing only
+`TextPolicy` retains 661 bytes (385 gzip), compared with 527,102 bytes through the old single-file
+entry under the same esbuild options. The separate modules let a consumer discard unrelated readers,
+writers, YAML and validation code. YAML's browser modules are vendored with their license; the generated AJV
+validators retain their rules and share the ESM policy classes. CommonJS, UMD and the copyable
+single-file `*.esm.js` outputs remain available at their established paths. The ESM entry wrappers
+preserve the default namespace export as well as named exports, including Vite's CommonJS interop.
+
+`npm run test:package` builds consumers from the actual tarball, checks narrow-import size
+ceilings and browser subpath resolution, and compares readers, writers, validation and exact-number
+handling across CommonJS, native ESM, bundled ESM and UMD. `npm run build:watch` rebuilds all
+formats together so an incremental change cannot leave the modular tree stale.
+
+Separate self-contained elements each carry their own Angular and shared-library code. The
+Template Designer builds CEE, the term picker and CED into one coordinated runtime graph,
+3,443,265 raw bytes in the 2026-11-06 source build. Each keeps its own application injector.
+Its extra schema script is a fallback for old CED bundles without `validateArtifact`, so it is
+not another normal-path download. See the CED integration section for the identity checks.
+
+The legacy Template Editor requests CEE through RequireJS when an instance editor opens. Its
+full model UMD loads only for a YAML preview or copy; validation keeps using the narrow policy
+entry. CKEditor and its original AngularJS adapter load when a rich-text field is opened, with
+the same toolbar and model handling. A failed load can retry when reopened; YAML copying starts
+the clipboard operation within the click so its first library download does not lose user
+activation. Against the installed model package, these optional tools total 1,034,573 raw /
+268,386 gzip-9 bytes; their initial loaders add 5,199 / 1,808 bytes. The thin `ng-flow` adapter
+uses the single Flow.js dependency. Retired RDF preview processing is absent; JSON Schema
+preview and YAML actions remain available.
+
+OpenView folder listings and Bridging's landing page defer CEE too; loading failures use their
+existing error states, and a later OpenView preview can retry. The Template Designer uses CEE
+for ordinary field summaries and default editors as well as previews.
+
+Workspace loads profile, settings, groups, privacy and logout as route chunks; Monitoring loads
+its diagnostic screens as a lazy module. Dashboard navigation therefore avoids those downloads,
+while direct links keep their existing guards and behavior. The 2026-11-06 production comparison
+reduced Workspace's initial graph by 63,764 raw / 13,369 gzip-9 bytes and Monitoring's by
+204,100 / 41,363 bytes. Browser tests assert that the deferred chunks are absent on the dashboard
+and requested when their routes open; the existing account and diagnostic journeys still apply.
+
+Files merely present on disk, such as Moment's tests, source maps and superseded hashed bundles,
+are not evidence of browser downloads.
+
+`cedarcli check frontend-sizes` checks the built Workspace, OpenView, Bridging and Monitoring
+payloads. Use `--surface openview --root /path/to/cedar-openview-src --report /tmp/payload.json`
+for an isolated build. The same gate runs after each host's build and browser verification in
+both the frontend reactor and immutable trains. Limits live in `ops/frontend-train.json`.
+
+The initial count follows script/stylesheet tags and static imports in `browser-stats.json`;
+dynamic imports and copied component scripts also count toward the total emitted JavaScript/CSS.
+Workspace's separately served config, authentication scripts and copied components are mounted
+into this inventory. Assets are counted once per URL, with raw bytes, gzip-9 bytes and SHA-256 in
+the report. The total is a deployment inventory, not a claim that a visitor downloads every file:
+Workspace stages both CEE variants, for example. Missing assets, external script/style URLs and
+exceeded limits fail the command. Fonts embedded in scripts or CSS count with those files.
+
+Measured complete payloads for those same builds, in decimal kB:
+
+| Host | Initial, raw / gzip-9 | Total inventory, raw / gzip-9 |
+| --- | ---: | ---: |
+| Workspace | 1,016.6 / 339.9 | 5,419.9 / 1,474.8 |
+| OpenView | 725.8 / 257.9 | 2,840.9 / 772.3 |
+| Bridging | 783.4 / 275.1 | 2,898.5 / 789.5 |
+| Monitoring | 1,273.1 / 377.7 | 1,273.1 / 377.7 |
+
+| Host | Initial limit, raw / gzip-9 bytes | Total limit, raw / gzip-9 bytes |
+| --- | ---: | ---: |
+| Workspace | 1,200,000 / 360,000 | 6,200,000 / 1,700,000 |
+| OpenView | 850,000 / 320,000 | 3,200,000 / 900,000 |
+| Bridging | 930,000 / 350,000 | 3,300,000 / 950,000 |
+| Monitoring | 1,400,000 / 450,000 | 1,400,000 / 450,000 |
+
+CEE's packaged limits are separate: standalone 2,400,000 raw / 660,000 gzip bytes and host-fonts
+2,280,000 / 560,000. Its Angular initial budget is 2.3 MB warning / 2.4 MB failure; OpenView's
+is 800 / 850 kB, and Bridging's is 900 / 930 kB. These limits must not be raised to accommodate
+unexplained growth.
+
+To repeat the analysis, build isolated source copies with the normal production prerequisites
+and add `--stats-json` to their Angular build invocation. Angular 22 writes `browser-stats.json`;
+sum `outputs[*].inputs[*].bytesInOutput` by package, not the original input-file sizes. Measure
+packaged custom elements separately and trace script tags and runtime loaders, since Angular's
+`initial` budget excludes copied assets. The local audit evidence is under
+`$CEDAR_HOME/.cedar/audits/frontend-bundles-20261105/`, including production graphs, packed-package
+measurements, the narrow-import probe and host-font rendering comparisons. These diagnostics do
+not deploy a frontend or replace the reactor's source/runtime acceptance evidence.
+
+The full reactor, all three consumer demos, local deployment, served-byte verification and
+whole-stack smoke passed for this source composition on 2026-11-05. Its immutable build record is
+`01e070e087da8c3fbe8469cf0821f5de487b7eef56522b5f65abe642bc090303`; selected package SHA-256 prefixes
+are model `a3ce971ab7af`, CEE `4b30e2d83ab8`, CED `185e277ba3eb` and term picker `dc2f855979a2`.
+The full identities and source fingerprints are in `$CEDAR_HOME/.reactor/builds/<build>.json`.
+Frontend builds and native start/restart resolve the pinned Node and Java toolchain before
+invoking their workers. The native controller preserves that PATH and passes it, with JAVA_HOME,
+into launchd children. A native frontend launched on 2026-11-06 was verified against its actual
+executable at Node 24.22.1, even though the shell's unversioned Node was 26.
+
 ## Seeded history tests
 
 The ordinary test gates include bounded, repeatable generated histories in CED,
@@ -2478,7 +1622,7 @@ clear its Angular build cache and restart:
 
 ```bash
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && rm -rf .angular/cache
-cedarcli native restart ui-openview
+cedarcli native restart frontend openview
 ```
 
 The cache is gitignored and rebuilds itself, so deleting it costs a slower first
@@ -2580,7 +1724,8 @@ workspace and leaves the repository's own `dist/` untouched, so reach for it to 
 a host still compiles against the new bundle, not to put one in front of a server.
 
 ```bash
-cedarcli native restart ui-openview ui-bridging
+cedarcli native restart frontend openview
+cedarcli native restart frontend bridging
 ```
 
 Compilation is seconds, not minutes: `ng serve` reports `Compiled successfully` in
@@ -6590,6 +5735,864 @@ pushed. No visual baseline was changed or runtime deployed. Two resolved source
 allowances were removed, leaving 14 in Monitoring and 59 estate-wide. No design
 decision remains from this review. Evidence is under
 `$CEDAR_HOME/.cedar/audits/2026-11-10-monitoring-tokens/text/`.
+
+## Paired standalone performance checks
+
+`cedarcli test frontend-performance-paired` compares prebuilt standalone CEE/CED JavaScript bundles, or two staged
+Template Designer `app/` directories with `--component designer`, without backend services, Keycloak, accounts or repository fixtures.
+The command does not build, deploy or publish anything. Use the normal reactor/CI production output;
+never pass a development-server bundle. Finish builds and other tests before measurement.
+
+```bash
+cedarcli test frontend-performance-paired --component cee \
+  --baseline /path/to/before/cedar-embeddable-editor.js \
+  --candidate /path/to/after/cedar-embeddable-editor.js \
+  --output /path/to/new-report --samples 5
+# Use --component ced with the standalone cedar-embeddable-designer.js bundle.
+```
+
+The runner freezes and hashes both inputs, uses the same fixed 5/100-field fixtures and
+readiness/editing checks as the full-stack suite, and records browser, Node, machine, suite
+and artifact identities. Five sequential pairs alternate baseline/candidate order and rotate
+fixture order. Each version has a fresh browser context, cold then warm cache, with the
+constrained profile (4× CPU, 1.6 Mbit/s down, 150 ms latency). The static HTTPS server uses
+gzip and browser caching without Playwright routing. Unknown hostnames fail DNS; unexpected
+origins are failures. There are no backend writes or cleanup credentials.
+
+Missing assets, failed requests, duplicate script requests, pending requests at the observation
+cutoff, broken rendering/editing, uncaught errors or incomplete coverage fail the command.
+Reports contain all attempts; failed samples cannot improve a median. Existing output directories
+are refused. `report.json`, `summary.md` and screenshots are retained; the local directory also
+keeps frozen inputs. CI uploads only reports/screenshots, not ephemeral TLS keys.
+
+Readiness, blocking time over 50 ms and CLS are **advisory**, pending runner calibration.
+A timing warning requires the median paired increase to exceed both 10% and 100 ms for
+readiness, or both 15% and 50 ms for blocking. CLS uses a provisional 0.02 increase.
+These are investigation triggers, not approved budgets. Fewer than five pairs, missing metrics
+or median absolute deviation above the tolerance produce an explicit inconclusive assessment.
+In CI, a complete but inconclusive comparison gets one further full paired run. Both attempts
+are retained, with the second selected; persistent noise stays explicitly inconclusive. Broken
+loading or incomplete coverage never retries into a pass. A clear regression does not rerun
+to seek a faster result. A complete advisory run still exits zero; load/measurement failures
+always exit nonzero.
+
+This measures standalone rendering, not sign-in, production latency, host integration, field
+INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute for the
+Designer-equivalent CED+CEF measurement. The existing raw/gzip build budgets remain enforced
+independently. Run the full-stack suite below for authenticated hosts and real APIs.
+
+The Designer selection measures both the real host and the equivalent bare page with its
+exact shared CEE/CEF/CETP/CED bundle. Both wait for every real CEF summary. Only copied runtime
+configuration and the session boundary change; the shipped host JS/CSS/markup and components
+remain byte-identical. Fixed HTTP API responses have real deployment-shaped resource origins,
+ETags, CORS and no-store caching. Unknown API reads and every write are refused. This excludes
+real SSO/API latency; it must not be compared as an application speedup against the full-stack
+Designer results. Normal-load checks require recovery controls to remain absent and deferred
+RDF/compatibility-validator code to remain unloaded.
+
+The equivalent page's cross-origin fonts now receive CORS headers from the lab server. The
+2026-11-07 equivalent-page measurements below predate this correction: font requests failed and
+fallback fonts could render. Their within-fixture comparisons remain recorded, but they are not
+font-equivalent comparisons with Designer. Host and standalone CEE/CED measurements are
+unaffected. Use fresh pairs with this lab for equivalent-renderer comparisons.
+
+A corrected control on 2026-11-08 completed 80/80 Designer/equivalent measurements, with both
+inputs pointing to the same staged app. All loading, editing and normal-screen checks passed;
+all paired results were within advisory tolerances. Constrained warm medians were approximately
+0.62/1.40 s for the equivalent 5/100-field pages and 1.02/1.79 s for the fixture-backed Designer.
+These validate the new benchmark and do not represent an optimization to product code.
+
+The CEE and CED `Test` workflows and Designer's `Build and package` workflow call the pinned reusable
+`.github/workflows/frontend-performance-paired.yml`. Pull requests compare their base SHA
+with the tested merge candidate; pushes compare the previous branch head with the candidate.
+The existing candidate build artifact is reused. The comparison also builds the fixed source
+reference in `ops/e2e/frontend-perf/references.json`, so small regressions cannot disappear by
+merging them one at a time. The reference never advances automatically: changing it requires
+an explicit reviewed source change and matching harness-pin updates. Byte-identical reference
+and PR-base outputs share measurements while both source revisions remain recorded.
+
+A rebuild of an old commit installs the packages its locks name, and Nexus deletes development
+packages a few days after publishing them. Two inputs are therefore read from published packages
+by `ops/e2e/frontend-perf/published-bundle.mjs` rather than rebuilt. A base that carries a release
+version, as `main` does on a CEE or CED release pull request, is measured from the bundle npmjs
+serves for that version. A reference listed under `published` in `references.json` is measured
+from the release whose code its commit carries. The CEE reference is the commit that advanced CEE
+after release 2.0.33, so it is read from `cedar-embeddable-editor@2.0.33`. The CED and Designer
+references install only packages `npm-cedar-releases` retains, and are still built from source.
+The calibration workflow reads its control the same way. All
+comparison builds/installations finish before Chromium starts. Both versions are measured
+sequentially on the same Ubuntu 24.04 runner with the harness lockfile's Chromium.
+No performance job runs inside the development reactor, and no package pins are rewritten.
+
+Loading failures fail the CI job; CEE dev publication also waits for that job. Timing/CLS
+warnings and inconclusive assessments appear in the job summary and workflow annotations.
+Reports, every retry and screenshots are retained for 30 days. `comparison.json` records the
+selected attempts and source references; each attempt retains its complete `report.json`. A baseline that cannot build is a setup
+failure, never a passing comparison. To update the harness, update both the reusable-workflow
+SHA and its `harness-ref` input together. The release-tooling CI tests measurement/failure
+semantics without a CEDAR stack on Linux and macOS.
+
+The initial local control check on 2026-11-08 ran 40 measurements for CEE and 40 for CED,
+comparing each production bundle with itself. All loads and editing checks passed; every
+paired readiness/blocking/CLS result was within its advisory tolerance. CEE's bundle SHA-256
+was `ae1034b229734c180136573898c06c40f05ea1d6e8776ebda1aaa43d909ab485` and CED's was
+`cf5f6442c5dd5720f88a0c5f03343f1a6bdfd0fe679a92372d8f6771b6147731`.
+This validates the comparison machinery, not a speed improvement or a Linux CI budget.
+
+The daily `Frontend performance calibration` workflow runs at 02:17 UTC on GitHub-hosted
+Ubuntu 24.04 runners. It pins the validated harness and source references, builds each input
+once, then compares identical bytes for standalone CEE, standalone CED and Designer/equivalent
+CEF. Each control retains every observation, including noisy results, without retrying. Reports
+and screenshots are retained for 30 days. The workflow must exist on the default branch,
+`main`, for GitHub's schedule to run; its identical file also lives on `develop` so release
+integration does not lose it. The pinned harness checkout keeps default-branch scheduling
+independent of the release source tree.
+
+Collect at least 14 distinct daily controls per stable machine/browser/suite/artifact cohort
+before reviewing hard timing limits. Inspect paired differences, noise, false warnings and
+host integration results together; a passing control alone does not approve a budget. Keep
+reviewed limits and reference updates explicit, with retained evidence. Runner or harness
+changes start a new cohort rather than silently mixing distributions.
+
+### Hosted readiness review and notifications
+
+`Frontend performance readiness review` runs entirely on GitHub-hosted Ubuntu runners after
+calibration or full-stack measurement workflows complete, daily at 05:47 UTC as a fallback, and on manual dispatch. Its
+workflow lives identically on `main` and `develop` and checks out a pinned, tested review
+implementation. It never executes downloaded artifact contents as code. Updating the implementation
+requires updating that pin on both branches, keeping release integration consistent.
+
+The review counts one earliest complete successful control per UTC date, separately for each
+component and comparable CPU/platform, browser, Node, suite, reference artifact and measurement
+settings. Failed/missing/expired reports, incomplete coverage and duplicate same-day runs cannot
+inflate the count. Noisy successful controls count and remain in the review. CEE, CED and Designer/
+equivalent CEF can reach readiness independently; full-stack results are reviewed separately
+from these paired component controls.
+
+After 14 dates, a fixed rolling window of the latest 14 daily controls is assessed for readiness,
+blocking and CLS. It reports paired median changes, ranges, median absolute deviation, baseline
+ranges, false warnings and inconclusive rows. Zero false warnings and zero inconclusive rows in
+that window support reviewing the existing provisional thresholds; otherwise the result needs
+investigation and collection continues. This is a conservative automated screen, not a statistical
+guarantee, human approval or automatic activation of timing gates.
+
+The first eligible cohort opens a GitHub issue assigned to and mentioning `@martinjoconnor`.
+Subsequent newly eligible or newly stable cohorts comment on that issue once per milestone;
+daily unchanged results do not send duplicate issue notifications. GitHub delivers those through
+the account's notification settings. The issue includes the assessment and links to source runs.
+Every run also has a job summary and machine-readable `review.json`.
+
+`performance-calibration-history` retains compact measurement reports, exact cohort identities,
+source run/artifact IDs and canonical source-report digests for 90 days. Each successful default-
+branch review restores the prior archive and carries it forward, preserving collected evidence
+beyond raw reports' 30-day retention. Download/API failures fail the review instead of pretending
+there is no history. If the review itself stops for longer than artifact retention, missing evidence
+must be collected again. Repository code, package pins and gate settings are never modified by the
+review. The earlier app-based review is superseded by this hosted workflow.
+
+`full-stack-performance-history` separately retains complete hosted full-stack reports and carries
+its archive forward on each successful default-branch review. A usable day requires all 340 samples
+(17 scenarios × two profiles × cold/warm × five repetitions), successful setup and verified fixture
+cleanup. Train images, standalone package sources, CLI/deployment tooling, suite, CPU, browser, Node
+and resource limits define a cohort; newly generated runtime configuration does not split it.
+The earliest complete run per UTC day counts, including slow observations. After 14 comparable
+dates, the review notifies the same GitHub issue that full-stack variability is ready for human
+review. Per-scenario daily medians, ranges, within-run and between-day median absolute deviations
+are retained in `full-stack-review.json`. These daily measurements are unpaired: they do not
+establish a false-positive rate or automatically approve timing thresholds.
+
+## Reporting-only performance suite
+
+`cedarcli test frontend-performance` runs a separate local performance laboratory. It is not
+part of the frontend reactor, whole-stack smoke, train or release gates. No performance budget
+fails a run. A broken page, failed/pending asset request, duplicate script request, unexpected external
+origin, unavailable account or failed fixture cleanup does produce a nonzero exit and an explicitly
+incomplete report; failed measurements never enter medians.
+Browser operations have a 90-second availability timeout, and sign-in setup has 60 seconds.
+Workspace and Bridging landing pages must keep the standalone editor deferred. Designer and
+the equivalent CED+CEF page must keep RDF and compatibility validation code deferred. These
+loading contracts cover every modern scenario in the full-stack sweep; they do not impose
+machine-dependent timing budgets. The old equivalent-page font CORS defect is fixed by the
+shared lab server and now fails the suite if it returns. Chromium marks successful HTTP 204
+iframe responses as canceled; these no-content responses are accepted, while interrupted
+asset downloads still fail. A 2026-11-08 verification covered all 17 modern scenarios with
+normal/constrained profiles and cold/warm loads: 68/68 passed, with no setup or cleanup errors.
+This one-repetition run verifies coverage and loading contracts, not timing budgets.
+
+Use the pinned Node version and a running local `.orgx` backend/Keycloak stack. Run it while
+builds, smoke tests and other benchmarks are idle. It neither restarts nor redeploys the stack.
+
+```bash
+cedarcli test frontend-performance --plan
+cedarcli test frontend-performance --check
+cedarcli test frontend-performance --samples 5
+# A shorter investigation of the standalone components:
+cedarcli test frontend-performance --samples 3 --scenarios cee-standalone-small,cee-standalone-large,ced-standalone-small,ced-standalone-large
+```
+
+### Hosted full-stack measurements
+
+`Full-stack frontend performance` runs daily at **03:17 UTC** and on manual dispatch. Its
+identical workflow lives on `main` (required for GitHub scheduling) and `develop`, with a pinned
+harness checkout independent of release source changes. It provisions a fresh Ubuntu 24.04
+GitHub-hosted runner and runs all modern scenarios against real Docker-hosted CEDAR APIs and
+Keycloak. It consumes the completed immutable train `2.9.33-dev.20261107.2016`; image digests and
+standalone CEE/CED/term-picker tarball hashes are verified before measuring. The train’s resource
+image omitted its fresh-database
+bootstrap admin-tool JAR; CI mounts the matching train JAR read-only, verifies its pinned SHA-256,
+and records that dependency separately. New image builds fail if that JAR is missing or corrupt.
+CI also mounts the corrected Designer entrypoint from the pinned Docker tooling: it verifies
+the published page inventory and only generates runtime configuration, without recompiling UI
+assets. The train image’s older entrypoint attempted a build without the source lockfile. Both
+bootstrap additions are recorded as calibration inputs; train image tags remain unchanged.
+This is a fixed calibration baseline, not a moving develop build. Updating the train or pinned
+tooling intentionally starts a new comparable cohort.
+
+The job generates private ephemeral datastore/service credentials and a fresh read-only monitoring
+identity, uses only synthetic fixtures, and contacts no production CEDAR deployment. It uses the
+existing Nexus image credentials to pull published images. No self-hosted runner, workstation
+session, local monitoring account or open application is needed. Fixed text-field scenarios need
+no production terminology corpus and do not benchmark external BioPortal searches.
+
+Published application assets are copied from the verified containers into the existing HTTPS
+performance lab, with real SSO/API calls still reaching the isolated stack. Standalone bundles come
+from the same train's verified npm completion record. `--deployment-manifest` selects these inputs
+without a local reactor build; the default developer command continues to use local sources.
+All resource ceilings, source identities, image digests, browser/Node versions and machine metadata
+are recorded. OpenView, Monitoring and Bridging in this train compile the production domain into
+one environment literal rather than reading the container's domain setting. The lab verifies the
+captured bytes first, changes only that literal to `.orgx` in its copy, and records before/after
+hashes. Chromium blocks production `.org` hostnames before authentication; this DNS guard preserves
+HTTP caching, unlike request interception. Java services have 512 MiB heaps / 768 MiB limits,
+OpenSearch and Neo4j 512 MiB heaps / 1536 MiB limits, and Keycloak a 512 MiB heap / 1024 MiB limit.
+These are CI fixture settings, not production sizing guidance. Shared hosted hardware can be
+noisy; timings stay reporting-only.
+
+Reports, CSV, screenshots and immutable input evidence are retained as `full-stack-performance`
+for 90 days, sanitized service diagnostics for 14 days. The readiness review archives compact
+measurements beyond individual artifact retention. The job stops its stack even after failures;
+GitHub disposes of the runner and its temporary volumes. Broken pages, loading contracts and
+fixture cleanup still fail the job; timing values alone do not.
+
+Manual dispatch accepts five repetitions for calibration or one for a coverage check. A single-
+repetition run has 68 samples and never counts toward the 14-day full-stack review.
+
+The [initial hosted baseline](https://github.com/metadatacenter/cedar-development/actions/runs/42497465804)
+on 2026-11-08 passed all 340 samples with verified fixture cleanup. Its
+[automatic review](https://github.com/metadatacenter/cedar-development/actions/runs/42499993039)
+retained the evidence as the first comparable daily run. Hosted and workstation measurements are
+separate cohorts; their timings are not a before/after comparison.
+
+The fixed baseline's executable inputs are retained in place under narrow Nexus cleanup
+exceptions: all 27 images of this exact train, its three standalone CEE/CED/term-picker packages,
+and its matching admin-tool component. Their URLs and bytes remain unchanged, preserving the
+existing calibration cohort. Both the three-day and thirty-day policies exclude these inputs;
+the same exceptions retain the fixed isolated CEE control's exact model and design-token
+dependencies. The isolated CED and Designer controls already resolve their internal dependencies
+from the retained npm registry.
+Downloads alone do not extend ordinary artifact retention. The reviewed policy changes and
+server-side preview evidence are in [frontend-performance-retention.json](frontend-performance-retention.json).
+The previews simulated all artifact ages and proved that every other cleanup selection remained
+unchanged. Retire these exceptions explicitly when this baseline is no longer needed; do not
+remove them merely because individual reports have been archived. A future baseline requires
+equivalent input retention before it begins collecting comparable daily runs.
+
+### Optional workstation scheduling
+
+The unattended sweep uses hosted CI; the former workstation LaunchAgent is removed. The local
+CLI remains available for explicitly requested workstation investigations. If deliberately
+installed again, its sweep runs at **03:30 Europe/Madrid**, with DST handled
+explicitly. Install or inspect it through the CLI:
+
+```bash
+cedarcli test frontend-performance-schedule --install
+cedarcli test frontend-performance-schedule --status
+cedarcli test frontend-performance-schedule --check
+# Stop future scheduled runs:
+cedarcli test frontend-performance-schedule --remove
+```
+
+The macOS user LaunchAgent checks hourly at minute 30 but runs measurements only during the
+03:30–03:39 Madrid window. It does not wake the machine or catch up outside that window.
+The user must be logged in and the local stack running. No GitHub self-hosted runner is installed.
+`--check` only reports the time/activity decision; it does not measure or modify state.
+
+A sweep needs ten minutes without keyboard/mouse input, other processes using at most 60% of
+one logical CPU, the local stack lock available, clean relevant source trees, current component
+bytes, the existing private monitoring account, and 10 GiB free disk space. It never stashes,
+pulls, deploys, publishes, starts the stack or changes permissions. It performs the normal
+isolated production preparation and five repetitions of all 17 modern scenarios (340 loads).
+Clean trees are an unattended measurement safeguard, not a prerequisite for development builds.
+
+Activity is checked every 15 seconds, excluding this sweep's own descendants. If work resumes,
+activity becomes unreadable or measurements reach 45 minutes, the suite is interrupted gracefully:
+preparation stops, Chromium closes and temporary fixtures are deleted and verified. Cleanup
+is allowed to finish. An unverified completion or cleanup error blocks later sweeps pending
+investigation; do not remove that guard without checking `fixtures.json` against the local stack.
+
+Evidence lives under `.cedar/reports/frontend-performance/scheduled/`: `latest.json` records the
+latest decision, `last-run.json` preserves the last started run and its cleanup status, and each
+`nightly-*` directory holds the report and `scheduled.json`. Skipped hours cannot erase an
+unverified run. `latest.log` records the latest sweep; `launchd.log` records scheduler invocations.
+Owned reports are retained for 30 days and their frozen lab files for seven days. Cleanup-failure
+evidence is retained for investigation. The LaunchAgent contains no credentials; the existing
+mode-0600 monitoring account file is read only into the child process environment.
+
+### Measurement coverage and method
+
+The default covers Workspace's dashboard and metadata editor, Template Designer, OpenView
+template pages, Bridging and Monitoring dashboards, the content index, standalone CEE and
+CED, and the standalone term picker. Editor pages use fixed 5-field and 100-field text
+templates. OpenView's root redirects away, so the suite measures useful artifact pages
+instead. No legacy application is opened. The term-picker measurement ends when its empty
+search control is usable; external terminology searches and DOI submissions are outside
+this baseline. Editing measurements type an answer or change a displayed field label;
+they do not save to the server.
+
+The suite copies the staged production Workspace and Template Designer into its report
+directory. OpenView, Monitoring, Bridging and Content are built there with their production
+configuration and existing dependencies. The only source adjustment in those disposable
+copies is the deployment domain, from `.org` to `.orgx`. Standalone components come from the
+hash-verified packages selected by `.reactor/runtime.json`. If application sources have
+changed since the last development build, refresh them with `cedarcli build frontends`
+before measuring. `lab/artifacts.json` records checkout revisions/status, the reactor
+selection and SHA-256/size of every served file, plus the measurement-suite files.
+In the copied Workspace/Designer `config/version.js`, `cedarDevelopmentMode` is set to false
+to select server cache behavior; otherwise native development's per-navigation URL cache
+busting would invalidate the warm measurement. These lab-only adjustments are recorded.
+
+A Chromium-private host mapping serves those files over an isolated loopback HTTPS/HTTP/1.1 server;
+normal local APIs and SSO still go through nginx. HTML uses `no-store`; assets use gzip when
+appropriate and a one-hour cache. These are explicit laboratory delivery settings, not a
+measurement of production nginx/CDN/TLS latency. Browser request interception is not used,
+because it disables the HTTP cache. Sign-in happens before measurement and its credentials
+stay in memory. Subsequent silent SSO and redirects count toward page readiness.
+
+Monitoring requires an account with `MONITOR_READ`. The suite never changes roles. To use
+an existing authorized local account, provide `CEDAR_PERF_MONITOR_LOGIN` and
+`CEDAR_PERF_MONITOR_PASSWORD` in the invocation environment; it gets a separate browser
+session. Otherwise Monitoring uses the ordinary test account. A denial is reported as missing
+coverage, and the other pages continue. See the backend runbook's read-only Monitor access
+procedure before granting access.
+
+The local baseline uses the dedicated `frontend-perf-monitor@test.com` identity with
+`normal` plus `monitorViewer`, leaving existing users unchanged. Its generated password is
+stored only in `$CEDAR_HOME/.cedar/secrets/frontend-perf-monitor.json` (owner read/write,
+mode 0600), with `username` and `password` keys; load those values into the two invocation
+environment variables above for subsequent runs. Never commit that file or include its
+contents in a report. The local realm required the documented `monitorViewer` role setup;
+CEDAR's stored permissions were then updated for this account alone using its existing
+permission-expansion/user-service libraries. The added permission was exactly
+`permission_monitor_read`, and the protected `/healthcheck/monitor` endpoint returned 200.
+
+Each repetition starts with a fresh browser context and cleared HTTP cache. It measures a
+cold navigation, leaves the page, then measures a warm navigation in the same tab. Interaction
+measurements follow the warm load only, so retained editing drafts cannot change the next
+load's content. Repetitions rotate scenario/profile order and run sequentially. Temporary
+local templates live in a dedicated folder and are deleted, with GET verification, at the
+end; `fixtures.json` records their identities and cleanup outcome. An interrupt closes the
+browser and still attempts cleanup.
+Workspace's dashboard opens that controlled two-template folder rather than a test user's
+changing home-folder contents.
+
+The default now includes two `ced-integrated-small` / `ced-integrated-large` scenarios
+(17 scenarios, 340 samples at five repetitions). These load the exact hash-verified shared
+CEE/CEF, term-picker and CED bundle from Designer's staged component manifest, plus its host
+fonts, into a minimal standalone page. They do not authenticate or fetch a repository artifact.
+Both integrated CED and Designer wait for every real CEF field summary through the components'
+shadow roots. Bare `ced-standalone-*` remains unchanged and exercises CED's lightweight fallback
+summaries without CEE. Use the integrated comparison to separate host overhead from richer
+field rendering; the bare comparison alone cannot establish wrapper cost. Capture a fresh
+before/after pair when changing this readiness predicate, rather than mixing earlier timings.
+
+| Profile | CPU | Network |
+| --- | --- | --- |
+| Normal | No slowdown | No artificial network limits |
+| Constrained | 4× slowdown | 1.6 Mbit/s download, 0.75 Mbit/s upload, 150 ms latency |
+
+The CPU multiplier is relative to the recorded machine, not a calibrated phone model.
+Reports include browser/Node versions, viewport, machine identity and load samples.
+They report median and min–max, rather than estimating population percentiles from five runs.
+Readiness/action probes target the fixture's input elements directly. CPU profiling found
+that broad accessible-name queries in the original baseline walked all 100 fields and
+contributed their own long tasks. Compare optimization results only against a rerun using
+the same direct probes; a lower measurement after changing the probe is not an application
+speedup. The original baseline below remains historical evidence, including that overhead.
+
+Workspace dashboard readiness also waits for the two fixture templates' action-report responses.
+The listing's `aria-busy` clears before that background enrichment finishes, so listing readiness
+alone can truncate real requests on a cold deployment. The probe waits for completed Resource
+Timing entries, retaining failures for missing, failed or unfinished requests; it does not add a
+fixed delay or suppress loading errors. Do not compare this readiness value with the earlier
+listing-only probe as an application speed change. The pinned daily calibration harness remains
+unchanged and retains its existing cohort.
+
+Outputs default to `.cedar/reports/frontend-performance/<timestamp>/`: `report.html`,
+`report.json`, `samples.csv`, first-run screenshots and build/fixture evidence. `--output`
+selects an **empty** directory; earlier measurements are never overwritten. JSON retains
+per-request transfer/cache/timing information without URL query strings, layout-shift and
+long-task entries, and failures. Paint and layout metrics cover the final top-level document
+through one second after controls and fonts are ready. CEDAR readiness includes navigation
+and any redirects. LCP can describe an early header rather than an editor becoming usable,
+so always read it alongside readiness. `blockingOver50Ms` is the sum of long-task duration
+beyond 50 ms in that window, **not Lighthouse TBT**. Scripted action completion and observed
+Event Timing entries are **not real-user INP** or proof of Core Web Vitals compliance.
+The [Web Vitals reference](https://web.dev/articles/vitals) describes the real-user targets
+and their 75th-percentile assessment; these five-run laboratory distributions are diagnostic.
+In particular, the lab's HTTP/1.1 connection behavior can differ from a production HTTP/2 or
+HTTP/3 delivery. Compare identical lab settings, and verify deployment timings separately.
+
+<a id="frontend-performance-baseline"></a>
+
+### Baseline — 2026-11-07
+
+Across two runs, the baseline contains **300 valid samples covering all 15 scenarios**:
+two profiles × two cache states × five repetitions per scenario. All temporary templates
+and their folders were deleted and GET-verified absent.
+
+The 12:53–13:08 UTC run collected 280 samples for 14 scenarios. Its original report remains
+explicitly incomplete (exit 1): the ordinary test account lacked `MONITOR_READ`, and no denial
+page was counted as a fast dashboard. The separate **13:29–13:30 UTC Monitoring supplement**
+used the authorized dedicated account described above and collected the remaining 20 samples.
+It completed with exit 0, no setup/sample failures and no cleanup errors. Original reports
+are preserved separately rather than rewriting the first run's coverage or source identity.
+
+Evidence is under `$CEDAR_HOME/.cedar/reports/frontend-performance/baseline-20261107/`:
+`report.html`, `report.json`, `samples.csv`, `fixtures.json` and `lab/artifacts.json`.
+Measurement code: `cedar-development@10387aaf`; CLI: `cedar-cli@323f7d0`.
+The machine was an Apple M4 Max, 16 logical CPUs, 64 GiB RAM, macOS/Darwin 25.6.0,
+Chromium 156.0.8078.4 and Node 24.22.1, at 1440×1000. Desktop applications remained running;
+a backup process used roughly one CPU before the run. One-minute load was 4.32 at the start
+and 3.35 at the end. No other build or test was launched by this suite during measurement.
+
+Monitoring evidence is under
+`$CEDAR_HOME/.cedar/reports/frontend-performance/monitoring-20261107/`, with the same report,
+CSV, fixture and artifact files. It used the same machine, browser, Node, viewport and
+measurement profiles; one-minute load was 2.99 at the start and 3.77 at the end.
+Measurement code: `cedar-development@26fd9500`; CLI: `cedar-cli@323f7d0`.
+Monitoring source was clean at `e24c81139f55bd399ef451e1b2e0788e2b8f012c`; the served output
+inventory SHA-256 is `71318f25d754d6bf55e8f876ab89f375520f787c25195c3ab298f61d29e9884d`.
+All 20 Monitoring samples recorded CLS 0. The dashboard screenshot confirms the useful page,
+and the protected Monitor endpoint returned 200 for the dedicated account before measurement.
+
+The selected reactor graph was
+`3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`.
+Standalone CEE used package `52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`;
+standalone CED used `f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847`.
+Workspace's staged reactor input was base `6a43eede` with source digest `cf092c45c6e8`,
+and Designer's was base `040db154` with source digest `0b3b2fa6c43b`; both reactor inputs
+included uncommitted edits when built. The retained output inventories identify the measured
+bytes, and the report separately records checkout heads at capture. Standalone components
+remain the self-contained package variants, including their fonts.
+
+**Page readiness, seconds: median (minimum–maximum).** Small means five text fields;
+large means 100. These are full navigations to the page, not an in-app route transition.
+Readiness includes useful controls and font readiness, with the exact predicate in the report.
+
+| Page | Normal, cold | Normal, warm | Constrained, cold | Constrained, warm |
+| --- | --- | --- | --- | --- |
+| Workspace dashboard | 0.32 (0.31–0.34) | 0.26 (0.24–0.27) | 3.67 (3.65–3.73) | 2.14 (2.13–2.21) |
+| Monitoring dashboard (supplement) | 0.34 (0.34–0.34) | 0.24 (0.22–0.33) | 3.63 (3.62–3.69) | 2.05 (2.05–2.07) |
+| Bridging dashboard | 0.24 (0.24–0.24) | 0.24 (0.21–0.24) | 3.21 (3.20–3.23) | 2.03 (2.03–2.04) |
+| Content index | 0.04 (0.04–0.04) | 0.04 (0.04–0.04) | 0.38 (0.37–0.39) | 0.22 (0.21–0.22) |
+| Standalone term picker | 0.07 (0.07–0.09) | 0.06 (0.05–0.06) | 1.53 (1.50–1.53) | 0.25 (0.23–0.26) |
+| Standalone CEE, small | 0.14 (0.14–0.17) | 0.07 (0.07–0.07) | 3.93 (3.92–3.94) | 0.49 (0.48–0.49) |
+| Standalone CEE, large | 0.21 (0.21–0.21) | 0.12 (0.12–0.12) | 4.18 (4.16–4.20) | 0.69 (0.66–0.69) |
+| Standalone CED, small | 0.17 (0.17–0.21) | 0.12 (0.11–0.12) | 3.38 (3.35–3.40) | 0.61 (0.58–0.62) |
+| Standalone CED, large | 0.51 (0.51–0.52) | 0.42 (0.42–0.44) | 4.73 (4.70–4.76) | 1.90 (1.88–1.93) |
+| Template Designer, small | 0.94 (0.94–0.96) | 0.84 (0.84–0.86) | 10.23 (10.09–10.24) | 2.75 (2.71–2.77) |
+| Template Designer, large | 1.12 (1.09–1.12) | 0.92 (0.91–0.96) | 12.49 (12.32–13.24) | 4.92 (4.86–4.96) |
+| Workspace metadata editor, small | 0.87 (0.82–0.91) | 0.34 (0.34–0.37) | 7.85 (7.80–7.88) | 2.53 (2.51–2.54) |
+| Workspace metadata editor, large | 0.96 (0.84–0.98) | 0.84 (0.36–0.86) | 8.11 (8.03–8.14) | 3.17 (3.11–3.22) |
+| OpenView template, small | 0.19 (0.17–0.26) | 0.09 (0.09–0.24) | 4.88 (4.85–4.89) | 0.52 (0.51–0.53) |
+| OpenView template, large | 0.26 (0.24–0.26) | 0.14 (0.14–0.16) | 5.01 (5.00–5.03) | 0.67 (0.63–0.68) |
+
+The original constrained medians identified these costs (historical findings, addressed below):
+
+- **Designer loading/layout:** small/large readiness is 10.23/12.49 s cold and 2.75/4.92 s
+  warm. Recorded CLS is 0.884 for both sizes and cache states. The largest shift happens
+  before editing, changing a nearly unstyled 1424×55 rectangle at (8,8) into a 1440×1000
+  rectangle at (0,0). The host inserts its stylesheet dynamically and imports further
+  stylesheets; late styling is a candidate to trace, not a proved sole cause. An early
+  header can become LCP while the editor is still loading.
+- **Large-form CPU work:** standalone CED records 1,292 ms of long-task time over 50 ms cold
+  and 1,005 ms warm; the Designer host records 2,476/2,148 ms. Standalone CEE records
+  380/145 ms. These are the explicitly defined observation-window diagnostics, not TBT.
+  Warm scripted action medians are 395 ms for typing and blurring the CEE answer, 543 ms
+  for the CED label edit, 613 ms for the hosted Designer label edit and 578 ms for the
+  Workspace answer sequence. They cover different whole gestures, not comparable INP values.
+- **OpenView layout:** the small/large template records CLS 0.097/0.134 in both cold and
+  warm constrained loads. Capture the contributing render transitions before choosing a fix.
+- **An avoidable Workspace request:** every metadata-editor sample requests
+  `/assets/i18n-cee/en.json`, receives 404 and falls back to CEE's built-in English map.
+  This also returns 404 on the normally served local Workspace. The failed request takes
+  a median 163 ms under the constrained profile; its contribution to the critical path
+  needs tracing. The configured prefix should either name a real override or be omitted
+  when built-in translations are intended.
+
+The [measured optimization comparison](#frontend-performance-optimizations) records the fixes
+and corrected before/after measurements. None of these figures is a production SLA or a field
+Core Web Vitals verdict.
+
+<a id="frontend-performance-optimizations"></a>
+
+### Measured optimizations — 2026-11-07
+
+Four changes preserve the existing completed pages and independent standalone CEE/CED use:
+
+- Workspace uses CEE's built-in translations directly, retaining language selection and
+  fallback without requesting the nonexistent external map.
+- Designer registers its versioned stylesheet in the document head before the body paints,
+  fetches independent startup modules concurrently, and shares one versioned core/state/
+  translation module graph. It retains the existing shared-editor delivery arrangement.
+- CED creates each field's settings controls when first opened, then retains their DOM and
+  unfinished input through collapse/reopen. Validation can reveal an unopened panel;
+  standalone field-document mode still starts expanded. Card summaries and previews remain.
+- OpenView reveals the footer after content or its existing error state is ready. This
+  approved change affects loading presentation only; the final footer layout and content
+  stay the same, including error pages.
+
+The corrected **before** run, `2026-11-07T13:35:28.456Z` to `2026-11-07T13:47:04.058Z`,
+contains 200 valid samples for the ten editor/form scenarios. The **after** run,
+`2026-11-07T14:24:25.041Z` to `2026-11-07T14:38:45.993Z`, contains 300 valid samples for all
+15 modern scenarios. Both use five repetitions, both profiles, both cache states, the same
+machine/browser/viewport and the same direct probes. No build or test ran alongside either
+measurement loop. Both runs completed without sample/setup failures or cleanup errors;
+temporary fixtures were deleted and GET-verified absent. Legacy pages are excluded.
+
+Evidence directories under `$CEDAR_HOME/.cedar/reports/frontend-performance/` are
+`optimization-before-20261107/` and `optimization-after-20261107/`, each containing
+`report.html`, `report.json`, `samples.csv`, screenshots and `lab/artifacts.json`.
+The measurement-suite inventory is identical:
+`41b21f4e255e8a28a4657fb9469165aeddf861cdffaf6cfadbf4efd8f6158801`
+(`cedar-development@dcc395cb`; the before capture recorded its then-uncommitted probe change).
+For the five unchanged landing/picker pages, the comparison below uses the original baseline
+and Monitoring supplement described above: their probes were unchanged by that correction.
+Thus those five rows compare separate earlier captures, not the ten-scenario corrected run.
+The report files retain every range and request rather than just the medians below.
+
+| Application | Verified and pushed change |
+| --- | --- |
+| Workspace | `6bcb6757` |
+| Standalone CED and its host consumers | `9f3ad3d` |
+| Template Designer host | `aa9173a9` |
+| OpenView | `101c676` |
+
+The before reactor graph is `3ac338512087a00bed874724072406fe24f705785a0c5ef2f270fce888bd6771`;
+the after graph is `5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
+The standalone CED package changed from
+`f5580c287bc35e90a65621ebf3069778309e89c49234986b24df55c9ff97e847` to
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
+Standalone CEE is byte-for-byte the same package,
+`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b`.
+The reactor captured the application edits before their commits; its input/output hashes
+identify the tested bytes. The after report records the clean committed application heads.
+
+**Constrained page readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Workspace dashboard | 3.67 → 3.65 | 2.14 → 2.15 |
+| Monitoring dashboard | 3.63 → 3.62 | 2.05 → 2.05 |
+| Bridging dashboard | 3.21 → 3.20 | 2.03 → 2.03 |
+| Content index | 0.38 → 0.37 | 0.22 → 0.22 |
+| Standalone term picker | 1.53 → 1.52 | 0.25 → 0.25 |
+| Standalone CEE, 5 fields | 3.95 → 3.93 | 0.48 → 0.48 |
+| Standalone CEE, 100 fields | 4.18 → 4.19 | 0.68 → 0.68 |
+| Standalone CED, 5 fields | 3.39 → 3.29 | 0.60 → 0.51 |
+| Standalone CED, 100 fields | 4.50 → 3.68 | 1.66 → 0.85 |
+| Template Designer, 5 fields | 10.08 → 8.14 | 2.71 → 2.62 |
+| Template Designer, 100 fields | 12.40 → 9.33 | 5.00 → 3.80 |
+| Workspace editor, 5 fields | 7.83 → 7.82 | 2.52 → 2.52 |
+| Workspace editor, 100 fields | 8.10 → 8.03 | 3.17 → 3.15 |
+| OpenView, 5 fields | 4.88 → 4.90 | 0.52 → 0.52 |
+| OpenView, 100 fields | 5.06 → 5.08 | 0.68 → 0.68 |
+
+**Normal page readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Workspace dashboard | 0.32 → 0.27 | 0.26 → 0.24 |
+| Monitoring dashboard | 0.34 → 0.32 | 0.24 → 0.24 |
+| Bridging dashboard | 0.24 → 0.24 | 0.24 → 0.21 |
+| Content index | 0.04 → 0.04 | 0.04 → 0.04 |
+| Standalone term picker | 0.07 → 0.07 | 0.06 → 0.06 |
+| Standalone CEE, 5 fields | 0.14 → 0.16 | 0.07 → 0.07 |
+| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Standalone CED, 5 fields | 0.17 → 0.16 | 0.11 → 0.09 |
+| Standalone CED, 100 fields | 0.46 → 0.26 | 0.37 → 0.17 |
+| Template Designer, 5 fields | 0.93 → 0.89 | 0.36 → 0.34 |
+| Template Designer, 100 fields | 1.06 → 0.89 | 0.86 → 0.59 |
+| Workspace editor, 5 fields | 0.87 → 0.86 | 0.34 → 0.34 |
+| Workspace editor, 100 fields | 0.94 → 0.92 | 0.40 → 0.39 |
+| OpenView, 5 fields | 0.19 → 0.19 | 0.09 → 0.09 |
+| OpenView, 100 fields | 0.24 → 0.24 | 0.14 → 0.14 |
+
+**Constrained large-form CPU observation, milliseconds over 50 ms: median (minimum–maximum).**
+
+| Page | Cold before | Cold after | Warm before | Warm after |
+| --- | --- | --- | --- | --- |
+| Standalone CEE, 100 fields | 411 (397–505) | 416 (376–619) | 155 (142–219) | 153 (145–272) |
+| Standalone CED, 100 fields | 1360 (1353–1411) | 586 (522–764) | 1054 (1026–1132) | 304 (301–431) |
+| Template Designer, 100 fields | 2691 (2525–2797) | 1569 (1473–2087) | 2416 (2294–2884) | 1396 (1212–1793) |
+
+**Constrained CLS medians (the cold and warm values agree).**
+
+| Page | Before | After |
+| --- | --- | --- |
+| Template Designer, 5 fields | 0.884 | 0.013 |
+| Template Designer, 100 fields | 0.884 | 0.013 |
+| OpenView, 5 fields | 0.097 | 0.000 |
+| OpenView, 100 fields | 0.134 | 0.000 |
+
+Large standalone CED warm readiness fell 49%, with 71% less observed long-task time beyond
+50 ms. Large hosted Designer readiness fell 25% cold and 24% warm. Its remaining loading and
+preview work is still included in these timings. Standalone CEE has no product change;
+variation in its timings is a useful
+control when interpreting small differences elsewhere. Workspace's improvement is removal
+of the failed request, not a demonstrated general load-time speedup.
+
+All 40 after samples for the Workspace editor omit `/assets/i18n-cee/en.json`; there is no
+fallback 404. Designer's real-browser gate verifies one request each for its core, state,
+i18n module and both language maps. OpenView records zero CLS in all 40 after samples.
+Its readiness timings remain broadly comparable; the intended gain is layout stability.
+
+The authoritative frontend reactor passed build/checks, local redeployment, served-bundle
+verification and every whole-stack smoke tier. CED passed 14,454 unit tests, 1,137 browser
+tests (one existing skip), and all 25 unchanged visual baselines. Designer passed 633 unit
+and 404 browser tests; OpenView passed 283 unit and 186 browser tests. Workspace's existing
+unit/browser checks passed too. No screenshot baseline was updated. Comparing the ten
+before/after performance screenshots found nine pixel-identical images; standalone CED's
+small image differed only at ten antialiased border pixels. Manual review also confirmed
+the normal forms and footer retain their appearance. Tests cover retained unfinished input,
+validation opening a lazy panel, and OpenView's delayed success and failure presentations.
+
+The suite remains reporting-only. These are local laboratory measurements under the stated
+network/CPU profiles, not production load times, Lighthouse TBT or real-user INP.
+
+<a id="designer-equivalent-performance"></a>
+
+### Designer startup and equivalent rendering — 2026-11-07
+
+The bare standalone CED page uses fallback summaries; Designer loads real CEF summaries,
+CEE preview and the term picker. The `ced-integrated-*` benchmark uses Designer's exact
+shared component bundle and fonts without authentication or repository reads. Comparing
+this page with Designer separates host startup from richer field rendering. Both wait for
+all five or 100 real summaries, so these results use a fresh matched baseline rather than
+reusing the earlier Designer readiness measurements.
+
+| Piece | Pushed source |
+| --- | --- |
+| Equivalent benchmark and large-only authenticated scenario selection | `cedar-development@0fa20014` |
+| Component download alongside SSO; authenticated artifact/permission reads alongside profile | `cedar-template-designer@ac958e8a` |
+| One bundled host module and stylesheet, including translations, with content-based cache identities | `cedar-template-designer@f9365046` |
+| Independent CEE/CEF translation roots, avoiding sibling language broadcasts | `cedar-embeddable-editor@299265b2` |
+
+The startup overlap preserves the authorization boundary: no private API reads before
+sign-in, and the designer stays hidden/inert until access is known. Early rejected work is
+observed and still reaches the existing error handling. Bundling preserves stylesheet
+order, existing hashed font URLs, deferred validation/RDF loading and host interactions.
+No tracked registry pin or release version changes are needed for the local reactor.
+
+The language change also fixes a demonstrated embedding defect. In the frozen before bundle,
+creating an English CEF followed by a Hungarian CEF changed the English instance to Hungarian
+(`en → hu`). The same probe against the after bundle leaves it English (`en → en`), while
+the second instance remains Hungarian. Browser tests also cover independent CEE and CEF
+instances together. Their public embedding inputs and standalone packaging remain intact.
+
+Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
+
+- `designer-equivalent-before-20261107/`: 160 valid samples, eight editor scenarios,
+  `2026-11-07T14:52:25.148Z`–`2026-11-07T15:00:31.714Z`.
+- `designer-equivalent-after-20261107/`: 340 valid samples, all 17 modern scenarios,
+  `2026-11-07T15:29:35.525Z`–`2026-11-07T15:45:14.003Z`.
+- `designer-overlap-after-20261107/`: intermediate diagnostic after startup overlap alone;
+  18 samples, three repetitions under the constrained profile, with unchanged component
+  bytes. Small/large Designer cold medians were 6.61/7.86 seconds. This shorter capture
+  isolates that piece but is not the final five-repetition comparison.
+- `designer-equivalent-profile-before-20261107/` and
+  `designer-equivalent-profile-after-20261107/`: warm CPU profiles and the language-isolation
+  probe against the respective frozen bundles; collected outside timing loops.
+
+Both main runs use five repetitions, normal/constrained profiles and cold/warm cache states,
+Chromium 156.0.8078.4 on the same Apple M4 Max, 1440×1000 viewport, and identical measurement
+suite `0fa20014` (inventory SHA256
+`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`).
+No builds or tests ran during measurement. All samples passed; both runs completed with no
+setup failures or cleanup errors, and temporary fixtures were deleted and GET-verified absent.
+Reports retain per-sample ranges, requests, source identities and screenshots. Legacy pages
+are excluded from this performance suite.
+
+**Constrained readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Standalone CEE, 5 fields | 3.93 → 3.97 | 0.48 → 0.49 |
+| Standalone CEE, 100 fields | 4.15 → 4.18 | 0.68 → 0.68 |
+| Bare standalone CED, 5 fields | 3.28 → 3.28 | 0.52 → 0.52 |
+| Bare standalone CED, 100 fields | 3.62 → 3.63 | 0.85 → 0.84 |
+| Equivalent CED with CEF, 5 fields | 4.56 → 4.56 | 0.63 → 0.62 |
+| Equivalent CED with CEF, 100 fields | 5.45 → 5.36 | 1.45 → 1.40 |
+| Template Designer, 5 fields | 8.13 → 5.54 | 2.63 → 2.14 |
+| Template Designer, 100 fields | 9.29 → 6.65 | 3.62 → 3.18 |
+
+**Normal readiness, seconds: before → after medians.**
+
+| Page | Cold | Warm |
+| --- | --- | --- |
+| Standalone CEE, 5 fields | 0.14 → 0.14 | 0.07 → 0.07 |
+| Standalone CEE, 100 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Bare standalone CED, 5 fields | 0.16 → 0.16 | 0.09 → 0.09 |
+| Bare standalone CED, 100 fields | 0.24 → 0.24 | 0.17 → 0.17 |
+| Equivalent CED with CEF, 5 fields | 0.21 → 0.21 | 0.12 → 0.12 |
+| Equivalent CED with CEF, 100 fields | 0.42 → 0.41 | 0.32 → 0.31 |
+| Template Designer, 5 fields | 0.89 → 0.36 | 0.84 → 0.35 |
+| Template Designer, 100 fields | 0.91 → 0.57 | 0.84 → 0.55 |
+
+Designer cold readiness fell 32% for five fields and 28% for 100; warm readiness fell 19%
+and 12%. Cold requests fell from 46 to 24 (warm 43 to 21). Large cold transfer fell from
+832,293 to 805,670 bytes, so eliminating request chains and overlapping work accounts for
+more of the gain than the roughly 27 KB transfer reduction. Cold constrained Designer CLS
+is now zero; warm CLS remains approximately 0.013.
+
+For 100 fields, constrained observed blocking time beyond 50 ms fell from 1,579 to 1,462 ms
+cold and 1,219 to 1,067 ms warm in Designer. Equivalent CED fell from 1,183 to 1,105 ms cold
+and 878 to 824 ms warm. The equivalent renderer's readiness change is small and its sample
+ranges overlap (warm before 1,433–1,578 ms; after 1,384–1,618 ms); this is not evidence of a
+large rendering speedup. Bare CED and standalone CEE remain essentially unchanged. Real CEF
+DOM/style construction still costs more than fallback summaries; the host additionally
+performs SSO and repository/permission reads. The page is therefore not just a negligible
+wrapper around the bare benchmark.
+
+The other nine modern scenarios were rerun as coverage/control measurements. Their after
+constrained cold/warm medians, in seconds, are Workspace dashboard 3.71/2.19, Monitoring
+3.67/2.05, Bridging 3.20/2.04, content index 0.39/0.22, term picker 1.53/0.25, Workspace editor
+5 fields 7.84/2.52 and 100 fields 8.12/3.20, OpenView 5 fields 4.88/0.52 and 100 fields
+5.08/0.68. These have no newly captured matched before run in this comparison. All 40
+OpenView samples retain zero CLS. All 40 Workspace editor samples omit the missing external
+translation request and record no network failures.
+
+The after reactor graph is
+`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0`, compared with before
+`5ac9a38f46b3134d7239e4d9b4fcabdb4242b5f226bc0ed38905a0426ada4e02`.
+CEE package SHA256 changed from
+`52517b1ad7f885f4ec7cc5e0b89b3e860ff609737ad7db3e9e86afcc649b3d5b` to
+`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265`.
+Bare CED remains the identical package
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`.
+The report's artifact inventory identifies the host output and shared component bytes too.
+
+The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
+served-bundle verification and every whole-stack smoke tier. Designer passed 634 unit and
+406 browser tests; CEE passed 1,265 unit, 5,825 domain, 100 coordinator and 1,600 browser/visual
+tests (104 existing skips). CED passed 14,454 unit, 1,137 browser tests (one existing skip) and
+25 unchanged visual baselines. The benchmark's eight checks passed, including large-only
+authenticated selection. No visual baseline was updated. Five of eight matched performance
+screenshots are pixel-identical, including both Designer pages and both standalone CEE pages;
+the other three CED images differ only at 2, 10 and 14 border pixels by one colour level.
+Manual inspection confirms the same completed layout, controls and summaries. Measurements
+remain reporting-only local laboratory results, not production timings or real-user INP.
+
+<a id="cef-summary-performance"></a>
+
+### CEF summary initialization — 2026-11-07
+
+`cedar-embeddable-editor@8797a77e` removes a second model read from single-field
+initialization. CEF still strictly reads the supplied field, constructs its one-field
+template, and retains the canonical JSON source for validation. It passes the already-read
+model through the same model-to-component mapper used by ordinary templates, instead of
+reading its own serialized wrapper again. Each field still gets its own model, instance,
+validation state and translation service. Public embedding inputs, UI, styles and ordinary
+standalone CEE template parsing are unchanged.
+
+This is a small initialization saving, not a major page-load reduction. Five paired
+repetitions of frozen before/after builds show the following constrained medians:
+
+| 100-field page | Cold readiness, seconds | Warm readiness, seconds |
+| --- | --- | --- |
+| Standalone CEE | 4.152 → 4.151 | 0.667 → 0.668 |
+| Bare standalone CED | 3.617 → 3.619 | 0.835 → 0.835 |
+| Equivalent CED with real CEF summaries | 5.385 → 5.321 | 1.402 → 1.364 |
+| Template Designer | 6.619 → 6.584 | 3.183 → 3.114 |
+
+Equivalent CED is about 2.7% faster warm, and Designer about 2.2%. All five pairs favor the
+optimized path for both pages, cold and warm. Equivalent CED warm savings per pair are
+31–83 ms; Designer's are 16–122 ms. Unchanged standalone controls remain stable. These five
+observations do not establish population percentiles or production latency.
+
+Observed constrained blocking time beyond 50 ms also falls:
+
+| 100-field page | Cold, milliseconds | Warm, milliseconds |
+| --- | --- | --- |
+| Equivalent CED with CEF | 1122 → 1067 | 824 → 789 |
+| Template Designer | 1447 → 1406 | 1089 → 1017 |
+
+**Why the paired replay matters.** Fresh ordinary before and after runs each completed 160
+valid samples: five repetitions of eight editor scenarios, both profiles and cache states.
+Other browser activity coincided with the after capture; unchanged bare CED warm readiness
+shifted from 0.83 to 1.00 seconds and standalone CEE from 0.67 to 0.77 seconds. Equivalent CED
+shifted 1.39 → 1.56 seconds and Designer 3.17 → 3.22 seconds in those separate runs. Those
+comparisons cannot isolate this source change. All original samples are retained; none were
+removed as outliers.
+
+The supplemental replay alternates the frozen before/after artifact roots within each
+scenario/repetition, reverses version order on alternate repetitions, and rotates scenario
+order. It uses the existing suite's HTTPS/gzip server, real SSO/backend fixtures, readiness,
+font settling, instrumentation and action probes. Every version gets a fresh browser context,
+a cold navigation and then a warm navigation. Four large-form scenarios × five pairs × two
+versions × two cache states give 80 valid samples. No build, test or second benchmark ran
+alongside either ordinary capture or the paired replay. Paired controls settled near their
+original baselines. All three runs completed without sample or cleanup errors; temporary
+backend fixtures were deleted and GET-verified absent.
+
+Evidence under `$CEDAR_HOME/.cedar/reports/frontend-performance/`:
+
+- `cef-summary-before-20261107/`: 160 samples,
+  `2026-11-07T15:52:23.257Z`–`2026-11-07T15:59:51.553Z`.
+- `cef-summary-after-20261107/`: 160 samples,
+  `2026-11-07T16:17:12.871Z`–`2026-11-07T16:24:54.552Z`.
+- `cef-summary-paired-20261107/`: 80 samples,
+  `2026-11-07T16:25:20.084Z`–`2026-11-07T16:31:18.082Z`; `report.json`, `report.html`,
+  `samples.csv`, version-specific screenshots, full before/after artifact inventories,
+  fixture cleanup ledger, and `replay.mjs` retain the paired method and results.
+- `cef-summary-profile-before-20261107/`: stylesheet instrumentation and a diagnostic
+  alternating eight-pair clone experiment against the previous frozen integrated bundle.
+  Cloning a cached `<style>` node did not help: warm medians were 1,086 ms unchanged and
+  1,128 ms with cloning in that probe. No stylesheet change was adopted. This probe omits
+  the standard font/frame settling and is not directly comparable to readiness above.
+- `cef-summary-profile-after-20261107/`: CPU profiles of frozen bare/equivalent CED and a
+  language-isolation probe; English stays English after a Hungarian sibling is created.
+
+The ordinary suite inventory remains
+`fd9a3b4ab6d51c02d7bf9879a5fdf7c1dbe9e5fe6fbba2e3a173d6f86d1686ba`
+(`cedar-development@4f1ab150`). Both ordinary runs use Chromium 156.0.8078.4, the same M4 Max
+and 1440×1000 viewport. The paired replay uses that same browser, viewport and constrained
+profile. It adds no performance gate and excludes legacy pages.
+
+The reactor graph changes from
+`a7e1b8ce31b1685f4746891131fcff6704f5424cec974b12466fe0bf5f9a08f0` to
+`405dcf9e20f5cb6e6a379478913afc914f945b2221dc69cb21426f6060965dc2`.
+CEE package SHA256 changes from
+`a405e3844f8a25fe3c7cff33384c7a32106c4dd88630a015d157879d34088265` to
+`2f490c30da8c290a2922ddc1d0aca04ad526288b6e75d4ad524f8b97d6e48d75`.
+CED remains the identical package
+`90265f601eb3032b83e8db1d77610acd5576733f1fb842fb45abe181238403b5`;
+Designer host source remains `f9365046`. The reactor captured the optimized working-tree
+sources before their commit; its hashes identify the actual built and measured bytes.
+
+The full reactor passed build/checks, all three CEE framework consumer demos, deployment,
+served-bundle verification and whole-stack smoke. CEE passed 1,265 unit, 5,926 domain,
+100 coordinator and 1,600 browser/visual tests (104 existing skips). The 101 new domain
+cases compare all 25 field kinds in required/optional and editable/read-only modes, including
+rendered metadata, instance data, validation reports and source immutability, plus independent
+instances sharing a supplied field object. The targeted single-field suite passes 231 tests.
+CED passed 14,454 unit, 1,137 browser tests (one existing skip), and 25 unchanged visual
+baselines; Designer passed 634 unit and 406 browser tests. No visual baseline was updated.
+Six of eight ordinary before/after screenshots are pixel-identical, including both Designer
+pages and all four standalone CEE/CED pages. The two equivalent-CED images differ only at 6 and 10
+border pixels by one colour level. Manual review confirms the same controls, field summaries,
+labels and layout. The retained cost includes real field rendering and stylesheet insertion;
+no further stylesheet optimization was established by this investigation.
 
 <a id="accessibility-conformance"></a>
 
