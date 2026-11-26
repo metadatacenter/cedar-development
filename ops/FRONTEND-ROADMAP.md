@@ -534,15 +534,7 @@ The frontend runbook links the retained evidence and the instrumented reproducti
   collector, or record why no user reaches it. The standalone field designer,
   `cedar-embeddable-field-designer`, renders in none of the four applications.
 
-### 17. Capture Failure, Refusal and Loading States
-
-- Add an edit conflict, an unreachable backend and slow loading for Workspace and the Metadata
-  Editor.
-- Induce each condition by routing requests in the review browser, as the interrupted save does,
-  never by changing the stack, and say in the state's note that the harness caused it, so the
-  reviewer judges the product's handling rather than the cause.
-
-### 18. Agree the Remaining Designer Presentation Choices
+### 17. Agree the Remaining Designer Presentation Choices
 
 - Agree whether expandable term rows need a visible disclosure cue and whether release-count labels
   should explicitly name releases instead of saying “of 2”.

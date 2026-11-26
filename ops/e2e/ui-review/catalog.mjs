@@ -70,6 +70,12 @@ export function profile(name = 'chromium') {
   return PROFILES[name];
 }
 export const WIDTHS = [1440, 768, 375];
+// Conditions the harness causes in the review browser alone, at the widest and narrowest layouts:
+// slow loading, a backend the browser cannot reach and a save someone else's has overtaken.
+export const FAILURE_WIDTHS = [1440, 375];
+const failures = scenarios => FAILURE_WIDTHS.flatMap(width => scenarios.map(scenario => ({id: `${scenario}-${width}`, scenario, category: 'failures', width})));
+const WORKSPACE_FAILURES = ['listing-loading', 'backend-unreachable', 'rename-conflict'];
+const METADATA_FAILURES = ['loading', 'save-unreachable', 'save-conflict'];
 const workspace = [
   ['empty-list','empty'], ['empty-grid','empty'], ['populated-list','listing'], ['next-page','pagination'],
   ['previous-page','pagination'], ['row-actions','pointer'], ['details-open','navigation'], ['details-closed','navigation'],
@@ -118,6 +124,7 @@ function baseScenarios(app) {
   if (app === 'openview') return WIDTHS.flatMap(width=>openview.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})));
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
+    .concat(failures(app === 'workspace' ? WORKSPACE_FAILURES : METADATA_FAILURES))
     .concat(app === 'workspace' ? workspaceOnce : METADATA_TYPES.map(([slug])=>({id:`type-${slug}-1440`,scenario:'field-type',category:'field-types',width:1440}))
       .concat(METADATA_INVALID.map(([slug])=>({id:`type-${slug}-invalid-1440`,scenario:'field-type-invalid',category:'field-types',width:1440})))
       .concat([{id:'type-single-select-list-open-1440',scenario:'field-type-open',category:'field-types',width:1440},

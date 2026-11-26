@@ -78,7 +78,9 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       const address=new URL(req.url());
       const readOnlyValidation=readOnlyResourcePost(req.method(),address.pathname);
       if(address.origin===new URL(RESOURCE).origin&&!['GET','HEAD','OPTIONS'].includes(req.method())&&!readOnlyValidation) {
-        const item=fixtureAt(req.url());
+        // A rename names its resource in its body, by identifier or typed local path, not in its address.
+        const renamed=req.method()==='POST'&&address.pathname==='/command/rename-resource'?String(req.postDataJSON()?.['@id']??''):null;
+        const item=renamed===null?fixtureAt(req.url()):ledger.fixtures.find(f=>renamed&&(f.id===renamed||f.id.endsWith('/'+renamed)));
         if(app==='designer' && item?.collection==='templates' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
         // A record the Metadata Editor creates from a review-owned template belongs to the review.
         if(app==='metadata-editor' && item?.collection==='template-instances' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && ledger.fixtures.some(f=>f.collection==='templates'&&f.id===req.postDataJSON()?.['schema:isBasedOn'])) await ledger.register(item.collection,item.id);

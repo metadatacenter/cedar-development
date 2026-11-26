@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
-import {WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
-import {pointer,keyboard,folderPage,textSizeStates} from './interactions.mjs';
+import {WIDTHS, FAILURE_WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
+import {RESOURCE,USER_SERVER,GROUP_SERVER} from '../rest/lib.mjs';
+import {pointer,keyboard,folderPage,textSizeStates,holdRequests,refuseConnections,staleRevision} from './interactions.mjs';
 export async function collectMetadataEditor(session,record) {
   const {page}=session;await session.login();const f=await metadataFixtures(session);
   const status=text=>page.locator('.metadata-toolbar [role=status]').filter({hasText:text});
@@ -120,5 +121,38 @@ export async function collectMetadataEditor(session,record) {
   });
   // The corpus field's preferred label, which the editor shows in place of its name.
   await record('attribute-value-1440',async()=>{await open(f.corpus.attributeValue,'create');await centre(cee.getByText(/^Attribute Value\b/));});
-  await textSizeStates(session,record,()=>open(f.records[5]));
+  // Slow loading, a backend the browser cannot reach during a save and a save someone else's has
+  // overtaken, each caused in the review browser alone. The server answers the overtaken save itself.
+  // A failed save leaves its edits on the page, so leaving it answers the leave-page prompt.
+  const alert=page.locator('main p.alert[role="alert"]');
+  const failedSave=async(id,value,fail)=>{
+    await open(id);await cee.getByRole('textbox',{name:'Subject',exact:true}).fill(value);await status('Modified').waitFor();
+    const restore=await fail();await tap(page.locator('#button-save-metadata'));await alert.waitFor();return restore;
+  };
+  page.on('dialog',leaveAnyway);
+  try{
+    for(const width of FAILURE_WIDTHS){
+      const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
+      await page.setViewportSize({width,height:width===1440?1000:667});
+      let held,restore;
+      await r('loading',async()=>{
+        held=await holdRequests(page,url=>url.origin===new URL(RESOURCE).origin,{held:request=>request.method()==='GET',label:'Record opening'});
+        await page.goto(session.base+'/instances/edit/'+encodeURIComponent(f.records[2])+'?'+new URLSearchParams({folderId:f.folder}),{waitUntil:'domcontentloaded'});
+        await held.started();
+      },'The harness holds the record\'s responses to show loading; the server is not slow.');
+      await held?.release();await ready();
+      await r('save-unreachable',async()=>{
+        restore=await failedSave(f.failing['unreachable-'+width],'Unsaved specimen '+width,
+          ()=>refuseConnections(session,[RESOURCE,USER_SERVER,GROUP_SERVER],'Deliberately unreachable CEDAR servers'));
+      },'The harness drops every request to the CEDAR servers, as a lost connection does, then saves an edited record.');
+      await restore?.();restore=null;
+      await r('save-conflict',async()=>{
+        restore=await failedSave(f.failing['conflict-'+width],'Overtaken specimen '+width,
+          ()=>staleRevision(session,url=>url.origin===new URL(RESOURCE).origin,'Deliberately overtaken save'));
+        await alert.filter({hasText:/changed/i}).waitFor();
+      },'The harness sends the save with the revision before the one the editor read, as when someone else saved first; the server refused it and nothing changed.');
+      await restore?.();restore=null;
+    }
+    await textSizeStates(session,record,()=>open(f.records[5]));
+  }finally{page.off('dialog',leaveAnyway);}
 }

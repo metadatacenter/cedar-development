@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {artifactBody, enc} from '../rest/lib.mjs';
-import {WIDTHS} from './catalog.mjs';
+import {WIDTHS, FAILURE_WIDTHS} from './catalog.mjs';
 
 export const longLabel='Specimen collection and environmental observation notes from collaborating research institutions';
 export const propertyIri=key=>'https://example.org/ui-review/'+encodeURIComponent(key);
@@ -64,9 +64,14 @@ export async function metadataFixtures(session) {
     const tags=Array.from({length:count},(_,i)=>textValue('Observation '+(i+1)+(i%2?' with extended handling conditions and storage provenance':'')));
     records[count]=await session.put('template-instances',instance(name+' '+count+' observations',templateId,values(count,tags)),folder);
   }
+  // One record per failed save and width. A save that fails keeps its edits as a draft, so no other
+  // state may open the record afterwards.
+  const failing={};
+  for(const width of FAILURE_WIDTHS)for(const kind of ['conflict','unreachable'])
+    failing[`${kind}-${width}`]=await session.put('template-instances',instance(`${name} ${kind} ${width}`,templateId,values(1,[textValue('Observation 1')])),folder);
   const corpus={};
   for(const [role,number] of Object.entries(CORPUS_TEMPLATES))corpus[role]=await session.put('templates',await corpusTemplate(number,`${name} corpus ${number}`),folder);
-  return {folder,templateId,emptyTemplateId,records,editable,corpus};
+  return {folder,templateId,emptyTemplateId,records,editable,failing,corpus};
 }
 export async function workspaceFixtures(session) {
   const folder=(name,parent)=>session.put('folders',{name,folderId:parent,description:'Temporary independent UI review'});

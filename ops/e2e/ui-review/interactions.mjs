@@ -19,32 +19,34 @@ export function tabKey(page, key = 'Tab', platform = process.platform) {
     ? `Alt+${key}` : key;
 }
 
-// Hold real search responses long enough to capture loading, then drain the handler before
-// removing it. Unrouting an unresolved handler lets another route handle that same request.
-export async function holdSearchRequests(page) {
+// Hold the requests a route matches until released, so a capture can show loading, then drain the
+// handler before removing it. Unrouting an unresolved handler lets another route handle that same
+// request. Only requests for which held() is true wait; the rest pass straight through.
+export async function holdRequests(page, url, {held = () => true, label = 'Held request'} = {}) {
   let release, started;
   const gate = new Promise(resolve => {release = resolve;});
   const intercepted = new Promise(resolve => {started = resolve;});
   const pending = new Set(), requests = new Set(), errors = [];
   const handler = async route => {
     requests.add(route.request());
+    const holding = held(route.request());
     const work = (async () => {
       try {
-        if (route.request().method() === 'POST') await gate;
+        if (holding) await gate;
         await route.fallback();
       } catch (error) {errors.push(error);}
     })();
     pending.add(work);
-    if (route.request().method() === 'POST') started();
+    if (holding) started();
     await work;
     pending.delete(work);
   };
-  await page.route('**/search', handler);
-  return {waitForSearch: async () => {
+  await page.route(url, handler);
+  return {started: async () => {
     let timer;
     try {
       await Promise.race([intercepted, new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error('Initial term search was not intercepted within 15 seconds')), 15000);
+        timer = setTimeout(() => reject(new Error(label + ' was not intercepted within 15 seconds')), 15000);
       })]);
     } finally {clearTimeout(timer);}
   }, release: async () => {
@@ -59,12 +61,42 @@ export async function holdSearchRequests(page) {
           const response = await request.response();
           if (response) await response.finished();
         })),
-        new Promise((_, reject) => {timer = setTimeout(() => reject(new Error('Released search did not finish within 30 seconds')), 30000);}),
+        new Promise((_, reject) => {timer = setTimeout(() => reject(new Error(label + ' did not finish within 30 seconds of its release')), 30000);}),
       ]);
     } finally {clearTimeout(timer);}
-    await page.unroute('**/search', handler);
+    await page.unroute(url, handler);
     if (errors.length) throw errors[0];
   }};
+}
+// Hold real term searches long enough to capture the picker loading.
+export async function holdSearchRequests(page) {
+  const hold = await holdRequests(page, '**/search', {held: request => request.method() === 'POST', label: 'Initial term search'});
+  return {waitForSearch: hold.started, release: hold.release};
+}
+// A backend the browser cannot reach: every request to the given origins fails without an answer,
+// as when a connection drops. The reason marks the failures the console reports as caused by the
+// harness. Returns the function that restores the connection.
+export async function refuseConnections(session, origins, reason) {
+  const refused = new Set(origins.map(origin => new URL(origin).origin));
+  const match = url => refused.has(url.origin);
+  const refuse = route => route.abort('failed');
+  session.expectedNetworkFailures.add(reason);
+  await session.page.route(match, refuse);
+  return async () => {await session.page.unroute(match, refuse); session.expectedNetworkFailures.delete(reason);};
+}
+// A write another session's save has overtaken: each conditional request the route matches is sent
+// with the revision before the one the page read, and the server refuses it with its own 412, as it
+// does when someone else saved first. Nothing is written. The request still passes the context's
+// fixture guard. Returns the function that removes the route.
+export async function staleRevision(session, url, reason) {
+  const stale = route => {
+    const headers = route.request().headers();
+    const revision = /^"(\d+)/.exec(headers['if-match'] ?? '')?.[1];
+    return revision ? route.fallback({headers: {...headers, 'if-match': `"${Math.max(0, Number(revision) - 1)}"`}}) : route.fallback();
+  };
+  session.expectedNetworkFailures.add(reason);
+  await session.page.route(url, stale);
+  return async () => {await session.page.unroute(url, stale); session.expectedNetworkFailures.delete(reason);};
 }
 
 export async function listingReady(page, ids) {

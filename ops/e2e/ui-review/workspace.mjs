@@ -1,6 +1,7 @@
 import {workspaceFixtures} from './fixtures.mjs';
-import {WIDTHS} from './catalog.mjs';
-import {folderPage,listingReady,pointer,keyboard,setChecked,textSizeStates} from './interactions.mjs';
+import {WIDTHS,FAILURE_WIDTHS} from './catalog.mjs';
+import {RESOURCE,USER_SERVER,GROUP_SERVER} from '../rest/lib.mjs';
+import {folderPage,listingReady,pointer,keyboard,setChecked,textSizeStates,holdRequests,refuseConnections,staleRevision} from './interactions.mjs';
 
 export async function collectWorkspace(session,record) {
   const {page}=session;
@@ -159,5 +160,44 @@ export async function collectWorkspace(session,record) {
     await session.capture('paging-position-768','Displayed paging controls before pointer activation, without corrective scrolling.');
     await pointer(session,button('Next'),{scroll:false});await listingReady(page,f.rows.slice(50));
   });
+  // Slow loading, a backend the browser cannot reach and a rename someone else's save has
+  // overtaken, each caused in the review browser alone. The server answers the rename itself.
+  const alert=page.locator('div.alert[role="alert"]');
+  const dialogAlert=page.locator('dialog[open] p.alert[role="alert"]');
+  for(const width of FAILURE_WIDTHS){
+    const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
+    await page.setViewportSize({width,height:width===1440?1000:667});
+    await folderPage(session,f.listing,f.rows.slice(0,50));
+    let held;
+    await r('listing-loading',async()=>{
+      held=await holdRequests(page,url=>url.origin===new URL(RESOURCE).origin,{held:request=>request.method()==='GET',label:'Next listing page'});
+      await tap(button('Next'));await held.started();await page.locator('.table-scroll[aria-busy="true"]').waitFor();
+    },'The harness holds the next page\'s responses to show loading; the server is not slow.');
+    await held?.release();await listingReady(page,f.rows.slice(50));
+    let restore;
+    await r('backend-unreachable',async()=>{
+      restore=await refuseConnections(session,[RESOURCE,USER_SERVER,GROUP_SERVER],'Deliberately unreachable CEDAR servers');
+      await tap(button('Previous'));await alert.waitFor();
+    },'The harness drops every request to the CEDAR servers, as a lost connection does, then goes to the previous page.');
+    await restore?.();restore=null;
+    await tap(alert.getByRole('button'));await alert.waitFor({state:'hidden'});
+    await folderPage(session,f.mixed,f.mixedIds);
+    await r('rename-conflict',async()=>{
+      await page.locator('.table-scroll').evaluate(n=>{n.scrollLeft=n.scrollWidth;});
+      await tap(page.locator(`[data-resource-id="${f.mixedTemplate}"]`).getByRole('button',{name:/^Actions for/}));
+      await tap(page.locator('#resource-menu').getByRole('button',{name:'Rename',exact:true}));
+      const open=page.locator('dialog[open]').first();
+      await open.getByRole('textbox').first().fill('Renamed during review '+width);
+      restore=await staleRevision(session,url=>url.origin===new URL(RESOURCE).origin,'Deliberately overtaken rename');
+      await tap(open.locator('button[type="submit"]'));
+      await dialogAlert.filter({hasText:/changed/i}).waitFor();
+    },'The harness sends the rename with the revision before the one Workspace read, as when someone else saved first; the server refused it and nothing changed.');
+    await restore?.();restore=null;
+    // The dialog keeps the typed name, so cancelling it asks before discarding the edit.
+    const renaming=page.locator('dialog.action-dialog[open]');
+    await tap(renaming.getByRole('button',{name:'Cancel',exact:true}));
+    await tap(page.locator('dialog.confirmation-dialog[open]').getByRole('button',{name:'Yes',exact:true}));
+    await renaming.waitFor({state:'hidden'});
+  }
   await textSizeStates(session,record,()=>folderPage(session,f.listing,f.rows.slice(0,50)));
 }
