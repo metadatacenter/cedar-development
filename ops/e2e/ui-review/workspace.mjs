@@ -151,8 +151,10 @@ export async function collectWorkspace(session,record) {
   await record('both-panels-768',async()=>{await folderPage(session,f.listing,f.rows.slice(0,50));await panel('navigation',true);await panel('information',true);});
   await record('paging-overlap-768',async()=>{
     await page.locator('.workspace > main').evaluate(main=>{
+      // The toolbars and listing scroll in a region of their own above paging; an older build scrolls the whole column.
+      const pane=main.querySelector('.listing-pane'),scroller=pane&&getComputedStyle(pane).overflowY==='auto'?pane:main;
       const heading=main.querySelector('thead').getBoundingClientRect(),paging=main.querySelector('.paging').getBoundingClientRect();
-      main.scrollTop+=heading.top-paging.top;
+      scroller.scrollTop+=heading.top-paging.top;
     });
     await session.capture('paging-position-768','Displayed paging controls before pointer activation, without corrective scrolling.');
     await pointer(session,button('Next'),{scroll:false});await listingReady(page,f.rows.slice(50));
