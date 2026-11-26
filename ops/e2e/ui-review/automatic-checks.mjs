@@ -16,6 +16,43 @@ const CHECK_SECONDS = 60;
  * next interaction starts from the state the evidence shows. Each violation names its rule, the
  * element it concerns and what was measured.
  */
+// A frame from another origin is not CEDAR's interface either. CEE's static YouTube field embeds
+// YouTube's player, and axe would otherwise judge the player's own markup. Such a frame sits in a
+// shadow root, which a plain selector does not reach, so the frame and each shadow host on its path
+// are marked for axe to leave out, and the marks come off once the check ends.
+const FOREIGN_MARK = 'data-ui-review-foreign';
+export async function markForeignFrames(page) {
+  return page.evaluate(mark => {
+    const paths = [], ids = new Map();
+    const select = element => {
+      if (!ids.has(element)) {ids.set(element, String(ids.size)); element.setAttribute(mark, ids.get(element));}
+      return `[${mark}="${ids.get(element)}"]`;
+    };
+    const walk = (root, hosts) => {
+      for (const element of root.querySelectorAll('*')) {
+        if (element.localName === 'iframe' && element.src) {
+          const address = new URL(element.src, location.href);
+          if (/^https?:$/.test(address.protocol) && address.origin !== location.origin) paths.push([...hosts, element].map(select));
+        }
+        if (element.shadowRoot) walk(element.shadowRoot, [...hosts, element]);
+      }
+    };
+    walk(document, []);
+    return paths;
+  }, FOREIGN_MARK);
+}
+async function clearForeignFrameMarks(page) {
+  await page.evaluate(mark => {
+    const walk = root => {
+      for (const element of root.querySelectorAll('*')) {
+        element.removeAttribute(mark);
+        if (element.shadowRoot) walk(element.shadowRoot);
+      }
+    };
+    walk(document);
+  }, FOREIGN_MARK).catch(() => {});
+}
+
 export async function automaticChecks(page) {
   await settleAnimations(page);
   // axe injects itself into every frame. Keycloak's hidden sign-in frames are not CEDAR's interface,
@@ -23,10 +60,12 @@ export async function automaticChecks(page) {
   // does not finish fails its state rather than stalling the capture.
   let timer;
   const limit = new Promise((_, reject) => {timer = setTimeout(() => reject(new Error(`Automatic checks did not finish within ${CHECK_SECONDS} seconds`)), CHECK_SECONDS * 1000);});
-  const run = new AxeBuilder({page}).exclude('iframe[src*="/protocol/openid-connect/"]')
-    .options({rules: {[LABEL_IN_NAME]: {enabled: true}}}).withTags(AXE_TAGS).analyze();
+  const builder = new AxeBuilder({page}).exclude('iframe[src*="/protocol/openid-connect/"]')
+    .options({rules: {[LABEL_IN_NAME]: {enabled: true}}}).withTags(AXE_TAGS);
+  for (const path of await markForeignFrames(page)) builder.exclude(path.length === 1 ? path[0] : {fromShadowDom: path});
+  const run = builder.analyze();
   run.catch(() => {});
-  const axe = await Promise.race([run, limit]).finally(() => clearTimeout(timer));
+  const axe = await Promise.race([run, limit]).finally(async () => {clearTimeout(timer); await clearForeignFrameMarks(page);});
   const fromAxe = axe.violations.flatMap(rule => rule.nodes.map(node => ({source: 'axe', rule: rule.id, impact: rule.impact,
     target: node.target.flat(Infinity).join(' >>> '), detail: (node.failureSummary ?? rule.help).replace(/\s+/g, ' ').trim().slice(0, 300)})));
   return [...fromAxe, ...await page.evaluate(layoutViolations)];

@@ -3598,6 +3598,9 @@ neither pointer, focus nor scroll position. Before the screenshot, capture lets 
 finish, those inside shadow roots included, for at most 1.5 seconds, so neither the evidence nor the
 checks catch a tooltip or message halfway through fading in. Text is compared only where it is
 visible, so the part an ellipsis or an overflowing ancestor hides is cut away before any comparison.
+axe leaves out Keycloak's sign-in frames and every frame from another origin, inside shadow roots
+too. Neither is CEDAR's interface. The YouTube player that CEE's static YouTube field embeds is
+YouTube's markup, and its violations would otherwise count against the capture.
 
 `capture.json` groups the results under `automaticChecks` by rule and element across states, since
 one defect seen at three widths is one problem to fix. The capture's summary line reports the number

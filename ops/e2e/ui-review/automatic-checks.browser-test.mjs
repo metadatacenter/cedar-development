@@ -109,3 +109,24 @@ test('checking a page moves neither focus nor scroll position', async t => {
   await automaticChecks(page);
   assert.deepEqual(await page.evaluate(() => [scrollY, document.activeElement.textContent]), before);
 });
+
+test('a frame from another origin is left out of the checks, inside a shadow root too, and unmarked after', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({viewport: {width: 600, height: 400}});
+  // A player from another site carries a violation of its own: a button without a name.
+  await context.route('https://player.example.test/**', route => route.fulfill({contentType: 'text/html',
+    body: '<!doctype html><html lang="en"><title>Player</title><button class="play"></button>'}));
+  await context.route('https://cedar.example.test/**', route => route.fulfill({contentType: 'text/html',
+    body: `<!doctype html><html lang="en"><title>Record</title><main><h1>Record</h1><button class="own"></button>
+      <div id="editor"></div></main><script>document.querySelector('#editor').attachShadow({mode: 'open'})
+        .innerHTML = '<iframe title="Video" src="https://player.example.test/embed"></iframe>';</script>`}));
+  const page = await context.newPage();
+  await page.goto('https://cedar.example.test/record');
+  await page.frameLocator('#editor iframe').locator('.play').waitFor({state: 'attached'});
+  const violations = (await automaticChecks(page)).filter(violation => violation.source === 'axe');
+  assert.ok(violations.some(violation => violation.rule === 'button-name' && !violation.target.includes('>>>')), 'the page itself is still checked');
+  assert.ok(!violations.some(violation => violation.target.includes('iframe')), 'the foreign frame was checked');
+  assert.equal(await page.evaluate(() => document.querySelector('#editor').hasAttribute('data-ui-review-foreign')
+    || document.querySelector('#editor').shadowRoot.querySelector('[data-ui-review-foreign]') !== null), false);
+});
