@@ -3883,8 +3883,14 @@ In Workspace:
 - Wrapped breadcrumbs stay above the filters, and each separator stays with the complete folder
   name that follows it.
 - The listing viewport shrinks rather than pushing paging off the screen. With both tablet panels
-  open and long paths, the central listing stays usable and paging stays above the table heading,
-  on the existing sticky layer.
+  open and long paths, the breadcrumbs, filters and listing scroll together in a region above
+  paging, and paging keeps a strip of its own, so it never covers the toolbar or the table heading.
+- At tablet width with the information panel closed, the list's name column gives way first, down
+  to 160 pixels, so every column, each row's actions and Sort options stay inside the listing. With
+  the information panel open there is no such room, so the table keeps its 570-pixel minimum and
+  scrolls sideways beneath its last column. That column, holding each row's actions and Sort
+  options, stays at the listing's right edge and continues its row's colour and outline. On phones
+  the whole table scrolls sideways.
 - On phones, explicitly opening information focuses and scrolls to it, and closing it returns to the
   selected row. Ordinary selection does not jump.
 - The List/Grid switch and the grid Sort control form one wrapping group.
