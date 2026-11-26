@@ -27,7 +27,10 @@ export async function collectWorkspace(session,record) {
       if(!searchable&&Date.now()>deadline)throw new Error('The review root folder never became searchable');
     }
   };
-  const closeDialog=async()=>{await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'});};
+  // A tooltip on the focused control takes the first Escape, as it must, and the next closes the dialog.
+  const escapeFrom=async open=>{await page.keyboard.press('Escape');
+    try{await open.waitFor({state:'hidden',timeout:2000});}catch{await page.keyboard.press('Escape');await open.waitFor({state:'hidden'});}};
+  const closeDialog=()=>escapeFrom(dialog);
   const preview=async id=>{
     await folderPage(session,f.previews);
     await tap(page.locator(`[data-preview-id="${id}"]`));
@@ -127,7 +130,7 @@ export async function collectWorkspace(session,record) {
       await tap(page.locator('#resource-menu').getByRole('button',{name:label,exact:true}));
       await openDialog.waitFor();
     };
-    const leave=async()=>{await page.keyboard.press('Escape');await page.locator('dialog[open]').first().waitFor({state:'hidden'});};
+    const leave=()=>escapeFrom(page.locator('dialog[open]').first());
     for(const [scenario,label,id,ready] of [['rename-dialog','Rename',f.mixedTemplate,()=>openDialog.getByRole('textbox').first().waitFor()],
       ['copy-dialog','Copy',f.mixedTemplate,picker],['move-dialog','Move',f.mixedTemplate,picker],
       ['permissions-dialog','Permissions…',f.mixedTemplate,idle],['publish-dialog','Publish',f.mixedTemplate,settled],
