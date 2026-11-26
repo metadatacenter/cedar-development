@@ -3672,6 +3672,12 @@ one uncaptioned is refused. One state per partition is reviewed
 independently a second time, and reported candidates receive independent verification. Each of these
 reviewers' assessments is sealed before that same session sees the concealed calibration cases.
 Its calibration answer must answer each case exactly once, and the answer schema names every case.
+Every answer schema lists a verdict after the observation or reason behind it. A reviewer writes
+properties in schema order, and a verdict written first cannot be revised by the reasoning that
+follows: on 25 November, Workspace's touch review missed a planted defect four times with reasons
+such as "the issue flag should be true". Each calibration fixture also proves its premise by a
+clear margin, since a layout that holds by a few pixels is one a careful reviewer can measure the
+other way.
 An answer that skips or repeats one has not been scored, so the same session is asked once more;
 a second such answer leaves the job incomplete, with its session kept for a resumed run.
 Failed calibration remains a blocker on resume; it is not rerolled until it passes. Infrastructure

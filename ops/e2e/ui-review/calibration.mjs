@@ -47,7 +47,7 @@ export const THEMES = [
     settings: 'Channel settings', shortName: 'Wavelength', longName: 'Peak excitation wavelength of the light source',
     facts: 'Decimal · nanometres', settingsIntro: 'Set the properties used when recording this channel.',
     code: 'Channel key', codeValue: 'wavelength', precision: 'Resolution', precisionValue: '0.1 nanometre',
-    enable: 'Enable window', lower: 'Shortest', upper: 'Longest', rowTitle: 'Readings', rowNote: 'Recorded reading'},
+    enable: 'Use window', lower: 'Shortest (nm)', upper: 'Longest (nm)', rowTitle: 'Readings', rowNote: 'Recorded reading'},
 ];
 
 const pick = (list, random) => list[random(list.length)];

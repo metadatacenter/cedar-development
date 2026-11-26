@@ -86,10 +86,15 @@ export async function captureComposition(browser, directory, item, t) {
       assert.equal(clippedLabels.length, variant === 'clipped-setting-label' ? 1 : 0, `${variant}: intended label clipping changed`);
       assert.equal(inputs[1].y > inputs[0].y + inputs[0].height, variant === 'coherent-narrow-settings',
         `${variant}: bounds must stack only in the narrow variant`);
+      // A premise that holds by a few pixels is one a careful reviewer can measure the other way.
+      // The enable label therefore stays on one line, beside its checkbox, and the narrow bounds
+      // stack by a clear margin.
+      const line = geometry.find(x => x.className === 'setting-label');
+      assert(check.height <= line.height + 4, `${variant}: the enable label must stay on one line`);
       if (variant === 'coherent-narrow-settings') {
         const labels = geometry.filter(x => x.element === 'label').slice(-2);
-        assert(labels.reduce((sum, label) => sum + label.intrinsicTextWidth, 12) > boundsBox.width,
-          'Narrow control must require wrapping even for its displayed labels');
+        assert(labels.reduce((sum, label) => sum + label.intrinsicTextWidth, 12) > boundsBox.width + 24,
+          'Narrow control must require stacking by a clear margin, even for its displayed labels');
       }
     }
     const file = `${item.id}-screen.png`;
