@@ -6,6 +6,7 @@ import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {fixtureAt} from '../journey-fixtures.mjs';
 import {FixtureLedger} from './lifecycle.mjs';
 import {captureState} from './evidence.mjs';
+import {renderedComponents, scriptCoverage} from './ui-coverage.mjs';
 import {hash} from './contract.mjs';
 import {regions, profile as browserProfile} from './catalog.mjs';
 
@@ -20,7 +21,8 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
   await mkdir(join(process.env.CEDAR_HOME,'.cedar/locks'),{recursive:true});
   try {await mkdir(lock);}catch(error){if(error.code==='EEXIST')throw new Error(`Another UI review owns the test account; inspect ${lock}/owner.json before recovering an abandoned lock`);throw error;}
   await writeFile(join(lock,'owner.json'),JSON.stringify({pid:process.pid,app,directory,startedAt:new Date().toISOString()}));
-  let browser,ledger,closed;
+  let browser,ledger,closed,coveragePage=null,codeCoverage=null;
+  const census={};
   const states=[],actions=[],runtimeErrors=[],cleanupErrors=[],consoleMessages=[];
   const expectedNetworkFailures=new Set();
   const startedAt=new Date().toISOString();
@@ -35,6 +37,8 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
   async function close(){
     if(closed)return closed;
     closed=(async()=>{
+      // Chromium alone reports script coverage. It is read before the browser closes.
+      if(coveragePage)try{codeCoverage=scriptCoverage(await coveragePage.coverage.stopJSCoverage());}catch(e){cleanupErrors.push('Code coverage: '+e.message);}
       try{await browser?.close();}catch(e){cleanupErrors.push('Browser close: '+e.message);}
       try{await ledger?.close();}catch(e){cleanupErrors.push('Fixture cleanup: '+e.message);}
       if(ledger)cleanupErrors.push(...ledger.cleanupErrors);
@@ -58,6 +62,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       if(/^ResizeObserver loop/.test(event.message))console.error('Window error: '+event.message);
     }));
     const page=await context.newPage();page.setDefaultTimeout(15000);
+    if(engine==='chromium'){await page.coverage.startJSCoverage({resetOnNavigation:false});coveragePage=page;}
     page.on('pageerror',e=>runtimeErrors.push(e.message));
     // OpenView runs under Angular's development server locally, whose live-reload client tries a
     // socket the local proxy does not carry. Those messages come from that client, not from OpenView,
@@ -103,7 +108,8 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       await page.locator('.table-scroll[aria-busy="false"]').waitFor();
     });}
     const pendingCrops=[];
-    const capture=(id,note)=>captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false},id,note);
+    // Each state's census of the components it renders is kept apart from the state's evidence.
+    const capture=async(id,note)=>{await captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false},id,note);census[id]=await renderedComponents(page);};
     // OpenView's development server compiles its own bundles in memory, so they can only be
     // fingerprinted; the CEE bundle it serves from node_modules is compared with the installed one.
     async function openviewServedEvidence(){
@@ -134,6 +140,6 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       return {verified:verified.sort((a,b)=>a.file.localeCompare(b.file)),browser:browser.version()};
     }
     await flush();
-    return {page,context,base,user,ledger,browser,directory,pendingCrops,profile,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,anonymousRead,defaultFontSize:!!defaultFontSize,setDefaultFontSize,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
+    return {page,context,base,user,ledger,browser,directory,pendingCrops,profile,census,codeCoverage:()=>codeCoverage,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,anonymousRead,defaultFontSize:!!defaultFontSize,setDefaultFontSize,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
   } catch(error){await close();throw error;}
 }

@@ -3483,6 +3483,51 @@ lost during a save. It must not answer a request with a response the product pre
 server refusal of a save the client's own validation accepts. A review of such a screen judges
 behavior no user sees, and its findings mislead the triage that follows.
 
+###### Measuring What the Captures Show
+
+The catalog says which states a capture must hold, but not what those states leave out. Every
+capture therefore also records two measures, neither of which costs model tokens. Both files are
+written after `capture.json`, so neither enters the evidence a reviewer is given.
+
+- `component-census.json` lists, for each state, the custom elements the page renders, shadow roots
+  included, and those on screen. An element is on screen when it, or something it holds, has a
+  size, is not hidden and lies at least partly in the viewport, so a dialog host with no box of its
+  own counts once its dialog is open.
+- `code-coverage.json`, under Chromium alone, gives the share of each served script the capture
+  ran, from V8's block coverage. The served bundles carry no source maps, so the share is per
+  bundle rather than per source file. OpenView's figure comes from its development server's
+  unminified bundles, and is not comparable with the others.
+
+`cedarcli test ui-review-coverage --capture DIR [--capture DIR ...] [--output report.json]` holds
+the censuses of any set of captures against every component the sources declare: the Angular
+element selectors in Workspace, CEE, CED, the term picker and OpenView, outside tests. A package that
+registers custom elements renders its root components under those elements' tags, and
+`COMPONENT_SOURCES` in `ops/e2e/ui-review/ui-coverage.mjs` lists each tag with the selector it
+stands for. The inventory refuses a listed tag the source no longer registers. For each repository
+the report gives the components shown in at least one state, those rendered but never on screen,
+and those never rendered. Attribute selectors name no element and are counted apart.
+
+The census works at the level of components, not states. A component on screen in one state may
+still have states no capture shows, such as a dialog's editing or failure state, and a region that
+is always on screen, such as the toast's, counts as shown whether or not it holds a message.
+Measuring costs browser time. The Designer's Chromium capture took 319 seconds with it, against 260
+without.
+
+On 25 November 2026, the eight captures of the four applications under both profiles showed these
+counts. Both profiles showed the same components.
+
+| Repository | Shown | Rendered, never on screen | Never rendered |
+| --- | ---: | ---: | ---: |
+| `cedar-workspace` | 19 of 27 | 1 | 7 |
+| `cedar-embeddable-editor` | 34 of 41 | 3 | 4 |
+| `cedar-embeddable-designer` | 23 of 32 | 5 | 4 |
+| `cedar-embeddable-term-picker` | 3 of 5 | 1 | 1 |
+| `cedar-openview` | 11 of 14 | 1 | 2 |
+
+The Chromium captures ran 44.8% of the Designer's 3.5 MB of served script, 52.4% of Workspace's
+0.8 MB, 45.9% of the Metadata Editor's 3.0 MB and 76.2% of OpenView's 11.8 MB development bundles.
+The frontend roadmap lists the components no capture shows.
+
 ###### Fixtures, Lock and Cleanup
 
 The collectors use the local test account under a shared lock at

@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium, firefox, webkit} from 'playwright';
 import {captureState} from './evidence.mjs';
+import {renderedComponents} from './ui-coverage.mjs';
 import {keyboard, pointer} from './interactions.mjs';
 
 // Needs only a Playwright Chromium; no CEDAR stack.
@@ -121,4 +122,22 @@ for (const engine of [chromium, firefox, webkit]) test(`${engine.name()}: card c
   assert.deepEqual(await pixels(states[1].crops[0]), [50, 170, 0, 0]);
   assert.deepEqual(await pixels(states[1].crops[1]), [50, 0, 170, 0]);
   assert.equal(await page.locator('#pane').evaluate(node => node.scrollTop), 250);
+});
+
+test('the census finds custom elements inside shadow roots and tells shown from merely rendered', async t => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await (await browser.newContext({viewport: {width: 800, height: 600}})).newPage();
+  await page.setContent(`<!doctype html><meta charset="utf-8"><app-shell style="display:block;height:20px"></app-shell>
+    <div id="host"></div><app-hidden style="display:none"></app-hidden>
+    <app-below style="display:block;height:20px;margin-top:2000px"></app-below>
+    <script>document.querySelector('#host').attachShadow({mode:'open'})
+      .innerHTML='<app-inner style="display:block;height:10px"></app-inner>';</script>`);
+  assert.deepEqual(await renderedComponents(page), {
+    present: ['app-below', 'app-hidden', 'app-inner', 'app-shell'], visible: ['app-inner', 'app-shell']});
+  // A host with no box of its own is on screen when what it holds is, as an open modal dialog is.
+  await page.setContent(`<!doctype html><meta charset="utf-8"><app-dialog style="display:contents"><dialog>Rename</dialog></app-dialog>
+    <app-closed style="display:contents"><dialog>Move</dialog></app-closed>
+    <script>document.querySelector('app-dialog dialog').showModal();</script>`);
+  assert.deepEqual(await renderedComponents(page), {present: ['app-closed', 'app-dialog'], visible: ['app-dialog']});
 });

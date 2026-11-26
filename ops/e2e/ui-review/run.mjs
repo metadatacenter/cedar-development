@@ -132,6 +132,12 @@ async function collect(directory,app,profile='chromium') {
   const result={schemaVersion:1,app,profile,engine:session?.engine??null,catalogSha256:catalogSha256(app,profile),provenance,served,servedVerified,states,automaticChecks,incomplete,cleanupErrors:session?.cleanupErrors??[],runtimeErrors:session?.runtimeErrors??[],files,durationSeconds:Math.round((Date.now()-started)/1000)};
   const raw=JSON.stringify(result,null,2)+'\n';
   await writeFile(join(directory,'capture.json'),raw);
+  // Written after the capture's file list, so neither enters the evidence a reviewer is given.
+  if(session){
+    await writeJson(join(directory,'component-census.json'),{schemaVersion:1,app,profile,states:session.census??{}});
+    const code=session.codeCoverage?.();
+    if(code)await writeJson(join(directory,'code-coverage.json'),{schemaVersion:1,app,profile,engine:session.engine,...code});
+  }
   await writeJson(join(directory,'coverage.json'),coverageFor(result));
   await writeFile(join(directory,'reviewer-brief.md'),reviewerBrief(hash(raw),app,profile));
   await writeFile(join(directory,'index.html'),reportHtml(result));
