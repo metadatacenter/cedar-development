@@ -510,6 +510,137 @@ service nginx start
   confirm both serve the intended CEE hash and can create/edit an instance (a stale bundle means the
   source commit was not embedded, the image was not rebuilt, or the CDN was not purged — see below).
 
+## Keycloak 22 to 26.8.2
+
+Use one direct upgrade; the [upgrading guide](https://www.keycloak.org/docs/latest/upgrading/index.html)
+requires no intermediate release. Java 17 remains supported. Expect existing users to sign in again.
+Database migrations run forward only: never point Keycloak 22 at a database 26 has opened.
+
+First deploy the adapter-free Java services and verify login, a user-summary admin lookup and token
+refresh against 22. This establishes that a Keycloak-only backout works. Build the listener against
+the 26.8.2 host platform, including its provided-dependency check, and retain the old listener with
+the old installation. Stage the new distribution in a separate directory; copy the existing TLS and
+realm configuration and the current `cedar-03` theme, then install the listener and run `kc.sh build`
+through `cedarcli dev copy-keycloak-listener` once the selected installation points there.
+The image route instead consumes the listener from its captured Maven source; do not combine an
+unpublished local listener with an older registry artifact and call that the same build.
+
+### One production-data migration check
+
+Read the actual production Keycloak/MySQL versions, auth nginx vhost and Keycloak configuration.
+Take an access-restricted dump of `cedar_keycloak` and load it into an isolated scratch schema,
+preserving the source database's exact default character set and collation. Matching table collations
+alone is insufficient: migration temporary tables inherit the database default. Grant only the
+intended Keycloak account access to the copy. This contains password hashes, emails and signing keys;
+keep the dump, schema and any exported identifiers protected and delete the rehearsal copy afterwards.
+
+Before starting the isolated server, remove SMTP configuration from the copy and disable the CEDAR
+event listener there (or route callbacks to an isolated CEDAR stack). Otherwise a harmless-looking
+login to the copy can call the live user server. Use separate loopback ports and a separate hostname,
+and confirm the connection names the scratch schema. Run the target release, time migration and
+inspect its log. Compare user, credential and identity-provider-link counts and all user identifiers
+before and after. Have designated owners of long-standing accounts verify their own sign-in; do not
+collect their passwords. Account-console login suffices for the password-format check.
+This is the single data rehearsal; local integration tests and staging smoke are ordinary software
+verification, not repeated production-data migrations.
+
+### Existing-realm and server changes
+
+- Set `hostname=https://auth.${CEDAR_HOST}` (the full public URL). A bare hostname in 26 adopts
+  the request's scheme and port, so tokens obtained directly over local HTTP otherwise carry an
+  issuer the services correctly refuse.
+- Replace `proxy=reencrypt` with `proxy-headers=xforwarded`; verify nginx supplies the forwarded
+  headers and retain `http-enabled=true` where it uses an HTTP upstream.
+- On `cedar-angular-app`, `cedar-frontend-bridging` and `cedar-frontend-monitoring`, add the built-in
+  **Nonce backwards compatible** (`oidc-nonce-backwards-compatible-mapper`) and **Session State
+  (session_state)** (`oidc-session-state-mapper`) protocol mappers. Enable the session-state claim
+  in access tokens, ID tokens, userinfo and introspection. Add each mapper only if missing.
+- On those same clients enable **Exclude Issuer From Authentication Response**
+  (`exclude.issuer.from.auth.response=true`). Legacy adapters otherwise leave `iss` in the callback
+  fragment after a failed silent sign-in, then send that fragment as the next `redirect_uri`, which
+  26 correctly refuses. Keep redirect-URI validation enabled. This compatibility option is deprecated;
+  retire it when the browser adapters are upgraded, as the frontend roadmap tracks.
+- Confirm `sub` is present for every browser client after the automatic `basic` client-scope
+  migration. Verify nonce and session-state compatibility with real browser login and refresh.
+- Keep admin calls on `admin-cli`; 26.8.2 adds its required `kc-admin-api` scope automatically.
+  Verify the actual CEDAR user-summary/admin lookup rather than assuming token issuance proves access.
+- Use the updated `cedar-03` theme and compare ordinary login, invalid credentials, registration and
+  logout with the existing experience. Keep the classic parent; a redesign is not required.
+
+### Staging acceptance
+
+Use staging's existing realm and designated test accounts. Record the Java build identity, listener
+hash, Keycloak version, database version and schema, frontend build identities, and image digest
+where applicable; promote these same tested artifacts. First verify the adapter-free service build
+against 22, then repeat the following against 26 after applying the existing-realm changes above and
+restarting the microservices. The isolated production-data check above remains a separate prerequisite
+for production promotion, not another staging software rehearsal.
+
+- In Chromium, Firefox and WebKit, exercise Workspace, the Template Designer, the legacy Template
+  Editor, Monitoring and Bridging. Use fresh sessions, silent sign-in without an SSO cookie, sign-in
+  with an existing SSO cookie, logout and re-entry. A failed silent sign-in must reach the login form
+  without leaving `iss` in the next redirect URI. A refresh must preserve the route and unsaved input
+  and retry the interrupted action once. Test expired-session recovery without changing realm-wide
+  session policy, and verify a logged-out session cannot refresh.
+- For each of the three browser clients, verify `sub`, `nonce` and `session_state` and the canonical
+  `https://auth.<host>/realms/CEDAR` issuer. Any token obtained through an internal HTTP route must
+  carry the same public issuer. Use only an already-authorized grant; do not enable password grants
+  on public clients just to test them. Confirm invalid signatures and wrong issuers receive 401.
+- With service clients initially cold, call the acceptance user's `/users/me/summary` on the user
+  server through its deployment origin and require 200; repeat after token refresh. Confirm the
+  matching login callback reaches CEDAR and no provisioning callback or transport error appears in
+  the Keycloak log. Token issuance alone does not prove that the admin API or listener works.
+- Compare fresh login, invalid-login and registration screens with the existing design. Register
+  a disposable user and prove the CEDAR profile and home folder exist and are accessible. Create,
+  save, reopen and clean up a test template and metadata instance; include an existing user's edit.
+- Require `cedarcli native health --group microservices` and the deployment's frontend checks to
+  pass, with TLS verification enabled. Retain the browser/API results and migration log with the
+  build identities. Run `cedarcli test e2e` on the local test stack; do not aim its local credentials
+  and fixture inventory at production as a substitute for deployment acceptance.
+
+### Production acceptance
+
+Complete staging acceptance and the production-copy migration check before the production window.
+Keep the original installation and database intact and self-registration disabled while accepting
+the upgraded copy. Compare all user identifiers and the user, credential and identity-provider-link
+counts before opening registration; new acceptance accounts would otherwise obscure the comparison.
+
+Use designated existing non-admin accounts, including a long-standing account, through the real
+public frontend URLs. Verify fresh sign-in, SSO between applications, logout/re-entry and token
+refresh across all three browser clients; do not shorten global token lifetimes or inject outages
+in production. Repeat the user-summary admin lookup and inspect the corresponding CEDAR provisioning
+callback. Verify the canonical HTTPS issuer, valid TLS, all microservice health checks and a small
+acceptance artifact's save/reopen, then remove that artifact. Inspect the upgrade and application
+logs for migration, authentication, admin-client and provisioning failures.
+
+Do not reopen registration with a failed acceptance check. Back out while the original data remains
+authoritative if an existing account cannot sign in or its identifier differs; resolve other failed
+checks before accepting the deployment. Once these checks pass, reopen registration and verify one
+designated new account's login, CEDAR profile and usable home folder. Record the account's fixture
+disposition, accepted build/database identities, migration duration and results. A failure after new
+accounts have been provisioned requires repair on 26 rather than returning to the old database.
+
+### Cutover, verification and backout
+
+1. Pass [staging acceptance](#staging-acceptance) and the isolated production-data migration check.
+2. Stop Keycloak with `cedarcli native stop keycloak`, take the final dump and copy the database into
+   a new schema with the original character set/collation. Retain the original schema and installation.
+   Point the new installation's `keycloak.conf` `db-url-database` at that copy (or select the database
+   through the established deployment profile); do not temporarily export a variable that the CLI
+   will replace when it loads its profile.
+3. Keep self-registration disabled during the verification window. Select the new installation,
+   install its listener, and start it with `cedarcli native start keycloak`. Apply the existing-realm
+   mappers above and run `cedarcli native restart microservices` to discard cached admin tokens from
+   22, which lack 26.8.2's admin-API scope. Carry out [production acceptance](#production-acceptance),
+   including identifier/count comparison, existing-account login, provisioning callback, user summary,
+   token refresh and `cedarcli native health --group microservices`.
+4. Back out during this window if existing accounts cannot sign in or identifiers differ: stop 26,
+   select the untouched 22 installation and original database, and start it. Password/profile changes
+   made during the window are lost; no restore into the migrated schema is attempted.
+5. After acceptance, reopen registration, verify a disposable registration end to end, and record
+   the accepted installation, database and build identities. Once new accounts have been provisioned
+   in CEDAR, returning to the old database would orphan them: repair subsequent defects on 26.
+
 ## Gotchas
 
 - **System `/tmp` may remain `noexec`.** The CLI's Maven and frontend build tasks use private
@@ -531,9 +662,9 @@ service nginx start
   `https://auth.<host>`, so that request leaves the host and has to come back to it. Staging's load
   balancer, `cedr-stg-web-lb.stanford.edu`, resets any connection from `cedr-stg-app-07` back to
   itself. On that host, `/etc/hosts` therefore points every name on the staging certificate at
-  127.0.0.1, where the host's own nginx serves it. Without that entry, every signed-in request
-  returns 500 and each server's `keycloak-signing-keys` check reports `SocketException: Connection
-  reset`. Puppet generates `/etc/hosts` there. The line was added by hand on 2026-10-29 and belongs
+  127.0.0.1, where the host's own nginx serves it. Without that entry, a signed-in request needing
+  fresh signing keys returns 503 and each server's `keycloak-signing-keys` check reports the
+  connection reset. Puppet generates `/etc/hosts` there. The line was added by hand on 2026-10-29 and belongs
   in the host's Puppet configuration, so that a rebuilt host carries it. On any host behind such a
   load balancer, `getent hosts auth.<host>` must print `127.0.0.1`.
 

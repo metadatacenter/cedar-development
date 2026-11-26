@@ -3457,22 +3457,20 @@ argues at length for the Bridge server's view of the EPA registry.
 The shared bootstrap probes what every microservice opens. Neo4j is gating: it resolves the caller
 of every authenticated request, so a server that cannot reach it can serve nothing. The realm's
 signing keys are gating too. Every browser request carries a bearer token, and each server verifies
-it against keys it fetches from `https://auth.<host>`, so a server that cannot fetch them refuses
-every signed-in user. The Redis application log queue is reporting: enqueueing is best-effort by
+it against keys it fetches from `https://auth.<host>`, so a server without a usable cached key
+cannot authenticate a signed-in user. The Redis application log queue is reporting: enqueueing is best-effort by
 design and drops events rather than failing the request that produced them. Every server therefore
 carries `neo4j`, `keycloak-signing-keys` and `app-log-queue` in addition to Dropwizard's own
 `deadlocks`.
 
-`keycloak-signing-keys` exists because the failure it reports is otherwise silent. The Keycloak
-adapter loads the realm's discovery document on the first token it verifies, and when that load
-fails it logs a warning and carries on without the key set's address. Each signed-in request then
-ends in a `NullPointerException` and a 500 with no message, while API keys, which never consult
-Keycloak, keep working. The probe makes the same two requests through the adapter's own client,
-with its TLS settings and timeouts, and names the real cause, such as `SocketException: Connection
-reset`. The adapter retries discovery on every request, so a server recovers without a restart once
-Keycloak is reachable again. The adapter's client gives up after 2 seconds connecting and 5 seconds
-waiting for a response. Without those limits it waited as long as the operating system allowed, and
-each signed-in request hung for about 30 seconds before failing.
+`keycloak-signing-keys` fetches discovery and JWKS through the same Apache HttpClient 5 client
+as bearer verification, with 2-second connect/pool-acquisition limits and 5-second socket/response
+limits. The health probe always contacts Keycloak; verification may use a known signing key for up
+to 24 hours. Unknown keys trigger refresh at most once per ten seconds, including failed fetches.
+An unavailable upstream produces 503 when verification needs a fresh key, and the diagnostic names
+the failing address. API keys do not depend on this path. Discovery must name the configured issuer
+and a JWKS on its origin, redirects are refused, and TLS verification is on unless the explicit
+local-development bypass is configured. The bootstrap closes the client on shutdown.
 
 Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
 the shared bootstrap registers it, so artifact carries `mongo`; repo, OpenView and monitor proxy document access and no longer register that store probe.
@@ -6155,13 +6153,39 @@ links against. To dump such a server, start `mysqld` directly with `DYLD_LIBRARY
 `nohup` nor `mysqld_safe` can pass that variable on, because macOS strips `DYLD_*` variables from
 protected system binaries.
 
-**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.8.2, and
-the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
-25.0.3 in August 2024 — which the bearer-token path of all eleven servers is built on. Everything
-else that was thought to block it does not: the admin client, the event-listener SPI and the login
-theme are a coordinate change, no change at all, and two FreeMarker files respectively. The evidence
-and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
-servers; do not restate them here.
+**The Keycloak target is 26.8.2, on Java 17.** `cedar-parent` manages `keycloak-core` and the
+listener SPIs at 26.8.2 and the separately released `keycloak-admin-client` at 26.0.13. The retired
+Java adapter is absent: `KeycloakTokenVerifier` uses Keycloak's `TokenVerifier` and rotating RSA
+JWKS, explicitly retaining the subject check removed from Keycloak 26's defaults. The listener's
+`keycloak-provider` profile follows the host's versions and exclusions; run
+`python3 cedar-keycloak-event-listener/scripts/check_keycloak_platform.py` from `$CEDAR_HOME`
+with the native profile loaded to compare its complete provided graph.
+
+The classic `keycloak` parent theme still ships in 26.8.2. `cedar-03` keeps its existing layout;
+its login template tests registration availability directly and an empty social-provider list with
+`?has_content`. Its `register.ftl` preserves the classic field order and controls instead of inheriting
+26's reordered form and added password controls; server-side user-profile validation still applies.
+Do not switch it to `keycloak.v2` as part of this upgrade. Both realm seeds restore
+`nonce` and `session_state` for the three browser clients while the legacy JavaScript adapters remain.
+Both seeds also exclude `iss` from authentication responses for those legacy adapters, preventing
+a failed silent sign-in from contaminating the next redirect URI; token issuer validation remains
+enabled. Existing realms need those settings added separately: importing an updated seed does not
+update one. Retire the compatibility settings with the browser-adapter upgrade in the frontend roadmap.
+Pin `hostname=https://auth.${CEDAR_HOST}` so direct HTTP and proxied browser requests produce the
+same HTTPS issuer. Use `proxy-headers=xforwarded` in place of the removed `proxy=reencrypt` option, keeping the existing
+HTTP setting appropriate to nginx's upstream. The image manifest pins the distribution and SHA-256.
+`cedarcli native status` probes Keycloak's master-realm discovery endpoint rather than its root,
+which 26 redirects to the public admin URL.
+The [Keycloak upgrade procedure](./PROD-DEPLOY-RUNBOOK.md#keycloak-22-to-2682) covers existing realms,
+production data, verification and backout; the roadmap tracks deployment still outstanding.
+
+On the developer workstation, the 2026-11-26 upgrade uses `cedar_keycloak_upgrade_2682`; the original
+`cedar_keycloak` schema and `.cedar/upgrades/keycloak-26.8.2/keycloak-22.0.5` installation are retained.
+The migration preserved all 58 original users and credentials and every user identifier. A subsequent
+acceptance registration provisioned a CEDAR user and usable home folder; that disposable account is
+disabled. The upgrade directory holds the protected dump, non-secret verification reports and visual
+comparisons. Both login and registration matched the earlier 1280×900 screenshots byte for byte.
+This is local evidence, not verification of production's account history or a promoted Docker image.
 
 Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.14, Jersey
 3.1.12, Hibernate 6.6.59.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.4. Jetty, Jersey,
@@ -6303,9 +6327,9 @@ blamed.
 On 2026-11-24 the analysis reported 278 used-undeclared artifacts across 38 modules. The 63 JUnit
 artifacts that arrive through the `junit-jupiter` aggregator and the 18 with no version in
 `cedar-parent` are not declared. Of the other 197, 158 meet both conditions and are declared. Seven
-stay undeclared because they would change what resolves. `keycloak-adapter-core`,
-`keycloak-admin-client-jakarta` and `neo4j-harness` are declared elsewhere with exclusions that a
-second declaration would not carry, and `dropwizard-configuration` would move `jakarta.el-api` from
+stayed undeclared because they would change what resolved. The Keycloak adapter and transitional
+Jakarta admin client from that measurement have since been replaced. `keycloak-admin-client` and
+`neo4j-harness` are declared elsewhere with exclusions that a second declaration would not carry, and `dropwizard-configuration` would move `jakarta.el-api` from
 5.0.1 to 5.0.0. The remaining 32 stay undeclared because they would reorder Jersey's and RESTEasy's
 `RuntimeDelegate` or `ClientBuilder` registrations, or commons-logging against `jcl-over-slf4j` and
 `spring-jcl`. Most of them declare `cedar-config-library` or a Dropwizard or Jersey module. Hold any

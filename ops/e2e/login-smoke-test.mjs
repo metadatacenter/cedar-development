@@ -993,8 +993,14 @@ async function renameViaMenu(page, from, to) {
   await modal.waitFor({ state: 'visible', timeout: 15_000 });
   const field = modal.locator('div.modal-body form input').first();
   await field.waitFor({ state: 'visible', timeout: 10_000 });
-  await field.fill(to);
+  // The modal fetches the current resource before binding it, and its previous input is already
+  // visible on a second open; wait for that load before editing or it can replace the new name.
+  await setText(field, to);
+  const renamed = page.waitForResponse(response => response.request().method() === 'POST'
+    && /\/command\/rename-resource(?:\?|$)/.test(response.url()));
   await modal.locator('div.modal-footer button.btn-save').first().click();
+  const response = await renamed;
+  if (!response.ok()) throw new Error(`rename answered ${response.status()}: ${await response.text()}`);
   await modal.waitFor({ state: 'hidden', timeout: 20_000 });
   await row(page, to).waitFor({ state: 'visible', timeout: 20_000 });
 }

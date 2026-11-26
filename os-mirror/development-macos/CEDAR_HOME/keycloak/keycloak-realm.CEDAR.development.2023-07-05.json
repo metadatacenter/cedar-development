@@ -655,6 +655,25 @@
     "defaultClientScopes" : [ "web-origins", "acr", "roles", "profile", "email" ],
     "optionalClientScopes" : [ "address", "phone", "offline_access", "microprofile-jwt" ]
   }, {
+    "protocolMappers" : [
+      {
+        "name": "Nonce backwards compatible",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-nonce-backwards-compatible-mapper",
+        "config": {}
+      },
+      {
+        "name": "Session State (session_state)",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-session-state-mapper",
+        "config": {
+          "access.token.claim": "true",
+          "id.token.claim": "true",
+          "userinfo.token.claim": "true",
+          "introspection.token.claim": "true"
+        }
+      }
+    ],
     "id" : "12051346-93f6-4dba-b370-df75f4067beb",
     "clientId" : "cedar-angular-app",
     "name" : "",
@@ -679,6 +698,7 @@
     "frontchannelLogout" : true,
     "protocol" : "openid-connect",
     "attributes" : {
+      "exclude.issuer.from.auth.response" : "true",
       "oidc.ciba.grant.enabled" : "false",
       "backchannel.logout.session.required" : "true",
       "post.logout.redirect.uris" : "+",
@@ -692,6 +712,25 @@
     "defaultClientScopes" : [ "web-origins", "acr", "roles", "profile", "email" ],
     "optionalClientScopes" : [ "address", "phone", "offline_access", "microprofile-jwt" ]
   }, {
+    "protocolMappers" : [
+      {
+        "name": "Nonce backwards compatible",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-nonce-backwards-compatible-mapper",
+        "config": {}
+      },
+      {
+        "name": "Session State (session_state)",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-session-state-mapper",
+        "config": {
+          "access.token.claim": "true",
+          "id.token.claim": "true",
+          "userinfo.token.claim": "true",
+          "introspection.token.claim": "true"
+        }
+      }
+    ],
     "id" : "6024a926-aabc-4e9f-809b-e3df5b94a402",
     "clientId" : "cedar-frontend-bridging",
     "name" : "",
@@ -716,6 +755,7 @@
     "frontchannelLogout" : true,
     "protocol" : "openid-connect",
     "attributes" : {
+      "exclude.issuer.from.auth.response" : "true",
       "oidc.ciba.grant.enabled" : "false",
       "backchannel.logout.session.required" : "true",
       "post.logout.redirect.uris" : "+",
@@ -729,6 +769,25 @@
     "defaultClientScopes" : [ "web-origins", "acr", "roles", "profile", "email" ],
     "optionalClientScopes" : [ "address", "phone", "offline_access", "microprofile-jwt" ]
   }, {
+    "protocolMappers" : [
+      {
+        "name": "Nonce backwards compatible",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-nonce-backwards-compatible-mapper",
+        "config": {}
+      },
+      {
+        "name": "Session State (session_state)",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-session-state-mapper",
+        "config": {
+          "access.token.claim": "true",
+          "id.token.claim": "true",
+          "userinfo.token.claim": "true",
+          "introspection.token.claim": "true"
+        }
+      }
+    ],
     "id" : "d572335c-52c2-45f8-ac68-f054438f245a",
     "clientId" : "cedar-frontend-monitoring",
     "name" : "",
@@ -753,6 +812,7 @@
     "frontchannelLogout" : true,
     "protocol" : "openid-connect",
     "attributes" : {
+      "exclude.issuer.from.auth.response" : "true",
       "oidc.ciba.grant.enabled" : "false",
       "backchannel.logout.session.required" : "true",
       "post.logout.redirect.uris" : "+",

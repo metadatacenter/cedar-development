@@ -190,225 +190,39 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Security
 
-- **7. Upgrade Keycloak to a supported release.** CEDAR runs Keycloak 22, at 22.0.5 natively and
-  22.0.4 in the image, and `cedar-parent` sets `keycloak.version` to 22.0.4. The community 22 line
-  ended at 22.0.5. On 2026-11-22 Dependabot reported 101 open advisories against the Keycloak
-  artifacts `cedar-parent` manages, 28 of them high. Three of the high ones are recent:
-  CVE-2026-9800 (authorization bypass through URI comparison), CVE-2026-9086 (cross-site scripting
-  through case-insensitive URI validation) and CVE-2026-11800 (authentication bypass through JWT
-  algorithm confusion). No community 22 release fixes any of the 101. Every release from 26.7.5
-  fixes the 100 against artifacts Keycloak still publishes. The last, CVE-2026-1180, covers
-  `keycloak-adapter-core` through 25.0.3, its final release, so only removing the adapter closes
-  it. The current release is 26.8.2. The fixed 22.0.x versions
-  some advisories name belong to Red Hat's subscription build rather than to the community line.
+- **7. Deploy Keycloak 26.8.2 to staging and production.** Read the actual production Keycloak
+  and MySQL versions, realm settings, `keycloak.conf` and auth nginx vhost before scheduling the
+  change. Check production's redirect URIs, password-grant clients, brute-force protection and
+  exposure of admin, broker and registration endpoints rather than assuming the development seed
+  describes that realm. Use the [upgrade procedure](./PROD-DEPLOY-RUNBOOK.md#keycloak-22-to-2682).
 
-  The advisories concern the server rather than CEDAR's code. The microservices ship only
-  `keycloak-core`, `keycloak-common` and the adapter, to verify bearer tokens, and none of the
-  advisories against those artifacts involves token verification. `keycloak-services` and
-  `keycloak-server-spi-private`, which carry the rest, are compiled against by the event listener as
-  `provided` and never packaged. The exposure lies in the deployed server, and only upgrading it
-  closes the advisories.
-
-  Many of them apply to CEDAR as its 2023 development realm seed configures it. Five concern
-  redirect-URI validation, and CVE-2026-7504 specifically affects clients with wildcard redirect URIs,
-  which every CEDAR client has. CVE-2026-7507 allows session fixation in the OIDC login flow,
-  CVE-2026-4282 allows forged authorization codes, and CVE-2024-3656 lets a plain realm user reach
-  admin functions, in a realm where anyone can register. Others need SAML, an external identity
-  provider, UMA authorization or mTLS, none of which the seed configures. Production's realm has not
-  been checked against either group.
-
-  **One dependency holds Keycloak at 22.** The findings below were measured on 2026-08-08 against
-  Maven Central, the code and 26.7.1, then the current release. Recheck them against the current
-  release before choosing a route.
-
-  - **The blocker is `keycloak-adapter-core`,** the legacy Java OIDC adapter, whose last release is
-    **25.0.3 in August 2024**. CEDAR uses it in exactly three files in
-    `cedar-auth-operations-keycloak-library`: `KeycloakDeploymentProvider` builds an `AdapterConfig`
-    into a `KeycloakDeployment`, `KeycloakUtils` makes a single
-    `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
-    `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
-    these in the shared bootstrap, so this is the bearer-token path for all eleven.
-
-    The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
-    `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
-    supplied for free, and what would have to be written, is the rotating public-key locator and the
-    HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
-    `KeycloakSigningKeys`, the probe behind every server's `keycloak-signing-keys` health check,
-    sends its requests through the adapter's deployment and client, so it moves to the new client
-    too. The new client keeps the adapter's 2-second connection and 5-second response limits. A
-    failed key fetch should answer 503 and name the address it could not reach, where the adapter
-    ends in a `NullPointerException` and a 500.
-
-  - **`keycloak-admin-client-jakarta` is not a blocker.** It stopped at 21.1.2 because it was a
-    transitional variant, not because it was abandoned. From Keycloak 22 the main
-    `keycloak-admin-client` is itself Jakarta-based, and it is published at 26.0.12, so moving to it
-    is a coordinate change.
-
-  - **The event listener is not a blocker either.** `EventListenerProvider.onEvent(AdminEvent,
-    boolean)`, the signature `cedar-keycloak-event-listener` overrides, still exists verbatim in
-    26.7.1, and `keycloak-server-spi`, `keycloak-server-spi-private` and `keycloak-services` all
-    publish at that version. Its imports are the stable event and model SPI throughout.
-
-  - **The theme needs two templates re-ported.** `cedar-03` is a login theme with `parent=keycloak`
-    that overrides two FreeMarker templates, `login.ftl` and `template.ftl`, plus a stylesheet and
-    three images. The stock login theme was superseded by `keycloak.v2` in 24, so those two templates
-    need re-porting against the new base. The stylesheet and images carry over.
-
-  Two routes are open. The clean one moves the server to the current 26.x release and replaces the
-  adapter usage in the same step. The other moves the server first and keeps the 25.0.3 adapter,
-  betting that token verification is plain OIDC over JWKS and will keep working against a 26 realm.
-  It probably would. It is also exactly the shape of the 2.19-client-against-1.3.6-server pairing
-  this estate carried in Docker for years and was right to be uneasy about, on a library that has had
-  no release since 2024.
-
-  **Moving the server also changes the tokens and the server configuration.** These findings were
-  read on 2026-11-13 from the upgrade guide for 26.8.2 and from the code.
-
-  - **Tokens lose two claims the browser adapters read.** From 25.0 the access and ID tokens no
-    longer carry `session_state`, and only the ID token carries `nonce`. The Template Editor, the
-    Template Designer and Workspace load identical copies of a `keycloak.min.js` vendored in March
-    2023, and Monitoring and Bridging resolve `keycloak-js` 21.1.2. The vendored adapter compares
-    `nonce` in the access and refresh tokens and takes its session identifier from `session_state`,
-    and the guide says the same of every adapter older than 24. Keycloak supplies two protocol
-    mappers that restore the claims, "Nonce backwards compatible" and
-    "Session State (session_state)". Add both to `cedar-angular-app`, `cedar-frontend-bridging` and
-    `cedar-frontend-monitoring` at the upgrade, or move the adapters first. A newer adapter cannot
-    replace the vendored file as it stands, because `keycloak-js` 26 has no UMD build and those
-    three applications load the adapter with a script tag.
-
-  - **Every server resolves the caller from `sub`, and 25.0 moves that claim.** A mapper in a new
-    `basic` client scope supplies it, and the migration adds that scope to each existing client.
-    The rehearsal confirms `sub` in a token from every client.
-
-  - **The admin API requires a scope from 26.8.2.** It refuses a token that lacks the realm's
-    `kc-admin-api` scope, which Keycloak adds by default to `admin-cli` and
-    `security-admin-console` alone. `cedar-main.yml` sets `admin-cli` as the client for the admin
-    calls of the user server, the monitor server and the admin tool, so they need no change. The
-    rehearsal confirms that with one admin lookup.
-
-  - **Keycloak 26 has no `proxy` option.** The workstation's `keycloak.conf` and the image's both
-    set `proxy=reencrypt`. Keycloak deprecated the option in 24 and removed it in 26.0, and
-    `proxy-headers=xforwarded` replaces it. The workstation and staging nginx mirrors already send
-    the `X-Forwarded-*` headers that setting reads and clear `Forwarded`, so nginx needs no change.
-    Staging's mirror proxies to Keycloak over plain HTTP on 8080, which also requires
-    `http-enabled=true` to stay. `hostname=auth.${CEDAR_HOST}` remains valid, since the hostname
-    options of 26 accept a bare hostname and take the scheme and port from the forwarded headers.
-    Production's `keycloak.conf` and nginx have not been read.
-
-  **The upgrade forces no Java move.** Keycloak 26.8.2 supports OpenJDK 17, 21 and 25, and
-  `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing on a client. The Keycloak image
-  installs `java-17-openjdk-headless` unpinned and can stay on it. The estate pins Java 17 only
-  because newer JDKs crash Keycloak 22 on the removed security manager, so the upgrade removes
-  Keycloak's part of that constraint.
-
-  **Go from 22 to the target release in one step.** The guide names no intermediate release a 22
-  server must pass through, and the schema and realm migrations apply every release's changes in
-  order on the first start. Its one reason to stop at 25 is to carry signed-in sessions across the
-  cache format change in 26.0, and that path excludes sessions held in memory, as a single node with
-  the default caches holds them. Neither `keycloak.conf` configures a cache, so every user signs in
-  again once, as after any restart of Keycloak 22.
-
-  **Rehearse twice, because test accounts and production's user store prove different things.**
-  Keycloak's Liquibase migration of the user store runs forward only, and it is the one step that
-  touches every production account. Read production's Keycloak and MySQL versions, `keycloak.conf`
-  and nginx auth vhost before either rehearsal, since each difference from staging reduces what
-  staging proves.
-
-  - **The software rehearsal uses test accounts.** Move the workstation stack to the target release
-    and pass `cedarcli test e2e`. The Docker build manifest pins the server image too, and the
-    [Docker roadmap](./DOCKER-ROADMAP.md) owns that lock. Then upgrade staging with its own realm
-    and run the checks under [Verify](./PROD-DEPLOY-RUNBOOK.md#verify). Add a sign-in through every
-    frontend and a new registration, and confirm that the registration reaches CEDAR through the
-    listener. Run the same build of the services against 22 and against the target release, since
-    a backout depends on that.
-
-  - **The data rehearsal uses a copy of production's `cedar_keycloak`.** Test accounts say nothing
-    about that store. The developer documentation records a Keycloak upgrade from 3.3.0 to 11.0.2
-    in 2020, so production's realm may hold password formats and settings that staging's realm
-    lacks. Load the copy into a scratch schema on staging and start a separate Keycloak at the
-    target release against it. Time the migration and read its log. Compare the counts of users,
-    credentials and identity-provider links before and after, and a sample of user identifiers.
-    Ask the owners of long-standing accounts to sign in to Keycloak's account console, which needs
-    no CEDAR frontend. Only those accounts hold password hashes written by earlier releases.
-
-    The copy holds password hashes, email addresses and the realm's signing keys, so treat it as a
-    production secret. Clear the realm's SMTP settings before the first start so the copy cannot
-    send mail, and delete the copy afterwards.
-
-  **Back out by returning to data the upgrade never touched.** Keycloak 22 cannot open a migrated
-  database, so every backout returns to the data as it stood before the upgrade and discards what
-  was written since. A registration made on the new release costs the most, because CEDAR has
-  already provisioned that user under an identifier the earlier data lacks.
-
-  - Upgrade a copy. Stop Keycloak 22, copy `cedar_keycloak` into a second schema, install the
-    target release in a directory of its own, and point it at the copy through
-    `CEDAR_KEYCLOAK_MYSQL_DB`. The original schema and the 22 installation stay as they were, so a
-    backout stops the new server and starts the old one, with no restore. Keep a dump as well.
-  - Turn self-registration off for the verification window, so a backout loses only password and
-    profile changes.
-  - Fix the criteria before the window. Back out if an existing account cannot sign in or a user
-    identifier differs from its earlier value. Repair any other defect on the new release.
-  - Replace the adapter while the server is still on 22, so the services deployed before the window
-    run against both releases. A backout then touches Keycloak alone.
-
-  Once registration reopens, a backout would orphan the new accounts in CEDAR, so later defects are
-  repaired on the new release.
-
-  **Narrow the exposure while the server stays on 22.** Roughly a third of the advisories can be
-  closed or reduced without the upgrade, by configuration at the edge and in the realm and by two
-  changes to CEDAR's own code. The evidence comes from the 2023 development realm seed and the
-  staging nginx mirror, so read production's realm and nginx configuration first and adjust the
-  changes to what they hold.
-
-  Staging's nginx passes every Keycloak path to the internet under a single `location /`, so four
-  restrictions belong at the edge:
-
-  - Restrict `/admin/` to CEDAR's own hosts and the operators' network. Ten advisories concern the
-    admin console or the admin API, among them CVE-2024-3656, which lets a plain realm user reach
-    admin functions. Self-registration is open, so that user can be anyone. The user server, the
-    monitor server and the admin tool call the admin API through `KeycloakUtils.buildKeycloak`, and
-    the allow-list has to admit them.
-  - Block `/realms/CEDAR/clients-registrations/`. CEDAR registers no clients dynamically, and the
-    endpoint carries CVE-2026-1180, CVE-2026-9803 and CVE-2023-6544.
-  - Block the SAML protocol and identity-broker endpoints. CEDAR has no SAML client and no external
-    identity provider, and CVE-2026-2575 lets an unauthenticated caller exhaust the server's memory
-    through the SAML redirect binding regardless.
-  - Cap the request size on the token endpoint, and rate limit it and the login endpoints on the
-    terms item 10 sets for the edge. The cap stops CVE-2026-4634, a denial of service through an
-    oversized `scope` parameter, and the limit slows the parallel guessing CVE-2024-4629 describes.
-
-  Four changes belong in the realm and server configuration:
-
-  - Disable the features CEDAR does not use with `features-disabled`. They are `authorization`,
-    which no client enables and which carries seven UMA advisories, `par`, `ciba`,
-    `step-up-authentication`, and `web-authn` if production holds no WebAuthn credentials. Between
-    them they carry fourteen advisories.
-  - Remove the `http://` and `localhost` redirect URIs from the production clients, which closes
-    CVE-2024-8883. Replacing the wildcard redirect URIs with exact ones would cover six more
-    advisories, three of them high. `keycloak-js` returns the user to the page they started from,
-    though, so each application first needs a fixed callback that restores the deep link itself.
-  - Disable the password grant on the public browser clients `cedar-angular-app`,
-    `cedar-frontend-bridging` and `cedar-frontend-monitoring` in staging and production. The REST
-    smoke tier signs in through it, but only against a local stack.
-  - Turn on brute-force detection, which the seed leaves off, with a temporary lockout. A permanent
-    lockout would let anyone lock out a user whose username is an email address (CVE-2024-1722).
-    With the password grant closed as well, the token endpoint no longer accepts unlimited guesses.
-
-  Two changes belong in CEDAR's code:
-
-  - Turn off `checkLoginIframe` where every application initializes `keycloak-js`, then block the
-    login-status iframe at the edge, which closes CVE-2024-1249. The Template Editor leaves the
-    option at its default, which loads the iframe.
-  - Replace the adapter now. `TokenVerifier`, `RSATokenVerifier`, `JWKSUtils` and `JWKParser` are all
-    in `keycloak-core` 22.0.4, the version the services already ship, so the replacement described
-    above needs no server change. It retires the adapter's advisory and removes the one blocker,
-    which leaves the upgrade a server change and two theme templates.
-
-  Configuration cannot reach the rest. At least six high-severity advisories have no mitigation on
-  22: CVE-2026-4282, which lets an unauthenticated attacker forge authorization codes into
-  admin-capable tokens, CVE-2026-7507, CVE-2026-7571, CVE-2023-6291, CVE-2024-2419 and
-  CVE-2023-6841. They keep the upgrade itself urgent. Red Hat's subscription build carries fixes on
-  the 22 line through 22.0.13, and it is the only way to patch Keycloak without leaving that line.
+  - **Run one production-data migration check.** Upgrade an isolated copy of `cedar_keycloak`
+    directly from 22 to 26.8.2, preserving its database character set and collation and disabling
+    SMTP and live CEDAR callbacks before starting. Compare users, credentials, identity-provider
+    links and every user identifier, and have designated owners verify long-standing accounts.
+    Record migration duration and errors, then delete the protected rehearsal copy. Intermediate
+    release hops and a second production-data rehearsal are not required.
+  - **Pass staging acceptance.** Deploy the adapter-free services against 22 first, then the new
+    server, listener, theme and proxy configuration. Add nonce/session-state compatibility mappers
+    and exclude the authentication-response issuer on the three existing browser clients; restart
+    the services to discard cached pre-upgrade admin tokens. Follow the
+    [staging acceptance checks](./PROD-DEPLOY-RUNBOOK.md#staging-acceptance): exercise every frontend
+    in Chromium, Firefox and WebKit, including fresh and silent sign-in, logout, expired-session
+    recovery without losing edits, and the admin lookup. Check the public HTTPS issuer on browser
+    and internal tokens, unchanged login/registration screens, new-account provisioning and an
+    artifact save/reopen; record the exact builds and results before promoting them.
+  - **Cut over production with the original data retained.** Stop 22, copy its database into a new
+    schema and start 26 against that copy. Keep the original installation and schema untouched,
+    disable registration during acceptance and agree the backout criteria before the window. Pass
+    the [production acceptance checks](./PROD-DEPLOY-RUNBOOK.md#production-acceptance): compare account
+    counts and identifiers before new registrations, verify existing accounts through the public
+    frontends, check the admin lookup and listener callback, and save/reopen an acceptance artifact.
+    Require healthy microservices and valid TLS before reopening registration, then verify one
+    designated new account and its CEDAR home. Subsequent defects must be repaired on 26 because a
+    backout would orphan accounts already provisioned in CEDAR.
+  - **Deliver the matching image.** Build and exercise the pinned 26.8.2 Keycloak image with the
+    listener from the same captured Maven source, including both existing-realm migration and a
+    fresh seed import, before promoting it through the Docker delivery route.
 
 - **8. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-two repositories, so a commit can land there without ever reaching a
@@ -1035,8 +849,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   9.12.3 to 10.6.0, and the Neo4j test harness 5.3.0 to 2026.10.2.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 15 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 7's own, and RESTEasy 6.2.19 to 7.0.6 is held by the
-  Keycloak client stack, which item 7 owns.
+  their own. RESTEasy 6.2.19 to 7.0.6 needs a separate compatibility check against the Keycloak admin
+  client; the Keycloak server rollout in item 7 does not require that framework move.
 
   Maven 3.9.16 to 3.10.0 is a sweep rather than a version. Each of the 26 repositories carries its
   own wrapper, so the move is one change across all of them, gated on the full build and a train

@@ -1,10 +1,10 @@
 <#import "template.ftl" as layout>
-<@layout.registrationLayout displayInfo=social.displayInfo displayWide=(realm.password && social.providers??); section>
+<@layout.registrationLayout displayInfo=(realm.password && realm.registrationAllowed && !registrationDisabled??) displayWide=(realm.password && social.providers?has_content); section>
     <#if section = "header">
         ${msg("loginTitleHtml",(realm.displayNameHtml!''))}
     <#elseif section = "form">
-    <div id="kc-form" <#if realm.password && social.providers??>class="${properties.kcContentWrapperClass!}"</#if>>
-      <div id="kc-form-wrapper" <#if realm.password && social.providers??>class="${properties.kcFormSocialAccountContentClass!} ${properties.kcFormSocialAccountClass!}"</#if>>
+    <div id="kc-form" <#if realm.password && social.providers?has_content>class="${properties.kcContentWrapperClass!}"</#if>>
+      <div id="kc-form-wrapper" <#if realm.password && social.providers?has_content>class="${properties.kcFormSocialAccountContentClass!} ${properties.kcFormSocialAccountClass!}"</#if>>
         <#if realm.password>
             <form id="kc-form-login" onsubmit="login.disabled = true; return true;" action="${url.loginAction}" method="post">
                 <div class="${properties.kcFormGroupClass!}">
@@ -51,7 +51,7 @@
             </form>
         </#if>
         </div>
-        <#if realm.password && social.providers??>
+        <#if realm.password && social.providers?has_content>
             <div id="kc-social-providers" class="${properties.kcFormSocialAccountContentClass!} ${properties.kcFormSocialAccountClass!}">
                 <ul class="${properties.kcFormSocialAccountListClass!} <#if social.providers?size gt 4>${properties.kcFormSocialAccountDoubleListClass!}</#if>">
                     <#list social.providers as p>

@@ -58,6 +58,11 @@ def listener_violations(path, text):
         else (YAML_PORT,)
     )
     for pattern in patterns:
+        # This pure map-transform test intentionally supplies production ports and asserts that
+        # CedarTestBaseline replaces them with zero; it never uses the input map to start a server.
+        # Continue checking socket constructors and port constants in that file normally.
+        if pattern is ENVIRONMENT_PORT and path.name == "CedarTestBaselineTest.java":
+            continue
         for match in pattern.finditer(text):
             port = int(match.group("port"))
             # 0 asks the OS to allocate a listener. Port 1 is the explicit CEDAR
@@ -116,6 +121,13 @@ def backend_test_sources(repository):
 
 
 class BackendTestPortPolicyTest(unittest.TestCase):
+
+    def test_baseline_input_ports_are_data_but_socket_bindings_are_still_checked(self):
+        source = '"CEDAR_ARTIFACT_HTTP_PORT", "9001";\nnew InetSocketAddress("127.0.0.1", 9001);'
+        self.assertEqual([(2, "fixed port 9001")],
+                         listener_violations(Path("CedarTestBaselineTest.java"), source))
+        self.assertEqual([(1, "fixed port 9001"), (2, "fixed port 9001")],
+                         listener_violations(Path("ServerTest.java"), source))
 
     def test_backend_tests_do_not_bind_fixed_ports(self):
         present = [repository for repository in BACKEND_REPOSITORIES if repository.is_dir()]

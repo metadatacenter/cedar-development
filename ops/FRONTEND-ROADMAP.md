@@ -316,7 +316,7 @@ data images.
 
 Apart from the legacy Template Editor, whose npm dependencies are frozen, every frontend
 dependency is at its newest release except the ones below. Most of them wait on an upstream
-release, one waits on the Keycloak server, one is held by a design decision and one failed its
+release, one needs browser authentication integration, one is held by a design decision and one failed its
 trial. The figures were measured on 2026-11-25.
 
 **Waiting on upstream.**
@@ -381,17 +381,20 @@ trial. The figures were measured on 2026-11-25.
   under 4.14.1, so it leaves with the move, and any new finding goes in the
   [Accessibility](#accessibility) item.
 
-**Waiting on the Keycloak server.**
+**Retire the legacy Keycloak browser adapters.**
 
 - **keycloak-angular 22 and keycloak-js 26** in Bridging and Monitoring, and the adapter that
   Workspace, the Template Designer host and the legacy Template Editor load from
   `app/scripts/keycloak/`. The installed keycloak-angular 13.1.0 declares Angular 15 as its peer
   and is forced onto Angular 22 through `overrides`, the only override either application still
   carries. The other three load one identical copy of keycloak-js 21, committed in March 2023
-  outside npm, so neither `npm outdated` nor `npm audit` sees it. The adapter's major follows the
-  Keycloak server, so all of these move with "Upgrade Keycloak to a supported release" in
-  [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md). keycloak-angular 22 also changes how the adapter is
-  set up, so Bridging and Monitoring need code changes when it moves.
+  outside npm, so neither `npm outdated` nor `npm audit` sees it. Replace the vendored UMD integration
+  with the supported module build and update Bridging and Monitoring's initialization. Remove the
+  nonce/session-state compatibility mappers and `exclude.issuer.from.auth.response` from the realm
+  seeds and existing clients once every consumer handles the modern protocol, then verify silent
+  sign-in, login, logout and refresh in Chromium, Firefox and WebKit. The issuer-response exclusion
+  is deprecated in Keycloak 26.8.2 and must not become a permanent dependency. Coordinate its removal
+  with the server rollout in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 
 <a id="accessibility"></a>
 
