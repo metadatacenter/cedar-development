@@ -529,8 +529,7 @@ The frontend runbook links the retained evidence and the instrumented reproducti
   - OpenView: the dashboard, the artifact preview and the loading spinner.
 - For each, find the journey a user takes to it and add that state to the catalog and its
   collector, or record why no user reaches it. The standalone field designer,
-  `cedar-embeddable-field-designer`, renders in none of the four applications. CEE's
-  `app-component-prod` renders nowhere, and no module refers to it, so it is probably dead code.
+  `cedar-embeddable-field-designer`, renders in none of the four applications.
 
 ### 17. Capture Failure, Refusal and Loading States
 
