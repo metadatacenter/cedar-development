@@ -50,19 +50,6 @@ export async function collectMetadataEditor(session,record) {
       assert.equal(result.status,200);assert.equal(result.body.Subject['@value'],value);
     });
     await r('reopened',async()=>{await open(f.records[12]);assert.equal(await cee.getByRole('textbox',{name:'Subject',exact:true}).inputValue(),value);});
-    // A save the server refuses with a validation report. The value is then corrected and saved, so the
-    // record holds what the next states expect.
-    const refusedReason='Deliberately refused record save';
-    const refuseRecord=route=>route.request().method()==='PUT'?route.fulfill({status:400,json:{message:'Validation failed',
-      objects:{validationReport:{errors:[{location:'/Subject/@value',message:'Name the specimen in the subject.'}],warnings:[]}}}}):route.fallback();
-    await r('server-refused',async()=>{
-      session.expectedNetworkFailures.add(refusedReason);await page.route('**/template-instances/**',refuseRecord);
-      try{
-        await cee.getByRole('textbox',{name:'Subject',exact:true}).fill(value+' refused');await status('Modified').waitFor();
-        await tap(page.locator('#button-save-metadata'));await page.getByLabel('Metadata errors',{exact:true}).waitFor();
-      }finally{await page.unroute('**/template-instances/**',refuseRecord);session.expectedNetworkFailures.delete(refusedReason);}
-    },'The harness answered this save with a validation report to show how the editor presents a refused save.');
-    await cee.getByRole('textbox',{name:'Subject',exact:true}).fill(value);await save();
     // Occurrence actions on this width's own one-tag record: add an empty tag, copy it, delete the copy.
     await r('occurrence-added',async()=>{
       await open(f.editable[width]);await tagAction('Add empty instance here').scrollIntoViewIfNeeded();

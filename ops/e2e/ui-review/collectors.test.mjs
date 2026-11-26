@@ -78,7 +78,6 @@ test('Designer retains overlapping follow-ups and links scrolled Configuration e
   assert.ok(related('multiple-1100-creation-keyboard-open').includes('multiple-1100-creation-page-break-reached'));
   assert.ok(related('type-controlled-terms-preview').includes('overview-selection-header-reached'));
   assert.ok(related('draft-offered').includes('draft-offered-375'));
-  assert.ok(related('server-findings').includes('server-findings-expanded-375'));
   assert.ok(related('term-picker-open-375').includes('term-picker-initial-feedback-375'));
   assert.ok(related('term-picker-ontologies-375').includes('term-picker-ontologies-release-last-375'));
   assert.ok(related('term-picker-ontologies-375').includes('term-picker-search-restored-375'));

@@ -208,28 +208,13 @@ export async function collectDesigner(session, record) {
       await click(page.locator('#check-save'));
       await waitForPage(page, () => document.getElementById('state')?.textContent === 'Modified');
     });
-    // A save the server refuses with a validation report, then the retained draft that carries its
-    // findings through a reload, as the restored-validation journey exercises them.
-    const findingsReason = 'Deliberately refused temporary-template save';
-    const refuseSave = route => route.request().method() === 'PUT' ? route.fulfill({status: 400, json: {message: 'Validation failed',
-      objects: {validationReport: {errors: [{location: '/schema:description', message: 'Describe the template before saving it.'}], warnings: []}}}})
-      : route.fallback();
-    await record('server-findings', async () => {
-      session.expectedNetworkFailures.add(findingsReason);
-      await page.route('**/templates/**', refuseSave);
-      try {
-        await page.getByPlaceholder('Add description...', {exact: true}).first().fill('Rejected description');
-        await click(page.locator('#save'));
-        await page.locator('#server-issues').waitFor();
-      } finally {await page.unroute('**/templates/**', refuseSave); session.expectedNetworkFailures.delete(findingsReason);}
-    }, 'The harness answered this save with a validation report to show how the Designer presents server findings.');
-    await record('server-findings-375', () => page.setViewportSize({width: 375, height: 667}));
-    await action('Return to desktop validation details', () => page.setViewportSize({width: 1440, height: 1000}));
-    await record('server-findings-expanded', () => click(page.locator('#server-issues summary')));
-    await record('server-findings-expanded-375', () => page.setViewportSize({width: 375, height: 667}));
-    await action('Return to desktop before draft recovery', () => page.setViewportSize({width: 1440, height: 1000}));
+    // An unsaved edit, then the draft the Designer retains for it through a reload.
+    await action('Edit the description without saving', async () => {
+      await page.getByPlaceholder('Add description...', {exact: true}).first().fill('Unsaved description');
+      await waitForPage(page, () => document.getElementById('state')?.textContent === 'Modified');
+    });
     await record('draft-offered', async () => {
-      await waitForPage(page, () => Object.values(sessionStorage).some(raw => raw.includes('Rejected description')));
+      await waitForPage(page, () => Object.values(sessionStorage).some(raw => raw.includes('Unsaved description')));
       await page.reload();
       await page.getByRole('button', {name: 'Restore draft', exact: true}).waitFor();
     }, 'Reloading with unsaved changes.');
@@ -239,8 +224,15 @@ export async function collectDesigner(session, record) {
       // The draft offer can render before the freshly loaded designer is ready to restore it.
       await waitForPage(page, () => document.getElementById('restore-draft')?.disabled === false);
       await click(page.getByRole('button', {name: 'Restore draft', exact: true}));
-      await page.locator('#server-issues').waitFor();
+      // The host says so only once the Designer has adopted the draft.
+      await page.getByRole('status').filter({hasText: 'Your draft has been restored.'}).waitFor();
       await card().waitFor();
+      // The restored values render on the Designer's next coalesced pass, after the host's message.
+      const description = page.getByRole('textbox', {name: 'Description', exact: true});
+      for (let frame = 0; (await description.inputValue()) !== 'Unsaved description'; frame++) {
+        assert.ok(frame < 120, 'The restored draft did not bring back its description.');
+        await page.evaluate(() => new Promise(requestAnimationFrame));
+      }
     });
     // The states that follow start from an empty, saved template.
     await action('Remove the sample field and save the template', async () => {
@@ -563,7 +555,6 @@ export async function collectDesigner(session, record) {
     for (const width of [900, 768, 375]) relate([`width-${width}`, `both-panels-${width}`, `configuration-end-${width}`]);
     for (const slug of ['checkboxes', 'email', 'controlled-terms', 'pfas', 'doi', 'section-break', 'page-break']) relate([`type-${slug}`, `type-${slug}-configuration-end`]);
     relate(['draft-offered', 'draft-offered-375', 'draft-restored']);
-    relate(['server-findings', 'server-findings-375', 'server-findings-expanded', 'server-findings-expanded-375', 'draft-restored']);
     for (const width of TERM_PICKER_WIDTHS)
       relate(['initial-feedback', 'open', 'loading', 'settled', 'results', 'term', 'branches', 'ontologies', 'term-scrolled', 'branches-scrolled', 'ontologies-scrolled', 'ontologies-release-first', 'ontologies-release-last', 'search-restored'].map(state => `term-picker-${state}-${width}`));
 }

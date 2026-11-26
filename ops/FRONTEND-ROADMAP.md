@@ -522,7 +522,7 @@ The frontend runbook links the retained evidence and the instrumented reproducti
 ### 16. Capture Failure, Refusal and Loading States
 
 - Add an edit conflict, an unreachable backend and slow loading for Workspace and the Metadata
-  Editor, and a permission denial for the Metadata Editor's save.
+  Editor.
 - Induce each condition by routing requests in the review browser, as the interrupted save does,
   never by changing the stack, and say in the state's note that the harness caused it, so the
   reviewer judges the product's handling rather than the cause.

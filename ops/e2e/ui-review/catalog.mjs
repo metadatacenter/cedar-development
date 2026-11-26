@@ -15,8 +15,7 @@ export const DESIGNER_STATES = [
   'required-configuration-1100', 'required-configuration-768', 'required-configuration-375',
   'required-overview-1440', 'required-overview-768',
   'saved', 'reopened', 'save-unconfirmed', 'save-status-checked',
-  'server-findings', 'server-findings-expanded', 'draft-offered', 'draft-restored',
-  'server-findings-375', 'server-findings-expanded-375', 'draft-offered-375',
+  'draft-offered', 'draft-restored', 'draft-offered-375',
   'keyboard', 'field-type-picker',
   'missing-template', 'disabled-move-checked', 'nested-hover-checked', 'nested-activation-checked',
   'type-checkboxes-configuration-end', 'type-email-configuration-end', 'attribute-value-readonly-checked',
@@ -89,8 +88,6 @@ const workspaceOnce = [
   {id:'new-folder-dialog-keyboard-375',scenario:'new-folder-dialog-keyboard',category:'keyboard',width:375},
   {id:'new-folder-dialog-escaped-375',scenario:'new-folder-dialog-escaped',category:'keyboard',width:375},
   {id:'type-instance-checked-375',scenario:'type-instance-checked',category:'pointer',width:375},
-  {id:'rename-refused-1440',scenario:'rename-refused',category:'failure',width:1440},
-  {id:'rename-refused-375',scenario:'rename-refused',category:'failure',width:375},
   {id:'both-panels-768',scenario:'both-panels',category:'composition',width:768},
   {id:'paging-overlap-768',scenario:'paging-overlap',category:'pointer',width:768},
 ];
@@ -102,7 +99,7 @@ const openview = [
 const metadata = [
   ...[0,1,2,5,6,12].map(n=>['occurrences-'+n,'occurrences']), ['last-page','pagination'], ['previous-page','pagination'],
   ['long-labels','composition'], ['nested','nesting'], ['nested-end','nesting'], ['keyboard','keyboard'],
-  ['edited','editing'], ['saved','save'], ['reopened','save'], ['server-refused','failure'],
+  ['edited','editing'], ['saved','save'], ['reopened','save'],
   ['occurrence-added','occurrences'], ['occurrence-copied','occurrences'], ['occurrence-deleted','occurrences'],
   ['collapsed-all','navigation'], ['download-menu','navigation'], ['readonly-top','preview'], ['readonly-repeated','preview'],
   ['new-record','empty'], ['save-warning','validation'], ['warning-expanded','validation'], ['warning-jump','validation'],

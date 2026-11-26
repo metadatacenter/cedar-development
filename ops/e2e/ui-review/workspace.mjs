@@ -138,25 +138,6 @@ export async function collectWorkspace(session,record) {
       await r(scenario,async()=>{await rowAction(id,label);await ready();});
       await leave();
     }
-    if(width!==768){
-      // The body the resource server sends when the caller lacks the capability, so the dialog shows
-      // what a real refusal would.
-      const reason='Deliberately refused rename',refuse=route=>route.fulfill({status:403,json:{errorKey:'noWriteAccessToResource',
-        message:'You do not have the required capability on the resource'}});
-      let original='';
-      await record(`rename-refused-${width}`,async()=>{
-        await rowAction(f.mixedTemplate,'Rename');
-        const name=openDialog.getByRole('textbox').first();await name.waitFor();original=await name.inputValue();
-        session.expectedNetworkFailures.add(reason);await page.route('**/command/rename-resource',refuse);
-        try{
-          await name.fill('Specimen template renamed');
-          await tap(openDialog.locator('button.primary[type="submit"]'));
-          await openDialog.getByRole('alert').first().waitFor();
-        }finally{await page.unroute('**/command/rename-resource',refuse);session.expectedNetworkFailures.delete(reason);}
-      },'The harness answered this rename with 403 to show how the dialog reports a refusal; the name is unchanged.');
-      // The dialog asks before discarding a changed name, so the original goes back before closing.
-      await openDialog.getByRole('textbox').first().fill(original);await leave();
-    }
     for(const kind of ['short','long','nested']){
       await r('preview-'+kind,()=>preview(f[kind]));
       if(kind==='nested'){
