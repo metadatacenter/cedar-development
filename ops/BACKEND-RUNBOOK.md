@@ -2801,6 +2801,9 @@ the bytes on the wire did not move. Never add a JAX-RS method parameter merely t
 see a body, and keep open JSON-LD artifacts open with `additionalProperties: true` rather than publishing
 a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
 request and response schemas in resource, artifact, group, messaging, and worker server CI.
+`cedarcli check openapi` also checks that every URL placeholder has a required path parameter and
+that every declared path parameter occurs in the URL. It resolves shared parameter references and
+operation overrides, so a phantom argument cannot silently enter a generated client.
 
 ### REST Naming Convention
 
@@ -2839,8 +2842,11 @@ resources or start a job, such as copying, moving and reindexing, and each is a 
 under `/command`.
 
 The rest of a route's shape is fixed as follows:
-- An identifier in a path is the bare UUID or the full IRI, percent-encoded as one segment, and both
-  resolve to the same resource.
+- Artifact and folder paths accept the bare UUID or the full IRI, percent-encoded as one segment,
+  and both resolve to the same resource. Category and group paths currently require the full stored
+  IRI: their handlers do not normalize UUIDs. The backend roadmap tracks closing this gap; clients
+  must not strip those identifiers to UUIDs in the meantime. User routes accept their Keycloak UUID
+  and the caller alias `me`; terminology routes use the identifier named by their parameter.
 - A listing pages by `limit`, from 1 to 500 with a default of 100, and `offset`, with a default of
   0, and refuses `page`, `pageSize` and `page_size`. A listing that grows while it is read may page by
   `cursor` instead. A limit out of range is refused, never adjusted.
