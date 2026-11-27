@@ -13,16 +13,20 @@ function errorMetadata(value) {
   return Object.keys(row).length?row:null;
 }
 export function browserDiagnostics(page,actions) {
-  const networkFailures=[],pending=new Set();
+  const networkFailures=[],navigations=[],pageErrors=[],pending=new Set();
   const context=()=>({at:new Date().toISOString(),actionCount:actions.length,
     lastAction:actions.at(-1)?.label??null,document:diagnosticUrl(page.url())});
+  page.on('framenavigated',frame=>{
+    if(frame===page.mainFrame())navigations.push({...context(),url:diagnosticUrl(frame.url())});
+  });
+  page.on('pageerror',error=>pageErrors.push({...context(),name:error.name,message:error.message}));
   page.on('requestfailed',request=>networkFailures.push({...context(),kind:'transport',
     method:request.method(),url:diagnosticUrl(request.url()),error:request.failure()?.errorText??null}));
   page.on('response',response=>{
     if(response.status()>=400)networkFailures.push({...context(),kind:'http',
       method:response.request().method(),url:diagnosticUrl(response.url()),status:response.status()});
   });
-  return {networkFailures,context,
+  return {networkFailures,navigations,pageErrors,context,
     enrich(message,row){
       const location=message.location();
       row.source={url:diagnosticUrl(location.url),line:location.lineNumber,column:location.columnNumber};

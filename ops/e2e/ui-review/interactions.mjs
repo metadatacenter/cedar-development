@@ -8,9 +8,17 @@ import {TEXT_SIZE_WIDTHS} from './catalog.mjs';
 // waitForFunction's thenable before its predicate is true.
 export async function waitForPage(page, predicate, argument, {timeout = 30000, interval = 50} = {}) {
   const deadline = Date.now() + timeout;
+  let navigationError;
   for (;;) {
-    if (await page.evaluate(predicate, argument)) return;
-    if (Date.now() >= deadline) throw new Error('Page condition did not become true within ' + timeout + 'ms');
+    try {if (await page.evaluate(predicate, argument)) return;}
+    catch (error) {
+      // A navigation can replace the document between goto and this read. Only retry the read,
+      // within its original deadline; closed pages and predicate errors must still fail immediately.
+      if (!/Execution context was destroyed, most likely because of a navigation/.test(error.message)) throw error;
+      navigationError = error;
+    }
+    if (Date.now() >= deadline) throw new Error('Page condition did not become true within ' + timeout + 'ms',
+      navigationError ? {cause: navigationError} : undefined);
     await new Promise(resolve => setTimeout(resolve, Math.min(interval, deadline - Date.now())));
   }
 }

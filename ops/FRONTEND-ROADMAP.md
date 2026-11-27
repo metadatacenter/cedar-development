@@ -541,21 +541,23 @@ The frontend runbook links the complete calibrated Designer review and focused f
 - Extend state-specific visibility checks to remaining captures where an image could omit its intended
   subject. Verify the actual named target and retain diagnostic evidence when it is
   absent; screenshot existence alone does not establish the intended state was reached.
-- Diagnose the isolated Designer touch navigation-context loss while checking the missing-template
-  screen in `workflow-import-touch-20261127`. The final replacement passes; retain the failed
-  evidence and distinguish a stable readiness condition from merely retrying a failed capture.
-- Diagnose Chromium's intermittent `Page.captureScreenshot: Unable to capture screenshot` during
-  calibration generation, which uses Chromium even for touch packets. The November 27 `state-coverage-touch-20261127/workspace`
-  packet completed all required state captures and cleanup before calibration failed. Preserve that
-  packet and distinguish complete state evidence from a packet ready for independent review; a
-  successful recapture does not explain the protocol failure.
-- Diagnose the isolated controlled-term lookup failure in the November 26 packet
-  `rich-states-metadata-touch-20261126-b`: `terminology lookup failed for "null"` followed by a
-  minified error. The logged null is the empty control value; the search sends an empty string.
-  Six pending-search/navigation cancellation probes completed without that error,
-  so cancellation alone does not explain it. Use the timestamped console/error-object and network
-  diagnostics in further captures to identify the failed request before changing CEE or suppressing
-  the message. Preserve the original packet.
+- Identify Chromium's underlying compositor failure if `Page.captureScreenshot: Unable to capture
+  screenshot` recurs. Correlate the retained first-error/recovery timestamps and browser version
+  with host resource pressure; a recovered screenshot does not establish the native cause.
+  Preserve the original `state-coverage-touch-20261127/workspace` evidence and any new operator
+  diagnostics outside reviewer packets.
+- Diagnose the uncaught WebKit `/templates/.../report due to access control checks` errors in
+  `capture-reliability-touch-20261127/metadata-editor` and its focused
+  `capture-reliability-metadata-touch-20261127` recheck. The recheck places all four on the dashboard
+  5 ms before departure into the next editing journey. Determine why the existing background-
+  enrichment cancellation guard still permits those errors; preserve both incomplete packets and
+  do not suppress them based on a successful earlier capture.
+- Handle navigation-cancelled CEE terminology lookups without spurious failure logging, while
+  retaining real request failures. The focused November 27 Metadata Editor touch recheck records
+  a cancelled `POST /bioportal/integrated-search` followed 1–2 ms later by the `null` lookup error
+  and HTTP status 0 after `rich-term-cleared-375`. Reproduce that teardown boundary and verify
+  cancellation ownership before changing CEE; the six earlier cancellation probes did not
+  reproduce the November 26 failure. Preserve both the original and the new diagnostic evidence.
 - Add semantic change selection for review prioritization. Raw image-byte changes include dynamic
   fixture text and do not establish meaningful layout changes. Any assessment reuse must identify
   the exact evidence, reviewer/model and prompt version, and keep unreviewed states explicit.

@@ -1,3 +1,4 @@
+import {calibrationScreenshot} from './calibration-screenshot.mjs';
 import {hash} from './contract.mjs';
 import {mkdir, writeFile, readFile, access} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -82,7 +83,7 @@ export function drawCases(random = randomInt) {
   }
 }
 
-async function captureOcclusion(browser, directory, item, t) {
+async function captureOcclusion(browser, directory, item, t, options) {
   const page = await browser.newPage({viewport: {width: 1000, height: 700}});
   try {
     await page.setContent(`<!doctype html><meta charset="utf-8"><style>
@@ -113,7 +114,7 @@ async function captureOcclusion(browser, directory, item, t) {
     });
     assert.equal(target.receivesPointer, !item.broken, 'Occlusion calibration must prove its pointer-target premise');
     const images = [`${item.id}-before.png`, `${item.id}-after.png`];
-    await page.screenshot({path: join(directory, images[0])});
+    await calibrationScreenshot(page, join(directory, images[0]), options);
     // A locator click may scroll away the overlap, hiding the ordinary pointer failure.
     await page.mouse.click(target.x, target.y);
     assert.equal(await page.locator('#status').textContent(), item.broken ? 'Page 1 selected.' : 'Page 2 selected.');
@@ -128,13 +129,13 @@ async function captureOcclusion(browser, directory, item, t) {
       });
       assert(readable, 'Unobscured action control must also show a complete result after paging');
     }
-    await page.screenshot({path: join(directory, images[1])});
+    await calibrationScreenshot(page, join(directory, images[1]), options);
     return {id: item.id, images, actions: ['Scrolled the record pane, then clicked the center of Next without further scrolling.'],
       pointerTarget: target, accessibility: await page.locator('body').ariaSnapshot()};
   } finally {await page.close();}
 }
 
-async function captureForm(browser, directory, item, t) {
+async function captureForm(browser, directory, item, t, options) {
   // setContent does not reset a page's JavaScript global lexical scope. Give every case its own
   // document so repeated declarations cannot silently disable handlers.
   const page = await browser.newPage({viewport: {width: 1000, height: 700}});
@@ -161,7 +162,7 @@ async function captureForm(browser, directory, item, t) {
       </script>`);
     await page.evaluate(() => document.fonts.ready);
     const images = [];
-    const shot = async suffix => {const name = `${item.id}-${suffix}.png`; await page.screenshot({path: join(directory, name)}); images.push(name);};
+    const shot = async suffix => {const name = `${item.id}-${suffix}.png`; await calibrationScreenshot(page, join(directory, name), options); images.push(name);};
     await shot('before');
     const actions = [];
     if (panel) {
@@ -200,11 +201,11 @@ async function captureForm(browser, directory, item, t) {
   } finally {await page.close();}
 }
 
-export async function captureCase(browser, directory, item) {
+export async function captureCase(browser, directory, item, options = {}) {
   const theme = THEMES[item.theme];
-  if (item.family === 'composition') return captureComposition(browser, directory, item, theme);
-  if (item.kind === 'occlusion') return captureOcclusion(browser, directory, item, theme);
-  return captureForm(browser, directory, item, theme);
+  if (item.family === 'composition') return captureComposition(browser, directory, item, theme, options);
+  if (item.kind === 'occlusion') return captureOcclusion(browser, directory, item, theme, options);
+  return captureForm(browser, directory, item, theme, options);
 }
 
 // The answer key lives outside every packet, so a reviewer given the packet directory never holds it.
@@ -218,9 +219,21 @@ const keyPath = (keys, packet) => join(keys, hash(packet) + '.json');
 export async function captureCalibration(directory, {keys = keyDirectory(), cases = drawCases()} = {}) {
   await mkdir(directory, {recursive: false});
   const browser = await chromium.launch();
-  const packet = [];
+  const packet = [], events = [];
+  // Keep operator diagnostics beside the concealed keys, outside the evidence a reviewer reads.
+  const onEvent = async event => {
+    events.push({at: new Date().toISOString(), ...event});
+    const diagnostics = join(keys, 'diagnostics');
+    await mkdir(diagnostics, {recursive: true});
+    await writeFile(join(diagnostics, hash(directory) + '.json'), JSON.stringify({
+      directory, browser: browser.version(), events,
+    }, null, 2) + '\n');
+  };
   try {
-    for (const item of cases) packet.push(await captureCase(browser, directory, item));
+    for (const item of cases) packet.push(await captureCase(browser, directory, item, {onEvent}));
+  } catch (error) {
+    await onEvent({outcome: 'calibration-failed', error: error.message});
+    throw error;
   } finally {await browser.close();}
   // The images are what the reviewer judges, so the packet, and through it the key, carries their digests.
   for (const entry of packet)

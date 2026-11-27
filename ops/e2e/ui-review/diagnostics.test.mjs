@@ -2,6 +2,34 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {browserDiagnostics,diagnosticUrl} from './diagnostics.mjs';
 
+test('uncaught page errors retain their time, action and document for navigation correlation', () => {
+  const handlers = {}, actions = [{label: 'Open metadata'}];
+  const diagnostics = browserDiagnostics({url: () => 'https://workspace.example.orgx/edit?private=value',
+    on: (event, fn) => handlers[event] = fn}, actions);
+  handlers.pageerror(new Error('Report request failed'));
+  actions.push({label: 'Next screen'});
+  assert.equal(diagnostics.pageErrors.length, 1);
+  const error = diagnostics.pageErrors[0];
+  assert.equal(error.lastAction, 'Open metadata');
+  assert.equal(error.document, 'https://workspace.example.orgx/edit');
+  assert.equal(error.message, 'Report request failed');
+  assert.equal(error.name, 'Error');
+  assert(Number.isFinite(Date.parse(error.at)));
+});
+
+test('main document navigations retain their action without URL credentials or query strings', () => {
+  const handlers = {}, actions = [{label: 'Open missing template'}];
+  const frame = {url: () => 'https://user:secret@designer.example.orgx/edit?token=secret#private'};
+  const page = {url: frame.url, mainFrame: () => frame, on: (event, fn) => handlers[event] = fn};
+  const diagnostics = browserDiagnostics(page, actions);
+  handlers.framenavigated({url: () => 'https://subframe.example.orgx/'});
+  handlers.framenavigated(frame);
+  assert.equal(diagnostics.navigations.length, 1);
+  assert.equal(diagnostics.navigations[0].lastAction, 'Open missing template');
+  assert.equal(diagnostics.navigations[0].url, 'https://designer.example.orgx/edit');
+  assert(!JSON.stringify(diagnostics.navigations).includes('secret'));
+});
+
 test('browser failures retain action and HTTP context without credentials, query strings or bodies',async()=>{
   const handlers={},actions=[{label:'Clear controlled term'}];
   const url='https://user:secret@resource.example.orgx/search?token=secret#private';

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
+import {calibrationScreenshot} from './calibration-screenshot.mjs';
 
 // Composition probes. Each renders either a concern or an acceptable control, in one of several
 // variants; the draw records which in the answer key, never in the reviewer packet.
@@ -10,7 +11,7 @@ export const COMPOSITION_PROBES = [
   {kind: 'row', broken: ['misaligned-row-controls'], control: ['aligned-row-controls']},
 ];
 
-async function captureRow(page, directory, item, t) {
+async function captureRow(page, directory, item, t, options) {
   await page.setContent(`<!doctype html><meta charset="utf-8"><style>
     *{box-sizing:border-box}body{font:18px system-ui;color:#173e3c;margin:40px}
     main{width:900px;border:1px solid #c2cece;padding:24px}.row{display:flex;align-items:center;gap:16px}
@@ -26,15 +27,15 @@ async function captureRow(page, directory, item, t) {
   assert.equal(Math.round(Math.abs(geometry[0].centerY - geometry[1].centerY)), item.broken ? 12 : 0,
     `${item.category}: intended alignment changed`);
   const file = `${item.id}-screen.png`;
-  await page.screenshot({path: join(directory, file)});
+  await calibrationScreenshot(page, join(directory, file), options);
   return {id: item.id, images: [file], actions: [`Inspected the displayed ${t.rowTitle.toLowerCase()} without editing.`], geometry,
     accessibility: await page.locator('body').ariaSnapshot()};
 }
 
-export async function captureComposition(browser, directory, item, t) {
+export async function captureComposition(browser, directory, item, t, options = {}) {
   const page = await browser.newPage({viewport: {width: 1000, height: 700}});
   try {
-    if (item.kind === 'row') return await captureRow(page, directory, item, t);
+    if (item.kind === 'row') return await captureRow(page, directory, item, t, options);
     const variant = item.category;
     const heading = item.kind === 'identity';
     const long = variant === 'long-identity-needs-wrap';
@@ -98,7 +99,7 @@ export async function captureComposition(browser, directory, item, t) {
       }
     }
     const file = `${item.id}-screen.png`;
-    await page.screenshot({path: join(directory, file)});
+    await calibrationScreenshot(page, join(directory, file), options);
     return {id: item.id, images: [file], actions: [`Inspected the displayed ${t.settings.toLowerCase()} without editing.`],
       geometry, accessibility: await page.locator('body').ariaSnapshot()};
   } finally {await page.close();}

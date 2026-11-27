@@ -50,7 +50,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
   let checkpoint=Promise.resolve();
   const flush=()=>{const content=JSON.stringify({schemaVersion:1,app,startedAt,actions,states,
     originalPreferences:ledger?.preferences,fixtures:ledger?.fixtures??[],groupFixtures:groups?.items??[],cleanup:ledger?.cleanup??[],preferencesRestored:ledger?.preferencesRestored,
-    runtimeErrors,cleanupErrors,consoleMessages,networkFailures:diagnostics?.networkFailures??[]},null,2)+'\n';
+    runtimeErrors,cleanupErrors,consoleMessages,networkFailures:diagnostics?.networkFailures??[],navigations:diagnostics?.navigations??[],pageErrors:diagnostics?.pageErrors??[]},null,2)+'\n';
     checkpoint=checkpoint.catch(()=>{}).then(async()=>{await writeFile(join(directory,'session.json.tmp'),content);await rename(join(directory,'session.json.tmp'),join(directory,'session.json'));});
     return checkpoint;
   };

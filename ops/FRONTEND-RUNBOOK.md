@@ -2673,14 +2673,16 @@ remain available, and a new finding still requires inspection in its actual layo
 The latest complete 27 November coverage is **827/827 Chromium and 816/816 touch states**.
 Under `$CEDAR_HOME/.cedar/reports/ui-review/`, use these exact packets:
 
-- Chromium: `workflow-coverage-mouse-20261127/` for Designer and Workspace;
-  `automatic/20261127T092038Z-98e13897/` for Field Designer and Metadata Editor;
-  `state-coverage-openview-verified-20261127/` for OpenView.
-- Touch: `workflow-coverage-touch-20261127/` for Designer and Workspace;
-  `state-coverage-touch-20261127/` for Field Designer, Metadata Editor and OpenView.
+- Chromium: `automatic/20261127T182613Z-ccec56fd/` for all five applications.
+- Touch: `capture-reliability-touch-20261127/` for Designer, Field Designer, Workspace and OpenView;
+  `state-coverage-touch-20261127/metadata-editor` for the retained clean Metadata Editor packet.
 
-All ten packets have current source/served evidence, every required state, verified file hashes,
-and no runtime or cleanup errors. Workspace retains one supplemental paging image per profile,
+All ten selected packets have every required state, verified file hashes, and no runtime or cleanup
+errors. Nine were freshly captured against the current build. The retained Metadata Editor touch
+packet has exactly the same served asset digests as the current deployment; the comparison is in
+`$CEDAR_HOME/.cedar/reports/capture-reliability-20261127/metadata-touch-served-comparison.json`.
+Two fresh Metadata Editor attempts are retained as incomplete, as described below.
+Workspace retains one supplemental paging image per profile,
 so the board shows 828 mouse and 817 touch images; supplemental images do not increase the
 required-state counts. The workflow expansion adds 36 required states per profile: four import
 search failure/recovery states, eighteen group-administration states, two ownership confirmations
@@ -2689,7 +2691,8 @@ draft changes use real backend writes and readback; their temporary fixtures are
 verified absent. The final phone member screenshots dismiss the existing success notification
 before capture so it cannot cover the changed member controls.
 
-Workspace has no automatic findings in either profile. Those pre-fix Designer packets have one
+Workspace and Designer have no automatic findings in either selected profile. The preceding
+`workflow-coverage-{mouse,touch}-20261127/designer` packets had one
 `scrollable-region-focusable` group per profile, affecting the empty selected-items table in the
 phone import failure and recovery screens. The keyboard fix and its replacement evidence are
 described below; the original findings remain in their frozen packets. Metadata Editor retains
@@ -2698,10 +2701,10 @@ OpenView have none. The two PFAS targets additionally grouped in the touch clear
 each 36 × 36 pixels, partly under the sticky warnings bar with 7.5 pixels exposed. Their comparison
 remains in `$CEDAR_HOME/.cedar/reports/state-coverage-20261127/touch-target-size-comparison.json`.
 
-`$CEDAR_HOME/.cedar/reports/workflow-coverage-20261127/` holds `final-evidence-audit.json`,
+`$CEDAR_HOME/.cedar/reports/capture-reliability-20261127/` holds `final-evidence-audit.json`,
 `component-coverage.json`, `reviewer-preparation.json` and the board screenshots. All ten packets
 pass independent-review preparation, including their 16 calibration cases; this is not an LLM
-assessment. Plans are retained under `ui-review-coordinator/workflow-coverage-20261127/`.
+assessment. Plans are retained under `ui-review-coordinator/capture-reliability-20261127/`.
 The board selects the complete replacement packets. Earlier diagnostic packets remain retained:
 import recovery initially captured before the search settled, and an empty-results assumption was
 incorrect; the final collector waits for a successful search response and rendered result rows.
@@ -2712,6 +2715,20 @@ Chromium calibration screenshot generation despite capturing its application sta
 complete replacements above. These reliability failures remain distinguishable from completed
 state evidence. The new packets await independent human/LLM assessment.
 
+The fresh `capture-reliability-touch-20261127/metadata-editor` packet and the focused
+`capture-reliability-metadata-touch-20261127` recheck captured all 231 states and completed
+calibration/cleanup, but both remain incomplete because WebKit emitted four uncaught report-fetch
+access-control errors. The timestamped recheck places them on Workspace's dashboard 5 ms before
+navigation into the next editing journey, after confirming departure at 1440px and before the
+375px draft-restoration journey. It also reproduces the previously tracked terminology error:
+a cancelled `POST /bioportal/integrated-search` at 19:03:00.380 UTC is followed 1–2 ms later by
+CEE's `terminology lookup failed for "null"` and an HTTP status-0 error, immediately after the phone
+cleared-term capture. This is retained evidence for follow-up, not a suppressed error or a claim
+that navigation teardown is fixed. Both diagnostic packets have 12 target-size groups; their
+cleared-term state reports the RRID link and Clear button with 36 × 16.5 pixels exposed, rather than
+the earlier packet's clipped PFAS pair. The board keeps the clean, byte-identical baseline and
+retains the incomplete attempts for diagnosis.
+
 The import selected-items region is now keyboard-focusable when empty or saving, and arrow keys
 scroll the focused region in Safari as well as Chromium and Firefox. Populated selections retain
 the existing row controls without an extra region Tab stop. Arrow-key reordering retains focus
@@ -2721,24 +2738,44 @@ as did framework consumers, deployment, served-bundle verification and whole-sta
 `ccec56fdbefd2d9c716048a0c9121b27c003b26c8b44a93c16426ee8eed73654`.
 Its CED package identity is `740a9b9c7450b345e3dcced3aee576b5055081e7213f36760d709a125e49c60d`.
 The replacement Chromium Designer packet is `automatic/20261127T182613Z-ccec56fd/designer`:
-198/198 states, zero automatic findings, and all four import failure/recovery screenshots are
-pixel-identical to their pre-fix counterparts. The added keyboard regression covers empty,
+198/198 states and zero automatic findings. The deployed keyboard probe under
+`import-keyboard-fixed-20261127/{chromium,webkit-touch}` verifies focus and actual horizontal
+scrolling, with no runtime or cleanup errors. All eight normal import failure/recovery screenshots
+are pixel-identical to their pre-fix counterparts (`pixel-comparison.json` beside those profiles). The added keyboard regression covers empty,
 populated, reordered and emptied selections in all three browser engines. The phone heading's
 axe contrast uncertainty is settled by live contrast measurement and character-level visibility
 checks; deliberate low contrast and partial occlusion still fail the gate.
 
-The complete frontend reactor, applicable consumer gates, served-bundle verification and
-whole-stack smoke passed on build
-`98e1389753927912dba1e9b901e9f26e7715729210232ca36780f687e9e36b71`.
-The timing report is `.cedar/build-reports/frontend-runs/20261127T093811Z-904cb8f3.json`.
-Its Designer artifact is `8b283d679526fc1a6b6162bda139a86d1919b95e762d4dace51736f89bb59ccb`;
-the unsaved root-element identity stays separate from its stable export identity, so opening
-Version before the first save no longer requests nonexistent repository history. The new element
-captures verify save/backend readback/reopen at both widths without changing the normal design.
-Designer passed 17,130 unit tests, 25 visual checks and 3,507 browser cases; the capture harness
-passed all 84 tests. CEE's standalone bundle remains
-`5e882b91d6d67025eba5e1f7ebce168e42db4f6e30eb8ffb2d79544b9977dc13`, matching the earlier
-pixel-comparison evidence for the read-only target-size fixes.
+Readiness polling stays in Node so Angular's patched promises cannot report a false ready state.
+If navigation destroys the evaluated document, the next read checks the replacement document
+within the original deadline; predicate errors and closed pages still fail immediately. Session
+records include main-frame navigation and uncaught-page-error timestamps with the current action;
+recorded document/navigation URLs have credentials, queries and fragments removed. Browser regressions deliberately destroy the context in Chromium,
+Firefox and WebKit, then prove the helper waits for the destination's actual readiness condition.
+
+Calibration screenshots wait for fonts and two rendered frames. Only Chromium's specific
+`Page.captureScreenshot: Unable to capture screenshot` error gets one further screenshot attempt,
+on the same page after another paint check. No action or calibration case is replayed. Changed
+DOM, input values, selected options, geometry, focus or scroll state prevents that retry. Readiness has a
+5-second deadline and each screenshot a 10-second deadline. The first failure and recovery or
+final failure are retained in `$CEDAR_HOME/.cedar/ui-review-keys/diagnostics/`, keyed by the SHA-256
+of the absolute calibration directory and carrying its path and browser version. They stay outside
+the reviewer packet, alongside the concealed keys. A successful retry does not establish the
+underlying native Chromium cause.
+
+Before calibration starts, `capture.json` carries a pending calibration blocker; failure leaves an
+explicit failed blocker while preserving all captured application states. Only completed calibration
+removes that blocker. The board therefore cannot treat an interrupted or failed calibration as a
+complete packet. The coverage report, HTML index and reviewer brief are republished with the final
+capture digest. All 100 capture-harness tests pass, including injected screenshot failures, no-action-
+replay and changed-state guards, persistent operator diagnostics, and pending/failed packet status.
+
+The reactor timing report is
+`.cedar/build-reports/frontend-runs/20261127T184303Z-0fc5f472.json`: the full command took
+2,581.7 seconds, including 1,011.6 seconds of automatic review capture. The root-element captures
+also verify save/backend readback/reopen at both widths. An unsaved root element keeps its local
+identity separate from its stable export identity, so opening Version before the first save does
+not request nonexistent repository history.
 
 Each Chromium count includes two text-size states per application, at 1440 and 375 pixels, which
 every collector records last. They set Chromium's default text size to 32 pixels, twice the usual

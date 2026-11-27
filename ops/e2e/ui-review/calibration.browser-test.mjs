@@ -7,6 +7,38 @@ import {chromium} from 'playwright';
 import {captureCase, captureCalibration, BEHAVIOR_PROBES, THEMES} from './calibration.mjs';
 import {COMPOSITION_PROBES} from './composition-calibration.mjs';
 
+test('a recovered screenshot retains operator diagnostics outside the concealed reviewer packet', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ui-review-calibration-recovery-'));
+  const originalLaunch = chromium.launch;
+  t.after(async () => {chromium.launch = originalLaunch; await rm(root, {recursive: true, force: true});});
+  let shots = 0;
+  chromium.launch = async function (options) {
+    const browser = await originalLaunch.call(this, options), newPage = browser.newPage.bind(browser);
+    browser.newPage = async options => {
+      const page = await newPage(options), screenshot = page.screenshot.bind(page);
+      page.screenshot = async options => {
+        if (++shots === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot');
+        return screenshot(options);
+      };
+      return page;
+    };
+    return browser;
+  };
+  const directory = join(root, 'calibration'), keys = join(root, 'keys');
+  await captureCalibration(directory, {keys, cases: [
+    {id: 'q07', family: 'composition', kind: 'row', broken: false, category: 'aligned-row-controls', theme: 2},
+  ]});
+  assert.equal(shots, 2);
+  const packetFiles = await readdir(directory);
+  assert.deepEqual(packetFiles.sort(), ['packet.json', 'q07-screen.png']);
+  const [file] = await readdir(join(keys, 'diagnostics'));
+  const diagnostic = JSON.parse(await readFile(join(keys, 'diagnostics', file), 'utf8'));
+  assert.equal(diagnostic.directory, directory);
+  assert.match(diagnostic.browser, /^\d+\./);
+  assert.deepEqual(diagnostic.events.map(e => e.outcome), ['failed', 'recovered']);
+  assert.match(diagnostic.events[0].error, /Unable to capture screenshot/);
+});
+
 // Needs only a Playwright Chromium; no CEDAR stack. A fixture whose premise fails in any wording
 // would refuse a capture, or worse, score a reviewer against a wrong answer.
 test('every probe variant satisfies its premise in every wording set', async t => {
