@@ -2961,6 +2961,10 @@ selector also exposes partial and older packets. Completeness is relative to the
 with that packet, not today's catalog; the displayed build and date identify historical evidence,
 not a check of the current deployment. Missing states, collection errors and diagnostic images
 remain visible. A successful capture says nothing about whether the interface passed review.
+Search matches names, identifiers, notes and categories. Category and viewport-width filters
+narrow the list, and optional thumbnails give it a visual overview. The browser remembers the
+profile, filters and selected state. Enlarge offers fit-to-window and actual-image-size viewing;
+arrow keys step through the filtered list. These browsing choices do not alter evidence or answers.
 
 The board writes nothing in a review. Answers are kept in
 `.cedar/reports/ui-review-board/answers.json`. Every review identifies its findings afresh, so the
