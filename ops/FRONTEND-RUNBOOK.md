@@ -214,7 +214,10 @@ verification evidence, remove `.reactor/results/`, `.reactor/task-results/` and
 `test frontends` and precede `frontends` under `build`. Development still consumes the latest local
 sources automatically; caching does not change SNAPSHOT resolution or release requirements.
 
-All eight modern frontend suites run without retries and keep full failure traces opt-in. For first-attempt diagnosis, run
+All eight modern frontend suites run without retries. Workspace Firefox retains failure traces
+by default, including action timings, DOM snapshots and network records, but omitting the screenshot
+filmstrip and source copies. Passing traces are discarded. The other engines and suites keep full
+failure traces opt-in. For full first-attempt diagnosis, run
 `CEDAR_TEST_TRACE=on cedarcli test frontends` or set that variable on the owning npm visual command.
 Screenshots retain zero allowed differing pixels and a 0.02 color threshold.
 Workspace and CEE Chromium projects disable partial rasterization (`--disable-partial-raster`): each
@@ -3431,6 +3434,26 @@ with traces pass at the original deadline, under
 `.cedar/reports/target-size-triage-20261126/workspace-firefox-repeats/`. The complete rerun also
 passes all 2,653 Workspace browser tests. These passing runs do not establish the timeout's cause;
 no navigation assertion, timeout or retry policy changed.
+
+The follow-up evidence is under `.cedar/reports/firefox-navigation-20261126/`. Its source and
+deployed-bundle hashes are in `provenance.json`. At 12 workers in the normal Linux Playwright
+container, 48 repetitions of the four grid-card editor cases and all 884 Firefox cases pass at
+the existing deadlines. The instrumented explorer cases record browser lifecycle/heartbeat,
+requests and worker event-loop delay alongside server timing/resource measurements and full
+traces. The isolated copy's initial missing build-statistics/CEE-fixture failures are collector
+errors, retained separately; they are not reproductions of the navigation timeout.
+
+The original failure has no trace, so even the action that consumed its deadline is unknown.
+Workspace now retains Firefox failure traces by default. DOM snapshots must stay enabled because
+Playwright also uses that option to enable network recording; the default omits the screenshot
+filmstrip and source copies, and discards passing traces. `CEDAR_TEST_TRACE=on` still enables the
+full trace in every engine. A deliberately blocked navigation proves that the default retains the
+timed-out `goto`, its error, DOM snapshots and 15 network records in a 105,704-byte trace, while a
+passing navigation leaves no trace (`retention-check.json`). This verifies evidence retention,
+not the historical timeout's cause. Product navigation and the browser test assertions, deadlines
+and zero-retry policy are unchanged. The full-trace override retains the filmstrip and source files
+(`full-trace-override.json`), and all 2,653 Workspace browser cases pass with the new default and
+the temporary diagnostic hooks removed (`all-browser-verification.log`).
 
 The original CEE readiness trace contains successful asset responses and a rendered form, but one
 simple browser evaluation took about 39.5 seconds. The other CEE failure reports slow document/helper
