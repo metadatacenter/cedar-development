@@ -2863,6 +2863,15 @@ limit is reached, further use draws on the account's extra usage where that is e
 usage is billed. Claude Code also reports a `total_cost_usd`, about $195 for this run, which is an
 estimate at API list prices and not a charge. Check the plan's usage before a large run.
 
+For a focused follow-up, repeat `--state ID` to select captured states. The coordinator adds
+their linked before/after sequences, retains calibration and independent verification, and lists
+every excluded state in the plan and report. Use `--plan` first to see the scope without model
+calls. A successful focused assessment is labelled `TARGETED_REVIEWED` (or `TARGETED_FINDINGS`
+and `TARGETED_DESIGN_REVIEW`), never full-application acceptance. Original capture blockers still
+apply, and automatic findings still cover the whole packet. The board distinguishes targeted
+reviews from full reviews. Resume requires the same selection. Full capture remains independent
+of model review; use full reviews at milestones and focused follow-ups between them.
+
 The default partitions eight states per reviewer with two concurrent jobs. `--batch-size` accepts
 1–12, `--workers` accepts 1–4, and `--timeout` bounds each model turn (900 seconds by default).
 A partition whose evidence exceeds the reviewer's limits, 900,000 characters for either reviewer and
