@@ -448,16 +448,6 @@ and does not exempt that page. Keep justified N/A ratings distinct from missing 
   Workspace timing, moving-content and drag-alternative verification.
 - Have a competent Hungarian reviewer assess translated labels, instructions, errors and spoken
   announcements in real journeys. Layout coverage does not establish translation quality or speech.
-- Triage the populated captures' target-size findings (2.5.8). On OpenView at phone width they flag
-  the Open link action, the PFAS, RRID, PubMed, NIH Grant and DOI authority-page actions, and the
-  BioPortal mark. The controls are generally 20 pixels high, and their spacing does not supply the
-  required target area. In the Metadata Editor they flag the host logo, Expand All and Collapse All,
-  Download, choice-clear, the populated RRID and PubMed page and clear actions, and the cleared
-  controlled-term input. Some reports concern a neighboring control clipped by the scroll position
-  rather than the field inspected, so tell viewport-edge reports from undersized controls before
-  changing the product. Confirm each finding in its actual layout, and correct shared CEE hit areas
-  where needed while preserving the agreed appearance and information. Recheck the empty states and
-  the populated editing and read-only states on desktop and phone.
 
 For each closure, record the affected criterion and surface, source/build identity, browser and
 assistive-technology versions where relevant, journey/state, expected and observed outcome, and

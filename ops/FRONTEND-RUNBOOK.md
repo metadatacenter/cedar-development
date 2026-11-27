@@ -2635,6 +2635,43 @@ target-size findings are not accepted design. A separate terminology lookup erro
 WebKit diagnostic packet remains tracked in the frontend roadmap. A focused check of the final term-picker
 positioning also passed at both widths in both browsers.
 
+The November 26 target-size follow-up (WCAG 2.2 criterion 2.5.8) is retained under
+`$CEDAR_HOME/.cedar/reports/target-size-triage-20261126/`. The read-only Open link and authority
+page actions use 24 × 24 click targets, and the BioPortal link uses 60 × 24, while retaining the
+16 × 16 action icons and 60 × 20 BioPortal artwork. The extra clickable area occupies existing
+padding; compensated margins preserve row height and wrapping. A wrapped identifier's line box
+must not intercept the badge's edge, and the targets must not cover the identifier's rectangle.
+`visual/tests/readonly-targets.spec.ts` checks all four edges at 375 and 1440 pixels in Chromium,
+Firefox and WebKit. `visual-comparison/` retains six pixel-identical before/after screenshots:
+the populated input-types, controlled-term and authority fixtures at both widths, with the original
+CSS restored in the same browser for comparison. No screenshot baseline was regenerated.
+`source-provenance.json` records the tested working-tree source and bundle hashes and Playwright
+browser distribution.
+
+The `cedar-editable-target-probe/` evidence checks the reported editable controls fully in view in
+Chromium and touch WebKit at both widths. The CEE header logo is 40 or 50 pixels high, toolbar actions
+are 30 × 30, choice-clear is 28 × 28, and the RRID, PubMed, PFAS and DOI open/clear actions are
+36 × 36. Their reports concern portions clipped by the current scroll position. In particular,
+the 271 × 21 input reported in the phone's cleared-term state is the **numeric input above it**,
+partly under the sticky toolbar, not the controlled-term input. `cedar-input-target-probe/`
+identifies that element and shows its target-size findings disappear when it is centered, in both
+browser profiles. Clicking the controlled field's surrounding padding also focuses its input.
+These observations do not suppress any automatic rule: original packets and scroll-edge findings
+remain available, and a new finding still requires inspection in its actual layout.
+
+The refreshed Chromium packet is
+`automatic/20261127T070311Z-bee66549/` under the UI-review report root: all 644 required states
+captured, with no runtime or cleanup errors. Designer, Workspace and OpenView report no automatic
+findings; Metadata Editor retains 11 target-size groups from the scroll-edge cases measured above.
+`target-size-openview-touch-20261126/` captures all 79 touch OpenView states with no automatic,
+runtime or cleanup findings. Both OpenView profiles and Metadata Editor's read-only states are
+clear of the undersized read-only target findings. These packets await independent assessment.
+The complete frontend reactor, framework consumers, served-bundle verification and whole-stack
+smoke passed on build `bee665496e33495040e820969ebec207c3101c94d8b9ee93703ff42a4f5fefbc`.
+Its CEE artifact is `c2774d6d95fa8c5f5cd31c2b55e908abab69556b24cfd8b53e41f5948aaa1af2`;
+the standalone bundle is `5e882b91d6d67025eba5e1f7ebce168e42db4f6e30eb8ffb2d79544b9977dc13`,
+matching the pixel-comparison evidence. CEE's complete browser suite passes all 4,773 cases.
+
 Each Chromium count includes two text-size states per application, at 1440 and 375 pixels, which
 every collector records last. They set Chromium's default text size to 32 pixels, twice the usual
 16, as a user does in the browser's settings: text sized in rem, em or percentages follows it and
@@ -3386,6 +3423,14 @@ The 18 November investigation is retained under
 reproductions and unresolved attribution. Its isolated CEE and CED probes use the selected immutable
 reactor bundles; the Workspace probe uses the deployed build bytes. It preserves the existing
 30-second test/navigation and 20-second CEE readiness deadlines and uses no retries.
+
+The November 26 target-size reactor also recorded a 30-second Firefox timeout in Workspace's
+`double-clicking any part of a instance grid card opens its editor` test. Its original failure is
+retained at `.cedar/build-reports/failures/20261127T061420Z-e7cc4cd0/`. Three focused repetitions
+with traces pass at the original deadline, under
+`.cedar/reports/target-size-triage-20261126/workspace-firefox-repeats/`. The complete rerun also
+passes all 2,653 Workspace browser tests. These passing runs do not establish the timeout's cause;
+no navigation assertion, timeout or retry policy changed.
 
 The original CEE readiness trace contains successful asset responses and a rendered form, but one
 simple browser evaluation took about 39.5 seconds. The other CEE failure reports slow document/helper
