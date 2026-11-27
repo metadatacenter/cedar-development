@@ -1,4 +1,5 @@
 import {collectRootElements} from './root-elements.mjs';
+import {collectImportWorkflows} from './import-workflows.mjs';
 import {captureJourney} from './journeys.mjs';
 import assert from 'node:assert/strict';
 import {pointer, setChecked, keyboard, textSizeStates, holdSearchRequests, waitForPage, tabKey} from './interactions.mjs';
@@ -638,6 +639,7 @@ export async function collectDesigner(session, record) {
     });
     });
     await collectRootElements(session, record);
+    await collectImportWorkflows(session, record);
     // A missing saved fixture must remain a blocked state rather than a substituted screen.
     await captureJourney(session, record, 'text-size', async () => {
       await textSizeStates(session, record, async () => {

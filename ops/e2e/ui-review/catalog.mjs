@@ -26,6 +26,7 @@ export const DESIGNER_STATES = [
   'preview-top-checked', 'phone-scroll-restored', 'phone-editor-top-checked',
   'preferences-modal', 'field-library-sidebar', 'preset-definitions-modal', 'child-picker',
   'element-settings', 'types-manual-iri', 'property-detail',
+  ...[1440,375].flatMap(width=>['import-search-failed','import-search-recovered'].map(state=>`${state}-${width}`)),
   ...['single', 'nested', 'multiple-1100'].flatMap(prefix => ['idle', 'pointer', 'pointer-open', 'keyboard', 'keyboard-open']
     .map(state => `${prefix}-creation-${state}`)),
 ];

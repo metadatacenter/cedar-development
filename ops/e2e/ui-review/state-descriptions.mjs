@@ -34,6 +34,8 @@ const designer = {
   nested: ['Nested element in the template', 'An element with child content is present; inspect its relationship to the root template.'],
 };
 const added = {
+  'import-search-failed': 'The reusable-artifact search cannot reach the server; the import dialog retains the query and shows its existing error.',
+  'import-search-recovered': 'Repeating the same search after connectivity returns replaces the import error with the populated results.',
   'user-menu': 'Workspace’s user menu is open, showing its existing account navigation.',
   'actions-menu': 'Workspace’s actions menu is open, showing its existing group, privacy and help navigation.',
   'groups-create': 'The Create group tab is open with an empty name and disabled creation control.',
