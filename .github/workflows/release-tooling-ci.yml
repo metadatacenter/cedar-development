@@ -53,6 +53,15 @@ jobs:
           path: cedar-workspace
           sparse-checkout: tools
 
+      # The UI review fixture tests build their templates from corpus templates.
+      - name: Check out the shared corpus templates
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-test-artifacts
+          ref: develop
+          path: cedar-test-artifacts
+          sparse-checkout: artifacts/templates
+
       - name: Set up Java 17
         uses: actions/setup-java@v6
         with:
