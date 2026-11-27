@@ -1,6 +1,22 @@
 // Descriptions explain the collector's intended setup, never whether the product rendered it
 // correctly. Reviewers must compare that setup with the image, accessibility and action evidence.
-const names = {designer:'Template Designer',workspace:'Workspace','metadata-editor':'Metadata Editor',openview:'OpenView'};
+const names = {designer:'Template Designer','field-designer':'Field Designer',workspace:'Workspace','metadata-editor':'Metadata Editor',openview:'OpenView'};
+const standalone = {
+  'chooser-open': 'The real Field Designer create route shows the shared type chooser before a field exists.',
+  'chooser-dismissed': 'Escape closes the chooser; the existing Choose field type control remains available.',
+  'name-empty': 'A new Text field has an empty name and cannot be saved; no parent placement controls belong here.',
+  'name-invalid': 'Leaving the empty field name reveals its required-name validation feedback.',
+  'validation-expanded': 'The validation summary is expanded to show the missing-name finding and its navigation control.',
+  'name-corrected': 'Naming the standalone field removes its validation summary.',
+  collapsed: 'The field settings are collapsed using their ordinary toggle; its name remains visible.',
+  saved: 'The host saved the field to the real repository; backend readback confirms its name.',
+  reopened: 'Reloading the saved field address restores the stored definition.',
+  'save-unconfirmed': 'The harness deliberately interrupted a temporary-field save; inspect the host’s existing uncertain-save recovery state.',
+  'save-status-checked': 'The author checked the interrupted save against the backend; the unsaved edit remains available.',
+  'draft-offered': 'Reloading after an unsaved field edit shows the host’s retained-draft offer.',
+  'draft-restored': 'Restore draft brings the edited standalone field name back into the editor.',
+  'long-name': 'A standalone field has the long name Participant preferred contact information and follow-up availability.',
+};
 const label = value => value.replace(/-/g,' ').replace(/\b(iri|doi|orcid|ror|rrid|pfas|nih)\b/gi,s=>s.toUpperCase()).replace(/^./,s=>s.toUpperCase());
 const designer = {
   empty: ['Empty template', 'New template before adding fields; Overview initially open and Preview closed.'],
@@ -21,7 +37,14 @@ const settings = new Set(['configuration','presentation','constraints','annotati
 export function describeScenario(app, scenario) {
   const id = scenario.id.replace(/-(1440|1100|1024|900|768|375)$/,'');
   let title=label(id), description;
-  if (app==='designer' && designer[id]) [title,description]=designer[id];
+  if (app==='field-designer' && standalone[id]) description=standalone[id];
+  else if (app==='field-designer' && settings.has(id)) {
+    title='Standalone text field — '+label(id)+' settings';
+    description='The '+label(id)+' tab is selected on a standalone field, which has no parent Configuration tab.';
+  } else if (app==='field-designer' && id.startsWith('type-')) {
+    title=label(id.slice(5))+' — standalone field settings';
+    description='The type was selected through the Field Designer chooser. Its named standalone definition and Presentation settings are visible; empty required content may show validation feedback.';
+  } else if (app==='designer' && designer[id]) [title,description]=designer[id];
   else if(app==='designer' && settings.has(id)) {
     title='Text field — '+label(id)+' settings';
     description='The '+label(id)+' tab is selected for the Text field.';

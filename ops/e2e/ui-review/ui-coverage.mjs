@@ -6,7 +6,7 @@ import {readFile, readdir, writeFile} from 'node:fs/promises';
 import {join, relative} from 'node:path';
 import {createHash} from 'node:crypto';
 
-// The four applications render components from these repositories, each declared under its root.
+// The reviewed applications render components from these repositories, each declared under its root.
 // A package that registers custom elements renders its root components under those elements' tags,
 // never under their Angular selectors, so each such tag is listed with the selector it stands for, or
 // with null where the component's selector is a constant holding the tag itself.
@@ -29,7 +29,6 @@ export const UNCAPTURABLE = {
   'app-cedar-font-registrar': 'Registers the CEDAR fonts with the page and renders nothing of its own.',
   'ced-font-registrar': 'Registers the CEDAR fonts with the page and renders nothing of its own.',
   'cetp-font-registrar': 'Registers the CEDAR fonts with the page and renders nothing of its own.',
-  'cedar-embeddable-field-designer': 'Registered by the designer package for other hosts; none of the four applications mounts it.',
   'app-dashboard': 'OpenView\'s root page, which sends the browser to the CEDAR home page as soon as it loads.',
   'cedar-logout-page': 'Shows only while the browser navigates to the authentication server, and a page cannot be read during a navigation.',
 };

@@ -12,21 +12,24 @@ if (!['designer.metadatacenter.orgx', 'localhost', '127.0.0.1'].includes(new URL
 
 export async function openSession(directory, options = {}) {
   await mkdir(directory, {recursive: true});
-  const shared = await openBrowserSession(directory, 'designer', options);
+  const app = options.app ?? 'designer';
+  const kind = app === 'field-designer' ? 'field' : 'template';
+  const tag = app === 'field-designer' ? 'cedar-embeddable-field-designer' : 'cedar-embeddable-designer';
+  const shared = await openBrowserSession(directory, app, options);
   const {page,context,browser,user:user1,action,capture,close} = shared;
   page.on('dialog', dialog => void dialog.accept());
   const params = new URLSearchParams({folderId: user1.profile.homeFolderId,
     returnTo: 'https://workspace.metadatacenter.orgx/dashboard'});
 
   async function ready() {
-    await waitForPage(page, () => document.querySelector('cedar-embeddable-designer')?.shadowRoot?.querySelector('input, button'));
+    await waitForPage(page, tag => document.querySelector(tag)?.shadowRoot?.querySelector('input, button'), tag);
     await waitForPage(page, () => ['Unmodified', 'Modified', 'Saved'].includes(document.getElementById('state')?.textContent));
     await page.evaluate(() => document.fonts.ready);
   }
   async function openNew() {
     await withBrowserAuthentication('Designer UI review sign-in', async () => {
-      await page.goto(`${base}/templates/create?${params}`);
-      await page.locator('#username, cedar-embeddable-designer, #message[data-error=true]').first().waitFor({state: 'visible'});
+      await page.goto(`${base}/${kind}s/create?${params}`);
+      await page.locator(`#username, ${tag}, #message[data-error=true]`).first().waitFor({state: 'visible'});
       if (await page.locator('#username').isVisible()) {
         await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || 'test1@test.com');
         await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || 'test1');

@@ -14,7 +14,7 @@ import {regions, scenarios, profile as browserProfile} from './catalog.mjs';
 import {requireLocal,readOnlyResourcePost} from './guards.mjs';
 export async function openBrowserSession(directory, app, {profile='chromium'}={}) {
   const {engine,context:contextOptions,defaultFontSize}=browserProfile(profile);
-  const base=app==='designer' ? process.env.CEDAR_DESIGNER_BASE||`https://designer.${HOST}`
+  const base=['designer','field-designer'].includes(app) ? process.env.CEDAR_DESIGNER_BASE||`https://designer.${HOST}`
     : app==='openview' ? process.env.CEDAR_OPENVIEW_FRONTEND||`https://openview.${HOST}`
     : process.env.CEDAR_WORKSPACE_BASE||`https://workspace.${HOST}`;
   for(const url of [base,RESOURCE,USER_SERVER])requireLocal(url);
@@ -104,7 +104,8 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
         // Permissions and publication changes address a subresource of a review-owned artifact.
         const subresource=/\/(permissions|publication|annotations)$/.test(address.pathname);
         const item=fixtureAt(subresource?req.url().replace(/\/(permissions|publication|annotations)(?=$|\?)/,''):req.url());
-        if(app==='designer' && item?.collection==='templates' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
+        const authoredCollection = app === 'designer' ? 'templates' : app === 'field-designer' ? 'template-fields' : null;
+        if(authoredCollection && item?.collection===authoredCollection && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
         // A record the Metadata Editor creates from a review-owned template belongs to the review.
         if(app==='metadata-editor' && item?.collection==='template-instances' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && ledger.fixtures.some(f=>f.collection==='templates'&&f.id===req.postDataJSON()?.['schema:isBasedOn'])) await ledger.register(item.collection,item.id);
         if(!item||!ledger.fixtures.some(f=>f.id===item.id)) {

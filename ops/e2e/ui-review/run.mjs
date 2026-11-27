@@ -8,7 +8,7 @@ import {APPS,PROFILES,profile as browserProfile,requiredStates,scenarios,regions
 import {reviewerBrief,reportHtml} from './report.mjs';
 
 // The checkout each application's installed components are verified in.
-const FRONTEND_DIRECTORIES={designer:'cedar-template-designer',workspace:'cedar-workspace','metadata-editor':'cedar-workspace',
+const FRONTEND_DIRECTORIES={designer:'cedar-template-designer','field-designer':'cedar-template-designer',workspace:'cedar-workspace','metadata-editor':'cedar-workspace',
   openview:'cedar-openview/cedar-openview-src'};
 export function selectApps(app='designer') {
   if(app==='all')return [...APPS];
@@ -54,6 +54,7 @@ async function validate(directory,app,reviewPath) {
 }
 export async function collectorFor(app) {
   if(app==='designer')return (await import('./designer.mjs')).collectDesigner;
+  if(app==='field-designer')return (await import('./field-designer.mjs')).collectFieldDesigner;
   if(app==='workspace')return (await import('./workspace.mjs')).collectWorkspace;
   if(app==='metadata-editor')return (await import('./metadata-editor.mjs')).collectMetadataEditor;
   if(app==='openview')return (await import('./openview.mjs')).collectOpenView;
@@ -95,7 +96,7 @@ async function collect(directory,app,profile='chromium') {
   };
   record.failure=(state,error)=>{incomplete.push({state,error:error.message});console.error(`INCOMPLETE ${app}/${state}: ${error.message.split('\n')[0]}`);};
   try {
-    session=app==='designer'?await (await import('./session.mjs')).openSession(directory,{profile})
+    session=['designer','field-designer'].includes(app)?await (await import('./session.mjs')).openSession(directory,{profile,app})
       :await (await import('./browser-session.mjs')).openBrowserSession(directory,app,{profile});
     // The packet names its profile, so the browser that actually ran must be that profile's engine.
     if(session.engine!==browserProfile(profile).engine)throw new Error(`Capture ran ${session.engine}, not the ${profile} profile's ${browserProfile(profile).engine}`);

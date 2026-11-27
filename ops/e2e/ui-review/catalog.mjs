@@ -56,7 +56,12 @@ export const TERM_PICKER_STATES = ['term-picker-initial-feedback', 'term-picker-
   'term-picker-ontologies', 'term-picker-done', 'term-picker-term-scrolled', 'term-picker-branches-scrolled', 'term-picker-ontologies-scrolled',
   'term-picker-ontologies-release-first', 'term-picker-ontologies-release-last', 'term-picker-search-restored'];
 export const TERM_PICKER_WIDTHS = [1440, 375];
-export const APPS = ['designer', 'workspace', 'metadata-editor', 'openview'];
+export const APPS = ['designer', 'field-designer', 'workspace', 'metadata-editor', 'openview'];
+export const FIELD_DESIGNER_STATES = [
+  'chooser-open', 'chooser-dismissed', 'name-empty', 'name-invalid', 'validation-expanded',
+  'name-corrected', 'collapsed', 'presentation', 'constraints', 'annotations', 'metadata', 'version',
+  'saved', 'reopened', 'save-unconfirmed', 'save-status-checked', 'draft-offered', 'draft-restored', 'long-name',
+];
 // Browser profiles a capture can run under. The default drives Chromium with a mouse; the touch
 // profile drives WebKit as a touch device, where nothing can hover and every activation is a tap.
 // A profile with defaultFontSize can change the browser's default text size, as a user does in the
@@ -130,6 +135,11 @@ export function scenarios(app, profileName = 'chromium') {
     .map(scenario => ({...describeScenario(app, scenario), ...scenario}));
 }
 function baseScenarios(app, profileName) {
+  if (app === 'field-designer') return PAIRED_WIDTHS.flatMap(width => FIELD_DESIGNER_STATES.map(scenario => ({
+    id: `${scenario}-${width}`, scenario,
+    category: /saved|reopened|save-|draft-/.test(scenario) ? 'save-and-recovery'
+      : /invalid|validation/.test(scenario) ? 'validation' : 'field-authoring', width,
+  }))).concat(DESIGNER_TYPES.map(([slug]) => ({id: `type-${slug}-1440`, scenario: 'standalone-field-type', category: 'field-types', width: 1440})));
   if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}))
     .concat(DESIGNER_TYPES.map(([slug])=>({id:'type-'+slug,scenario:'field-type-settings',category:'field-types',width:1440})))
     .concat(DESIGNER_TYPES.filter(([slug])=>!PREVIEWLESS_TYPES.includes(slug))
@@ -160,6 +170,8 @@ export const requiredStates = (app, profileName = 'chromium') => scenarios(app, 
 // without any error.
 const CEE_REGIONS = ['.field-type-icon', '.aligned-up', 'app-cedar-multi-pager', 'mat-expansion-panel-header'];
 export const REGIONS = {
+  'field-designer': ['cedar-embeddable-field-designer', '.field-editor', 'app-field-card',
+    '.field-header', 'app-field-settings', 'app-field-type-picker', '.validation-summary', '#save'],
   designer: ['.overview-panel', '.preview-panel', '.field-header', '.field-heading', '.field-header-details',
     '.field-type-icon', '.field-name-caption', '.field-type-label', '.occurrence-range', '.required-mark',
     '.field-actions', '.container-type-label', '.template-field-label', '.version-group', 'app-field-card',
