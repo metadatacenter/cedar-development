@@ -521,3 +521,22 @@ The sealed review evidence and this proposal are linked from the frontend runboo
 - Agree whether missing Image and YouTube notices should include each complete authored field name.
 
 The frontend runbook links the complete calibrated Designer review and focused follow-up evidence.
+
+### 15. Extend Meaningful State Coverage and Reviewer Calibration
+
+- Add collectors for Monitoring, Bridging and the standalone field-designer host. Inventory their
+  distinct pages, dialogs and significant states first; the four-application catalog is not a
+  denominator for the whole frontend estate.
+- Expand field-type fixtures beyond empty controls: populated and long values, selected authority
+  results, open suggestions, multi-selection, inline validation, authored media and appropriate
+  read-only counterparts. Prefer visibly distinct states over repeated screenshots of the same
+  control. Keep fixture dependencies local and deterministic where possible.
+- Add state-specific visibility checks where an image could be captured without its intended
+  subject being visible. Verify the actual named target and retain diagnostic evidence when it is
+  absent; screenshot existence alone does not establish the intended state was reached.
+- Add semantic change selection for review prioritization. Raw image-byte changes include dynamic
+  fixture text and do not establish meaningful layout changes. Any assessment reuse must identify
+  the exact evidence, reviewer/model and prompt version, and keep unreviewed states explicit.
+- Maintain a held-out reviewer benchmark with acceptable controls and known defects, track misses
+  and false positives across reviewer/model versions, and periodically review an unchanged sample.
+  Improved model scores must not silently turn historical or partial evidence into acceptance.

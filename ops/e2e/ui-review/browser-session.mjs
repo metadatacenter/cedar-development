@@ -8,7 +8,7 @@ import {FixtureLedger} from './lifecycle.mjs';
 import {captureState} from './evidence.mjs';
 import {renderedComponents, scriptCoverage} from './ui-coverage.mjs';
 import {hash} from './contract.mjs';
-import {regions, profile as browserProfile} from './catalog.mjs';
+import {regions, scenarios, profile as browserProfile} from './catalog.mjs';
 
 import {requireLocal,readOnlyResourcePost} from './guards.mjs';
 export async function openBrowserSession(directory, app, {profile='chromium'}={}) {
@@ -121,8 +121,9 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       await page.locator('.table-scroll[aria-busy="false"]').waitFor();
     });}
     const pendingCrops=[];
+    const descriptions=new Map(scenarios(app,profile).map(s=>[s.id,s]));
     // Each state's census of the components it renders is kept apart from the state's evidence.
-    const capture=async(id,note)=>{await captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false},id,note);census[id]=await renderedComponents(page);};
+    const capture=async(id,note)=>{await captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false,scenario:descriptions.get(id)},id,note);census[id]=await renderedComponents(page);};
     // OpenView's development server compiles its own bundles in memory, so they can only be
     // fingerprinted; the CEE bundle it serves from node_modules is compared with the installed one.
     async function openviewServedEvidence(){

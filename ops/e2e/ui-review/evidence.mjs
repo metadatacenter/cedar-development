@@ -1,7 +1,7 @@
 import {writeFile, rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {automaticChecks, settleAnimations} from './automatic-checks.mjs';
-export async function captureState({page,directory,states,actions,flush,regions,pendingCrops=[],fullPage=true}, id, note = '') {
+export async function captureState({page,directory,states,actions,flush,regions,pendingCrops=[],fullPage=true,scenario}, id, note = '') {
     if (!/^[a-z0-9-]+$/.test(id) || states.some(s => s.id === id)) throw new Error('Invalid or duplicate state ID');
     // Preserve hover/focus: moving the pointer for a screenshot can hide the very action
     // under review and make a subsequent click appear broken.
@@ -82,6 +82,6 @@ export async function captureState({page,directory,states,actions,flush,regions,
     const checks = `${id}.checks.json`, violations = await automaticChecks(page);
     await writeFile(join(directory, checks), JSON.stringify(violations, null, 2));
     const regionsMatched = [...new Set(geometry.regions.map(region => region.selector))];
-    states.push({id, note, screenshot, aria, metrics, checks, checkViolations: violations.length, crops, cropBounds, regionsMatched, cropCoverage: 'Visible viewport only; scroll explicitly to inspect below-fold content.', viewport: page.viewportSize(), actionCount: actions.length});
+    states.push({id, ...(scenario ? {title:scenario.title,description:scenario.description,category:scenario.category} : {}), note, screenshot, aria, metrics, checks, checkViolations: violations.length, crops, cropBounds, regionsMatched, cropCoverage: 'Visible viewport only; scroll explicitly to inspect below-fold content.', viewport: page.viewportSize(), actionCount: actions.length});
     await flush();
   }

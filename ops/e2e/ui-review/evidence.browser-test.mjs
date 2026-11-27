@@ -18,7 +18,11 @@ test('capture records declared regions, including shadow content, and names thos
     <script>document.querySelector('#host').attachShadow({mode:'open'}).innerHTML='<section class="pager-container"><button>2</button></section>';</script>`);
   const states = [], actions = [];
   await captureState({page, directory, states, actions, flush: async () => {}, fullPage: false,
+    scenario: {title:'Pager in two document roots',description:'Navigate through the fixture pages.',category:'pagination'},
     regions: ['.paging', '.pager-container', '.renamed-region']}, 'sample', 'Static page');
+  assert.equal(states[0].title, 'Pager in two document roots');
+  assert.equal(states[0].description, 'Navigate through the fixture pages.');
+  assert.equal(states[0].note, 'Static page', 'setup metadata must not replace observed notes');
   assert.deepEqual(states[0].regionsMatched, ['.paging', '.pager-container']);
   const metrics = JSON.parse(await readFile(join(directory, 'sample.json'), 'utf8'));
   assert.deepEqual(metrics.regions.map(region => region.selector), ['.paging', '.pager-container']);

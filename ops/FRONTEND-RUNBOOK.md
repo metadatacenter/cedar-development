@@ -2633,6 +2633,14 @@ Every state is one a user reaches in ordinary use of a correct deployment. A col
 drop a request where that reproduces what users meet, such as a slow first search or a connection
 lost during a save. An overtaken write is sent with the revision before the one the page read, so
 the server answers with the refusal it gives when someone else saved first, and nothing is written.
+
+New captures retain a readable title, category and scenario description with each state. These
+describe the intended setup, not an assertion that the rendered interface is correct. The board
+labels this text “Scenario setup”; the coordinator passes it separately from the collector's notes,
+recorded actions and observed evidence. Field-type descriptions distinguish authoring settings,
+read-only Preview, invalid input and an open input picker. Older packets keep their original
+metadata; they are never rewritten to add descriptions. Descriptive wording is sealed by the
+collector and evidence hashes but does not change the catalog's required-state denominator.
 Each such state's note says the harness caused the condition, so the reviewer judges how the
 product handles it rather than its cause. A collector must not answer a request with a response the product prevents, such as a
 server refusal of a save the client's own validation accepts. A review of such a screen judges

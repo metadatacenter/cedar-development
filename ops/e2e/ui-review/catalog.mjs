@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {describeScenario} from './state-descriptions.mjs';
 
 export const DESIGNER_STATES = [
   'empty', 'empty-panel-a', 'empty-panel-b', 'single', 'single-panel-a', 'single-panel-b',
@@ -124,7 +125,8 @@ const metadata = [
 ];
 export function scenarios(app, profileName = 'chromium') {
   if (!APPS.includes(app)) throw new Error('Unknown UI review application: '+app);
-  return baseScenarios(app, profileName).concat(profile(profileName).defaultFontSize ? textSizeStates() : []);
+  return baseScenarios(app, profileName).concat(profile(profileName).defaultFontSize ? textSizeStates() : [])
+    .map(scenario => ({...scenario, ...describeScenario(app, scenario)}));
 }
 function baseScenarios(app, profileName) {
   if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}))
@@ -170,11 +172,12 @@ export function regions(app) {
 }
 export const unmatchedRegions = (app, states) =>
   regions(app).filter(selector => !states.some(state => state.regionsMatched?.includes(selector)));
-// Identifies the states and regions a capture was held to. A packet validates only against the
+// Identifies the states and regions a capture was held to. Descriptive wording is sealed by the
+// collector source and evidence hashes, but does not change the required coverage denominator. A packet validates only against the
 // catalog it was captured with: a later catalog may require states the packet never collected, or
 // no longer require states it did.
 export const catalogSha256 = (app, profileName = 'chromium') =>
-  createHash('sha256').update(JSON.stringify({scenarios: scenarios(app, profileName), regions: regions(app)})).digest('hex');
+  createHash('sha256').update(JSON.stringify({scenarios: scenarios(app, profileName).map(({title,description,...scenario}) => scenario), regions: regions(app)})).digest('hex');
 export function coverageFor(capture, review) {
   const inspected = new Set(review?.inspectedStates ?? []);
   return {app:capture.app??'designer',catalogSha256:capture.catalogSha256??null,scope:'Scenario coverage, not proof of exhaustive UI quality',
