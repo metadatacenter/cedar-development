@@ -501,12 +501,7 @@ to a host-supplied editable document that asserts this.
 
 ## Independent UI Review
 
-### 13. Record OpenView's Agreed Layout Behavior
-
-- OpenView has no agreed layout behavior in the frontend runbook. Record it from the answers given
-  to the findings of its coordinated reviews.
-
-### 14. Agree the Remaining Presentation Choices
+### 13. Agree the Remaining Presentation Choices
 
 The independent reviews left these product choices open. They are not permission to add controls,
 hide information or rearrange the interface. Any approved change needs rendered review, relevant
@@ -532,7 +527,12 @@ The sealed review evidence and this proposal are linked from the frontend runboo
 
 The frontend runbook links the complete calibrated Designer review and focused follow-up evidence.
 
-### 15. Extend Meaningful State Coverage and Reviewer Calibration
+**OpenView.**
+
+- The frontend runbook records no agreed layout behavior for OpenView. Agree it from the answers
+  given to the findings of its coordinated reviews, and record it there.
+
+### 14. Extend Meaningful State Coverage and Reviewer Calibration
 
 - Add a collector for the standalone field-designer host. Inventory its distinct pages, dialogs
   and significant states first; the four-application catalog is not a denominator for the whole
