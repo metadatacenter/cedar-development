@@ -2965,6 +2965,17 @@ Search matches names, identifiers, notes and categories. Category and viewport-w
 narrow the list, and optional thumbnails give it a visual overview. The browser remembers the
 profile, filters and selected state. Enlarge offers fit-to-window and actual-image-size viewing;
 arrow keys step through the filtered list. These browsing choices do not alter evidence or answers.
+The change filter compares each screenshot with the preceding complete capture of the same
+application and browser profile. It distinguishes new, changed, byte-identical, missing and
+no-longer-catalogued states; it is not a semantic layout comparison, so changing fixture text
+can count as changed. Expand the comparison to see both images. Identical-image hiding affects
+browsing only and never removes states from capture or review coverage.
+
+Mark inspected, Needs attention, Bookmark and free-text notes work before a model review exists.
+They are stored separately in `.cedar/reports/ui-review-board/screen-notes.json`, keyed by the
+state and its screenshot, accessibility, geometry, checks and crop identities. Changed evidence
+has no inherited inspection. Missing images cannot be marked inspected. An inspection is a
+person's record, never an automatic acceptance verdict.
 
 The board writes nothing in a review. Answers are kept in
 `.cedar/reports/ui-review-board/answers.json`. Every review identifies its findings afresh, so the
