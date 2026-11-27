@@ -1369,14 +1369,3 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reaches, so they do not block the withdrawal. Done when the version lookups have one form, the
   anonymous caller is known, and the first-generation search and property routes are gone with the
   editor.
-
-- **26. Normalize group and category path identifiers.**
-  **Production consequence:** clients cannot use the same short-address convention on these
-  collections as on artifacts and folders. `GroupsResource` and `CategoriesResource` pass path
-  identifiers directly to their typed ID wrappers, which preserve the string without resolving it.
-  A read-only native-stack audit on 2026-11-26 confirmed that an existing group and category each
-  returned 200 by their full IRI and 404 by the UUID at its end. Use the type-aware resolver at every
-  group/category path boundary, including permissions and membership, while retaining full-IRI
-  identity and special category handling. Prove both addresses return the same body and ETag and
-  preserve authorization, conditional writes, and wrong-kind rejection. Extend the addressing smoke
-  to both collections before claiming uniform short-identifier support.

@@ -2842,11 +2842,15 @@ resources or start a job, such as copying, moving and reindexing, and each is a 
 under `/command`.
 
 The rest of a route's shape is fixed as follows:
-- Artifact and folder paths accept the bare UUID or the full IRI, percent-encoded as one segment,
-  and both resolve to the same resource. Category and group paths currently require the full stored
-  IRI: their handlers do not normalize UUIDs. The backend roadmap tracks closing this gap; clients
-  must not strip those identifiers to UUIDs in the meantime. User routes accept their Keycloak UUID
-  and the caller alias `me`; terminology routes use the identifier named by their parameter.
+- Artifact, folder, group and category paths accept the bare UUID, a matching type-qualified selector
+  such as `groups/UUID` encoded as one segment, or the full stored IRI encoded as one segment.
+  These addresses share the stored identity, authorization and ETag, including group membership and
+  category permissions and ownership transfer. A wrong-type selector is a 400. Full IRIs are never
+  rewritten to the current host; UUIDs resolve only within the deployment's configured namespace.
+  Responses retain full IRIs. The `/categories/root` and `/categories/tree` reads and built-in group
+  and root-category protections remain in force. JSON-body identifier contracts are unchanged.
+  User routes accept their Keycloak UUID and the caller alias `me`; terminology routes use the
+  identifier named by their parameter.
 - A listing pages by `limit`, from 1 to 500 with a default of 100, and `offset`, with a default of
   0, and refuses `page`, `pageSize` and `page_size`. A listing that grows while it is read may page by
   `cursor` instead. A limit out of range is refused, never adjusted.

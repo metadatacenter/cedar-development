@@ -6,7 +6,7 @@ const selector = iri => iri.split('/').slice(-2).join('/');
 const at = iri => '/' + selector(iri);
 const resourceDirect = `http://${process.env.CEDAR_RESOURCE_SERVER_HOST ?? 'localhost'}:${process.env.CEDAR_RESOURCE_HTTP_PORT ?? '9007'}`;
 
-export async function run({ user1, user2, homeFolderId }) {
+export async function run({ user1, user2, admin, homeFolderId }) {
   suite('addressing: typed selectors and legacy identities');
   const auth = user1.auth;
   const folder = await call(auth, 'POST', '/folders', {
@@ -66,5 +66,113 @@ export async function run({ user1, user2, homeFolderId }) {
   }
   checkStatus(await call(auth, 'GET', '/templates/' + enc(selector(fid))), 400,
     'a typed selector cannot be used on the wrong resource route');
+  await groupAddressing(user1, user2);
+  await categoryAddressing(user1, user2, admin);
   return {};
+}
+
+async function groupAddressing(user1, user2) {
+  suite('addressing: group aliases');
+  const direct = `http://${process.env.CEDAR_GROUP_SERVER_HOST ?? 'localhost'}:${process.env.CEDAR_GROUP_HTTP_PORT ?? '9009'}`;
+  const request = (auth, method, path, body, opts = {}) => call(auth, method, path, body, { ...opts, base: direct });
+  const label = `Addressed group ${RUN}`;
+  const made = await request(user1.auth, 'POST', '/groups', { 'schema:name': label, 'schema:description': 'aliases' });
+  if (!checkStatus(made, 201, 'group fixture created')) return;
+  const id = made.body['@id'];
+  const full = '/groups/' + enc(id);
+  const short = at(id);
+  cleanup('group', full, label, user1.auth, direct, id);
+  for (const suffix of ['', '/users', '/membership/me']) {
+    const legacy = await request(user1.auth, 'GET', full + suffix);
+    const modern = await request(user1.auth, 'GET', short + suffix);
+    checkStatus(modern, 200, `group${suffix}: UUID route is readable directly`);
+    check(JSON.stringify(legacy.body) === JSON.stringify(modern.body) && legacy.headers.get('etag') === modern.headers.get('etag'),
+      `group${suffix}: aliases return the same body and revision`, modern.text);
+    checkStatus(await request(null, 'GET', short + suffix), 401, `group${suffix}: UUID route still requires authentication`);
+  }
+  checkStatus(await request(user2.auth, 'GET', short + '/users'), 403, 'group UUID does not disclose membership to a non-administrator');
+  const before = await request(user1.auth, 'GET', full);
+  const body = { 'schema:name': label, 'schema:description': 'changed through UUID' };
+  checkStatus(await request(user1.auth, 'PUT', short, body), 428, 'group UUID update requires If-Match');
+  checkStatus(await request(user2.auth, 'PUT', short, body, { headers: { 'If-Match': before.headers.get('etag') } }),
+    403, 'group UUID update preserves administration checks');
+  const changed = await request(user1.auth, 'PUT', short, body, { headers: { 'If-Match': before.headers.get('etag') } });
+  checkStatus(changed, 200, 'group UUID update accepts the full-address revision');
+  check(changed.body?.['@id'] === id, 'group UUID update preserves the stored IRI', changed.text);
+  checkStatus(await request(user1.auth, 'PUT', full, body, { headers: { 'If-Match': before.headers.get('etag') } }),
+    412, 'group full-address revision becomes stale after UUID update');
+  const patch = await request(user1.auth, 'PATCH', short, { 'schema:description': 'patched through UUID' },
+    { contentType: 'application/merge-patch+json', headers: { 'If-Match': changed.headers.get('etag') } });
+  checkStatus(patch, 200, 'group UUID merge patch succeeds');
+  const members = await request(user1.auth, 'GET', full + '/users');
+  const roster = { users: (members.body?.users ?? []).map(({ user, administrator, member }) =>
+    ({ user: { '@id': user['@id'] }, administrator, member })) };
+  checkStatus(await request(user1.auth, 'PUT', short + '/users', roster,
+    { headers: { 'If-Match': members.headers.get('etag') } }), 200, 'group UUID membership replacement accepts the full-address revision');
+  checkStatus(await request(user1.auth, 'PUT', full + '/users', roster,
+    { headers: { 'If-Match': members.headers.get('etag') } }), 412, 'group membership revision is shared by both addresses');
+  checkStatus(await request(user1.auth, 'GET', '/groups/' + enc('categories/' + id.split('/').at(-1))),
+    400, 'group route rejects a category selector');
+  const current = await request(user1.auth, 'GET', full);
+  checkStatus(await request(user1.auth, 'DELETE', short, undefined, { headers: { 'If-Match': current.headers.get('etag') } }),
+    204, 'group UUID deletion accepts the full-address revision');
+  checkStatus(await request(user1.auth, 'GET', full), 404, 'group UUID deletion removes the full-address resource');
+}
+
+async function categoryAddressing(user1, user2, admin) {
+  suite('addressing: category aliases');
+  if (!check(!!admin, 'category addressing has administrator credentials', 'administrator fixture unavailable')) return;
+  const request = (auth, method, path, body, opts = {}) => call(auth, method, path, body, { ...opts, base: resourceDirect });
+  const root = await request(admin.auth, 'GET', '/categories/root');
+  if (!checkStatus(root, 200, 'category root alias remains readable')) return;
+  const rootId = root.body['@id'];
+  checkStatus(await request(admin.auth, 'DELETE', at(rootId), undefined, { headers: { 'If-Match': '*' } }),
+    403, 'category root remains protected through its UUID');
+  const label = `Addressed category ${RUN}`;
+  const made = await request(admin.auth, 'POST', '/categories',
+    { 'schema:name': label, 'schema:description': 'aliases', parentCategoryId: rootId });
+  if (!checkStatus(made, 201, 'category fixture created')) return;
+  const id = made.body['@id'];
+  const full = '/categories/' + enc(id);
+  const short = at(id);
+  cleanup('category', full, label, admin.auth, undefined, id);
+  for (const suffix of ['', '/permissions']) {
+    const legacy = await request(admin.auth, 'GET', full + suffix);
+    const modern = await request(admin.auth, 'GET', short + suffix);
+    checkStatus(modern, 200, `category${suffix}: UUID route is readable directly`);
+    check(JSON.stringify(legacy.body) === JSON.stringify(modern.body) && legacy.headers.get('etag') === modern.headers.get('etag'),
+      `category${suffix}: aliases return the same body and revision`, modern.text);
+    checkStatus(await request(null, 'GET', short + suffix), 401, `category${suffix}: UUID route still requires authentication`);
+  }
+  const before = await request(admin.auth, 'GET', full);
+  const body = { 'schema:name': label, 'schema:description': 'changed through UUID' };
+  checkStatus(await request(admin.auth, 'PUT', short, body), 428, 'category UUID update requires If-Match');
+  checkStatus(await request(user2.auth, 'PUT', short, body, { headers: { 'If-Match': before.headers.get('etag') } }),
+    403, 'category UUID update preserves capability checks');
+  checkStatus(await request(admin.auth, 'PUT', short, body, { headers: { 'If-Match': before.headers.get('etag') } }),
+    200, 'category UUID update accepts the full-address revision');
+  checkStatus(await request(admin.auth, 'PUT', full, body, { headers: { 'If-Match': before.headers.get('etag') } }),
+    412, 'category full-address revision becomes stale after UUID update');
+  const permissions = await request(admin.auth, 'GET', full + '/permissions');
+  const grants = { userPermissions: [], groupPermissions: [] };
+  const replaced = await request(admin.auth, 'PUT', short + '/permissions', grants,
+    { headers: { 'If-Match': permissions.headers.get('etag') } });
+  checkStatus(replaced, 200, 'category UUID grant replacement accepts the full-address revision');
+  checkStatus(await request(admin.auth, 'PUT', full + '/permissions', grants,
+    { headers: { 'If-Match': permissions.headers.get('etag') } }), 412, 'category permission revision is shared by both addresses');
+  const transfer = { newOwnerId: user1.profile['@id'] };
+  checkStatus(await request(user2.auth, 'PATCH', short + '/permissions', transfer, { headers: { 'If-Match': '*' } }),
+    403, 'category UUID transfer still requires ownership');
+  const transferred = await request(admin.auth, 'PATCH', short + '/permissions', transfer,
+    { headers: { 'If-Match': replaced.headers.get('etag') } });
+  checkStatus(transferred, 200, 'category UUID ownership transfer succeeds');
+  const currentPermissions = await request(user1.auth, 'GET', full + '/permissions');
+  check(currentPermissions.body?.owner?.['@id'] === user1.profile['@id'],
+    'category ownership changed at the full address', currentPermissions.text);
+  checkStatus(await request(user1.auth, 'GET', '/categories/' + enc('groups/' + id.split('/').at(-1))),
+    400, 'category route rejects a group selector');
+  const current = await request(user1.auth, 'GET', full);
+  checkStatus(await request(user1.auth, 'DELETE', short, undefined, { headers: { 'If-Match': current.headers.get('etag') } }),
+    204, 'category UUID deletion accepts the full-address revision');
+  checkStatus(await request(user1.auth, 'GET', full), 404, 'category UUID deletion removes the full-address resource');
 }
