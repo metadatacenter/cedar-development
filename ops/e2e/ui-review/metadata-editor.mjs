@@ -1,3 +1,4 @@
+import {captureJourney} from './journeys.mjs';
 import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
 import {WIDTHS, PAIRED_WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
@@ -27,6 +28,7 @@ export async function collectMetadataEditor(session,record) {
   const option=n=>pager().getByRole('option',{name:String(n),exact:true});
   const preview=page.locator('dialog.artifact-preview');
   for(const width of WIDTHS){
+    await captureJourney(session,record,`record-editing-${width}`,async()=>{
     const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
     await page.setViewportSize({width,height:width===1440?1000:667});
     for(const count of [0,1,2,5,6,12])await r('occurrences-'+count,async()=>{
@@ -88,10 +90,13 @@ export async function collectMetadataEditor(session,record) {
       assert.notEqual(await page.locator('#instance-name').inputValue(),'','A saved record keeps a generated name');
     },'Saving with an empty record name.');
     await r('empty-template',()=>open(f.emptyTemplateId,'create'));
+    });
   }
-  // New records from the corpus templates that together hold every input type, each field centred.
-  await page.setViewportSize({width:1440,height:1000});
   const centre=locator=>locator.first().evaluate(element=>element.scrollIntoView({block:'center'}));
+  const leaveAnyway=dialog=>void dialog.accept();
+  // New records from the corpus templates that together hold every input type, each field centred.
+    await captureJourney(session,record,'input-types',async()=>{
+  await page.setViewportSize({width:1440,height:1000});
   await open(f.corpus.fieldTypes,'create');
   for(const [slug,label] of METADATA_TYPES)await record(`type-${slug}-1440`,()=>centre(cee.getByText(label,{exact:true})));
   // A value each of three types refuses, entered and left, then the list and date pickers open.
@@ -110,7 +115,6 @@ export async function collectMetadataEditor(session,record) {
   });
   await page.keyboard.press('Escape');await page.locator('mat-calendar').first().waitFor({state:'hidden'});
   // The new record now holds unsaved values, so leaving it answers the editor's leave-page prompt.
-  const leaveAnyway=dialog=>void dialog.accept();
   page.on('dialog',leaveAnyway);
   // The static corpus template opens with a page break, so its first page is empty and the static
   // content is on page 2.
@@ -121,6 +125,7 @@ export async function collectMetadataEditor(session,record) {
   });
   // The corpus field's preferred label, which the editor shows in place of its name.
   await record('attribute-value-1440',async()=>{await open(f.corpus.attributeValue,'create');await centre(cee.getByText(/^Attribute Value\b/));});
+    });
   // Slow loading, a backend the browser cannot reach during a save and a save someone else's has
   // overtaken, each caused in the review browser alone. The server answers the overtaken save itself.
   // A failed save leaves its edits on the page, so leaving it answers the leave-page prompt.
@@ -132,18 +137,23 @@ export async function collectMetadataEditor(session,record) {
   page.on('dialog',leaveAnyway);
   try{
     // A time field and a date-time field that records its offset, on a form short enough to show both.
+    await captureJourney(session,record,'temporal-types',async()=>{
     await record('type-temporal-1440',async()=>{
       await open(f.corpus.temporal,'create');await cee.getByText('Complex datetime preferred',{exact:true}).first().waitFor();
     });
+    });
     // A list with fewer entries than its minimum, reported under the field once the warning takes the user there.
+    await captureJourney(session,record,'minimum-entries',async()=>{
     await record('list-too-short-1440',async()=>{
       await open(f.tooFew);await save();
       const warnings=page.getByRole('group',{name:'Metadata warnings',exact:true});
       await tap(warnings.locator('summary'));await tap(warnings.getByRole('button',{name:/^Observations/}));
       await cee.locator('app-cedar-field-problems').filter({hasText:/\S/}).first().waitFor();
     },'A stored record with one Observations entry where the template asks for two, saved and then followed from its warning.');
+    });
     // A record saved with a link, then read in Workspace's preview, where the link and each choice
     // field's constraints are stated rather than edited.
+    await captureJourney(session,record,'readonly-types',async()=>{
     let linked;
     await record('readonly-link-1440',async()=>{
       await open(f.corpus.saved,'create');
@@ -158,7 +168,9 @@ export async function collectMetadataEditor(session,record) {
     },'A record saved with only its link filled in, in Workspace\'s read-only preview.');
     await record('readonly-choices-1440',()=>centre(preview.getByText('Radio',{exact:true})));
     await page.keyboard.press('Escape');await preview.waitFor({state:'hidden'});
+    });
     for(const width of PAIRED_WIDTHS){
+    await captureJourney(session,record,`record-failures-${width}`,async()=>{
       const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
       await page.setViewportSize({width,height:width===1440?1000:667});
       let held,restore;
@@ -186,7 +198,8 @@ export async function collectMetadataEditor(session,record) {
       },'Going back to Workspace with unsaved edits asks before discarding them.');
       await tap(page.locator('dialog.confirmation-dialog[open]').getByRole('button',{name:'Yes',exact:true}));
       await page.locator('.table-scroll[aria-busy="false"]').waitFor();
+    });
     }
-    await textSizeStates(session,record,()=>open(f.records[5]));
+  await captureJourney(session,record,'text-size',async()=>{await textSizeStates(session,record,()=>open(f.records[5]));});
   }finally{page.off('dialog',leaveAnyway);}
 }

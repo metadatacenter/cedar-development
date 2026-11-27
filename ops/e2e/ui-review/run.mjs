@@ -93,6 +93,7 @@ async function collect(directory,app,profile='chromium') {
     try{if(operation)await session.action(id,operation);await session.capture(id,note);}
     catch(error){incomplete.push({state:id,error:error.message});console.error(`INCOMPLETE ${app}/${id}: ${error.message.split('\n')[0]}`);await session.capture(id+'-unreached','Requested interaction did not complete.').catch(()=>{});throw error;}
   };
+  record.failure=(state,error)=>{incomplete.push({state,error:error.message});console.error(`INCOMPLETE ${app}/${state}: ${error.message.split('\n')[0]}`);};
   try {
     session=app==='designer'?await (await import('./session.mjs')).openSession(directory,{profile})
       :await (await import('./browser-session.mjs')).openBrowserSession(directory,app,{profile});

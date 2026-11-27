@@ -1,3 +1,4 @@
+import {captureJourney} from './journeys.mjs';
 import {workspaceFixtures} from './fixtures.mjs';
 import {WIDTHS,PAIRED_WIDTHS} from './catalog.mjs';
 import {RESOURCE,USER_SERVER,GROUP_SERVER} from '../rest/lib.mjs';
@@ -39,6 +40,7 @@ export async function collectWorkspace(session,record) {
     if(await page.locator('dialog.artifact-preview [role="alert"]').count())throw new Error('Preview reports an error');
   };
   for(const width of WIDTHS){
+    await captureJourney(session,record,`listing-${width}`,async()=>{
     const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
     await page.setViewportSize({width,height:width===1440?1000:667});
     await r('empty-list',async()=>{await folderPage(session,f.empty,[]);await panel('navigation',true);await panel('information',false);});
@@ -147,7 +149,9 @@ export async function collectWorkspace(session,record) {
       }
       await page.keyboard.press('Escape');await page.locator('dialog.artifact-preview').waitFor({state:'hidden'});
     }
+    });
   }
+    await captureJourney(session,record,'tablet-panels',async()=>{
   await page.setViewportSize({width:768,height:667});
   await record('both-panels-768',async()=>{await folderPage(session,f.listing,f.rows.slice(0,50));await panel('navigation',true);await panel('information',true);});
   await record('paging-overlap-768',async()=>{
@@ -160,11 +164,13 @@ export async function collectWorkspace(session,record) {
     await session.capture('paging-position-768','Displayed paging controls before pointer activation, without corrective scrolling.');
     await pointer(session,button('Next'),{scroll:false});await listingReady(page,f.rows.slice(50));
   });
+    });
   // Slow loading, a backend the browser cannot reach and a rename someone else's save has
   // overtaken, each caused in the review browser alone. The server answers the rename itself.
   const alert=page.locator('div.alert[role="alert"]');
   const dialogAlert=page.locator('dialog[open] p.alert[role="alert"]');
   for(const width of PAIRED_WIDTHS){
+    await captureJourney(session,record,`listing-failures-${width}`,async()=>{
     const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
     await page.setViewportSize({width,height:width===1440?1000:667});
     await folderPage(session,f.listing,f.rows.slice(0,50));
@@ -198,6 +204,7 @@ export async function collectWorkspace(session,record) {
     await tap(renaming.getByRole('button',{name:'Cancel',exact:true}));
     await tap(page.locator('dialog.confirmation-dialog[open]').getByRole('button',{name:'Yes',exact:true}));
     await renaming.waitFor({state:'hidden'});
+    });
   }
   // Screens a user reaches in ordinary work that the states above leave out. Each width edits its
   // own copy of the template or folder, so a saved description or a share at one width never shows at
@@ -225,6 +232,7 @@ export async function collectWorkspace(session,record) {
     const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
     const own=f.ownCopies[width];
     await page.setViewportSize({width,height:width===1440?1000:667});
+    await captureJourney(session,record,`editing-sharing-${width}`,async()=>{
     await folderPage(session,own.folder,own.ids);
     await r('description-editing',async()=>{
       await tap(page.locator(`[data-resource-id="${own.template}"]`).locator('.resource-icon'));
@@ -288,12 +296,14 @@ export async function collectWorkspace(session,record) {
     await tap(openDialog.getByRole('button',{name:'Cancel',exact:true}));
     await tap(confirmation.getByRole('button',{name:'Yes',exact:true}));
     await page.locator('dialog.action-dialog[open]').waitFor({state:'hidden'});
-    await r('profile',()=>account('Profile','Profile'));
-    await r('settings',()=>account('Settings','Settings'));
-    await r('groups',()=>account('Groups','Groups','Actions menu'));
-    await r('privacy',()=>account('Privacy','Privacy','Actions menu'));
+    });
+    await captureJourney(session,record,`account-profile-${width}`,async()=>{await r('profile',()=>account('Profile','Profile'));});
+    await captureJourney(session,record,`account-settings-${width}`,async()=>{await r('settings',()=>account('Settings','Settings'));});
+    await captureJourney(session,record,`account-groups-${width}`,async()=>{await r('groups',()=>account('Groups','Groups','Actions menu'));});
+    await captureJourney(session,record,`account-privacy-${width}`,async()=>{await r('privacy',()=>account('Privacy','Privacy','Actions menu'));});
   }
   if(!session.touch){
+    await captureJourney(session,record,'drag-preview',async()=>{
     await page.setViewportSize({width:1440,height:1000});
     await folderPage(session,f.mixed,f.mixedIds);
     const source=page.locator(`[data-resource-id="${f.mixedTemplate}"] .resource-icon`);
@@ -310,6 +320,7 @@ export async function collectWorkspace(session,record) {
     // Back to where it started, so releasing it moves nothing.
     if(start)await page.mouse.move(start.x,start.y,{steps:12});
     await page.mouse.up();await listingReady(page,f.mixedIds);
+    });
   }
-  await textSizeStates(session,record,()=>folderPage(session,f.listing,f.rows.slice(0,50)));
+  await captureJourney(session,record,'text-size',async()=>{await textSizeStates(session,record,()=>folderPage(session,f.listing,f.rows.slice(0,50)));});
 }

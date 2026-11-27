@@ -1,3 +1,4 @@
+import {captureJourney} from './journeys.mjs';
 import assert from 'node:assert/strict';
 import {pointer, setChecked, keyboard, textSizeStates, holdSearchRequests, waitForPage, tabKey} from './interactions.mjs';
 import {DESIGNER_TYPES, PREVIEWLESS_TYPES, TERM_PICKER_WIDTHS} from './catalog.mjs';
@@ -81,15 +82,6 @@ export async function collectDesigner(session, record) {
     if (await expand.isVisible()) await click(expand);
     await click(card().getByRole('tab', {name: tab, exact: true}));
   };
-    await session.openNew();
-    await record('empty');
-    await record('empty-panel-a', () => toggle('overview'));
-    await record('empty-panel-b', () => toggle('overview'));
-    await page.getByPlaceholder('Template name', {exact: true}).fill('UI review pilot ' + Date.now());
-    await session.addField('Text', 'Sample');
-    await record('single');
-    await record('single-panel-a', () => toggle('overview'));
-    await record('single-panel-b', () => toggle('overview'));
     const preview = () => click(page.locator('cedar-embeddable-designer .app-header__actions > .panel-toggle'));
     const waitForPreview = () => page.locator('.preview-panel').getByRole('heading', {level: 1}).first().waitFor({state: 'visible'});
     const phone = () => page.locator('cedar-embeddable-designer').evaluate(host => host.getBoundingClientRect().width < 600);
@@ -101,6 +93,16 @@ export async function collectDesigner(session, record) {
       await page.locator('.designer-scroll').waitFor({state: shown && await phone() ? 'hidden' : 'visible'});
     };
     const showEditor = async () => {if (await phone()) await setPreview(false);};
+    await captureJourney(session, record, 'authoring-and-save', async () => {
+    await session.openNew();
+    await record('empty');
+    await record('empty-panel-a', () => toggle('overview'));
+    await record('empty-panel-b', () => toggle('overview'));
+    await page.getByPlaceholder('Template name', {exact: true}).fill('UI review pilot ' + Date.now());
+    await session.addField('Text', 'Sample');
+    await record('single');
+    await record('single-panel-a', () => toggle('overview'));
+    await record('single-panel-b', () => toggle('overview'));
     await record('single-preview-a', async () => {await preview(); await waitForPreview();});
     await record('single-preview-b', preview);
     await creationControls('single');
@@ -294,6 +296,8 @@ export async function collectDesigner(session, record) {
       await click(nested.locator(':scope > .container-content > .add-field-section > .bottom-insert-zone').getByRole('button', {name: 'Add field', exact: true}));
       await nested.locator('app-field-type-picker').getByRole('button', {name: 'Text', exact: true}).waitFor();
     }, 'Activated the revealed nested Add field with the pointer and verified that Visit’s field picker opened. No field was added.');
+    });
+    const typesComplete = await captureJourney(session, record, 'field-types-and-preview', async () => {
     // A fresh template holding one field of every type the picker offers: each card with its settings
     // open, then each field in Preview.
     await session.openNew();
@@ -525,6 +529,14 @@ export async function collectDesigner(session, record) {
       await page.locator('.designer-scroll').evaluate(element => {element.scrollTop = 0;});
     }, 'Returned phone authoring to its top to inspect complete labels independently of the preserved scroll position.');
 
+    });
+    await captureJourney(session, record, 'preferences-and-import', async () => {
+    // After a failed type journey, initialize only the fixtures this independent group needs.
+    if (!typesComplete) {
+      await session.openNew();
+      await page.getByPlaceholder('Template name', {exact: true}).fill('UI review pilot ' + Date.now() + ' settings');
+      await session.addField('Text', 'Sample');
+    }
     // Components the states above leave out, at desktop width: the user menu's two dialogs, the
     // field library sidebar its preference turns on, importing reusable fields and elements, an
     // element's settings with its labels and types, a type entered by IRI, and a property chosen in
@@ -612,17 +624,25 @@ export async function collectDesigner(session, record) {
       await properties.waitFor({state: 'detached'});
     });
 
+    });
+    await captureJourney(session, record, 'missing-template', async () => {
     // An address no template has: the server answers 404 and the Designer reports it cannot load.
     const missingReason = 'Opening a template identifier no artifact has';
     await record('missing-template', async () => {
       session.expectedNetworkFailures.add(missingReason);
       try {
-        await page.goto(new URL('/templates/edit/' + encodeURIComponent('https://repo.metadatacenter.orgx/templates/00000000-0000-4000-8000-000000000000'), page.url()).href);
+        await page.goto(new URL('/templates/edit/' + encodeURIComponent('https://repo.metadatacenter.orgx/templates/00000000-0000-4000-8000-000000000000'), session.base).href);
         await waitForPage(page, () => document.getElementById('state')?.textContent === 'Unable to load');
       } finally {session.expectedNetworkFailures.delete(missingReason);}
     });
-    // The saved template, shown with the browser's default text size doubled.
-    await textSizeStates(session, record, async () => {await page.goto(savedUrl); await session.ready();});
+    });
+    // A missing saved fixture must remain a blocked state rather than a substituted screen.
+    await captureJourney(session, record, 'text-size', async () => {
+      await textSizeStates(session, record, async () => {
+        if (!savedUrl) throw new Error('The authoring journey did not save a template');
+        await page.goto(savedUrl); await session.ready();
+      });
+    });
     // Keep before/after evidence discoverable even when a review partition splits the sequence.
     // These are relationships, not verdicts or hints about what a reviewer should conclude.
     const relate = ids => {

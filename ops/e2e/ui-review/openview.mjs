@@ -1,3 +1,4 @@
+import {captureJourney} from './journeys.mjs';
 import {openviewFixtures} from './fixtures.mjs';
 import {WIDTHS,PAIRED_WIDTHS} from './catalog.mjs';
 import {enc,HOST} from '../rest/lib.mjs';
@@ -17,6 +18,7 @@ export async function collectOpenView(session,record) {
   };
   const toEnd=()=>page.evaluate(()=>scrollTo(0,document.documentElement.scrollHeight));
   for(const width of WIDTHS){
+    await captureJourney(session,record,`public-artifacts-${width}`,async()=>{
     const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
     await page.setViewportSize({width,height:width===1440?1000:667});
     await r('template',()=>rendered(`/templates/${enc(f.template)}`,f.name+' open study'));
@@ -35,9 +37,11 @@ export async function collectOpenView(session,record) {
     await r('missing',async()=>{await go(`/templates/${enc(f.template.replace(/[0-9a-f]{12}$/,'000000000000'))}`);await page.locator('app-artifact-error').waitFor();},
       'An identifier no artifact has.');
     session.expectedNetworkFailures.clear();
+    });
   }
   // A row's preview in a folder, and the spinner while a page waits for its artifact.
   for(const width of PAIRED_WIDTHS){
+    await captureJourney(session,record,`public-preview-loading-${width}`,async()=>{
     const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
     await page.setViewportSize({width,height:width===1440?1000:667});
     await r('folder-preview',async()=>{
@@ -54,6 +58,7 @@ export async function collectOpenView(session,record) {
       await held.started();await page.locator('app-spinner .loading-spinner').waitFor();
     },'The harness holds the artifact\'s response to show loading; the server is not slow.');
     await held?.release();await page.getByRole('heading',{name:f.name+' open study',exact:true}).first().waitFor();
+    });
   }
-  await textSizeStates(session,record,()=>rendered(`/templates/${enc(f.template)}`,f.name+' open study'));
+  await captureJourney(session,record,'text-size',async()=>{await textSizeStates(session,record,()=>rendered(`/templates/${enc(f.template)}`,f.name+' open study'));});
 }

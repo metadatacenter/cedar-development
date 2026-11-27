@@ -2,6 +2,26 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
 import {holdSearchRequests, refuseConnections, staleRevision} from './interactions.mjs';
+import {captureJourney} from './journeys.mjs';
+
+test('a failed loading journey releases held requests and keeps the fixture guard for the next journey', async t => {
+  const browser=await chromium.launch();t.after(()=>browser.close());
+  const context=await browser.newContext();let guarded=0;
+  await context.route('**/*',async route=>{guarded++;await route.fulfill({contentType:'text/html',body:'ready'});});
+  const page=await context.newPage();await page.goto('https://fixture.invalid/');
+  const session={page,expectedNetworkFailures:new Set()},failures=[];
+  const record={failure:(id,error)=>failures.push([id,error.message])};
+  await captureJourney(session,record,'loading',async()=>{
+    const held=await holdSearchRequests(page);
+    await page.evaluate(()=>{fetch('/search',{method:'POST'}).catch(()=>{});});
+    await held.waitForSearch();throw new Error('Capture failed');
+  });
+  assert.deepEqual(failures,[['journey:loading','Capture failed']]);
+  assert.equal(page.url(),'about:blank');
+  await page.goto('https://fixture.invalid/');const before=guarded;
+  assert.equal(await page.evaluate(()=>fetch('/search',{method:'POST'}).then(r=>r.text())),'ready');
+  assert.equal(guarded,before+1);
+});
 
 test('held searches drain before unroute and continue through the existing context guard', async t => {
   const browser = await chromium.launch();

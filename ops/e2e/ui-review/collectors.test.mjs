@@ -19,7 +19,7 @@ function inert() {
     apply: () => inert(),
   });
 }
-async function dryRun(app, profileName = 'chromium', capturedStates = []) {
+async function dryRun(app, profileName = 'chromium', capturedStates = [], failAt = null) {
   let minted = 0;
   const recorded = [];
   const session = {
@@ -33,7 +33,12 @@ async function dryRun(app, profileName = 'chromium', capturedStates = []) {
     request: async () => ({status: 200, body: {}, headers: new Headers({etag: '"stand-in"'})}),
     anonymousRead: async () => ({status: 200}),
   };
-  await (await collectorFor(app))(session, async id => {recorded.push(id); capturedStates.push({id});});
+  const record = async id => {
+    if (id === failAt) throw new Error('Deliberate collector failure');
+    recorded.push(id); capturedStates.push({id});
+  };
+  record.failure = () => {};
+  await (await collectorFor(app))(session, record);
   return recorded;
 }
 
@@ -51,6 +56,19 @@ test('every collector records exactly its catalog states, once each', async t =>
     assert.equal(new Set(recorded).size, recorded.length, `${app} (${profileName}): a state is recorded twice`);
     assert.deepEqual([...recorded].sort(), [...requiredStates(app, profileName)].sort(), `${app} (${profileName}): collector and catalog differ`);
   }
+  for (const failed of ['single', 'term-picker-open-1440', 'preferences-modal']) {
+    const designer = await dryRun('designer', 'chromium', [], failed);
+    assert(designer.includes('missing-template'), failed + ': independent error screen');
+    if (failed !== 'preferences-modal') assert(designer.includes('preferences-modal'), failed + ': independent settings');
+    if (failed === 'single') assert(designer.includes('type-text-preview'), 'fresh field-type fixture');
+  }
+  const workspace = await dryRun('workspace', 'chromium', [], 'rename-conflict-1440');
+  for (const id of ['description-editing-1440', 'profile-1440', 'privacy-375', 'text-200-375']) assert(workspace.includes(id), id);
+  const metadata = await dryRun('metadata-editor', 'chromium', [], 'type-temporal-1440');
+  for (const id of ['list-too-short-1440', 'readonly-link-1440', 'save-conflict-375', 'text-200-375']) assert(metadata.includes(id), id);
+  const openview = await dryRun('openview', 'chromium', [], 'template-1440');
+  assert(!openview.includes('template-end-1440'), 'dependent states are skipped');
+  for (const id of ['template-768', 'folder-preview-1440', 'loading-375']) assert(openview.includes(id), id);
 });
 
 test('every application declares the regions its capture must find', () => {

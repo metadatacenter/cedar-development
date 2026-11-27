@@ -1,3 +1,4 @@
+import {retainCleanup} from './journeys.mjs';
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {TEXT_SIZE_WIDTHS} from './catalog.mjs';
@@ -49,7 +50,7 @@ export async function holdRequests(page, url, {held = () => true, label = 'Held 
         timer = setTimeout(() => reject(new Error(label + ' was not intercepted within 15 seconds')), 15000);
       })]);
     } finally {clearTimeout(timer);}
-  }, release: async () => {
+  }, release: retainCleanup(page, async () => {
     release();
     while (pending.size) await Promise.all([...pending]);
     // fallback resolves before the context handler has finished. Updating interception patterns
@@ -66,7 +67,7 @@ export async function holdRequests(page, url, {held = () => true, label = 'Held 
     } finally {clearTimeout(timer);}
     await page.unroute(url, handler);
     if (errors.length) throw errors[0];
-  }};
+  })};
 }
 // Hold real term searches long enough to capture the picker loading.
 export async function holdSearchRequests(page) {
@@ -82,7 +83,7 @@ export async function refuseConnections(session, origins, reason) {
   const refuse = route => route.abort('failed');
   session.expectedNetworkFailures.add(reason);
   await session.page.route(match, refuse);
-  return async () => {await session.page.unroute(match, refuse); session.expectedNetworkFailures.delete(reason);};
+  return retainCleanup(session.page, async () => {await session.page.unroute(match, refuse); session.expectedNetworkFailures.delete(reason);});
 }
 // A write another session's save has overtaken: each conditional request the route matches is sent
 // with the revision before the one the page read, and the server refuses it with its own 412, as it
@@ -96,7 +97,7 @@ export async function staleRevision(session, url, reason) {
   };
   session.expectedNetworkFailures.add(reason);
   await session.page.route(url, stale);
-  return async () => {await session.page.unroute(url, stale); session.expectedNetworkFailures.delete(reason);};
+  return retainCleanup(session.page, async () => {await session.page.unroute(url, stale); session.expectedNetworkFailures.delete(reason);});
 }
 
 export async function listingReady(page, ids) {

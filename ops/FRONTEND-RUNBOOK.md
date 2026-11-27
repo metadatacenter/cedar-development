@@ -2560,6 +2560,13 @@ with a mouse by default. `--profile webkit-touch` captures the same catalog in W
 device, where nothing can hover and every activation is a tap. Each packet records its profile and
 the browser engine that ran, and capture stops if the two disagree.
 
+Collectors also isolate independently initialized journeys within an application. If one fails,
+its failed and unreached states remain incomplete; subsequent independent journeys can still
+contribute screenshots. Recovery releases held responses and temporary request faults, leaves the
+failed document, then releases any pressed pointer. The context's fixture-write guard remains in
+force. A failed cleanup stops that application's collector instead of continuing with an unknown
+request state. Dependent steps within the failed journey are not resumed or claimed as captured.
+
 Run the affected application's capture after a UI change has been built and deployed. Use
 `--app all` for shared-component and design-token changes and before accepting a cross-application
 UI batch, and capture the touch profile after changes to phone or tablet layouts, reviewing it as a
