@@ -2689,10 +2689,11 @@ draft changes use real backend writes and readback; their temporary fixtures are
 verified absent. The final phone member screenshots dismiss the existing success notification
 before capture so it cannot cover the changed member controls.
 
-Workspace has no automatic findings in either profile. Designer has one
+Workspace has no automatic findings in either profile. Those pre-fix Designer packets have one
 `scrollable-region-focusable` group per profile, affecting the empty selected-items table in the
-phone import failure and recovery screens. This remains an accessibility finding, not a capture
-failure. Metadata Editor retains 11 Chromium and 13 touch target-size groups; Field Designer and
+phone import failure and recovery screens. The keyboard fix and its replacement evidence are
+described below; the original findings remain in their frozen packets. Metadata Editor retains
+11 Chromium and 13 touch target-size groups; Field Designer and
 OpenView have none. The two PFAS targets additionally grouped in the touch cleared-term state are
 each 36 × 36 pixels, partly under the sticky warnings bar with 7.5 pixels exposed. Their comparison
 remains in `$CEDAR_HOME/.cedar/reports/state-coverage-20261127/touch-target-size-comparison.json`.
@@ -2710,6 +2711,21 @@ navigation failure. The earlier `state-coverage-touch-20261127/workspace` packet
 Chromium calibration screenshot generation despite capturing its application states; use the
 complete replacements above. These reliability failures remain distinguishable from completed
 state evidence. The new packets await independent human/LLM assessment.
+
+The import selected-items region is now keyboard-focusable when empty or saving, and arrow keys
+scroll the focused region in Safari as well as Chromium and Firefox. Populated selections retain
+the existing row controls without an extra region Tab stop. Arrow-key reordering retains focus
+and announces the moved row through the existing move-button path. No layout or styles changed.
+The Designer's 17,132 unit tests, 3,516 browser cases and 25 unchanged visual baselines passed,
+as did framework consumers, deployment, served-bundle verification and whole-stack smoke for build
+`ccec56fdbefd2d9c716048a0c9121b27c003b26c8b44a93c16426ee8eed73654`.
+Its CED package identity is `740a9b9c7450b345e3dcced3aee576b5055081e7213f36760d709a125e49c60d`.
+The replacement Chromium Designer packet is `automatic/20261127T182613Z-ccec56fd/designer`:
+198/198 states, zero automatic findings, and all four import failure/recovery screenshots are
+pixel-identical to their pre-fix counterparts. The added keyboard regression covers empty,
+populated, reordered and emptied selections in all three browser engines. The phone heading's
+axe contrast uncertainty is settled by live contrast measurement and character-level visibility
+checks; deliberate low contrast and partial occlusion still fail the gate.
 
 The complete frontend reactor, applicable consumer gates, served-bundle verification and
 whole-stack smoke passed on build
