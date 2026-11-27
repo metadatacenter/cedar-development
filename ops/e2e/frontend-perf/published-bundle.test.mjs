@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
-import {NPMJS, publishedBundle} from './published-bundle.mjs';
+import {NPMJS, isServed, publishedBundle} from './published-bundle.mjs';
 
 const references = JSON.parse(readFileSync(new URL('./references.json', import.meta.url), 'utf8'));
 
@@ -10,6 +10,12 @@ test('a release base is read from its public package; any other base is rebuilt'
     {package: 'cedar-embeddable-designer', version: '0.1.4', registry: NPMJS, file: 'cedar-embeddable-designer.js'});
   assert.equal(publishedBundle('ced', {version: '0.1.5-dev.20261124.939eb6c2'}), null);
   assert.equal(publishedBundle('designer', {version: '2.9.38'}), null);
+});
+
+test('a release base the registry does not serve yet is rebuilt', () => {
+  const source = publishedBundle('ced', {version: '0.1.5'});
+  assert.equal(isServed(source, () => '0.1.5'), true);
+  assert.equal(isServed(source, () => ''), false);
 });
 
 test('every published reference names its component package at a release on an https registry', () => {

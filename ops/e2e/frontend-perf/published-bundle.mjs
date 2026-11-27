@@ -34,6 +34,24 @@ export function publishedBundle(component, {version, references} = {}) {
   return {package: entry.package, version: entry.version, registry: entry.registry, file: `${name}.js`};
 }
 
+/**
+ * Whether the registry serves the version. A base can carry a release version before that release
+ * is published: when a release preparation is replaced by a later commit, the replaced preparation
+ * becomes the comparison base. Such a base is rebuilt, since its locks are recent.
+ */
+export function isServed(source, view = defaultView) {
+  return view(source) === source.version;
+}
+
+function defaultView(source) {
+  try {
+    return execFileSync('npm', ['view', `${source.package}@${source.version}`, 'version', '--registry', source.registry],
+      {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
+  } catch {
+    return '';
+  }
+}
+
 function fetchBundle(source, output) {
   const directory = mkdtempSync(join(tmpdir(), 'published-bundle-'));
   try {
@@ -56,6 +74,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const references = JSON.parse(readFileSync(REFERENCES, 'utf8'));
   const source = publishedBundle(values.component, {version: values.version, references});
   if (!source) {
+    console.log('published=false');
+  } else if (values.version !== undefined && !isServed(source)) {
+    console.error(`${source.package}@${source.version} is not on ${source.registry}; the base is rebuilt`);
     console.log('published=false');
   } else {
     const digest = fetchBundle(source, values.output);
