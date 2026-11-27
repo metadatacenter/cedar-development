@@ -2955,6 +2955,13 @@ board listens on port 47831 of the loopback interface only. `--port` chooses ano
 lets the system choose one. `--reports` names another report root. The page lists its keyboard
 shortcuts in its header.
 
+All screens prefers the newest complete, verified-at-capture packet for each application and
+profile. If none exists, it shows the newest available packet with its limitations. The capture
+selector also exposes partial and older packets. Completeness is relative to the catalog recorded
+with that packet, not today's catalog; the displayed build and date identify historical evidence,
+not a check of the current deployment. Missing states, collection errors and diagnostic images
+remain visible. A successful capture says nothing about whether the interface passed review.
+
 The board writes nothing in a review. Answers are kept in
 `.cedar/reports/ui-review-board/answers.json`. Every review identifies its findings afresh, so the
 same problem reported by two runs carries two identifiers. An answer therefore belongs to an issue.
