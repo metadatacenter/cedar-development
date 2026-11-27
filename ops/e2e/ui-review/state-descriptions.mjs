@@ -33,14 +33,33 @@ const designer = {
   'long-name': ['Text field with a long name', 'The field name is Participant preferred contact information and follow-up availability.'],
   nested: ['Nested element in the template', 'An element with child content is present; inspect its relationship to the root template.'],
 };
+const added = {
+  'user-menu': 'Workspace’s user menu is open, showing its existing account navigation.',
+  'actions-menu': 'Workspace’s actions menu is open, showing its existing group, privacy and help navigation.',
+  'groups-create': 'The Create group tab is open with an empty name and disabled creation control.',
+  'groups-name-entered': 'A group name has been entered; creation is available, but no group is submitted.',
+  'groups-delete': 'The Delete group tab is open before selecting a group; no deletion is performed.',
+  'utc-offset-open': 'The temporal field’s UTC-offset menu is open through its normal control.',
+  'folder-preview-tryout': 'The public template preview is in Try out mode with a typed Subject; nothing is saved.',
+  'folder-preview-return': 'The same preview has returned from Try out to its ordinary read-only state.',
+  'folder-empty': 'An empty public folder shows its normal empty-state message.',
+};
 const settings = new Set(['configuration','presentation','constraints','annotations','metadata','version']);
 export function describeScenario(app, scenario) {
   const id = scenario.id.replace(/-(1440|1100|1024|900|768|375)$/,'');
   let title=label(id), description;
-  if (app==='field-designer' && standalone[id]) description=standalone[id];
+  if (added[id]) description=added[id];
+  else if (app==='metadata-editor' && id==='draft-offered') description='Reloading an unsaved record shows its stored value and the retained-draft offer.';
+  else if (app==='metadata-editor' && id==='draft-restored') description='Restore draft recovers the edited Subject value without saving it.';
+  else if (app==='designer' && id.startsWith('root-element-')) description='The real standalone element host: '+label(id.slice('root-element-'.length))+'. This is a root element, rather than an element nested in a template.';
+  else if (app==='field-designer' && standalone[id]) description=standalone[id];
   else if (app==='field-designer' && settings.has(id)) {
     title='Standalone text field — '+label(id)+' settings';
     description='The '+label(id)+' tab is selected on a standalone field, which has no parent Configuration tab.';
+  } else if (app==='field-designer' && scenario.scenario==='standalone-field-values') {
+    const [,type,tab]=/^type-(.*)-(constraints|content)$/.exec(id);
+    title=label(type)+' — standalone '+label(tab)+' settings';
+    description='The type-specific '+label(tab)+' panel is selected through its ordinary tab. Inspect its constraints, defaults, options or authored-content controls; required content may still be empty.';
   } else if (app==='field-designer' && id.startsWith('type-')) {
     title=label(id.slice(5))+' — standalone field settings';
     description='The type was selected through the Field Designer chooser. Its named standalone definition and Presentation settings are visible; empty required content may show validation feedback.';

@@ -40,6 +40,11 @@ export const DESIGNER_TYPES = [
   ['doi','DOI'], ['image','Image'], ['rich-text','Rich Text'], ['youtube','YouTube'], ['section-break','Section Break'],
   ['page-break','Page Break'],
 ];
+// Attribute Value and the two break types have no value-settings tab. The remaining types expose
+// Constraints, or Content for authored media; both widths must show that distinct editing surface.
+export const FIELD_DESIGNER_VALUE_TABS = DESIGNER_TYPES
+  .filter(([slug]) => !['attribute-value', 'section-break', 'page-break'].includes(slug))
+  .map(([slug, label]) => [slug, label, ['image', 'rich-text', 'youtube'].includes(slug) ? 'Content' : 'Constraints']);
 export const PREVIEWLESS_TYPES = ['rich-text', 'page-break'];
 // The fields of the shared corpus template that holds one field per input type, by state slug and
 // field label, in form order.
@@ -57,6 +62,7 @@ export const TERM_PICKER_STATES = ['term-picker-initial-feedback', 'term-picker-
   'term-picker-ontologies-release-first', 'term-picker-ontologies-release-last', 'term-picker-search-restored'];
 export const TERM_PICKER_WIDTHS = [1440, 375];
 export const APPS = ['designer', 'field-designer', 'workspace', 'metadata-editor', 'openview'];
+export const ROOT_ELEMENT_STATES = ['empty', 'populated', 'presentation', 'annotations', 'metadata', 'version', 'saved', 'reopened'];
 export const FIELD_DESIGNER_STATES = [
   'chooser-open', 'chooser-dismissed', 'name-empty', 'name-invalid', 'validation-expanded',
   'name-corrected', 'collapsed', 'presentation', 'constraints', 'annotations', 'metadata', 'version',
@@ -90,8 +96,11 @@ const WORKSPACE_PAIRED = [
   ['share-search', 'sharing'], ['shared', 'sharing'], ['discard-confirmation', 'dialogs'],
   ['write-unconfirmed', 'failures'], ['write-rechecked', 'failures'],
   ['profile', 'account'], ['settings', 'account'], ['groups', 'account'], ['privacy', 'account'],
+  ['user-menu', 'account'], ['actions-menu', 'account'], ['groups-create', 'account'],
+  ['groups-name-entered', 'account'], ['groups-delete', 'account'],
 ];
-const METADATA_PAIRED = [['loading', 'failures'], ['save-unreachable', 'failures'], ['save-conflict', 'failures'], ['leave-confirmation', 'editing']];
+const METADATA_PAIRED = [['loading', 'failures'], ['save-unreachable', 'failures'], ['save-conflict', 'failures'], ['leave-confirmation', 'editing'],
+  ['draft-offered', 'recovery'], ['draft-restored', 'recovery'], ['utc-offset-open', 'field-types']];
 // Dragging needs a pointer that can press and move: Playwright's touch screen can only tap.
 const workspaceDrag = profileName => profile(profileName).context.hasTouch ? [] : [{id: 'drag-preview-1440', scenario: 'drag-preview', category: 'pointer', width: 1440}];
 const workspace = [
@@ -139,14 +148,19 @@ function baseScenarios(app, profileName) {
     id: `${scenario}-${width}`, scenario,
     category: /saved|reopened|save-|draft-/.test(scenario) ? 'save-and-recovery'
       : /invalid|validation/.test(scenario) ? 'validation' : 'field-authoring', width,
-  }))).concat(DESIGNER_TYPES.map(([slug]) => ({id: `type-${slug}-1440`, scenario: 'standalone-field-type', category: 'field-types', width: 1440})));
+  }))).concat(DESIGNER_TYPES.map(([slug]) => ({id: `type-${slug}-1440`, scenario: 'standalone-field-type', category: 'field-types', width: 1440})))
+    .concat(PAIRED_WIDTHS.flatMap(width => FIELD_DESIGNER_VALUE_TABS.map(([slug, , tab]) => ({
+      id: `type-${slug}-${tab.toLowerCase()}-${width}`, scenario: 'standalone-field-values', category: 'field-types', width,
+    }))));
   if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}))
     .concat(DESIGNER_TYPES.map(([slug])=>({id:'type-'+slug,scenario:'field-type-settings',category:'field-types',width:1440})))
     .concat(DESIGNER_TYPES.filter(([slug])=>!PREVIEWLESS_TYPES.includes(slug))
       .map(([slug])=>({id:'type-'+slug+'-preview',scenario:'field-type-preview',category:'field-types',width:1440})))
-    .concat(TERM_PICKER_WIDTHS.flatMap(width=>TERM_PICKER_STATES.map(scenario=>({id:`${scenario}-${width}`,scenario,category:'term-picker',width}))));
+    .concat(TERM_PICKER_WIDTHS.flatMap(width=>TERM_PICKER_STATES.map(scenario=>({id:`${scenario}-${width}`,scenario,category:'term-picker',width}))))
+    .concat(PAIRED_WIDTHS.flatMap(width=>ROOT_ELEMENT_STATES.map(state=>({id:`root-element-${state}-${width}`,scenario:`root-element-${state}`,category:'element-authoring',width}))));
   if (app === 'openview') return WIDTHS.flatMap(width=>openview.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
-    .concat(paired([['folder-preview', 'folder'], ['loading', 'loading']]))
+    .concat(paired([['folder-preview', 'folder'], ['folder-preview-tryout', 'folder'], ['folder-preview-return', 'folder'],
+      ['folder-empty', 'folder'], ['loading', 'loading']]))
     .concat(richScenarios(app,PAIRED_WIDTHS));
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))

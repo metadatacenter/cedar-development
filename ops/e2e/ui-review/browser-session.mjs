@@ -104,8 +104,8 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
         // Permissions and publication changes address a subresource of a review-owned artifact.
         const subresource=/\/(permissions|publication|annotations)$/.test(address.pathname);
         const item=fixtureAt(subresource?req.url().replace(/\/(permissions|publication|annotations)(?=$|\?)/,''):req.url());
-        const authoredCollection = app === 'designer' ? 'templates' : app === 'field-designer' ? 'template-fields' : null;
-        if(authoredCollection && item?.collection===authoredCollection && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
+        const authoredCollections = app === 'designer' ? ['templates', 'template-elements'] : app === 'field-designer' ? ['template-fields'] : [];
+        if(authoredCollections.includes(item?.collection) && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
         // A record the Metadata Editor creates from a review-owned template belongs to the review.
         if(app==='metadata-editor' && item?.collection==='template-instances' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && ledger.fixtures.some(f=>f.collection==='templates'&&f.id===req.postDataJSON()?.['schema:isBasedOn'])) await ledger.register(item.collection,item.id);
         if(!item||!ledger.fixtures.some(f=>f.id===item.id)) {

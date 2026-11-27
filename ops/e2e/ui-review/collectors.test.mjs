@@ -62,6 +62,12 @@ test('every collector records exactly its catalog states, once each', async t =>
     if (failed !== 'preferences-modal') assert(designer.includes('preferences-modal'), failed + ': independent settings');
     if (failed === 'single') assert(designer.includes('type-text-preview'), 'fresh field-type fixture');
   }
+  const rootElement = await dryRun('designer', 'chromium', [], 'root-element-saved-1440');
+  assert(!rootElement.includes('root-element-reopened-1440'), 'a failed element save cannot establish reopen coverage');
+  for (const id of ['root-element-empty-375', 'root-element-reopened-375', 'text-200-375']) assert(rootElement.includes(id), id);
+  const draft = await dryRun('metadata-editor', 'chromium', [], 'draft-offered-1440');
+  assert(!draft.includes('draft-restored-1440'), 'a draft that was not offered cannot establish restoration coverage');
+  for (const id of ['utc-offset-open-1440', 'draft-restored-375', 'save-conflict-375']) assert(draft.includes(id), id);
   const workspace = await dryRun('workspace', 'chromium', [], 'rename-conflict-1440');
   for (const id of ['description-editing-1440', 'profile-1440', 'privacy-375', 'text-200-375']) assert(workspace.includes(id), id);
   const metadata = await dryRun('metadata-editor', 'chromium', [], 'type-temporal-1440');

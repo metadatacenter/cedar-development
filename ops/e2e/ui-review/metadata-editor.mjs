@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
 import {WIDTHS, PAIRED_WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
 import {RESOURCE,USER_SERVER,GROUP_SERVER} from '../rest/lib.mjs';
-import {pointer,keyboard,folderPage,textSizeStates,holdArtifactRead,refuseConnections,staleRevision} from './interactions.mjs';
+import {pointer,keyboard,folderPage,textSizeStates,holdArtifactRead,refuseConnections,staleRevision,waitForPage} from './interactions.mjs';
 export async function collectMetadataEditor(session,record) {
   const {page}=session;await session.login();const f=await metadataFixtures(session);
   const status=text=>page.locator('.metadata-toolbar [role=status]').filter({hasText:text});
@@ -93,7 +93,14 @@ export async function collectMetadataEditor(session,record) {
     await r('empty-template',()=>open(f.emptyTemplateId,'create'));
     });
   }
-  const centre=locator=>locator.first().evaluate(element=>element.scrollIntoView({block:'center'}));
+  const centre=async locator=>{
+    const target=locator.first();await target.waitFor({state:'visible'});
+    await target.evaluate(element=>element.scrollIntoView({block:'center'}));
+    await waitForPage(page,element=>{
+      const r=element.getBoundingClientRect();
+      return r.width>0&&r.height>0&&r.bottom>0&&r.top<innerHeight&&r.right>0&&r.left<innerWidth;
+    },await target.elementHandle());
+  };
   const leaveAnyway=dialog=>void dialog.accept();
   // New records from the corpus templates that together hold every input type, each field centred.
     await captureJourney(session,record,'input-types',async()=>{
@@ -172,6 +179,28 @@ export async function collectMetadataEditor(session,record) {
     });
     await collectRichMetadata(session,record,{folder:f.folder,open,save,attributeTemplate:f.corpus.attributeValue});
     for(const width of PAIRED_WIDTHS){
+    await page.setViewportSize({width,height:width===1440?1000:667});
+    await captureJourney(session,record,`record-draft-${width}`,async()=>{
+      const subject=cee.getByRole('textbox',{name:'Subject',exact:true}),value='Recovered specimen '+width;
+      await open(f.failing['draft-'+width]);await subject.fill(value);await status('Modified').waitFor();
+      await waitForPage(page,value=>Object.values(sessionStorage).some(raw=>raw.includes(value)),value);
+      await record(`draft-offered-${width}`,async()=>{
+        await page.reload();await ready();await page.getByRole('button',{name:'Restore draft',exact:true}).waitFor();
+        assert.equal(await subject.inputValue(),'Specimen 42');
+      },'Reload after editing a temporary record; the stored value remains visible beside the retained-draft offer.');
+      await record(`draft-restored-${width}`,async()=>{
+        await tap(page.getByRole('button',{name:'Restore draft',exact:true}));await status('Modified').waitFor();
+        assert.equal(await subject.inputValue(),value);
+      },'Restore draft recovers the edited field value without saving it.');
+    });
+    await captureJourney(session,record,`utc-offset-${width}`,async()=>{
+      await open(f.corpus.temporal,'create');
+      await record(`utc-offset-open-${width}`,async()=>{
+        const select=cee.locator('app-timezone-picker mat-select').first();await centre(select);await tap(select);
+        await page.getByRole('listbox').waitFor();
+      },'The temporal field’s UTC-offset menu is open through its ordinary control.');
+      await page.keyboard.press('Escape');await page.getByRole('listbox').waitFor({state:'hidden'});
+    });
     await captureJourney(session,record,`record-failures-${width}`,async()=>{
       const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
       await page.setViewportSize({width,height:width===1440?1000:667});

@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import {captureJourney} from './journeys.mjs';
 import {richFixture} from './rich-fixtures.mjs';
 import {RICH_FIELDS} from './rich-definitions.mjs';
@@ -49,10 +50,29 @@ export async function collectOpenView(session,record) {
     await page.setViewportSize({width,height:width===1440?1000:667});
     await r('folder-preview',async()=>{
       await go(`/folders/${enc(f.folder)}`);await page.locator('section.folder ul.resources li').first().waitFor();
-      await page.locator('.resource-preview').first().click();
+      await page.locator(`[data-preview-id="${f.template}"]`).click();
       await page.locator('dialog.artifact-preview[open]:not(.is-preparing)').waitFor();
     },'The preview a folder row opens.');
-    await page.keyboard.press('Escape');await page.locator('dialog.artifact-preview[open]').waitFor({state:'detached'});
+    const preview=page.locator('dialog.artifact-preview[open]');
+    await r('folder-preview-tryout',async()=>{
+      await preview.locator('.try-out').click();await preview.locator('.try-out-notice').waitFor();
+      const subject=preview.getByRole('textbox',{name:'Subject',exact:true});
+      await subject.fill('Preview specimen');
+    },'The public template preview is editable in Try out; the typed specimen is never saved.');
+    await r('folder-preview-return',async()=>{
+      await preview.locator('.try-out').click();await preview.locator('.try-out-notice').waitFor({state:'detached'});
+      await preview.locator('section[aria-busy="false"]').waitFor();
+      // CEE config is a write-only input. An empty read-only field renders its specification,
+      // not an input; verify that presentation and the removal of the unsaved Try out value.
+      const subject=preview.locator('[cedarFieldPresentation]').filter({has:page.getByText('Subject',{exact:true})});
+      await subject.locator('app-cedar-spec-box').waitFor();
+      assert.equal(await preview.getByRole('textbox',{name:'Subject',exact:true}).count(),0);
+      assert.equal(await preview.getByText('Preview specimen',{exact:true}).count(),0);
+    },'Returning from Try out restores the ordinary read-only preview.');
+    await page.keyboard.press('Escape');await preview.waitFor({state:'detached'});
+    await r('folder-empty',async()=>{
+      await go(`/folders/${enc(f.empty)}`);await page.locator('section.folder .empty-title').waitFor();
+    },'An opened, empty temporary folder, viewed anonymously.');
     let held;
     await r('loading',async()=>{
       // OpenView's page reads artifacts from its own API host, open.<domain>.

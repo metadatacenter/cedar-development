@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {DESIGNER_TYPES, PAIRED_WIDTHS} from './catalog.mjs';
+import {DESIGNER_TYPES, FIELD_DESIGNER_VALUE_TABS, PAIRED_WIDTHS} from './catalog.mjs';
 import {captureJourney} from './journeys.mjs';
 import {pointer, textSizeStates, waitForPage} from './interactions.mjs';
 
@@ -128,6 +128,14 @@ export async function collectFieldDesigner(session, record) {
       await show(root.getByRole('tab', {name: 'Presentation', exact: true}));
       assert.equal(await root.getByRole('tab', {name: 'Configuration', exact: true}).count(), 0);
     }, `A standalone ${label} definition. It has no parent placement controls; empty required settings remain visible as validation feedback.`);
+    const valueTab = FIELD_DESIGNER_VALUE_TABS.find(([type]) => type === slug)?.[2];
+    if (valueTab) for (const width of PAIRED_WIDTHS) {
+      await page.setViewportSize({width, height: width === 1440 ? 1000 : 667});
+      await record(`type-${slug}-${valueTab.toLowerCase()}-${width}`, async () => {
+        await tab(valueTab);
+        await root.getByRole('tabpanel', {name: valueTab, exact: true}).waitFor({state: 'visible'});
+      }, `The standalone ${label} field’s ${valueTab} panel, opened through its ordinary tab. Empty required content is retained.`);
+    }
   });
   await captureJourney(session, record, 'field-text-size', () => textSizeStates(session, record, async () => {
     if (!savedUrl) throw new Error('No saved field is available for text-size inspection');

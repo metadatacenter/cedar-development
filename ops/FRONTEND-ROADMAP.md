@@ -524,12 +524,21 @@ The frontend runbook links the complete calibrated Designer review and focused f
 
 ### 14. Extend Meaningful State Coverage and Reviewer Calibration
 
-- Audit significant states against the implemented screens and surface inventories, including
-  Workspace group-management tabs and root-element authoring. Extend the collectors with the
-  highest-value gaps; the five-application catalog is not a denominator for the whole frontend estate.
-- Add state-specific visibility checks where an image could be captured without its intended
-  subject being visible. Verify the actual named target and retain diagnostic evidence when it is
+- Capture the remaining significant account, resource and lifecycle states: group membership and
+  administration, ownership transfer, API-key confirmations, recursive-delete refusal reasons,
+  published/draft/version operations, the default-term chooser, and import/preview failure paths.
+  Hold each addition to the implemented screens and surface inventories, rather than component counts.
+- Inventory important states outside the five capture applications, including authentication,
+  Monitoring, Bridging and supported legacy-editor fallback paths. The current catalog and component
+  census are not denominators for the whole frontend estate.
+- Extend state-specific visibility checks to remaining captures where an image could omit its intended
+  subject. Verify the actual named target and retain diagnostic evidence when it is
   absent; screenshot existence alone does not establish the intended state was reached.
+- Diagnose Chromium's intermittent `Page.captureScreenshot: Unable to capture screenshot` during
+  calibration generation, which uses Chromium even for touch packets. The November 27 `state-coverage-touch-20261127/workspace`
+  packet completed all required state captures and cleanup before calibration failed. Preserve that
+  packet and distinguish complete state evidence from a packet ready for independent review; a
+  successful recapture does not explain the protocol failure.
 - Diagnose the isolated controlled-term lookup failure in the November 26 packet
   `rich-states-metadata-touch-20261126-b`: `terminology lookup failed for "null"` followed by a
   minified error. The logged null is the empty control value; the search sends an empty string.

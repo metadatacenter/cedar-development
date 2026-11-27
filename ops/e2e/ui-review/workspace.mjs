@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import {captureJourney} from './journeys.mjs';
 import {workspaceFixtures} from './fixtures.mjs';
 import {WIDTHS,PAIRED_WIDTHS} from './catalog.mjs';
@@ -299,7 +300,28 @@ export async function collectWorkspace(session,record) {
     });
     await captureJourney(session,record,`account-profile-${width}`,async()=>{await r('profile',()=>account('Profile','Profile'));});
     await captureJourney(session,record,`account-settings-${width}`,async()=>{await r('settings',()=>account('Settings','Settings'));});
-    await captureJourney(session,record,`account-groups-${width}`,async()=>{await r('groups',()=>account('Groups','Groups','Actions menu'));});
+    await captureJourney(session,record,`account-groups-${width}`,async()=>{
+      await r('groups',()=>account('Groups','Groups','Actions menu'));
+      await r('groups-create',async()=>{
+        await tap(page.locator('#create-group-tab'));await page.locator('#create-group-panel').waitFor();
+        assert.ok(await page.locator('#create-group-panel button').isDisabled());
+      });
+      await r('groups-name-entered',async()=>{
+        await page.locator('#new-group-name').fill('Coastal specimen collaborators');
+        assert.ok(await page.locator('#create-group-panel button').isEnabled());
+      },'A group name entered through the form, without submitting or creating a group.');
+      await r('groups-delete',async()=>{
+        await tap(page.locator('#delete-group-tab'));await page.locator('#delete-group-panel').waitFor();
+      },'The Delete tab before a group is selected; no group is deleted.');
+    });
+    await captureJourney(session,record,`account-menus-${width}`,async()=>{
+      await folderPage(session,f.listing,f.rows.slice(0,50));
+      for(const [id,name] of [['user-menu','User menu'],['actions-menu','Actions menu']]){
+        const summary=page.locator(`summary[aria-label="${name}"]`);
+        await r(id,async()=>{await tap(summary);await page.locator('details.header-menu[open] nav').waitFor();});
+        await tap(summary);await page.locator('details.header-menu[open]').waitFor({state:'detached'});
+      }
+    });
     await captureJourney(session,record,`account-privacy-${width}`,async()=>{await r('privacy',()=>account('Privacy','Privacy','Actions menu'));});
   }
   if(!session.touch){

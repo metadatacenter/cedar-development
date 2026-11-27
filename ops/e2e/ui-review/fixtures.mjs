@@ -74,7 +74,7 @@ export async function metadataFixtures(session) {
   // One record per failed save, left edit and width. Unsaved edits are kept as a draft, so no other
   // state may open the record afterwards.
   const failing={};
-  for(const width of PAIRED_WIDTHS)for(const kind of ['conflict','unreachable','leave'])
+  for(const width of PAIRED_WIDTHS)for(const kind of ['conflict','unreachable','leave','draft'])
     failing[`${kind}-${width}`]=await session.put('template-instances',instance(`${name} ${kind} ${width}`,templateId,values(1,[textValue('Observation 1')])),folder);
   const corpus={};
   for(const [role,number] of Object.entries(CORPUS_TEMPLATES))corpus[role]=await session.put('templates',await corpusTemplate(number,`${name} corpus ${number}`),folder);
@@ -135,6 +135,7 @@ export async function makeOpen(session, collection, id) {
 export async function openviewFixtures(session) {
   const name = 'UI review ' + randomUUID().slice(0, 8);
   const folder = await session.put('folders', {folderId: session.user.profile.homeFolderId, name, description: 'Temporary independent UI review'});
+  const empty = await session.put('folders', {folderId: folder, name: 'Empty public collection', description: 'Temporary independent UI review'});
   const sampleFields = {Name: field('Name'), [longLabel]: repeat(field(longLabel))};
   const template = await session.put('templates', container(name + ' open study', {Subject: field('Subject', {required: true}),
     [longLabel]: field(longLabel), Tags: repeat(field('Tags')), Samples: repeat(container('Sample', sampleFields, 'element'))}), folder);
@@ -151,6 +152,6 @@ export async function openviewFixtures(session) {
   const closedFolder = await session.put('folders', {folderId: session.user.profile.homeFolderId, name: name + ' closed', description: 'Temporary independent UI review'});
   const closed = await session.put('templates', container(name + ' closed form', {Name: field('Name')}), closedFolder);
   for (const [collection, id] of [['templates', template], ['template-instances', record], ['template-elements', element],
-    ['template-fields', single], ['templates', fieldTypes], ['folders', folder]]) await makeOpen(session, collection, id);
-  return {name, folder, template, record, element, single, fieldTypes, closed};
+    ['template-fields', single], ['templates', fieldTypes], ['folders', empty], ['folders', folder]]) await makeOpen(session, collection, id);
+  return {name, folder, empty, template, record, element, single, fieldTypes, closed};
 }

@@ -26,9 +26,11 @@ export async function openSession(directory, options = {}) {
     await waitForPage(page, () => ['Unmodified', 'Modified', 'Saved'].includes(document.getElementById('state')?.textContent));
     await page.evaluate(() => document.fonts.ready);
   }
-  async function openNew() {
+  async function openNew(artifactKind = kind) {
+    if (!(app === 'field-designer' ? ['field'] : ['template', 'element']).includes(artifactKind))
+      throw new Error('Unsupported authoring kind: ' + artifactKind);
     await withBrowserAuthentication('Designer UI review sign-in', async () => {
-      await page.goto(`${base}/${kind}s/create?${params}`);
+      await page.goto(`${base}/${artifactKind}s/create?${params}`);
       await page.locator(`#username, ${tag}, #message[data-error=true]`).first().waitFor({state: 'visible'});
       if (await page.locator('#username').isVisible()) {
         await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || 'test1@test.com');
