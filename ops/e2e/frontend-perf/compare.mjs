@@ -3,6 +3,7 @@ import {spawn} from 'node:child_process';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {boundedComparison, inputDigest} from './retry.mjs';
+import {enforced, blockingRegressions} from './budgets.mjs';
 
 const {values}=parseArgs({options:Object.fromEntries([
   'component','baseline','candidate','reference','output','baseline-revision','candidate-revision','reference-revision',
@@ -10,7 +11,8 @@ const {values}=parseArgs({options:Object.fromEntries([
 for (const name of ['component','baseline','candidate','output']) if (!values[name]) throw new Error('Missing '+name);
 const output=resolve(values.output);
 await mkdir(output,{recursive:false});
-const report={schemaVersion:1,timingMode:'advisory',comparisons:{},complete:false,
+if (!enforced[values.component]) throw new Error('No budget decision for component '+values.component);
+const report={schemaVersion:1,timingMode:'budgeted',enforced:enforced[values.component],comparisons:{},complete:false,regressions:[],
   references:{baseline:values['baseline-revision'],reference:values['reference-revision'],candidate:values['candidate-revision']}};
 try {
   for (const label of values.reference ? ['baseline','reference'] : ['baseline']) {
@@ -36,10 +38,12 @@ try {
     });
   }
   report.complete=Object.values(report.comparisons).every(c=>c.complete);
+  report.regressions=blockingRegressions(values.component,report.comparisons);
 } catch(error) {report.error=error.stack;}
 finally {
   await writeFile(join(output,'comparison.json'),JSON.stringify(report,null,2)+'\n');
-  const sections=['# Frontend performance comparisons','',`Coverage: **${report.complete?'complete':'incomplete — check failed'}**. Timing/CLS are advisory.`,
+  const sections=['# Frontend performance comparisons','',`Coverage: **${report.complete?'complete':'incomplete — check failed'}**. Budgeted metrics: ${report.enforced.join(', ')}; every other metric is advisory. Inconclusive rows never block.`,
+    report.regressions.length?`**Budget regressions: ${report.regressions.length} — check failed.**`:'No budgeted metric regressed.','',
     'PR/push base and fixed reference comparisons are separate. Noisy complete measurements get at most one rerun; all attempts are retained.',''];
   for (const [label,c] of Object.entries(report.comparisons)) {
     sections.push(`## ${label === 'reference' ? 'Fixed post-optimization reference' : 'PR/push base'}`,'');
@@ -52,5 +56,5 @@ finally {
   }
   if(report.error) sections.push('Setup failed; see comparison.json.');
   await writeFile(join(output,'summary.md'),sections.join('\n')+'\n');
-  process.exitCode=report.complete?0:1;
+  process.exitCode=report.complete && !report.regressions.length?0:1;
 }

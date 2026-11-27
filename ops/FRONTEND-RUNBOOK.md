@@ -6014,16 +6014,36 @@ Reports contain all attempts; failed samples cannot improve a median. Existing o
 are refused. `report.json`, `summary.md` and screenshots are retained; the local directory also
 keeps frozen inputs. CI uploads only reports/screenshots, not ephemeral TLS keys.
 
-Readiness, blocking time over 50 ms and CLS are **advisory**, pending runner calibration.
-A timing warning requires the median paired increase to exceed both 10% and 100 ms for
-readiness, or both 15% and 50 ms for blocking. CLS uses a provisional 0.02 increase.
-These are investigation triggers, not approved budgets. Fewer than five pairs, missing metrics
-or median absolute deviation above the tolerance produce an explicit inconclusive assessment.
-In CI, a complete but inconclusive comparison gets one further full paired run. Both attempts
-are retained, with the second selected; persistent noise stays explicitly inconclusive. Broken
-loading or incomplete coverage never retries into a pass. A clear regression does not rerun
-to seek a faster result. A complete advisory run still exits zero; load/measurement failures
-always exit nonzero.
+A timing regression requires the median paired increase to exceed both 10% and 100 ms for
+readiness, or both 15% and 50 ms for blocking time over 50 ms. A CLS regression is an increase
+above 0.02. Fewer than five pairs, missing metrics or median absolute deviation above the
+tolerance produce an explicit inconclusive assessment. In CI, a complete but inconclusive
+comparison gets one further full paired run. Both attempts are retained, with the second
+selected; persistent noise stays explicitly inconclusive. Broken loading or incomplete coverage
+never retries into a pass. A clear regression does not rerun to seek a faster result.
+
+Some of these rules are budgets that fail the CI comparison, and the rest are advisory.
+`ops/e2e/frontend-perf/budgets.mjs` lists the budgeted metrics for each component:
+
+| Component | Budgeted | Advisory |
+|---|---|---|
+| CEE | readiness, blocking time, CLS | — |
+| CED | readiness, blocking time, CLS | — |
+| Designer and equivalent CEF | readiness | blocking time, CLS |
+
+A regression in a budgeted metric, against either the pull-request or push base or the fixed
+reference, fails the job with an error annotation. A regression in an advisory metric is a
+warning, and an inconclusive row never fails the job. Load and measurement failures always fail
+it. The local `cedarcli test frontend-performance-paired` command and the daily calibration
+measure without budgets.
+
+These budgets were set on 2026-11-27 from the hosted readiness review's first cohorts, 14 daily
+identical-input controls per component. On the worst day of that window, no CEE or CED increase
+used more than 42% of its threshold, and Designer readiness used 55%. Designer blocking time
+used 87% of its threshold, so ordinary noise could fail an unchanged pull request. Designer CLS
+remains advisory while the shipped Designer still carries the warm-load shift that the CED
+zero-width fix removes. Review both once the Designer's component pin carries that fix and a
+further 14 daily controls exist.
 
 This measures standalone rendering, not sign-in, production latency, host integration, field
 INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute for the

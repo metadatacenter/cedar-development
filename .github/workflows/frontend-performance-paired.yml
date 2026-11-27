@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   compare:
-    name: Paired rendering (advisory timing, required loading)
+    name: Paired rendering (budgeted timing, required loading)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -164,17 +164,20 @@ jobs:
             echo 'Performance comparison incomplete: setup failed before measurement.' >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Annotate advisory findings
+      - name: Annotate budget and advisory findings
         if: always()
         run: |
           node --input-type=module <<'JS'
           import {readFileSync, existsSync} from 'node:fs';
           if (existsSync('performance-report/comparison.json')) {
             const report = JSON.parse(readFileSync('performance-report/comparison.json', 'utf8'));
+            const budgeted = new Set(report.enforced ?? []);
             for (const [label, comparison] of Object.entries(report.comparisons)) {
               for (const row of comparison.attempts[comparison.selected-1]?.report.comparison ?? []) {
-                if (row.status !== 'within-advisory-tolerance') {
-                  console.log(`::warning::${label}: ${row.scenario}/${row.cache} ${row.metric}: ${row.status}. See performance summary; timing budgets are advisory.`);
+                if (row.status === 'regression-warning' && budgeted.has(row.metric)) {
+                  console.log(`::error::${label}: ${row.scenario}/${row.cache} ${row.metric}: budget regression. See performance summary.`);
+                } else if (row.status !== 'within-advisory-tolerance') {
+                  console.log(`::warning::${label}: ${row.scenario}/${row.cache} ${row.metric}: ${row.status}. See performance summary; this metric is advisory here.`);
                 }
               }
             }
