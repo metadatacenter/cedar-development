@@ -534,9 +534,9 @@ The frontend runbook links the complete calibrated Designer review and focused f
 
 ### 15. Extend Meaningful State Coverage and Reviewer Calibration
 
-- Add collectors for Monitoring, Bridging and the standalone field-designer host. Inventory their
-  distinct pages, dialogs and significant states first; the four-application catalog is not a
-  denominator for the whole frontend estate.
+- Add a collector for the standalone field-designer host. Inventory its distinct pages, dialogs
+  and significant states first; the four-application catalog is not a denominator for the whole
+  frontend estate.
 - Add state-specific visibility checks where an image could be captured without its intended
   subject being visible. Verify the actual named target and retain diagnostic evidence when it is
   absent; screenshot existence alone does not establish the intended state was reached.
