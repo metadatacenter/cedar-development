@@ -525,6 +525,93 @@ export async function collectDesigner(session, record) {
       await page.locator('.designer-scroll').evaluate(element => {element.scrollTop = 0;});
     }, 'Returned phone authoring to its top to inspect complete labels independently of the preserved scroll position.');
 
+    // Components the states above leave out, at desktop width: the user menu's two dialogs, the
+    // field library sidebar its preference turns on, importing reusable fields and elements, an
+    // element's settings with its labels and types, a type entered by IRI, and a property chosen in
+    // the term picker. The preference is set back afterwards, so later states keep the inline picker.
+    await action('Return to desktop authoring', async () => {
+      await page.setViewportSize({width: 1440, height: 1000});
+      await setPreview(false);
+      await page.locator('.designer-scroll').evaluate(element => {element.scrollTop = 0;});
+    });
+    const userMenu = async item => {
+      await click(page.getByRole('button', {name: 'User Menu', exact: true}));
+      await click(page.locator('.user-menu-dropdown').getByRole('button', {name: item, exact: true}));
+    };
+    const preferences = page.getByRole('dialog', {name: 'User Preferences', exact: true});
+    const selectionStyle = async label => {
+      const option = preferences.getByRole('radio', {name: label});
+      await option.scrollIntoViewIfNeeded();
+      if (!await option.isChecked()) await click(option);
+    };
+    await record('preferences-modal', async () => {await userMenu('Preferences'); await preferences.waitFor();});
+    await record('field-library-sidebar', async () => {
+      await selectionStyle('Library Sidebar');
+      await click(preferences.getByRole('button', {name: 'Close', exact: true}));
+      // The sidebar's host draws no box of its own; its container does.
+      await page.locator('app-field-library-sidebar .sidebar-container').waitFor();
+    }, 'The Library Sidebar field selection style, chosen in the preferences.');
+    await action('Return to the inline field picker', async () => {
+      await userMenu('Preferences');
+      await selectionStyle('Inline field picker');
+      await click(preferences.getByRole('button', {name: 'Close', exact: true}));
+      await page.locator('app-field-library-sidebar').waitFor({state: 'detached'});
+    });
+    await record('preset-definitions-modal', async () => {
+      await userMenu('Define Presets');
+      await page.locator('app-preset-definitions-modal [role="dialog"]').waitFor();
+    });
+    await action('Close the preset definitions', async () => {
+      await click(page.locator('app-preset-definitions-modal .settings-dialog-close'));
+      await page.locator('app-preset-definitions-modal [role="dialog"]').waitFor({state: 'detached'});
+    });
+    const importer = page.locator('app-child-picker dialog');
+    await record('child-picker', async () => {
+      await click(page.getByRole('button', {name: 'Import fields and elements', exact: true}).last());
+      await importer.waitFor();
+    }, 'The dialog that finds reusable fields and elements to import, before a search.');
+    await action('Close the import dialog', async () => {
+      await click(importer.getByRole('button', {name: 'Close', exact: true}));
+      await importer.waitFor({state: 'detached'});
+    });
+    const elementSettings = page.locator('app-element-card').first();
+    // The template open here holds fields only, so the element whose settings follow is added first.
+    await action('Add an element at the end of the template', async () => {
+      await click(page.getByRole('button', {name: 'Add element', exact: true}).last());
+      await page.getByPlaceholder('Enter element name', {exact: true}).last().fill('Collection site');
+    });
+    await record('element-settings', async () => {
+      await click(page.getByRole('button', {name: 'Expand element settings', exact: true}).first());
+      await click(elementSettings.getByRole('tab', {name: 'Presentation', exact: true}));
+      await elementSettings.locator('app-element-labels').scrollIntoViewIfNeeded();
+    }, 'An element\'s Presentation settings, scrolled to its alternate names.');
+    await record('types-manual-iri', async () => {
+      await click(elementSettings.getByRole('tab', {name: 'Metadata', exact: true}));
+      const types = elementSettings.locator('app-types-picker');
+      await types.scrollIntoViewIfNeeded();
+      await click(types.getByRole('button', {name: 'Enter IRI manually', exact: true}));
+      await types.locator('app-manual-iri').waitFor();
+    }, 'Entering a type for the element by its IRI.');
+    const properties = page.getByRole('dialog', {name: 'Choose property IRI', exact: true});
+    await record('property-detail', async () => {
+      const expand = card().getByRole('button', {name: 'Expand field settings', exact: true});
+      if (await expand.isVisible()) await click(expand);
+      // A field that already has a property offers to replace it.
+      const choose = card().getByRole('button', {name: /^(Choose|Replace) property IRI$/});
+      await choose.scrollIntoViewIfNeeded(); await click(choose);
+      await properties.getByRole('searchbox').fill('name');
+      // A result opens to the sources that define it; selecting one shows its detail beneath it.
+      const first = properties.locator('#cetp-results .row button').first();
+      await first.waitFor(); await click(first);
+      const source = properties.locator('.children.properties .child').first();
+      await source.waitFor(); await click(source);
+      await properties.locator('cetp-property-detail').waitFor();
+    }, 'A property found by searching for "name", with its first source selected to show its detail.');
+    await action('Close the property picker', async () => {
+      await page.keyboard.press('Escape');
+      await properties.waitFor({state: 'detached'});
+    });
+
     // An address no template has: the server answers 404 and the Designer reports it cannot load.
     const missingReason = 'Opening a template identifier no artifact has';
     await record('missing-template', async () => {

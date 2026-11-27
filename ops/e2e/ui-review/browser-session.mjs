@@ -17,10 +17,17 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     : app==='openview' ? process.env.CEDAR_OPENVIEW_FRONTEND||`https://openview.${HOST}`
     : process.env.CEDAR_WORKSPACE_BASE||`https://workspace.${HOST}`;
   for(const url of [base,RESOURCE,USER_SERVER])requireLocal(url);
-  const lock=join(process.env.CEDAR_HOME,'.cedar/locks/ui-review-user1');
+  // Workspace shares a fixture with the second test account, so it holds that account's lock too.
+  const locks=(app==='workspace'?['ui-review-user1','ui-review-user2']:['ui-review-user1']).map(name=>join(process.env.CEDAR_HOME,'.cedar/locks',name));
   await mkdir(join(process.env.CEDAR_HOME,'.cedar/locks'),{recursive:true});
-  try {await mkdir(lock);}catch(error){if(error.code==='EEXIST')throw new Error(`Another UI review owns the test account; inspect ${lock}/owner.json before recovering an abandoned lock`);throw error;}
-  await writeFile(join(lock,'owner.json'),JSON.stringify({pid:process.pid,app,directory,startedAt:new Date().toISOString()}));
+  const releaseLocks=held=>Promise.all(held.map(lock=>rm(lock,{recursive:true,force:true})));
+  for(const [index,lock] of locks.entries()){
+    try {await mkdir(lock);}catch(error){
+      await releaseLocks(locks.slice(0,index));
+      if(error.code==='EEXIST')throw new Error(`Another UI review owns the test account; inspect ${lock}/owner.json before recovering an abandoned lock`);throw error;
+    }
+    await writeFile(join(lock,'owner.json'),JSON.stringify({pid:process.pid,app,directory,startedAt:new Date().toISOString()}));
+  }
   let browser,ledger,closed,coveragePage=null,codeCoverage=null;
   const census={};
   const states=[],actions=[],runtimeErrors=[],cleanupErrors=[],consoleMessages=[];
@@ -42,14 +49,14 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       try{await browser?.close();}catch(e){cleanupErrors.push('Browser close: '+e.message);}
       try{await ledger?.close();}catch(e){cleanupErrors.push('Fixture cleanup: '+e.message);}
       if(ledger)cleanupErrors.push(...ledger.cleanupErrors);
-      try {await flush();} finally {process.off('SIGINT',onInterrupt);process.off('SIGTERM',onTerminate);await rm(lock,{recursive:true,force:true});}
+      try {await flush();} finally {process.off('SIGINT',onInterrupt);process.off('SIGTERM',onTerminate);await releaseLocks(locks);}
     })();return closed;
   }
   const interrupt=async code=>{cleanupErrors.push('Collection interrupted');await close();process.exit(code);};
   const onInterrupt=()=>void interrupt(130),onTerminate=()=>void interrupt(143);
   process.once('SIGINT',onInterrupt);process.once('SIGTERM',onTerminate);
   try {
-    const {user1:user}=await actors();
+    const {user1:user,user2:otherUser}=await actors();
     const request=(...args)=>call(user.auth,...args);
     // A read as an anonymous visitor of OpenView's server, with no CEDAR credential.
     const anonymousRead=path=>call(null,'GET',path,undefined,{base:OPENVIEW});
@@ -78,9 +85,9 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       const address=new URL(req.url());
       const readOnlyValidation=readOnlyResourcePost(req.method(),address.pathname);
       if(address.origin===new URL(RESOURCE).origin&&!['GET','HEAD','OPTIONS'].includes(req.method())&&!readOnlyValidation) {
-        // A rename names its resource in its body, by identifier or typed local path, not in its address.
-        const renamed=req.method()==='POST'&&address.pathname==='/command/rename-resource'?String(req.postDataJSON()?.['@id']??''):null;
-        const item=renamed===null?fixtureAt(req.url()):ledger.fixtures.find(f=>renamed&&(f.id===renamed||f.id.endsWith('/'+renamed)));
+        // Permissions and publication changes address a subresource of a review-owned artifact.
+        const subresource=/\/(permissions|publication|annotations)$/.test(address.pathname);
+        const item=fixtureAt(subresource?req.url().replace(/\/(permissions|publication|annotations)(?=$|\?)/,''):req.url());
         if(app==='designer' && item?.collection==='templates' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
         // A record the Metadata Editor creates from a review-owned template belongs to the review.
         if(app==='metadata-editor' && item?.collection==='template-instances' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && ledger.fixtures.some(f=>f.collection==='templates'&&f.id===req.postDataJSON()?.['schema:isBasedOn'])) await ledger.register(item.collection,item.id);
@@ -89,7 +96,11 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
           await flush();await route.abort();return;
         }
       }
-      await route.continue();
+      // A request the page cancelled while the guard decided, as a navigation does, is already
+      // settled. Any other failure is recorded rather than thrown, since a throw here would end
+      // the collector before it cleans up its fixtures.
+      try{await route.continue();}
+      catch(error){if(!/already handled/i.test(error.message))runtimeErrors.push('Request routing failed: '+error.message);}
     });
     // The browser's default text size, the setting a user changes in Chromium's settings.
     async function setDefaultFontSize(px){
@@ -142,6 +153,6 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       return {verified:verified.sort((a,b)=>a.file.localeCompare(b.file)),browser:browser.version()};
     }
     await flush();
-    return {page,context,base,user,ledger,browser,directory,pendingCrops,profile,census,codeCoverage:()=>codeCoverage,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,anonymousRead,defaultFontSize:!!defaultFontSize,setDefaultFontSize,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
+    return {page,context,base,user,otherUser,ledger,browser,directory,pendingCrops,profile,census,codeCoverage:()=>codeCoverage,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,anonymousRead,defaultFontSize:!!defaultFontSize,setDefaultFontSize,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
   } catch(error){await close();throw error;}
 }

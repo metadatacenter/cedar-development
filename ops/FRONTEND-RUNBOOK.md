@@ -2581,14 +2581,14 @@ inspection are separate.
 
 ###### What the Catalog Covers
 
-The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **458 states** under the Chromium profile and 450 under the touch profile:
+The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **500 states** under the Chromium profile and 491 under the touch profile:
 
 | Application | Required states | Coverage |
 | --- | ---: | --- |
-| Designer | 171 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery, the retained draft offered after a reload and restored, the field-type picker open, and a template address no artifact has; desktop, tablet and phone layouts. Trailing creation controls are inspected at rest, with the pointer, reached by Tab and activated by both pointer and Enter, after panel toggles, with nested content and after enabling multiple values at 1100 pixels. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. At 1440 and 375 pixels, the controlled-term picker opened, during a deliberately held initial search, after that query settles, searched, with a term inspected, on its Branches and Ontologies tabs, and closed. Follow-ups scroll to and activate source release controls on each tab; attempt edits and record normal Tab entry into both read-only Attribute Value controls; check disabled reorder activation, nested pointer reveal and activation, settings footers, Preview top reachability, and phone authoring scroll restoration. Further states verify DOI and break-setting footer reachability, the 900-pixel Property IRI row, the Page Break chooser tile, the settled card header after Overview selection, initial search feedback without delayed responses, first/last release rows and return to search. The retained-draft offer is also captured at 375 × 667 pixels. |
-| Workspace | 133 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, each dialog a row's actions open (Rename, Copy, Move, Permissions, Publish, Delete and folder deletion) left unconfirmed, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. At 1440 and 375 pixels: the next listing page while its responses are held, the previous page with the CEDAR servers unreachable, and a rename the server refuses as overtaken by another save. |
-| Metadata Editor | 119 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, a value the email, phone and link types refuse, the single-select list and the date picker open, the static types on both pages of their template, and an attribute-value field. At 1440 and 375 pixels: a record opening while its responses are held, a save with the CEDAR servers unreachable, and a save the server refuses as overtaken by another save. |
-| OpenView | 35 | An open template from top to end, an open record and its repeated field, an open element, field and folder, the corpus template holding every input type from top to end, a template that is not open and an identifier no artifact has, at 1440, 768 and 375 pixels. |
+| Designer | 178 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery, the retained draft offered after a reload and restored, the field-type picker open, and a template address no artifact has; desktop, tablet and phone layouts. Trailing creation controls are inspected at rest, with the pointer, reached by Tab and activated by both pointer and Enter, after panel toggles, with nested content and after enabling multiple values at 1100 pixels. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. At 1440 and 375 pixels, the controlled-term picker opened, during a deliberately held initial search, after that query settles, searched, with a term inspected, on its Branches and Ontologies tabs, and closed. Follow-ups scroll to and activate source release controls on each tab; attempt edits and record normal Tab entry into both read-only Attribute Value controls; check disabled reorder activation, nested pointer reveal and activation, settings footers, Preview top reachability, and phone authoring scroll restoration. Further states verify DOI and break-setting footer reachability, the 900-pixel Property IRI row, the Page Break chooser tile, the settled card header after Overview selection, initial search feedback without delayed responses, first/last release rows and return to search. The retained-draft offer is also captured at 375 × 667 pixels. At 1440 pixels: the preferences and preset-definitions dialogs, the field library sidebar its preference turns on, the dialog that imports reusable fields and elements, an element's settings with its labels, a type entered by IRI, and a property found in the term picker and opened to its detail. |
+| Workspace | 158 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, each dialog a row's actions open (Rename, Copy, Move, Permissions, Publish, Delete and folder deletion) left unconfirmed, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. At 1440 and 375 pixels: the next listing page while its responses are held, the previous page with the CEDAR servers unreachable, and a rename the server refuses as overtaken by another save. Also at 1440 and 375 pixels: a description being edited and then saved with its toast, the selection's deletion dialog, sharing with the second test account by name and the saved share, the confirmation that cancelling an edited dialog asks for, a new folder whose reply is lost and the recheck that follows, and the profile, settings, groups and privacy pages. Under Chromium alone, a template dragged over a folder. |
+| Metadata Editor | 125 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, a value the email, phone and link types refuse, the single-select list and the date picker open, the static types on both pages of their template, and an attribute-value field. At 1440 and 375 pixels: a record opening while its responses are held, a save with the CEDAR servers unreachable, and a save the server refuses as overtaken by another save, and the confirmation that leaving with unsaved edits asks for. At 1440 pixels: the time and offset pickers of corpus template 010, a stored record with fewer list entries than its template asks for, and a saved link and the choice fields in Workspace's read-only preview. |
+| OpenView | 39 | An open template from top to end, an open record and its repeated field, an open element, field and folder, the corpus template holding every input type from top to end, a template that is not open and an identifier no artifact has, at 1440, 768 and 375 pixels. At 1440 and 375 pixels: a folder row's preview, and the spinner while a page waits for its artifact. |
 
 Each Chromium count includes two text-size states per application, at 1440 and 375 pixels, which
 every collector records last. They set Chromium's default text size to 32 pixels, twice the usual
@@ -2597,7 +2597,7 @@ text fixed in pixels does not, which is what the states show. Playwright reaches
 in Chromium, so the touch profile's catalog omits them, and the catalog hash differs by profile.
 On macOS, WebKit uses Option-Tab to include every control under Safari's default keyboard
 settings. Designer's touch catalog retains all six trailing-creation keyboard states; only the
-two Chromium-specific default-text-size states are omitted, giving 169 touch states.
+two Chromium-specific default-text-size states are omitted, giving 176 touch states. Workspace's drag state needs a pointer that can press and move, which Playwright's touch screen cannot, so the touch profile omits it.
 
 The repeated-field counts cover zero, one, several, the page boundary, one past it and several
 pages, because a review that only ever shows two occurrences never displays a paginator. The
@@ -2654,6 +2654,12 @@ registers custom elements renders its root components under those elements' tags
 stands for. The inventory refuses a listed tag the source no longer registers. For each repository
 the report gives the components shown in at least one state, those rendered but never on screen,
 and those never rendered. Attribute selectors name no element and are counted apart.
+Some declared components no capture can show, and `UNCAPTURABLE` in `ui-coverage.mjs` lists each
+with its reason. The report names them apart from its count. The three font registrars render
+nothing of their own. No application mounts the standalone field designer. Workspace's sign-out
+page shows only while the browser navigates to the authentication server, and a page cannot be read
+during a navigation. OpenView's root page sends the browser to the CEDAR home page as soon as it
+loads.
 
 The census works at the level of components, not states. A component on screen in one state may
 still have states no capture shows, such as a dialog's editing or failure state, and a region that
@@ -2661,20 +2667,20 @@ is always on screen, such as the toast's, counts as shown whether or not it hold
 Measuring costs browser time. The Designer's Chromium capture took 319 seconds with it, against 260
 without.
 
-On 25 November 2026, the eight captures of the four applications under both profiles showed these
-counts. Both profiles showed the same components.
+On 26 November 2026, the eight captures of the four applications under both profiles put every
+component that can be captured on screen. The counts leave out the uncapturable ones, which the
+report names apart.
 
-| Repository | Shown | Rendered, never on screen | Never rendered |
-| --- | ---: | ---: | ---: |
-| `cedar-workspace` | 19 of 27 | 1 | 7 |
-| `cedar-embeddable-editor` | 34 of 41 | 3 | 4 |
-| `cedar-embeddable-designer` | 23 of 32 | 5 | 4 |
-| `cedar-embeddable-term-picker` | 3 of 5 | 1 | 1 |
-| `cedar-openview` | 11 of 14 | 1 | 2 |
+| Repository | Shown | Not capturable |
+| --- | ---: | ---: |
+| `cedar-workspace` | 26 of 26 | 1 |
+| `cedar-embeddable-editor` | 39 of 39 | 1 |
+| `cedar-embeddable-designer` | 30 of 30 | 2 |
+| `cedar-embeddable-term-picker` | 4 of 4 | 1 |
+| `cedar-openview` | 13 of 13 | 1 |
 
-The Chromium captures ran 44.8% of the Designer's 3.5 MB of served script, 52.4% of Workspace's
+The Chromium captures ran 44.9% of the Designer's 3.5 MB of served script, 52.5% of Workspace's
 0.8 MB, 45.9% of the Metadata Editor's 3.0 MB and 76.2% of OpenView's 11.8 MB development bundles.
-The frontend roadmap lists the components no capture shows.
 
 ###### Fixtures, Lock and Cleanup
 

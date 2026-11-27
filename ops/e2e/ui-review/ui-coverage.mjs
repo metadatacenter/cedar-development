@@ -22,6 +22,17 @@ export const COMPONENT_SOURCES = [
   {repository: 'cedar-openview', root: 'cedar-openview/cedar-openview-src/src'},
 ];
 
+// Declared components no capture can show, each with the reason. The census still reports them,
+// apart from the components it counts, so an exemption that stops being true is visible.
+export const UNCAPTURABLE = {
+  'app-cedar-font-registrar': 'Registers the CEDAR fonts with the page and renders nothing of its own.',
+  'ced-font-registrar': 'Registers the CEDAR fonts with the page and renders nothing of its own.',
+  'cetp-font-registrar': 'Registers the CEDAR fonts with the page and renders nothing of its own.',
+  'cedar-embeddable-field-designer': 'Registered by the designer package for other hosts; none of the four applications mounts it.',
+  'app-dashboard': 'OpenView\'s root page, which sends the browser to the CEDAR home page as soon as it loads.',
+  'cedar-logout-page': 'Shows only while the browser navigates to the authentication server, and a page cannot be read during a navigation.',
+};
+
 // The census lists every custom element in the page, its shadow roots included, and says whether
 // any instance is on screen. An element is on screen when it, or something inside it, has a size,
 // is not hidden and lies at least partly in the viewport. A host laid out with display: contents, or
@@ -124,7 +135,7 @@ export async function declaredComponents(home, sources = COMPONENT_SOURCES) {
 // The report says, for each declared component, which captures rendered it and which put it on
 // screen. It also lists the custom elements the captures rendered that no listed source declares,
 // such as a component library's.
-export function componentReport(censuses, declared) {
+export function componentReport(censuses, declared, uncapturable = UNCAPTURABLE) {
   const label = census => `${census.app} ${census.profile}`;
   const rows = declared.components.map(component => {
     const rendered = [], shown = [];
@@ -133,14 +144,15 @@ export function componentReport(censuses, declared) {
       if (states.some(state => state.present.includes(component.tag))) rendered.push(label(census));
       if (states.some(state => state.visible.includes(component.tag))) shown.push(label(census));
     }
-    return {...component, rendered, shown};
+    return {...component, rendered, shown, ...(uncapturable[component.tag] ? {uncapturable: uncapturable[component.tag]} : {})};
   });
   const known = new Set(declared.components.map(component => component.tag));
   const undeclared = [...new Set(censuses.flatMap(census => Object.values(census.states).flatMap(state => state.present)))]
     .filter(tag => !known.has(tag)).sort();
   const byRepository = {};
   for (const row of rows) {
-    const entry = byRepository[row.repository] ??= {declared: 0, shown: 0, renderedOnly: [], neverRendered: []};
+    const entry = byRepository[row.repository] ??= {declared: 0, shown: 0, renderedOnly: [], neverRendered: [], uncapturable: []};
+    if (row.uncapturable) {entry.uncapturable.push(row.tag); continue;}
     entry.declared++;
     if (row.shown.length) entry.shown++;
     else if (row.rendered.length) entry.renderedOnly.push(row.tag);
@@ -169,7 +181,8 @@ export async function main(args = process.argv.slice(2)) {
   for (const [repository, entry] of Object.entries(report.byRepository)) {
     console.log(`${repository}: ${entry.shown} of ${entry.declared} components shown`
       + (entry.renderedOnly.length ? `; rendered but never on screen: ${entry.renderedOnly.join(', ')}` : '')
-      + (entry.neverRendered.length ? `; never rendered: ${entry.neverRendered.join(', ')}` : ''));
+      + (entry.neverRendered.length ? `; never rendered: ${entry.neverRendered.join(', ')}` : '')
+      + (entry.uncapturable.length ? `; not capturable, not counted: ${entry.uncapturable.join(', ')}` : ''));
   }
   console.log(`Attribute selectors not counted: ${report.attributeSelectors}. Undeclared elements rendered: ${report.undeclared.length}.`);
   for (const {app, profile, total} of report.code)

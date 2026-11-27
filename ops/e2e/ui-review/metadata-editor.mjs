@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
-import {WIDTHS, FAILURE_WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
+import {WIDTHS, PAIRED_WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
 import {RESOURCE,USER_SERVER,GROUP_SERVER} from '../rest/lib.mjs';
 import {pointer,keyboard,folderPage,textSizeStates,holdRequests,refuseConnections,staleRevision} from './interactions.mjs';
 export async function collectMetadataEditor(session,record) {
@@ -131,7 +131,34 @@ export async function collectMetadataEditor(session,record) {
   };
   page.on('dialog',leaveAnyway);
   try{
-    for(const width of FAILURE_WIDTHS){
+    // A time field and a date-time field that records its offset, on a form short enough to show both.
+    await record('type-temporal-1440',async()=>{
+      await open(f.corpus.temporal,'create');await cee.getByText('Complex datetime preferred',{exact:true}).first().waitFor();
+    });
+    // A list with fewer entries than its minimum, reported under the field once the warning takes the user there.
+    await record('list-too-short-1440',async()=>{
+      await open(f.tooFew);await save();
+      const warnings=page.getByRole('group',{name:'Metadata warnings',exact:true});
+      await tap(warnings.locator('summary'));await tap(warnings.getByRole('button',{name:/^Observations/}));
+      await cee.locator('app-cedar-field-problems').filter({hasText:/\S/}).first().waitFor();
+    },'A stored record with one Observations entry where the template asks for two, saved and then followed from its warning.');
+    // A record saved with a link, then read in Workspace's preview, where the link and each choice
+    // field's constraints are stated rather than edited.
+    let linked;
+    await record('readonly-link-1440',async()=>{
+      await open(f.corpus.saved,'create');
+      const link=cee.getByRole('textbox',{name:'Link',exact:true});
+      await link.fill('https://example.org/specimens/42');await link.press('Tab');await save();
+      await page.waitForURL(/\/instances\/edit\//);
+      // The editor's address holds the record's short identifier; Workspace keys its row by the full one.
+      linked=decodeURIComponent(page.url().split('/instances/edit/')[1].split('?')[0]).split('/').at(-1);
+      await folderPage(session,f.folder);await tap(page.locator(`[data-preview-id$="/${linked}"]`));
+      await preview.locator('section[aria-busy="false"]').waitFor();
+      await centre(preview.getByText('Link',{exact:true}));
+    },'A record saved with only its link filled in, in Workspace\'s read-only preview.');
+    await record('readonly-choices-1440',()=>centre(preview.getByText('Radio',{exact:true})));
+    await page.keyboard.press('Escape');await preview.waitFor({state:'hidden'});
+    for(const width of PAIRED_WIDTHS){
       const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
       await page.setViewportSize({width,height:width===1440?1000:667});
       let held,restore;
@@ -152,6 +179,13 @@ export async function collectMetadataEditor(session,record) {
         await alert.filter({hasText:/changed/i}).waitFor();
       },'The harness sends the save with the revision before the one the editor read, as when someone else saved first; the server refused it and nothing changed.');
       await restore?.();restore=null;
+      await r('leave-confirmation',async()=>{
+        await open(f.failing['leave-'+width]);await cee.getByRole('textbox',{name:'Subject',exact:true}).fill('Abandoned specimen '+width);
+        await status('Modified').waitFor();
+        await tap(page.locator('cedar-workspace-return button'));await page.locator('dialog.confirmation-dialog[open]').waitFor();
+      },'Going back to Workspace with unsaved edits asks before discarding them.');
+      await tap(page.locator('dialog.confirmation-dialog[open]').getByRole('button',{name:'Yes',exact:true}));
+      await page.locator('.table-scroll[aria-busy="false"]').waitFor();
     }
     await textSizeStates(session,record,()=>open(f.records[5]));
   }finally{page.off('dialog',leaveAnyway);}

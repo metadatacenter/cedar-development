@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {artifactBody, enc} from '../rest/lib.mjs';
-import {WIDTHS, FAILURE_WIDTHS} from './catalog.mjs';
+import {WIDTHS, PAIRED_WIDTHS} from './catalog.mjs';
 
 export const longLabel='Specimen collection and environmental observation notes from collaborating research institutions';
 export const propertyIri=key=>'https://example.org/ui-review/'+encodeURIComponent(key);
@@ -26,10 +26,10 @@ export function instance(name,templateId,values) {
   body['@context']['pav:derivedFrom']={'@type':'@id'};return body;
 }
 // Templates from cedar-test-artifacts that together hold every input type: one field per type that
-// takes a value (038), the static types (009) and an attribute-value field (022). Declared defaults
+// takes a value (038), the static types (009), an attribute-value field (022) and time fields (010). Declared defaults
 // are removed, so a new record starts empty and no default needs a live authority lookup, and the
 // legacy break fields gain the content property current validation requires.
-export const CORPUS_TEMPLATES = {fieldTypes: '038', staticFields: '009', attributeValue: '022'};
+export const CORPUS_TEMPLATES = {fieldTypes: '038', staticFields: '009', attributeValue: '022', temporal: '010'};
 export const corpusPath = number => join(process.env.CEDAR_HOME, 'cedar-test-artifacts/artifacts/templates', number, `template-${number}.json`);
 export async function corpusTemplate(number, name) {
   const body = JSON.parse(await readFile(corpusPath(number), 'utf8'));
@@ -52,6 +52,11 @@ export async function metadataFixtures(session) {
   const fields={Subject:field('Subject',{required:true}),[longLabel]:field(longLabel),Tags:repeat(field('Tags')),['Repeated '+longLabel]:repeat(field('Repeated '+longLabel)),Samples:repeat(sample)};
   const templateId=await session.put('templates',container(name+' specimen study',fields),folder);
   const emptyTemplateId=await session.put('templates',container(name+' empty form',{}),folder);
+  // A list that needs at least two entries.
+  const minimumTemplateId=await session.put('templates',container(name+' minimum entries',{Observations:{...repeat(field('Observations')),minItems:2}}),folder);
+  // The editor starts a list at its minimum and will not delete below it, so a record with too few
+  // entries is one stored before the template asked for more.
+  const tooFew=await session.put('template-instances',instance(name+' too few observations',minimumTemplateId,{Observations:[textValue('Observation 1')]}),folder);
   const records={};
   const nested=(values)=>({'@id':'https://example.org/ui-review/'+randomUUID(),'@context':Object.fromEntries(Object.keys(values).map(k=>[k,propertyIri(k)])),...values});
   const values=(count,tags)=>({Subject:textValue('Specimen 42'),[longLabel]:textValue('Collected during the northern coastal field campaign'),Tags:tags,['Repeated '+longLabel]:structuredClone(tags),
@@ -64,14 +69,22 @@ export async function metadataFixtures(session) {
     const tags=Array.from({length:count},(_,i)=>textValue('Observation '+(i+1)+(i%2?' with extended handling conditions and storage provenance':'')));
     records[count]=await session.put('template-instances',instance(name+' '+count+' observations',templateId,values(count,tags)),folder);
   }
-  // One record per failed save and width. A save that fails keeps its edits as a draft, so no other
+  // One record per failed save, left edit and width. Unsaved edits are kept as a draft, so no other
   // state may open the record afterwards.
   const failing={};
-  for(const width of FAILURE_WIDTHS)for(const kind of ['conflict','unreachable'])
+  for(const width of PAIRED_WIDTHS)for(const kind of ['conflict','unreachable','leave'])
     failing[`${kind}-${width}`]=await session.put('template-instances',instance(`${name} ${kind} ${width}`,templateId,values(1,[textValue('Observation 1')])),folder);
   const corpus={};
   for(const [role,number] of Object.entries(CORPUS_TEMPLATES))corpus[role]=await session.put('templates',await corpusTemplate(number,`${name} corpus ${number}`),folder);
-  return {folder,templateId,emptyTemplateId,records,editable,failing,corpus};
+  // A second copy of the every-type template for a record that is saved, since the type states leave
+  // an unsaved draft of a new record from the first copy.
+  // Its Link field carries a description, which read-only rendering states beneath the field.
+  const saved=await corpusTemplate(CORPUS_TEMPLATES.fieldTypes,`${name} corpus ${CORPUS_TEMPLATES.fieldTypes} saved`);
+  // The template's own description of a field takes precedence over the field's, so both are set.
+  const published='The page where the specimen record is published.';
+  if(saved.properties?.Link){saved.properties.Link['schema:description']=published;saved._ui.propertyDescriptions={...saved._ui.propertyDescriptions,Link:published};}
+  corpus.saved=await session.put('templates',saved,folder);
+  return {folder,templateId,emptyTemplateId,minimumTemplateId,tooFew,records,editable,failing,corpus};
 }
 export async function workspaceFixtures(session) {
   const folder=(name,parent)=>session.put('folders',{name,folderId:parent,description:'Temporary independent UI review'});
@@ -93,7 +106,14 @@ export async function workspaceFixtures(session) {
   const short=await session.put('templates',container('Short form',{Name:field('Name')}),previews);
   const long=await session.put('templates',container('Long form',{[longLabel]:field(longLabel)}),previews);
   const nested=await session.put('templates',container('Nested form',{Samples:repeat(container('Sample',{Name:field('Name'),[longLabel]:repeat(field(longLabel))},'element'))}),previews);
-  return {root,rootName,parent,listing,empty,rows,mixed,mixedIds,mixedTemplate,previews,short,long,nested};
+  // A folder and template of its own for each paired width, to edit, share and select.
+  const ownCopies={};
+  for(const width of PAIRED_WIDTHS){
+    const own=await folder('Survey '+width,root);
+    const template=await session.put('templates',container('Survey form '+width,{Name:field('Name')}),own);
+    ownCopies[width]={folder:own,template,ids:[template]};
+  }
+  return {root,rootName,parent,listing,empty,rows,mixed,mixedIds,mixedTemplate,previews,short,long,nested,ownCopies};
 }
 
 // Open an artifact or folder to anonymous OpenView visitors, then wait until OpenView's server

@@ -66,8 +66,16 @@ test('the report separates components on screen, rendered only, and never render
     {app: 'workspace', profile: 'webkit-touch', states: {home: {present: ['app-list'], visible: ['app-list']}}},
   ];
   const report = componentReport(censuses, declared);
-  assert.deepEqual(report.byRepository.one, {declared: 3, shown: 1, renderedOnly: ['app-menu'], neverRendered: ['app-sharing']});
+  assert.deepEqual(report.byRepository.one, {declared: 3, shown: 1, renderedOnly: ['app-menu'], neverRendered: ['app-sharing'], uncapturable: []});
   assert.deepEqual(report.components[0].shown, ['workspace chromium', 'workspace webkit-touch']);
   assert.deepEqual(report.undeclared, ['mat-icon']);
   assert.equal(report.attributeSelectors, 1);
+});
+
+test('an uncapturable component is reported with its reason and left out of the count', () => {
+  const declared = {components: [{tag: 'app-list', repository: 'one'}, {tag: 'app-fonts', repository: 'one'}], attributes: []};
+  const censuses = [{app: 'workspace', profile: 'chromium', states: {home: {present: ['app-list', 'app-fonts'], visible: ['app-list']}}}];
+  const report = componentReport(censuses, declared, {'app-fonts': 'Renders nothing.'});
+  assert.deepEqual(report.byRepository.one, {declared: 1, shown: 1, renderedOnly: [], neverRendered: [], uncapturable: ['app-fonts']});
+  assert.equal(report.components[1].uncapturable, 'Renders nothing.');
 });

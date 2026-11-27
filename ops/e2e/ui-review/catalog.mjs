@@ -22,6 +22,8 @@ export const DESIGNER_STATES = [
   'type-controlled-terms-configuration-end', 'type-pfas-configuration-end',
   'attribute-name-keyboard-focus', 'attribute-value-keyboard-focus',
   'preview-top-checked', 'phone-scroll-restored', 'phone-editor-top-checked',
+  'preferences-modal', 'field-library-sidebar', 'preset-definitions-modal', 'child-picker',
+  'element-settings', 'types-manual-iri', 'property-detail',
   ...['single', 'nested', 'multiple-1100'].flatMap(prefix => ['idle', 'pointer', 'pointer-open', 'keyboard', 'keyboard-open']
     .map(state => `${prefix}-creation-${state}`)),
 ];
@@ -70,12 +72,21 @@ export function profile(name = 'chromium') {
   return PROFILES[name];
 }
 export const WIDTHS = [1440, 768, 375];
-// Conditions the harness causes in the review browser alone, at the widest and narrowest layouts:
-// slow loading, a backend the browser cannot reach and a save someone else's has overtaken.
-export const FAILURE_WIDTHS = [1440, 375];
-const failures = scenarios => FAILURE_WIDTHS.flatMap(width => scenarios.map(scenario => ({id: `${scenario}-${width}`, scenario, category: 'failures', width})));
-const WORKSPACE_FAILURES = ['listing-loading', 'backend-unreachable', 'rename-conflict'];
-const METADATA_FAILURES = ['loading', 'save-unreachable', 'save-conflict'];
+// States collected at the widest and narrowest layouts only.
+export const PAIRED_WIDTHS = [1440, 375];
+const paired = rows => PAIRED_WIDTHS.flatMap(width => rows.map(([scenario, category]) => ({id: `${scenario}-${width}`, scenario, category, width})));
+// Conditions the harness causes in the review browser alone: slow loading, a backend the browser
+// cannot reach and a save someone else's has overtaken. Workspace adds a write whose reply is lost.
+const WORKSPACE_PAIRED = [
+  ['listing-loading', 'failures'], ['backend-unreachable', 'failures'], ['rename-conflict', 'failures'],
+  ['description-editing', 'editing'], ['description-saved', 'editing'], ['selection-delete-dialog', 'dialogs'],
+  ['share-search', 'sharing'], ['shared', 'sharing'], ['discard-confirmation', 'dialogs'],
+  ['write-unconfirmed', 'failures'], ['write-rechecked', 'failures'],
+  ['profile', 'account'], ['settings', 'account'], ['groups', 'account'], ['privacy', 'account'],
+];
+const METADATA_PAIRED = [['loading', 'failures'], ['save-unreachable', 'failures'], ['save-conflict', 'failures'], ['leave-confirmation', 'editing']];
+// Dragging needs a pointer that can press and move: Playwright's touch screen can only tap.
+const workspaceDrag = profileName => profile(profileName).context.hasTouch ? [] : [{id: 'drag-preview-1440', scenario: 'drag-preview', category: 'pointer', width: 1440}];
 const workspace = [
   ['empty-list','empty'], ['empty-grid','empty'], ['populated-list','listing'], ['next-page','pagination'],
   ['previous-page','pagination'], ['row-actions','pointer'], ['details-open','navigation'], ['details-closed','navigation'],
@@ -113,25 +124,30 @@ const metadata = [
 ];
 export function scenarios(app, profileName = 'chromium') {
   if (!APPS.includes(app)) throw new Error('Unknown UI review application: '+app);
-  return baseScenarios(app).concat(profile(profileName).defaultFontSize ? textSizeStates() : []);
+  return baseScenarios(app, profileName).concat(profile(profileName).defaultFontSize ? textSizeStates() : []);
 }
-function baseScenarios(app) {
+function baseScenarios(app, profileName) {
   if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}))
     .concat(DESIGNER_TYPES.map(([slug])=>({id:'type-'+slug,scenario:'field-type-settings',category:'field-types',width:1440})))
     .concat(DESIGNER_TYPES.filter(([slug])=>!PREVIEWLESS_TYPES.includes(slug))
       .map(([slug])=>({id:'type-'+slug+'-preview',scenario:'field-type-preview',category:'field-types',width:1440})))
     .concat(TERM_PICKER_WIDTHS.flatMap(width=>TERM_PICKER_STATES.map(scenario=>({id:`${scenario}-${width}`,scenario,category:'term-picker',width}))));
-  if (app === 'openview') return WIDTHS.flatMap(width=>openview.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})));
+  if (app === 'openview') return WIDTHS.flatMap(width=>openview.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
+    .concat(paired([['folder-preview', 'folder'], ['loading', 'loading']]));
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
-    .concat(failures(app === 'workspace' ? WORKSPACE_FAILURES : METADATA_FAILURES))
-    .concat(app === 'workspace' ? workspaceOnce : METADATA_TYPES.map(([slug])=>({id:`type-${slug}-1440`,scenario:'field-type',category:'field-types',width:1440}))
+    .concat(paired(app === 'workspace' ? WORKSPACE_PAIRED : METADATA_PAIRED))
+    .concat(app === 'workspace' ? workspaceOnce.concat(workspaceDrag(profileName)) : METADATA_TYPES.map(([slug])=>({id:`type-${slug}-1440`,scenario:'field-type',category:'field-types',width:1440}))
       .concat(METADATA_INVALID.map(([slug])=>({id:`type-${slug}-invalid-1440`,scenario:'field-type-invalid',category:'field-types',width:1440})))
       .concat([{id:'type-single-select-list-open-1440',scenario:'field-type-open',category:'field-types',width:1440},
         {id:'type-date-open-1440',scenario:'field-type-open',category:'field-types',width:1440}])
       .concat([{id:'static-fields-1440',scenario:'static-fields',category:'field-types',width:1440},
         {id:'static-fields-page-2-1440',scenario:'static-fields',category:'field-types',width:1440},
-        {id:'attribute-value-1440',scenario:'attribute-value',category:'field-types',width:1440}]));
+        {id:'attribute-value-1440',scenario:'attribute-value',category:'field-types',width:1440},
+        {id:'type-temporal-1440',scenario:'field-type',category:'field-types',width:1440},
+        {id:'list-too-short-1440',scenario:'list-too-short',category:'validation',width:1440},
+        {id:'readonly-link-1440',scenario:'readonly-field-types',category:'preview',width:1440},
+        {id:'readonly-choices-1440',scenario:'readonly-field-types',category:'preview',width:1440}]));
 }
 export const requiredStates = (app, profileName = 'chromium') => scenarios(app, profileName).map(s=>s.id);
 // Page regions whose geometry each capture records. Every selector must match in at least one

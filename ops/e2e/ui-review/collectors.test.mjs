@@ -24,6 +24,7 @@ async function dryRun(app, profileName = 'chromium', capturedStates = []) {
   const recorded = [];
   const session = {
     page: inert(), base: 'https://ui-review.test', user: {profile: {homeFolderId: 'https://repo.test/folders/home'}},
+    otherUser: {profile: {firstName: 'Test', lastName: 'User 2'}},
     actions: [], expectedNetworkFailures: new Set(), states: capturedStates,
     flush: async () => {}, login: async () => {}, openNew: async () => {}, ready: async () => {},
     addField: async () => {}, action: async () => {}, capture: async () => {},

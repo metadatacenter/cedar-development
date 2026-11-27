@@ -1,7 +1,7 @@
 import {openviewFixtures} from './fixtures.mjs';
-import {WIDTHS} from './catalog.mjs';
-import {enc} from '../rest/lib.mjs';
-import {textSizeStates} from './interactions.mjs';
+import {WIDTHS,PAIRED_WIDTHS} from './catalog.mjs';
+import {enc,HOST} from '../rest/lib.mjs';
+import {textSizeStates,holdRequests} from './interactions.mjs';
 
 // OpenView is public: the browser carries no CEDAR session, and only reads what the review opened.
 export async function collectOpenView(session,record) {
@@ -35,6 +35,25 @@ export async function collectOpenView(session,record) {
     await r('missing',async()=>{await go(`/templates/${enc(f.template.replace(/[0-9a-f]{12}$/,'000000000000'))}`);await page.locator('app-artifact-error').waitFor();},
       'An identifier no artifact has.');
     session.expectedNetworkFailures.clear();
+  }
+  // A row's preview in a folder, and the spinner while a page waits for its artifact.
+  for(const width of PAIRED_WIDTHS){
+    const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
+    await page.setViewportSize({width,height:width===1440?1000:667});
+    await r('folder-preview',async()=>{
+      await go(`/folders/${enc(f.folder)}`);await page.locator('section.folder ul.resources li').first().waitFor();
+      await page.locator('.resource-preview').first().click();
+      await page.locator('dialog.artifact-preview[open]:not(.is-preparing)').waitFor();
+    },'The preview a folder row opens.');
+    await page.keyboard.press('Escape');await page.locator('dialog.artifact-preview[open]').waitFor({state:'detached'});
+    let held;
+    await r('loading',async()=>{
+      // OpenView's page reads artifacts from its own API host, open.<domain>.
+      held=await holdRequests(page,url=>url.hostname===`open.${HOST}`,{held:request=>request.method()==='GET',label:'OpenView artifact read'});
+      await page.goto(base+`/templates/${enc(f.template)}`,{waitUntil:'domcontentloaded'});
+      await held.started();await page.locator('app-spinner .loading-spinner').waitFor();
+    },'The harness holds the artifact\'s response to show loading; the server is not slow.');
+    await held?.release();await page.getByRole('heading',{name:f.name+' open study',exact:true}).first().waitFor();
   }
   await textSizeStates(session,record,()=>rendered(`/templates/${enc(f.template)}`,f.name+' open study'));
 }

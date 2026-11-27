@@ -1,7 +1,7 @@
 import {workspaceFixtures} from './fixtures.mjs';
-import {WIDTHS,FAILURE_WIDTHS} from './catalog.mjs';
+import {WIDTHS,PAIRED_WIDTHS} from './catalog.mjs';
 import {RESOURCE,USER_SERVER,GROUP_SERVER} from '../rest/lib.mjs';
-import {folderPage,listingReady,pointer,keyboard,setChecked,textSizeStates,holdRequests,refuseConnections,staleRevision} from './interactions.mjs';
+import {waitForPage,folderPage,listingReady,pointer,keyboard,setChecked,textSizeStates,holdRequests,refuseConnections,staleRevision} from './interactions.mjs';
 
 export async function collectWorkspace(session,record) {
   const {page}=session;
@@ -164,7 +164,7 @@ export async function collectWorkspace(session,record) {
   // overtaken, each caused in the review browser alone. The server answers the rename itself.
   const alert=page.locator('div.alert[role="alert"]');
   const dialogAlert=page.locator('dialog[open] p.alert[role="alert"]');
-  for(const width of FAILURE_WIDTHS){
+  for(const width of PAIRED_WIDTHS){
     const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
     await page.setViewportSize({width,height:width===1440?1000:667});
     await folderPage(session,f.listing,f.rows.slice(0,50));
@@ -198,6 +198,118 @@ export async function collectWorkspace(session,record) {
     await tap(renaming.getByRole('button',{name:'Cancel',exact:true}));
     await tap(page.locator('dialog.confirmation-dialog[open]').getByRole('button',{name:'Yes',exact:true}));
     await renaming.waitFor({state:'hidden'});
+  }
+  // Screens a user reaches in ordinary work that the states above leave out. Each width edits its
+  // own copy of the template or folder, so a saved description or a share at one width never shows at
+  // the other.
+  const toast=page.locator('cedar-toast .toast');
+  const confirmation=page.locator('dialog.confirmation-dialog[open]');
+  const openDialog=page.locator('dialog[open]').first();
+  const rowActions=async id=>{
+    await page.locator('.table-scroll').evaluate(n=>{n.scrollLeft=n.scrollWidth;});
+    await tap(page.locator(`[data-resource-id="${id}"]`).getByRole('button',{name:/^Actions for/}));
+  };
+  const menu=async(name,item)=>{
+    await tap(page.locator(`summary[aria-label="${name}"]`));
+    await tap(page.locator('details.header-menu[open] nav').getByRole('link',{name:item,exact:true}));
+  };
+  const account=async(title,item,menuName='User menu')=>{
+    await folderPage(session,f.listing,f.rows.slice(0,50));
+    await menu(menuName,item);
+    await page.getByRole('heading',{level:1,name:title,exact:true}).waitFor();
+    await page.locator('main.account-content, main.groups-content').first().waitFor();
+    await waitForPage(page,()=>![...document.querySelectorAll('main p')].some(p=>p.textContent.trim()==='Loading…'));
+  };
+  const person=[session.otherUser.profile.firstName,session.otherUser.profile.lastName].filter(Boolean).join(' ');
+  for(const width of PAIRED_WIDTHS){
+    const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);
+    const own=f.ownCopies[width];
+    await page.setViewportSize({width,height:width===1440?1000:667});
+    await folderPage(session,own.folder,own.ids);
+    await r('description-editing',async()=>{
+      await tap(page.locator(`[data-resource-id="${own.template}"]`).locator('.resource-icon'));
+      await panel('information',true);
+      const description=page.locator('#resource-description');
+      await description.scrollIntoViewIfNeeded();await description.fill('Specimens collected for the coastal survey, revised '+width);
+      await page.locator('cedar-description-editor').getByRole('button',{name:'Save',exact:true}).waitFor();
+    },'An unsaved description, with its Save and Cancel controls.');
+    await r('description-saved',async()=>{
+      await tap(page.locator('cedar-description-editor').getByRole('button',{name:'Save',exact:true}));
+      await toast.waitFor();
+    },'The saved description, and the toast that confirms it.');
+    await panel('information',false);
+    await r('selection-delete-dialog',async()=>{
+      await tap(page.locator(`[data-resource-id="${own.template}"] .resource-icon`));
+      await tap(page.locator('.selection-delete'));await openDialog.waitFor();
+      await page.locator('dialog[open]:not([aria-busy="true"])').first().waitFor();
+    },'The dialog the toolbar\'s Delete opens for the selected rows, left unconfirmed.');
+    await escapeFrom(openDialog);
+    await r('share-search',async()=>{
+      await rowActions(own.template);
+      await tap(page.locator('#resource-menu').getByRole('button',{name:'Permissions…',exact:true}));
+      const picker=openDialog.getByRole('combobox',{name:'User or group'});
+      await picker.waitFor();await picker.fill(person);
+      await openDialog.getByRole('option',{name:person,exact:true}).waitFor();
+    },`Sharing with the second test account, ${person}, found by name.`);
+    await r('shared',async()=>{
+      await tap(openDialog.getByRole('option',{name:person,exact:true}));
+      await tap(openDialog.getByRole('button',{name:'Add',exact:true}));
+      await openDialog.locator('cedar-toast .toast').waitFor();
+    },`${person} added as a viewer; the permissions are saved at once.`);
+    await escapeFrom(openDialog);
+    await r('discard-confirmation',async()=>{
+      await rowActions(own.template);
+      await tap(page.locator('#resource-menu').getByRole('button',{name:'Rename',exact:true}));
+      await openDialog.getByRole('textbox').first().fill('Unsaved name '+width);
+      await tap(openDialog.getByRole('button',{name:'Cancel',exact:true}));await confirmation.waitFor();
+    },'Cancelling a dialog that holds an edit asks before discarding it.');
+    await tap(confirmation.getByRole('button',{name:'Yes',exact:true}));
+    await page.locator('dialog.action-dialog[open]').waitFor({state:'hidden'});
+    let restore;
+    await r('write-unconfirmed',async()=>{
+      await tap(navigation.getByRole('button',{name:'New',exact:true}));
+      await tap(navigation.getByRole('button',{name:'Folder',exact:true}));
+      await openDialog.getByRole('textbox').first().fill('Field notes '+width);
+      restore=await refuseConnections(session,[RESOURCE,USER_SERVER,GROUP_SERVER],'Deliberately lost reply to a new folder');
+      await tap(openDialog.locator('button[type="submit"]'));
+      await openDialog.getByRole('button',{name:'Retry',exact:true}).waitFor();
+    },'The harness drops the new folder\'s request, as a lost connection does, so Workspace cannot know whether it was created.');
+    await restore?.();restore=null;
+    // Retry looks the folder up by the identity it was sent under, and a folder never created answers 404.
+    const lookup='Lookup of a folder whose creation was never confirmed';
+    session.expectedNetworkFailures.add(lookup);
+    await r('write-rechecked',async()=>{
+      await tap(openDialog.getByRole('button',{name:'Retry',exact:true}));
+      await openDialog.getByRole('button',{name:'Retry',exact:true}).waitFor({state:'detached'});
+      await page.locator('dialog[open]:not([aria-busy="true"])').first().waitFor();
+    },'With the connection back, Retry looks the folder up: it was never created, so the dialog offers to create it again.');
+    session.expectedNetworkFailures.delete(lookup);
+    // The dialog still holds the typed name, so cancelling it asks before discarding it.
+    await tap(openDialog.getByRole('button',{name:'Cancel',exact:true}));
+    await tap(confirmation.getByRole('button',{name:'Yes',exact:true}));
+    await page.locator('dialog.action-dialog[open]').waitFor({state:'hidden'});
+    await r('profile',()=>account('Profile','Profile'));
+    await r('settings',()=>account('Settings','Settings'));
+    await r('groups',()=>account('Groups','Groups','Actions menu'));
+    await r('privacy',()=>account('Privacy','Privacy','Actions menu'));
+  }
+  if(!session.touch){
+    await page.setViewportSize({width:1440,height:1000});
+    await folderPage(session,f.mixed,f.mixedIds);
+    const source=page.locator(`[data-resource-id="${f.mixedTemplate}"] .resource-icon`);
+    const target=page.locator(`[data-resource-id="${f.mixedIds[0]}"] .resource-icon`);
+    // Measured before the drag: the drag preview repeats the row's icon.
+    let start;
+    await record('drag-preview-1440',async()=>{
+      const from=await source.boundingBox(),to=await target.boundingBox();
+      start={x:from.x+from.width/2,y:from.y+from.height/2};
+      await page.mouse.move(start.x,start.y);await page.mouse.down();
+      await page.mouse.move(to.x+to.width/2,to.y+to.height/2,{steps:12});
+      await page.locator('cedar-drag-preview').waitFor();
+    },'The template dragged over a folder with the button still held; nothing is dropped.');
+    // Back to where it started, so releasing it moves nothing.
+    if(start)await page.mouse.move(start.x,start.y,{steps:12});
+    await page.mouse.up();await listingReady(page,f.mixedIds);
   }
   await textSizeStates(session,record,()=>folderPage(session,f.listing,f.rows.slice(0,50)));
 }
