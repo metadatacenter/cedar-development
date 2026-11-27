@@ -2631,8 +2631,8 @@ Populated-state verification evidence is retained under `$CEDAR_HOME/.cedar/repo
 
 These packets have no missing states, runtime errors or cleanup errors, and their coordinator
 plan checks verify the evidence files. They await independent assessment; the retained automatic
-target-size findings are not accepted design. The earlier WebKit diagnostic packet and its
-intermittent failure are tracked in the frontend roadmap. A focused check of the final term-picker
+target-size findings are not accepted design. A separate terminology lookup error from an earlier
+WebKit diagnostic packet remains tracked in the frontend roadmap. A focused check of the final term-picker
 positioning also passed at both widths in both browsers.
 
 Each Chromium count includes two text-size states per application, at 1440 and 375 pixels, which
@@ -2676,6 +2676,24 @@ Each such state's note says the harness caused the condition, so the reviewer ju
 product handles it rather than its cause. A collector must not answer a request with a response the product prevents, such as a
 server refusal of a save the client's own validation accepts. A review of such a screen judges
 behavior no user sees, and its findings mislead the triage that follows.
+
+Metadata loading captures hold only the intended record's GET and begin after that request is
+intercepted. An unrelated request left over from the previous screen must not satisfy this wait:
+WebKit may still be completing the new document's authentication redirect, and an audit started
+then can lose its execution context. The regression reproduces the competing background read in
+both Chromium and WebKit. Live WebKit diagnosis reproduced audit failures in five of eight trials
+with the broad wait and none of eight with the record-specific wait. The sanitized traces are in
+`$CEDAR_HOME/.cedar/reports/ui-review-diagnostics/webkit-loading-20261126/`.
+The full touch capture `webkit-record-loading-fixed-20261126` reached 225/225 states in
+222 seconds with no runtime or cleanup errors; its coordinator plan verified the packet.
+
+`session.json` retains console-error timestamps, the preceding action and action count, document
+and source location, and allowlisted error-object metadata such as HTTP status. `networkFailures`
+records transport cancellations/failures and HTTP responses of 400 or greater with the same action
+context. These are diagnostic records, not new acceptance exemptions: unexpected console errors
+still count as runtime errors, and a cancellation does not itself prove the application failed.
+The added metadata excludes request/response bodies, headers, URL credentials, queries and
+fragments. If navigation destroys an error object before it can be read, the record says unavailable.
 
 New captures retain a readable title, category and scenario description with each state. These
 describe the intended setup, not an assertion that the rendered interface is correct. The board

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {chromium} from 'playwright';
-import {holdSearchRequests, refuseConnections, staleRevision} from './interactions.mjs';
+import {chromium, webkit} from 'playwright';
+import {holdSearchRequests, holdArtifactRead, refuseConnections, staleRevision} from './interactions.mjs';
 import {captureJourney} from './journeys.mjs';
 
 test('a failed loading journey releases held requests and keeps the fixture guard for the next journey', async t => {
@@ -75,4 +75,31 @@ test('a stale revision reaches the context guard one revision back, and a refuse
   assert.equal(seen.length, before, 'a refused request never reaches the context');
   await restoreConnection();
   assert.equal(await page.evaluate(() => fetch('/item').then(r => r.text())), 'ready');
+});
+
+
+for(const engine of [chromium,webkit])test(`${engine.name()}: an unrelated read cannot signal artifact loading`,async t=>{
+  const browser=await engine.launch();t.after(()=>browser.close());
+  const context=await browser.newContext();
+  const origin='https://resource.example.orgx';
+  const uuid='11111111-1111-4111-8111-111111111111';
+  const id='https://repo.example.orgx/template-instances/'+uuid;
+  const served=[];
+  await context.route('**/*',async route=>{
+    served.push(new URL(route.request().url()).pathname);
+    await route.fulfill({contentType:'text/html',body:'<title>Ready</title><main>Ready</main>'});
+  });
+  const page=await context.newPage();await page.goto(origin+'/page');
+  const held=await holdArtifactRead(page,origin,'template-instances',id);
+  let started=false;const ready=held.started().then(()=>{started=true;});
+  // Simulate a request left over from the previous screen, then a report for the intended record.
+  await page.evaluate(async uuid=>{
+    await fetch('/folders/'+uuid);await fetch('/template-instances/'+uuid+'/report');
+  },uuid);
+  assert.equal(started,false);
+  assert(served.includes('/folders/'+uuid));
+  assert(served.includes('/template-instances/'+uuid+'/report'));
+  await page.evaluate(uuid=>{window.record=fetch('/template-instances/'+uuid).then(r=>r.text());},uuid);
+  await ready;assert(!served.includes('/template-instances/'+uuid));
+  await held.release();assert.match(await page.evaluate(()=>window.record),/Ready/);
 });

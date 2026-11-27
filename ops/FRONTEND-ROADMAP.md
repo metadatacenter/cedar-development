@@ -530,11 +530,13 @@ The frontend runbook links the complete calibrated Designer review and focused f
 - Add state-specific visibility checks where an image could be captured without its intended
   subject being visible. Verify the actual named target and retain diagnostic evidence when it is
   absent; screenshot existence alone does not establish the intended state was reached.
-- Diagnose intermittent WebKit capture failures: the November 26 populated-state run
-  `rich-states-metadata-touch-20261126-b` lost an execution context during the phone loading
-  check and retained `terminology lookup failed for "null"` plus a minified error. All new
-  interaction states were reached, but three later dependent states were skipped. Preserve this
-  packet when investigating; a successful retry does not establish the cause.
+- Diagnose the isolated controlled-term lookup failure in the November 26 packet
+  `rich-states-metadata-touch-20261126-b`: `terminology lookup failed for "null"` followed by a
+  minified error. The logged null is the empty control value; the search sends an empty string.
+  Six pending-search/navigation cancellation probes completed without that error,
+  so cancellation alone does not explain it. Use the timestamped console/error-object and network
+  diagnostics in further captures to identify the failed request before changing CEE or suppressing
+  the message. Preserve the original packet.
 - Add semantic change selection for review prioritization. Raw image-byte changes include dynamic
   fixture text and do not establish meaningful layout changes. Any assessment reuse must identify
   the exact evidence, reviewer/model and prompt version, and keep unreviewed states explicit.

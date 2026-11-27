@@ -5,6 +5,7 @@ import {actors,call,enc,mintId,RESOURCE,USER_SERVER,HOST,OPENVIEW} from '../rest
 import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {fixtureAt} from '../journey-fixtures.mjs';
 import {FixtureLedger} from './lifecycle.mjs';
+import {browserDiagnostics} from './diagnostics.mjs';
 import {captureState} from './evidence.mjs';
 import {renderedComponents, ScriptCoverageAccumulator} from './ui-coverage.mjs';
 import {hash} from './contract.mjs';
@@ -28,7 +29,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     }
     await writeFile(join(lock,'owner.json'),JSON.stringify({pid:process.pid,app,directory,startedAt:new Date().toISOString()}));
   }
-  let browser,ledger,closed,coveragePage=null,codeCoverage=null;
+  let browser,ledger,closed,diagnostics,coveragePage=null,codeCoverage=null;
   const census={};
   const scriptSamples=new ScriptCoverageAccumulator();
   async function drainCoverage(restart=false){
@@ -48,7 +49,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
   let checkpoint=Promise.resolve();
   const flush=()=>{const content=JSON.stringify({schemaVersion:1,app,startedAt,actions,states,
     originalPreferences:ledger?.preferences,fixtures:ledger?.fixtures??[],cleanup:ledger?.cleanup??[],preferencesRestored:ledger?.preferencesRestored,
-    runtimeErrors,cleanupErrors,consoleMessages},null,2)+'\n';
+    runtimeErrors,cleanupErrors,consoleMessages,networkFailures:diagnostics?.networkFailures??[]},null,2)+'\n';
     checkpoint=checkpoint.catch(()=>{}).then(async()=>{await writeFile(join(directory,'session.json.tmp'),content);await rename(join(directory,'session.json.tmp'),join(directory,'session.json'));});
     return checkpoint;
   };
@@ -59,6 +60,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       // Chromium alone reports script coverage. It is read before the browser closes.
       if(coveragePage)try{await drainCoverage();}catch(e){cleanupErrors.push('Code coverage: '+e.message);}
       try{await browser?.close();}catch(e){cleanupErrors.push('Browser close: '+e.message);}
+      await diagnostics?.settle();
       try{await ledger?.close();}catch(e){cleanupErrors.push('Fixture cleanup: '+e.message);}
       if(ledger)cleanupErrors.push(...ledger.cleanupErrors);
       try {await flush();} finally {process.off('SIGINT',onInterrupt);process.off('SIGTERM',onTerminate);await releaseLocks(locks);}
@@ -81,6 +83,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       if(/^ResizeObserver loop/.test(event.message))console.error('Window error: '+event.message);
     }));
     const page=await context.newPage();page.setDefaultTimeout(15000);
+    diagnostics=browserDiagnostics(page,actions);
     if(engine==='chromium'){await page.coverage.startJSCoverage({resetOnNavigation:false});coveragePage=page;}
     page.on('pageerror',e=>runtimeErrors.push(e.message));
     // OpenView runs under Angular's development server locally, whose live-reload client tries a
@@ -90,7 +93,8 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     page.on('console',m=>{if(m.type()==='error'){
       const reason=expectedNetworkFailures.size>0&&/^Failed to load resource: (net::ERR_FAILED|the server responded with a status of \d{3}\b.*)$/.test(m.text())?[...expectedNetworkFailures]
         :devServerNoise?.test(m.text())?['Development server live-reload socket, absent from a deployed OpenView']:[];
-      consoleMessages.push({text:m.text(),expected:reason.length>0,reason});if(!reason.length)runtimeErrors.push(m.text());}});
+      const row={...diagnostics.context(),text:m.text(),expected:reason.length>0,reason};
+      consoleMessages.push(row);diagnostics.enrich(m,row);if(!reason.length)runtimeErrors.push(m.text());}});
     // Only resource mutations belonging to this run may leave the browser.
     await context.route('**/*',async route=>{
       const req=route.request();

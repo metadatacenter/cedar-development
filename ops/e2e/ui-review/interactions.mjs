@@ -1,4 +1,5 @@
 import {retainCleanup} from './journeys.mjs';
+import {fixtureAt} from '../journey-fixtures.mjs';
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {TEXT_SIZE_WIDTHS} from './catalog.mjs';
@@ -69,6 +70,17 @@ export async function holdRequests(page, url, {held = () => true, label = 'Held 
     if (errors.length) throw errors[0];
   })};
 }
+// A loading capture starts only when its own artifact is requested. An old page's background
+// request can arrive after interception is installed but before the new page's authentication
+// redirect finishes; letting that request satisfy started() audits a document about to disappear.
+export async function holdArtifactRead(page, base, collection, id, label='Artifact opening') {
+  const origin=new URL(base).origin;
+  return holdRequests(page,url=>{
+    const artifact=fixtureAt(url.href);
+    return url.origin===origin&&artifact?.collection===collection&&artifact.id===id;
+  },{held:request=>request.method()==='GET',label});
+}
+
 // Hold real term searches long enough to capture the picker loading.
 export async function holdSearchRequests(page) {
   const hold = await holdRequests(page, '**/search', {held: request => request.method() === 'POST', label: 'Initial term search'});

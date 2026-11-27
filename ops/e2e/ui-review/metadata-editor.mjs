@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
 import {WIDTHS, PAIRED_WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
 import {RESOURCE,USER_SERVER,GROUP_SERVER} from '../rest/lib.mjs';
-import {pointer,keyboard,folderPage,textSizeStates,holdRequests,refuseConnections,staleRevision} from './interactions.mjs';
+import {pointer,keyboard,folderPage,textSizeStates,holdArtifactRead,refuseConnections,staleRevision} from './interactions.mjs';
 export async function collectMetadataEditor(session,record) {
   const {page}=session;await session.login();const f=await metadataFixtures(session);
   const status=text=>page.locator('.metadata-toolbar [role=status]').filter({hasText:text});
@@ -177,7 +177,7 @@ export async function collectMetadataEditor(session,record) {
       await page.setViewportSize({width,height:width===1440?1000:667});
       let held,restore;
       await r('loading',async()=>{
-        held=await holdRequests(page,url=>url.origin===new URL(RESOURCE).origin,{held:request=>request.method()==='GET',label:'Record opening'});
+        held=await holdArtifactRead(page,RESOURCE,'template-instances',f.records[2],'Record opening');
         await page.goto(session.base+'/instances/edit/'+encodeURIComponent(f.records[2])+'?'+new URLSearchParams({folderId:f.folder}),{waitUntil:'domcontentloaded'});
         await held.started();
       },'The harness holds the record\'s responses to show loading; the server is not slow.');
