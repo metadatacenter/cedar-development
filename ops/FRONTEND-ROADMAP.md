@@ -90,6 +90,11 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
   a CED build that ignores a zero host width reaches the Designer's component pin. Until then the
   comparison keeps flagging CLS of about 0.51 on warm loads of both document sizes. The cause is in
   the [browser audit evidence](FRONTEND-RUNBOOK.md#default-three-engine-coverage).
+- Find why CED is slower than its fixed reference (`7fe0c264`, 2026-11-08) on warm loads of the
+  100-field document. On most pushes since, readiness and blocking time have exceeded their
+  reference limits by up to about 25%, so its reference comparison stays advisory. Fix the
+  slowdown, or advance the reference through a reviewed change if it is an accepted cost, then
+  make CED's reference comparison blocking in `ops/e2e/frontend-perf/budgets.mjs`.
 - Decide whether Designer blocking time and CLS become budgets, as the
   [paired performance checks](FRONTEND-RUNBOOK.md#paired-standalone-performance-checks) describe.
   Wait until the Designer's component pin carries the CED zero-width fix and the readiness review

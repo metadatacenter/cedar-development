@@ -42,7 +42,7 @@ try {
 } catch(error) {report.error=error.stack;}
 finally {
   await writeFile(join(output,'comparison.json'),JSON.stringify(report,null,2)+'\n');
-  const sections=['# Frontend performance comparisons','',`Coverage: **${report.complete?'complete':'incomplete — check failed'}**. Budgeted metrics: ${report.enforced.join(', ')}; every other metric is advisory. Inconclusive rows never block.`,
+  const sections=['# Frontend performance comparisons','',`Coverage: **${report.complete?'complete':'incomplete — check failed'}**. Budgeted metrics against the base: ${report.enforced.base.join(', ') || 'none'}; against the fixed reference: ${report.enforced.reference.join(', ') || 'none'}. Every other row is advisory, and inconclusive rows never block.`,
     report.regressions.length?`**Budget regressions: ${report.regressions.length} — check failed.**`:'No budgeted metric regressed.','',
     'PR/push base and fixed reference comparisons are separate. Noisy complete measurements get at most one rerun; all attempts are retained.',''];
   for (const [label,c] of Object.entries(report.comparisons)) {

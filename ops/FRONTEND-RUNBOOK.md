@@ -6022,18 +6022,18 @@ comparison gets one further full paired run. Both attempts are retained, with th
 selected; persistent noise stays explicitly inconclusive. Broken loading or incomplete coverage
 never retries into a pass. A clear regression does not rerun to seek a faster result.
 
-Some of these rules are budgets that fail the CI comparison, and the rest are advisory.
-`ops/e2e/frontend-perf/budgets.mjs` lists the budgeted metrics for each component:
+Some of these rules are budgets that fail the CI comparison, and the rest are advisory. A
+comparison has two points: the pull-request or push base, and the fixed reference.
+`ops/e2e/frontend-perf/budgets.mjs` lists the budgeted metrics for each component at each point:
 
-| Component | Budgeted | Advisory |
+| Component | Budgeted against the base | Budgeted against the fixed reference |
 |---|---|---|
-| CEE | readiness, blocking time, CLS | — |
-| CED | readiness, blocking time, CLS | — |
-| Designer and equivalent CEF | readiness | blocking time, CLS |
+| CEE | readiness, blocking time, CLS | readiness, blocking time, CLS |
+| CED | readiness, blocking time, CLS | none |
+| Designer and equivalent CEF | readiness | readiness |
 
-A regression in a budgeted metric, against either the pull-request or push base or the fixed
-reference, fails the job with an error annotation. A regression in an advisory metric is a
-warning, and an inconclusive row never fails the job. Load and measurement failures always fail
+A regression in a budgeted metric fails the job with an error annotation. Any other regression is
+a warning, and an inconclusive row never fails the job. Load and measurement failures always fail
 it. The local `cedarcli test frontend-performance-paired` command and the daily calibration
 measure without budgets.
 
@@ -6044,6 +6044,15 @@ used 87% of its threshold, so ordinary noise could fail an unchanged pull reques
 remains advisory while the shipped Designer still carries the warm-load shift that the CED
 zero-width fix removes. Review both once the Designer's component pin carries that fix and a
 further 14 daily controls exist.
+
+Identical-input controls measure noise, not the distance between a current build and the fixed
+reference. CED's comparison against the reference stays advisory because current CED is slower
+than its 2026-11-08 reference on warm loads of the large document. In 8 of the 11 pushes up to
+2026-11-27, readiness rose 150 to 250 ms against limits of 145 to 220 ms, and blocking time also
+exceeded its limit in 8. Its base comparison passed throughout. CEE's budgeted rows stayed below
+70% of their limits against both points in its last 8 pushes. In the Designer's latest run,
+readiness of the equivalent CED page with the large document reached 79% of its reference limit,
+the same CED slowdown seen through the host.
 
 This measures standalone rendering, not sign-in, production latency, host integration, field
 INP or Lighthouse TBT. Bare CED uses fallback summaries; it cannot substitute for the

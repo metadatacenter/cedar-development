@@ -7,7 +7,8 @@ const comparison = (rows, extra={}) => ({complete:true, selected:1, attempts:[{r
 
 test('every measured component has an explicit budget decision', () => {
   assert.deepEqual(Object.keys(enforced).sort(), ['ced','cee','designer']);
-  assert.deepEqual([...enforced.designer], ['readyMs']);
+  assert.deepEqual([...enforced.designer.base], ['readyMs']);
+  assert.deepEqual([...enforced.ced.reference], []);
   assert.throws(() => blockingRegressions('workspace', {}), /No budget decision/);
 });
 
@@ -25,13 +26,24 @@ test('inconclusive and in-tolerance rows never block', () => {
 
 test('the fixed reference blocks as the base does, and a reused reference is not counted twice', () => {
   const regressed = comparison([row('readyMs','regression-warning')]);
-  const found = blockingRegressions('ced', {baseline:comparison([]), reference:regressed});
+  const found = blockingRegressions('cee', {baseline:comparison([]), reference:regressed});
   assert.deepEqual(found.map(r => r.comparison), ['reference']);
-  assert.equal(blockingRegressions('ced', {baseline:regressed, reference:{...regressed, reused:'baseline'}}).length, 1);
+  assert.equal(blockingRegressions('cee', {baseline:regressed, reference:{...regressed, reused:'baseline'}}).length, 1);
 });
 
 test('only the selected attempt decides', () => {
   const retried = {complete:true, selected:2, attempts:[{report:{comparison:[row('readyMs','regression-warning')]}},
     {report:{comparison:[row('readyMs','within-advisory-tolerance')]}}]};
   assert.deepEqual(blockingRegressions('cee', {baseline:retried}), []);
+});
+
+test("CED's fixed reference is advisory while its base comparison blocks", () => {
+  const regressed = comparison([row('readyMs','regression-warning')]);
+  assert.deepEqual(blockingRegressions('ced', {baseline:comparison([]), reference:regressed}), []);
+  assert.equal(blockingRegressions('ced', {baseline:regressed, reference:comparison([])}).length, 1);
+  assert.equal(blockingRegressions('cee', {baseline:comparison([]), reference:regressed}).length, 1);
+});
+
+test('an unknown comparison point has no budget decision', () => {
+  assert.throws(() => blockingRegressions('cee', {other:comparison([])}), /No budget decision for comparison/);
 });

@@ -171,10 +171,11 @@ jobs:
           import {readFileSync, existsSync} from 'node:fs';
           if (existsSync('performance-report/comparison.json')) {
             const report = JSON.parse(readFileSync('performance-report/comparison.json', 'utf8'));
-            const budgeted = new Set(report.enforced ?? []);
+            const key = (label, row) => [label, row.scenario, row.cache, row.metric].join('/');
+            const blocking = new Set((report.regressions ?? []).map(row => key(row.comparison, row)));
             for (const [label, comparison] of Object.entries(report.comparisons)) {
               for (const row of comparison.attempts[comparison.selected-1]?.report.comparison ?? []) {
-                if (row.status === 'regression-warning' && budgeted.has(row.metric)) {
+                if (blocking.has(key(label, row))) {
                   console.log(`::error::${label}: ${row.scenario}/${row.cache} ${row.metric}: budget regression. See performance summary.`);
                 } else if (row.status !== 'within-advisory-tolerance') {
                   console.log(`::warning::${label}: ${row.scenario}/${row.cache} ${row.metric}: ${row.status}. See performance summary; this metric is advisory here.`);
