@@ -92,6 +92,9 @@ const paired = rows => PAIRED_WIDTHS.flatMap(width => rows.map(([scenario, categ
 // Conditions the harness causes in the review browser alone: slow loading, a backend the browser
 // cannot reach and a save someone else's has overtaken. Workspace adds a write whose reply is lost.
 const WORKSPACE_PAIRED = [
+  ...['selected','description-saved','member-search','member-added','administrator-confirmation','administrator-added','remove-confirmation','member-removed','delete-confirmation'].map(state=>['group-'+state,'group-administration']),
+  ['ownership-confirmation','sharing'],
+  ...['publication-version','published','published-version','draft-version','draft-created','draft-version-chain'].map(state=>[state,'publication']),
   ['listing-loading', 'failures'], ['backend-unreachable', 'failures'], ['rename-conflict', 'failures'],
   ['description-editing', 'editing'], ['description-saved', 'editing'], ['selection-delete-dialog', 'dialogs'],
   ['share-search', 'sharing'], ['shared', 'sharing'], ['discard-confirmation', 'dialogs'],

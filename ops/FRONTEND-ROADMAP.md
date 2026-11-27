@@ -529,9 +529,10 @@ The frontend runbook links the complete calibrated Designer review and focused f
 
 ### 14. Extend Meaningful State Coverage and Reviewer Calibration
 
-- Capture the remaining significant account, resource and lifecycle states: group membership and
-  administration, ownership transfer, API-key confirmations, recursive-delete refusal reasons,
-  published/draft/version operations, the default-term chooser, and import/preview failure paths.
+- Capture the remaining significant account, resource and lifecycle states: non-administrator group
+  views and refused membership changes, completed ownership transfer and the former owner’s view,
+  API-key confirmations, recursive-delete refusal reasons, publication/version failure paths,
+  the default-term chooser, and import-load/preview failure paths.
   Hold each addition to the implemented screens and surface inventories, rather than component counts.
 - Inventory important states outside the five capture applications, including authentication,
   Monitoring, Bridging and supported legacy-editor fallback paths. The current catalog and component

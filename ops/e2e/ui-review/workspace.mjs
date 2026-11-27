@@ -1,3 +1,5 @@
+import {collectGroupWorkflows} from './group-workflows.mjs';
+import {collectPublicationWorkflows} from './publication-workflows.mjs';
 import assert from 'node:assert/strict';
 import {captureJourney} from './journeys.mjs';
 import {workspaceFixtures} from './fixtures.mjs';
@@ -265,6 +267,10 @@ export async function collectWorkspace(session,record) {
       await tap(openDialog.getByRole('button',{name:'Add',exact:true}));
       await openDialog.locator('cedar-toast .toast').waitFor();
     },`${person} added as a viewer; the permissions are saved at once.`);
+    await r('ownership-confirmation',async()=>{
+      await tap(openDialog.getByRole('checkbox',{name:`Make ${person} the owner`,exact:true}));await confirmation.waitFor();
+    },'The ownership-transfer confirmation for a temporary artifact; Cancel preserves its current owner.');
+    await tap(confirmation.getByRole('button',{name:'Cancel',exact:true}));
     await escapeFrom(openDialog);
     await r('discard-confirmation',async()=>{
       await rowActions(own.template);
@@ -344,5 +350,7 @@ export async function collectWorkspace(session,record) {
     await page.mouse.up();await listingReady(page,f.mixedIds);
     });
   }
+  await collectGroupWorkflows(session,record);
+  await collectPublicationWorkflows(session,record);
   await captureJourney(session,record,'text-size',async()=>{await textSizeStates(session,record,()=>folderPage(session,f.listing,f.rows.slice(0,50)));});
 }

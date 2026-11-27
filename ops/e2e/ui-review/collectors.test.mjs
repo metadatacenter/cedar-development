@@ -25,6 +25,7 @@ async function dryRun(app, profileName = 'chromium', capturedStates = [], failAt
   const session = {
     page: inert(), base: 'https://ui-review.test', user: {profile: {homeFolderId: 'https://repo.test/folders/home'}},
     otherUser: {profile: {firstName: 'Test', lastName: 'User 2'}},
+    groups:{create:async()=>({id:'https://repo.test/groups/owned',name:'Temporary group'}),call:async()=>({status:200,body:{}})},
     actions: [], expectedNetworkFailures: new Set(), states: capturedStates,
     flush: async () => {}, login: async () => {}, openNew: async () => {}, ready: async () => {},
     addField: async () => {}, action: async () => {}, capture: async () => {},
@@ -70,6 +71,11 @@ test('every collector records exactly its catalog states, once each', async t =>
   for (const id of ['utc-offset-open-1440', 'draft-restored-375', 'save-conflict-375']) assert(draft.includes(id), id);
   const workspace = await dryRun('workspace', 'chromium', [], 'rename-conflict-1440');
   for (const id of ['description-editing-1440', 'profile-1440', 'privacy-375', 'text-200-375']) assert(workspace.includes(id), id);
+  for (const failed of ['group-member-added-1440', 'draft-created-1440']) {
+    const states=await dryRun('workspace','chromium',[],failed);
+    assert(!states.includes(failed.startsWith('group-')?'group-administrator-confirmation-1440':'draft-version-chain-1440'));
+    for(const id of ['group-selected-375','draft-version-chain-375','text-200-375'])assert(states.includes(id),id);
+  }
   const metadata = await dryRun('metadata-editor', 'chromium', [], 'type-temporal-1440');
   for (const id of ['list-too-short-1440', 'readonly-link-1440', 'save-conflict-375', 'text-200-375']) assert(metadata.includes(id), id);
   const richStates=[];

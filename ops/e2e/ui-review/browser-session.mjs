@@ -1,9 +1,10 @@
 import {mkdir,readFile,writeFile,readdir,rm,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {chromium, webkit} from 'playwright';
-import {actors,call,enc,mintId,RESOURCE,USER_SERVER,HOST,OPENVIEW} from '../rest/lib.mjs';
+import {actors,call,enc,mintId,RESOURCE,USER_SERVER,GROUP_SERVER,HOST,OPENVIEW} from '../rest/lib.mjs';
 import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {fixtureAt} from '../journey-fixtures.mjs';
+import {ReviewGroups} from './group-fixtures.mjs';
 import {FixtureLedger} from './lifecycle.mjs';
 import {browserDiagnostics} from './diagnostics.mjs';
 import {captureState} from './evidence.mjs';
@@ -11,13 +12,13 @@ import {renderedComponents, ScriptCoverageAccumulator} from './ui-coverage.mjs';
 import {hash} from './contract.mjs';
 import {regions, scenarios, profile as browserProfile} from './catalog.mjs';
 
-import {requireLocal,readOnlyResourcePost} from './guards.mjs';
+import {requireLocal,readOnlyResourcePost,ownedDraftFixture} from './guards.mjs';
 export async function openBrowserSession(directory, app, {profile='chromium'}={}) {
   const {engine,context:contextOptions,defaultFontSize}=browserProfile(profile);
   const base=['designer','field-designer'].includes(app) ? process.env.CEDAR_DESIGNER_BASE||`https://designer.${HOST}`
     : app==='openview' ? process.env.CEDAR_OPENVIEW_FRONTEND||`https://openview.${HOST}`
     : process.env.CEDAR_WORKSPACE_BASE||`https://workspace.${HOST}`;
-  for(const url of [base,RESOURCE,USER_SERVER])requireLocal(url);
+  for(const url of [base,RESOURCE,USER_SERVER,GROUP_SERVER])requireLocal(url);
   // Workspace shares a fixture with the second test account, so it holds that account's lock too.
   const locks=(app==='workspace'?['ui-review-user1','ui-review-user2']:['ui-review-user1']).map(name=>join(process.env.CEDAR_HOME,'.cedar/locks',name));
   await mkdir(join(process.env.CEDAR_HOME,'.cedar/locks'),{recursive:true});
@@ -29,7 +30,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     }
     await writeFile(join(lock,'owner.json'),JSON.stringify({pid:process.pid,app,directory,startedAt:new Date().toISOString()}));
   }
-  let browser,ledger,closed,diagnostics,coveragePage=null,codeCoverage=null;
+  let browser,ledger,groups,closed,diagnostics,coveragePage=null,codeCoverage=null;
   const census={};
   const scriptSamples=new ScriptCoverageAccumulator();
   async function drainCoverage(restart=false){
@@ -48,7 +49,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
   const startedAt=new Date().toISOString();
   let checkpoint=Promise.resolve();
   const flush=()=>{const content=JSON.stringify({schemaVersion:1,app,startedAt,actions,states,
-    originalPreferences:ledger?.preferences,fixtures:ledger?.fixtures??[],cleanup:ledger?.cleanup??[],preferencesRestored:ledger?.preferencesRestored,
+    originalPreferences:ledger?.preferences,fixtures:ledger?.fixtures??[],groupFixtures:groups?.items??[],cleanup:ledger?.cleanup??[],preferencesRestored:ledger?.preferencesRestored,
     runtimeErrors,cleanupErrors,consoleMessages,networkFailures:diagnostics?.networkFailures??[]},null,2)+'\n';
     checkpoint=checkpoint.catch(()=>{}).then(async()=>{await writeFile(join(directory,'session.json.tmp'),content);await rename(join(directory,'session.json.tmp'),join(directory,'session.json'));});
     return checkpoint;
@@ -61,6 +62,8 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       if(coveragePage)try{await drainCoverage();}catch(e){cleanupErrors.push('Code coverage: '+e.message);}
       try{await browser?.close();}catch(e){cleanupErrors.push('Browser close: '+e.message);}
       await diagnostics?.settle();
+      try{await groups?.close();}catch(e){cleanupErrors.push('Group cleanup: '+e.message);}
+      if(groups)cleanupErrors.push(...groups.cleanupErrors);
       try{await ledger?.close();}catch(e){cleanupErrors.push('Fixture cleanup: '+e.message);}
       if(ledger)cleanupErrors.push(...ledger.cleanupErrors);
       try {await flush();} finally {process.off('SIGINT',onInterrupt);process.off('SIGTERM',onTerminate);await releaseLocks(locks);}
@@ -75,6 +78,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     // A read as an anonymous visitor of OpenView's server, with no CEDAR credential.
     const anonymousRead=path=>call(null,'GET',path,undefined,{base:OPENVIEW});
     ledger=new FixtureLedger({request,persist:flush,mint:mintId,userPath:'/users/'+enc(user.profile['@id'].split('/').at(-1)),preferences:user.profile.uiPreferences,userBase:USER_SERVER});
+    if(app==='workspace')groups=new ReviewGroups(request,flush);
     browser=await {chromium,webkit}[engine].launch({headless:true});
     const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1440,height:1000},...contextOptions});
     // A ResizeObserver loop reaches the window's error event in every engine, but Playwright's page
@@ -103,15 +107,23 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       if(address.origin===new URL(RESOURCE).origin&&!['GET','HEAD','OPTIONS'].includes(req.method())&&!readOnlyValidation) {
         // Permissions and publication changes address a subresource of a review-owned artifact.
         const subresource=/\/(permissions|publication|annotations)$/.test(address.pathname);
-        const item=fixtureAt(subresource?req.url().replace(/\/(permissions|publication|annotations)(?=$|\?)/,''):req.url());
+        let item=fixtureAt(subresource?req.url().replace(/\/(permissions|publication|annotations)(?=$|\?)/,''):req.url());
         const authoredCollections = app === 'designer' ? ['templates', 'template-elements'] : app === 'field-designer' ? ['template-fields'] : [];
         if(authoredCollections.includes(item?.collection) && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && String(req.postDataJSON()?.['schema:name']).startsWith('UI review pilot ')) await ledger.register(item.collection,item.id);
         // A record the Metadata Editor creates from a review-owned template belongs to the review.
         if(app==='metadata-editor' && item?.collection==='template-instances' && req.method()==='PUT' && !ledger.fixtures.some(f=>f.id===item.id) && !req.headers()['if-match'] && ledger.fixtures.some(f=>f.collection==='templates'&&f.id===req.postDataJSON()?.['schema:isBasedOn'])) await ledger.register(item.collection,item.id);
+        if(app==='workspace'&&req.method()==='POST'&&address.pathname==='/command/create-draft-artifact'){
+          const draft=ownedDraftFixture(req.postDataJSON(),ledger.fixtures);
+          if(draft){await ledger.register(draft.collection,draft.id);item=draft;}
+        }
         if(!item||!ledger.fixtures.some(f=>f.id===item.id)) {
           runtimeErrors.push('Blocked mutation outside review-owned fixtures: '+req.method()+' '+new URL(req.url()).pathname);
           await flush();await route.abort();return;
         }
+      }
+      if(address.origin===new URL(GROUP_SERVER).origin&&!['GET','HEAD','OPTIONS'].includes(req.method())&&!groups?.owns(req.url())){
+        runtimeErrors.push('Blocked mutation outside review-owned groups: '+req.method()+' '+address.pathname);
+        await flush();await route.abort();return;
       }
       // A request the page cancelled while the guard decided, as a navigation does, is already
       // settled. Any other failure is recorded rather than thrown, since a throw here would end
@@ -175,6 +187,6 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
       return {verified:verified.sort((a,b)=>a.file.localeCompare(b.file)),browser:browser.version()};
     }
     await flush();
-    return {page,context,base,user,otherUser,ledger,browser,directory,pendingCrops,profile,census,codeCoverage:()=>codeCoverage,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,anonymousRead,defaultFontSize:!!defaultFontSize,setDefaultFontSize,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
+    return {page,context,base,user,otherUser,ledger,groups,browser,directory,pendingCrops,profile,census,codeCoverage:()=>codeCoverage,engine:browser.browserType().name(),touch:!!contextOptions.hasTouch,expectedNetworkFailures,put:ledger.put.bind(ledger),request,anonymousRead,defaultFontSize:!!defaultFontSize,setDefaultFontSize,states,actions,runtimeErrors,cleanupErrors,action,capture,close,login,servedEvidence,flush};
   } catch(error){await close();throw error;}
 }

@@ -34,6 +34,23 @@ const designer = {
   nested: ['Nested element in the template', 'An element with child content is present; inspect its relationship to the root template.'],
 };
 const added = {
+  "group-selected": "A temporary group is selected with the current account as its sole administrator.",
+  "group-description-saved": "The group description has been saved and verified by backend readback.",
+  "group-member-search": "The member picker displays the second test account as a search result.",
+  "group-member-added": "The second test account has been added to the temporary group.",
+  "group-administrator-confirmation": "The existing confirmation asks whether to grant administrator access.",
+  "group-administrator-added": "The second account now has administrator access, verified by backend readback.",
+  "group-remove-confirmation": "The existing confirmation asks whether to remove the added member.",
+  "group-member-removed": "The added member has been removed; the original administrator remains.",
+  "group-delete-confirmation": "The temporary group is selected for deletion; the confirmation is cancelled.",
+  "ownership-confirmation": "The permissions dialog asks whether to transfer ownership to the second test account; the confirmation is cancelled.",
+  "publication-version": "The Publish dialog holds version 1.0.0 before submission.",
+  "published": "The temporary template has been published as version 1.0.0 and verified by backend readback.",
+  "published-version": "The published template\u2019s Version panel displays its current publication.",
+  "draft-version": "The Create Draft dialog holds version 1.1.0 before submission.",
+  "draft-created": "A draft has been created from the published template and verified by backend readback.",
+  "draft-version-chain": "The draft\u2019s Version panel displays its preceding published version.",
+
   'import-search-failed': 'The reusable-artifact search cannot reach the server; the import dialog retains the query and shows its existing error.',
   'import-search-recovered': 'Repeating the same search after connectivity returns replaces the import error with the populated results.',
   'user-menu': 'Workspace’s user menu is open, showing its existing account navigation.',
