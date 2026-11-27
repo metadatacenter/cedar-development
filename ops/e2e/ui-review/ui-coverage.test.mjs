@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp, mkdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {componentReport, declaredComponents, executedBytes, scriptCoverage} from './ui-coverage.mjs';
+import {componentReport, declaredComponents, executedBytes, scriptCoverage, ScriptCoverageAccumulator} from './ui-coverage.mjs';
 
 test('a byte counts as run when the innermost range holding it ran', () => {
   // A 100-byte script that ran, holding a function at 20–60 that never did, which holds a block
@@ -78,4 +78,22 @@ test('an uncapturable component is reported with its reason and left out of the 
   const report = componentReport(censuses, declared, {'app-fonts': 'Renders nothing.'});
   assert.deepEqual(report.byRepository.one, {declared: 1, shown: 1, renderedOnly: [], neverRendered: [], uncapturable: ['app-fonts']});
   assert.equal(report.components[1].uncapturable, 'Renders nothing.');
+});
+
+
+test('bounded script samples union disjoint execution and retain different source versions', () => {
+  const samples = new ScriptCoverageAccumulator();
+  const entry = (source, start, end) => ({url: 'https://app.example.orgx/main.js', source,
+    functions: [{ranges: [{startOffset: 0, endOffset: source.length, count: 0},
+      {startOffset: start, endOffset: end, count: 1}]}]});
+  samples.add([entry('x'.repeat(30), 0, 10)]);
+  assert.equal(samples.report().total.executedBytes, 10);
+  samples.add([entry('x'.repeat(30), 10, 20)]);
+  samples.add([entry('x'.repeat(30), 0, 10)]);
+  assert.deepEqual(samples.report().total, {bytes: 30, executedBytes: 20, executedPercent: 66.7});
+  samples.add([entry('y'.repeat(30), 20, 25)]);
+  const report = samples.report();
+  assert.equal(report.scripts.length, 2);
+  assert.notEqual(report.scripts[0].sha256, report.scripts[1].sha256);
+  assert.deepEqual(report.total, {bytes: 60, executedBytes: 25, executedPercent: 41.7});
 });

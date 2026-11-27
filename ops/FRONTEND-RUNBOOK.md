@@ -2590,14 +2590,50 @@ Rebuilding and the reviewer's inspection are separate.
 
 ###### What the Catalog Covers
 
-The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **500 states** under the Chromium profile and 491 under the touch profile:
+The versioned catalog in `ops/e2e/ui-review/catalog.mjs` currently requires **644 states** under the Chromium profile and 635 under the touch profile:
 
 | Application | Required states | Coverage |
 | --- | ---: | --- |
 | Designer | 178 | Empty/populated forms, Overview and Preview transitions, six settings tabs, long and required names, repeated/nested content, keyboard traversal, save/reopen and interrupted-save recovery, the retained draft offered after a reload and restored, the field-type picker open, and a template address no artifact has; desktop, tablet and phone layouts. Trailing creation controls are inspected at rest, with the pointer, reached by Tab and activated by both pointer and Enter, after panel toggles, with nested content and after enabling multiple values at 1100 pixels. At 1440 pixels, a card with its settings open for each of the 25 types the field picker offers, and each type in Preview except Rich Text and Page Break, which Preview shows only once given content or as its page selector. At 1440 and 375 pixels, the controlled-term picker opened, during a deliberately held initial search, after that query settles, searched, with a term inspected, on its Branches and Ontologies tabs, and closed. Follow-ups scroll to and activate source release controls on each tab; attempt edits and record normal Tab entry into both read-only Attribute Value controls; check disabled reorder activation, nested pointer reveal and activation, settings footers, Preview top reachability, and phone authoring scroll restoration. Further states verify DOI and break-setting footer reachability, the 900-pixel Property IRI row, the Page Break chooser tile, the settled card header after Overview selection, initial search feedback without delayed responses, first/last release rows and return to search. The retained-draft offer is also captured at 375 × 667 pixels. At 1440 pixels: the preferences and preset-definitions dialogs, the field library sidebar its preference turns on, the dialog that imports reusable fields and elements, an element's settings with its labels, a type entered by IRI, and a property found in the term picker and opened to its detail. |
 | Workspace | 158 | Empty/populated list and grid, a folder holding one resource of each type in list and grid and filtered to templates, each dialog a row's actions open (Rename, Copy, Move, Permissions, Publish, Delete and folder deletion) left unconfirmed, real next/previous pages, row actions, details open/close, every panel arrangement, the New menu and new-folder dialog, type and last-modified filters, sort, breadcrumbs, reload, template details, search, the home folder, keyboard traversal, short/long/nested Preview and try-out/return at 1440, 768 and 375 pixels. At one width only: new-folder dialog keyboard traversal and Escape, the last type choice checked at its displayed position, both tablet panels and displayed-position paging. At 1440 and 375 pixels: the next listing page while its responses are held, the previous page with the CEDAR servers unreachable, and a rename the server refuses as overtaken by another save. Also at 1440 and 375 pixels: a description being edited and then saved with its toast, the selection's deletion dialog, sharing with the second test account by name and the saved share, the confirmation that cancelling an edited dialog asks for, a new folder whose reply is lost and the recheck that follows, and the profile, settings, groups and privacy pages. Under Chromium alone, a template dragged over a folder. |
-| Metadata Editor | 125 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, a value the email, phone and link types refuse, the single-select list and the date picker open, the static types on both pages of their template, and an attribute-value field. At 1440 and 375 pixels: a record opening while its responses are held, a save with the CEDAR servers unreachable, and a save the server refuses as overtaken by another save, and the confirmation that leaving with unsaved edits asks for. At 1440 pixels: the time and offset pickers of corpus template 010, a stored record with fewer list entries than its template asks for, and a saved link and the choice fields in Workspace's read-only preview. |
-| OpenView | 39 | An open template from top to end, an open record and its repeated field, an open element, field and folder, the corpus template holding every input type from top to end, a template that is not open and an identifier no artifact has, at 1440, 768 and 375 pixels. At 1440 and 375 pixels: a folder row's preview, and the spinner while a page waits for its artifact. |
+| Metadata Editor | 227 | 0/1/2/5/6/12 occurrences, last/previous pages, short/long and nested fields, keyboard traversal, edit/save/backend readback/reopen, adding, copying and deleting occurrences, collapse-all, the download menu, Workspace's read-only preview, a new record saved without a required value and its warning list, a generated name for an empty record name, and empty templates at 1440, 768 and 375 pixels. At 1440 pixels, a new record with each input type centred, a value the email, phone and link types refuse, the single-select list and the date picker open, the static types on both pages of their template, and an attribute-value field. At 1440 and 375 pixels: a record opening while its responses are held, a save with the CEDAR servers unreachable, and a save the server refuses as overtaken by another save, and the confirmation that leaving with unsaved edits asks for. At 1440 pixels: the time and offset pickers of corpus template 010, a stored record with fewer list entries than its template asks for, and a saved link and the choice fields in Workspace's read-only preview. |
+| OpenView | 81 | An open template from top to end, an open record and its repeated field, an open element, field and folder, the corpus template holding every input type from top to end, a template that is not open and an identifier no artifact has, at 1440, 768 and 375 pixels. At 1440 and 375 pixels: a folder row's preview, and the spinner while a page waits for its artifact. |
+
+The populated-state extension adds 102 Metadata Editor states and 42 OpenView states, at 1440
+and 375 pixels. A separate stored specimen holds long text, multiline notes, contact values,
+selected radio/checkbox/list options, seven labelled authority identifiers, a number, date and
+controlled term. Every field is captured in the editable form, Workspace's saved read-only preview
+and anonymous OpenView. These are separate from the original empty-input states. Authority labels
+are explicitly fixture data, not a claim that an external authority resolved them during capture.
+The editor still performs its ordinary semantic checks. In the November 26 capture, the stored NIH
+identifier was not found and the DOI was outside DataCite’s coverage; both warnings remain visible.
+They do not block saving or invalidate the fixture’s structure, and are not suppressed by the harness.
+
+Additional paired-width journeys open a populated multi-select and change its selection, show and
+correct inline email validation, select melanoma from real local terminology suggestions and clear
+it, and enter an attribute name with a long value before saving and inspecting its read-only
+counterpart. Saves read back the selected list/term value where those interactions persist it.
+Each width edits its own registered temporary record. Related editing/reading and before/after
+states are linked for targeted reviews.
+
+The authored-content fixture includes formatted rich text with a heading, list and link, and an
+embedded SVG collection diagram with a caption. The ordinary CEE widgets render the content; no
+network response or screenshot is substituted. Capture checks that the named target is visible
+and that the image actually loaded. These states do not establish external video playback or
+caption quality.
+
+Populated-state verification evidence is retained under `$CEDAR_HOME/.cedar/reports/ui-review/`:
+
+| Profile | Metadata Editor | OpenView |
+| --- | --- | --- |
+| Chromium | `rich-states-metadata-20261126-d` — 227/227, 281 seconds | `rich-states-openview-20261126-a` — 81/81, 82 seconds |
+| WebKit touch | `rich-states-metadata-touch-20261126-c` — 225/225, 227 seconds | `rich-states-openview-touch-20261126-a` — 79/79, 59 seconds |
+
+These packets have no missing states, runtime errors or cleanup errors, and their coordinator
+plan checks verify the evidence files. They await independent assessment; the retained automatic
+target-size findings are not accepted design. The earlier WebKit diagnostic packet and its
+intermittent failure are tracked in the frontend roadmap. A focused check of the final term-picker
+positioning also passed at both widths in both browsers.
 
 Each Chromium count includes two text-size states per application, at 1440 and 375 pixels, which
 every collector records last. They set Chromium's default text size to 32 pixels, twice the usual
@@ -2662,7 +2698,10 @@ written after `capture.json`, so neither enters the evidence a reviewer is given
 - `code-coverage.json`, under Chromium alone, gives the share of each served script the capture
   ran, from V8's block coverage. The served bundles carry no source maps, so the share is per
   bundle rather than per source file. OpenView's figure comes from its development server's
-  unminified bundles, and is not comparable with the others.
+  unminified bundles, and is not comparable with the others. The profiler is drained and restarted
+  every 25 captures, with a garbage-collection checkpoint to reclaim unreachable instrumentation
+  and audit allocations during large catalogs. Execution masks are
+  unioned across samples for identical source hashes; changed script versions remain distinct.
 
 `cedarcli test ui-review-coverage --capture DIR [--capture DIR ...] [--output report.json]` holds
 the censuses of any set of captures against every component the sources declare: the Angular

@@ -66,6 +66,12 @@ test('every collector records exactly its catalog states, once each', async t =>
   for (const id of ['description-editing-1440', 'profile-1440', 'privacy-375', 'text-200-375']) assert(workspace.includes(id), id);
   const metadata = await dryRun('metadata-editor', 'chromium', [], 'type-temporal-1440');
   for (const id of ['list-too-short-1440', 'readonly-link-1440', 'save-conflict-375', 'text-200-375']) assert(metadata.includes(id), id);
+  const richStates=[];
+  const rich=await dryRun('metadata-editor','chromium',richStates,'rich-multiselect-open-1440');
+  assert(!rich.includes('rich-validation-1440'), 'dependent interaction steps remain unreached');
+  for(const id of ['rich-term-selected-1440','rich-attribute-readonly-1440','rich-populated-text-375','rich-validation-corrected-375','text-200-375'])assert(rich.includes(id),id);
+  assert(richStates.find(s=>s.id==='rich-populated-image-375').relatedStates.includes('rich-readonly-image-375'));
+  assert(richStates.find(s=>s.id==='rich-term-selected-375').relatedStates.includes('rich-term-suggestions-375'));
   const openview = await dryRun('openview', 'chromium', [], 'template-1440');
   assert(!openview.includes('template-end-1440'), 'dependent states are skipped');
   for (const id of ['template-768', 'folder-preview-1440', 'loading-375']) assert(openview.includes(id), id);

@@ -4,6 +4,7 @@
 // source declares, and, under Chromium, the share of each served script the capture ran.
 import {readFile, readdir, writeFile} from 'node:fs/promises';
 import {join, relative} from 'node:path';
+import {createHash} from 'node:crypto';
 
 // The four applications render components from these repositories, each declared under its root.
 // A package that registers custom elements renders its root components under those elements' tags,
@@ -71,30 +72,48 @@ export async function renderedComponents(page) {
 // V8 reports each function's ranges nested, outermost first, and an inner function as an entry of
 // its own. Applying every range from the widest to the narrowest therefore leaves each byte marked
 // by the innermost range that holds it.
-export function executedBytes(length, functions) {
+function executedMask(length, functions) {
   const ranges = functions.flatMap(fn => fn.ranges).sort((a, b) => (b.endOffset - b.startOffset) - (a.endOffset - a.startOffset));
   const ran = new Uint8Array(length);
   for (const {startOffset, endOffset, count} of ranges) ran.fill(count > 0 ? 1 : 0, Math.max(0, startOffset), Math.min(length, endOffset));
-  let total = 0;
-  for (const byte of ran) total += byte;
-  return total;
+  return ran;
+}
+
+export function executedBytes(length, functions) {
+  return executedMask(length, functions).reduce((sum, byte) => sum + byte, 0);
+}
+
+// Periodically drain Chromium's profiler so it does not retain every navigated document. Keep
+// only a byte mask per distinct source, unioning execution across samples without keeping sources
+// or function histories. Different served versions remain separate even at the same URL.
+export class ScriptCoverageAccumulator {
+  scripts = new Map();
+  add(entries) {
+    for (const entry of entries) {
+      if (!/^https?:/.test(entry.url) || typeof entry.source !== 'string') continue;
+      const url = new URL(entry.url), address = url.origin + url.pathname;
+      const sha256 = createHash('sha256').update(entry.source).digest('hex');
+      const key = address + ':' + sha256;
+      const ran = executedMask(entry.source.length, entry.functions);
+      const row = this.scripts.get(key);
+      if (row) for (let i = 0; i < ran.length; i++) row.ran[i] |= ran[i];
+      else this.scripts.set(key, {url: address, sha256, ran});
+    }
+  }
+  report() {
+    const rows = [...this.scripts.values()].map(({url, sha256, ran}) => {
+      const bytes = ran.length, executed = ran.reduce((sum, byte) => sum + byte, 0);
+      return {url, sha256, bytes, executedBytes: executed, executedPercent: percent(executed, bytes)};
+    }).sort((a, b) => b.bytes - a.bytes);
+    const bytes = rows.reduce((sum, row) => sum + row.bytes, 0), executed = rows.reduce((sum, row) => sum + row.executedBytes, 0);
+    return {scripts: rows, total: {bytes, executedBytes: executed, executedPercent: percent(executed, bytes)}};
+  }
 }
 
 export function scriptCoverage(entries) {
-  const scripts = new Map();
-  for (const entry of entries) {
-    if (!/^https?:/.test(entry.url) || typeof entry.source !== 'string') continue;
-    const url = new URL(entry.url), key = url.origin + url.pathname;
-    const bytes = entry.source.length, executed = executedBytes(bytes, entry.functions);
-    const row = scripts.get(key) ?? {url: key, bytes: 0, executedBytes: 0};
-    row.bytes = Math.max(row.bytes, bytes);
-    row.executedBytes = Math.max(row.executedBytes, executed);
-    scripts.set(key, row);
-  }
-  const rows = [...scripts.values()].map(row => ({...row, executedPercent: percent(row.executedBytes, row.bytes)}))
-    .sort((a, b) => b.bytes - a.bytes);
-  const bytes = rows.reduce((sum, row) => sum + row.bytes, 0), executed = rows.reduce((sum, row) => sum + row.executedBytes, 0);
-  return {scripts: rows, total: {bytes, executedBytes: executed, executedPercent: percent(executed, bytes)}};
+  const accumulator = new ScriptCoverageAccumulator();
+  accumulator.add(entries);
+  return accumulator.report();
 }
 
 const percent = (part, whole) => whole ? Math.round(1000 * part / whole) / 10 : 0;

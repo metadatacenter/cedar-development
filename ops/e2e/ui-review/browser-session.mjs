@@ -6,7 +6,7 @@ import {withBrowserAuthentication} from '../auth-activity.mjs';
 import {fixtureAt} from '../journey-fixtures.mjs';
 import {FixtureLedger} from './lifecycle.mjs';
 import {captureState} from './evidence.mjs';
-import {renderedComponents, scriptCoverage} from './ui-coverage.mjs';
+import {renderedComponents, ScriptCoverageAccumulator} from './ui-coverage.mjs';
 import {hash} from './contract.mjs';
 import {regions, scenarios, profile as browserProfile} from './catalog.mjs';
 
@@ -30,6 +30,18 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
   }
   let browser,ledger,closed,coveragePage=null,codeCoverage=null;
   const census={};
+  const scriptSamples=new ScriptCoverageAccumulator();
+  async function drainCoverage(restart=false){
+    scriptSamples.add(await coveragePage.coverage.stopJSCoverage());
+    codeCoverage=scriptSamples.report();
+    if(restart){
+      // Explicitly reclaim unreachable instrumented scripts and audit allocations before the
+      // next sample. Waiting for V8's heap limit can crash a long capture before it reclaims them.
+      const cdp=await coveragePage.context().newCDPSession(coveragePage);
+      try{await cdp.send('HeapProfiler.collectGarbage');}finally{await cdp.detach();}
+      await coveragePage.coverage.startJSCoverage({resetOnNavigation:false});
+    }
+  }
   const states=[],actions=[],runtimeErrors=[],cleanupErrors=[],consoleMessages=[];
   const expectedNetworkFailures=new Set();
   const startedAt=new Date().toISOString();
@@ -45,7 +57,7 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     if(closed)return closed;
     closed=(async()=>{
       // Chromium alone reports script coverage. It is read before the browser closes.
-      if(coveragePage)try{codeCoverage=scriptCoverage(await coveragePage.coverage.stopJSCoverage());}catch(e){cleanupErrors.push('Code coverage: '+e.message);}
+      if(coveragePage)try{await drainCoverage();}catch(e){cleanupErrors.push('Code coverage: '+e.message);}
       try{await browser?.close();}catch(e){cleanupErrors.push('Browser close: '+e.message);}
       try{await ledger?.close();}catch(e){cleanupErrors.push('Fixture cleanup: '+e.message);}
       if(ledger)cleanupErrors.push(...ledger.cleanupErrors);
@@ -123,7 +135,11 @@ export async function openBrowserSession(directory, app, {profile='chromium'}={}
     const pendingCrops=[];
     const descriptions=new Map(scenarios(app,profile).map(s=>[s.id,s]));
     // Each state's census of the components it renders is kept apart from the state's evidence.
-    const capture=async(id,note)=>{await captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false,scenario:descriptions.get(id)},id,note);census[id]=await renderedComponents(page);};
+    const capture=async(id,note)=>{await captureState({page,directory,states,actions,flush,regions:regions(app),pendingCrops,fullPage:false,scenario:descriptions.get(id)},id,note);census[id]=await renderedComponents(page);
+      // Long catalogs navigate through many copies of the large editor bundle. Release the V8
+      // profiler's retained scripts regularly, preserving their combined executed ranges in Node.
+      if(coveragePage&&states.length%25===0)await drainCoverage(true);
+    };
     // OpenView's development server compiles its own bundles in memory, so they can only be
     // fingerprinted; the CEE bundle it serves from node_modules is compared with the installed one.
     async function openviewServedEvidence(){

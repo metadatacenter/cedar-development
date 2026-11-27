@@ -1,5 +1,8 @@
 import {captureJourney} from './journeys.mjs';
-import {openviewFixtures} from './fixtures.mjs';
+import {richFixture} from './rich-fixtures.mjs';
+import {RICH_FIELDS} from './rich-definitions.mjs';
+import {showRichField} from './rich-states.mjs';
+import {openviewFixtures,makeOpen} from './fixtures.mjs';
 import {WIDTHS,PAIRED_WIDTHS} from './catalog.mjs';
 import {enc,HOST} from '../rest/lib.mjs';
 import {textSizeStates,holdRequests} from './interactions.mjs';
@@ -60,5 +63,13 @@ export async function collectOpenView(session,record) {
     await held?.release();await page.getByRole('heading',{name:f.name+' open study',exact:true}).first().waitFor();
     });
   }
+  const rich=await richFixture(session,f.folder,'UI review public rich specimen');
+  await makeOpen(session,'templates',rich.template);await makeOpen(session,'template-instances',rich.record);
+  for(const width of PAIRED_WIDTHS)await captureJourney(session,record,`public-rich-${width}`,async()=>{
+    await page.setViewportSize({width,height:width===1440?1000:667});
+    await rendered(`/template-instances/${enc(rich.record)}`,rich.name);
+    for(const [slug,label] of RICH_FIELDS)await record(`rich-readonly-${slug}-${width}`,()=>showRichField(cee,slug,label),
+      'The populated record rendered anonymously by OpenView. Stored authority labels are fixture data; image and rich text are embedded authored content.');
+  });
   await captureJourney(session,record,'text-size',async()=>{await textSizeStates(session,record,()=>rendered(`/templates/${enc(f.template)}`,f.name+' open study'));});
 }

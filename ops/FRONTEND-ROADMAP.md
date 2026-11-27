@@ -527,16 +527,31 @@ The frontend runbook links the complete calibrated Designer review and focused f
 - Add collectors for Monitoring, Bridging and the standalone field-designer host. Inventory their
   distinct pages, dialogs and significant states first; the four-application catalog is not a
   denominator for the whole frontend estate.
-- Expand field-type fixtures beyond empty controls: populated and long values, selected authority
-  results, open suggestions, multi-selection, inline validation, authored media and appropriate
-  read-only counterparts. Prefer visibly distinct states over repeated screenshots of the same
-  control. Keep fixture dependencies local and deterministic where possible.
 - Add state-specific visibility checks where an image could be captured without its intended
   subject being visible. Verify the actual named target and retain diagnostic evidence when it is
   absent; screenshot existence alone does not establish the intended state was reached.
+- Diagnose intermittent WebKit capture failures: the November 26 populated-state run
+  `rich-states-metadata-touch-20261126-b` lost an execution context during the phone loading
+  check and retained `terminology lookup failed for "null"` plus a minified error. All new
+  interaction states were reached, but three later dependent states were skipped. Preserve this
+  packet when investigating; a successful retry does not establish the cause.
 - Add semantic change selection for review prioritization. Raw image-byte changes include dynamic
   fixture text and do not establish meaningful layout changes. Any assessment reuse must identify
   the exact evidence, reviewer/model and prompt version, and keep unreviewed states explicit.
 - Maintain a held-out reviewer benchmark with acceptable controls and known defects, track misses
   and false positives across reviewer/model versions, and periodically review an unchanged sample.
   Improved model scores must not silently turn historical or partial evidence into acceptance.
+
+### 16. Triage Populated Field Target Sizes
+
+The populated OpenView phone captures report `target-size` findings for the Open link action,
+PFAS, RRID, PubMed, NIH Grant and DOI authority-page actions, and the BioPortal mark. The measured
+controls are generally 20 pixels high and their spacing does not supply the required target area.
+Metadata Editor captures also flag the host logo, Expand All/Collapse All, Download, choice-clear
+and populated RRID/PubMed page/clear actions, plus the cleared controlled-term input. Some of
+these reports concern neighboring controls clipped by the current scroll position rather than
+the field being inspected; distinguish viewport-edge reports from undersized controls before
+changing the product.
+Inspect the retained evidence, confirm each finding in its actual layout, and correct shared CEE
+hit areas where needed while preserving the agreed appearance and information. Recheck both the
+existing empty states and the populated editing/read-only states on desktop and phone.

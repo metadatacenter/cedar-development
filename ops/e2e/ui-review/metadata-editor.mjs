@@ -1,4 +1,5 @@
 import {captureJourney} from './journeys.mjs';
+import {collectRichMetadata} from './rich-states.mjs';
 import assert from 'node:assert/strict';
 import {metadataFixtures} from './fixtures.mjs';
 import {WIDTHS, PAIRED_WIDTHS, METADATA_TYPES, METADATA_INVALID} from './catalog.mjs';
@@ -169,6 +170,7 @@ export async function collectMetadataEditor(session,record) {
     await record('readonly-choices-1440',()=>centre(preview.getByText('Radio',{exact:true})));
     await page.keyboard.press('Escape');await preview.waitFor({state:'hidden'});
     });
+    await collectRichMetadata(session,record,{folder:f.folder,open,save,attributeTemplate:f.corpus.attributeValue});
     for(const width of PAIRED_WIDTHS){
     await captureJourney(session,record,`record-failures-${width}`,async()=>{
       const r=(id,fn,note)=>record(`${id}-${width}`,fn,note);

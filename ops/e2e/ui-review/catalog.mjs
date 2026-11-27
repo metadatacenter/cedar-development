@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {richScenarios} from './rich-definitions.mjs';
 import {describeScenario} from './state-descriptions.mjs';
 
 export const DESIGNER_STATES = [
@@ -126,7 +127,7 @@ const metadata = [
 export function scenarios(app, profileName = 'chromium') {
   if (!APPS.includes(app)) throw new Error('Unknown UI review application: '+app);
   return baseScenarios(app, profileName).concat(profile(profileName).defaultFontSize ? textSizeStates() : [])
-    .map(scenario => ({...scenario, ...describeScenario(app, scenario)}));
+    .map(scenario => ({...describeScenario(app, scenario), ...scenario}));
 }
 function baseScenarios(app, profileName) {
   if (app === 'designer') return DESIGNER_STATES.map(id=>({id,scenario:id,category:'authoring',width:Number(id.match(/(?:^|-)(1440|1100|1024|900|768|375)$/)?.[1])||null}))
@@ -135,7 +136,8 @@ function baseScenarios(app, profileName) {
       .map(([slug])=>({id:'type-'+slug+'-preview',scenario:'field-type-preview',category:'field-types',width:1440})))
     .concat(TERM_PICKER_WIDTHS.flatMap(width=>TERM_PICKER_STATES.map(scenario=>({id:`${scenario}-${width}`,scenario,category:'term-picker',width}))));
   if (app === 'openview') return WIDTHS.flatMap(width=>openview.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
-    .concat(paired([['folder-preview', 'folder'], ['loading', 'loading']]));
+    .concat(paired([['folder-preview', 'folder'], ['loading', 'loading']]))
+    .concat(richScenarios(app,PAIRED_WIDTHS));
   const rows = app === 'workspace' ? workspace : metadata;
   return WIDTHS.flatMap(width=>rows.map(([scenario,category])=>({id:`${scenario}-${width}`,scenario,category,width})))
     .concat(paired(app === 'workspace' ? WORKSPACE_PAIRED : METADATA_PAIRED))
@@ -149,7 +151,8 @@ function baseScenarios(app, profileName) {
         {id:'type-temporal-1440',scenario:'field-type',category:'field-types',width:1440},
         {id:'list-too-short-1440',scenario:'list-too-short',category:'validation',width:1440},
         {id:'readonly-link-1440',scenario:'readonly-field-types',category:'preview',width:1440},
-        {id:'readonly-choices-1440',scenario:'readonly-field-types',category:'preview',width:1440}]));
+        {id:'readonly-choices-1440',scenario:'readonly-field-types',category:'preview',width:1440}]))
+    .concat(app==='metadata-editor'?richScenarios(app,PAIRED_WIDTHS):[]);
 }
 export const requiredStates = (app, profileName = 'chromium') => scenarios(app, profileName).map(s=>s.id);
 // Page regions whose geometry each capture records. Every selector must match in at least one
