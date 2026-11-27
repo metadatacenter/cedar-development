@@ -7484,6 +7484,19 @@ while the immediate before/after medians remained equal and all readiness/blocki
 within tolerance. Reports are retained in `host-performance-ci/`, `host-current-performance/` and
 `ced-performance-ci/` beneath the audit directory below.
 
+The warning comes from CED, not from the harness. CED sizes its layout from a `ResizeObserver` on
+its root, and on a warm load that observer can first report a width of zero, before the root has
+been laid out. CED read the zero as a narrow host: it removed the Overview and laid the canvas out
+200 pixels wide. About 120 ms later the real 1440-pixel width arrived, CED restored the wide layout,
+and the canvas moved and widened to 872 pixels, scoring 0.508. The race is bimodal and depends on
+the platform. At `932f5099`, hosted Ubuntu CI recorded it on most warm loads of both document sizes.
+The same bundle in the harness's Playwright 1.64.1 Linux image shifted on seven of eight warm loads,
+while headless Chromium on macOS never did in eight. Cold loads were unaffected, and readiness was
+the same in shifted and unshifted samples. CED now keeps its last width when the observer reports
+zero, and `phone-layout.spec.ts` holds that. The same bundle with only that change applied measured
+at most 0.0005 on all 16 warm loads in the Linux image. The Designer's hosted comparison confirms the
+fix once its component pin carries a CED build with it.
+
 Machine-readable inventories, exact bundle identities, logs and timing samples are retained under
 `.cedar/audits/2026-11-13-browser-default/`. The shared layout checker's 210 cases, live-stack journeys,
 framework consumer demos, MCP session page, separate Unicode-policy gate, performance checks and

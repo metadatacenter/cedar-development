@@ -86,12 +86,10 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
 
 ### 2. Calibrate Browser Performance Gates
 
-- Investigate the Designer host's warm small-document layout shift against the fixed reference:
-  the 2026-11-13 paired report measures median CLS 0.5083 versus 0.0127, with all five candidate
-  samples at 0.5083 in the latest run. The immediate before/after bundles are identical and both show the shift.
-  Attribute the shifted elements and distinguish application behavior from harness/navigation
-  effects before changing layout or calibration. Retain the warning until the cause is established;
-  see the [browser audit evidence](FRONTEND-RUNBOOK.md#default-three-engine-coverage).
+- Confirm that the Designer host's warm layout shift is gone from its hosted paired comparison once
+  a CED build that ignores a zero host width reaches the Designer's component pin. Until then the
+  comparison keeps flagging CLS of about 0.51 on warm loads of both document sizes. The cause is in
+  the [browser audit evidence](FRONTEND-RUNBOOK.md#default-three-engine-coverage).
 - Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
   cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
   increases against retained evidence. Keep machine-dependent timings outside the local reactor.
