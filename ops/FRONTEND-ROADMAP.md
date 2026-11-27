@@ -90,9 +90,11 @@ capture. Stop the probe's temporary server and close diagnostic tabs afterward.
   a CED build that ignores a zero host width reaches the Designer's component pin. Until then the
   comparison keeps flagging CLS of about 0.51 on warm loads of both document sizes. The cause is in
   the [browser audit evidence](FRONTEND-RUNBOOK.md#default-three-engine-coverage).
-- Collect at least 14 distinct daily identical-input controls per stable runner/browser/suite/artifact
-  cohort before reviewing readiness, blocking or CLS budgets. Review reference changes and budget
-  increases against retained evidence. Keep machine-dependent timings outside the local reactor.
+- Review the provisional readiness, blocking and CLS thresholds against the hosted readiness
+  review's CEE, CED and Designer cohorts, each with at least 14 daily identical-input controls,
+  and decide which become blocking budgets. Check the per-CPU breakdown for noise confined to one
+  runner type. Review reference changes and budget increases against retained evidence. Keep
+  machine-dependent timings outside the local reactor.
 - Characterize backend and authentication variability in the hosted CI 17-scenario
   full-stack sweep before considering timing enforcement. Exclude legacy applications.
 

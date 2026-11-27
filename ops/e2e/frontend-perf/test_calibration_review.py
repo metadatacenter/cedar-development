@@ -67,8 +67,31 @@ class ReviewTests(unittest.TestCase):
                 self.assertEqual(len(result['rejected']), 1)
                 self.assertFalse(any(g['cohort']['component'] == 'cee' for g in result['groups']))
 
-    def test_cpu_browser_suite_and_artifact_changes_start_separate_cohorts(self):
-        for mutation in (lambda r: r['metadata'].update(cpu='cpu-b'), lambda r: r['metadata'].update(browser='157'),
+    def test_runner_cpu_models_share_a_cohort_and_are_reported_per_cpu(self):
+        data = history()
+        for day in (2, 5, 9):
+            data['reports'][f'{day}/cee']['report']['metadata']['cpu'] = 'cpu-b'
+        data['reports']['5/cee']['report'] = report(day=5, delta=500)
+        data['reports']['5/cee']['report']['metadata']['cpu'] = 'cpu-b'
+        result = review.review(data)
+        group = next(g for g in result['groups'] if g['cohort']['component'] == 'cee')
+        self.assertEqual(group['count'], 14)
+        self.assertNotIn('cpu', group['cohort'])
+        self.assertEqual(group['status'], 'needs-investigation')
+        cpus = {c['cpu']: c for c in group['cpus']}
+        self.assertEqual((cpus['cpu-a']['days'], cpus['cpu-b']['days']), (11, 3))
+        self.assertEqual(cpus['cpu-a']['warnings'], 0)
+        self.assertGreater(cpus['cpu-b']['warnings'], 0)
+        self.assertEqual(cpus['cpu-b']['maxReadyDelta'], 500)
+        self.assertIn('| cpu-b | 3 |', review.markdown(result))
+
+    def test_missing_runner_cpu_is_still_rejected(self):
+        data = history(1); data['reports']['1/cee']['report']['metadata']['cpu'] = ''
+        result = review.review(data)
+        self.assertEqual(len(result['rejected']), 1)
+
+    def test_browser_suite_and_artifact_changes_start_separate_cohorts(self):
+        for mutation in (lambda r: r['metadata'].update(browser='157'),
                          lambda r: r['metadata']['suite'].update(sha256='f'*64),
                          lambda r: [r['artifacts'][v].update(sha256='f'*64) for v in ('baseline', 'candidate')]):
             data = history(); mutation(data['reports']['14/cee']['report'])

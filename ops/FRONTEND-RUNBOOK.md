@@ -6097,11 +6097,20 @@ and screenshots are retained for 30 days. The workflow must exist on the default
 integration does not lose it. The pinned harness checkout keeps default-branch scheduling
 independent of the release source tree.
 
-Collect at least 14 distinct daily controls per stable machine/browser/suite/artifact cohort
+Collect at least 14 distinct daily controls per stable platform/browser/suite/artifact cohort
 before reviewing hard timing limits. Inspect paired differences, noise, false warnings and
 host integration results together; a passing control alone does not approve a budget. Keep
-reviewed limits and reference updates explicit, with retained evidence. Runner or harness
-changes start a new cohort rather than silently mixing distributions.
+reviewed limits and reference updates explicit, with retained evidence. Browser, Node, platform
+or harness changes start a new cohort rather than silently mixing distributions.
+
+The runner's CPU model does not start a new cohort. GitHub-hosted Ubuntu 24.04 jobs land on at
+least seven CPU models, so a cohort keyed on CPU took a share of the days for each and none reached
+14 dates in 20 days of runs. A control measures its baseline and candidate on one machine, and the
+paired changes stay small across models even though absolute readiness does not: warm loads of the
+large Designer document ranged from 7.0 to 9.1 s across CPUs in November 2026, while each day's
+median paired change stayed within 200 ms. Each control still records its CPU, and the review
+reports false warnings, inconclusive rows and the largest paired readiness change per CPU, so noise
+confined to one runner type stays visible.
 
 ### Hosted readiness review and notifications
 
@@ -6112,7 +6121,7 @@ implementation. It never executes downloaded artifact contents as code. Updating
 requires updating that pin on both branches, keeping release integration consistent.
 
 The review counts one earliest complete successful control per UTC date, separately for each
-component and comparable CPU/platform, browser, Node, suite, reference artifact and measurement
+component and comparable platform, browser, Node, suite, reference artifact and measurement
 settings. Failed/missing/expired reports, incomplete coverage and duplicate same-day runs cannot
 inflate the count. Noisy successful controls count and remain in the review. CEE, CED and Designer/
 equivalent CEF can reach readiness independently; full-stack results are reviewed separately

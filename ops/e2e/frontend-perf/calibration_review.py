@@ -54,7 +54,10 @@ def validate(report, component):
         raise ValueError('Control inputs are not identical')
     if meta['baselineRevision'] != meta['candidateRevision'] or not re.fullmatch('[0-9a-f]{40}', meta['baselineRevision']):
         raise ValueError('Control source references differ or are absent')
-    cohort = {key: nonempty(meta.get(key)) for key in ('platform', 'arch', 'cpu', 'browser', 'node')}
+    # Hosted runners draw from several CPU models. A control pairs baseline and candidate on one
+    # machine, so the CPU stays recorded for each day rather than dividing the cohort.
+    cpu = nonempty(meta.get('cpu'))
+    cohort = {key: nonempty(meta.get(key)) for key in ('platform', 'arch', 'browser', 'node')}
     if not isinstance(meta.get('profile'), dict) or not isinstance(meta.get('viewport'), dict):
         raise ValueError('Missing measurement settings')
     cohort.update(component=component, artifact=artifact, suite=sha(meta['suite']['sha256']),
@@ -88,7 +91,7 @@ def validate(report, component):
     started = dt.datetime.fromisoformat(report['startedAt'].replace('Z', '+00:00'))
     if started.tzinfo is None:
         raise ValueError('Control date has no timezone')
-    return cohort, started.astimezone(dt.timezone.utc).date().isoformat(), samples
+    return cohort, cpu, started.astimezone(dt.timezone.utc).date().isoformat(), samples
 
 
 def mad(values):
@@ -116,11 +119,11 @@ def review(history):
     groups, rejected = {}, []
     for key, entry in sorted(history['reports'].items(), key=lambda item: (item[1]['report'].get('startedAt', ''), item[0])):
         try:
-            cohort, day, samples = validate(entry['report'], entry['component'])
+            cohort, cpu, day, samples = validate(entry['report'], entry['component'])
             group_id = digest(cohort)
             group = groups.setdefault(group_id, dict(id=group_id, cohort=cohort, days={}))
             # Earliest complete observation of the day wins, regardless of timing outcome.
-            group['days'].setdefault(day, dict(date=day, run=entry['run'], rows=daily_rows(samples, entry['component'])))
+            group['days'].setdefault(day, dict(date=day, cpu=cpu, run=entry['run'], rows=daily_rows(samples, entry['component'])))
         except (KeyError, TypeError, ValueError) as error:
             rejected.append(dict(key=key, reason=str(error)))
     output = []
@@ -138,6 +141,14 @@ def review(history):
                                      deltaMAD=mad(deltas), baselineMin=min(baselines), baselineMax=max(baselines),
                                      warnings=sum(r['warning'] for r in observations),
                                      inconclusive=sum(r['inconclusive'] for r in observations)))
+        group['cpus'] = []
+        for cpu in sorted({day['cpu'] for day in window}):
+            own = [day for day in window if day['cpu'] == cpu]
+            ready = [abs(r['delta']) for day in own for r in day['rows'] if r['metric'] == 'readyMs']
+            group['cpus'].append(dict(cpu=cpu, days=len(own), dates=[day['date'] for day in own],
+                                      warnings=sum(r['warning'] for day in own for r in day['rows']),
+                                      inconclusive=sum(r['inconclusive'] for day in own for r in day['rows']),
+                                      maxReadyDelta=max(ready)))
         group['status'] = ('collecting' if len(days) < DAYS else 'needs-investigation'
                            if any(row['warnings'] or row['inconclusive'] for row in group['rows']) else 'ready-for-human-review')
         output.append(group)
@@ -147,7 +158,7 @@ def review(history):
 def markdown(result):
     lines = ['# CEDAR performance calibration review', '',
              'Timing gates remain advisory. This is an automated evidence review, not automatic gate activation.', '',
-             'At least 14 distinct UTC dates per comparable component cohort are required. The latest 14 dates form the fixed review window; older observations remain archived. Complete noisy controls are retained. Same-day repeats never increase the count or replace a slower earlier observation.', '',
+             'At least 14 distinct UTC dates per comparable component cohort are required. A cohort spans the CPU models of the hosted runners, which each control records. The latest 14 dates form the fixed review window; older observations remain archived. Complete noisy controls are retained. Same-day repeats never increase the count or replace a slower earlier observation.', '',
              '| Component / cohort | Usable days | Assessment |', '|---|---:|---|']
     for component in COMPONENTS:
         groups = [g for g in result['groups'] if g['cohort']['component'] == component]
@@ -159,7 +170,11 @@ def markdown(result):
               'Authenticated full-stack measurements have a separate hosted variability review. Their availability does not block isolated component recommendations; paired component controls do not establish full-stack SSO/backend variability.', '']
     for group in result['groups']:
         lines += [f"## {group['cohort']['component']} — {group['id'][:12]}", '',
-                  f"CPU: {group['cohort']['cpu']}; browser: {group['cohort']['browser']}; suite: `{group['cohort']['suite']}`; artifact: `{group['cohort']['artifact']}`.", '',
+                  f"Browser: {group['cohort']['browser']}; suite: `{group['cohort']['suite']}`; artifact: `{group['cohort']['artifact']}`.", '',
+                  'Runner CPUs in the review window:', '',
+                  '| CPU | Days | False warnings | Inconclusive | Largest median paired readiness change (ms) |',
+                  '|---|---:|---:|---:|---:|',
+                  *[f"| {c['cpu']} | {c['days']} | {c['warnings']} | {c['inconclusive']} | {c['maxReadyDelta']:.1f} |" for c in group['cpus']], '',
                   '| Scenario / cache / metric | Median paired change | Range | MAD | Baseline range | False warnings | Inconclusive |',
                   '|---|---:|---|---:|---|---:|---:|']
         for row in group['rows']:
