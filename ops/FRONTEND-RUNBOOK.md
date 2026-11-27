@@ -2585,8 +2585,8 @@ sources are newer. Such a packet can hold useful findings but can never receive 
 so do not use it to claim current-source verification. `--plan`, sealing and review validation do
 not build, deploy, sign in or create fixtures.
 
-The 27 November 2026 catalog captured 791 Chromium states in 988 collector seconds (about
-16.5 minutes), and 780 touch states in 789 seconds (about 13 minutes). These are the sums of the
+The 27 November 2026 catalog captured 827 Chromium states in 997 collector seconds (about
+16.6 minutes), and 816 touch states in 809 seconds (about 13.5 minutes). These are the sums of the
 successful application captures, excluding preflight, calibration generation and unsuccessful
 attempts. Allow additional time for those steps; building and independent review are separate.
 
@@ -2670,34 +2670,46 @@ browser profiles. Clicking the controlled field's surrounding padding also focus
 These observations do not suppress any automatic rule: original packets and scroll-edge findings
 remain available, and a new finding still requires inspection in its actual layout.
 
-The latest complete 27 November coverage is **791/791 Chromium and 780/780 touch states**.
+The latest complete 27 November coverage is **827/827 Chromium and 816/816 touch states**.
 Under `$CEDAR_HOME/.cedar/reports/ui-review/`, use these exact packets:
 
-- Chromium: `automatic/20261127T092038Z-98e13897/` for Designer, Field Designer, Workspace and
-  Metadata Editor; `state-coverage-openview-verified-20261127/` for OpenView.
-- Touch: `state-coverage-touch-20261127/` for Designer, Field Designer, Metadata Editor and
-  OpenView; `state-coverage-workspace-touch-verified-20261127/` for Workspace.
+- Chromium: `workflow-coverage-mouse-20261127/` for Designer and Workspace;
+  `automatic/20261127T092038Z-98e13897/` for Field Designer and Metadata Editor;
+  `state-coverage-openview-verified-20261127/` for OpenView.
+- Touch: `workflow-coverage-touch-20261127/` for Designer and Workspace;
+  `state-coverage-touch-20261127/` for Field Designer, Metadata Editor and OpenView.
 
 All ten packets have current source/served evidence, every required state, verified file hashes,
 and no runtime or cleanup errors. Workspace retains one supplemental paging image per profile,
-so the board shows 792 mouse and 781 touch images; supplemental images do not increase the
-required-state counts. Metadata Editor retains 11 Chromium and 13 touch target-size groups; the
-other applications have none. The new draft/offset states have no automatic violations. The two
-PFAS targets additionally grouped in the touch cleared-term state are each 36 × 36 pixels, partly
-under the sticky warnings bar with 7.5 pixels exposed. Their image, pointer-target geometry and
-unsuppressed axe findings are retained, with the comparison in
-`$CEDAR_HOME/.cedar/reports/state-coverage-20261127/touch-target-size-comparison.json`.
+so the board shows 828 mouse and 817 touch images; supplemental images do not increase the
+required-state counts. The workflow expansion adds 36 required states per profile: four import
+search failure/recovery states, eighteen group-administration states, two ownership confirmations
+(cancelled), and twelve publication/draft/version-chain states. Group membership, publication and
+draft changes use real backend writes and readback; their temporary fixtures are removed and
+verified absent. The final phone member screenshots dismiss the existing success notification
+before capture so it cannot cover the changed member controls.
 
-The same directory holds `final-evidence-audit.json`, `component-coverage.json`, and
-`reviewer-preparation.json`. All ten packets pass independent-review preparation, including their
-16 calibration cases; this is not an LLM assessment. Plans are retained under
-`ui-review-coordinator/state-coverage-20261127/`. The board selects the complete replacement
-packets. Earlier OpenView collector failures remain retained: the return-from-Try-out check now
-asserts the named field's rendered read-only specification and absence of the trial value,
-rather than reading CEE's write-only configuration input. The original Workspace touch packet
-has all its state images but failed during Chromium calibration screenshot generation; use its
-complete replacement above for independent review. The protocol failure remains a reliability
-follow-up. These new packets await independent human/LLM assessment.
+Workspace has no automatic findings in either profile. Designer has one
+`scrollable-region-focusable` group per profile, affecting the empty selected-items table in the
+phone import failure and recovery screens. This remains an accessibility finding, not a capture
+failure. Metadata Editor retains 11 Chromium and 13 touch target-size groups; Field Designer and
+OpenView have none. The two PFAS targets additionally grouped in the touch cleared-term state are
+each 36 × 36 pixels, partly under the sticky warnings bar with 7.5 pixels exposed. Their comparison
+remains in `$CEDAR_HOME/.cedar/reports/state-coverage-20261127/touch-target-size-comparison.json`.
+
+`$CEDAR_HOME/.cedar/reports/workflow-coverage-20261127/` holds `final-evidence-audit.json`,
+`component-coverage.json`, `reviewer-preparation.json` and the board screenshots. All ten packets
+pass independent-review preparation, including their 16 calibration cases; this is not an LLM
+assessment. Plans are retained under `ui-review-coordinator/workflow-coverage-20261127/`.
+The board selects the complete replacement packets. Earlier diagnostic packets remain retained:
+import recovery initially captured before the search settled, and an empty-results assumption was
+incorrect; the final collector waits for a successful search response and rendered result rows.
+The `workflow-import-touch-20261127` run also hit an execution-context loss while checking the
+missing-template screen. Its replacement passes, without establishing the cause of that isolated
+navigation failure. The earlier `state-coverage-touch-20261127/workspace` packet failed during
+Chromium calibration screenshot generation despite capturing its application states; use the
+complete replacements above. These reliability failures remain distinguishable from completed
+state evidence. The new packets await independent human/LLM assessment.
 
 The complete frontend reactor, applicable consumer gates, served-bundle verification and
 whole-stack smoke passed on build
@@ -2708,7 +2720,7 @@ the unsaved root-element identity stays separate from its stable export identity
 Version before the first save no longer requests nonexistent repository history. The new element
 captures verify save/backend readback/reopen at both widths without changing the normal design.
 Designer passed 17,130 unit tests, 25 visual checks and 3,507 browser cases; the capture harness
-passed all 79 tests. CEE's standalone bundle remains
+passed all 84 tests. CEE's standalone bundle remains
 `5e882b91d6d67025eba5e1f7ebce168e42db4f6e30eb8ffb2d79544b9977dc13`, matching the earlier
 pixel-comparison evidence for the read-only target-size fixes.
 

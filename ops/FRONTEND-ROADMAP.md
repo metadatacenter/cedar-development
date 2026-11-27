@@ -427,7 +427,7 @@ and does not exempt that page. Keep justified N/A ratings distinct from missing 
   actual speech, order and interruption; DOM semantics and separate green component suites do not
   establish the integrated experience.
 - Make the Designer import dialog's empty selected-items table keyboard-scrollable at phone
-  width without changing its layout. The November 27 `workflow-import-mouse-20261127`
+  width without changing its layout. The November 27 `workflow-coverage-mouse-20261127/designer`
   packet reports `scrollable-region-focusable` on `.table-scroll:nth-child(3)` in both
   `import-search-failed-375` and `import-search-recovered-375`. Check empty, populated and
   reordered selections so the fix preserves the existing grid and reorder keyboard behavior.
@@ -540,6 +540,9 @@ The frontend runbook links the complete calibrated Designer review and focused f
 - Extend state-specific visibility checks to remaining captures where an image could omit its intended
   subject. Verify the actual named target and retain diagnostic evidence when it is
   absent; screenshot existence alone does not establish the intended state was reached.
+- Diagnose the isolated Designer touch navigation-context loss while checking the missing-template
+  screen in `workflow-import-touch-20261127`. The final replacement passes; retain the failed
+  evidence and distinguish a stable readiness condition from merely retrying a failed capture.
 - Diagnose Chromium's intermittent `Page.captureScreenshot: Unable to capture screenshot` during
   calibration generation, which uses Chromium even for touch packets. The November 27 `state-coverage-touch-20261127/workspace`
   packet completed all required state captures and cleanup before calibration failed. Preserve that
