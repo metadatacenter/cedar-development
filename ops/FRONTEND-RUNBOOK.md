@@ -2582,9 +2582,11 @@ sources are newer. Such a packet can hold useful findings but can never receive 
 so do not use it to claim current-source verification. `--plan`, sealing and review validation do
 not build, deploy, sign in or create fixtures.
 
-On the 16-core workstation a warm, already-built stack collects all 313 states in about four
-minutes in Chromium and about three under the touch profile. Rebuilding and the reviewer's
-inspection are separate.
+The 500-state Chromium capture measured on 26 November 2026 recorded about 13 minutes across
+the four collectors: Designer 361 seconds, Workspace 195, Metadata Editor 191 and OpenView 43.
+Allow additional time for preflight and calibration generation. The expanded touch catalog needs
+a new timing measurement; the earlier, smaller catalog's timing does not describe this workload.
+Rebuilding and the reviewer's inspection are separate.
 
 ###### What the Catalog Covers
 
@@ -2634,6 +2636,11 @@ drop a request where that reproduces what users meet, such as a slow first searc
 lost during a save. An overtaken write is sent with the revision before the one the page read, so
 the server answers with the refusal it gives when someone else saved first, and nothing is written.
 
+Each such state's note says the harness caused the condition, so the reviewer judges how the
+product handles it rather than its cause. A collector must not answer a request with a response the product prevents, such as a
+server refusal of a save the client's own validation accepts. A review of such a screen judges
+behavior no user sees, and its findings mislead the triage that follows.
+
 New captures retain a readable title, category and scenario description with each state. These
 describe the intended setup, not an assertion that the rendered interface is correct. The board
 labels this text “Scenario setup”; the coordinator passes it separately from the collector's notes,
@@ -2641,10 +2648,6 @@ recorded actions and observed evidence. Field-type descriptions distinguish auth
 read-only Preview, invalid input and an open input picker. Older packets keep their original
 metadata; they are never rewritten to add descriptions. Descriptive wording is sealed by the
 collector and evidence hashes but does not change the catalog's required-state denominator.
-Each such state's note says the harness caused the condition, so the reviewer judges how the
-product handles it rather than its cause. A collector must not answer a request with a response the product prevents, such as a
-server refusal of a save the client's own validation accepts. A review of such a screen judges
-behavior no user sees, and its findings mislead the triage that follows.
 
 ###### Measuring What the Captures Show
 
