@@ -36,8 +36,10 @@ export async function corpusTemplate(number, name) {
   for (const key of ['pav:createdOn', 'pav:createdBy', 'pav:lastUpdatedOn', 'oslc:modifiedBy']) body[key] = null;
   body['schema:name'] = name;
   for (const property of Object.values(body.properties)) {
-    if (!property?._ui) continue;
-    const constraints = property._valueConstraints;
+    // A field that takes several values keeps its constraints, defaults included, on its items.
+    const field = property?._ui ? property : property?.items?._ui ? property.items : null;
+    if (!field) continue;
+    const constraints = field._valueConstraints;
     if (constraints) {delete constraints.defaultValue; for (const literal of constraints.literals ?? []) delete literal.selectedByDefault;}
     if (property['@type'] === 'https://schema.metadatacenter.org/core/StaticTemplateField' && !('_content' in property._ui)) property._ui._content = null;
   }
