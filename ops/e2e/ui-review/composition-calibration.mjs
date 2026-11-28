@@ -44,7 +44,7 @@ export async function captureComposition(browser, directory, item, t, options = 
     const key = `<label class="code">${t.code}<input id="code" value="${t.codeValue}"></label>`;
     const bounds = `<div class="bounds"><label><span class="setting-label">${t.lower}</span><input id="lower" value="0"></label><label><span class="setting-label">${t.upper}</span><input id="upper" value="60"></label></div>`;
     const settings = key + '<div class="limits">' + enabled + bounds + '</div>';
-    const width = long ? 300 : variant === 'coherent-narrow-settings' ? 190 : 400;
+    const width = long ? 300 : variant === 'coherent-narrow-settings' ? 220 : 400;
     await page.setContent(`<!doctype html><meta charset="utf-8"><style>
       *{box-sizing:border-box}body{font:18px system-ui;color:#173e3c;margin:40px}main{width:${width}px;border:1px solid #c2cece;padding:24px}h1{font-size:24px;margin:0 0 24px}header{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:baseline}.identity{font-weight:600}.facts{white-space:nowrap;color:#555}p{font-size:16px;line-height:1.5}section,label{display:flex;flex-direction:column;gap:6px}section{gap:20px}input{width:100%;min-width:0;font:inherit;padding:8px;border:1px solid #9ba7a7;border-radius:4px}.check{flex-direction:row;align-items:center}.check input{width:auto}.bounds{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr));gap:12px}.limits{display:flex;flex-direction:column;gap:8px}
       ${variant === 'overlapping-identity-metadata' ? '.facts{transform:translateX(-72px)}' : ''}
