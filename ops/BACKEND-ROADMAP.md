@@ -1333,13 +1333,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a draft DOI and a findable DOI for an artifact and checks what the artifact and the bridge record
   afterwards.
 
-- **24. Withdraw terminology compatibility names after published components and hosts migrate.**
-  **Production consequence:** removing a name before every supported released caller has moved
-  breaks that caller. Publish a term picker that sends `source_acronym`, `version_id`,
-  `property_iri` and `term_iri` on versioned query routes, and CEE/CED releases that send `termIri`
-  in the `validate-term` body. Confirm adoption by their hosts before removing the server's
-  camelCase query compatibility and its `iri` body compatibility. Keep the release and host-adoption
-  evidence with the removal. The artifact model's `termUri` properties are outside this migration.
+- **24. Complete the REST terminology compatibility migration.**
+  **Production consequence:** withdrawing compatibility names before supported released callers
+  migrate breaks those callers.
+
+  Publish a term picker that sends `source_acronym`, `version_id`, `property_iri` and `term_iri`
+  on versioned query routes, and CEE/CED releases that send `termIri` in the `validate-term` body.
+  Confirm that every supported host has adopted those releases. Then remove the server's camelCase
+  query aliases and its `iri` body alias, and update the contract tests to reject the retired names
+  while continuing to accept the canonical names. Keep the release and host-adoption evidence with
+  the removal. The artifact model's `termUri` properties are outside this migration.
+
+  Done when supported released callers use the canonical names and the server no longer accepts
+  the compatibility names. First-generation route retirement is tracked separately in item 25.
 
 - **25. Withdraw the first-generation terminology routes when the legacy Template Editor retires.**
   **Production consequence:** none while the routes stay. Withdrawing them breaks any caller still on
